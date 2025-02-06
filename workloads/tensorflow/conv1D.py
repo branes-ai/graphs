@@ -24,3 +24,10 @@ convolved_signal = tf.function(lambda: convolved_signal)()
 # Print the results
 print("Original Signal: ", signal.flatten())
 print("Convolved Signal: ", convolved_signal.numpy().flatten())
+
+# In TensorFlow 2.x, eager execution is enabled by default, 
+# so you don't need to create a tf.Session. Instead, you can 
+# directly execute TensorFlow operations and get the results 
+# immediately. The tf.function is used to convert the convolution 
+# operation into a TensorFlow graph function for better performance.
+
