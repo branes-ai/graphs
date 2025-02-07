@@ -8,7 +8,7 @@ class ThreeLayerMLP(tf.keras.Model):
         super(ThreeLayerMLP, self).__init__()
         self.fc1 = tf.keras.layers.Dense(hidden_dim1, activation='tanh')
         self.fc2 = tf.keras.layers.Dense(hidden_dim2, activation='tanh')
-        self.fc3 = tf.keras.layers.Dense(output_dim)
+        self.fc3 = tf.keras.layers.Dense(output_dim, activation='softmax')
 
     def call(self, x):
         h1 = self.fc1(x)
@@ -23,6 +23,7 @@ output_dim = 3
 model = ThreeLayerMLP(input_dim, hidden_dim1, hidden_dim2, output_dim)
 
 # Example input
-x = tf.random.normal([1, input_dim])
+batch_size = 10
+x = tf.random.normal([batch_size, input_dim])
 y = model(x)
 print("Output of 3-layer MLP:", y)
