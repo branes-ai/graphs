@@ -9,11 +9,13 @@ class ThreeLayerMLP(nn.Module):
         self.fc1 = nn.Linear(input_dim, hidden_dim1)
         self.fc2 = nn.Linear(hidden_dim1, hidden_dim2)
         self.fc3 = nn.Linear(hidden_dim2, output_dim)
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
         h1 = torch.tanh(self.fc1(x))
         h2 = torch.tanh(self.fc2(h1))
-        return self.fc3(h2)
+        y = self.fc3(h2)
+        return self.softmax(y)
 
 # Example usage
 input_dim = 5
@@ -23,6 +25,7 @@ output_dim = 3
 model = ThreeLayerMLP(input_dim, hidden_dim1, hidden_dim2, output_dim)
 
 # Example input
-x = torch.randn(1, input_dim)
+batch_size = 10
+x = torch.randn(batch_size, input_dim)
 y = model(x)
 print("Output of 3-layer MLP:", y)

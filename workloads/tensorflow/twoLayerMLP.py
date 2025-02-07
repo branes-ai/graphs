@@ -7,7 +7,7 @@ class TwoLayerMLP(tf.keras.Model):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(TwoLayerMLP, self).__init__()
         self.fc1 = tf.keras.layers.Dense(hidden_dim, activation='tanh')
-        self.fc2 = tf.keras.layers.Dense(output_dim)
+        self.fc2 = tf.keras.layers.Dense(output_dim, activation='softmax')
 
     def call(self, x):
         h = self.fc1(x)
@@ -20,6 +20,7 @@ output_dim = 3
 model = TwoLayerMLP(input_dim, hidden_dim, output_dim)
 
 # Example input
-x = tf.random.normal([1, input_dim])
+batch_size = 10
+x = tf.random.normal([batch_size, input_dim])
 y = model(x)
 print("Output of 2-layer MLP:", y)

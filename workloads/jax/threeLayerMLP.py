@@ -15,11 +15,20 @@ def init_params_3_layer(key, input_dim, hidden_dim1, hidden_dim2, output_dim):
     return (w1, b1), (w2, b2), (w3, b3)
 
 # Define forward pass for a 3-layer MLP
-def forward_3_layer(params, x):
+def forward_3_layer_v1(params, x):
     (w1, b1), (w2, b2), (w3, b3) = params
     h1 = jnp.tanh(jnp.dot(x, w1) + b1)
     h2 = jnp.tanh(jnp.dot(h1, w2) + b2)
     return jnp.dot(h2, w3) + b3
+
+# Define forward pass for a 3-layer MLP with Softmax activation
+def forward_3_layer(params, x):
+    (w1, b1), (w2, b2), (w3, b3) = params
+    h1 = jnp.tanh(jnp.dot(x, w1) + b1)
+    h2 = jnp.tanh(jnp.dot(h1, w2) + b2)
+    logits = jnp.dot(h2, w3) + b3
+    return jnp.exp(logits) / jnp.sum(jnp.exp(logits), axis=-1, keepdims=True)
+
 
 # Example usage
 key = random.PRNGKey(0)
@@ -28,6 +37,7 @@ hidden_dim1 = 4
 hidden_dim2 = 4
 output_dim = 3
 params = init_params_3_layer(key, input_dim, hidden_dim1, hidden_dim2, output_dim)
-x = random.normal(key, (1, input_dim))  # Example input
+batch_size = 10
+x = random.normal(key, (batch_size, input_dim))  # Example input
 y = forward_3_layer(params, x)
 print("Output of 3-layer MLP:", y)
