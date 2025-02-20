@@ -25,3 +25,8 @@ batch_size = 10
 x = tf.random.normal([batch_size, input_dim])
 y = model(x)
 print("Output of 2-layer MLP:", y)
+
+# save it in a format that IREE command-line tools can run
+# export WRAPT_DISABLE_EXTENSIONS=true
+# to remove: TypeError: this __dict__ descriptor does not support '_DictWrapper' objects
+tf.saved_model.save(model, "./saved_model/twoLayerMLP")
