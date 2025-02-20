@@ -1,0 +1,3 @@
+python savedmodelOneLayerMLP.py
+python savedmodelTwoLayerMLP.py
+python savedmodelThreeLayerMLP.py
