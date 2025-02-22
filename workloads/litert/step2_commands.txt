@@ -1,0 +1,52 @@
+##########          oneLayerMLP           #################
+
+iree-import-tflite oneLayerMLP.tflite -o oneLayerMLP_tosa.mlir
+
+## **Output**: `oneLayerMLP_tosa.mlir` (TOSA dialect MLIR file).
+## 3.2 Compile the Model for x86 CPU
+## Compile the imported MLIR file to an IREE VM FlatBuffer (`.vmfb`) targeting the x86_64 CPU backend:
+
+iree-compile --iree-input-type=tosa --iree-hal-target-backends=llvm-cpu oneLayerMLP_tosa.mlir -o oneLayerMLP.vmfb
+
+## - `--iree-input-type=tosa`: Specifies the input is in TOSA dialect.
+##  - `--iree-hal-target-backends=cpu`: Targets the x86 CPU backend.
+##- **Output**: `oneLayerMLP.vmfb` (compiled IREE bytecode module).
+
+##C:\IREE\iree\oneLayerMLP\grok> iree_env\Scripts\activate
+iree-run-module --module=oneLayerMLP.vmfb --input="1x4xf32=[1.0 2.0 3.0 4.0]"
+
+
+##########          twoLayerMLP            #################
+
+iree-import-tflite twoLayerMLP.tflite -o twoLayerMLP_tosa.mlir
+
+## **Output**: `twoLayerMLP_tosa.mlir` (TOSA dialect MLIR file).
+## 3.2 Compile the Model for x86 CPU
+## Compile the imported MLIR file to an IREE VM FlatBuffer (`.vmfb`) targeting the x86_64 CPU backend:
+
+iree-compile --iree-input-type=tosa --iree-hal-target-backends=llvm-cpu twoLayerMLP_tosa.mlir -o twoLayerMLP.vmfb
+
+## - `--iree-input-type=tosa`: Specifies the input is in TOSA dialect.
+##  - `--iree-hal-target-backends=cpu`: Targets the x86 CPU backend.
+##- **Output**: `twoLayerMLP.vmfb` (compiled IREE bytecode module).
+
+##C:\IREE\iree\oneLayerMLP\grok> iree_env\Scripts\activate
+iree-run-module --module=twoLayerMLP.vmfb --function=main --input="1x4xf32=[1.0 2.0 3.0 4.0]"
+
+##########          threeLayerMLP            #################
+
+iree-import-tflite threeLayerMLP.tflite -o threeLayerMLP_tosa.mlir
+
+## **Output**: `threeLayerMLP_tosa.mlir` (TOSA dialect MLIR file).
+## 3.2 Compile the Model for x86 CPU
+## Compile the imported MLIR file to an IREE VM FlatBuffer (`.vmfb`) targeting the x86_64 CPU backend:
+
+iree-compile --iree-input-type=tosa --iree-hal-target-backends=llvm-cpu threeLayerMLP_tosa.mlir -o threeLayerMLP.vmfb
+
+## - `--iree-input-type=tosa`: Specifies the input is in TOSA dialect.
+##  - `--iree-hal-target-backends=cpu`: Targets the x86 CPU backend.
+##- **Output**: `threeLayerMLP.vmfb` (compiled IREE bytecode module).
+
+##C:\IREE\iree\oneLayerMLP\grok> iree_env\Scripts\activate
+
+iree-run-module --module=threeLayerMLP.vmfb --function=main --input="1x4xf32=[1.0 2.0 3.0 4.0]"

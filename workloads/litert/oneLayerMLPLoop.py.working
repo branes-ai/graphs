@@ -1,0 +1,45 @@
+import iree.runtime as iree_rt
+import numpy as np
+
+# Paths and names
+vmfb_path = "oneLayerMLP.vmfb"
+function_name = "main"
+input_file = "testdata.txt"
+driver_name = "local-task"  # or "cuda" if GPU is intended
+
+# Create config and context
+config = iree_rt.Config(driver_name)
+context = iree_rt.SystemContext(config=config)
+
+# Load VMFB
+with open(vmfb_path, "rb") as f:
+    vmfb_data = f.read()
+vm_module = iree_rt.VmModule.from_flatbuffer(context.instance, vmfb_data)
+context.add_vm_module(vm_module)
+
+# Debug: Check available functions
+print("Loaded modules:", context.modules)
+print(f"Functions in 'module': {dir(context.modules['module'])}")
+
+# Parse input function
+def parse_input(line):
+    try:
+        line = line.strip().strip('"')
+        values = line.split("=")[1].strip("[]").split()
+        return np.array(values, dtype=np.float32).reshape(1, 4)
+    except Exception as e:
+        print(f"Error parsing input: {line}, Error: {e}")
+        return None
+
+# Process inputs
+with open(input_file, "r") as file:
+    for line in file:
+        input_data = parse_input(line)
+        if input_data is None:
+            continue
+        print(f"Parsed input shape: {input_data.shape}, data: {input_data}")
+        try:
+            result = context.modules['module'][function_name](input_data)  # Changed from [0] to ['module']
+            print(f"Input: {line.strip()}\nOutput: {result}\n{'-' * 40}")
+        except Exception as e:
+            print(f"Error executing: {line.strip()}, Error: {e}\n{'-' * 40}")
