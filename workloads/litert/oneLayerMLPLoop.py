@@ -7,7 +7,7 @@ GREEN = "\033[32m"
 RESET = "\033[0m"  # Resets color to default
 
 # Paths and names
-vmfb_path = "oneLayerMLP.vmfb"
+vmfb_path = "vmfb/oneLayerMLP.vmfb"
 function_name = "main"
 input_file = "testdata.txt"
 driver_name = "local-task"  # or "cuda" if GPU is intended
