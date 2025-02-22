@@ -26,7 +26,7 @@ converter = tf.lite.TFLiteConverter.from_concrete_functions([predict.get_concret
 tflite_model = converter.convert()
 
 # Save the TFLite model to a file
-with open("oneLayerMLP.tflite", "wb") as f:
+with open("tflite/oneLayerMLP.tflite", "wb") as f:
     f.write(tflite_model)
 
-print("OneLayerMLP TFLite model saved as 'oneLayerMLP.tflite'")
+print("OneLayerMLP TFLite model saved as 'tflite/oneLayerMLP.tflite'")
