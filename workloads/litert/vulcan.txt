@@ -1,0 +1,14 @@
+# Download the model you want to compile and run.
+wget https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/mobilenet/model/mobilenetv2-10.onnx
+
+curl -L -o mobilenetv2-10.onnx https://raw.githubusercontent.com/onnx/models/main/validated/vision/classification/mobilenet/model/mobilenetv2-10.onnx
+
+wget https://raw.githubusercontent.com/onnx/models/main/validated/vision/classification/mobilenet/model/mobilenetv2-10.onnx
+
+
+
+# Import to MLIR using IREE's ONNX importer.
+pip install iree-base-compiler[onnx]
+iree-import-onnx mobilenetv2-10.onnx --opset-version 17 -o mobilenetv2.mlir
+iree-compile --iree-hal-target-backends=vulkan-spirv --iree-vulkan-target=<...> mobilenetv2.mlir -o mobilenet_vulkan.vmfb
+iree-run-module --device=vulkan --module=mobilenet_vulkan.vmfb --function=torch-jit-export --input="1x3x224x224xf32=0"
