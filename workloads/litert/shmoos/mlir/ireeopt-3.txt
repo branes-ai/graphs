@@ -1,0 +1,11 @@
+module {
+  func.func @main(%arg0: tensor<1x9xf32> {ml_program.identifier = "inputs"}) -> (tensor<1x2xf32> {ml_program.identifier = "Identity"}) {
+    %0 = "tosa.const"() <{value = dense<0.000000e+00> : tensor<2xf32>}> : () -> tensor<2xf32>
+    %1 = "tosa.const"() <{value = dense<[[[[0.668920457, -0.238080263, 0.162267029, 0.370607078, -0.0788763762, 0.658634841, 0.401413977, -0.419011801, -0.0272026658]]], [[[-0.482258439, 0.645009934, -0.637476683, -0.463625252, 0.334237516, -0.0521794558, -0.0184798241, 0.654328644, -0.0993748307]]]]> : tensor<2x1x1x9xf32>}> : () -> tensor<2x1x1x9xf32>
+    %2 = tosa.reshape %arg0 {new_shape = array<i64: 1, 1, 1, 9>} : (tensor<1x9xf32>) -> tensor<1x1x1x9xf32>
+    %3 = tosa.conv2d %2, %1, %0 {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x1x1x9xf32>, tensor<2x1x1x9xf32>, tensor<2xf32>) -> tensor<1x1x1x2xf32>
+    %4 = tosa.reshape %3 {new_shape = array<i64: 1, 2>} : (tensor<1x1x1x2xf32>) -> tensor<1x2xf32>
+    return %4 : tensor<1x2xf32>
+  }
+}
+
