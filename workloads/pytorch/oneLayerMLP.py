@@ -22,3 +22,27 @@ batch_size = 10
 x = torch.randn(batch_size, input_dim)
 y = model(x)
 print("Output of 1-layer MLP:", y)
+
+# Compile the program using the turbine backend.
+opt_1l_mlp_module = torch.compile(OneLayerMLP, backend="turbine_cpu")
+
+# Use the compiled program as you would the original program.
+turbine_output = opt_1l_mlp_module(x)
+print("Output of compiled 1-layer MLP:", y)
+
+
+# Export the program using the simple API.
+#export_output = aot.export(OneLayerMLP, x)
+
+# Compile to a deployable artifact.
+#binary = export_output.compile(save_to=None)
+
+# Use the IREE runtime API to test the compiled program.
+#config = ireert.Config("local-task")
+#vm_module = ireert.load_vm_module(
+#    ireert.VmModule.copy_buffer(config.vm_instance, binary.map_memory()),
+#    config,
+#)
+#input = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+#result = vm_module.main(input)
+#print(result.to_host())
