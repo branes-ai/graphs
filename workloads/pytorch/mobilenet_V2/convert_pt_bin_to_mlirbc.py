@@ -15,7 +15,7 @@ class MobileNetV2Wrapper(torch.nn.Module):
 
 def convert_bin_to_mlir(input_pt_bin_file, output_mlir_file="model.mlir"):
     """
-    Converts a PyTorch .bin weights file to a textual MLIR file using IREE Turbine Python API.
+    Converts a PyTorch .bin weights file to an MLIR file using IREE Turbine Python API.
 
     Args:
         input_pt_bin_file: Path to the PyTorch .bin weights file.
@@ -45,17 +45,20 @@ def convert_bin_to_mlir(input_pt_bin_file, output_mlir_file="model.mlir"):
         traced_model = torch.jit.trace(wrapped_model, example_input, strict=False)
         print("Model traced successfully.")
 
-        # Use iree-turbine AOT to export to textual MLIR
+        # Use iree-turbine AOT to export to MLIR
         try:
             # Create an output module for export
             output_module = aot.export(wrapped_model, args=(example_input,))
             
-            # Save the MLIR directly to file using save_mlir
-            output_module.save_mlir(output_mlir_file)
-            print(f"Textual MLIR file saved to: {output_mlir_file}")
+            # Compile to MLIR and save directly
+            output_module.compile(
+                target_backends=["llvm-cpu"],  # Adjust backend as needed (e.g., "vulkan", "cuda")
+                save_to=output_mlir_file       # Specify the output MLIR file
+            )
+            print(f"MLIR file saved to: {output_mlir_file}")
 
         except Exception as e:
-            raise RuntimeError(f"Failed to export model to textual MLIR with iree-turbine: {e}")
+            raise RuntimeError(f"Failed to compile model to MLIR with iree-turbine: {e}")
 
     except FileNotFoundError:
         print(f"Error: Input file '{input_pt_bin_file}' not found.")
