@@ -32,6 +32,23 @@ tflite_convert \
 
 ## MLIR and TFLite Conversion Workflows
 
+Define a program called `tensorflow_model_to_mlir`:
+```python
+import tensorflow as tf
+
+converter = tf.lite.TFLiteConverter.from_saved_model('/path/to/saved_model')
+converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS, tf.lite.OpsSet.SELECT_TF_OPS]
+converter.allow_custom_ops = True
+mlir_model = converter.convert()
+
+# Write MLIR to output file
+with open('model.mlir', 'w') as f:
+    f.write(mlir_model)
+
+if "__name__" == "__main__":
+    #argument processing to get saved_model_path and output_file path
+```
+
 ### TensorFlow Model to MLIR
 ```bash
 # Convert TensorFlow model to MLIR
