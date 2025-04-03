@@ -140,8 +140,12 @@ ResNet's impact on deep learning is undeniable, and its residual learning concep
 ### HF location
 
 https://huggingface.co/microsoft/resnet-18
+
 https://huggingface.co/microsoft/resnet-34
+
 https://huggingface.co/microsoft/resnet-50
+
+We would like to get these links to a branes-ai organization.
 
 ## CNNs versus Transformers
 
