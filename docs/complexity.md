@@ -7,6 +7,8 @@
 | MobileNetV2 | ~3.5M | Very Low | 2018 |
 | EfficientNetV2-B0 | 6.6M | Low | 2019 |
 | EfficientNetV2-B1 | 7.8M | Medium | 2021 |
+| ResNet-18 | 12.5M | Medium | 2015 |
+| ResNet-34 | 18.0M | Medium | 2015 |
 | ResNet-50 | 25.6M | Medium | 2015 |
 | EfficientNetV2-L | 66M | High | 2021 |
 | ViT-Base-16 | 86M | High | 2020 |
@@ -134,6 +136,12 @@ The history and significance of the ResNet (Residual Network) architecture:
     * Various other optimizations and alterations to the original architecture.
 
 ResNet's impact on deep learning is undeniable, and its residual learning concept continues to be a cornerstone of modern DNNs.
+
+### HF location
+
+https://huggingface.co/microsoft/resnet-18
+https://huggingface.co/microsoft/resnet-34
+https://huggingface.co/microsoft/resnet-50
 
 ## CNNs versus Transformers
 
