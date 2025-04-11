@@ -1,4 +1,6 @@
 import os
+from tensorflow.compiler.mlir.stablehlo import stablehlo 
+from tensorflow.compiler.mlir.tensorflow_to_stablehlo.python import pywrap_tensorflow_to_stablehlo as tensorflow_to_stablehlo
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 import tensorflow.compat.v2 as tf
 
@@ -59,3 +61,9 @@ if __name__ == "__main__":
     tf.saved_model.save(model, "./savedmodel/oneLayerMLP")
     loaded_model = tf.saved_model.load('./savedmodel/oneLayerMLP')
     print(list(loaded_model.signatures.keys()))
+
+#module_bytecode = tensorflow_to_stablehlo.savedmodel_to_stablehlo(input_path="./savedmodel/oneLayerMLP") 
+#target = stablehlo.get_current_version() 
+#portable_byte_str = stablehlo.serialize_portable_artifact_str(module_bytecode, target)
+#print(portable_byte_str)
+
