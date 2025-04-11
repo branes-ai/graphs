@@ -26,5 +26,9 @@ torch.onnx.export(
 )
 print("ONNX model saved to efficientnet_b0.onnx")
 print("Run manually:")
-print("  onnx-mlir efficientnet_b0.onnx -o efficientnet_b0_onnx.mlir")
-print("  iree-import-onnx efficientnet_b0.onnx -o efficientnet_b0_stablehlo.mlir")
+
+#iree-import-onnx did not seem reliable.so built onnx-mlir and onnx-mlir-opt for onnx/stablehlo
+#onnx-mlir creates its own extension onnx.mlir so leaving out the extension here.
+
+print("  onnx-mlir efficientnet_b0.onnx --EmitONNXIR -o efficientnet_b0_opset13_onnx")
+print("  onnx-mlir-opt efficientnet_b0_opset13_onnx.onnx.mlir --convert-onnx-to-stablehlo -o efficientnet_b0_stablehlo.mlir")
