@@ -1,3 +1,24 @@
+# LiteRT Workloads
+
+test programs representing computational graphs expressed in LiteRT
+Compilation of the iree-runtime-api module to generate tflite, mlir, vmfb files
+
+
+## Step 1: Preprocess mobilenet_v1_tosa.mlir. Follow same for V2 by using V2 files
+
+python walk_mobilenetv1_graph.py mobilenet_v1_tosa.mlir > tmp.txt
+	Outputs:	preprocessedv1.mlir: The adjusted MLIR file.
+			tmp.txt: Preprocessing logs (optional, for debugging).
+
+#Step 2: Generate the Graph Walk from preprocessedv1.mlir
+python walk_mlirMNV1_text_complete.py preprocessedv1.mlir > tmp_text_complete_v1.txt
+	Outputs:	graph_walk_complete_v1.txt: The complete graph walk with all 88 nodes and 59 edges.
+			tmp_text_complete_v1.txt: Parsing logs (optional, for debugging).
+
+
+These two scripts and steps take you from the original mobilenet_v1_tosa.mlir to the complete graph walk. No further adjustments are needed unless you want to include constant-to-op edges (e.g., %55 -> %57), which would require a minor tweak. Run these commands anytime to regenerate the graph walk
+
+
 
   ##########          oneLayerMLP           #################
 
