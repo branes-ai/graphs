@@ -24,6 +24,7 @@ with torch.no_grad():
     _ = simple_model(test_input)
 
 torch.save(simple_model, 'test_models/simple_linear.pt')
+
 print("Created: simple_linear.pt")
 
 # 2. Multi-layer Neural Network
@@ -143,7 +144,9 @@ checkpoint = {
     }
 }
 
-torch.save(checkpoint, 'test_models/checkpoint.pt')
+#torch.save(checkpoint, 'test_models/checkpoint.pt')
+traced = torch.jit.trace(checkpoint, example_input)
+traced.save("checkpoint.pt")
 print("Created: checkpoint.pt")
 
 # Print summary

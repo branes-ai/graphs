@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <filesystem>
 
 class ModelInspector {
 private:
@@ -13,8 +14,34 @@ public:
     ModelInspector() : model_loaded(false) {}
 
     bool loadModel(const std::string& model_path) {
+		std::cout << "Loading model from: " << model_path << std::endl;
         try {
-            model = torch::jit::load(model_path);
+            // Convert to canonical path
+            auto canonicalPath = std::filesystem::canonical(model_path);
+            std::string pathStr = canonicalPath.string();
+
+            // Replace backslashes with forward slashes for LibTorch
+            std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
+
+            std::cout << "Original path: " << model_path << std::endl;
+            std::cout << "Canonical path: " << pathStr << std::endl;
+            std::cout << "Path length: " << pathStr.length() << std::endl;
+
+            // Check if file exists
+            if (!std::filesystem::exists(pathStr)) {
+                std::cerr << "File does not exist: " << pathStr << std::endl;
+                return false;
+            }
+            // Try to open the file directly to verify it's readable
+            std::ifstream file(pathStr, std::ios::binary);
+            if (!file.is_open()) {
+                std::cerr << "Cannot open file for reading: " << pathStr << std::endl;
+                return false;
+            }
+            file.close();
+            std::cout << "File is readable" << std::endl;
+
+            model = torch::jit::load(pathStr);
             model.eval();  // Set to evaluation mode
             model_loaded = true;
             std::cout << "Model loaded successfully from: " << model_path << std::endl;
@@ -192,10 +219,18 @@ public:
 
 */
 int main(int argc, char* argv[]) {
+	// check PyTorch version
+    std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR << "." 
+    << TORCH_VERSION_MINOR << "." << TORCH_VERSION_PATCH << std::endl;
+
+    // check CWD
+    std::filesystem::path cwd = std::filesystem::current_path();
+    std::cout << "Current working directory: " << cwd << std::endl;
+
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <model.pt> [input_shape...]" << std::endl;
         std::cerr << "Example: " << argv[0] << " model.pt 1 3 224 224" << std::endl;
-        return 1;
+		return EXIT_SUCCESS;  // Exit gracefully if no model is provided
     }
 
     std::string model_path = argv[1];
@@ -203,7 +238,7 @@ int main(int argc, char* argv[]) {
 
     // Load the model
     if (!inspector.loadModel(model_path)) {
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Print available methods
