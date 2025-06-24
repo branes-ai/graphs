@@ -1,4 +1,4 @@
-# Runtime Comparison
+# ExecuTorch vs IREE Runtime Comparison
 
 ExecuTorch and IREE are both inference runtimes for deploying machine learning models, but they have different origins, strengths, and target use cases.
 
