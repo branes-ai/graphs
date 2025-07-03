@@ -1,88 +1,37 @@
-\# CNN Architecture Diagrams
-
-
+# CNN Architecture Diagrams
 
 Diagrams of key CNN models supported by PyTorch
 
+---
 
+## AlexNet
+
+![Alexnet](img/alexnet.jpg)
 
 ---
 
+## GoogleNet
 
-
-\## AlexNet
-
-
-
-
-
-
-
-!\[Alexnet](img/Architecture-network-of-Alexnet.jpg)
-
-
-
-
+![GoogleNet](img/googlenet.jpg)
 
 ---
 
+## EfficientNet-B0
 
-
-\## GoogleNet
-
-
-
-
-
-
-
-!\[GoogleNet](img/Architecture-network-of-Googlenet.jpg)
-
-
+![EfficientNet-B0](img/efficientnet-b0.jpg)
 
 ---
 
+## ResNet-18
 
+![ResNet-18](img/resnet18.jpg)
 
-\## EfficientNet-B0
-
-
-
-
-
-
-
-!\[EfficientNet-B0](img/Architecture-network-of-Efficientnet-b0.jpg)
-
-
+![ResNet-18](ResNet18-architecture.png)
 
 ---
 
+## ResNet-50
 
-
-\## ResNet-18
-
-
-
-
-
-!\[ResNet-18](img/Architecture-network-of-Resnet18.jpg)
-
-
+![ResNet-50](img/resnet50.jpg)
 
 ---
-
-
-
-\## ResNet-50
-
-
-
-
-
-
-
-!\[ResNet-50](img/Architecture-network-of-Resnet50.jpg)
-
-
-
