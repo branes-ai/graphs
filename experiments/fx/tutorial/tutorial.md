@@ -110,3 +110,64 @@ call_method   | relu          | relu                                            
 call_function | sum_1         | <built-in method sum of type object at 0x00007FF8B8E35450>  | (relu,)            | {'dim': -1} |
 call_function | topk          | <built-in method topk of type object at 0x00007FF8B8E35450> | (sum_1, 3)         | {}          |
 output        | output        | output                                                      | (topk,)            | {}          |
+
+We can use this information to answer the questions we posed above.
+
+ - What are the inputs to the method? In FX, method inputs are specified via special placeholder nodes. In this case, we have a single placeholder node with a target of x, meaning we have a single (non-self) argument named x.
+
+ - What are the operations within the method? The get_attr, call_function, call_module, and call_method nodes represent the operations in the method. A full treatment of the semantics of all of these can be found in the Node documentation.
+
+ - What is the return value of the method? The return value in a Graph is specified by a special output node.
+
+Given that we now know the basics of how code is represented in FX, we can now explore how we would edit a Graph.
+
+## Graph Manipulation
+
+### Direct Graph Manipulation
+
+One approach to building this new Graph is to directly manipulate your old one. To aid in this, we can simply take the Graph we obtain from symbolic tracing and modify it. For example, let’s say we desire to replace torch.add() calls with torch.mul() calls.
+
+```python
+import torch
+import torch.fx
+
+# Sample module
+class M(torch.nn.Module):
+    def forward(self, x, y):
+        return torch.add(x, y)
+
+def transform(m: torch.nn.Module,
+              tracer_class : type = fx.Tracer) -> torch.nn.Module:
+    graph : fx.Graph = tracer_class().trace(m)
+    # FX represents its Graph as an ordered list of
+    # nodes, so we can iterate through them.
+    for node in graph.nodes:
+        # Checks if we're calling a function (i.e:
+        # torch.add)
+        if node.op == 'call_function':
+            # The target attribute is the function
+            # that call_function calls.
+            if node.target == torch.add:
+                node.target = torch.mul
+
+    graph.lint() # Does some checks to make sure the
+                 # Graph is well-formed.
+
+    return fx.GraphModule(m, graph)
+```
+
+We can also do more involved Graph rewrites, such as deleting or appending nodes. To aid in these transformations, FX has utility functions for transforming the graph that can be found in the Graph documentation. An example of using these APIs to append a torch.relu() call can be found below.
+
+```python
+# Specifies the insertion point. Any nodes added to the
+# Graph within this scope will be inserted after `node`
+with traced.graph.inserting_after(node):
+    # Insert a new `call_function` node calling `torch.relu`
+    new_node = traced.graph.call_function(
+        torch.relu, args=(node,))
+
+    # We want all places that used the value of `node` to
+    # now use that value after the `relu` call we've added.
+    # We use the `replace_all_uses_with` API to do this.
+    node.replace_all_uses_with(new_node)
+```

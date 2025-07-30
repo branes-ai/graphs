@@ -1,6 +1,5 @@
 import torch
 
-
 # Simple module for demonstration
 class MyModule(torch.nn.Module):
     def __init__(self) -> None:
