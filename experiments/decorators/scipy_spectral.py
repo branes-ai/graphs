@@ -29,13 +29,15 @@ def analyze_audio_signal(signal, fs):
     - Sxx: Spectrogram of the signal.
     """
     f, t, Sxx = spectrogram(signal, fs)
+    return f, t, Sxx
+
+def plot(f, t, Sxx):
     plt.pcolormesh(t, f, 10 * np.log10(Sxx), shading='gouraud')
     plt.ylabel('Frequency [Hz]')
     plt.xlabel('Time [sec]')
     plt.title('Spectrogram')
     plt.colorbar(label='Intensity [dB]')
     plt.show()
-    return f, t, Sxx
 
 # Example usage
 if __name__ == "__main__":
@@ -46,4 +48,7 @@ if __name__ == "__main__":
     signal = np.sin(2 * np.pi * frequency * t)  # Sine wave signal
 
     # Analyze the audio signal
-    analyze_audio_signal(signal, fs)
+    f, t, Sxx = analyze_audio_signal(signal, fs)
+
+    # Visualize the Spectrogram
+    plot(f, t, Sxx)
