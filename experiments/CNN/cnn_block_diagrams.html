@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNN Core Building Block Diagrams</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .architecture-section {
+            margin-bottom: 50px;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+        }
+        
+        .resnet { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); }
+        .mobilenet { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); }
+        .efficientnet { background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); }
+        
+        h2 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+            font-size: 1.8em;
+        }
+        
+        .block-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            justify-content: space-around;
+        }
+        
+        .block {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 300px;
+            flex: 1;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .block:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+        }
+        
+        .block h3 {
+            color: #e74c3c;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 1.3em;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+        }
+        
+        .flow {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .op {
+            padding: 10px 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+            font-size: 0.9em;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .op:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .conv { background: #3498db; color: white; }
+        .bn { background: #2ecc71; color: white; }
+        .activation { background: #e74c3c; color: white; }
+        .pool { background: #f39c12; color: white; }
+        .add { background: #9b59b6; color: white; }
+        .se { background: #1abc9c; color: white; }
+        .dropout { background: #95a5a6; color: white; }
+        .depthwise { background: #e67e22; color: white; }
+        .pointwise { background: #34495e; color: white; }
+        
+        .arrow {
+            text-align: center;
+            font-size: 1.2em;
+            color: #7f8c8d;
+            margin: 2px 0;
+        }
+        
+        .residual {
+            position: relative;
+            border: 2px dashed #9b59b6;
+            border-radius: 8px;
+            margin: 10px 0;
+            padding: 15px;
+            background: rgba(155, 89, 182, 0.05);
+        }
+        
+        .residual::before {
+            content: "Residual Path";
+            position: absolute;
+            top: -12px;
+            left: 10px;
+            background: white;
+            color: #9b59b6;
+            padding: 0 8px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .skip-connection {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 8px;
+            background: rgba(155, 89, 182, 0.1);
+            border-radius: 6px;
+            border-left: 4px solid #9b59b6;
+        }
+        
+        .parallel {
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+        }
+        
+        .main-path {
+            flex: 3;
+        }
+        
+        .side-path {
+            flex: 1;
+            padding: 10px;
+            background: rgba(155, 89, 182, 0.1);
+            border-radius: 6px;
+            border: 1px dashed #9b59b6;
+        }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(52, 73, 94, 0.05);
+            border-radius: 10px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        
+        .dimensions {
+            font-size: 0.8em;
+            color: #7f8c8d;
+            text-align: center;
+            margin-top: 5px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CNN Core Building Block Diagrams</h1>
+        
+        <!-- ResNet Section -->
+        <div class="architecture-section resnet">
+            <h2>🏗️ ResNet Building Blocks</h2>
+            <div class="block-container">
+                <div class="block">
+                    <h3>BasicBlock (ResNet-18/34)</h3>
+                    <div class="flow">
+                        <div class="parallel">
+                            <div class="main-path">
+                                <div class="op conv">Conv2d 3×3</div>
+                                <div class="dimensions">stride=1, padding=1</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">ReLU</div>
+                                <div class="arrow">↓</div>
+                                <div class="op conv">Conv2d 3×3</div>
+                                <div class="dimensions">stride=1, padding=1</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                            </div>
+                            <div class="side-path">
+                                <div style="text-align: center; color: #9b59b6; font-weight: bold;">Identity/Downsample</div>
+                                <div class="dimensions">x (residual)</div>
+                            </div>
+                        </div>
+                        <div class="arrow">↓</div>
+                        <div class="op add">Add (+)</div>
+                        <div class="arrow">↓</div>
+                        <div class="op activation">ReLU</div>
+                    </div>
+                </div>
+                
+                <div class="block">
+                    <h3>Bottleneck (ResNet-50/101/152)</h3>
+                    <div class="flow">
+                        <div class="parallel">
+                            <div class="main-path">
+                                <div class="op conv">Conv2d 1×1</div>
+                                <div class="dimensions">reduce channels</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">ReLU</div>
+                                <div class="arrow">↓</div>
+                                <div class="op conv">Conv2d 3×3</div>
+                                <div class="dimensions">bottleneck</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">ReLU</div>
+                                <div class="arrow">↓</div>
+                                <div class="op conv">Conv2d 1×1</div>
+                                <div class="dimensions">expand channels (4×)</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                            </div>
+                            <div class="side-path">
+                                <div style="text-align: center; color: #9b59b6; font-weight: bold;">Downsample</div>
+                                <div class="op conv">Conv2d 1×1</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="dimensions">match dimensions</div>
+                            </div>
+                        </div>
+                        <div class="arrow">↓</div>
+                        <div class="op add">Add (+)</div>
+                        <div class="arrow">↓</div>
+                        <div class="op activation">ReLU</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- MobileNet Section -->
+        <div class="architecture-section mobilenet">
+            <h2>📱 MobileNet Building Blocks</h2>
+            <div class="block-container">
+                <div class="block">
+                    <h3>Depthwise Separable Conv (MobileNetV1)</h3>
+                    <div class="flow">
+                        <div class="op depthwise">Depthwise Conv2d 3×3</div>
+                        <div class="dimensions">groups = in_channels</div>
+                        <div class="arrow">↓</div>
+                        <div class="op bn">BatchNorm2d</div>
+                        <div class="arrow">↓</div>
+                        <div class="op activation">ReLU</div>
+                        <div class="arrow">↓</div>
+                        <div class="op pointwise">Pointwise Conv2d 1×1</div>
+                        <div class="dimensions">channel mixing</div>
+                        <div class="arrow">↓</div>
+                        <div class="op bn">BatchNorm2d</div>
+                        <div class="arrow">↓</div>
+                        <div class="op activation">ReLU</div>
+                    </div>
+                </div>
+                
+                <div class="block">
+                    <h3>Inverted Residual (MobileNetV2)</h3>
+                    <div class="flow">
+                        <div class="parallel">
+                            <div class="main-path">
+                                <div class="op pointwise">Expand Conv2d 1×1</div>
+                                <div class="dimensions">expand_ratio × channels</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">ReLU6</div>
+                                <div class="arrow">↓</div>
+                                <div class="op depthwise">Depthwise Conv2d 3×3</div>
+                                <div class="dimensions">groups = expanded_channels</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">ReLU6</div>
+                                <div class="arrow">↓</div>
+                                <div class="op pointwise">Project Conv2d 1×1</div>
+                                <div class="dimensions">no activation</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                            </div>
+                            <div class="side-path">
+                                <div style="text-align: center; color: #9b59b6; font-weight: bold;">Skip Connection</div>
+                                <div class="dimensions">if stride=1 & same channels</div>
+                            </div>
+                        </div>
+                        <div class="skip-connection">
+                            <span>Conditional Add (+)</span>
+                            <span style="font-size: 0.8em; color: #7f8c8d;">when applicable</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- EfficientNet Section -->
+        <div class="architecture-section efficientnet">
+            <h2>⚡ EfficientNet Building Blocks</h2>
+            <div class="block-container">
+                <div class="block">
+                    <h3>Squeeze-and-Excitation (SE) Block</h3>
+                    <div class="flow">
+                        <div class="op pool">Global Average Pooling</div>
+                        <div class="dimensions">H×W → 1×1</div>
+                        <div class="arrow">↓</div>
+                        <div class="op conv">Conv2d 1×1 (Reduce)</div>
+                        <div class="dimensions">channels ÷ reduction</div>
+                        <div class="arrow">↓</div>
+                        <div class="op activation">ReLU</div>
+                        <div class="arrow">↓</div>
+                        <div class="op conv">Conv2d 1×1 (Expand)</div>
+                        <div class="dimensions">back to original channels</div>
+                        <div class="arrow">↓</div>
+                        <div class="op activation">Sigmoid</div>
+                        <div class="arrow">↓</div>
+                        <div class="op se">Channel-wise Multiply</div>
+                        <div class="dimensions">input × attention weights</div>
+                    </div>
+                </div>
+                
+                <div class="block">
+                    <h3>MBConv Block (EfficientNet)</h3>
+                    <div class="flow">
+                        <div class="parallel">
+                            <div class="main-path">
+                                <div class="op pointwise">Expand Conv2d 1×1</div>
+                                <div class="dimensions">expand_ratio × channels</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">Swish (SiLU)</div>
+                                <div class="arrow">↓</div>
+                                <div class="op depthwise">Depthwise Conv2d K×K</div>
+                                <div class="dimensions">kernel_size varies</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op activation">Swish (SiLU)</div>
+                                <div class="arrow">↓</div>
+                                <div class="op se">SE Block</div>
+                                <div class="dimensions">channel attention</div>
+                                <div class="arrow">↓</div>
+                                <div class="op pointwise">Project Conv2d 1×1</div>
+                                <div class="dimensions">no activation</div>
+                                <div class="arrow">↓</div>
+                                <div class="op bn">BatchNorm2d</div>
+                                <div class="arrow">↓</div>
+                                <div class="op dropout">Dropout2d</div>
+                                <div class="dimensions">stochastic depth</div>
+                            </div>
+                            <div class="side-path">
+                                <div style="text-align: center; color: #9b59b6; font-weight: bold;">Skip Connection</div>
+                                <div class="dimensions">if stride=1 & same channels</div>
+                            </div>
+                        </div>
+                        <div class="skip-connection">
+                            <span>Conditional Add (+)</span>
+                            <span style="font-size: 0.8em; color: #7f8c8d;">with dropout</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Legend -->
+        <div class="legend">
+            <h3 style="width: 100%; text-align: center; margin-bottom: 15px; color: #2c3e50;">Operator Legend</h3>
+            <div class="legend-item"><div class="legend-color conv"></div><span>Convolution</span></div>
+            <div class="legend-item"><div class="legend-color bn"></div><span>Batch Normalization</span></div>
+            <div class="legend-item"><div class="legend-color activation"></div><span>Activation (ReLU/ReLU6/Swish)</span></div>
+            <div class="legend-item"><div class="legend-color pool"></div><span>Pooling</span></div>
+            <div class="legend-item"><div class="legend-color add"></div><span>Element-wise Add</span></div>
+            <div class="legend-item"><div class="legend-color se"></div><span>Squeeze-and-Excitation</span></div>
+            <div class="legend-item"><div class="legend-color dropout"></div><span>Dropout</span></div>
+            <div class="legend-item"><div class="legend-color depthwise"></div><span>Depthwise Convolution</span></div>
+            <div class="legend-item"><div class="legend-color pointwise"></div><span>Pointwise (1×1) Convolution</span></div>
+        </div>
+        
+        <!-- Analysis Section -->
+        <div class="architecture-section" style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); margin-top: 40px;">
+            <h2>🔍 MLIR Dialect Analysis</h2>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 25px; margin-bottom: 30px;">
+                <div class="block">
+                    <h3 style="color: #e74c3c;">Key Operator Differences</h3>
+                    <div style="line-height: 1.6; color: #2c3e50;">
+                        <p><strong>ResNet:</strong> Standard convolutions with residual connections</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>Conv2d → BatchNorm2d → ReLU pattern</li>
+                            <li>Element-wise addition for skip connections</li>
+                            <li>Bottleneck uses 1×1→3×3→1×1 pattern</li>
+                        </ul>
+                        
+                        <p><strong>MobileNet:</strong> Depthwise separable convolutions</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>Depthwise Conv2d (spatial filtering)</li>
+                            <li>Pointwise Conv2d (channel mixing)</li>
+                            <li>Inverted residuals (expand-then-compress)</li>
+                        </ul>
+                        
+                        <p><strong>EfficientNet:</strong> Advanced attention mechanisms</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>Squeeze-and-Excitation blocks</li>
+                            <li>Swish/SiLU activation functions</li>
+                            <li>Stochastic depth (Dropout2d)</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="block">
+                    <h3 style="color: #27ae60;">Activation Function Evolution</h3>
+                    <div style="line-height: 1.6; color: #2c3e50;">
+                        <p><strong>ResNet (2015):</strong></p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>ReLU: max(0, x)</li>
+                            <li>Simple, efficient, gradient-friendly</li>
+                            <li>Standard choice for residual networks</li>
+                        </ul>
+                        
+                        <p><strong>MobileNet (2017-2018):</strong></p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>ReLU6: min(max(0, x), 6)</li>
+                            <li>Better for low-precision quantization</li>
+                            <li>Bounded output for mobile deployment</li>
+                        </ul>
+                        
+                        <p><strong>EfficientNet (2019):</strong></p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>Swish/SiLU: x × sigmoid(x)</li>
+                            <li>Smooth, non-monotonic activation</li>
+                            <li>Better gradient flow and performance</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="block" style="margin-bottom: 25px;">
+                <h3 style="color: #8e44ad;">MLIR Compilation Implications</h3>
+                <div style="line-height: 1.8; color: #2c3e50;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        <div>
+                            <h4 style="color: #3498db; margin-bottom: 10px;">Memory Access Patterns</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>ResNet:</strong> Standard conv operations with predictable memory access</li>
+                                <li><strong>MobileNet:</strong> Depthwise convs reduce memory bandwidth requirements</li>
+                                <li><strong>EfficientNet:</strong> SE blocks add global pooling operations</li>
+                            </ul>
+                        </div>
+                        
+                        <div>
+                            <h4 style="color: #3498db; margin-bottom: 10px;">Parallelization Opportunities</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>ResNet:</strong> High parallelism in standard convolutions</li>
+                                <li><strong>MobileNet:</strong> Depthwise ops have different parallelization patterns</li>
+                                <li><strong>EfficientNet:</strong> SE blocks create data dependencies</li>
+                            </ul>
+                        </div>
+                        
+                        <div>
+                            <h4 style="color: #3498db; margin-bottom: 10px;">Operator Fusion</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>All architectures:</strong> Conv-BN-Activation fusion opportunities</li>
+                                <li><strong>MobileNet:</strong> Depthwise-Pointwise fusion potential</li>
+                                <li><strong>EfficientNet:</strong> SE block can be fused as single operator</li>
+                            </ul>
+                        </div>
+                        
+                        <div>
+                            <h4 style="color: #3498db; margin-bottom: 10px;">Quantization Considerations</h4>
+                            <ul style="margin: 0; padding-left: 20px;">
+                                <li><strong>ResNet:</strong> ReLU friendly for 8-bit quantization</li>
+                                <li><strong>MobileNet:</strong> ReLU6 designed for quantization</li>
+                                <li><strong>EfficientNet:</strong> Swish requires careful quantization handling</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="block">
+                <h3 style="color: #e67e22;">Architecture Characteristics Summary</h3>
+                <div style="line-height: 1.6; color: #2c3e50;">
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                        <thead>
+                            <tr style="background: #34495e; color: white;">
+                                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Architecture</th>
+                                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Core Innovation</th>
+                                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Key Operators</th>
+                                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">MLIR Focus</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 12px; border: 1px solid #ddd;"><strong>ResNet</strong></td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Residual connections</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Conv2d, BatchNorm2d, ReLU, Add</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Standard conv optimization</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #ddd;"><strong>MobileNet</strong></td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Depthwise separable convs</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Depthwise Conv2d, Pointwise Conv2d</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Specialized conv patterns</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 12px; border: 1px solid #ddd;"><strong>EfficientNet</strong></td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Compound scaling + SE</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">SE blocks, Swish, AdaptiveAvgPool2d</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">Attention mechanisms</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="block" style="margin-top: 25px;">
+                <h3 style="color: #c0392b;">For MLIR Dialect Development</h3>
+                <div style="line-height: 1.8; color: #2c3e50;">
+                    <p>When designing MLIR dialects for CNN workloads, consider these building blocks as fundamental patterns:</p>
+                    
+                    <div style="margin: 20px 0; padding: 15px; background: #ecf0f1; border-radius: 8px; border-left: 4px solid #3498db;">
+                        <strong>🎯 Recommendation:</strong> Use these three architectures as representative benchmarks for dialect design, 
+                        as they span the evolution of CNN design from basic residual connections to advanced attention mechanisms 
+                        and efficiency optimizations.
+                    </div>
+                    
+                    <ul style="margin: 15px 0; padding-left: 20px;">
+                        <li><strong>Operator Coverage:</strong> Ensure your dialect can express all operators shown in these blocks</li>
+                        <li><strong>Fusion Patterns:</strong> Design fusion passes based on these common operator sequences</li>
+                        <li><strong>Memory Layout:</strong> Consider how different conv patterns affect data layout optimization</li>
+                        <li><strong>Hardware Mapping:</strong> Each architecture family has different hardware acceleration characteristics</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

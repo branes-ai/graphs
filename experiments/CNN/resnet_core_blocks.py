@@ -128,10 +128,15 @@ if __name__ == "__main__":
     print(f"   Input: {x.shape} -> Output: {out.shape}")
     
     print("\n2. ResNet Bottleneck:")
-    # bottleneck = Bottleneck(64, 64, stride=1)
-    # out = bottleneck(x)
-    # print(f"   Input: {x.shape} -> Output: {out.shape}")
-        # Need downsample when input channels != output channels * expansion
+    # The Bottleneck block has an expansion factor of 4, 
+    # so when we pass out_channels=64, the final output actually has 64 * 4 = 256 channels, 
+    # but the residual connection still has the original 64 channels.
+
+    # In ResNet, when there's a channel dimension mismatch, a downsample module (typically '
+    # 'a 1x1 convolution) is used to match the dimensions of the residual connection. '
+    # We need to add the proper downsample module to handle this case.
+
+    # Need downsample when input channels != output channels * expansion
     downsample = nn.Sequential(
         nn.Conv2d(64, 64 * Bottleneck.expansion, kernel_size=1, stride=1, bias=False),
         nn.BatchNorm2d(64 * Bottleneck.expansion)
@@ -141,3 +146,6 @@ if __name__ == "__main__":
     print(f"   Input: {x.shape} -> Output: {out.shape}")
     
     print("\nResNet: Conv2d, BatchNorm2d, ReLU, Add (residual)")
+
+
+
