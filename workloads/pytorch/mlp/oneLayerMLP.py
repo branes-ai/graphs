@@ -1,21 +1,11 @@
 import torch
-import torch.nn as nn
 import iree.runtime as ireert
 import iree.turbine.aot as aot
 
-# Define a 1-layer MLP
-class OneLayerMLP(nn.Module):
-    def __init__(self, in_features, out_features, bias=True):
-        super(OneLayerMLP, self).__init__()
-        self.fc = nn.Linear(in_features, out_features, bias)
-        self.softmax = nn.Softmax(dim=1)
+from multi_layer_perceptrons import OneLayerMLP 
 
-    def forward(self, x):
-        y = self.fc(x)
-        return self.softmax(y)
-        
 if __name__ == "__main__":
-    # Example usage
+    # Define a small 1-layer MLP model.
     in_features  = 5
     out_features = 3
     model = OneLayerMLP(in_features, out_features)
