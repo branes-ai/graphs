@@ -1,21 +1,8 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-# Define a 2-layer MLP
-class TwoLayerMLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        super(TwoLayerMLP, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
-        self.softmax = nn.Softmax(dim=1)
+from multi_layer_perceptrons import TwoLayerMLP 
 
-    def forward(self, x):
-        h = torch.tanh(self.fc1(x))
-        y = self.fc2(h)
-        return self.softmax(y)
-
-# Example usage
+# Define a small 2-layer MLP model
 input_dim = 5
 hidden_dim = 4
 output_dim = 3
