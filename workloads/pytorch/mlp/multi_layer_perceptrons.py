@@ -2,11 +2,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+MLP_CONFIGS = {
+    "small":  {"hidden_dims": [512], "output_dim": 64},
+    "medium": {"hidden_dims": [2048, 2048], "output_dim": 128},
+    "large":  {"hidden_dims": [8192, 8192, 8192], "output_dim": 256},
+    "xlarge": {"hidden_dims": [32768, 32768, 32768, 32768], "output_dim": 512}
+}
+
 # Define a 1-layer MLP
 class OneLayerMLP(nn.Module):
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, input_dim, output_dim, bias=True):
         super(OneLayerMLP, self).__init__()
-        self.fc = nn.Linear(in_features, out_features, bias)
+        self.fc = nn.Linear(input_dim, output_dim, bias)
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
