@@ -60,7 +60,7 @@ This will:
 
 ---
 
-## 📊 4. View Results
+## 4. View Results
 
 After the run, you’ll find:
 

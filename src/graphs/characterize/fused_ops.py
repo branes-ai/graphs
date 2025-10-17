@@ -24,6 +24,26 @@ class ConvBnReLUEstimator(FusedEstimator):
         mem = B * C_in * H * W * 4 + C_out * C_in * K_h * K_w * 4 + B * C_out * H_out * W_out * 4
         return flops, mem
 
+class ConvReLUEstimator(FusedEstimator):
+    def estimate(self, fused_nodes):
+        conv_node = fused_nodes[0]
+        meta = conv_node.meta.get('tensor_meta')
+        mod = conv_node.graph.owning_module.get_submodule(conv_node.target)
+        if not meta:
+            return 0, 0
+        B, C_in, H, W = meta.shape
+        C_out = mod.out_channels
+        K_h, K_w = mod.kernel_size
+        S_h, S_w = mod.stride if isinstance(mod.stride, tuple) else (mod.stride, mod.stride)
+        P = mod.padding if isinstance(mod.padding, int) else mod.padding[0]
+        H_out = (H - K_h + 2 * P) // S_h + 1
+        W_out = (W - K_w + 2 * P) // S_w + 1
+        # FLOPs: 2*C_in*K_h*K_w MACs per output + 1 ReLU op
+        flops = B * C_out * H_out * W_out * (2 * C_in * K_h * K_w + 1)
+        # Memory: input + weights + output
+        mem = B * C_in * H * W * 4 + C_out * C_in * K_h * K_w * 4 + B * C_out * H_out * W_out * 4
+        return flops, mem
+
 class LinearReLUEstimator(FusedEstimator):
     def estimate(self, fused_nodes):
         linear_node = fused_nodes[0]
@@ -67,5 +87,6 @@ class FusedOpRegistry:
 def default_registry():
     reg = FusedOpRegistry()
     reg.register("conv_bn_relu", [nn.Conv2d, nn.BatchNorm2d, nn.ReLU], ConvBnReLUEstimator())
+    reg.register("conv_relu", [nn.Conv2d, nn.ReLU], ConvReLUEstimator())
     reg.register("linear_relu", [nn.Linear, nn.ReLU], LinearReLUEstimator())
     return reg
