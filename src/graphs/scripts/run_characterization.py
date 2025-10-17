@@ -6,7 +6,10 @@ from graphs.models.mlp import make_mlp
 from graphs.models.conv2d_stack import make_conv2d
 from graphs.models.resnet_block import make_resnet_block
 
-from graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
+from graphs.characterize.arch_profiles import (
+    intel_i7_profile, amd_ryzen7_profile, h100_pcie_profile,
+    tpu_v4_profile, kpu_t2_profile, kpu_t100_profile
+)
 from graphs.characterize.fused_ops import default_registry
 from graphs.characterize.sweep import SweepHarness
 
@@ -25,7 +28,10 @@ def main():
     }
 
     # Architecture profiles and fusion registry
-    arch_profiles = [cpu_profile, gpu_profile, tpu_profile, kpu_profile]
+    arch_profiles = [
+        intel_i7_profile, amd_ryzen7_profile, h100_pcie_profile,
+        tpu_v4_profile, kpu_t2_profile, kpu_t100_profile
+    ]
     fused_registry = default_registry()
 
     # Run sweep
@@ -44,8 +50,9 @@ def main():
         rows.append(row)
 
     df = pd.DataFrame(rows)
-    df.to_csv("sweep_results.csv", index=False)
-    print("\nSaved results to sweep_results.csv")
+    output_path = "results/validation/sweep_results.csv"
+    df.to_csv(output_path, index=False)
+    print(f"\nSaved results to {output_path}")
 
 if __name__ == "__main__":
     main()
