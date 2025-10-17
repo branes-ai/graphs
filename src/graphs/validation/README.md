@@ -77,6 +77,57 @@ python src/graphs/validation/test_resnet_family.py
 
 ---
 
+### `test_mobilenet.py`
+**Purpose**: Characterize MobileNet family (V2, V3-Small, V3-Large)
+
+**What it tests**:
+- Depthwise separable convolution handling
+- Conv2d+ReLU6 fusion detection
+- Conv2d+Hardswish fusion (MobileNetV3)
+- Efficient architecture characterization
+- Edge deployment analysis
+
+**Expected results**:
+- MobileNet-V2: 1.87 GFLOPs, 3.50M params
+- MobileNet-V3-Small: 0.29 GFLOPs, 2.54M params (most efficient)
+- MobileNet-V3-Large: 1.17 GFLOPs, 5.48M params
+
+**Output**: `mobilenet_results.csv`
+
+**Run**:
+```bash
+python src/graphs/validation/test_mobilenet.py
+```
+
+---
+
+### `test_efficientnet.py`
+**Purpose**: Characterize EfficientNet family (B0, B1, B2, V2-S, V2-M)
+
+**What it tests**:
+- MBConv block characterization
+- Squeeze-and-Excitation block handling
+- Compound scaling validation
+- Memory footprint analysis
+
+**Expected results**:
+- EfficientNet-B0: 2.35 GFLOPs, 5.29M params
+- EfficientNet-B1: 3.41 GFLOPs, 7.79M params
+- EfficientNet-B2: 3.96 GFLOPs, 9.11M params
+- EfficientNet-V2-S: 17.52 GFLOPs, 21.46M params
+- EfficientNet-V2-M: 33.11 GFLOPs, 54.14M params
+
+**Output**: `efficientnet_results.csv`
+
+**Run**:
+```bash
+python src/graphs/validation/test_efficientnet.py
+```
+
+**Detailed report**: See `docs/validation/mobilenet_efficientnet_comparison.md`
+
+---
+
 ## Running All Tests
 
 ```bash
@@ -84,6 +135,8 @@ python src/graphs/validation/test_resnet_family.py
 python src/graphs/validation/test_conv2d.py
 python src/graphs/validation/test_resnet18.py
 python src/graphs/validation/test_resnet_family.py
+python src/graphs/validation/test_mobilenet.py
+python src/graphs/validation/test_efficientnet.py
 ```
 
 Or as Python modules:
@@ -91,6 +144,8 @@ Or as Python modules:
 python -m graphs.validation.test_conv2d
 python -m graphs.validation.test_resnet18
 python -m graphs.validation.test_resnet_family
+python -m graphs.validation.test_mobilenet
+python -m graphs.validation.test_efficientnet
 ```
 
 ---
@@ -100,6 +155,7 @@ python -m graphs.validation.test_resnet_family
 Detailed validation reports are located in `docs/validation/`:
 - `conv2d_validation_report.md` - Conv2D validation details
 - `resnet18_validation_report.md` - ResNet-18 deep dive
+- `mobilenet_efficientnet_comparison.md` - Comprehensive MobileNet and EfficientNet analysis
 
 ---
 
@@ -147,10 +203,12 @@ if __name__ == "__main__":
 | Model Type | FLOP Range | Example |
 |------------|------------|---------|
 | Small MLP | 1-10M | MLP (128→256→64) |
+| Ultra-Efficient CNN | 0.2-1G | MobileNet-V3-Small (0.29G) |
+| Efficient CNN | 1-3G | MobileNet-V2 (1.87G), EfficientNet-B0 (2.35G) |
 | Conv Stack | 1-5G | 3-layer Conv2D |
-| Small CNN | 1-5G | ResNet-18 |
-| Medium CNN | 5-15G | ResNet-50, MobileNetV2 |
-| Large CNN | 15-50G | ResNet-152, EfficientNet-B7 |
+| Small CNN | 1-5G | ResNet-18 (3.79G), EfficientNet-B1 (3.41G) |
+| Medium CNN | 5-15G | ResNet-50 (10.8G), EfficientNet-B2 (3.96G) |
+| Large CNN | 15-50G | ResNet-152, EfficientNet-V2-S (17.5G), V2-M (33.1G) |
 | Vision Transformer | 10-100G | ViT-Base, ViT-Large |
 
 ---
@@ -202,8 +260,9 @@ When adding a new test, verify:
 
 ## Future Tests to Add
 
-- [ ] MobileNetV1/V2/V3 validation
-- [ ] EfficientNet-B0 through B7
+- [x] MobileNetV2/V3 validation ✓
+- [x] EfficientNet-B0 through B2, V2-S, V2-M ✓
+- [ ] EfficientNet-B3 through B7
 - [ ] VGG-16/19 (dense convolutions)
 - [ ] Inception-v3 (multi-branch)
 - [ ] Vision Transformers (ViT)
