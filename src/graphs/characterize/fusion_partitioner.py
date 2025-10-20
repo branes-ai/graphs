@@ -136,6 +136,8 @@ class FusionBasedPartitioner:
 
     def __init__(self):
         self.next_subgraph_id = 0
+        self.fused_subgraphs: List[FusedSubgraph] = []  # Store for visualization
+        self.fx_graph_cached: Optional[GraphModule] = None  # Store FX graph for visualization
 
     def partition(self, fx_graph: GraphModule) -> FusionReport:
         """
@@ -156,7 +158,11 @@ class FusionBasedPartitioner:
         # Step 2: Perform fusion
         fused_subgraphs = self._fuse_operators(fx_graph, nodes, consumers, producers)
 
-        # Step 3: Compute statistics
+        # Step 3: Store results for visualization
+        self.fused_subgraphs = fused_subgraphs
+        self.fx_graph_cached = fx_graph
+
+        # Step 4: Compute statistics
         report = self._generate_report(fused_subgraphs, len(nodes))
 
         return report
@@ -609,3 +615,277 @@ class FusionBasedPartitioner:
             avg_fusion_size=avg_fusion_size,
             max_fusion_size=max_fusion_size
         )
+
+    def visualize_partitioning(self, fx_graph: GraphModule, max_nodes: Optional[int] = None) -> str:
+        """
+        Create side-by-side visualization of FX graph and fused subgraphs.
+
+        Shows original graph on left, fused subgraphs on right with visual grouping.
+
+        Args:
+            fx_graph: The FX graph that was partitioned
+            max_nodes: Maximum number of nodes to show (None for all)
+
+        Returns:
+            String containing the formatted visualization
+        """
+        import torch.nn as nn
+
+        # Build mapping from node_id to fused subgraph
+        node_to_fused_subgraph = {}
+        node_position_in_subgraph = {}  # Track position: (subgraph, index, total)
+
+        for fused_sg in self.fused_subgraphs:
+            for idx, node_id in enumerate(fused_sg.node_ids):
+                node_to_fused_subgraph[node_id] = fused_sg
+                node_position_in_subgraph[node_id] = (fused_sg, idx, len(fused_sg.node_ids))
+
+        # Collect all nodes in execution order
+        all_nodes = list(fx_graph.graph.nodes)
+
+        if max_nodes:
+            all_nodes = all_nodes[:max_nodes]
+
+        # Build visualization
+        lines = []
+
+        # Header
+        left_width = 50
+        right_width = 60
+        total_width = left_width + 4 + right_width
+
+        lines.append("=" * total_width)
+        lines.append("FUSION-BASED GRAPH PARTITIONING VISUALIZATION")
+        lines.append("=" * total_width)
+        lines.append("")
+
+        # Column headers
+        header_left = "FX Graph (Execution Order)".ljust(left_width)
+        header_right = "Fused Subgraphs"
+        lines.append(f"{header_left}    {header_right}")
+        lines.append("-" * left_width + "    " + "-" * right_width)
+        lines.append("")
+
+        # Process each node
+        subgraph_counter = 1
+        current_subgraph_id = None
+
+        for idx, node in enumerate(all_nodes, 1):
+            node_id = node.name  # Use node name, not id()
+
+            # LEFT SIDE: FX Node info
+            left_lines = self._format_fx_node(node, fx_graph, idx)
+
+            # RIGHT SIDE: Fused subgraph info with grouping
+            right_lines = []
+
+            if node_id in node_to_fused_subgraph:
+                fused_sg, node_idx, total_nodes = node_position_in_subgraph[node_id]
+                is_first = (node_idx == 0)
+                is_last = (node_idx == total_nodes - 1)
+
+                # New subgraph starting
+                if fused_sg.subgraph_id != current_subgraph_id:
+                    current_subgraph_id = fused_sg.subgraph_id
+
+                    if is_first:
+                        # Header for new fused subgraph
+                        header_lines = self._format_fused_subgraph_header(fused_sg, subgraph_counter)
+                        right_lines.extend(header_lines)
+                        subgraph_counter += 1
+
+                # Operator within fused subgraph
+                op_lines = self._format_fused_operator(node, fx_graph, is_first, is_last)
+                right_lines.extend(op_lines)
+
+                # Footer for completed subgraph
+                if is_last:
+                    footer_lines = self._format_fused_subgraph_footer(fused_sg)
+                    right_lines.extend(footer_lines)
+                    current_subgraph_id = None
+            else:
+                # Node not in any fused subgraph
+                right_lines = self._format_not_fused(node)
+
+            # Combine left and right, ensuring same number of lines
+            max_lines = max(len(left_lines), len(right_lines))
+            for i in range(max_lines):
+                left = left_lines[i] if i < len(left_lines) else ""
+                right = right_lines[i] if i < len(right_lines) else ""
+                lines.append(f"{left.ljust(left_width)}    {right}")
+
+            # Add spacing between nodes
+            lines.append("")
+
+        # Footer
+        if max_nodes and len(fx_graph.graph.nodes) > max_nodes:
+            lines.append(f"... ({len(fx_graph.graph.nodes) - max_nodes} more nodes not shown)")
+            lines.append("")
+
+        lines.append("=" * total_width)
+        lines.append(f"Total FX nodes: {len(fx_graph.graph.nodes)}")
+        lines.append(f"Fused subgraphs: {len(self.fused_subgraphs)}")
+        lines.append(f"Reduction: {len(fx_graph.graph.nodes) / max(1, len(self.fused_subgraphs)):.1f}× fewer execution units")
+
+        if self.fused_subgraphs:
+            avg_fusion = sum(sg.num_operators for sg in self.fused_subgraphs) / len(self.fused_subgraphs)
+            lines.append(f"Average fusion size: {avg_fusion:.1f} operators/subgraph")
+
+        lines.append("=" * total_width)
+
+        return "\n".join(lines)
+
+    def _format_fx_node(self, node, graph: GraphModule, idx: int) -> List[str]:
+        """Format FX node information for left column"""
+        import torch.nn as nn
+
+        lines = []
+
+        # Node header
+        lines.append(f"{idx}. [{node.op}] {node.name}")
+
+        # Add details based on node type
+        if node.op == 'call_module':
+            try:
+                module = graph.get_submodule(node.target)
+                module_type = type(module).__name__
+
+                # Add module-specific details
+                if isinstance(module, nn.Conv2d):
+                    details = f"   Conv2d({module.in_channels}->{module.out_channels}, "
+                    details += f"k={module.kernel_size}, s={module.stride})"
+                    lines.append(details)
+                elif isinstance(module, nn.Linear):
+                    details = f"   Linear({module.in_features}->{module.out_features})"
+                    lines.append(details)
+                elif isinstance(module, nn.BatchNorm2d):
+                    details = f"   BatchNorm2d({module.num_features})"
+                    lines.append(details)
+                elif isinstance(module, (nn.ReLU, nn.ReLU6)):
+                    lines.append(f"   {module_type}")
+                elif isinstance(module, (nn.MaxPool2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
+                    lines.append(f"   {module_type}")
+                else:
+                    lines.append(f"   {module_type}")
+            except:
+                lines.append(f"   {node.target}")
+
+        elif node.op == 'call_function':
+            func_name = node.target.__name__ if hasattr(node.target, '__name__') else str(node.target)
+            lines.append(f"   Function: {func_name}")
+
+        elif node.op == 'call_method':
+            lines.append(f"   Method: {node.target}")
+
+        return lines
+
+    def _format_fused_subgraph_header(self, fused_sg: FusedSubgraph, counter: int) -> List[str]:
+        """Format header for a fused subgraph"""
+        lines = []
+
+        # Top border with subgraph info
+        lines.append(f"┌─ SUBGRAPH #{counter} ─────────────────────────")
+        lines.append(f"│  Pattern: {fused_sg.fusion_pattern}")
+        lines.append(f"│  Operators: {fused_sg.num_operators}")
+        lines.append(f"│")
+
+        return lines
+
+    def _format_fused_operator(self, node, graph: GraphModule, is_first: bool, is_last: bool) -> List[str]:
+        """Format a single operator within a fused subgraph"""
+        import torch.nn as nn
+
+        lines = []
+
+        # Get operator type
+        op_type = "unknown"
+        if node.op == 'call_module':
+            try:
+                module = graph.get_submodule(node.target)
+                op_type = type(module).__name__
+            except:
+                op_type = str(node.target)
+        elif node.op == 'call_function':
+            op_type = node.target.__name__ if hasattr(node.target, '__name__') else str(node.target)
+        elif node.op == 'call_method':
+            op_type = node.target
+
+        # Format operator line
+        lines.append(f"│  • {node.name} ({op_type})")
+
+        return lines
+
+    def _format_fused_subgraph_footer(self, fused_sg: FusedSubgraph) -> List[str]:
+        """Format footer with metrics for a fused subgraph"""
+        lines = []
+
+        lines.append(f"│")
+
+        # Compute metrics
+        flops_str = self._format_number(fused_sg.total_flops, 'FLOPs')
+        macs_str = self._format_number(fused_sg.total_macs, 'MACs')
+        lines.append(f"│  Compute: {macs_str}, {flops_str}")
+
+        # Memory metrics
+        external_bytes = fused_sg.total_input_bytes + fused_sg.total_output_bytes + fused_sg.total_weight_bytes
+        external_str = self._format_bytes(external_bytes)
+        lines.append(f"│  Memory: {external_str} (external)")
+
+        if fused_sg.internal_bytes > 0:
+            internal_str = self._format_bytes(fused_sg.internal_bytes)
+            reduction_pct = fused_sg.data_movement_reduction() * 100
+            lines.append(f"│  Saved: {internal_str} internal ({reduction_pct:.1f}% reduction)")
+
+        # Arithmetic Intensity
+        ai_str = f"{fused_sg.arithmetic_intensity:.1f}"
+        bottleneck = fused_sg.recommended_bottleneck.value.upper()
+        lines.append(f"│  AI: {ai_str} FLOPs/byte [{bottleneck}]")
+
+        # Bottom border
+        lines.append(f"└─────────────────────────────────────────────")
+
+        return lines
+
+    def _format_not_fused(self, node) -> List[str]:
+        """Format info for nodes that weren't fused"""
+        lines = []
+        lines.append("   (not fused)")
+
+        if node.op == 'placeholder':
+            lines.append("   Reason: input placeholder")
+        elif node.op == 'get_attr':
+            lines.append("   Reason: attribute access")
+        elif node.op == 'output':
+            lines.append("   Reason: output node")
+        else:
+            lines.append("   Reason: not included in fusion")
+
+        return lines
+
+    def _format_number(self, num: int, suffix: str = '') -> str:
+        """Format large numbers with K/M/G suffix"""
+        if num == 0:
+            return f"0 {suffix}"
+
+        if num >= 1e9:
+            return f"{num / 1e9:.2f}G{suffix}"
+        elif num >= 1e6:
+            return f"{num / 1e6:.2f}M{suffix}"
+        elif num >= 1e3:
+            return f"{num / 1e3:.2f}K{suffix}"
+        else:
+            return f"{num} {suffix}"
+
+    def _format_bytes(self, bytes: int) -> str:
+        """Format memory in bytes with KB/MB/GB suffix"""
+        if bytes == 0:
+            return "0 B"
+
+        if bytes >= 1e9:
+            return f"{bytes / 1e9:.2f}GB"
+        elif bytes >= 1e6:
+            return f"{bytes / 1e6:.2f}MB"
+        elif bytes >= 1e3:
+            return f"{bytes / 1e3:.2f}KB"
+        else:
+            return f"{bytes}B"
