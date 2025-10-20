@@ -24,6 +24,63 @@ except ImportError:
     sys.exit(1)
 
 
+# Model registry - maps model names to constructors
+#
+# To discover new models in torchvision:
+#   python -c "import torchvision.models as m; print('\n'.join(sorted(m.list_models())))"
+#
+# To find FX-traceable models automatically:
+#   python cli/discover_models.py
+#
+# See profile_graph.py for automatic discovery via _build_model_registry_auto()
+#
+MODEL_REGISTRY = {
+    # ResNet family
+    'resnet18': models.resnet18,
+    'resnet34': models.resnet34,
+    'resnet50': models.resnet50,
+    'resnet101': models.resnet101,
+    'resnet152': models.resnet152,
+    # MobileNet family
+    'mobilenet_v2': models.mobilenet_v2,
+    'mobilenet_v3_large': models.mobilenet_v3_large,
+    'mobilenet_v3_small': models.mobilenet_v3_small,
+    # EfficientNet family
+    'efficientnet_b0': models.efficientnet_b0,
+    'efficientnet_b1': models.efficientnet_b1,
+    'efficientnet_b4': models.efficientnet_b4,
+    'efficientnet_b7': models.efficientnet_b7,
+    # DenseNet family
+    'densenet121': models.densenet121,
+    'densenet161': models.densenet161,
+    'densenet201': models.densenet201,
+    # VGG family
+    'vgg16': models.vgg16,
+    'vgg19': models.vgg19,
+    # Classic architectures
+    'alexnet': models.alexnet,
+    'squeezenet1_0': models.squeezenet1_0,
+    # Modern CNNs
+    'convnext_tiny': models.convnext_tiny,
+    'convnext_small': models.convnext_small,
+    'convnext_base': models.convnext_base,
+    # Vision Transformers
+    'vit_b_16': models.vit_b_16,
+    'vit_b_32': models.vit_b_32,
+    'vit_l_16': models.vit_l_16,
+    # Swin Transformers
+    'swin_t': models.swin_t,
+    'swin_s': models.swin_s,
+    'swin_b': models.swin_b,
+    # RegNets
+    'regnet_y_400mf': models.regnet_y_400mf,
+    'regnet_y_800mf': models.regnet_y_800mf,
+    'regnet_y_1_6gf': models.regnet_y_1_6gf,
+    'regnet_y_3_2gf': models.regnet_y_3_2gf,
+    'regnet_y_8gf': models.regnet_y_8gf,
+}
+
+
 def show_fvcore_table(model_name: str, max_depth: int = 4, input_shape=(1, 3, 224, 224)):
     """Display fvcore's hierarchical FLOP table for a model"""
 
@@ -32,18 +89,12 @@ def show_fvcore_table(model_name: str, max_depth: int = 4, input_shape=(1, 3, 22
     print("=" * 100)
 
     # Load model
-    if model_name == 'resnet18':
-        model = models.resnet18(weights=None)
-    elif model_name == 'resnet34':
-        model = models.resnet34(weights=None)
-    elif model_name == 'resnet50':
-        model = models.resnet50(weights=None)
-    elif model_name == 'mobilenet_v2':
-        model = models.mobilenet_v2(weights=None)
-    else:
+    if model_name not in MODEL_REGISTRY:
         print(f"Unknown model: {model_name}")
+        print(f"Available models: {', '.join(sorted(MODEL_REGISTRY.keys()))}")
         return
 
+    model = MODEL_REGISTRY[model_name](weights=None)
     model.eval()
     input_tensor = torch.randn(*input_shape)
 
@@ -96,8 +147,8 @@ Examples:
     )
 
     parser.add_argument('--model', type=str, default='resnet18',
-                       choices=['resnet18', 'resnet34', 'resnet50', 'mobilenet_v2'],
-                       help='Model to analyze')
+                       choices=sorted(MODEL_REGISTRY.keys()),
+                       help='Model to analyze (40+ models available)')
 
     parser.add_argument('--max-depth', type=int, default=4,
                        help='Maximum depth of hierarchy to display (default: 4)')
