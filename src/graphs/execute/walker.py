@@ -1,4 +1,4 @@
-# characterize/walker.py
+# execute/walker.py
 
 class FXGraphWalker:
     def __init__(self, arch_profile, fused_registry=None):
