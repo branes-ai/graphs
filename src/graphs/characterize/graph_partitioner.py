@@ -34,6 +34,79 @@ class GraphPartitioner:
         self.subgraphs: List[SubgraphDescriptor] = []
         self.dependency_graph: Optional[nx.DiGraph] = None
 
+    @staticmethod
+    def _get_shape(meta):
+        """
+        Safely extract shape from tensor metadata.
+
+        Handles different metadata formats:
+        1. TensorMetadata object with .shape attribute (most common)
+        2. Plain tuple representing the shape directly
+        3. Other tensor-like objects with .shape
+
+        Note: Check for .shape FIRST because TensorMetadata is a namedtuple,
+        so isinstance(meta, tuple) is True, but we want meta.shape not the full tuple.
+        """
+        if hasattr(meta, 'shape'):
+            return meta.shape
+        elif isinstance(meta, tuple):
+            return meta
+        else:
+            raise ValueError(f"Unexpected meta type: {type(meta)}, value: {meta}")
+
+    @staticmethod
+    def _compute_total_elements(shape) -> int:
+        """
+        Safely compute total elements from shape, handling None/dynamic dimensions.
+
+        Args:
+            shape: Tuple of dimensions (may contain None for dynamic dims)
+
+        Returns:
+            Total number of elements (treats None as 1)
+        """
+        total = 1
+        for dim in shape:
+            if dim is not None and isinstance(dim, int):
+                total *= dim
+            elif dim is not None:
+                # Handle torch.SymInt or other symbolic types
+                try:
+                    total *= int(dim)
+                except (TypeError, ValueError):
+                    # Can't convert to int, treat as 1
+                    pass
+        return total
+
+    @staticmethod
+    def _safe_dim(shape, index: int, default: int = 1) -> int:
+        """
+        Safely extract a dimension from shape, handling None/dynamic/missing dims.
+
+        Args:
+            shape: Tuple of dimensions
+            index: Index to extract
+            default: Default value if index is out of bounds or value is None
+
+        Returns:
+            Integer dimension value
+        """
+        if index >= len(shape):
+            return default
+
+        dim = shape[index]
+        if dim is None:
+            return default
+
+        if isinstance(dim, int):
+            return dim
+
+        # Try to convert (e.g., torch.SymInt)
+        try:
+            return int(dim)
+        except (TypeError, ValueError):
+            return default
+
     def partition(self, fx_graph: GraphModule) -> PartitionReport:
         """
         Partition graph into subgraphs
@@ -156,9 +229,7 @@ class GraphPartitioner:
                 return None
 
             # Compute FLOPs for elementwise operations
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            total_elements = self._compute_total_elements(self._get_shape(meta))
 
             flops = total_elements if op_type == OperationType.ELEMENTWISE else 0
             macs = 0
@@ -169,9 +240,7 @@ class GraphPartitioner:
             for arg in node.args:
                 if hasattr(arg, 'meta') and 'tensor_meta' in arg.meta:
                     arg_meta = arg.meta['tensor_meta']
-                    size = 1
-                    for dim in arg_meta.shape:
-                        size *= dim
+                    size = self._compute_total_elements(self._get_shape(arg_meta))
                     input_bytes += size * 4  # float32
 
             # Output
@@ -181,10 +250,14 @@ class GraphPartitioner:
             weight_bytes = 0
 
             # Compute parallelism (simple for elementwise)
+            shape = self._get_shape(meta)
+            B = self._safe_dim(shape, 0)
+            C = self._safe_dim(shape, 1)
+
             parallelism = ParallelismDescriptor(
-                batch=meta.shape[0] if len(meta.shape) > 0 else 1,
-                channels=meta.shape[1] if len(meta.shape) > 1 else 1,
-                spatial=total_elements // (meta.shape[0] * (meta.shape[1] if len(meta.shape) > 1 else 1)),
+                batch=B,
+                channels=C,
+                spatial=total_elements // (B * C),
                 total_threads=total_elements,
                 vectorizable_dim='all'
             )
@@ -242,7 +315,11 @@ class GraphPartitioner:
         """Compute available parallelism dimensions"""
 
         if isinstance(module, nn.Conv2d):
-            B, C_in, H, W = meta.shape
+            shape = self._get_shape(meta)
+            B = self._safe_dim(shape, 0)
+            C_in = self._safe_dim(shape, 1)
+            H = self._safe_dim(shape, 2)
+            W = self._safe_dim(shape, 3)
 
             # Output dimensions
             C_out = module.out_channels
@@ -254,6 +331,17 @@ class GraphPartitioner:
 
             H_out = (H + 2 * P - K_h) // S_h + 1
             W_out = (W + 2 * P - K_w) // S_w + 1
+
+            # Validate output dimensions - can be 0 or negative if input shape was defaulted
+            if H_out <= 0 or W_out <= 0:
+                print(f"WARNING: Conv2d produced invalid output dimensions:")
+                print(f"  Node: {node.name}")
+                print(f"  Input shape: {shape}")
+                print(f"  H={H}, W={W}, K_h={K_h}, K_w={K_w}, S_h={S_h}, S_w={S_w}, P={P}")
+                print(f"  H_out={H_out}, W_out={W_out}")
+                print(f"  Using H_out=W_out=1 as fallback")
+                H_out = max(1, H_out)
+                W_out = max(1, W_out)
 
             # Check if depthwise
             is_depthwise = (module.groups == C_in == C_out and module.groups > 1)
@@ -273,16 +361,21 @@ class GraphPartitioner:
 
         elif isinstance(module, nn.Linear):
             # Assume input is (batch, features)
-            if len(meta.shape) == 2:
-                B, D_in = meta.shape
+            shape = self._get_shape(meta)
+            if len(shape) == 2:
+                B = self._safe_dim(shape, 0)
+                D_in = self._safe_dim(shape, 1)
             else:
                 # Flatten all but last dimension
-                B = 1
-                for dim in meta.shape[:-1]:
-                    B *= dim
-                D_in = meta.shape[-1]
+                B = self._compute_total_elements(shape[:-1])
+                D_in = self._safe_dim(shape, -1)
 
             D_out = module.out_features
+
+            # Validate dimensions
+            if B <= 0:
+                print(f"WARNING: Linear layer has invalid batch size B={B}, using B=1")
+                B = 1
 
             return ParallelismDescriptor(
                 batch=B,
@@ -294,26 +387,30 @@ class GraphPartitioner:
 
         elif isinstance(module, (nn.ReLU, nn.ReLU6, nn.GELU, nn.Hardswish)):
             # Elementwise operations
-            B = meta.shape[0] if len(meta.shape) > 0 else 1
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            shape = self._get_shape(meta)
+            B = self._safe_dim(shape, 0)
+            C = self._safe_dim(shape, 1)
+            total_elements = self._compute_total_elements(shape)
+
+            # Validate division to ensure spatial is positive
+            spatial = max(1, total_elements // (B * C)) if (B * C) > 0 else 1
 
             return ParallelismDescriptor(
                 batch=B,
-                channels=meta.shape[1] if len(meta.shape) > 1 else 1,
-                spatial=total_elements // (B * (meta.shape[1] if len(meta.shape) > 1 else 1)),
-                total_threads=total_elements,
+                channels=C,
+                spatial=spatial,
+                total_threads=max(1, total_elements),
                 vectorizable_dim='all'
             )
 
         elif isinstance(module, (nn.MaxPool2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
             # Pooling operations
             # Output shape from meta (since pooling reduces spatial dimensions)
-            B = meta.shape[0] if len(meta.shape) >= 1 else 1
-            C = meta.shape[1] if len(meta.shape) >= 2 else 1
-            H = meta.shape[2] if len(meta.shape) >= 3 else 1
-            W = meta.shape[3] if len(meta.shape) >= 4 else 1
+            shape = self._get_shape(meta)
+            B = self._safe_dim(shape, 0)
+            C = self._safe_dim(shape, 1)
+            H = self._safe_dim(shape, 2)
+            W = self._safe_dim(shape, 3)
 
             return ParallelismDescriptor(
                 batch=B,
@@ -325,30 +422,32 @@ class GraphPartitioner:
 
         elif isinstance(module, (nn.BatchNorm2d, nn.LayerNorm)):
             # Normalization operations
-            B = meta.shape[0] if len(meta.shape) > 0 else 1
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            shape = self._get_shape(meta)
+            B = self._safe_dim(shape, 0)
+            C = self._safe_dim(shape, 1)
+            total_elements = self._compute_total_elements(shape)
+
+            # Validate division to ensure spatial is positive
+            spatial = max(1, total_elements // (B * C)) if (B * C) > 0 else 1
 
             return ParallelismDescriptor(
                 batch=B,
-                channels=meta.shape[1] if len(meta.shape) > 1 else 1,
-                spatial=total_elements // (B * (meta.shape[1] if len(meta.shape) > 1 else 1)),
-                total_threads=total_elements,
+                channels=C,
+                spatial=spatial,
+                total_threads=max(1, total_elements),
                 vectorizable_dim='all'
             )
 
         else:
             # Default for unknown operations
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            shape = self._get_shape(meta)
+            total_elements = self._compute_total_elements(shape)
 
             return ParallelismDescriptor(
                 batch=1,
                 channels=1,
-                spatial=total_elements,
-                total_threads=total_elements
+                spatial=max(1, total_elements),
+                total_threads=max(1, total_elements)
             )
 
     def _compute_flops(self, node, meta, module, op_type: OperationType) -> Tuple[int, int]:
@@ -356,10 +455,14 @@ class GraphPartitioner:
 
         if op_type in [OperationType.CONV2D, OperationType.CONV2D_DEPTHWISE, OperationType.CONV2D_POINTWISE]:
             # Get INPUT shape from node arguments, not output metadata
-            # meta.shape is the OUTPUT shape, but we need INPUT shape for FLOP calculation
+            # self._get_shape(meta) is the OUTPUT shape, but we need INPUT shape for FLOP calculation
             if node.args and hasattr(node.args[0], 'meta') and 'tensor_meta' in node.args[0].meta:
                 input_meta = node.args[0].meta['tensor_meta']
-                B, C_in, H, W = input_meta.shape
+                input_shape = self._get_shape(input_meta)
+                B = self._safe_dim(input_shape, 0)
+                C_in = self._safe_dim(input_shape, 1)
+                H = self._safe_dim(input_shape, 2)
+                W = self._safe_dim(input_shape, 3)
             else:
                 # Fallback: use module parameters (less accurate for batch size)
                 B = 1
@@ -395,16 +498,15 @@ class GraphPartitioner:
             # Get INPUT shape from node arguments
             if node.args and hasattr(node.args[0], 'meta') and 'tensor_meta' in node.args[0].meta:
                 input_meta = node.args[0].meta['tensor_meta']
-                input_shape = input_meta.shape
+                input_shape = self._get_shape(input_meta)
 
                 if len(input_shape) == 2:
-                    B, D_in = input_shape
+                    B = self._safe_dim(input_shape, 0)
+                    D_in = self._safe_dim(input_shape, 1)
                 else:
                     # Flatten all but last dimension
-                    B = 1
-                    for dim in input_shape[:-1]:
-                        B *= dim
-                    D_in = input_shape[-1]
+                    B = self._compute_total_elements(input_shape[:-1])
+                    D_in = self._safe_dim(input_shape, -1)
             else:
                 # Fallback
                 B = 1
@@ -419,9 +521,7 @@ class GraphPartitioner:
 
         elif op_type in [OperationType.RELU, OperationType.RELU6, OperationType.GELU, OperationType.HARDSWISH]:
             # Activation functions: ~1 FLOP per element
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            total_elements = self._compute_total_elements(self._get_shape(meta))
 
             flops = total_elements
             macs = 0
@@ -431,9 +531,7 @@ class GraphPartitioner:
         elif op_type == OperationType.BATCHNORM:
             # BatchNorm: mean, variance, normalize, scale, shift
             # ~4-5 ops per element
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            total_elements = self._compute_total_elements(self._get_shape(meta))
 
             flops = total_elements * 5
             macs = 0
@@ -452,9 +550,7 @@ class GraphPartitioner:
 
         elif op_type == OperationType.ELEMENTWISE:
             # Element-wise operations (add, mul, etc.): 1 FLOP per element
-            total_elements = 1
-            for dim in meta.shape:
-                total_elements *= dim
+            total_elements = self._compute_total_elements(self._get_shape(meta))
 
             flops = total_elements
             macs = 0
@@ -469,19 +565,14 @@ class GraphPartitioner:
         """Compute memory traffic: input, output, weights"""
 
         # Output tensor
-        output_bytes = 1
-        for dim in meta.shape:
-            output_bytes *= dim
-        output_bytes *= 4  # assume float32
+        output_bytes = self._compute_total_elements(self._get_shape(meta)) * 4  # float32
 
         # Input tensors
         input_bytes = 0
         for arg in node.args:
             if hasattr(arg, 'meta') and 'tensor_meta' in arg.meta:
                 input_meta = arg.meta['tensor_meta']
-                size = 1
-                for dim in input_meta.shape:
-                    size *= dim
+                size = self._compute_total_elements(self._get_shape(input_meta))
                 input_bytes += size * 4
 
         # Weight tensors
