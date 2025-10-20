@@ -21,6 +21,7 @@ from .graph_structures import (
     PartitionReport,
     OperationType,
     BottleneckType,
+    PartitionReason,
     create_tensor_descriptor,
     classify_operation_type
 )
@@ -89,6 +90,11 @@ class GraphPartitioner:
             # Find dependencies
             depends_on = self._find_dependencies(node)
 
+            # Determine partition reasoning
+            partition_reason, partition_criteria, fusion_candidates = self._determine_partition_reason(
+                node, graph, flops, input_bytes + output_bytes + weight_bytes
+            )
+
             # Create descriptor
             subgraph = SubgraphDescriptor(
                 node_id=str(id(node)),
@@ -101,7 +107,10 @@ class GraphPartitioner:
                 total_output_bytes=output_bytes,
                 total_weight_bytes=weight_bytes,
                 parallelism=parallelism,
-                depends_on=depends_on
+                depends_on=depends_on,
+                partition_reason=partition_reason,
+                partition_criteria=partition_criteria,
+                fusion_candidates=fusion_candidates
             )
 
             return subgraph
@@ -340,6 +349,96 @@ class GraphPartitioner:
         # In a full implementation, would look at adjacent nodes
         return node.name
 
+    def _determine_partition_reason(
+        self, node, graph: GraphModule, flops: int, total_bytes: int
+    ) -> Tuple[PartitionReason, Dict[str, any], List[str]]:
+        """
+        Determine why this node is partitioned separately.
+
+        Returns:
+            (partition_reason, partition_criteria, fusion_candidates)
+        """
+        # Default thresholds (can be made configurable)
+        MAX_FUSION_FLOPS = 10e9  # 10 GFLOPs
+        MAX_FUSION_MEMORY = 100e6  # 100 MB
+
+        fusion_candidates = []
+        partition_criteria = {
+            'flops': flops,
+            'total_bytes': total_bytes,
+            'arithmetic_intensity': flops / total_bytes if total_bytes > 0 else 0.0
+        }
+
+        # Find adjacent nodes that could potentially be fused
+        # Look at users (nodes that consume this node's output)
+        users = list(node.users.keys())
+        fusable_users = []
+
+        for user in users:
+            if user.op == 'call_module':
+                try:
+                    user_module = graph.get_submodule(user.target)
+                    # Check if fusion is theoretically possible
+                    if self._can_fuse_operations(node, user, graph):
+                        fusable_users.append(user.name)
+                        fusion_candidates.append(str(id(user)))
+                except:
+                    pass
+
+        # Determine partition reason
+        if flops > MAX_FUSION_FLOPS:
+            partition_criteria['threshold_flops'] = MAX_FUSION_FLOPS
+            return PartitionReason.COMPUTE_THRESHOLD_EXCEEDED, partition_criteria, fusion_candidates
+
+        if total_bytes > MAX_FUSION_MEMORY:
+            partition_criteria['threshold_memory'] = MAX_FUSION_MEMORY
+            return PartitionReason.MEMORY_LIMIT_EXCEEDED, partition_criteria, fusion_candidates
+
+        # Check if there are fusion opportunities
+        if fusion_candidates:
+            partition_criteria['fusion_candidates'] = fusable_users
+            return PartitionReason.FUSION_OPPORTUNITY, partition_criteria, fusion_candidates
+
+        # Check data dependencies
+        if len(list(node.users.keys())) > 1:
+            # Multiple consumers - harder to fuse
+            partition_criteria['num_consumers'] = len(list(node.users.keys()))
+            return PartitionReason.DATA_DEPENDENCY, partition_criteria, fusion_candidates
+
+        # Default: operation boundary
+        return PartitionReason.OPERATION_BOUNDARY, partition_criteria, fusion_candidates
+
+    def _can_fuse_operations(self, node1, node2, graph: GraphModule) -> bool:
+        """
+        Check if two operations can theoretically be fused.
+
+        This is a simplified check - in practice, fusion depends on:
+        - Operation types (conv+bn, conv+relu, etc.)
+        - Data flow patterns
+        - Hardware capabilities
+        """
+        try:
+            module1 = graph.get_submodule(node1.target)
+            module2 = graph.get_submodule(node2.target)
+
+            # Common fusion patterns
+            fusable_pairs = [
+                (nn.Conv2d, nn.BatchNorm2d),
+                (nn.Conv2d, nn.ReLU),
+                (nn.Conv2d, nn.ReLU6),
+                (nn.BatchNorm2d, nn.ReLU),
+                (nn.Linear, nn.ReLU),
+                (nn.Linear, nn.GELU),
+            ]
+
+            for type1, type2 in fusable_pairs:
+                if isinstance(module1, type1) and isinstance(module2, type2):
+                    return True
+
+            return False
+        except:
+            return False
+
     def _build_dependency_graph(self) -> nx.DiGraph:
         """Build directed graph of dependencies"""
         G = nx.DiGraph()
@@ -395,6 +494,12 @@ class GraphPartitioner:
             bt_name = sg.recommended_bottleneck.value
             bottleneck_counts[bt_name] = bottleneck_counts.get(bt_name, 0) + 1
 
+        # Partition reason distribution
+        partition_reason_counts = {}
+        for sg in self.subgraphs:
+            pr_name = sg.partition_reason.value
+            partition_reason_counts[pr_name] = partition_reason_counts.get(pr_name, 0) + 1
+
         # Parallelism distribution
         parallelism_dist = {'<1K': 0, '1K-10K': 0, '10K-100K': 0, '100K-1M': 0, '>1M': 0}
         for sg in self.subgraphs:
@@ -430,6 +535,7 @@ class GraphPartitioner:
             max_arithmetic_intensity=max_ai,
             operation_type_counts=op_type_counts,
             bottleneck_distribution=bottleneck_counts,
+            partition_reason_distribution=partition_reason_counts,
             parallelism_distribution=parallelism_dist,
             critical_path_subgraphs=critical_path
         )
