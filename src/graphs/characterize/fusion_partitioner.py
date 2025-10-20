@@ -889,3 +889,230 @@ class FusionBasedPartitioner:
             return f"{bytes / 1e3:.2f}KB"
         else:
             return f"{bytes}B"
+
+    def analyze_balance(self) -> str:
+        """
+        Analyze balance and quality of fusion partitioning.
+
+        Provides insights into:
+        - Distribution of fusion sizes (histogram)
+        - Identification of missed fusion opportunities (single-op subgraphs)
+        - Detection of overly large fusions (potential issues)
+        - Top fusion patterns
+        - Bottleneck distribution
+
+        Returns:
+            Formatted report string with analysis and recommendations
+        """
+        if not self.fused_subgraphs:
+            return "No fused subgraphs to analyze"
+
+        lines = []
+        lines.append("=" * 100)
+        lines.append("FUSION BALANCE ANALYSIS")
+        lines.append("=" * 100)
+        lines.append("")
+
+        # Basic statistics
+        sizes = [sg.num_operators for sg in self.fused_subgraphs]
+        total_operators = sum(sizes)
+
+        lines.append(f"Total Fused Subgraphs: {len(self.fused_subgraphs)}")
+        lines.append(f"Total Operators: {total_operators}")
+        lines.append(f"Fusion Efficiency: {total_operators / len(self.fused_subgraphs):.2f}× "
+                    f"({len(self.fused_subgraphs)} execution units vs {total_operators} original ops)")
+        lines.append("")
+
+        # Fusion size distribution
+        lines.append("─" * 100)
+        lines.append("FUSION SIZE DISTRIBUTION")
+        lines.append("─" * 100)
+        lines.append(f"  Min:    {min(sizes)} operator{'s' if min(sizes) != 1 else ''}")
+        lines.append(f"  Max:    {max(sizes)} operators")
+        lines.append(f"  Mean:   {sum(sizes) / len(sizes):.2f} operators")
+
+        sorted_sizes = sorted(sizes)
+        median = sorted_sizes[len(sorted_sizes)//2]
+        lines.append(f"  Median: {median} operator{'s' if median != 1 else ''}")
+        lines.append("")
+
+        # Histogram
+        from collections import Counter
+        histogram = Counter(sizes)
+
+        lines.append("Fusion Size Histogram:")
+        max_count = max(histogram.values())
+        bar_scale = min(50, max_count)  # Limit bar width to 50 chars
+
+        for size in sorted(histogram.keys()):
+            count = histogram[size]
+            pct = count / len(self.fused_subgraphs) * 100
+            bar_width = int(count / max_count * bar_scale)
+            bar = "█" * bar_width
+            lines.append(f"  {size:3d} op{'s' if size != 1 else ' '}: {bar:<50} {count:4d} ({pct:5.1f}%)")
+        lines.append("")
+
+        # Identify potential issues
+        lines.append("─" * 100)
+        lines.append("FUSION QUALITY ANALYSIS")
+        lines.append("─" * 100)
+
+        # Single-operator subgraphs (missed opportunities)
+        single_op = [sg for sg in self.fused_subgraphs if sg.num_operators == 1]
+        if single_op:
+            pct = len(single_op) / len(self.fused_subgraphs) * 100
+            lines.append(f"⚠️  Single-Operator Subgraphs: {len(single_op)} ({pct:.1f}%)")
+            lines.append("    → Potential fusion opportunities missed")
+
+            # Show a few examples
+            if len(single_op) <= 5:
+                lines.append("    Examples:")
+                for sg in single_op[:5]:
+                    lines.append(f"      • {sg.fusion_pattern} (AI: {sg.arithmetic_intensity:.1f})")
+            else:
+                lines.append(f"    Top patterns:")
+                pattern_counts = Counter(sg.fusion_pattern for sg in single_op)
+                for pattern, count in pattern_counts.most_common(5):
+                    lines.append(f"      • {pattern}: {count}")
+            lines.append("")
+        else:
+            lines.append("✓  No single-operator subgraphs (excellent fusion coverage)")
+            lines.append("")
+
+        # Large fusions (>10 operators)
+        large_fusions = [sg for sg in self.fused_subgraphs if sg.num_operators > 10]
+        if large_fusions:
+            lines.append(f"⚠️  Large Fusions (>10 ops): {len(large_fusions)}")
+            lines.append("    → May indicate overly aggressive fusion")
+            lines.append("    → Could cause register pressure or reduced parallelism")
+            lines.append("")
+
+            # Show details for largest
+            sorted_large = sorted(large_fusions, key=lambda x: x.num_operators, reverse=True)
+            lines.append("    Largest fusions:")
+            for sg in sorted_large[:5]:
+                lines.append(f"      • Subgraph #{sg.subgraph_id}: {sg.num_operators} ops "
+                           f"({sg.fusion_pattern[:40]}...)" if len(sg.fusion_pattern) > 40
+                           else f"({sg.fusion_pattern})")
+            lines.append("")
+        else:
+            lines.append("✓  No excessively large fusions (well-balanced)")
+            lines.append("")
+
+        # Very large fusions (>20 operators) - critical warning
+        very_large = [sg for sg in self.fused_subgraphs if sg.num_operators > 20]
+        if very_large:
+            lines.append(f"🔴 CRITICAL: Very Large Fusions (>20 ops): {len(very_large)}")
+            lines.append("    → High risk of performance degradation")
+            lines.append("    → Consider revising fusion strategy")
+            lines.append("")
+
+        # Fusion pattern analysis
+        lines.append("─" * 100)
+        lines.append("TOP FUSION PATTERNS")
+        lines.append("─" * 100)
+
+        pattern_counts = Counter(sg.fusion_pattern for sg in self.fused_subgraphs)
+        pattern_stats = []
+        for pattern, count in pattern_counts.items():
+            # Get average metrics for this pattern
+            pattern_sgs = [sg for sg in self.fused_subgraphs if sg.fusion_pattern == pattern]
+            avg_ops = sum(sg.num_operators for sg in pattern_sgs) / len(pattern_sgs)
+            avg_ai = sum(sg.arithmetic_intensity for sg in pattern_sgs) / len(pattern_sgs)
+            avg_reduction = sum(sg.data_movement_reduction() for sg in pattern_sgs) / len(pattern_sgs) * 100
+
+            pattern_stats.append((pattern, count, avg_ops, avg_ai, avg_reduction))
+
+        # Sort by count
+        pattern_stats.sort(key=lambda x: x[1], reverse=True)
+
+        lines.append(f"{'Pattern':<40} {'Count':>8} {'Avg Ops':>10} {'Avg AI':>10} {'Mem Save':>10}")
+        lines.append("-" * 100)
+
+        for pattern, count, avg_ops, avg_ai, avg_reduction in pattern_stats[:15]:
+            pct = count / len(self.fused_subgraphs) * 100
+            pattern_display = pattern[:37] + "..." if len(pattern) > 40 else pattern
+            lines.append(f"{pattern_display:<40} {count:>4} ({pct:4.1f}%) {avg_ops:>8.1f} "
+                        f"{avg_ai:>10.1f} {avg_reduction:>9.1f}%")
+
+        if len(pattern_stats) > 15:
+            lines.append(f"... and {len(pattern_stats) - 15} more patterns")
+        lines.append("")
+
+        # Bottleneck distribution
+        lines.append("─" * 100)
+        lines.append("BOTTLENECK DISTRIBUTION")
+        lines.append("─" * 100)
+
+        bottleneck_counts = Counter(sg.recommended_bottleneck.value for sg in self.fused_subgraphs)
+
+        for bottleneck, count in sorted(bottleneck_counts.items(), key=lambda x: x[1], reverse=True):
+            pct = count / len(self.fused_subgraphs) * 100
+            bar_width = int(pct / 2)  # Scale to 50 chars max
+            bar = "█" * bar_width
+            lines.append(f"  {bottleneck.upper():<20} {bar:<50} {count:4d} ({pct:5.1f}%)")
+        lines.append("")
+
+        # Data movement savings summary
+        lines.append("─" * 100)
+        lines.append("DATA MOVEMENT SAVINGS")
+        lines.append("─" * 100)
+
+        total_external = sum(sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+                            for sg in self.fused_subgraphs)
+        total_internal = sum(sg.internal_bytes for sg in self.fused_subgraphs)
+        total_unfused = total_external + total_internal
+
+        if total_unfused > 0:
+            overall_reduction = total_internal / total_unfused * 100
+        else:
+            overall_reduction = 0.0
+
+        lines.append(f"  Memory Traffic (with fusion):    {self._format_bytes(total_external)}")
+        lines.append(f"  Memory Traffic (without fusion): {self._format_bytes(total_unfused)}")
+        lines.append(f"  Internal Bytes Saved:            {self._format_bytes(total_internal)}")
+        lines.append(f"  Overall Reduction:               {overall_reduction:.1f}%")
+        lines.append("")
+
+        # Recommendations
+        lines.append("─" * 100)
+        lines.append("RECOMMENDATIONS")
+        lines.append("─" * 100)
+
+        recommendations = []
+
+        if len(single_op) > len(self.fused_subgraphs) * 0.3:
+            recommendations.append("⚠️  High number of single-op subgraphs (>30%)")
+            recommendations.append("   → Review fusion heuristics to increase fusion coverage")
+
+        if len(large_fusions) > 0:
+            recommendations.append("⚠️  Some large fusions detected")
+            recommendations.append("   → Monitor for register pressure and reduced parallelism")
+            recommendations.append("   → Consider fusion size limits in the strategy")
+
+        if overall_reduction < 20:
+            recommendations.append("⚠️  Low data movement reduction (<20%)")
+            recommendations.append("   → Fusion may not be providing significant benefit")
+            recommendations.append("   → Review operator compatibility and fusion boundaries")
+        elif overall_reduction > 50:
+            recommendations.append("✓  Excellent data movement reduction (>50%)")
+            recommendations.append("   → Fusion strategy is highly effective")
+
+        compute_bound_pct = bottleneck_counts.get('compute_bound', 0) / len(self.fused_subgraphs) * 100
+        if compute_bound_pct > 70:
+            recommendations.append("✓  Majority compute-bound (good for GPU/TPU)")
+        elif compute_bound_pct < 30:
+            recommendations.append("⚠️  Majority memory-bound")
+            recommendations.append("   → May benefit from increased fusion to improve AI")
+
+        if recommendations:
+            for rec in recommendations:
+                lines.append(f"  {rec}")
+        else:
+            lines.append("  ✓ No significant issues detected")
+            lines.append("  ✓ Fusion strategy appears well-balanced")
+
+        lines.append("")
+        lines.append("=" * 100)
+
+        return "\n".join(lines)
