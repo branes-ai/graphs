@@ -288,11 +288,11 @@ class HierarchicalTableFormatter:
 
         # Header - Tensor Shape column right after #Parameters (operator info grouped together)
         if show_shapes:
-            lines.append(f"| {'Module':<30} | {'#Parameters':<20} | {'Tensor Shape':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
-            lines.append(f"|:{'-'*31}|:{'-'*21}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
+            lines.append(f"| {'Module':<35} | {'#Parameters':<20} | {'Tensor Shape':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
+            lines.append(f"|:{'-'*36}|:{'-'*21}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
         else:
-            lines.append(f"| {'Module':<30} | {'#Parameters':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
-            lines.append(f"|:{'-'*31}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
+            lines.append(f"| {'Module':<35} | {'#Parameters':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
+            lines.append(f"|:{'-'*36}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
 
         # Rows
         for module_path in sorted_modules:
@@ -332,9 +332,9 @@ class HierarchicalTableFormatter:
             # Format tensor shape (after #Parameters, before MACs)
             if show_shapes:
                 shape_str = str(stats.tensor_shape) if stats.tensor_shape else ''
-                lines.append(f"| {name:<30} | {param_str:<20} | {shape_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
+                lines.append(f"| {name:<35} | {param_str:<20} | {shape_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
             else:
-                lines.append(f"| {name:<30} | {param_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
+                lines.append(f"| {name:<35} | {param_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
 
             # Add parameter shapes for leaf modules (only if show_shapes is True)
             if show_shapes and stats.parameter_shapes:
@@ -353,7 +353,7 @@ class HierarchicalTableFormatter:
                     # Show parameter relative to display name, not full path
                     param_display_name = f"{param_indent}{module_display}.{param_name}"
                     # Parameter rows have shape in Tensor Shape column (3rd column)
-                    lines.append(f"| {param_display_name:<30} | {'':<20} | {param_shape_str:<20} | {'':<12} | {'':<12} | {'':<12} |")
+                    lines.append(f"| {param_display_name:<35} | {'':<20} | {param_shape_str:<20} | {'':<12} | {'':<12} | {'':<12} |")
 
         # Add footnote explaining compute metrics and shape distinctions
         lines.append("")
