@@ -539,3 +539,163 @@ class GraphPartitioner:
             parallelism_distribution=parallelism_dist,
             critical_path_subgraphs=critical_path
         )
+
+    def visualize_partitioning(self, fx_graph: GraphModule, max_nodes: Optional[int] = None) -> str:
+        """
+        Create side-by-side visualization of FX graph and partitioned subgraphs.
+
+        Shows original graph on left, partitioned subgraphs on right, aligned vertically.
+
+        Args:
+            fx_graph: The FX graph that was partitioned
+            max_nodes: Maximum number of nodes to show (None for all)
+
+        Returns:
+            String containing the formatted visualization
+        """
+        # Build mapping from node_id to subgraph
+        node_to_subgraph = {}
+        for sg in self.subgraphs:
+            node_to_subgraph[sg.node_id] = sg
+
+        # Collect all nodes in execution order
+        all_nodes = list(fx_graph.graph.nodes)
+
+        if max_nodes:
+            all_nodes = all_nodes[:max_nodes]
+
+        # Build visualization
+        lines = []
+
+        # Header
+        left_width = 50
+        right_width = 60
+        total_width = left_width + 4 + right_width
+
+        lines.append("=" * total_width)
+        lines.append("GRAPH PARTITIONING VISUALIZATION")
+        lines.append("=" * total_width)
+        lines.append("")
+
+        # Column headers
+        header_left = "FX Graph (Execution Order)".ljust(left_width)
+        header_right = "Partitioned Subgraphs"
+        lines.append(f"{header_left}    {header_right}")
+        lines.append("-" * left_width + "    " + "-" * right_width)
+        lines.append("")
+
+        # Process each node
+        subgraph_counter = 1
+        for idx, node in enumerate(all_nodes, 1):
+            node_id = str(id(node))
+
+            # LEFT SIDE: FX Node info
+            left_lines = self._format_fx_node(node, fx_graph, idx)
+
+            # RIGHT SIDE: Subgraph info (if exists)
+            if node_id in node_to_subgraph:
+                sg = node_to_subgraph[node_id]
+                right_lines = self._format_subgraph(sg, subgraph_counter)
+                subgraph_counter += 1
+            else:
+                right_lines = self._format_not_partitioned(node)
+
+            # Combine left and right, ensuring same number of lines
+            max_lines = max(len(left_lines), len(right_lines))
+            for i in range(max_lines):
+                left = left_lines[i] if i < len(left_lines) else ""
+                right = right_lines[i] if i < len(right_lines) else ""
+                lines.append(f"{left.ljust(left_width)}    {right}")
+
+            # Add spacing between nodes
+            lines.append("")
+
+        # Footer
+        if max_nodes and len(fx_graph.graph.nodes) > max_nodes:
+            lines.append(f"... ({len(fx_graph.graph.nodes) - max_nodes} more nodes not shown)")
+            lines.append("")
+
+        lines.append("=" * total_width)
+        lines.append(f"Total FX nodes: {len(fx_graph.graph.nodes)}")
+        lines.append(f"Partitioned subgraphs: {len(self.subgraphs)}")
+        lines.append(f"Nodes not partitioned: {len(fx_graph.graph.nodes) - len(self.subgraphs)}")
+        lines.append("=" * total_width)
+
+        return "\n".join(lines)
+
+    def _format_fx_node(self, node, graph: GraphModule, idx: int) -> List[str]:
+        """Format FX node information for left column"""
+        lines = []
+
+        # Node header
+        lines.append(f"{idx}. [{node.op}] {node.name}")
+
+        # Add details based on node type
+        if node.op == 'call_module':
+            try:
+                module = graph.get_submodule(node.target)
+                module_type = type(module).__name__
+
+                # Add module-specific details
+                if isinstance(module, nn.Conv2d):
+                    details = f"   Conv2d({module.in_channels}->{module.out_channels}, "
+                    details += f"{module.kernel_size}, stride={module.stride})"
+                    lines.append(details)
+                elif isinstance(module, nn.Linear):
+                    details = f"   Linear({module.in_features}->{module.out_features})"
+                    lines.append(details)
+                elif isinstance(module, nn.BatchNorm2d):
+                    details = f"   BatchNorm2d({module.num_features})"
+                    lines.append(details)
+                else:
+                    lines.append(f"   {module_type}")
+            except:
+                lines.append(f"   {node.target}")
+
+        elif node.op == 'call_function':
+            func_name = node.target.__name__ if hasattr(node.target, '__name__') else str(node.target)
+            lines.append(f"   Function: {func_name}")
+
+        elif node.op == 'call_method':
+            lines.append(f"   Method: {node.target}")
+
+        return lines
+
+    def _format_subgraph(self, sg: SubgraphDescriptor, counter: int) -> List[str]:
+        """Format subgraph information for right column"""
+        lines = []
+
+        # Subgraph header with connector
+        lines.append(f">> Subgraph #{counter}: {sg.node_name}")
+
+        # Operation type and compute
+        flops_str = f"{sg.flops / 1e9:.3f}G" if sg.flops > 1e9 else f"{sg.flops / 1e6:.1f}M"
+        lines.append(f"   Type: {sg.operation_type.value}, FLOPs: {flops_str}")
+
+        # Arithmetic intensity and bottleneck
+        lines.append(f"   AI: {sg.arithmetic_intensity:.1f} FLOPs/byte, "
+                    f"Bottleneck: {sg.recommended_bottleneck.value}")
+
+        # Partition reason
+        reason_line = f"   Partition: {sg.partition_reason.value}"
+        if sg.fusion_candidates:
+            candidates = sg.partition_criteria.get('fusion_candidates', [])
+            if candidates:
+                reason_line += f" ({len(candidates)} fusion candidates)"
+        lines.append(reason_line)
+
+        return lines
+
+    def _format_not_partitioned(self, node) -> List[str]:
+        """Format info for nodes that weren't partitioned"""
+        lines = []
+        lines.append("   (not partitioned)")
+
+        if node.op == 'call_function':
+            lines.append("   Reason: call_function not yet supported")
+        elif node.op == 'call_method':
+            lines.append("   Reason: call_method not yet supported")
+        elif node.op in ['placeholder', 'get_attr', 'output']:
+            lines.append("   Reason: graph structure node")
+
+        return lines
