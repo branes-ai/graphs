@@ -329,6 +329,19 @@ class PartitionCLI:
                 if strategy in self.results:
                     self.visualize_strategy(strategy, max_nodes=args.max_nodes)
 
+        # Balance analysis (fusion strategy only)
+        if args.analyze_balance:
+            if 'fusion' in self.results:
+                partitioner = self.results['fusion']['partitioner']
+                if hasattr(partitioner, 'analyze_balance'):
+                    print()
+                    analysis = partitioner.analyze_balance()
+                    print(analysis)
+                else:
+                    print("\nBalance analysis not available for fusion partitioner")
+            else:
+                print("\nBalance analysis requires --strategy fusion or --strategy all")
+
         # Summary
         print("\n" + "=" * 80)
         print("SUMMARY")
@@ -358,8 +371,11 @@ Examples:
   # Test fusion with visualization
   python cli/partitioner.py --model mobilenet_v2 --strategy fusion --visualize
 
-  # Detailed comparison
-  python cli/partitioner.py --model efficientnet_b0 --strategy all --compare --quantify
+  # Analyze fusion balance
+  python cli/partitioner.py --model resnet50 --strategy fusion --analyze-balance
+
+  # Full analysis with visualization and balance
+  python cli/partitioner.py --model efficientnet_b0 --strategy fusion --visualize --analyze-balance
         """
     )
 
@@ -379,6 +395,9 @@ Examples:
 
     parser.add_argument('--visualize', action='store_true',
                        help='Show side-by-side visualization of partitioning')
+
+    parser.add_argument('--analyze-balance', action='store_true',
+                       help='Analyze fusion balance and quality (requires --strategy fusion)')
 
     parser.add_argument('--max-nodes', type=int, default=20,
                        help='Maximum nodes to show in visualization')
