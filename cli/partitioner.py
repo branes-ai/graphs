@@ -288,8 +288,8 @@ class PartitionCLI:
             viz = partitioner.visualize_partitioning(self.fx_graph, max_nodes=max_nodes)
             print(viz)
         else:
-            print(f"Visualization not available for '{strategy}' strategy")
-            print("(Only 'unfused' strategy supports visualization currently)")
+            print(f"Error: Visualization not implemented for '{strategy}' strategy")
+            print("Note: Both 'unfused' and 'fusion' strategies support visualization")
 
     def run(self, args):
         """Main execution flow"""
