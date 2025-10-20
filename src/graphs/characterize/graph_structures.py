@@ -43,6 +43,17 @@ class BottleneckType(Enum):
     BALANCED = "balanced"
 
 
+class PartitionReason(Enum):
+    """Reasons for creating a partition boundary"""
+    OPERATION_BOUNDARY = "operation_boundary"  # Default: each operation analyzed separately
+    MEMORY_LIMIT_EXCEEDED = "memory_limit_exceeded"  # Would exceed memory threshold if fused
+    COMPUTE_THRESHOLD_EXCEEDED = "compute_threshold_exceeded"  # Would exceed compute threshold if fused
+    FUSION_INCOMPATIBLE = "fusion_incompatible"  # Operations cannot be fused together
+    DATA_DEPENDENCY = "data_dependency"  # Data dependencies prevent fusion
+    FUSION_OPPORTUNITY = "fusion_opportunity"  # Could be fused but policy keeps separate
+    PARALLEL_SCHEDULE_DIVERGENCE = "parallel_schedule_divergence"  # KPU scheduling constraints prevent fusion
+
+
 @dataclass
 class TensorDescriptor:
     """Tensor shape and memory information"""
@@ -124,6 +135,11 @@ class SubgraphDescriptor:
     # Hardware hints
     recommended_bottleneck: BottleneckType = BottleneckType.BALANCED
 
+    # Partition reasoning
+    partition_reason: PartitionReason = PartitionReason.OPERATION_BOUNDARY
+    partition_criteria: Dict[str, any] = field(default_factory=dict)  # Supporting data for the decision
+    fusion_candidates: List[str] = field(default_factory=list)  # Node IDs that could have been fused
+
     def __post_init__(self):
         """Compute derived fields"""
         if self.flops > 0 and (self.total_input_bytes + self.total_output_bytes + self.total_weight_bytes) > 0:
@@ -139,6 +155,38 @@ class SubgraphDescriptor:
                 self.recommended_bottleneck = BottleneckType.MEMORY_BOUND
             else:
                 self.recommended_bottleneck = BottleneckType.BANDWIDTH_BOUND
+
+    def partition_reasoning_summary(self) -> str:
+        """Generate human-readable explanation of partition reasoning"""
+        summary = f"Partition Reason: {self.partition_reason.value}\n"
+
+        if self.partition_reason == PartitionReason.OPERATION_BOUNDARY:
+            summary += "  This operation is analyzed as a separate subgraph (default behavior).\n"
+
+        elif self.partition_reason == PartitionReason.MEMORY_LIMIT_EXCEEDED:
+            summary += f"  Memory usage ({self.partition_criteria.get('total_bytes', 0) / 1e6:.2f} MB) "
+            summary += f"exceeds fusion threshold ({self.partition_criteria.get('threshold_memory', 0) / 1e6:.2f} MB).\n"
+
+        elif self.partition_reason == PartitionReason.COMPUTE_THRESHOLD_EXCEEDED:
+            summary += f"  Compute load ({self.partition_criteria.get('flops', 0) / 1e9:.2f} GFLOPs) "
+            summary += f"exceeds fusion threshold ({self.partition_criteria.get('threshold_flops', 0) / 1e9:.2f} GFLOPs).\n"
+
+        elif self.partition_reason == PartitionReason.FUSION_OPPORTUNITY:
+            candidates = self.partition_criteria.get('fusion_candidates', [])
+            summary += f"  Could be fused with: {', '.join(candidates)}\n"
+            summary += "  Kept separate by partitioning policy.\n"
+
+        elif self.partition_reason == PartitionReason.DATA_DEPENDENCY:
+            num_consumers = self.partition_criteria.get('num_consumers', 0)
+            summary += f"  Multiple data consumers ({num_consumers}) make fusion difficult.\n"
+
+        elif self.partition_reason == PartitionReason.FUSION_INCOMPATIBLE:
+            summary += "  Operation type cannot be fused with neighbors.\n"
+
+        elif self.partition_reason == PartitionReason.PARALLEL_SCHEDULE_DIVERGENCE:
+            summary += "  KPU scheduling constraints prevent fusion with neighbors.\n"
+
+        return summary
 
 
 @dataclass
@@ -230,6 +278,9 @@ class PartitionReport:
     # Bottleneck analysis
     bottleneck_distribution: Dict[str, int] = field(default_factory=dict)
 
+    # Partition reasoning
+    partition_reason_distribution: Dict[str, int] = field(default_factory=dict)
+
     # Concurrency analysis
     concurrency: Optional[ConcurrencyDescriptor] = None
 
@@ -251,6 +302,9 @@ Operation types:
 
 Bottleneck distribution:
 {self._format_dict(self.bottleneck_distribution)}
+
+Partition reasons:
+{self._format_dict(self.partition_reason_distribution)}
 
 Parallelism distribution:
 {self._format_dict(self.parallelism_distribution)}

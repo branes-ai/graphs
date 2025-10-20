@@ -146,32 +146,32 @@ def main():
 
     try:
         fx_graph = symbolic_trace(model)
-        print("    ✓ FX tracing successful")
+        print("    FX tracing successful")
     except Exception as e:
-        print(f"    ✗ FX tracing failed: {e}")
+        print(f"    FX tracing failed: {e}")
         return
 
     # Step 3: Analyze FX graph nodes
     print("[3/6] Analyzing FX graph nodes...")
     fx_analysis = analyze_fx_graph_nodes(fx_graph)
-    print(f"    ✓ Found {fx_analysis['total_nodes']} nodes in FX graph")
+    print(f"    Found {fx_analysis['total_nodes']} nodes in FX graph")
     print_fx_graph_summary(fx_graph, fx_analysis)
 
     # Step 4: Propagate shapes through the graph
     print("\n[4/6] Propagating shapes...")
     shape_prop = ShapeProp(fx_graph)
     shape_prop.propagate(input_tensor)
-    print("    ✓ Shape propagation complete")
+    print("    Shape propagation complete")
 
     # Step 5: Partition the graph
     print("\n[5/6] Partitioning graph into subgraphs...")
     partitioner = GraphPartitioner()
     report = partitioner.partition(fx_graph)
-    print(f"    ✓ Created {report.total_subgraphs} subgraphs")
+    print(f"    Created {report.total_subgraphs} subgraphs")
 
     # Show mapping from FX nodes to subgraphs
     print("\n" + "=" * 80)
-    print("FX NODE → SUBGRAPH MAPPING")
+    print("FX NODE -> SUBGRAPH MAPPING")
     print("=" * 80)
     print(f"\nFX Graph has {fx_analysis['call_module_counts'].get('Conv2d', 0) + fx_analysis['call_module_counts'].get('Linear', 0) + fx_analysis['call_module_counts'].get('BatchNorm2d', 0) + fx_analysis['call_module_counts'].get('ReLU', 0)} call_module nodes")
     print(f"Created {report.total_subgraphs} subgraphs from call_module nodes")
@@ -203,9 +203,9 @@ def main():
                                 sum(fx_analysis['call_method_counts'].values()))
         if total_not_partitioned > 0:
             print(f"\n  Total: {total_not_partitioned} nodes not partitioned")
-            print(f"  → These operations are not included in FLOPs/memory analysis")
+            print(f"  -> These operations are not included in FLOPs/memory analysis")
     else:
-        print("\n⚠ WARNING: No subgraphs created!")
+        print("\nWARNING: No subgraphs created!")
         print("   This might indicate:")
         print("   1. The model has no call_module nodes (unusual)")
         print("   2. FX tracing didn't capture the module structure")
@@ -215,7 +215,7 @@ def main():
     print("[6/6] Analyzing concurrency...")
     analyzer = ConcurrencyAnalyzer()
     concurrency = analyzer.analyze(report)
-    print(f"    ✓ Found {concurrency.num_stages} execution stages")
+    print(f"    Found {concurrency.num_stages} execution stages")
 
     # Display results
     print("\n" + "=" * 80)
@@ -247,6 +247,27 @@ def main():
         print(f"   Arithmetic Intensity: {sg.arithmetic_intensity:.2f} FLOPs/byte")
         print(f"   Bottleneck: {sg.recommended_bottleneck.value}")
         print(f"   Parallelism: {parallelism_str}")
+        print(f"   Partition Reason: {sg.partition_reason.value}")
+        if sg.fusion_candidates:
+            print(f"   Fusion Candidates: {len(sg.fusion_candidates)} operations")
+
+    # Show partition reasoning examples
+    print("\n" + "=" * 80)
+    print("PARTITION REASONING EXAMPLES")
+    print("=" * 80)
+    print("\nShowing why operations were partitioned separately:\n")
+
+    # Show a few diverse examples
+    examples_shown = 0
+    seen_reasons = set()
+    for sg in report.subgraphs:
+        if sg.partition_reason.value not in seen_reasons and examples_shown < 3:
+            print(f"\n{sg.node_name} ({sg.operation_type.value}):")
+            print(sg.partition_reasoning_summary())
+            seen_reasons.add(sg.partition_reason.value)
+            examples_shown += 1
+        if examples_shown >= 3:
+            break
 
     # Interactive exploration prompts
     print("\n" + "=" * 80)

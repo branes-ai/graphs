@@ -360,14 +360,14 @@ Graph-level Parallelism:
   Critical path length: {len(critical_path)} sequential operations
 
 Parallelism Potential:
-  - Graph-level: {max_parallel}× (max ops that can run simultaneously)
-  - Batch-level: {batch_size}× (independent samples in batch)
+  - Graph-level: {max_parallel}x (max ops that can run simultaneously)
+  - Batch-level: {batch_size}x (independent samples in batch)
   - Thread-level: {min_threads:,} to {max_threads:,} threads per op (avg: {avg_threads:,})
 
 Validation Checks:
-  ✓ With batch={batch_size}: Speedup limited to {max_parallel}× by graph structure
-  ✓ With batch=32: Could theoretically reach {max_parallel * 32}× speedup
-  ✓ Hardware with <{max_parallel} compute units will be under-utilized
+  - With batch={batch_size}: Speedup limited to {max_parallel}x by graph structure
+  - With batch=32: Could theoretically reach {max_parallel * 32}x speedup
+  - Hardware with <{max_parallel} compute units will be under-utilized
 
 Performance Implications:
   - Single-sample inference (batch=1) is inherently sequential
