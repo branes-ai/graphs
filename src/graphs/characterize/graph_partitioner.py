@@ -50,9 +50,19 @@ class GraphPartitioner:
         call_module_nodes = [node for node in fx_graph.graph.nodes
                             if node.op == 'call_module']
 
-        # Analyze each node
+        # Also extract call_function nodes (like add, flatten, etc.)
+        call_function_nodes = [node for node in fx_graph.graph.nodes
+                              if node.op == 'call_function']
+
+        # Analyze call_module nodes
         for node in call_module_nodes:
             subgraph = self._analyze_node(node, fx_graph)
+            if subgraph:
+                self.subgraphs.append(subgraph)
+
+        # Analyze call_function nodes
+        for node in call_function_nodes:
+            subgraph = self._analyze_function_node(node, fx_graph)
             if subgraph:
                 self.subgraphs.append(subgraph)
 
@@ -117,6 +127,98 @@ class GraphPartitioner:
 
         except Exception as e:
             print(f"Error analyzing node {node.name}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _analyze_function_node(self, node, graph: GraphModule) -> Optional[SubgraphDescriptor]:
+        """Analyze a call_function node (like add, flatten, etc.)"""
+
+        try:
+            # Get tensor metadata
+            meta = node.meta.get('tensor_meta')
+            if not meta:
+                # Skip nodes without tensor metadata
+                return None
+
+            # Classify function
+            import torch
+            func_name = node.target.__name__ if hasattr(node.target, '__name__') else str(node.target)
+
+            # Determine operation type based on function
+            if func_name in ['add', 'mul', 'sub', 'div']:
+                op_type = OperationType.ELEMENTWISE
+            elif func_name == 'flatten':
+                # Flatten is just a view operation, no FLOPs
+                return None
+            else:
+                # Skip unknown functions
+                return None
+
+            # Compute FLOPs for elementwise operations
+            total_elements = 1
+            for dim in meta.shape:
+                total_elements *= dim
+
+            flops = total_elements if op_type == OperationType.ELEMENTWISE else 0
+            macs = 0
+
+            # Compute memory traffic
+            # Input: sum of all input tensors
+            input_bytes = 0
+            for arg in node.args:
+                if hasattr(arg, 'meta') and 'tensor_meta' in arg.meta:
+                    arg_meta = arg.meta['tensor_meta']
+                    size = 1
+                    for dim in arg_meta.shape:
+                        size *= dim
+                    input_bytes += size * 4  # float32
+
+            # Output
+            output_bytes = total_elements * 4
+
+            # No weights for elementwise ops
+            weight_bytes = 0
+
+            # Compute parallelism (simple for elementwise)
+            parallelism = ParallelismDescriptor(
+                batch=meta.shape[0] if len(meta.shape) > 0 else 1,
+                channels=meta.shape[1] if len(meta.shape) > 1 else 1,
+                spatial=total_elements // (meta.shape[0] * (meta.shape[1] if len(meta.shape) > 1 else 1)),
+                total_threads=total_elements,
+                vectorizable_dim='all'
+            )
+
+            # Find dependencies
+            depends_on = self._find_dependencies(node)
+
+            # Determine partition reasoning
+            partition_reason, partition_criteria, fusion_candidates = self._determine_partition_reason(
+                node, graph, flops, input_bytes + output_bytes + weight_bytes
+            )
+
+            # Create descriptor
+            subgraph = SubgraphDescriptor(
+                node_id=str(id(node)),
+                node_name=node.name,
+                operation_type=op_type,
+                fusion_pattern=node.name,
+                flops=flops,
+                macs=macs,
+                total_input_bytes=input_bytes,
+                total_output_bytes=output_bytes,
+                total_weight_bytes=weight_bytes,
+                parallelism=parallelism,
+                depends_on=depends_on,
+                partition_reason=partition_reason,
+                partition_criteria=partition_criteria,
+                fusion_candidates=fusion_candidates
+            )
+
+            return subgraph
+
+        except Exception as e:
+            print(f"Error analyzing function node {node.name}: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -205,6 +307,37 @@ class GraphPartitioner:
                 vectorizable_dim='all'
             )
 
+        elif isinstance(module, (nn.MaxPool2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
+            # Pooling operations
+            # Output shape from meta (since pooling reduces spatial dimensions)
+            B = meta.shape[0] if len(meta.shape) >= 1 else 1
+            C = meta.shape[1] if len(meta.shape) >= 2 else 1
+            H = meta.shape[2] if len(meta.shape) >= 3 else 1
+            W = meta.shape[3] if len(meta.shape) >= 4 else 1
+
+            return ParallelismDescriptor(
+                batch=B,
+                channels=C,
+                spatial=H * W,
+                total_threads=B * C * H * W,
+                vectorizable_dim='channels'
+            )
+
+        elif isinstance(module, (nn.BatchNorm2d, nn.LayerNorm)):
+            # Normalization operations
+            B = meta.shape[0] if len(meta.shape) > 0 else 1
+            total_elements = 1
+            for dim in meta.shape:
+                total_elements *= dim
+
+            return ParallelismDescriptor(
+                batch=B,
+                channels=meta.shape[1] if len(meta.shape) > 1 else 1,
+                spatial=total_elements // (B * (meta.shape[1] if len(meta.shape) > 1 else 1)),
+                total_threads=total_elements,
+                vectorizable_dim='all'
+            )
+
         else:
             # Default for unknown operations
             total_elements = 1
@@ -222,7 +355,17 @@ class GraphPartitioner:
         """Compute FLOPs and MACs for operation"""
 
         if op_type in [OperationType.CONV2D, OperationType.CONV2D_DEPTHWISE, OperationType.CONV2D_POINTWISE]:
-            B, C_in, H, W = meta.shape
+            # Get INPUT shape from node arguments, not output metadata
+            # meta.shape is the OUTPUT shape, but we need INPUT shape for FLOP calculation
+            if node.args and hasattr(node.args[0], 'meta') and 'tensor_meta' in node.args[0].meta:
+                input_meta = node.args[0].meta['tensor_meta']
+                B, C_in, H, W = input_meta.shape
+            else:
+                # Fallback: use module parameters (less accurate for batch size)
+                B = 1
+                C_in = module.in_channels
+                H = W = 224  # Assume default, will be inaccurate
+
             C_out = module.out_channels
             K_h, K_w = (module.kernel_size if isinstance(module.kernel_size, tuple)
                        else (module.kernel_size, module.kernel_size))
@@ -249,13 +392,23 @@ class GraphPartitioner:
             return flops, macs
 
         elif op_type == OperationType.LINEAR:
-            if len(meta.shape) == 2:
-                B, D_in = meta.shape
+            # Get INPUT shape from node arguments
+            if node.args and hasattr(node.args[0], 'meta') and 'tensor_meta' in node.args[0].meta:
+                input_meta = node.args[0].meta['tensor_meta']
+                input_shape = input_meta.shape
+
+                if len(input_shape) == 2:
+                    B, D_in = input_shape
+                else:
+                    # Flatten all but last dimension
+                    B = 1
+                    for dim in input_shape[:-1]:
+                        B *= dim
+                    D_in = input_shape[-1]
             else:
+                # Fallback
                 B = 1
-                for dim in meta.shape[:-1]:
-                    B *= dim
-                D_in = meta.shape[-1]
+                D_in = module.in_features
 
             D_out = module.out_features
 
@@ -283,6 +436,27 @@ class GraphPartitioner:
                 total_elements *= dim
 
             flops = total_elements * 5
+            macs = 0
+
+            return flops, macs
+
+        elif op_type in [OperationType.MAXPOOL, OperationType.AVGPOOL]:
+            # Pooling: comparisons (MaxPool) or additions/divisions (AvgPool)
+            # FVCore doesn't count these, so we return 0 to match
+            # (Technically MaxPool does comparisons, AvgPool does adds/divs)
+            return 0, 0
+
+        elif op_type == OperationType.ADAPTIVEAVGPOOL:
+            # Adaptive pooling: FVCore doesn't count these
+            return 0, 0
+
+        elif op_type == OperationType.ELEMENTWISE:
+            # Element-wise operations (add, mul, etc.): 1 FLOP per element
+            total_elements = 1
+            for dim in meta.shape:
+                total_elements *= dim
+
+            flops = total_elements
             macs = 0
 
             return flops, macs
@@ -673,7 +847,7 @@ class GraphPartitioner:
         lines.append(f"   Type: {sg.operation_type.value}, FLOPs: {flops_str}")
 
         # Arithmetic intensity and bottleneck
-        lines.append(f"   AI: {sg.arithmetic_intensity:.1f} FLOPs/byte, "
+        lines.append(f"   Arithmetic Intensity: {sg.arithmetic_intensity:.1f} FLOPs/byte, "
                     f"Bottleneck: {sg.recommended_bottleneck.value}")
 
         # Partition reason

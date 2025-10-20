@@ -152,7 +152,7 @@ class PartitionCLI:
         print(f"\nSubgraphs: {result['num_subgraphs']}")
         print(f"Total FLOPs: {result['total_flops'] / 1e9:.2f} G")
         print(f"Memory Traffic: {result['total_memory'] / 1e6:.2f} MB")
-        print(f"Avg Arithmetic Intensity: {result['avg_ai']:.2f} FLOPs/byte")
+        print(f"Arithmetic Intensity: {result['avg_ai']:.2f} FLOPs/byte")
 
         if strategy == 'fusion':
             print(f"\nFusion Stats:")
@@ -224,7 +224,7 @@ class PartitionCLI:
         print(row)
 
         # Arithmetic Intensity
-        row = f"{'Avg AI (FLOPs/byte)':<30}"
+        row = f"{'Arithmetic Intensity':<30}"
         for strategy in strategies:
             ai = self.results[strategy]['avg_ai']
             row += f"{ai:<20.2f}"
