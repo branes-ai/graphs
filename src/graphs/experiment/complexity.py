@@ -2,17 +2,17 @@
 
 import torch
 import pandas as pd
-from graphs.models.mlp import make_mlp
-from graphs.models.conv2d_stack import make_conv2d
-from graphs.models.resnet_block import make_resnet_block
+from graphs.subgraphs.mlp import make_mlp
+from graphs.subgraphs.conv2d_stack import make_conv2d
+from graphs.subgraphs.resnet_block import make_resnet_block
 
-from graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
-from graphs.characterize.fused_ops import default_registry
-from graphs.characterize.sweep import SweepHarness
+from graphs.hw.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
+from graphs.execute.fused_ops import default_registry
+from graphs.experiment.sweep import SweepHarness
 
 def main():
-    # Define models and inputs
-    models = {
+    # Define subgraphs and inputs
+    subgraphs = {
         "MLP": make_mlp(in_dim=128, hidden_dim=256, out_dim=64),
         "Conv2D": make_conv2d(in_channels=3, out_channels=16, kernel_size=3),
         "ResNetBlock": make_resnet_block(in_channels=64, out_channels=128)
@@ -29,15 +29,15 @@ def main():
     fused_registry = default_registry()
 
     # Run sweep
-    harness = SweepHarness(models, inputs, arch_profiles, fused_registry)
+    harness = SweepHarness(subgraphs, inputs, arch_profiles, fused_registry)
     results = harness.run()
 
     # Print and save
     rows = []
     for entry in results:
-        print(f"{entry['model']} on {entry['arch']}: {entry['metrics']}")
+        print(f"{entry['subgraph']} on {entry['arch']}: {entry['metrics']}")
         row = {
-            "Model": entry["model"],
+            "Subgraph": entry["subgraph"],
             "Architecture": entry["arch"],
             **entry["metrics"]
         }

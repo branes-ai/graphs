@@ -1,4 +1,4 @@
-# characterize/fused_ops.py
+# execute/fused_ops.py
 
 import torch.nn as nn
 

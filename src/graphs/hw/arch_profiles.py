@@ -1,6 +1,6 @@
 # characterize/arch_profiles.py
 
-from graphs.characterize.tiling import (
+from graphs.compile.tiling import (
     CPUTilingStrategy,
     GPUTilingStrategy,
     TPUTilingStrategy,
