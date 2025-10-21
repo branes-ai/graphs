@@ -231,6 +231,73 @@ From **concurrency analysis** (`2025-10-19_graph_partitioning.md`):
 
 **Key Insight**: CPU is severely memory-bandwidth-bound. Even with VNNI acceleration for INT8, the bottleneck is memory bandwidth, not compute. This is why CPU INT8 shows no speedup over FP32.
 
+### 6. Implemented KPU Hardware Mapper
+
+**Description**: Tile-based edge accelerator mapper with 256KB scratchpad constraints
+
+**Implementation**:
+- Created `kpu_mapper.py` (450 lines)
+- `TileConfiguration` dataclass for tiling analysis
+- `KPUMapper` class with tile allocation and scratchpad management
+- 64 tiles (compute units), 256KB scratchpad per tile
+- Tiling overhead modeling (10% per iteration)
+- Optimized for INT8/INT4 quantization
+
+**Algorithm**:
+1. Analyze if operation fits in 256KB scratchpad
+2. If not, calculate tiling strategy (keep weights, tile input/output)
+3. Determine number of tiles and iterations needed
+4. Calculate tiling overhead (load/process/store cycles)
+5. Apply precision-aware roofline model
+6. Account for 10× better energy efficiency vs CPU
+
+**Key Features**:
+- Scratchpad constraint: 256KB per tile (hard limit)
+- Tiling overhead: 10% per iteration beyond first
+- Quantization optimized: INT8 (10× faster than FP32), INT4 (20× faster)
+- Energy efficient: 0.1e-12 J/FLOP (10× better than CPU, similar to GPU)
+- Full utilization: 100% (all 64 tiles used)
+
+### 7. Created GPU/CPU/KPU Comparison Test
+
+**Description**: Comprehensive 3-way hardware comparison across 4 precisions
+
+**Implementation**:
+- Created `test_gpu_cpu_kpu_comparison.py` (390 lines)
+- Tests 5 hardware configs: H100 GPU, Intel CPU (AVX-512/AVX-2), AMD CPU, KPU-T100
+- 4 precisions tested: FP32, BF16, INT8, INT4
+- 20 total hardware/precision combinations
+- Multiple comparison tables: speedup, quantization, energy, bottleneck analysis
+
+**Results (ResNet-18, Batch=1)**:
+
+**Performance Comparison (INT8)**:
+- GPU (H100): 0.024 ms (fastest, 27.1× faster than CPU baseline)
+- KPU (T100): 0.050 ms (middle ground, 13.1× faster than CPU baseline, 12.0× faster than Intel CPU)
+- CPU (Intel AVX-512): 0.602 ms (slowest, 1.1× faster than baseline)
+
+**Quantization Speedup (FP32 → INT8)**:
+- GPU: 9.16× (Tensor Cores provide massive benefit)
+- KPU: 4.68× (optimized for quantization)
+- CPU: 1.00× (bandwidth-bound, no benefit)
+
+**Energy Efficiency (INT8)**:
+- KPU: 0.001 J/inference (1.4× better than GPU!)
+- GPU: 0.001 J/inference
+- CPU: 0.002 J/inference (least efficient)
+
+**Utilization**:
+- GPU: 38.3% (limited by batch=1 parallelism)
+- KPU: 100.0% (all 64 tiles used, tile-based processing)
+- CPU: 100.0% (all 16 cores used)
+
+**Bottleneck Analysis (FP32)**:
+- GPU: 62.5% compute-bound, 34.4% bandwidth-bound
+- KPU: 59.4% compute-bound, 37.5% bandwidth-bound (similar to GPU!)
+- CPU: 0% compute-bound, 90.6% bandwidth-bound
+
+**Key Insight**: KPU is the sweet spot for edge deployment - it's 12× faster than CPU with similar energy efficiency to GPU, and achieves 100% utilization even at batch=1. Quantization provides 4.7× speedup on KPU vs 1.0× on CPU.
+
 ---
 
 ## Design: Hardware Mapper Architecture
@@ -314,6 +381,19 @@ class HardwareMapper(ABC):
    - Impact: Quantization strategy must be hardware-specific
    - Action: Use INT8 on GPU for speed, on CPU for model size reduction only
 
+8. **KPU is the Sweet Spot for Edge Deployment**:
+   - KPU INT8: 0.050 ms (12× faster than CPU, 2× slower than GPU)
+   - Energy: 0.001 J (1.4× better than GPU, 2× better than CPU)
+   - Impact: KPU provides best performance/watt for edge devices
+   - Action: Deploy quantized models (INT8/INT4) on KPU for edge inference
+
+9. **Quantization Speedup is Hardware-Dependent**:
+   - GPU: 9.16× speedup (FP32 → INT8) - Tensor Cores
+   - KPU: 4.68× speedup (FP32 → INT8) - Optimized for quantization
+   - CPU: 1.00× speedup (FP32 → INT8) - Bandwidth-bound
+   - Impact: Quantization only helps when compute-bound
+   - Action: Use quantization on GPU/KPU, not CPU
+
 ---
 
 ## Files Created/Modified
@@ -322,10 +402,13 @@ class HardwareMapper(ABC):
 - ✅ `src/graphs/characterize/hardware_mapper.py` (560 lines) - Base classes, precision profiles, resource models
 - ✅ `src/graphs/characterize/gpu_mapper.py` (250 lines) - GPU SM allocation algorithm
 - ✅ `src/graphs/characterize/cpu_mapper.py` (436 lines) - CPU multi-core mapper with SIMD/vector units
+- ✅ `src/graphs/characterize/kpu_mapper.py` (450 lines) - KPU tile-based mapper with scratchpad constraints
 
 ### Tests/Examples
 - ✅ `examples/test_hardware_mapping.py` (350 lines) - GPU validation on ResNet-18
 - ✅ `examples/test_cpu_vs_gpu_mapping.py` (297 lines) - CPU vs GPU comparison across 4 hardware configs
+- ✅ `examples/test_gpu_cpu_kpu_comparison.py` (390 lines) - 3-way comparison (GPU/CPU/KPU) across 4 precisions
+- ✅ `examples/test_kpu_simple.py` (90 lines) - Simple KPU debugging test
 
 ### Documentation
 - ✅ `docs/sessions/2025-10-21_phase2_hardware_mapping_start.md` (this file)
@@ -334,7 +417,7 @@ class HardwareMapper(ABC):
 - ✅ `docs/sessions/README.md` (documentation system guide)
 - ✅ `docs/sessions/template.md` (session template)
 
-**Total**: ~2,500 lines of code + documentation
+**Total**: ~3,400 lines of code + documentation
 
 ---
 
@@ -407,6 +490,34 @@ while i < n:
 - On compute-bound hardware (GPU), quantization provides massive speedup
 - Always analyze bottleneck type before optimizing
 
+### Challenge 4: UnboundLocalError in KPU Tiling Analysis
+**Issue**: `UnboundLocalError: cannot access local variable 'input_per_tile' where it is not associated with a value`
+
+**Root Cause**: Variables `input_per_tile`, `weight_per_tile`, `output_per_tile` were only defined in the `if fits_in_scratchpad` branch, not in the `else` branch
+
+**Investigation**:
+1. Created simple test to reproduce error
+2. Found that variables were defined inside conditional blocks
+3. Python requires all variables to be initialized before use in return statement
+
+**Final Solution**: Initialize all variables before conditional logic:
+```python
+# Initialize variables (will be overwritten below)
+input_per_tile = input_bytes
+weight_per_tile = weight_bytes
+output_per_tile = output_bytes
+bytes_per_tile = total_bytes
+
+if fits_in_scratchpad:
+    # Use defaults
+    ...
+else:
+    # Override with tiled values
+    ...
+```
+
+**Lessons Learned**: When using conditional logic with multiple code paths, always initialize variables before branches to avoid UnboundLocalError. Python's variable scoping rules require this.
+
 ---
 
 ## Next Steps
@@ -414,14 +525,16 @@ while i < n:
 ### Immediate (Next Session)
 - [ ] Fix fusion partitioner to properly track dependencies (populate `depends_on` field)
 - [ ] Extract true execution stages from dependency graph (replace 3-ops/stage workaround)
-- [ ] Implement KPU hardware mapper (tile allocation with 256KB scratchpad constraint)
+- [ ] Implement TPU hardware mapper (systolic array allocation)
 - [ ] Test on MobileNet-V2 and EfficientNet-B0 for additional validation
 
 ### Short Term (This Week)
 - [x] ~~Implement CPU hardware mapper~~ **COMPLETED** (AVX-2, AVX-512, AMX, VNNI)
-- [ ] Implement TPU hardware mapper
+- [x] ~~Implement KPU hardware mapper~~ **COMPLETED** (tile-based, 256KB scratchpad)
 - [x] ~~Create CPU vs GPU comparative analysis~~ **COMPLETED** (4 hardware configs, 3 precisions)
-- [ ] Create full comparative analysis across all 4 hardware types (GPU/TPU/KPU/CPU)
+- [x] ~~Create GPU/CPU/KPU comparison~~ **COMPLETED** (3 hardware types, 4 precisions)
+- [ ] Implement TPU hardware mapper
+- [ ] Create full 4-way comparative analysis (GPU/TPU/KPU/CPU)
 - [ ] Validate latency estimates against published benchmarks (if available)
 - [ ] Document hardware mapping methodology in main docs
 
@@ -492,13 +605,30 @@ while i < n:
 - GPU INT8: 0.067 J (60.7% savings vs FP32)
 - CPU INT8: 0.288 J (0% savings - bandwidth-bound)
 
+**KPU (T100)**:
+- Average utilization: 100%
+- FP32 latency: 0.234 ms
+- INT8 latency: 0.050 ms (4.68× faster than FP32)
+- INT4 latency: 0.048 ms (4.88× faster than FP32)
+- Bottleneck: 59.4% compute-bound, 37.5% bandwidth-bound (similar to GPU!)
+- GPU speedup: 2.1× (INT8: GPU 0.024 ms vs KPU 0.050 ms)
+- CPU speedup: 12.0× (INT8: CPU 0.602 ms vs KPU 0.050 ms)
+
+**Energy Efficiency (3-way comparison INT8)**:
+- GPU: 0.001 J
+- KPU: 0.001 J (1.4× better than GPU!)
+- CPU: 0.002 J
+
 ### Code Metrics
-- Lines of code added: ~1,900 lines
+- Lines of code added: ~2,800 lines
   - `hardware_mapper.py`: 560 lines
   - `gpu_mapper.py`: 250 lines
   - `cpu_mapper.py`: 436 lines
+  - `kpu_mapper.py`: 450 lines
   - `test_hardware_mapping.py`: 350 lines
   - `test_cpu_vs_gpu_mapping.py`: 297 lines
+  - `test_gpu_cpu_kpu_comparison.py`: 390 lines
+  - `test_kpu_simple.py`: 90 lines
 - Documentation: ~1,500 lines (CHANGELOG, session docs, guide)
 
 ### Validation Metrics
