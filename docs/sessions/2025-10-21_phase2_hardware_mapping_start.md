@@ -298,6 +298,76 @@ From **concurrency analysis** (`2025-10-19_graph_partitioning.md`):
 
 **Key Insight**: KPU is the sweet spot for edge deployment - it's 12× faster than CPU with similar energy efficiency to GPU, and achieves 100% utilization even at batch=1. Quantization provides 4.7× speedup on KPU vs 1.0× on CPU.
 
+### 8. Implemented TPU Hardware Mapper
+
+**Description**: Google's systolic array-based accelerator with matrix operation optimization
+
+**Implementation**:
+- Created `tpu_mapper.py` (425 lines)
+- `TPUAllocation` dataclass for systolic array analysis
+- `TPUMapper` class with matrix vs vector operation routing
+- 2 TensorCores, 128×128 systolic array per core
+- BF16 native (275 TFLOPS), INT8 2× faster (550 TOPS)
+- Pipeline depth modeling (128 cycles)
+
+**Algorithm**:
+1. Determine if operation uses systolic array (Conv, Linear, MatMul) or vector units
+2. Analyze systolic array utilization based on matrix dimensions
+3. Calculate pipeline fill overhead for small matrices
+4. Apply 10× slowdown for non-matrix ops (vector units)
+5. Use precision-aware roofline model
+
+**Key Features**:
+- Systolic array: 128×128 = 16,384 MACs per core
+- Matrix operation detection: Conv, Linear, MatMul → systolic array
+- Element-wise operations: ReLU, Add → vector units (~10% of systolic performance)
+- Pipeline depth: 128 cycles (overhead for small matrices)
+- Best at large batches: batch≥64 for optimal utilization
+
+### 9. Created Complete 4-Way Hardware Comparison
+
+**Description**: Definitive Phase 2 validation across all major DL hardware types
+
+**Implementation**:
+- Created `test_all_hardware.py` (355 lines)
+- Tests 5 hardware configs: H100 GPU, TPU v4, KPU-T100, Intel CPU, AMD CPU
+- 3 precisions tested: FP32, BF16, INT8
+- 6 comprehensive analyses: performance, quantization, energy, utilization, head-to-head, insights
+
+**Results (ResNet-18, INT8, Batch=1)**:
+
+**Absolute Performance**:
+- GPU (H100): 0.024 ms → **41,556 inferences/sec** (fastest)
+- TPU (v4): 0.040 ms → 24,934 inferences/sec (60% of GPU, 15× faster than CPU)
+- KPU (T100): 0.050 ms → 20,014 inferences/sec (48% of GPU, 12× faster than CPU)
+- CPU (Intel): 0.602 ms → 1,662 inferences/sec (baseline)
+
+**Quantization Speedup (FP32 → INT8)**:
+- GPU: 9.16× (MASSIVE - Tensor Cores)
+- KPU: 4.68× (SIGNIFICANT - optimized for quantization)
+- TPU: 1.15× (MINIMAL - already optimized for BF16!)
+- CPU: 1.00× (NONE - bandwidth-bound)
+
+**Utilization Analysis**:
+- GPU: 38.3% average (limited by batch=1, needs batching)
+- TPU: 100.0% (systolic array fully utilized)
+- KPU: 100.0% (all 64 tiles active)
+- CPU: 100.0% (all 16 cores active)
+
+**Energy Efficiency (INT8)**:
+- KPU: 0.001 J (champion - 1.4× better than GPU, 2.1× better than CPU)
+- TPU: 0.001 J (tied with KPU)
+- GPU: 0.001 J
+- CPU: 0.002 J (least efficient)
+
+**Bottleneck Analysis (INT8)**:
+- GPU: 97% bandwidth-bound (2 TB/s HBM2e)
+- TPU: 100% bandwidth-bound (1.2 TB/s HBM2e)
+- KPU: 66% bandwidth-bound (1 TB/s HBM)
+- CPU: 91% bandwidth-bound (80 GB/s DDR5)
+
+**Key Insight**: TPU shows minimal quantization benefit (1.15×) because it's already optimized for BF16 natively. GPU benefits most from quantization (9.16×) due to specialized Tensor Cores. All hardware is bandwidth-bound at batch=1, highlighting the importance of memory bandwidth for small-batch inference.
+
 ---
 
 ## Design: Hardware Mapper Architecture
@@ -390,9 +460,24 @@ class HardwareMapper(ABC):
 9. **Quantization Speedup is Hardware-Dependent**:
    - GPU: 9.16× speedup (FP32 → INT8) - Tensor Cores
    - KPU: 4.68× speedup (FP32 → INT8) - Optimized for quantization
+   - TPU: 1.15× speedup (FP32 → INT8) - Already optimized for BF16
    - CPU: 1.00× speedup (FP32 → INT8) - Bandwidth-bound
    - Impact: Quantization only helps when compute-bound
-   - Action: Use quantization on GPU/KPU, not CPU
+   - Action: Use quantization on GPU/KPU, not CPU/TPU
+
+10. **TPU's Native BF16 Limits INT8 Gains**:
+   - TPU is optimized for BF16 natively (275 TFLOPS)
+   - INT8 only 1.15× faster (not 2× as expected)
+   - Impact: BF16 is often the best choice for TPU
+   - Action: Use BF16 on TPU, INT8 on GPU/KPU
+
+11. **All Hardware is Bandwidth-Bound at Batch=1**:
+   - GPU: 97% ops bandwidth-bound
+   - TPU: 100% ops bandwidth-bound
+   - KPU: 66% ops bandwidth-bound
+   - CPU: 91% ops bandwidth-bound
+   - Impact: Memory bandwidth is the universal bottleneck for small-batch inference
+   - Action: Use batching when latency allows
 
 ---
 
@@ -403,12 +488,14 @@ class HardwareMapper(ABC):
 - ✅ `src/graphs/characterize/gpu_mapper.py` (250 lines) - GPU SM allocation algorithm
 - ✅ `src/graphs/characterize/cpu_mapper.py` (436 lines) - CPU multi-core mapper with SIMD/vector units
 - ✅ `src/graphs/characterize/kpu_mapper.py` (450 lines) - KPU tile-based mapper with scratchpad constraints
+- ✅ `src/graphs/characterize/tpu_mapper.py` (425 lines) - TPU systolic array mapper
 
 ### Tests/Examples
 - ✅ `examples/test_hardware_mapping.py` (350 lines) - GPU validation on ResNet-18
 - ✅ `examples/test_cpu_vs_gpu_mapping.py` (297 lines) - CPU vs GPU comparison across 4 hardware configs
 - ✅ `examples/test_gpu_cpu_kpu_comparison.py` (390 lines) - 3-way comparison (GPU/CPU/KPU) across 4 precisions
 - ✅ `examples/test_kpu_simple.py` (90 lines) - Simple KPU debugging test
+- ✅ `examples/test_all_hardware.py` (355 lines) - **Complete 4-way comparison (GPU/CPU/KPU/TPU) - Phase 2 finale!**
 
 ### Documentation
 - ✅ `docs/sessions/2025-10-21_phase2_hardware_mapping_start.md` (this file)
@@ -417,7 +504,9 @@ class HardwareMapper(ABC):
 - ✅ `docs/sessions/README.md` (documentation system guide)
 - ✅ `docs/sessions/template.md` (session template)
 
-**Total**: ~3,400 lines of code + documentation
+**Total**: ~4,800 lines of code + documentation
+
+**🎉 PHASE 2 COMPLETE**: All 4 major hardware types implemented and validated!
 
 ---
 
@@ -619,17 +708,34 @@ else:
 - KPU: 0.001 J (1.4× better than GPU!)
 - CPU: 0.002 J
 
+**TPU (v4)**:
+- Average utilization: 100%
+- FP32 latency: 0.046 ms
+- BF16 latency: 0.041 ms (1.12× faster than FP32)
+- INT8 latency: 0.040 ms (1.15× faster than FP32 - minimal benefit!)
+- Bottleneck: 100% bandwidth-bound
+- GPU comparison: 1.67× slower than GPU (0.040 ms vs 0.024 ms)
+- CPU comparison: 15.0× faster than CPU (0.602 ms vs 0.040 ms)
+
+**4-Way Comparison (INT8)**:
+- GPU (H100): 0.024 ms → 41,556 inferences/sec (champion)
+- TPU (v4): 0.040 ms → 24,934 inferences/sec (60% of GPU)
+- KPU (T100): 0.050 ms → 20,014 inferences/sec (48% of GPU)
+- CPU (Intel): 0.602 ms → 1,662 inferences/sec (baseline)
+
 ### Code Metrics
-- Lines of code added: ~2,800 lines
+- Lines of code added: ~3,600 lines
   - `hardware_mapper.py`: 560 lines
   - `gpu_mapper.py`: 250 lines
   - `cpu_mapper.py`: 436 lines
   - `kpu_mapper.py`: 450 lines
+  - `tpu_mapper.py`: 425 lines
   - `test_hardware_mapping.py`: 350 lines
   - `test_cpu_vs_gpu_mapping.py`: 297 lines
   - `test_gpu_cpu_kpu_comparison.py`: 390 lines
   - `test_kpu_simple.py`: 90 lines
-- Documentation: ~1,500 lines (CHANGELOG, session docs, guide)
+  - `test_all_hardware.py`: 355 lines
+- Documentation: ~2,000 lines (CHANGELOG, session docs, guide)
 
 ### Validation Metrics
 - Utilization accuracy: Realistic 38.3% vs naive 100% (fixed!)
