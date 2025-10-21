@@ -331,6 +331,22 @@ class FusionBasedPartitioner:
             ('ReLU', 'Dropout'),
             ('GELU', 'Dropout'),
             ('SiLU', 'Dropout'),
+
+            # Transformer patterns (ViT, Swin, BERT, etc.)
+            # Attention block
+            ('LayerNorm', 'MultiheadAttention'),
+            ('MultiheadAttention', 'Dropout'),
+            ('Dropout', 'add'),  # Post-attention residual
+
+            # Feed-Forward Network (FFN)
+            ('LayerNorm', 'Linear'),
+            ('Linear', 'GELU'),  # FFN first layer
+            ('GELU', 'Linear'),  # FFN second layer (after dropout)
+            ('Linear', 'Dropout'),  # After FFN layers
+
+            # Stochastic depth (drop path) for transformers
+            ('StochasticDepth', 'add'),
+            ('stochastic_depth', 'add'),
         ]
 
         for pattern in fusible_patterns:
@@ -511,6 +527,14 @@ class FusionBasedPartitioner:
                 return OperationType.AVGPOOL
             elif module_type in ['AdaptiveAvgPool2d', 'AdaptiveAvgPool1d']:
                 return OperationType.ADAPTIVEAVGPOOL
+            elif module_type == 'LayerNorm':
+                return OperationType.LAYERNORM
+            elif module_type == 'MultiheadAttention':
+                return OperationType.MULTIHEAD_ATTENTION
+            elif module_type == 'Dropout':
+                return OperationType.DROPOUT
+            elif module_type in ['StochasticDepth', 'stochastic_depth']:
+                return OperationType.STOCHASTIC_DEPTH
 
         return OperationType.UNKNOWN
 
