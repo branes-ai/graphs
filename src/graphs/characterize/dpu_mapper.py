@@ -391,23 +391,41 @@ class DPUMapper(HardwareMapper):
         avg_utilization = avg_tiles_used / self.num_tiles
         peak_utilization = peak_tiles_used / self.num_tiles
 
+        # Naive latency (assuming 100% utilization)
+        total_ops = fusion_report.total_flops
+        peak_ops_per_sec = self.resource_model.get_peak_ops(precision)
+        naive_latency = total_ops / peak_ops_per_sec if peak_ops_per_sec > 0 else 0
+
+        # Correction factor
+        latency_correction_factor = total_latency / naive_latency if naive_latency > 0 else 1.0
+
         # Bottleneck analysis
-        compute_bound_count = sum(1 for alloc in subgraph_allocations if alloc.bottleneck == BottleneckType.COMPUTE)
-        bandwidth_bound_count = sum(1 for alloc in subgraph_allocations if alloc.bottleneck == BottleneckType.BANDWIDTH)
+        compute_bound_count = sum(1 for alloc in subgraph_allocations if alloc.bottleneck == BottleneckType.COMPUTE_BOUND)
+        memory_bound_count = sum(1 for alloc in subgraph_allocations if alloc.bottleneck == BottleneckType.MEMORY_BOUND)
+        bandwidth_bound_count = sum(1 for alloc in subgraph_allocations if alloc.bottleneck == BottleneckType.BANDWIDTH_BOUND)
+        balanced_count = sum(1 for alloc in subgraph_allocations if alloc.bottleneck == BottleneckType.BALANCED)
 
         return GraphHardwareAllocation(
+            model_name="Unknown",  # Will be set by caller
             hardware_name=self.resource_model.name,
-            precision=precision,
             batch_size=batch_size,
-            total_subgraphs=len(fusion_report.fused_subgraphs),
+            model_precision=precision,
             subgraph_allocations=subgraph_allocations,
+            total_subgraphs=len(fusion_report.fused_subgraphs),
+            total_execution_stages=len(execution_stages),
+            peak_compute_units_used=peak_tiles_used,
+            average_compute_units_used=avg_tiles_used,
+            peak_utilization=peak_utilization,
+            average_utilization=avg_utilization,
             total_latency=total_latency,
             latency_breakdown=latency_breakdown,
             total_energy=total_energy,
-            average_utilization=avg_utilization,
-            peak_utilization=peak_utilization,
+            naive_latency=naive_latency,
+            latency_correction_factor=latency_correction_factor,
             compute_bound_count=compute_bound_count,
+            memory_bound_count=memory_bound_count,
             bandwidth_bound_count=bandwidth_bound_count,
+            balanced_count=balanced_count,
         )
 
 
