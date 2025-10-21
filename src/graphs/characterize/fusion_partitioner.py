@@ -262,7 +262,15 @@ class FusionBasedPartitioner:
         # Boundary 3: Join (multiple producers)
         node_producers = [p for p in producers.get(next_node, []) if p in all_nodes]
         if len(node_producers) > 1:
-            return None  # Stop before join
+            # Exception: SE block mul can have multiple producers (sigmoid + features)
+            # Allow fusion if current node is Sigmoid and next is mul (SE block output)
+            current_type = self._get_node_type(node)
+            next_type = self._get_node_type(next_node)
+            if current_type == 'Sigmoid' and next_type == 'mul':
+                # This is an SE block output, allow fusion
+                pass
+            else:
+                return None  # Stop before join
 
         # Boundary 4: Check if operations are fusible
         if not self._is_fusible(node, next_node):
