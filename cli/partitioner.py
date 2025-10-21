@@ -282,7 +282,7 @@ class PartitionCLI:
                   f"({fused['data_movement_reduction'] * 100:.1f}% reduction)")
             print(f"Arithmetic Intensity: {fused['avg_ai'] / max(0.01, unfused['avg_ai']):.2f}x improvement")
 
-    def visualize_strategy(self, strategy: str, max_nodes: int = 20):
+    def visualize_strategy(self, strategy: str, max_nodes: int = 20, use_color: bool = False, no_color: bool = False):
         """Visualize partitioning for a strategy"""
         if strategy not in self.results:
             print(f"Error: No results for strategy '{strategy}'")
@@ -296,8 +296,16 @@ class PartitionCLI:
         print("=" * 80)
         print()
 
-        # Check if partitioner has visualization method
-        if hasattr(partitioner, 'visualize_partitioning'):
+        # Choose visualization method
+        if use_color and strategy == 'fusion' and hasattr(partitioner, 'visualize_partitioning_colored'):
+            # Use color-coded visualization for fusion
+            color_enabled = not no_color
+            viz = partitioner.visualize_partitioning_colored(self.fx_graph,
+                                                            max_nodes=max_nodes,
+                                                            use_color=color_enabled if no_color else None)
+            print(viz)
+        elif hasattr(partitioner, 'visualize_partitioning'):
+            # Use standard visualization
             viz = partitioner.visualize_partitioning(self.fx_graph, max_nodes=max_nodes)
             print(viz)
         else:
@@ -340,7 +348,22 @@ class PartitionCLI:
         if args.visualize:
             for strategy in strategies:
                 if strategy in self.results:
-                    self.visualize_strategy(strategy, max_nodes=args.max_nodes)
+                    self.visualize_strategy(strategy,
+                                          max_nodes=args.max_nodes,
+                                          use_color=args.color,
+                                          no_color=args.no_color)
+
+        # Export to DOT/Graphviz
+        if args.export_dot:
+            if 'fusion' in self.results:
+                partitioner = self.results['fusion']['partitioner']
+                if hasattr(partitioner, 'export_to_graphviz'):
+                    print(f"\nExporting fusion graph to {args.export_dot}...")
+                    partitioner.export_to_graphviz(self.fx_graph, args.export_dot)
+                else:
+                    print("\nDOT export not available for this partitioner")
+            else:
+                print("\nDOT export requires --strategy fusion or --strategy all")
 
         # Balance analysis (fusion strategy only)
         if args.analyze_balance:
@@ -418,6 +441,15 @@ Examples:
     parser.add_argument('--input-shape', type=int, nargs=4, default=[1, 3, 224, 224],
                        metavar=('B', 'C', 'H', 'W'),
                        help='Input tensor shape (default: 1 3 224 224)')
+
+    parser.add_argument('--color', action='store_true',
+                       help='Use color-coded visualization (fusion strategy only)')
+
+    parser.add_argument('--no-color', action='store_true',
+                       help='Disable colors (ASCII-only output)')
+
+    parser.add_argument('--export-dot', type=str, metavar='FILE',
+                       help='Export fusion graph to DOT/Graphviz format (e.g., --export-dot fusion.dot)')
 
     return parser.parse_args()
 
