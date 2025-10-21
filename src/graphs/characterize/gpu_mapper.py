@@ -44,8 +44,20 @@ class GPUMapper(HardwareMapper):
     - Concurrent kernel execution
     """
 
-    def __init__(self, resource_model: HardwareResourceModel):
-        super().__init__(resource_model)
+    def __init__(
+        self,
+        resource_model: HardwareResourceModel,
+        thermal_profile: str = None
+    ):
+        """
+        Initialize GPU mapper.
+
+        Args:
+            resource_model: GPU resource model
+            thermal_profile: Thermal profile name (e.g., "15W", "30W", "60W")
+                           If None, uses default from resource model
+        """
+        super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a GPU model
         if resource_model.hardware_type.value != "gpu":
@@ -281,7 +293,45 @@ class GPUMapper(HardwareMapper):
         )
 
 
-def create_h100_mapper() -> GPUMapper:
-    """Create GPU mapper for NVIDIA H100 PCIe"""
+def create_h100_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for NVIDIA H100 PCIe.
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
+
+    Returns:
+        GPUMapper configured for H100
+    """
     from .hardware_mapper import h100_pcie_resource_model
-    return GPUMapper(h100_pcie_resource_model())
+    return GPUMapper(h100_pcie_resource_model(), thermal_profile=thermal_profile)
+
+
+def create_jetson_orin_agx_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for NVIDIA Jetson Orin AGX (edge AI platform).
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "15W", "30W", "60W")
+                        If None, uses default ("15W")
+
+    Returns:
+        GPUMapper configured for Jetson Orin AGX
+    """
+    from .hardware_mapper import jetson_orin_agx_resource_model
+    return GPUMapper(jetson_orin_agx_resource_model(), thermal_profile=thermal_profile)
+
+
+def create_jetson_thor_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for NVIDIA Jetson Thor (next-gen edge AI).
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "30W", "60W", "100W")
+                        If None, uses default ("30W")
+
+    Returns:
+        GPUMapper configured for Jetson Thor
+    """
+    from .hardware_mapper import jetson_thor_resource_model
+    return GPUMapper(jetson_thor_resource_model(), thermal_profile=thermal_profile)

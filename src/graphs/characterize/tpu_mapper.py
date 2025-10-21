@@ -76,8 +76,20 @@ class TPUMapper(HardwareMapper):
     - Pipeline depth overhead
     """
 
-    def __init__(self, resource_model: HardwareResourceModel):
-        super().__init__(resource_model)
+    def __init__(
+        self,
+        resource_model: HardwareResourceModel,
+        thermal_profile: str = None
+    ):
+        """
+        Initialize TPU mapper.
+
+        Args:
+            resource_model: TPU resource model
+            thermal_profile: Thermal profile name (if applicable)
+                           If None, uses default from resource model
+        """
+        super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a TPU model
         if resource_model.hardware_type.value != "tpu":
@@ -405,9 +417,12 @@ class TPUMapper(HardwareMapper):
         )
 
 
-def create_tpu_v4_mapper() -> TPUMapper:
+def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
     """
     Create TPU mapper for Google TPU v4.
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
 
     Returns:
         TPUMapper configured for TPU v4
@@ -415,4 +430,20 @@ def create_tpu_v4_mapper() -> TPUMapper:
     from .hardware_mapper import tpu_v4_resource_model
 
     model = tpu_v4_resource_model()
-    return TPUMapper(model)
+    return TPUMapper(model, thermal_profile=thermal_profile)
+
+
+def create_coral_edge_tpu_mapper(thermal_profile: str = None) -> TPUMapper:
+    """
+    Create TPU mapper for Google Coral Edge TPU.
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
+
+    Returns:
+        TPUMapper configured for Coral Edge TPU (ultra-low-power edge AI)
+    """
+    from .hardware_mapper import coral_edge_tpu_resource_model
+
+    model = coral_edge_tpu_resource_model()
+    return TPUMapper(model, thermal_profile=thermal_profile)
