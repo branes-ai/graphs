@@ -25,8 +25,11 @@ class OperationType(Enum):
     LAYERNORM = "layernorm"
     RELU = "relu"
     RELU6 = "relu6"
+    SILU = "silu"  # Swish activation (EfficientNet)
+    SWISH = "swish"  # Alternative name for SiLU
     GELU = "gelu"
     HARDSWISH = "hardswish"
+    SIGMOID = "sigmoid"  # For SE blocks
     MAXPOOL = "maxpool"
     AVGPOOL = "avgpool"
     ADAPTIVEAVGPOOL = "adaptiveavgpool"

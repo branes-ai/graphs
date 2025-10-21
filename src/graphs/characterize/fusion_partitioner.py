@@ -276,10 +276,11 @@ class FusionBasedPartitioner:
 
         Fusible patterns:
         - Conv2d → BatchNorm2d
-        - BatchNorm2d → ReLU
-        - Conv2d → ReLU
-        - Linear → ReLU/GELU
-        - Add → ReLU (residual)
+        - BatchNorm2d → ReLU/SiLU/Swish
+        - Conv2d → ReLU/SiLU/Swish
+        - Linear → ReLU/GELU/SiLU
+        - Add → ReLU/SiLU (residual)
+        - SE blocks: AdaptiveAvgPool2d → Conv2d → SiLU → Conv2d → Sigmoid → mul
         - Any element-wise chain
         """
 
@@ -288,21 +289,40 @@ class FusionBasedPartitioner:
 
         # Define fusible patterns
         fusible_patterns = [
+            # Standard conv/bn patterns
             ('Conv2d', 'BatchNorm2d'),
             ('Conv2d', 'ReLU'),
             ('Conv2d', 'ReLU6'),
+            ('Conv2d', 'SiLU'),  # EfficientNet
+            ('Conv2d', 'Swish'),  # Alternative name for SiLU
             ('BatchNorm2d', 'ReLU'),
             ('BatchNorm2d', 'ReLU6'),
+            ('BatchNorm2d', 'SiLU'),  # EfficientNet
+            ('BatchNorm2d', 'Swish'),
             ('BatchNorm2d', 'Hardswish'),
+
+            # Linear patterns
             ('Linear', 'BatchNorm1d'),
             ('Linear', 'ReLU'),
             ('Linear', 'GELU'),
+            ('Linear', 'SiLU'),
             ('Linear', 'Dropout'),
-            ('add', 'ReLU'),  # Residual connection
+
+            # Residual connections
+            ('add', 'ReLU'),
             ('add', 'ReLU6'),
+            ('add', 'SiLU'),
+
+            # SE block patterns (Squeeze-Excitation)
+            ('AdaptiveAvgPool2d', 'Conv2d'),  # SE: pool → fc1
+            ('SiLU', 'Conv2d'),  # SE: activation → fc2 (also general pattern)
+            ('Sigmoid', 'mul'),  # SE: sigmoid → scale
+            ('Conv2d', 'Sigmoid'),  # SE: fc2 → sigmoid
+
             # Element-wise operations can fuse
             ('ReLU', 'Dropout'),
             ('GELU', 'Dropout'),
+            ('SiLU', 'Dropout'),
         ]
 
         for pattern in fusible_patterns:
@@ -469,6 +489,20 @@ class FusionBasedPartitioner:
                 return OperationType.RELU
             elif module_type == 'ReLU6':
                 return OperationType.RELU6
+            elif module_type in ['SiLU', 'Swish']:
+                return OperationType.SILU
+            elif module_type == 'GELU':
+                return OperationType.GELU
+            elif module_type == 'Hardswish':
+                return OperationType.HARDSWISH
+            elif module_type == 'Sigmoid':
+                return OperationType.SIGMOID
+            elif module_type in ['MaxPool2d', 'MaxPool1d']:
+                return OperationType.MAXPOOL
+            elif module_type in ['AvgPool2d', 'AvgPool1d']:
+                return OperationType.AVGPOOL
+            elif module_type in ['AdaptiveAvgPool2d', 'AdaptiveAvgPool1d']:
+                return OperationType.ADAPTIVEAVGPOOL
 
         return OperationType.UNKNOWN
 
