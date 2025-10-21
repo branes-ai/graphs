@@ -50,6 +50,13 @@ class PartitionCLI:
         'resnet50': models.resnet50,
         'mobilenet_v2': models.mobilenet_v2,
         'efficientnet_b0': models.efficientnet_b0,
+        'efficientnet_b1': models.efficientnet_b1,
+        'efficientnet_b2': models.efficientnet_b2,
+        'efficientnet_b3': models.efficientnet_b3,
+        'efficientnet_b4': models.efficientnet_b4,
+        'efficientnet_b5': models.efficientnet_b5,
+        'efficientnet_b6': models.efficientnet_b6,
+        'efficientnet_b7': models.efficientnet_b7,
     }
 
     STRATEGIES = {
