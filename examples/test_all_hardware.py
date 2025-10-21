@@ -1,5 +1,5 @@
 """
-Complete 6-Way Hardware Comparison: Datacenter vs Edge Accelerators
+Complete 7-Way Hardware Comparison: Datacenter vs Edge Accelerators
 
 This is the definitive Phase 2 validation demonstrating realistic hardware mapping
 across all major hardware types for deep learning inference.
@@ -7,16 +7,18 @@ across all major hardware types for deep learning inference.
 Hardware Types Compared:
 1. **GPU (NVIDIA H100)**: Cloud/datacenter, best absolute performance
 2. **TPU (v4)**: Google's ASIC, optimized for large-batch inference
-3. **KPU (T100)**: Edge accelerator, best performance/watt
-4. **DPU (Xilinx Vitis AI)**: FPGA-based, embodied AI target
-5. **CPU (Intel)**: General purpose, AVX-512
-6. **CPU (AMD)**: General purpose, AVX-2
+3. **KPU (T100)**: Edge accelerator, embodied AI champion
+4. **DPU (Xilinx Vitis AI)**: FPGA-based, reconfigurable
+5. **CGRA (Plasticine-v2)**: Spatial dataflow, research architecture
+6. **CPU (Intel)**: General purpose, AVX-512
+7. **CPU (AMD)**: General purpose, AVX-2
 
 Key Questions Answered:
 - Which hardware is fastest for ResNet-18?
 - How does quantization affect each hardware type?
 - What are the energy efficiency trade-offs for edge deployment?
 - Which accelerator is best for embodied AI (robots, drones)?
+- How does spatial dataflow (CGRA) compare to temporal execution?
 """
 
 import torch
@@ -35,6 +37,7 @@ from src.graphs.characterize.cpu_mapper import create_intel_cpu_mapper, create_a
 from src.graphs.characterize.kpu_mapper import create_kpu_t100_mapper
 from src.graphs.characterize.tpu_mapper import create_tpu_v4_mapper
 from src.graphs.characterize.dpu_mapper import create_dpu_vitis_ai_mapper
+from src.graphs.characterize.cgra_mapper import create_plasticine_v2_mapper
 from src.graphs.characterize.hardware_mapper import Precision
 
 
@@ -57,22 +60,24 @@ def extract_execution_stages(fusion_report: FusionReport) -> List[List[int]]:
 
 
 def test_all_hardware():
-    """Complete 6-way hardware comparison"""
+    """Complete 7-way hardware comparison"""
 
     print("=" * 80)
-    print("COMPLETE 6-WAY HARDWARE COMPARISON: ResNet-18")
-    print("GPU (H100) | TPU (v4) | KPU (T100) | DPU (Vitis AI) | CPU (Intel/AMD)")
+    print("COMPLETE 7-WAY HARDWARE COMPARISON: ResNet-18")
+    print("GPU | TPU | KPU | DPU | CGRA | CPU (Intel/AMD)")
     print("=" * 80)
     print()
 
-    # Load model
-    print("[1/4] Loading ResNet-18...")
-    model = models.resnet18(pretrained=False)
+    # Load model - DeepLabV3-ResNet101 for semantic segmentation
+    print("[1/4] Loading DeepLabV3-ResNet101...")
+    print("        (Semantic segmentation model - representative of embodied AI navigation)")
+    model = models.segmentation.deeplabv3_resnet101(pretrained=False)
     model.eval()
 
-    # Trace with FX
-    print("[2/4] Tracing with PyTorch FX...")
-    input_tensor = torch.randn(1, 3, 224, 224)
+    # Trace with FX at 1024×1024 resolution (typical for autonomous navigation)
+    print("[2/4] Tracing with PyTorch FX @ 1024×1024...")
+    print("        (Higher resolution than standard ImageNet - more realistic for robotics)")
+    input_tensor = torch.randn(1, 3, 1024, 1024)
     fx_graph = torch.fx.symbolic_trace(model)
     ShapeProp(fx_graph).propagate(input_tensor)
 
@@ -92,6 +97,7 @@ def test_all_hardware():
         "TPU v4": create_tpu_v4_mapper(),
         "KPU-T100": create_kpu_t100_mapper(),
         "DPU-Vitis-AI": create_dpu_vitis_ai_mapper(),
+        "CGRA-Plasticine-v2": create_plasticine_v2_mapper(),
         "Intel CPU (AVX-512)": create_intel_cpu_mapper("avx512"),
         "AMD CPU (AVX-2)": create_amd_cpu_mapper(),
     }
@@ -100,6 +106,14 @@ def test_all_hardware():
     print("=" * 80)
     print("PHASE 2: REALISTIC HARDWARE MAPPING")
     print("=" * 80)
+    print()
+    print("Workload: DeepLabV3-ResNet101 (Semantic Segmentation)")
+    print(f"  - Input: 1×3×1024×1024 (batch=1, RGB, high-resolution)")
+    print(f"  - Total FLOPs: {fusion_report.total_flops/1e9:.2f} GFLOP")
+    print(f"  - Model size: ~60M parameters")
+    print(f"  - Use case: Embodied AI navigation/scene understanding")
+    print(f"  - Target: 5-30 FPS control loop (15-100ms per frame, ~10ms inference budget)")
+    print(f"  - Note: Transformers for tracking would add additional latency")
     print()
 
     # Test configurations
@@ -114,8 +128,10 @@ def test_all_hardware():
     # Run all combinations
     for precision, precision_name in configs:
         print(f"\n{'='*80}")
-        print(f"Testing {precision_name}")
-        print(f"{'='*80}\n")
+        print(f"Testing {precision_name} - DeepLabV3-ResNet101 @ 1024×1024")
+        print(f"{'='*80}")
+        print(f"{'Hardware':<20} | {'Latency (ms)':>12} | {'Util':>8} | {'Energy (J)':>11}")
+        print(f"{'-'*20}-+-{'-'*12}-+-{'-'*8}-+-{'-'*11}")
 
         for hw_name, mapper in mappers.items():
             try:
@@ -125,13 +141,12 @@ def test_all_hardware():
                     batch_size=1,
                     precision=precision
                 )
-                allocation.model_name = "ResNet-18"
+                allocation.model_name = "DeepLabV3-ResNet101"
                 results[(hw_name, precision)] = allocation
 
-                print(f"{hw_name:20} | Latency: {allocation.total_latency*1000:6.3f} ms | "
-                      f"Util: {allocation.average_utilization:5.1%} | Energy: {allocation.total_energy:.3f} J")
+                print(f"{hw_name:<20} | {allocation.total_latency*1000:12.3f} | {allocation.average_utilization:7.1%} | {allocation.total_energy:11.3f}")
             except Exception as e:
-                print(f"{hw_name:20} | SKIPPED ({str(e)[:40]})")
+                print(f"{hw_name:<20} | SKIPPED ({str(e)[:40]})")
                 results[(hw_name, precision)] = None
 
     # ========================================================================
@@ -146,7 +161,7 @@ def test_all_hardware():
     print("-" * 70)
 
     precision = Precision.INT8
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -168,7 +183,7 @@ def test_all_hardware():
     print(f"{'Hardware':<20} {'FP32 (ms)':<12} {'INT8 (ms)':<12} {'Speedup':<12} {'Benefit':<20}")
     print("-" * 80)
 
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
         fp32_alloc = results.get((hw_name, Precision.FP32))
         int8_alloc = results.get((hw_name, Precision.INT8))
 
@@ -202,7 +217,7 @@ def test_all_hardware():
     print(f"{'Hardware':<20} {'FP32 (J)':<12} {'BF16 (J)':<12} {'INT8 (J)':<12} {'Best':<15}")
     print("-" * 75)
 
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
         fp32_alloc = results.get((hw_name, Precision.FP32))
         bf16_alloc = results.get((hw_name, Precision.BF16))
         int8_alloc = results.get((hw_name, Precision.INT8))
@@ -242,7 +257,7 @@ def test_all_hardware():
     print("-" * 80)
 
     precision = Precision.INT8  # Use INT8 for analysis
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -282,7 +297,7 @@ def test_all_hardware():
         print(f"{'Hardware':<20} {'Speedup vs CPU':<18} {'Energy Efficiency':<20}")
         print("-" * 60)
 
-        for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI"]:
+        for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "CGRA-Plasticine-v2"]:
             alloc = results.get((hw_name, Precision.INT8))
             if alloc is None:
                 continue
@@ -306,6 +321,7 @@ def test_all_hardware():
         "TPU v4": 5000,  # TPU pod slice estimate
         "KPU-T100": 500,
         "DPU-Vitis-AI": 1000,
+        "CGRA-Plasticine-v2": 300,  # Research hardware estimate
         "Intel CPU (AVX-512)": 500,
         "AMD CPU (AVX-2)": 400,
     }
@@ -314,7 +330,7 @@ def test_all_hardware():
     print("-" * 95)
 
     precision = Precision.INT8
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -333,6 +349,8 @@ def test_all_hardware():
             target = "Embodied AI ✓"
         elif "DPU" in hw_name:
             target = "FPGA/Research"
+        elif "CGRA" in hw_name:
+            target = "Spatial/Research"
         else:
             target = "General"
 
@@ -365,6 +383,7 @@ def test_all_hardware():
     tpu_int8 = results.get(("TPU v4", Precision.INT8))
     kpu_int8 = results.get(("KPU-T100", Precision.INT8))
     dpu_int8 = results.get(("DPU-Vitis-AI", Precision.INT8))
+    cgra_int8 = results.get(("CGRA-Plasticine-v2", Precision.INT8))
     cpu_int8 = results.get(("Intel CPU (AVX-512)", Precision.INT8))
 
     if gpu_int8:
@@ -393,50 +412,93 @@ def test_all_hardware():
         print()
 
     if dpu_int8:
+        dpu_lat_ms = dpu_int8.total_latency * 1000
+        dpu_energy_mj = dpu_int8.total_energy * 1000
+        dpu_power = dpu_int8.total_energy / dpu_int8.total_latency
+        dpu_vs_kpu_lat = dpu_lat_ms / (kpu_int8.total_latency * 1000) if kpu_int8 else 0
+        dpu_vs_kpu_energy = dpu_energy_mj / (kpu_int8.total_energy * 1000) if kpu_int8 else 0
+
         print(f"4. **DPU (Xilinx Vitis AI) - FPGA Flexibility**")
-        print(f"   - Performance: {dpu_int8.total_latency*1000:.3f} ms (60-100× slower than KPU)")
-        print(f"   - Energy: {dpu_int8.total_energy*1000:.2f} mJ per inference (20-50× worse than KPU)")
-        print(f"   - Power: 17.5W (30% less than KPU, but slower means longer total runtime)")
+        print(f"   - Performance: {dpu_lat_ms:.3f} ms ({dpu_vs_kpu_lat:.1f}× slower than KPU)")
+        print(f"   - Energy: {dpu_energy_mj:.2f} mJ per inference ({dpu_vs_kpu_energy:.1f}× worse than KPU)")
+        print(f"   - Power: {dpu_power:.1f}W (measured during inference)")
         print(f"   - Key advantage: FPGA reconfigurability for custom operations")
         print(f"   → Use for: Research, custom ops that KPU can't support (niche)")
         print()
 
+    if cgra_int8:
+        cgra_lat_ms = cgra_int8.total_latency * 1000
+        cgra_energy_mj = cgra_int8.total_energy * 1000
+        cgra_power = cgra_int8.total_energy / cgra_int8.total_latency
+        cgra_vs_kpu_lat = cgra_lat_ms / (kpu_int8.total_latency * 1000) if kpu_int8 else 0
+        cgra_vs_kpu_energy = cgra_energy_mj / (kpu_int8.total_energy * 1000) if kpu_int8 else 0
+
+        print(f"5. **CGRA (Plasticine-v2) - Spatial Dataflow Research**")
+        print(f"   - Performance: {cgra_lat_ms:.3f} ms ({cgra_vs_kpu_lat:.0f}× slower than KPU)")
+        print(f"   - Energy: {cgra_energy_mj:.1f} mJ per inference ({cgra_vs_kpu_energy:.0f}× worse than KPU)")
+        print(f"   - Power: {cgra_power:.1f}W (measured during inference)")
+        print(f"   - Key advantage: Spatial execution + reconfigurability")
+        print(f"   - Conservative reconfig overhead: 1000 cycles (Achilles heel)")
+        print(f"   → Use for: Research on spatial dataflow, custom algorithms")
+        print()
+
     if cpu_int8:
-        print(f"5. **CPU (Intel) - General Purpose**")
+        print(f"6. **CPU (Intel) - General Purpose**")
         print(f"   - Flexible but slow: {cpu_int8.total_latency*1000:.3f} ms")
         print(f"   - Bandwidth-bound: {cpu_int8.bandwidth_bound_count}/{cpu_int8.total_subgraphs} ops")
         print(f"   - Quantization: NO speedup (1.0×)")
         print(f"   → Use for: Development, small models, when no accelerator available")
         print()
 
-    print("6. **Quantization Strategy**")
-    print("   - GPU/KPU/TPU/DPU: Always use INT8 (2-9× speedup)")
+    print("7. **Quantization Strategy**")
+    print("   - GPU/KPU/TPU/DPU/CGRA: Always use INT8 (2-9× speedup)")
     print("   - CPU: Use INT8 only for model size, not speed")
     print()
 
-    print("7. **Batch Size Recommendations**")
+    print("8. **Batch Size Recommendations**")
     print("   - GPU: Need batch≥44 to saturate hardware")
     print("   - TPU: Need batch≥64 for best performance")
     print("   - KPU: Efficient even at batch=1")
     print("   - DPU: Efficient at batch=1 (embodied AI optimized)")
+    print("   - CGRA: Efficient at batch=1 (spatial dataflow)")
     print("   - CPU: Batch size doesn't help (bandwidth-bound)")
     print()
 
-    print("8. **Embodied AI Recommendations**")
-    print("   - Best choice: KPU-T100 (60-100× faster, 20-50× better energy, $500)")
-    print("   - Niche alternative: DPU (only if need FPGA reconfigurability)")
-    print("   - Avoid: GPU/TPU (too power-hungry: 280-700W vs 25W)")
+    print("9. **Embodied AI Recommendations**")
+    if kpu_int8 and dpu_int8:
+        dpu_speedup = (dpu_int8.total_latency / kpu_int8.total_latency)
+        dpu_energy_ratio = (dpu_int8.total_energy / kpu_int8.total_energy)
+        print(f"   - Best choice: KPU-T100 ({dpu_speedup:.1f}× faster than DPU, {dpu_energy_ratio:.1f}× better energy, $500)")
+    else:
+        print("   - Best choice: KPU-T100 (fastest, most efficient, $500)")
+    print("   - Research alternatives:")
+    print("     • DPU: FPGA reconfigurability (tile-based)")
+    print("     • CGRA: Spatial dataflow research (ultra-configurable)")
+    print("   - Avoid: GPU/TPU (too power-hungry: 280-700W vs 5-40W)")
     print("   - Avoid: CPU (too slow for real-time)")
     print()
     print("   Battery Life (100 Wh battery):")
-    print("   - KPU: 360 million inferences (20× more than DPU)")
-    print("   - DPU: 18 million inferences")
+    if kpu_int8:
+        kpu_inferences = 100 * 3600 / kpu_int8.total_energy
+        print(f"   - KPU: {kpu_inferences/1e6:.0f} million inferences (best)")
+    if dpu_int8:
+        dpu_inferences = 100 * 3600 / dpu_int8.total_energy
+        print(f"   - DPU: {dpu_inferences/1e6:.0f} million inferences")
+    if cgra_int8:
+        cgra_inferences = 100 * 3600 / cgra_int8.total_energy
+        print(f"   - CGRA: {cgra_inferences/1e6:.0f} million inferences")
     print("   → KPU gives 4+ hours of continuous 20 FPS vision processing")
     print()
 
+    print("10. **Execution Paradigms**")
+    print("   - Temporal (GPU/TPU/KPU/DPU/CPU): Operations execute sequentially")
+    print("   - Spatial (CGRA): Entire graph mapped to fabric, executes in parallel")
+    print("   - Trade-off: Spatial has higher parallelism but reconfiguration overhead")
+    print()
+
     print("=" * 80)
-    print("SUCCESS: Complete 6-way hardware comparison finished!")
-    print("Phase 2 Hardware Mapping COMPLETE (with Embodied AI Focus)")
+    print("SUCCESS: Complete 7-way hardware comparison finished!")
+    print("Phase 2 Hardware Mapping COMPLETE (Embodied AI + Spatial Dataflow)")
     print("=" * 80)
 
 
