@@ -35,6 +35,12 @@ class OperationType(Enum):
     ADAPTIVEAVGPOOL = "adaptiveavgpool"
     ELEMENTWISE = "elementwise"
     SQUEEZE_EXCITE = "squeeze_excite"
+
+    # Transformer operations
+    MULTIHEAD_ATTENTION = "multihead_attention"
+    DROPOUT = "dropout"
+    STOCHASTIC_DEPTH = "stochastic_depth"  # Drop path
+
     UNKNOWN = "unknown"
 
 

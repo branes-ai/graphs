@@ -57,6 +57,12 @@ class PartitionCLI:
         'efficientnet_b5': models.efficientnet_b5,
         'efficientnet_b6': models.efficientnet_b6,
         'efficientnet_b7': models.efficientnet_b7,
+        'vit_b_16': models.vit_b_16,
+        'vit_b_32': models.vit_b_32,
+        'vit_l_16': models.vit_l_16,
+        'swin_t': models.swin_t,
+        'swin_s': models.swin_s,
+        'swin_b': models.swin_b,
     }
 
     STRATEGIES = {
