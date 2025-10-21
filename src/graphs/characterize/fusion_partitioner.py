@@ -21,6 +21,17 @@ from .graph_structures import (
     SubgraphDescriptor
 )
 
+from .visualization import (
+    detect_terminal_capability,
+    get_box_chars,
+    get_bottleneck_color,
+    colorize,
+    create_legend,
+    export_to_dot,
+    TerminalCapability,
+    ANSIColor,
+)
+
 
 @dataclass
 class FusedSubgraph:
@@ -1487,3 +1498,273 @@ class FusionBasedPartitioner:
         lines.append("=" * 100)
 
         return "\n".join(lines)
+
+    def visualize_partitioning_colored(self, fx_graph: GraphModule,
+                                      max_nodes: Optional[int] = None,
+                                      use_color: Optional[bool] = None) -> str:
+        """
+        Create color-coded visualization of fusion partitioning.
+
+        Color codes subgraphs by bottleneck type:
+        - Green: Compute-bound (good for accelerators)
+        - Cyan: Balanced
+        - Yellow: Memory-bound
+        - Red: Bandwidth-bound
+
+        Args:
+            fx_graph: The FX graph that was partitioned
+            max_nodes: Maximum number of nodes to show (None for all)
+            use_color: Force color on/off (None for auto-detect)
+
+        Returns:
+            String containing the formatted colored visualization
+        """
+        import torch.nn as nn
+
+        # Detect terminal capability
+        if use_color is None:
+            capability = detect_terminal_capability()
+        else:
+            capability = TerminalCapability.COLOR if use_color else TerminalCapability.BASIC
+
+        box = get_box_chars(capability)
+
+        # Build mapping from node_id to fused subgraph
+        node_to_fused_subgraph = {}
+        node_position_in_subgraph = {}
+
+        for fused_sg in self.fused_subgraphs:
+            for idx, node_id in enumerate(fused_sg.node_ids):
+                node_to_fused_subgraph[node_id] = fused_sg
+                node_position_in_subgraph[node_id] = (fused_sg, idx, len(fused_sg.node_ids))
+
+        # Collect nodes
+        all_nodes = list(fx_graph.graph.nodes)
+        if max_nodes:
+            all_nodes = all_nodes[:max_nodes]
+
+        # Build visualization
+        lines = []
+
+        # Header
+        left_width = 50
+        right_width = 70
+        total_width = left_width + 4 + right_width
+
+        lines.append(box['heavy_horizontal'] * total_width)
+        title = "FUSION-BASED PARTITIONING (Color-Coded by Bottleneck)"
+        lines.append(colorize(title, ANSIColor.BOLD, capability))
+        lines.append(box['heavy_horizontal'] * total_width)
+        lines.append("")
+
+        # Add legend if color is supported
+        if capability in [TerminalCapability.COLOR, TerminalCapability.TRUECOLOR]:
+            lines.append(create_legend(capability))
+            lines.append("")
+
+        # Column headers
+        header_left = "FX Graph (Execution Order)".ljust(left_width)
+        header_right = "Fused Subgraphs (Color-Coded)"
+        lines.append(f"{header_left}    {header_right}")
+        lines.append(box['horizontal'] * left_width + "    " + box['horizontal'] * right_width)
+        lines.append("")
+
+        # Process each node
+        subgraph_counter = 1
+        current_subgraph_id = None
+
+        for idx, node in enumerate(all_nodes, 1):
+            node_id = node.name
+
+            # LEFT SIDE: FX Node info
+            left_lines = self._format_fx_node_colored(node, fx_graph, idx, capability, box)
+
+            # RIGHT SIDE: Fused subgraph info
+            right_lines = []
+
+            if node_id in node_to_fused_subgraph:
+                fused_sg, node_idx, total_nodes = node_position_in_subgraph[node_id]
+                is_first = (node_idx == 0)
+                is_last = (node_idx == total_nodes - 1)
+
+                if fused_sg.subgraph_id != current_subgraph_id:
+                    current_subgraph_id = fused_sg.subgraph_id
+
+                    if is_first:
+                        header_lines = self._format_fused_subgraph_header_colored(
+                            fused_sg, subgraph_counter, capability, box
+                        )
+                        right_lines.extend(header_lines)
+                        subgraph_counter += 1
+
+                op_lines = self._format_fused_operator_colored(node, fx_graph, is_first, is_last, capability, box)
+                right_lines.extend(op_lines)
+
+                if is_last:
+                    footer_lines = self._format_fused_subgraph_footer_colored(fused_sg, capability, box)
+                    right_lines.extend(footer_lines)
+                    current_subgraph_id = None
+            else:
+                right_lines = self._format_not_fused_colored(node, capability, box)
+
+            # Combine left and right
+            max_lines = max(len(left_lines), len(right_lines))
+            for i in range(max_lines):
+                left = left_lines[i] if i < len(left_lines) else ""
+                right = right_lines[i] if i < len(right_lines) else ""
+                lines.append(f"{left.ljust(left_width)}    {right}")
+
+            lines.append("")
+
+        # Footer
+        if max_nodes and len(fx_graph.graph.nodes) > max_nodes:
+            lines.append(f"... ({len(fx_graph.graph.nodes) - max_nodes} more nodes not shown)")
+            lines.append("")
+
+        lines.append(box['heavy_horizontal'] * total_width)
+        lines.append(f"Total FX nodes: {len(fx_graph.graph.nodes)}")
+        lines.append(f"Fused subgraphs: {len(self.fused_subgraphs)}")
+        lines.append(f"Reduction: {len(fx_graph.graph.nodes) / max(1, len(self.fused_subgraphs)):.1f}× fewer execution units")
+
+        if self.fused_subgraphs:
+            avg_fusion = sum(sg.num_operators for sg in self.fused_subgraphs) / len(self.fused_subgraphs)
+            lines.append(f"Average fusion size: {avg_fusion:.1f} operators/subgraph")
+
+        lines.append(box['heavy_horizontal'] * total_width)
+
+        return "\n".join(lines)
+
+    def _format_fx_node_colored(self, node, graph: GraphModule, idx: int,
+                               capability: TerminalCapability, box: dict) -> List[str]:
+        """Format FX node with color support"""
+        import torch.nn as nn
+
+        lines = []
+        lines.append(f"{idx}. [{node.op}] {node.name}")
+
+        if node.op == 'call_module':
+            try:
+                module = graph.get_submodule(node.target)
+                module_type = type(module).__name__
+                lines.append(f"   {module_type}")
+            except:
+                lines.append(f"   {node.target}")
+        elif node.op == 'call_function':
+            func_name = node.target.__name__ if hasattr(node.target, '__name__') else str(node.target)
+            lines.append(f"   Function: {func_name}")
+
+        return lines
+
+    def _format_fused_subgraph_header_colored(self, fused_sg: FusedSubgraph, counter: int,
+                                             capability: TerminalCapability, box: dict) -> List[str]:
+        """Format fused subgraph header with color coding"""
+        lines = []
+
+        # Get color for bottleneck type
+        color_start, color_end = get_bottleneck_color(
+            fused_sg.recommended_bottleneck.value, capability
+        )
+
+        # Header with color
+        header_text = f"SUBGRAPH #{counter}"
+        colored_header = f"{color_start}{header_text}{color_end}"
+        lines.append(f"{box['top_left']}{box['horizontal']} {colored_header} {box['horizontal'] * 30}")
+
+        lines.append(f"{box['vertical']}  Pattern: {fused_sg.fusion_pattern[:40]}")
+        lines.append(f"{box['vertical']}  Operators: {fused_sg.num_operators}")
+
+        # Bottleneck type with color
+        bottleneck_text = f"Type: {fused_sg.recommended_bottleneck.value.upper()}"
+        colored_bottleneck = f"{color_start}{bottleneck_text}{color_end}"
+        lines.append(f"{box['vertical']}  {colored_bottleneck}")
+        lines.append(f"{box['vertical']}")
+
+        return lines
+
+    def _format_fused_operator_colored(self, node, graph: GraphModule, is_first: bool,
+                                      is_last: bool, capability: TerminalCapability, box: dict) -> List[str]:
+        """Format operator within fused subgraph with color"""
+        import torch.nn as nn
+
+        lines = []
+
+        op_type = "unknown"
+        if node.op == 'call_module':
+            try:
+                module = graph.get_submodule(node.target)
+                op_type = type(module).__name__
+            except:
+                op_type = str(node.target)
+        elif node.op == 'call_function':
+            op_type = node.target.__name__ if hasattr(node.target, '__name__') else str(node.target)
+
+        lines.append(f"{box['vertical']}  {box['vertical_right']} {node.name} ({op_type})")
+
+        return lines
+
+    def _format_fused_subgraph_footer_colored(self, fused_sg: FusedSubgraph,
+                                             capability: TerminalCapability, box: dict) -> List[str]:
+        """Format subgraph footer with metrics"""
+        lines = []
+
+        lines.append(f"{box['vertical']}")
+
+        # Get color for bottleneck
+        color_start, color_end = get_bottleneck_color(
+            fused_sg.recommended_bottleneck.value, capability
+        )
+
+        # Metrics
+        flops_str = self._format_number(fused_sg.total_flops, 'FLOPs')
+        lines.append(f"{box['vertical']}  Compute: {flops_str}")
+
+        external_bytes = fused_sg.total_input_bytes + fused_sg.total_output_bytes + fused_sg.total_weight_bytes
+        external_str = self._format_bytes(external_bytes)
+        lines.append(f"{box['vertical']}  Memory: {external_str}")
+
+        if fused_sg.internal_bytes > 0:
+            internal_str = self._format_bytes(fused_sg.internal_bytes)
+            reduction_pct = fused_sg.data_movement_reduction() * 100
+            lines.append(f"{box['vertical']}  Saved: {internal_str} ({reduction_pct:.1f}%)")
+
+        ai_text = f"AI: {fused_sg.arithmetic_intensity:.1f} FLOPs/byte"
+        colored_ai = f"{color_start}{ai_text}{color_end}"
+        lines.append(f"{box['vertical']}  {colored_ai}")
+
+        lines.append(f"{box['bottom_left']}{box['horizontal'] * 45}")
+
+        return lines
+
+    def _format_not_fused_colored(self, node, capability: TerminalCapability, box: dict) -> List[str]:
+        """Format non-fused node"""
+        lines = []
+        dim_color = ANSIColor.DIM if capability in [TerminalCapability.COLOR, TerminalCapability.TRUECOLOR] else ""
+        reset = ANSIColor.RESET if capability in [TerminalCapability.COLOR, TerminalCapability.TRUECOLOR] else ""
+
+        lines.append(f"{dim_color}(not fused){reset}")
+
+        if node.op == 'placeholder':
+            lines.append(f"{dim_color}Reason: input placeholder{reset}")
+        elif node.op == 'output':
+            lines.append(f"{dim_color}Reason: output node{reset}")
+        else:
+            lines.append(f"{dim_color}Reason: structural operation{reset}")
+
+        return lines
+
+    def export_to_graphviz(self, fx_graph: GraphModule, output_file: str = "fusion_graph.dot"):
+        """
+        Export fusion partitioning to DOT format for Graphviz visualization.
+
+        Creates a visual graph showing fused subgraphs as nodes, colored by
+        bottleneck type, with edges showing data dependencies.
+
+        Args:
+            fx_graph: The FX graph that was partitioned
+            output_file: Path to output .dot file
+
+        Example:
+            partitioner.export_to_graphviz(fx_graph, "resnet_fusion.dot")
+            # Then generate PNG: dot -Tpng resnet_fusion.dot -o resnet_fusion.png
+        """
+        export_to_dot(self.fused_subgraphs, fx_graph, output_file)
