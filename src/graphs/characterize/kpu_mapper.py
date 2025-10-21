@@ -72,15 +72,27 @@ class KPUMapper(HardwareMapper):
     - Tiling overhead
     """
 
-    def __init__(self, resource_model: HardwareResourceModel):
-        super().__init__(resource_model)
+    def __init__(
+        self,
+        resource_model: HardwareResourceModel,
+        thermal_profile: str = None
+    ):
+        """
+        Initialize KPU mapper.
+
+        Args:
+            resource_model: KPU resource model
+            thermal_profile: Thermal profile name (e.g., "6W", "10W")
+                           If None, uses default from resource model
+        """
+        super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a KPU model
         if resource_model.hardware_type.value != "kpu":
             raise ValueError(f"KPUMapper requires KPU resource model, got {resource_model.hardware_type}")
 
         # KPU-specific parameters
-        self.num_tiles = resource_model.compute_units  # 64 tiles typical
+        self.num_tiles = resource_model.compute_units  # 100 tiles for T100
         self.scratchpad_per_tile = resource_model.l1_cache_per_unit  # 256KB
         self.threads_per_tile = resource_model.threads_per_unit  # 256 threads
 
@@ -431,14 +443,18 @@ class KPUMapper(HardwareMapper):
         )
 
 
-def create_kpu_t100_mapper() -> KPUMapper:
+def create_kpu_t100_mapper(thermal_profile: str = None) -> KPUMapper:
     """
-    Create KPU mapper for KPU-T100 (high-performance edge).
+    Create KPU mapper for KPU-T100 (high-performance edge AI accelerator).
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "6W", "10W")
+                        If None, uses default ("6W")
 
     Returns:
-        KPUMapper configured for KPU-T100
+        KPUMapper configured for KPU-T100 with heterogeneous tiles (70/20/10)
     """
     from .hardware_mapper import kpu_t100_resource_model
 
     model = kpu_t100_resource_model()
-    return KPUMapper(model)
+    return KPUMapper(model, thermal_profile=thermal_profile)
