@@ -956,22 +956,224 @@ class FusionBasedPartitioner:
         else:
             return f"{bytes}B"
 
+    def _categorize_single_ops(self) -> Dict[str, List]:
+        """
+        Categorize single-op subgraphs into structural vs potentially fusible.
+
+        Structural operations (expected to be unfused):
+        - Control flow: getitem, getattr, eq, _assert
+        - Shape manipulation: reshape, permute, transpose, view
+        - Placeholders: input, output, get_attr
+        - Methods: method calls that don't do computation
+
+        Returns:
+            Dict with 'structural' and 'fusible' lists of subgraphs
+        """
+        structural_ops = {
+            # Control flow
+            'getitem', 'getattr', 'eq', '_assert', 'floordiv',
+            # Shape manipulation
+            'reshape', 'permute', 'transpose', 'view', 'flatten', 'squeeze', 'unsqueeze',
+            'expand', 'contiguous', 'select', 'slice',
+            # Tensor creation/manipulation
+            'cat', 'stack', 'split', 'chunk',
+            # Size/shape queries
+            'size', 'dim', 'numel',
+            # Other
+            'clone', 'detach', 'to',
+        }
+
+        single_op_subgraphs = [sg for sg in self.fused_subgraphs if sg.num_operators == 1]
+
+        structural = []
+        fusible = []
+
+        for sg in single_op_subgraphs:
+            # Check if it's a structural operation
+            pattern_lower = sg.fusion_pattern.lower()
+
+            is_structural = False
+
+            # Check for placeholder/output
+            if 'placeholder' in pattern_lower or 'output' in pattern_lower:
+                is_structural = True
+            # Check for get_attr
+            elif 'get_attr' in pattern_lower or 'getattr' in pattern_lower:
+                is_structural = True
+            # Check for method calls (reshape, permute, etc.)
+            elif any(op in pattern_lower for op in structural_ops):
+                is_structural = True
+            # Check operation types
+            elif sg.operation_types and sg.operation_types[0].value == 'unknown':
+                is_structural = True
+
+            if is_structural:
+                structural.append(sg)
+            else:
+                fusible.append(sg)
+
+        return {'structural': structural, 'fusible': fusible}
+
+    def _detect_fusion_opportunities(self) -> List[Dict]:
+        """
+        Detect missed fusion opportunities by analyzing adjacent unfused operations.
+
+        Returns:
+            List of missed opportunities with details
+        """
+        opportunities = []
+
+        # Build node-to-subgraph mapping
+        node_to_subgraph = {}
+        for sg in self.fused_subgraphs:
+            for node_id in sg.node_ids:
+                node_to_subgraph[node_id] = sg
+
+        # Analyze graph for sequential operations that could fuse
+        for node in self.fx_graph_cached.graph.nodes:
+            if node.name not in node_to_subgraph:
+                continue
+
+            current_sg = node_to_subgraph[node.name]
+
+            # Only look at single-op subgraphs (potential opportunities)
+            if current_sg.num_operators != 1:
+                continue
+
+            # Check consumers
+            for consumer in node.users:
+                if consumer.name not in node_to_subgraph:
+                    continue
+
+                consumer_sg = node_to_subgraph[consumer.name]
+
+                # If both are single-op and adjacent, check if they could fuse
+                if consumer_sg.num_operators == 1:
+                    current_type = self._get_node_type(node)
+                    consumer_type = self._get_node_type(consumer)
+
+                    # Check if this pattern is fusible
+                    if self._is_fusible(node, consumer):
+                        opportunities.append({
+                            'op1': current_type,
+                            'op2': consumer_type,
+                            'pattern': f"{current_type} → {consumer_type}",
+                            'subgraph1_id': current_sg.subgraph_id,
+                            'subgraph2_id': consumer_sg.subgraph_id,
+                            'reason': 'Adjacent fusible operations not fused'
+                        })
+
+        # Deduplicate opportunities
+        seen_patterns = set()
+        unique_opportunities = []
+        for opp in opportunities:
+            if opp['pattern'] not in seen_patterns:
+                seen_patterns.add(opp['pattern'])
+                unique_opportunities.append(opp)
+
+        return unique_opportunities
+
+    def _calculate_sequential_fusion_baseline(self) -> Dict[str, int]:
+        """
+        Calculate baseline fusion assuming simple sequential-only strategy.
+
+        This provides a conservative baseline that only fuses operations in
+        simple sequential chains (single producer/consumer). It breaks at:
+        - Join points (multiple producers)
+        - Fork points (multiple consumers)
+
+        The actual fusion partitioner can do better by fusing through join
+        points (e.g., add, concat) and using more sophisticated fusion rules.
+
+        Returns:
+            Dict with baseline fusion metrics
+        """
+        if not self.fx_graph_cached:
+            return {'max_fusible_chains': 0, 'max_fusion_efficiency': 1.0}
+
+        # Build dependency graph
+        compute_nodes = [n for n in self.fx_graph_cached.graph.nodes
+                        if n.op in ['call_module', 'call_function']]
+
+        # Find longest sequential chains
+        from collections import defaultdict
+        producers = defaultdict(list)
+        consumers = defaultdict(list)
+
+        for node in compute_nodes:
+            for input_node in node.all_input_nodes:
+                if input_node in compute_nodes:
+                    producers[node].append(input_node)
+                    consumers[input_node].append(node)
+
+        # Count chains (sequences with single producer/consumer)
+        chains = []
+        visited = set()
+
+        def follow_chain(start_node):
+            chain = [start_node]
+            current = start_node
+            visited.add(current)
+
+            # Follow forward while single consumer
+            while len(consumers.get(current, [])) == 1:
+                next_node = consumers[current][0]
+                if next_node in visited:
+                    break
+                if len(producers.get(next_node, [])) > 1:
+                    break  # Join point
+                chain.append(next_node)
+                visited.add(next_node)
+                current = next_node
+
+            return chain
+
+        for node in compute_nodes:
+            if node not in visited:
+                # Start chain from nodes with no producer or multiple producers
+                if len(producers.get(node, [])) != 1:
+                    chain = follow_chain(node)
+                    if len(chain) > 1:
+                        chains.append(chain)
+
+        # Calculate baseline (simple sequential fusion)
+        total_ops = len(compute_nodes)
+        num_chains = len(chains)
+        single_ops = total_ops - sum(len(c) for c in chains)
+        baseline_subgraphs = num_chains + single_ops
+
+        baseline_efficiency = total_ops / max(1, baseline_subgraphs)
+
+        return {
+            'total_compute_ops': total_ops,
+            'sequential_chains': num_chains,
+            'longest_chain': max(len(c) for c in chains) if chains else 1,
+            'baseline_subgraphs': baseline_subgraphs,
+            'baseline_efficiency': baseline_efficiency,
+            'single_ops_in_baseline': single_ops,
+        }
+
     def analyze_balance(self) -> str:
         """
         Analyze balance and quality of fusion partitioning.
 
         Provides insights into:
         - Distribution of fusion sizes (histogram)
-        - Identification of missed fusion opportunities (single-op subgraphs)
+        - Categorized single-op analysis (structural vs fusible)
         - Detection of overly large fusions (potential issues)
         - Top fusion patterns
         - Bottleneck distribution
+        - Missed fusion opportunity detection
+        - Comparison to sequential fusion baseline
 
         Returns:
             Formatted report string with analysis and recommendations
         """
         if not self.fused_subgraphs:
             return "No fused subgraphs to analyze"
+
+        if not self.fx_graph_cached:
+            return "FX graph not cached - cannot perform detailed analysis"
 
         lines = []
         lines.append("=" * 100)
@@ -1023,26 +1225,46 @@ class FusionBasedPartitioner:
         lines.append("FUSION QUALITY ANALYSIS")
         lines.append("─" * 100)
 
-        # Single-operator subgraphs (missed opportunities)
-        single_op = [sg for sg in self.fused_subgraphs if sg.num_operators == 1]
-        if single_op:
-            pct = len(single_op) / len(self.fused_subgraphs) * 100
-            lines.append(f"⚠️  Single-Operator Subgraphs: {len(single_op)} ({pct:.1f}%)")
-            lines.append("    → Potential fusion opportunities missed")
+        # Single-operator subgraphs (categorized analysis)
+        categorized = self._categorize_single_ops()
+        structural_ops = categorized['structural']
+        fusible_ops = categorized['fusible']
+        total_single_op = len(structural_ops) + len(fusible_ops)
 
-            # Show a few examples
-            if len(single_op) <= 5:
-                lines.append("    Examples:")
-                for sg in single_op[:5]:
-                    lines.append(f"      • {sg.fusion_pattern} (AI: {sg.arithmetic_intensity:.1f})")
-            else:
-                lines.append(f"    Top patterns:")
-                pattern_counts = Counter(sg.fusion_pattern for sg in single_op)
-                for pattern, count in pattern_counts.most_common(5):
-                    lines.append(f"      • {pattern}: {count}")
+        if total_single_op > 0:
+            pct = total_single_op / len(self.fused_subgraphs) * 100
+            lines.append(f"Single-Operator Subgraphs: {total_single_op} ({pct:.1f}%)")
             lines.append("")
+
+            # Structural operations (expected)
+            if structural_ops:
+                struct_pct = len(structural_ops) / len(self.fused_subgraphs) * 100
+                lines.append(f"  ✓  Structural Operations: {len(structural_ops)} ({struct_pct:.1f}%)")
+                lines.append("      Expected unfused (control flow, shape manipulation, placeholders)")
+                pattern_counts = Counter(sg.fusion_pattern for sg in structural_ops)
+                lines.append("      Top patterns:")
+                for pattern, count in pattern_counts.most_common(5):
+                    lines.append(f"        • {pattern}: {count}")
+                lines.append("")
+
+            # Potentially fusible operations (opportunities)
+            if fusible_ops:
+                fusible_pct = len(fusible_ops) / len(self.fused_subgraphs) * 100
+                lines.append(f"  ⚠️  Potentially Fusible Operations: {len(fusible_ops)} ({fusible_pct:.1f}%)")
+                lines.append("      These might be fusion opportunities")
+                pattern_counts = Counter(sg.fusion_pattern for sg in fusible_ops)
+                lines.append("      Top patterns:")
+                for pattern, count in pattern_counts.most_common(5):
+                    # Find example for this pattern
+                    example = next(sg for sg in fusible_ops if sg.fusion_pattern == pattern)
+                    op_type = example.operation_types[0].value if example.operation_types else "unknown"
+                    lines.append(f"        • {pattern}: {count} (type: {op_type})")
+                lines.append("")
+            else:
+                lines.append("  ✓  No potentially fusible single-ops (excellent!)")
+                lines.append("")
         else:
-            lines.append("✓  No single-operator subgraphs (excellent fusion coverage)")
+            lines.append("✓  No single-operator subgraphs (perfect fusion coverage)")
             lines.append("")
 
         # Large fusions (>10 operators)
@@ -1140,6 +1362,83 @@ class FusionBasedPartitioner:
         lines.append(f"  Overall Reduction:               {overall_reduction:.1f}%")
         lines.append("")
 
+        # Fusion opportunity detection
+        lines.append("─" * 100)
+        lines.append("MISSED FUSION OPPORTUNITIES")
+        lines.append("─" * 100)
+
+        opportunities = self._detect_fusion_opportunities()
+        if opportunities:
+            lines.append(f"  Found {len(opportunities)} potential fusion pattern(s) not currently fused:")
+            lines.append("")
+            for i, opp in enumerate(opportunities[:10], 1):
+                lines.append(f"  {i}. {opp['pattern']}")
+                lines.append(f"     Reason: {opp['reason']}")
+            if len(opportunities) > 10:
+                lines.append(f"  ... and {len(opportunities) - 10} more")
+            lines.append("")
+            lines.append("  These patterns are fusible but currently execute as separate subgraphs.")
+            lines.append("  This may indicate:")
+            lines.append("    • Greedy fusion stopped early (hit a boundary)")
+            lines.append("    • Join/fork points preventing fusion")
+            lines.append("    • Operations in different execution paths")
+        else:
+            lines.append("  ✓ No obvious missed fusion opportunities detected")
+            lines.append("  All adjacent fusible operations are properly fused")
+        lines.append("")
+
+        # Comparison to sequential fusion baseline
+        lines.append("─" * 100)
+        lines.append("FUSION STRATEGY COMPARISON")
+        lines.append("─" * 100)
+        lines.append("")
+        lines.append("Comparing actual fusion to a simple sequential-only baseline:")
+        lines.append("(Baseline only fuses simple chains, breaks at join/fork points)")
+        lines.append("")
+
+        baseline = self._calculate_sequential_fusion_baseline()
+        actual_efficiency = sum(sizes) / len(self.fused_subgraphs)
+
+        lines.append(f"  Total Compute Operations:        {baseline['total_compute_ops']}")
+        lines.append(f"  Sequential Chains Found:         {baseline['sequential_chains']}")
+        lines.append(f"  Longest Sequential Chain:        {baseline['longest_chain']} ops")
+        lines.append("")
+        lines.append(f"  Baseline (Sequential Only):      {baseline['baseline_subgraphs']} subgraphs, "
+                    f"{baseline['baseline_efficiency']:.2f}× efficiency")
+        lines.append(f"  Actual (Smart Fusion):           {len(self.fused_subgraphs)} subgraphs, "
+                    f"{actual_efficiency:.2f}× efficiency")
+        lines.append("")
+
+        # Calculate improvement over baseline
+        if len(self.fused_subgraphs) <= baseline['baseline_subgraphs']:
+            improvement = (baseline['baseline_subgraphs'] - len(self.fused_subgraphs)) / baseline['baseline_subgraphs'] * 100
+            lines.append(f"  Improvement Over Baseline:       {improvement:.1f}% fewer subgraphs")
+            lines.append(f"                                   ({baseline['baseline_subgraphs'] - len(self.fused_subgraphs)} fewer kernel launches)")
+        else:
+            regression = (len(self.fused_subgraphs) - baseline['baseline_subgraphs']) / baseline['baseline_subgraphs'] * 100
+            lines.append(f"  ⚠️  Regression:                   {regression:.1f}% more subgraphs than baseline")
+            lines.append(f"                                   (This suggests the fusion strategy may have issues)")
+
+        lines.append("")
+
+        efficiency_ratio = actual_efficiency / baseline['baseline_efficiency'] if baseline['baseline_efficiency'] > 0 else 1.0
+        lines.append(f"  Fusion Efficiency Gain:          {efficiency_ratio:.2f}× vs baseline")
+        lines.append("")
+
+        if efficiency_ratio >= 1.5:
+            lines.append("  ✓ Excellent! Fusion is significantly better than sequential-only strategy")
+            lines.append("    → Successfully fusing through join points and complex patterns")
+        elif efficiency_ratio >= 1.2:
+            lines.append("  ✓ Good! Fusion improves over sequential-only baseline")
+            lines.append("    → Taking advantage of some cross-branch fusion opportunities")
+        elif efficiency_ratio >= 1.0:
+            lines.append("  ✓ Modest improvement over sequential fusion")
+            lines.append("    → May have opportunities to fuse through more join points")
+        else:
+            lines.append("  ⚠️  Performing worse than sequential baseline")
+            lines.append("     → This suggests fusion strategy may be creating unnecessary boundaries")
+        lines.append("")
+
         # Recommendations
         lines.append("─" * 100)
         lines.append("RECOMMENDATIONS")
@@ -1147,9 +1446,15 @@ class FusionBasedPartitioner:
 
         recommendations = []
 
-        if len(single_op) > len(self.fused_subgraphs) * 0.3:
-            recommendations.append("⚠️  High number of single-op subgraphs (>30%)")
+        # Enhanced recommendations based on categorized analysis
+        if len(fusible_ops) > len(self.fused_subgraphs) * 0.15:
+            recommendations.append("⚠️  High number of potentially fusible single-ops (>15%)")
             recommendations.append("   → Review fusion heuristics to increase fusion coverage")
+            if opportunities:
+                recommendations.append(f"   → {len(opportunities)} specific fusion patterns detected (see above)")
+        elif len(fusible_ops) > 0:
+            recommendations.append(f"ℹ️  {len(fusible_ops)} potentially fusible single-ops detected")
+            recommendations.append("   → These may be edge cases or structural constraints")
 
         if len(large_fusions) > 0:
             recommendations.append("⚠️  Some large fusions detected")
