@@ -1,0 +1,208 @@
+================================================================================
+Loading and Tracing: efficientnet_b0
+================================================================================
+
+[1/3] Loading efficientnet_b0...
+[2/3] Tracing with PyTorch FX...
+[3/3] Propagating shapes...
+
+Success: 251 FX nodes
+
+================================================================================
+APPLYING PARTITIONING STRATEGIES
+================================================================================
+
+Applying 'fusion' partitioning strategy...
+  fusion: 71 subgraphs created
+
+================================================================================
+METRICS: FUSION STRATEGY
+================================================================================
+
+Subgraphs: 71
+Total FLOPs: 0.77 G
+Memory Traffic: 77.27 MB
+Arithmetic Intensity: 11.01 FLOPs/byte
+
+Fusion Stats:
+  Avg ops per subgraph: 3.5
+  Data movement reduction: 46.4%
+
+Top fusion patterns:
+  Unfused: 22
+  Conv2d_BatchNorm2d_SiLU_+3more: 16
+  AdaptiveAvgPool2d_Conv2d_SiLU_+3more: 16
+  Conv2d_BatchNorm2d: 16
+  Conv2d_BatchNorm2d_SiLU: 1
+
+================================================================================
+VISUALIZATION: FUSION STRATEGY
+================================================================================
+
+==================================================================================================================
+FUSION-BASED GRAPH PARTITIONING VISUALIZATION
+==================================================================================================================
+
+FX Graph (Execution Order)                            Fused Subgraphs
+--------------------------------------------------    ------------------------------------------------------------
+
+1. [placeholder] x                                       (not fused)
+                                                         Reason: input placeholder
+
+2. [call_module] features_0_0                         ┌─ SUBGRAPH #1 ─────────────────────────
+   Conv2d(3->32, k=(3, 3), s=(2, 2))                  │  Pattern: Conv2d_BatchNorm2d_SiLU_+3more
+                                                      │  Operators: 6
+                                                      │
+                                                      │  • features_0_0 (Conv2d)
+
+3. [call_module] features_0_1                         │  • features_0_1 (BatchNorm2d)
+   BatchNorm2d(32)                                    
+
+4. [call_module] features_0_2                         │  • features_0_2 (SiLU)
+   SiLU                                               
+
+5. [call_module] features_1_0_block_0_0               │  • features_1_0_block_0_0 (Conv2d)
+   Conv2d(32->32, k=(3, 3), s=(1, 1))                 
+
+6. [call_module] features_1_0_block_0_1               │  • features_1_0_block_0_1 (BatchNorm2d)
+   BatchNorm2d(32)                                    
+
+7. [call_module] features_1_0_block_0_2               │  • features_1_0_block_0_2 (SiLU)
+   SiLU                                               │
+                                                      │  Compute: 14.45MMACs, 28.90MFLOPs
+                                                      │  Memory: 2.21MB (external)
+                                                      │  Saved: 8.03MB internal (78.4% reduction)
+                                                      │  AI: 13.1 FLOPs/byte [BALANCED]
+                                                      └─────────────────────────────────────────────
+
+8. [call_module] features_1_0_block_1_avgpool         ┌─ SUBGRAPH #2 ─────────────────────────
+   AdaptiveAvgPool2d                                  │  Pattern: AdaptiveAvgPool2d_Conv2d_SiLU_+3more
+                                                      │  Operators: 6
+                                                      │
+                                                      │  • features_1_0_block_1_avgpool (AdaptiveAvgPool2d)
+
+9. [call_module] features_1_0_block_1_fc1             │  • features_1_0_block_1_fc1 (Conv2d)
+   Conv2d(32->8, k=(1, 1), s=(1, 1))                  
+
+10. [call_module] features_1_0_block_1_activation     │  • features_1_0_block_1_activation (SiLU)
+   SiLU                                               
+
+11. [call_module] features_1_0_block_1_fc2            │  • features_1_0_block_1_fc2 (Conv2d)
+   Conv2d(8->32, k=(1, 1), s=(1, 1))                  
+
+12. [call_module] features_1_0_block_1_scale_activation    │  • features_1_0_block_1_scale_activation (Sigmoid)
+   Sigmoid                                            
+
+13. [call_function] mul                               │  • mul (mul)
+   Function: mul                                      │
+                                                      │  Compute: 512 MACs, 1.02KFLOPs
+                                                      │  Memory: 4.82MB (external)
+                                                      │  Saved: 448B internal (0.0% reduction)
+                                                      │  AI: 0.0 FLOPs/byte [BANDWIDTH_BOUND]
+                                                      └─────────────────────────────────────────────
+
+14. [call_module] features_1_0_block_2_0              ┌─ SUBGRAPH #3 ─────────────────────────
+   Conv2d(32->16, k=(1, 1), s=(1, 1))                 │  Pattern: Conv2d_BatchNorm2d
+                                                      │  Operators: 2
+                                                      │
+                                                      │  • features_1_0_block_2_0 (Conv2d)
+
+15. [call_module] features_1_0_block_2_1              │  • features_1_0_block_2_1 (BatchNorm2d)
+   BatchNorm2d(16)                                    │
+                                                      │  Compute: 6.42MMACs, 12.85MFLOPs
+                                                      │  Memory: 2.41MB (external)
+                                                      │  Saved: 802.82KB internal (25.0% reduction)
+                                                      │  AI: 5.3 FLOPs/byte [MEMORY_BOUND]
+                                                      └─────────────────────────────────────────────
+
+16. [call_module] features_2_0_block_0_0              ┌─ SUBGRAPH #4 ─────────────────────────
+   Conv2d(16->96, k=(1, 1), s=(1, 1))                 │  Pattern: Conv2d_BatchNorm2d_SiLU_+3more
+                                                      │  Operators: 6
+                                                      │
+                                                      │  • features_2_0_block_0_0 (Conv2d)
+
+17. [call_module] features_2_0_block_0_1              │  • features_2_0_block_0_1 (BatchNorm2d)
+   BatchNorm2d(96)                                    
+
+18. [call_module] features_2_0_block_0_2              │  • features_2_0_block_0_2 (SiLU)
+   SiLU                                               
+
+19. [call_module] features_2_0_block_1_0              │  • features_2_0_block_1_0 (Conv2d)
+   Conv2d(96->96, k=(3, 3), s=(2, 2))                 
+
+20. [call_module] features_2_0_block_1_1              │  • features_2_0_block_1_1 (BatchNorm2d)
+   BatchNorm2d(96)                                    
+
+21. [call_module] features_2_0_block_1_2              │  • features_2_0_block_1_2 (SiLU)
+   SiLU                                               │
+                                                      │  Compute: 21.98MMACs, 43.95MFLOPs
+                                                      │  Memory: 2.02MB (external)
+                                                      │  Saved: 16.86MB internal (89.3% reduction)
+                                                      │  AI: 21.8 FLOPs/byte [BALANCED]
+                                                      └─────────────────────────────────────────────
+
+22. [call_module] features_2_0_block_2_avgpool        ┌─ SUBGRAPH #5 ─────────────────────────
+   AdaptiveAvgPool2d                                  │  Pattern: AdaptiveAvgPool2d_Conv2d_SiLU_+3more
+                                                      │  Operators: 6
+                                                      │
+                                                      │  • features_2_0_block_2_avgpool (AdaptiveAvgPool2d)
+
+23. [call_module] features_2_0_block_2_fc1            │  • features_2_0_block_2_fc1 (Conv2d)
+   Conv2d(96->4, k=(1, 1), s=(1, 1))                  
+
+24. [call_module] features_2_0_block_2_activation     │  • features_2_0_block_2_activation (SiLU)
+   SiLU                                               
+
+25. [call_module] features_2_0_block_2_fc2            │  • features_2_0_block_2_fc2 (Conv2d)
+   Conv2d(4->96, k=(1, 1), s=(1, 1))                  
+
+26. [call_module] features_2_0_block_2_scale_activation    │  • features_2_0_block_2_scale_activation (Sigmoid)
+   Sigmoid                                            
+
+27. [call_function] mul_1                             │  • mul_1 (mul)
+   Function: mul                                      │
+                                                      │  Compute: 768 MACs, 1.54KFLOPs
+                                                      │  Memory: 3.62MB (external)
+                                                      │  Saved: 1.18KB internal (0.0% reduction)
+                                                      │  AI: 0.0 FLOPs/byte [BANDWIDTH_BOUND]
+                                                      └─────────────────────────────────────────────
+
+28. [call_module] features_2_0_block_3_0              ┌─ SUBGRAPH #6 ─────────────────────────
+   Conv2d(96->24, k=(1, 1), s=(1, 1))                 │  Pattern: Conv2d_BatchNorm2d
+                                                      │  Operators: 2
+                                                      │
+                                                      │  • features_2_0_block_3_0 (Conv2d)
+
+29. [call_module] features_2_0_block_3_1              │  • features_2_0_block_3_1 (BatchNorm2d)
+   BatchNorm2d(24)                                    │
+                                                      │  Compute: 7.23MMACs, 14.45MFLOPs
+                                                      │  Memory: 1.51MB (external)
+                                                      │  Saved: 301.06KB internal (16.6% reduction)
+                                                      │  AI: 9.5 FLOPs/byte [MEMORY_BOUND]
+                                                      └─────────────────────────────────────────────
+
+30. [call_module] features_2_1_block_0_0              ┌─ SUBGRAPH #7 ─────────────────────────
+   Conv2d(24->144, k=(1, 1), s=(1, 1))                │  Pattern: Conv2d_BatchNorm2d_SiLU_+3more
+                                                      │  Operators: 6
+                                                      │
+                                                      │  • features_2_1_block_0_0 (Conv2d)
+
+... (221 more nodes not shown)
+
+==================================================================================================================
+Total FX nodes: 251
+Fused subgraphs: 71
+Reduction: 3.5× fewer execution units
+Average fusion size: 3.5 operators/subgraph
+==================================================================================================================
+
+================================================================================
+SUMMARY
+================================================================================
+
+Model: efficientnet_b0
+Strategies tested: fusion
+FX graph size: 251 nodes
+
+To see full visualization, run:
+  python cli/partitioner.py --model efficientnet_b0 --strategy fusion --visualize --max-nodes 999
