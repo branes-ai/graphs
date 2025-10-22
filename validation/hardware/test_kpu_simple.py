@@ -10,7 +10,7 @@ from typing import List
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
 from src.graphs.characterize.kpu_mapper import create_kpu_t100_mapper

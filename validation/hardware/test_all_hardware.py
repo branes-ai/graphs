@@ -33,7 +33,7 @@ from typing import List, Dict
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner, FusionReport
 from src.graphs.characterize.gpu_mapper import (
