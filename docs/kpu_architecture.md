@@ -503,18 +503,34 @@ print(f"Safety: {config.safety_name}")
 
 ### vs H100 GPU (NVIDIA)
 
+The NVIDIA H100 GPU has up to 144 Streaming Multiprocessors (SMs).
+
+This number can vary slightly depending on the specific SKU and configuration (e.g., SXM vs PCIe), but the full Hopper architecture implementation supports up to 144 SMs. 
+
+Each SM in the H100 is significantly enhanced compared to previous generations, featuring:
+
+  - 4 warp schedulers per SM, each capable of issuing instructions to 32 threads per cycle.
+  - Improved FP32 throughput, with double the operations per cycle compared to Ampere.
+  - Tensor Memory Accelerator (TMA) for efficient asynchronous memory transfers.
+  - Support for distributed shared memory, enabling inter-block communication within clusters.
+  - Concurrent execution of up to 2048 threads per SM, allowing massive parallelism.
+
+In total, a fully enabled H100 GPU can support over 250,000 concurrent threads, making it one of the most powerful architectures for AI and HPC workloads. When we're modeling concurrency or buffer occupancy, this SM count is a critical parameter for loop nest generation, operand scheduling, and energy-delay modeling.
+
 | Aspect | H100 | KPU-T256 | Winner |
 |--------|------|----------|--------|
 | **Architecture** | 132 SMs, CUDA | 256 tiles, stream | - |
 | **Peak TOPS** | 3958 INT8 | 95 INT8 | **H100** (42×) |
 | **Power** | 700W | 25W | **KPU** (28×) |
-| **TOPS/W** | 5.65 | 3.8 | **H100** |
+| **TOPS/W** | 5.65 | 3.8 | **H100** *|
 | **Utilization @ batch=1** | 20-40% | 90-100% | **KPU** |
 | **Cost** | $30,000 | $400 | **KPU** (75×) |
 | **Perf/$** | 0.132 TOPS/$ | 0.238 TOPS/$ | **KPU** (1.8×) |
 | **Target** | Datacenter training | Edge inference | Different markets |
 
 **Key insight**: H100 wins on absolute performance and TOPS/W. KPU wins on cost, utilization, and total cost of ownership for edge deployment.
+
+***Footnote**: we need to work on the performance/Watt metric as we want to win this comparison
 
 ### vs Jetson Orin (NVIDIA)
 
