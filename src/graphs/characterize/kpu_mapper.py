@@ -448,7 +448,7 @@ def create_kpu_t100_mapper(thermal_profile: str = None) -> KPUMapper:
     Create KPU mapper for KPU-T100 (high-performance edge AI accelerator).
 
     Args:
-        thermal_profile: Thermal profile name (e.g., "6W", "10W")
+        thermal_profile: Thermal profile name (e.g., "6W", "12W", "24W")
                         If None, uses default ("6W")
 
     Returns:
@@ -457,4 +457,21 @@ def create_kpu_t100_mapper(thermal_profile: str = None) -> KPUMapper:
     from .hardware_mapper import kpu_t100_resource_model
 
     model = kpu_t100_resource_model()
+    return KPUMapper(model, thermal_profile=thermal_profile)
+
+
+def create_kpu_t300_mapper(thermal_profile: str = None) -> KPUMapper:
+    """
+    Create KPU mapper for KPU-T300 (automotive AI accelerator).
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "12.5W", "25W", "50W")
+                        If None, uses default ("25W")
+
+    Returns:
+        KPUMapper configured for KPU-T300 with heterogeneous tiles (210/60/30)
+    """
+    from .hardware_mapper import kpu_t300_resource_model
+
+    model = kpu_t300_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)
