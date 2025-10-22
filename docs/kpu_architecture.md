@@ -305,7 +305,10 @@ Each KPU tile includes:
 
 Total: 16 outputs per cycle (fully pipelined)
 
-Note: as C elements come out of the array at one element per column every two clocks. This dynamic arises because to avoid contention we need to propagate the result elements in the opposite direction as the wavefront, and that introduces a bubble. 
+Footnote: 
+  C elements come out of the array at one element per column every two clocks. 
+  This dynamic arises because to avoid contention we need to propagate the result 
+  elements in the opposite direction as the wavefront, and that introduces a bubble. 
 ```
 
 **Result**: Fused operations run at full MAC array speed with FP32 precision where it matters.
