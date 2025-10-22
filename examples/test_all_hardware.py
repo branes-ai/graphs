@@ -162,8 +162,8 @@ def test_all_hardware():
         print(f"\n{'='*80}")
         print(f"Testing {precision_name} - DeepLabV3-ResNet101 @ 1024×1024")
         print(f"{'='*80}")
-        print(f"{'Hardware':<25} | {'Latency (ms)':>12} | {'Util':>8} | {'Energy (J)':>11}")
-        print(f"{'-'*25}-+-{'-'*12}-+-{'-'*8}-+-{'-'*11}")
+        print(f"{'Hardware':<30} | {'Latency (ms)':>12} | {'Util':>8} | {'Energy (J)':>11}")
+        print(f"{'-'*30}-+-{'-'*12}-+-{'-'*8}-+-{'-'*11}")
 
         for hw_name, mapper in mappers.items():
             try:
@@ -176,9 +176,9 @@ def test_all_hardware():
                 allocation.model_name = "DeepLabV3-ResNet101"
                 results[(hw_name, precision)] = allocation
 
-                print(f"{hw_name:<25} | {allocation.total_latency*1000:12.3f} | {allocation.average_utilization:7.1%} | {allocation.total_energy:11.3f}")
+                print(f"{hw_name:<30} | {allocation.total_latency*1000:12.3f} | {allocation.average_utilization:7.1%} | {allocation.total_energy:11.3f}")
             except Exception as e:
-                print(f"{hw_name:<25} | SKIPPED ({str(e)[:40]})")
+                print(f"{hw_name:<30} | SKIPPED ({str(e)[:40]})")
                 results[(hw_name, precision)] = None
 
     # ========================================================================
@@ -312,7 +312,7 @@ def test_all_hardware():
     # ANALYSIS 5: Head-to-Head Comparison
     # ========================================================================
     print("\n" + "=" * 80)
-    print("ANALYSIS 5: HEAD-TO-HEAD (INT8, Batch=1)")
+    print("ANALYSIS 5: HEAD-TO-HEAD vs CPU (INT8, Batch=1, Ranked by Speedup)")
     print("=" * 80)
     print()
 
@@ -326,24 +326,31 @@ def test_all_hardware():
         print(f"  Latency: {cpu_latency:.3f} ms")
         print(f"  Energy:  {cpu_energy:.3f} J\n")
 
-        print(f"{'Hardware':<25} {'Speedup vs CPU':<18} {'Energy Efficiency':<20}")
-        print("-" * 70)
-
-        for hw_name in ["H100 GPU", "TPU v4", "Coral-Edge-TPU", "KPU-T100 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2"]:
+        # Calculate speedup for all hardware
+        comparison_data = []
+        for hw_name in ["H100 GPU", "TPU v4", "Coral-Edge-TPU", "KPU-T100 @ 6W (70/20/10)", "KPU-T300 @ 50W (210/60/30)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2"]:
             alloc = results.get((hw_name, Precision.INT8))
             if alloc is None:
                 continue
 
             speedup = cpu_latency / (alloc.total_latency * 1000)
             energy_ratio = cpu_energy / alloc.total_energy
+            comparison_data.append((hw_name, speedup, energy_ratio))
 
-            print(f"{hw_name:<25} {speedup:<18.1f}× {energy_ratio:<20.1f}×")
+        # Sort by speedup (descending - highest first)
+        comparison_data_sorted = sorted(comparison_data, key=lambda x: x[1], reverse=True)
+
+        print(f"{'Rank':<6} {'Hardware':<30} {'Speedup vs CPU':<18} {'Energy Efficiency':<20}")
+        print("-" * 80)
+
+        for rank, (hw_name, speedup, energy_ratio) in enumerate(comparison_data_sorted, 1):
+            print(f"{rank:<6} {hw_name:<30} {speedup:<17.1f}× {energy_ratio:<19.1f}×")
 
     # ========================================================================
     # ANALYSIS 6: Cost-Benefit Comparison
     # ========================================================================
     print("\n" + "=" * 80)
-    print("ANALYSIS 6: COST-BENEFIT COMPARISON (INT8, Batch=1)")
+    print("ANALYSIS 6: COST-BENEFIT COMPARISON (INT8, Batch=1, Ranked by Perf/$)")
     print("=" * 80)
     print()
 
@@ -361,10 +368,10 @@ def test_all_hardware():
         # KPU T300 - Automotive SKUs (210/60/30 tiles)
         "KPU-T300 @ 12.5W (210/60/30)": 900,   # Automotive low power (liquid cooling)
         "KPU-T300 @ 25W (210/60/30)": 1200,    # Automotive normal driving
-        "KPU-T300 @ 50W (210/60/30)": 1800,    # Automotive high performance
+        "KPU-T300 @ 50W (210/60/30)": 1200,    # Automotive high performance
 
         # Cloud/Datacenter
-        "TPU v4": 5000,     # TPU pod slice estimate
+        "TPU v4": 15000,    # TPU pod slice (minimum configuration)
         "H100 GPU": 30000,  # NVIDIA H100 PCIe
 
         # Edge accelerators
@@ -377,11 +384,10 @@ def test_all_hardware():
         "AMD CPU (AVX-2)": 400,
     }
 
-    print(f"{'Hardware':<25} {'Latency':<12} {'Energy':<12} {'Power':<10} {'Cost':<12} {'Target':<15}")
-    print("-" * 100)
-
+    # Calculate cost-performance for all hardware
+    cost_benefit_data = []
     precision = Precision.INT8
-    for hw_name in ["Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "KPU-T100 @ 6W (70/20/10)", "TPU v4", "Coral-Edge-TPU", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)", "H100 GPU"]:
+    for hw_name in ["Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "KPU-T100 @ 6W (70/20/10)", "KPU-T300 @ 50W (210/60/30)", "TPU v4", "Coral-Edge-TPU", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)", "H100 GPU"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -391,15 +397,21 @@ def test_all_hardware():
         power_w = energy_j / alloc.total_latency
         cost = hw_costs.get(hw_name, 0)
 
+        # Calculate performance per dollar (inferences/sec per $)
+        perf = 1000.0 / latency_ms  # inferences/sec
+        perf_per_dollar = perf / cost if cost > 0 else 0
+
         # Target category
         if "Jetson-Orin" in hw_name:
-            target = "Edge AI (15W) ✓"
+            target = "Embodied AI"
         elif "Jetson-Thor" in hw_name:
-            target = "Next-Gen (30W) ✓"
-        elif "KPU" in hw_name:
-            target = "Embodied (6W) ✓"
+            target = "Automotive"
+        elif "KPU-T100" in hw_name:
+            target = "Embodied AI"
+        elif "KPU-T300" in hw_name:
+            target = "Automotive"
         elif "Coral" in hw_name:
-            target = "IoT/Battery ✓"
+            target = "IoT/Battery"
         elif "TPU v4" in hw_name:
             target = "Cloud"
         elif "DPU" in hw_name:
@@ -411,7 +423,22 @@ def test_all_hardware():
         else:
             target = "General"
 
-        print(f"{hw_name:<25} {latency_ms:<12.3f} {energy_j:<12.4f} {power_w:<10.0f} ${cost:<11,} {target:<15}")
+        cost_benefit_data.append((hw_name, latency_ms, energy_j, power_w, cost, perf_per_dollar, target))
+
+    # Sort by perf_per_dollar (descending - higher is better)
+    cost_benefit_data_sorted = sorted(cost_benefit_data, key=lambda x: x[5], reverse=True)
+
+    print(f"{'Rank':<6} {'Hardware':<30} {'Latency':<12} {'Energy':<12} {'Power':<10} {'Cost':<12} {'Perf/$':<15} {'Target':<20}")
+    print("-" * 120)
+
+    for rank, (hw_name, latency_ms, energy_j, power_w, cost, perf_per_dollar, target) in enumerate(cost_benefit_data_sorted, 1):
+        # Format perf_per_dollar with more precision for small values
+        if perf_per_dollar >= 0.01:
+            perf_str = f"{perf_per_dollar:.3f}"
+        else:
+            perf_str = f"{perf_per_dollar:.4f}"
+
+        print(f"{rank:<6} {hw_name:<30} {latency_ms:<12.3f} {energy_j:<12.4f} {power_w:<10.1f} ${cost:<11,} {perf_str:<15} {target:<20}")
 
     print()
     print("Cost-Performance Analysis:")
