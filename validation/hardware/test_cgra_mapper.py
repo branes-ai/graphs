@@ -26,7 +26,7 @@ from typing import List
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner, FusionReport
 from src.graphs.characterize.cgra_mapper import create_plasticine_v2_mapper

@@ -26,7 +26,7 @@ from typing import List
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner, FusionReport
 from src.graphs.characterize.dpu_mapper import create_dpu_vitis_ai_mapper

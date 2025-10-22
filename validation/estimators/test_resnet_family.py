@@ -1,18 +1,19 @@
 #!/usr/bin/env python
-"""Characterization test for MobileNet family from torchvision"""
+"""Compare different ResNet architectures (18, 34, 50)"""
 
 import torch
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+
 import torchvision.models as models
 import pandas as pd
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.characterize.arch_profiles import (
-    intel_i7_profile, amd_ryzen7_profile, h100_pcie_profile,
-    tpu_v4_profile, kpu_t2_profile, kpu_t100_profile
-)
-from graphs.characterize.fused_ops import default_registry
-from graphs.characterize.walker import FXGraphWalker
+from src.graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
+from src.graphs.characterize.fused_ops import default_registry
+from src.graphs.characterize.walker import FXGraphWalker
 
 def format_number(n):
     """Format large numbers with SI prefixes"""
@@ -47,16 +48,8 @@ def characterize_model(model, model_name, batch_size=1):
         registry = default_registry()
         results = []
 
-        architectures = [
-            ("Intel Core i7", intel_i7_profile),
-            ("AMD Ryzen 7", amd_ryzen7_profile),
-            ("H100-PCIe", h100_pcie_profile),
-            ("TPU v4", tpu_v4_profile),
-            ("KPU-T2", kpu_t2_profile),
-            ("KPU-T100", kpu_t100_profile)
-        ]
-
-        for arch_name, arch_profile in architectures:
+        for arch_name, arch_profile in [("CPU", cpu_profile), ("GPU", gpu_profile),
+                                         ("TPU", tpu_profile), ("KPU", kpu_profile)]:
             walker = FXGraphWalker(arch_profile, registry)
             metrics = walker.walk(fx_graph)
 
@@ -76,20 +69,18 @@ def characterize_model(model, model_name, batch_size=1):
 
     except Exception as e:
         print(f"   ✗ Failed to characterize {model_name}: {e}")
-        import traceback
-        traceback.print_exc()
         return [], 0
 
 def main():
     print("=" * 80)
-    print("MobileNet Family Characterization")
+    print("ResNet Family Characterization")
     print("=" * 80)
 
     # Models to compare
     models_to_test = [
-        ("MobileNet-V2", models.mobilenet_v2),
-        ("MobileNet-V3-Small", models.mobilenet_v3_small),
-        ("MobileNet-V3-Large", models.mobilenet_v3_large),
+        ("ResNet-18", models.resnet18),
+        ("ResNet-34", models.resnet34),
+        ("ResNet-50", models.resnet50),
     ]
 
     all_results = []
@@ -106,8 +97,8 @@ def main():
 
         if results:
             print(f"   Parameters: {format_number(params)} ({params:,})")
-            print(f"   FLOPs (H100): {format_number(results[2]['FLOPs'])}")
-            print(f"   Latency (H100): {results[2]['Latency_ms']:.3f} ms")
+            print(f"   FLOPs (GPU): {format_number(results[1]['FLOPs'])}")
+            print(f"   Latency (GPU): {results[1]['Latency_ms']:.3f} ms")
             all_results.extend(results)
         else:
             print(f"   Failed to characterize")
@@ -124,50 +115,45 @@ def main():
     print("Summary: Computational Complexity by Model")
     print("=" * 80)
 
-    summary = df[df['Architecture'] == 'H100-PCIe'].copy()
+    summary = df[df['Architecture'] == 'GPU'].copy()
     summary['FLOPs_G'] = summary['FLOPs'] / 1e9
     summary['Params_M'] = summary['Parameters'] / 1e6
 
     print(summary[['Model', 'Params_M', 'FLOPs_G', 'Memory_MB', 'Tiles', 'Latency_ms']].to_string(index=False))
 
-    # Comparison with ResNet-18 (reference)
+    # GPU Performance comparison
     print("\n" + "=" * 80)
-    print("Efficiency Comparison (vs ResNet-18: 11.7M params, 3.79G FLOPs)")
+    print("GPU Performance Comparison")
     print("=" * 80)
 
-    resnet18_params = 11.69e6
-    resnet18_flops = 3.79e9
+    gpu_df = df[df['Architecture'] == 'GPU'].copy()
+    gpu_df = gpu_df.sort_values('FLOPs')
 
-    summary_cmp = df[df['Architecture'] == 'H100-PCIe'].copy()
-    summary_cmp['Param_Ratio'] = summary_cmp['Parameters'] / resnet18_params
-    summary_cmp['FLOP_Ratio'] = summary_cmp['FLOPs'] / resnet18_flops
+    # Normalize to ResNet-18
+    base_flops = gpu_df.iloc[0]['FLOPs']
+    base_latency = gpu_df.iloc[0]['Latency_ms']
 
-    print(summary_cmp[['Model', 'Param_Ratio', 'FLOP_Ratio']].to_string(index=False))
+    gpu_df['FLOPs_Ratio'] = gpu_df['FLOPs'] / base_flops
+    gpu_df['Latency_Ratio'] = gpu_df['Latency_ms'] / base_latency
 
-    # H100 Performance comparison
+    print(gpu_df[['Model', 'FLOPs_Ratio', 'Latency_Ratio']].to_string(index=False))
+
+    # Architecture comparison for ResNet-50
     print("\n" + "=" * 80)
-    print("H100-PCIe Performance")
+    print("ResNet-50 Across Architectures")
     print("=" * 80)
 
-    h100_df = df[df['Architecture'] == 'H100-PCIe'].copy()
-    h100_df = h100_df.sort_values('Latency_ms')
-    h100_df['Throughput_FPS'] = 1000 / h100_df['Latency_ms']
+    r50_df = df[df['Model'] == 'ResNet-50'].copy()
+    r50_df = r50_df.sort_values('Latency_ms')
 
-    print(h100_df[['Model', 'Latency_ms', 'Throughput_FPS']].to_string(index=False))
+    # Speedup vs CPU
+    cpu_latency = r50_df[r50_df['Architecture'] == 'CPU']['Latency_ms'].values[0]
+    r50_df['Speedup_vs_CPU'] = cpu_latency / r50_df['Latency_ms']
 
-    # Edge deployment comparison (KPU-T2)
-    print("\n" + "=" * 80)
-    print("Edge Deployment (KPU-T2 - IoT/Battery-Powered)")
-    print("=" * 80)
-
-    kpu_df = df[df['Architecture'] == 'KPU-T2'].copy()
-    kpu_df = kpu_df.sort_values('Energy_J')
-    kpu_df['Throughput_FPS'] = 1000 / kpu_df['Latency_ms']
-
-    print(kpu_df[['Model', 'Latency_ms', 'Throughput_FPS', 'Energy_J']].to_string(index=False))
+    print(r50_df[['Architecture', 'Latency_ms', 'Energy_J', 'Speedup_vs_CPU']].to_string(index=False))
 
     # Save to CSV
-    output_path = 'results/validation/mobilenet_results.csv'
+    output_path = 'results/validation/resnet_family_results.csv'
     df.to_csv(output_path, index=False)
     print(f"\n✓ Results saved to {output_path}")
 

@@ -1,18 +1,22 @@
 #!/usr/bin/env python
-"""Characterization test for EfficientNet family from torchvision"""
+"""Characterization test for MobileNet family from torchvision"""
 
 import torch
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+
 import torchvision.models as models
 import pandas as pd
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.characterize.arch_profiles import (
+from src.graphs.characterize.arch_profiles import (
     intel_i7_profile, amd_ryzen7_profile, h100_pcie_profile,
     tpu_v4_profile, kpu_t2_profile, kpu_t100_profile
 )
-from graphs.characterize.fused_ops import default_registry
-from graphs.characterize.walker import FXGraphWalker
+from src.graphs.characterize.fused_ops import default_registry
+from src.graphs.characterize.walker import FXGraphWalker
 
 def format_number(n):
     """Format large numbers with SI prefixes"""
@@ -82,16 +86,14 @@ def characterize_model(model, model_name, batch_size=1):
 
 def main():
     print("=" * 80)
-    print("EfficientNet Family Characterization")
+    print("MobileNet Family Characterization")
     print("=" * 80)
 
     # Models to compare
     models_to_test = [
-        ("EfficientNet-B0", models.efficientnet_b0),
-        ("EfficientNet-B1", models.efficientnet_b1),
-        ("EfficientNet-B2", models.efficientnet_b2),
-        ("EfficientNet-V2-S", models.efficientnet_v2_s),
-        ("EfficientNet-V2-M", models.efficientnet_v2_m),
+        ("MobileNet-V2", models.mobilenet_v2),
+        ("MobileNet-V3-Small", models.mobilenet_v3_small),
+        ("MobileNet-V3-Large", models.mobilenet_v3_large),
     ]
 
     all_results = []
@@ -169,7 +171,7 @@ def main():
     print(kpu_df[['Model', 'Latency_ms', 'Throughput_FPS', 'Energy_J']].to_string(index=False))
 
     # Save to CSV
-    output_path = 'results/validation/efficientnet_results.csv'
+    output_path = 'results/validation/mobilenet_results.csv'
     df.to_csv(output_path, index=False)
     print(f"\n✓ Results saved to {output_path}")
 

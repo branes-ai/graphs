@@ -2,13 +2,17 @@
 """Quick test script to validate Conv2D characterization"""
 
 import torch
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.models.conv2d_stack import make_conv2d
-from graphs.characterize.arch_profiles import cpu_profile
-from graphs.characterize.fused_ops import default_registry
-from graphs.characterize.walker import FXGraphWalker
+from src.graphs.models.conv2d_stack import make_conv2d
+from src.graphs.characterize.arch_profiles import cpu_profile
+from src.graphs.characterize.fused_ops import default_registry
+from src.graphs.characterize.walker import FXGraphWalker
 
 def main():
     print("=" * 60)

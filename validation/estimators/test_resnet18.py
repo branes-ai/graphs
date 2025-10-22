@@ -6,9 +6,13 @@ import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
-from graphs.characterize.fused_ops import default_registry
-from graphs.characterize.walker import FXGraphWalker
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+
+from src.graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
+from src.graphs.characterize.fused_ops import default_registry
+from src.graphs.characterize.walker import FXGraphWalker
 
 def format_number(n):
     """Format large numbers with SI prefixes"""

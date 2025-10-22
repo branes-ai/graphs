@@ -1,212 +1,326 @@
-# Graph Partitioner Examples
+# Examples - Capability Demonstrations
 
-This directory contains hands-on examples for working with the graph partitioner.
+This directory contains demonstrations that showcase the capabilities of the graph characterization and partitioning system.
 
-## Quick Start
+## Purpose
 
-Start here if you're new to the graph partitioner:
+**Examples answer:** "How do I use this system?"
 
-```bash
-# navigate to the root directory of the Branes.ai graphs repo
-cd <DEVROOT>/branes/clones/graphs
-python examples/quick_start_partitioner.py
-```
+These demos show:
+- Basic usage patterns
+- End-to-end workflows
+- Visualization techniques
+- Model comparison methods
 
-This will:
-- Load ResNet-18 from the PyTorch torchvision.models package
-- Trace that model with PyTorch FX
-- Propagate all the tensor shapes throughout the model
-- Partition the model into subgraphs
-- Analyze concurrency
-- Show top compute-intensive operations
-- Provide next steps for exploration
+## Examples vs Tests/Validation
+
+| Aspect | Examples (`./examples/`) | Tests (`./tests/`) | Validation (`./validation/`) |
+|--------|--------------------------|-------------------|------------------------------|
+| **Purpose** | Show how to use | Verify correctness | Check accuracy |
+| **Question** | "How do I...?" | "Does it work?" | "Is it accurate?" |
+| **User** | End users | Developers | Researchers |
+| **Speed** | Interactive | Fast (<1s) | Slow (seconds) |
 
 ## Available Examples
 
-### 1. Quick Start (quick_start_partitioner.py)
-**What it does**: Basic introduction to partitioning and concurrency analysis
+### 1. Quick Start (`quick_start_partitioner.py`)
+**30-second introduction** to graph partitioning and analysis.
 
-**When to use**: First time using the partitioner
-
-**Output**:
-- Partition summary (FLOPs, memory, operation counts)
-- Concurrency analysis (stages, parallelism)
-- Top 5 most compute-intensive operations
-
-### 2. Validation Tests (../tests/test_graph_partitioner_general.py)
-**What it does**: Validates partitioner correctness across multiple models
-
-**When to use**: Verify that partitioner works correctly on a model
-
-**Usage**:
 ```bash
-# Test single model
-python tests/test_graph_partitioner_general.py resnet18
-
-# Test multiple models
-python tests/test_graph_partitioner_general.py resnet18 mobilenet_v2 efficientnet_b0
-
-# Test all defined models
-python tests/test_graph_partitioner_general.py
+python examples/quick_start_partitioner.py
 ```
 
-**Output**:
-- Universal validation checks (applies to all models)
-- Architecture-specific validation (expected ranges)
-- Pass/fail status for each check
+**What it shows:**
+- Load a model (ResNet-18)
+- Trace with PyTorch FX
+- Partition into subgraphs
+- Analyze concurrency
+- View top compute operations
 
-## Learning Path
+**Best for:** First-time users
 
-We recommend this progression:
+---
 
-1. **Start**: Run `quick_start_partitioner.py` to see basic output
-2. **Validate**: Run validation tests to understand what "correct" looks like
-3. **Tutorial**: Work through `docs/graph_partitioner_tutorial.md` tutorials
-4. **Experiment**: Modify examples and create your own
+### 2. Fusion Comparison (`demo_fusion_comparison.py`)
+Compare **unfused vs fused** partitioning to see memory reduction benefits.
 
-## Common Tasks
+```bash
+python examples/demo_fusion_comparison.py
 
-### Compare Two Models
+# Test on different models
+python examples/demo_fusion_comparison.py --model mobilenet_v2
+```
 
+**What it shows:**
+- Fusion pattern detection (Conv+BN+ReLU)
+- Memory traffic reduction (20-42%)
+- Kernel launch reduction (1.9-2.1×)
+- Per-subgraph fusion benefits
+
+**Best for:** Understanding fusion impact
+
+---
+
+### 3. New Performance Model (`demo_new_performance_model.py`)
+Demonstrate the **Phase 2 hardware mapping** system.
+
+```bash
+python examples/demo_new_performance_model.py
+```
+
+**What it shows:**
+- Realistic hardware utilization modeling
+- GPU SM allocation
+- Memory bandwidth constraints
+- Latency estimation across precisions
+
+**Best for:** Hardware-aware optimization
+
+---
+
+### 4. Model Comparison (`compare_models.py`)
+Compare **multiple models** side-by-side.
+
+```bash
+python examples/compare_models.py --models resnet18 mobilenet_v2 efficientnet_b0
+```
+
+**What it shows:**
+- FLOPs comparison
+- Memory footprint
+- Arithmetic intensity
+- Parallelism characteristics
+- Concurrency metrics
+
+**Best for:** Architecture selection
+
+---
+
+### 5. Partitioning Visualization (`visualize_partitioning.py`)
+Generate **visual diagrams** of partition structure.
+
+```bash
+python examples/visualize_partitioning.py --model resnet18 --output graph.pdf
+```
+
+**What it shows:**
+- Subgraph dependency graph
+- Critical path highlighting
+- Bottleneck visualization
+- Parallelism opportunities
+
+**Best for:** Understanding model structure
+
+---
+
+## Quick Start
+
+### First Time User
+```bash
+# 1. Quick intro (30 seconds)
+python examples/quick_start_partitioner.py
+
+# 2. See fusion benefits
+python examples/demo_fusion_comparison.py
+
+# 3. Compare models
+python examples/compare_models.py --models resnet18 mobilenet_v2
+```
+
+### Understanding Your Model
+```bash
+# 1. Partition and analyze
+python examples/quick_start_partitioner.py
+
+# 2. Visualize structure
+python examples/visualize_partitioning.py --model <your_model>
+
+# 3. Compare to baselines
+python examples/compare_models.py --models <your_model> resnet18
+```
+
+### Hardware Optimization
+```bash
+# 1. See hardware mapping
+python examples/demo_new_performance_model.py
+
+# 2. Compare across hardware
+cd ../validation/hardware
+python test_all_hardware.py
+```
+
+## Code Patterns
+
+### Load and Partition Any Model
 ```python
 import torch
-import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
+
 import sys
-sys.path.insert(0, 'src')
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.concurrency_analyzer import ConcurrencyAnalyzer
+from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
 
-def analyze_model(model, name, input_shape=(1, 3, 224, 224)):
-    model.eval()
-    fx_graph = symbolic_trace(model)
-    ShapeProp(fx_graph).propagate(torch.randn(*input_shape))
+# Load model
+model = ...  # Your PyTorch model
+model.eval()
 
-    partitioner = GraphPartitioner()
-    report = partitioner.partition(fx_graph)
+# Trace with FX
+traced = symbolic_trace(model)
+ShapeProp(traced).propagate(torch.randn(1, 3, 224, 224))
 
-    analyzer = ConcurrencyAnalyzer()
-    concurrency = analyzer.analyze(report)
+# Partition with fusion
+partitioner = FusionBasedPartitioner()
+report = partitioner.partition_graph(traced)
+
+# Access results
+print(f"Total FLOPs: {report.total_flops / 1e9:.2f} G")
+print(f"Fused subgraphs: {len(report.fused_subgraphs)}")
+print(f"Memory reduction: {report.memory_reduction_percent:.1f}%")
+```
+
+### Compare Two Models
+```python
+def analyze_model(model, name):
+    traced = symbolic_trace(model)
+    ShapeProp(traced).propagate(torch.randn(1, 3, 224, 224))
+
+    partitioner = FusionBasedPartitioner()
+    report = partitioner.partition_graph(traced)
 
     return {
         'name': name,
-        'flops': report.total_flops / 1e9,
-        'subgraphs': report.total_subgraphs,
-        'arithmetic_intensity': report.average_arithmetic_intensity,
-        'stages': concurrency.num_stages,
-        'max_parallel': concurrency.max_parallel_ops_per_stage
+        'flops_g': report.total_flops / 1e9,
+        'subgraphs': len(report.fused_subgraphs),
+        'memory_mb': report.total_memory_traffic / 1e6,
     }
 
-# Compare ResNet-18 vs MobileNet-V2
-resnet = analyze_model(models.resnet18(weights=None), "ResNet-18")
-mobilenet = analyze_model(models.mobilenet_v2(weights=None), "MobileNet-V2")
+# Compare
+resnet = analyze_model(models.resnet18(), "ResNet-18")
+mobilenet = analyze_model(models.mobilenet_v2(), "MobileNet-V2")
 
-print(f"ResNet-18:    {resnet['flops']:.2f} GFLOPs, AI={resnet['arithmetic_intensity']:.1f}")
-print(f"MobileNet-V2: {mobilenet['flops']:.2f} GFLOPs, AI={mobilenet['arithmetic_intensity']:.1f}")
+print(f"{resnet['name']}: {resnet['flops_g']:.2f} GFLOPs")
+print(f"{mobilenet['name']}: {mobilenet['flops_g']:.2f} GFLOPs")
 ```
 
-### Find Specific Operations
-
-```python
-# After partitioning a model...
-
-# Find all depthwise convolutions
-depthwise = [sg for sg in report.subgraphs
-             if sg.parallelism and sg.parallelism.is_depthwise]
-print(f"Found {len(depthwise)} depthwise convolutions")
-
-# Find compute-bound operations
-compute_bound = [sg for sg in report.subgraphs
-                 if sg.recommended_bottleneck.value == 'compute_bound']
-print(f"{len(compute_bound)} compute-bound operations")
-
-# Find operations with high parallelism
-high_parallel = [sg for sg in report.subgraphs
-                 if sg.parallelism and sg.parallelism.total_threads > 100000]
-print(f"{len(high_parallel)} operations with >100K threads")
-```
-
-### Analyze Memory Footprint
-
+### Find Bottlenecks
 ```python
 # After partitioning...
-
-# Total weights
-total_weights = sum(sg.total_weight_bytes for sg in report.subgraphs)
-print(f"Total weights: {total_weights / 1e6:.2f} MB")
-
-# Peak activation memory (largest single operation)
-max_activation = max(sg.total_input_bytes + sg.total_output_bytes
-                     for sg in report.subgraphs)
-print(f"Peak activation: {max_activation / 1e6:.2f} MB")
-
-# Total memory traffic
-total_traffic = sum(sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
-                   for sg in report.subgraphs)
-print(f"Total memory traffic: {total_traffic / 1e9:.2f} GB")
+for subgraph in report.fused_subgraphs:
+    ai = subgraph.total_flops / subgraph.total_memory_traffic
+    bottleneck = "compute" if ai > 10 else "memory"
+    print(f"{subgraph.subgraph_id}: {bottleneck}-bound (AI={ai:.1f})")
 ```
 
-### Visualize Critical Path
+## Requirements
 
-```python
-import networkx as nx
+All examples require:
+- Python 3.8+
+- PyTorch
+- torchvision
 
-# After concurrency analysis...
-
-# Build dependency graph
-G = nx.DiGraph()
-for sg in report.subgraphs:
-    G.add_node(sg.node_id)
-    for dep in sg.depends_on:
-        if dep in [s.node_id for s in report.subgraphs]:
-            G.add_edge(dep, sg.node_id)
-
-# Find critical path
-flop_map = {sg.node_id: sg.flops for sg in report.subgraphs}
-critical_path = nx.dag_longest_path(G, weight=lambda u, v, d: flop_map.get(v, 0))
-
-# Print critical path operations
-print("Critical Path:")
-for node_id in critical_path:
-    sg = next(s for s in report.subgraphs if s.node_id == node_id)
-    print(f"  {sg.node_name} ({sg.flops / 1e9:.3f} GFLOPs)")
+Install:
+```bash
+pip install torch torchvision
 ```
 
-## Troubleshooting
+Optional (for visualization):
+```bash
+pip install matplotlib networkx graphviz
+```
 
-### FX Tracing Fails
+## Common Issues
 
-Some models have dynamic control flow that FX cannot trace. Try:
+**Import errors:**
+- Run from repo root: `python examples/quick_start_partitioner.py`
+- Or set PYTHONPATH: `export PYTHONPATH=/path/to/repo`
 
-1. Use concrete_args: `symbolic_trace(model, concrete_args={'x': input_tensor})`
-2. Use torch.jit.trace as fallback
-3. Check if model has dynamic shapes (e.g., YOLO)
+**Model not found:**
+- Use torchvision models: `models.resnet18()`
+- For custom models, provide model object (not name string)
 
-### Zero FLOPs Detected
+**FX tracing fails:**
+- Some models have dynamic control flow
+- Try: `symbolic_trace(model, concrete_args={...})`
+- See PyTorch FX docs for workarounds
 
-If total FLOPs is unexpectedly low:
-
-1. Check operation type counts: `report.operation_type_counts`
-2. Look for 'unknown' operations that aren't being counted
-3. Verify all conv layers were detected
-
-### Memory Estimates Seem Off
-
-Remember:
-- Weights are counted once per subgraph (may be reused)
-- Activations are intermediate tensors (not final memory footprint)
-- Peak memory ≠ total memory traffic
+**Slow execution:**
+- Examples should run in seconds
+- If slower, check model size (VIT, large ResNets take longer)
+- For batch processing, see `validation/` tests
 
 ## Next Steps
 
-- Read the full tutorial: `docs/graph_partitioner_tutorial.md`
-- Explore validation framework: `docs/graph_partitioner_validation.md`
-- See implementation plan: `docs/realistic_performance_modeling_plan.md`
+After exploring examples:
 
-## Questions?
+1. **Run validation tests** to see accuracy results:
+   ```bash
+   python validation/hardware/test_all_hardware.py
+   python validation/estimators/test_resnet_family.py
+   ```
 
-Check the docs or examine the source code:
-- Source: `src/graphs/characterize/`
-- Tests: `tests/test_graph_partitioner*.py`
+2. **Read documentation** for deeper understanding:
+   - `../docs/GETTING_STARTED.md` - Getting started guide
+   - `../docs/graph_partitioner_tutorial.md` - Detailed tutorials
+   - `../docs/realistic_performance_modeling_plan.md` - Architecture
+
+3. **Use CLI tools** for production workflows:
+   ```bash
+   ./cli/partitioner.py --model resnet18 --output results.json
+   ./cli/profile_graph.py --model mobilenet_v2
+   ```
+
+4. **Write your own examples** - use these as templates!
+
+## Contributing Examples
+
+To add a new example:
+
+1. Create `demo_<feature>.py` or `<task>_example.py`
+2. Include docstring explaining what it demonstrates
+3. Add argparse for customization options
+4. Keep runtime under 30 seconds
+5. Add to this README with description
+
+Example template:
+```python
+#!/usr/bin/env python
+"""
+Demonstration of <feature>
+
+Shows how to <accomplish task> using <components>.
+"""
+
+import argparse
+import torch
+from torch.fx import symbolic_trace
+
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from src.graphs.characterize.<module> import <Component>
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Demo of <feature>")
+    parser.add_argument('--model', default='resnet18', help="Model to use")
+    args = parser.parse_args()
+
+    # Demo code here
+    print("Demonstrating <feature>...")
+
+
+if __name__ == '__main__':
+    main()
+```
+
+## Documentation
+
+See also:
+- `../tests/README.md` - Unit tests
+- `../validation/README.md` - Accuracy validation
+- `../cli/README.md` - Command-line tools
+- `../docs/` - Full documentation
