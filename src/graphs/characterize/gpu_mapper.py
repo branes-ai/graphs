@@ -322,6 +322,21 @@ def create_jetson_orin_agx_mapper(thermal_profile: str = None) -> GPUMapper:
     return GPUMapper(jetson_orin_agx_resource_model(), thermal_profile=thermal_profile)
 
 
+def create_jetson_orin_nano_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for NVIDIA Jetson Orin Nano (compact edge AI platform).
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "7W", "15W")
+                        If None, uses default ("7W")
+
+    Returns:
+        GPUMapper configured for Jetson Orin Nano
+    """
+    from .hardware_mapper import jetson_orin_nano_resource_model
+    return GPUMapper(jetson_orin_nano_resource_model(), thermal_profile=thermal_profile)
+
+
 def create_jetson_thor_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Thor (next-gen edge AI).
