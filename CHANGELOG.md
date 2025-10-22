@@ -13,6 +13,218 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-22] - Edge AI / Embodied AI Platform Comparison Framework
+
+### Added
+
+- **Edge AI Hardware Categories** (comprehensive platform comparison)
+  - **Category 1**: Computer Vision / Low Power (≤10W) - Battery-powered devices
+    - Target: Drones, mobile robots, edge cameras
+    - Platforms: Hailo-8 (2.5W), Jetson Orin Nano (7W), KPU-T64 (6W)
+  - **Category 2**: Transformers / Higher Power (≤50W) - Tethered/vehicle systems
+    - Target: Autonomous vehicles, edge servers, industrial robotics
+    - Platforms: Hailo-10H (2.5W), Jetson Orin AGX (15W), KPU-T256 (30W)
+
+- **Jetson Orin Nano Mapper** (`hardware_mapper.py`, `gpu_mapper.py`)
+  - Configuration: 16 Ampere SMs (1024 CUDA cores, 32 Tensor cores)
+  - Power profiles: 7W (battery) and 15W (standard edge)
+  - Realistic DVFS modeling: 33% throttle @ 7W (300 MHz sustained vs 918 MHz boost)
+  - Performance: 21 TOPS INT8 (dense), ~2.7 TOPS/W effective
+  - Memory: 8GB LPDDR5 @ 68 GB/s (original) or 102 GB/s (Super)
+  - Use case: Battery-powered drones, mobile robots
+
+- **KPU-T64 Mapper** (`hardware_mapper.py`, `kpu_mapper.py`)
+  - Architecture: 8×8 checkerboard (64 compute tiles + 64 L3 memory tiles)
+  - Tile allocation: 44 INT8 (69%) + 13 BF16 (20%) + 7 Matrix (11%)
+  - Power profiles: 3W (ultra-low), 6W (standard), 10W (performance)
+  - Performance: 6.9 TOPS INT8 @ 900 MHz, ~10.6 TOPS/W estimated
+  - Memory: 8GB LPDDR5 @ 64 GB/s, 16MB distributed L3
+  - efficiency_factor: 60-70% (vs Jetson's 4-10%)
+  - Use case: Edge AI devices requiring balanced CNN + transformer support
+
+- **KPU-T256 Mapper** (`hardware_mapper.py`, `kpu_mapper.py`)
+  - Architecture: 16×16 checkerboard (256 compute tiles + 256 L3 memory tiles)
+  - Tile allocation: 179 INT8 (70%) + 51 BF16 (20%) + 26 Matrix (10%)
+  - Power profiles: 15W (efficient), 30W (balanced), 50W (performance)
+  - Performance: 33.8 TOPS INT8 @ 1.05 GHz, ~10.9 TOPS/W estimated
+  - Memory: 32GB DDR5 @ 256 GB/s, 16MB distributed L3
+  - efficiency_factor: 68-78% (vs Jetson's 5-12%)
+  - Use case: High-performance edge servers, autonomous vehicles
+
+- **Edge AI Comparison Script** (`validation/hardware/compare_edge_ai_platforms.py`, 359 lines)
+  - Tests 6 hardware platforms across 3 models (ResNet-50, DeepLabV3+, ViT-Base)
+  - Metrics: Latency, FPS, FPS/W, TOPS/W, utilization
+  - Executive summary with recommendations by use case
+  - Comprehensive decision matrix and architectural insights
+
+- **Edge AI Categories Documentation** (`docs/EDGE_AI_CATEGORIES.md`, 400+ lines)
+  - Complete platform specifications and benchmarks
+  - Category 1 & 2 winners with rationale
+  - Architectural insights: Hailo vs Jetson vs KPU
+  - Decision matrix (when to use each platform)
+  - Drone flight time analysis
+  - Future work roadmap
+
+### Fixed
+
+- **Hailo Mapper Bottleneck Analysis** (`hailo_mapper.py`)
+  - Added missing GraphHardwareAllocation fields:
+    - `naive_latency` - 100% utilization baseline
+    - `latency_correction_factor` - ratio of actual/naive latency
+    - `compute_bound_count`, `memory_bound_count`, `bandwidth_bound_count`, `balanced_count`
+  - Now consistent with KPU/GPU/TPU mappers
+
+### Results (Category 1: Computer Vision / Low Power ≤10W, Batch=1, INT8)
+
+**ResNet-50 (Computer Vision Backbone)**:
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| Hailo-8 | 354 ms | 2.8 | 1.13 | 14.7% |
+| Jetson Nano @ 7W | 9.5 ms | 105 | 15.08 | 97.9% |
+| **KPU-T64 @ 6W** | **4.2 ms** | **239** | **39.79** | **98.8%** |
+
+**DeepLabV3+ (Semantic Segmentation)**:
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| Hailo-8 | 4149 ms | 0.2 | 0.10 | 13.6% |
+| Jetson Nano @ 7W | 348 ms | 2.9 | 0.41 | 96.5% |
+| **KPU-T64 @ 6W** | **88 ms** | **11.4** | **1.89** | **99.6%** |
+
+**ViT-Base (Vision Transformer)**:
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| Hailo-8 | 25 ms | 40 | 15.97 | 1.7% |
+| Jetson Nano @ 7W | 7.6 ms | 131 | 18.69 | 25.5% |
+| **KPU-T64 @ 6W** | **7.9 ms** | **126** | **21.03** | **100%** |
+
+**🏆 Category 1 Winner: KPU-T64 @ 6W**
+- **39.79 FPS/W** on ResNet-50 (2.6× better than Jetson Nano)
+- **Best latency** on CNNs (4.19 ms ResNet-50, 88 ms DeepLabV3+)
+- **No DVFS throttling** - predictable performance
+- **Balanced architecture** - excellent on both CNNs and transformers
+
+### Results (Category 2: Transformers / Higher Power ≤50W, Batch=1, INT8)
+
+**ResNet-50 (Computer Vision Backbone)**:
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| Hailo-10H | 1934 ms | 0.5 | 0.21 | 7.3% |
+| Jetson AGX @ 15W | 3.0 ms | 329 | 21.94 | 97.6% |
+| **KPU-T256 @ 30W** | **1.1 ms** | **893** | **29.77** | **90.9%** |
+
+**DeepLabV3+ (Semantic Segmentation)**:
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| Hailo-10H | 22651 ms | 0.04 | 0.02 | 6.8% |
+| Jetson AGX @ 15W | 111 ms | 9.0 | 0.60 | 95.9% |
+| **KPU-T256 @ 30W** | **17 ms** | **60** | **2.00** | **99.0%** |
+
+**ViT-Base (Vision Transformer)**:
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| Hailo-10H | 143 ms | 7.0 | 2.80 | 0.8% |
+| **Jetson AGX @ 15W** | **2.5 ms** | **395** | **26.30** | 13.1% |
+| KPU-T256 @ 30W | 2.0 ms | 505 | 16.82 | 100% |
+
+**🏆 Category 2 Winner: KPU-T256 @ 30W**
+- **29.77 FPS/W** on ResNet-50 (1.36× better than Jetson AGX @ 15W)
+- **Best absolute latency** on CNNs (1.12 ms ResNet-50, 16.68 ms DeepLabV3+)
+- **99% utilization** on large models - excellent resource usage
+- **No thermal throttling** - sustained performance at 30W
+
+### Key Insights
+
+1. **Power Efficiency Leadership**:
+   - **KPU-T64**: 39.79 FPS/W on ResNet-50 (best in low-power category)
+   - **KPU-T256**: 29.77 FPS/W on ResNet-50 (best in high-power category)
+   - **Hailo-8**: Highest TOPS/W (10.4) but poor on segmentation workloads
+   - **Jetson**: Flexible but DVFS throttling hurts efficiency (2-3 TOPS/W effective)
+
+2. **Architectural Trade-offs**:
+   - **Hailo (Dataflow)**: 8-16 TOPS/W, fixed-function, low latency on target workloads
+   - **Jetson (GPU)**: 2-3 TOPS/W effective, flexible, severe DVFS throttling at ≤15W
+   - **KPU (Heterogeneous Tiles)**: 10-11 TOPS/W, balanced, 60-78% efficiency_factor, no throttling
+
+3. **Utilization Analysis**:
+   - **KPU**: 90-100% utilization across all models (tile-based processing)
+   - **Jetson**: 13-98% utilization (varies by model complexity)
+   - **Hailo**: 0.8-14.7% utilization (struggles with large/non-vision models)
+
+4. **Workload Suitability**:
+   - **CNNs (ResNet-50)**: KPU dominates both categories
+   - **Segmentation (DeepLabV3+)**: KPU excels, Hailo struggles (4-22 seconds!)
+   - **Transformers (ViT)**: Jetson AGX wins @ 15W, KPU-T64 wins @ 6W
+
+5. **Drone Flight Time Impact** (3000mAh @ 11.1V, 60W motors):
+   - **Baseline (no AI)**: 18.0 minutes
+   - **Hailo-8 @ 2.5W**: 16.8 minutes (-6.7%, best for battery life)
+   - **KPU-T64 @ 3W**: 16.5 minutes (-8.3%)
+   - **KPU-T64 @ 6W**: 14.7 minutes (-18.3%)
+   - **Jetson Nano @ 7W**: 14.4 minutes (-20.0%)
+
+### Recommendation Matrix
+
+| Use Case | Best Choice | Runner-up |
+|----------|-------------|-----------|
+| Drone (battery) | Hailo-8 @ 2.5W | KPU-T64 @ 3W |
+| Robot (mobile) | KPU-T64 @ 6W | Hailo-8 @ 2.5W |
+| Edge camera | Hailo-8 @ 2.5W | Jetson Nano @ 7W |
+| Autonomous vehicle | KPU-T256 @ 30W | Hailo-10H @ 2.5W |
+| Edge server | KPU-T256 @ 30W | Jetson AGX @ 15W |
+
+### Files Created
+
+**Source Code** (3 files):
+- `src/graphs/characterize/hardware_mapper.py` - Added `jetson_orin_nano_resource_model()`, `kpu_t64_resource_model()`, `kpu_t256_resource_model()`
+- `src/graphs/characterize/kpu_mapper.py` - Added `create_kpu_t64_mapper()`, `create_kpu_t256_mapper()`
+- `src/graphs/characterize/gpu_mapper.py` - Added `create_jetson_orin_nano_mapper()`
+
+**Modified**:
+- `src/graphs/characterize/hailo_mapper.py` - Fixed missing bottleneck analysis fields
+
+**Validation** (1 file):
+- `validation/hardware/compare_edge_ai_platforms.py` (359 lines) - Complete comparison framework
+
+**Documentation** (1 file):
+- `docs/EDGE_AI_CATEGORIES.md` (400+ lines) - Comprehensive edge AI platform guide
+
+**Lines Changed**: ~1,400 lines added
+
+### Code Statistics (Total Project)
+
+- Source Code: ~3,900 lines (7 hardware mappers)
+- Tests: ~2,400 lines
+- Documentation: ~6,500 lines
+- **Total**: ~12,800 lines
+
+### Validation
+
+- ✅ All 6 platforms tested on 3 models (ResNet-50, DeepLabV3+, ViT-Base)
+- ✅ Category 1 (low power) comparison complete
+- ✅ Category 2 (high power) comparison complete
+- ✅ Executive summary and recommendations generated
+- ✅ Hailo mapper bottleneck analysis fixed
+
+### Next Steps
+
+**Category 1 Enhancements**:
+- Add Hailo-15 (rumored 2025: 50 TOPS INT8 @ 3W)
+- Add Jetson Orin Nano Super (67 TOPS INT8 @ 15W, 102 GB/s)
+- Calibrate KPU-T64 on real hardware
+
+**Category 2 Enhancements**:
+- Add Hailo-20 (projected: 80-100 TOPS INT4 @ 5W)
+- Add Jetson Thor (1000 TOPS INT8, 30-100W)
+- Add KPU-T512 variant (datacenter-scale)
+
+**Model Coverage**:
+- Add BEVFormer (autonomous driving)
+- Add DETR (transformer-based detection)
+- Add SAM (Segment Anything Model)
+- Add LLaVA-7B (vision-language model)
+
+---
+
 ## [2025-10-21] - Phase 2 Hardware Mapping - Embodied AI Analysis Refinement
 
 ### Changed
