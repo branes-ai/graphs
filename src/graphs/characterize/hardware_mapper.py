@@ -212,28 +212,37 @@ class PerformanceCharacteristics:
     Key metrics:
     - peak_ops_per_sec: Datasheet theoretical maximum (boost clock)
     - sustained_ops_per_sec: DVFS-throttled performance
-    - effective_ops_per_sec: Actual achieved (with all derates applied)
+    - effective_ops_per_sec: Actual achieved (with all efficiency factors applied)
 
-    Derate factors:
+    Efficiency factors (all are MULTIPLIERS in range 0.0-1.0):
     - instruction_efficiency: Compiler/ISA efficiency (0.0-1.0)
     - memory_bottleneck_factor: Memory system limits (0.0-1.0)
-    - empirical_derate: Combined measured performance (actual/sustained)
+    - efficiency_factor: Combined measured performance (actual/sustained)
+
+      IMPORTANT: efficiency_factor represents what FRACTION of sustained
+      performance you actually achieve:
+        - 1.0 = 100% efficiency (theoretical maximum)
+        - 0.70 = 70% efficiency (common for datacenter GPUs)
+        - 0.12 = 12% efficiency (tiny models on consumer CPUs)
+
+      This is NOT a reduction factor! Higher values = better performance.
     """
     precision: Precision
     compute_resource: Optional[Union[ComputeResource, KPUComputeResource]] = None
 
-    # Microarchitectural efficiency factors
-    instruction_efficiency: float = 0.85     # Compiler/ISA efficiency (0.0-1.0)
-    memory_bottleneck_factor: float = 0.75   # Memory system limits (0.0-1.0)
+    # Microarchitectural efficiency factors (all are multipliers 0.0-1.0)
+    instruction_efficiency: float = 0.85     # Compiler/ISA efficiency
+    memory_bottleneck_factor: float = 0.75   # Memory system limits
     tile_utilization: float = 1.0            # For KPU: fraction of tiles used
 
     # Hardware support
     native_acceleration: bool = True         # True = HW accelerated, False = emulated
     emulation_penalty: float = 0.01          # 100× slowdown if not native
 
-    # Combined empirical derate (measured on real hardware)
-    # derate_factor = empirical_performance / sustained_performance
-    empirical_derate: float = 0.60
+    # Combined efficiency factor (measured on real hardware)
+    # efficiency_factor = empirical_performance / sustained_performance
+    # Example: 0.60 means you achieve 60% of sustained throughput
+    efficiency_factor: float = 0.60
 
     # Optional: Direct measurement overrides calculation
     measured_ops_per_sec: Optional[float] = None
@@ -255,12 +264,12 @@ class PerformanceCharacteristics:
     @property
     def effective_ops_per_sec(self) -> float:
         """
-        Actual achieved performance (with all derates applied).
+        Actual achieved performance (with all efficiency factors applied).
 
         Calculation:
         1. Start with sustained_ops_per_sec (DVFS-throttled)
         2. Apply emulation penalty if not native
-        3. Apply empirical derate (measured performance factor)
+        3. Apply efficiency_factor (measured performance achieved)
         4. For KPU: Apply tile utilization
         """
         # If we have measured data, use it directly
@@ -277,8 +286,8 @@ class PerformanceCharacteristics:
         # Apply tile utilization (for KPU)
         base_perf *= self.tile_utilization
 
-        # Apply empirical derate
-        return base_perf * self.empirical_derate
+        # Apply efficiency factor (measured performance achieved)
+        return base_perf * self.efficiency_factor
 
 
 @dataclass
@@ -999,28 +1008,28 @@ def kpu_t100_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=kpu_compute,
-                empirical_derate=0.65,  # 65%! (vs Jetson's 3%!)
+                efficiency_factor=0.65,  # 65%! (vs Jetson's 3%!)
                 tile_utilization=0.95,   # High tile utilization
                 native_acceleration=True,
             ),
             Precision.BF16: PerformanceCharacteristics(
                 precision=Precision.BF16,
                 compute_resource=kpu_compute,
-                empirical_derate=0.60,
+                efficiency_factor=0.60,
                 tile_utilization=0.85,
                 native_acceleration=True,
             ),
             Precision.INT4: PerformanceCharacteristics(
                 precision=Precision.INT4,
                 compute_resource=kpu_compute,
-                empirical_derate=0.70,
+                efficiency_factor=0.70,
                 tile_utilization=0.95,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=kpu_compute,
-                empirical_derate=0.50,
+                efficiency_factor=0.50,
                 tile_utilization=0.60,
                 native_acceleration=True,
             ),
@@ -1069,28 +1078,28 @@ def kpu_t100_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=kpu_compute_12w,
-                empirical_derate=0.70,  # Better with more power headroom
+                efficiency_factor=0.70,  # Better with more power headroom
                 tile_utilization=0.97,
                 native_acceleration=True,
             ),
             Precision.BF16: PerformanceCharacteristics(
                 precision=Precision.BF16,
                 compute_resource=kpu_compute_12w,
-                empirical_derate=0.65,
+                efficiency_factor=0.65,
                 tile_utilization=0.90,
                 native_acceleration=True,
             ),
             Precision.INT4: PerformanceCharacteristics(
                 precision=Precision.INT4,
                 compute_resource=kpu_compute_12w,
-                empirical_derate=0.75,
+                efficiency_factor=0.75,
                 tile_utilization=0.97,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=kpu_compute_12w,
-                empirical_derate=0.55,
+                efficiency_factor=0.55,
                 tile_utilization=0.65,
                 native_acceleration=True,
             ),
@@ -1139,28 +1148,28 @@ def kpu_t100_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=kpu_compute_24w,
-                empirical_derate=0.75,  # Peak performance mode
+                efficiency_factor=0.75,  # Peak performance mode
                 tile_utilization=0.98,
                 native_acceleration=True,
             ),
             Precision.BF16: PerformanceCharacteristics(
                 precision=Precision.BF16,
                 compute_resource=kpu_compute_24w,
-                empirical_derate=0.70,
+                efficiency_factor=0.70,
                 tile_utilization=0.92,
                 native_acceleration=True,
             ),
             Precision.INT4: PerformanceCharacteristics(
                 precision=Precision.INT4,
                 compute_resource=kpu_compute_24w,
-                empirical_derate=0.80,
+                efficiency_factor=0.80,
                 tile_utilization=0.98,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=kpu_compute_24w,
-                empirical_derate=0.60,
+                efficiency_factor=0.60,
                 tile_utilization=0.70,
                 native_acceleration=True,
             ),
@@ -1290,28 +1299,28 @@ def kpu_t300_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=t300_compute,
-                empirical_derate=0.70,  # Better than T100 @ 12W
+                efficiency_factor=0.70,  # Better than T100 @ 12W
                 tile_utilization=0.95,
                 native_acceleration=True,
             ),
             Precision.BF16: PerformanceCharacteristics(
                 precision=Precision.BF16,
                 compute_resource=t300_compute,
-                empirical_derate=0.65,
+                efficiency_factor=0.65,
                 tile_utilization=0.88,
                 native_acceleration=True,
             ),
             Precision.INT4: PerformanceCharacteristics(
                 precision=Precision.INT4,
                 compute_resource=t300_compute,
-                empirical_derate=0.75,
+                efficiency_factor=0.75,
                 tile_utilization=0.95,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=t300_compute,
-                empirical_derate=0.58,
+                efficiency_factor=0.58,
                 tile_utilization=0.65,
                 native_acceleration=True,
             ),
@@ -1360,28 +1369,28 @@ def kpu_t300_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=t300_compute_25w,
-                empirical_derate=0.75,  # Excellent with automotive cooling
+                efficiency_factor=0.75,  # Excellent with automotive cooling
                 tile_utilization=0.97,
                 native_acceleration=True,
             ),
             Precision.BF16: PerformanceCharacteristics(
                 precision=Precision.BF16,
                 compute_resource=t300_compute_25w,
-                empirical_derate=0.70,
+                efficiency_factor=0.70,
                 tile_utilization=0.92,
                 native_acceleration=True,
             ),
             Precision.INT4: PerformanceCharacteristics(
                 precision=Precision.INT4,
                 compute_resource=t300_compute_25w,
-                empirical_derate=0.80,
+                efficiency_factor=0.80,
                 tile_utilization=0.97,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=t300_compute_25w,
-                empirical_derate=0.63,
+                efficiency_factor=0.63,
                 tile_utilization=0.70,
                 native_acceleration=True,
             ),
@@ -1430,28 +1439,28 @@ def kpu_t300_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=t300_compute_50w,
-                empirical_derate=0.80,  # Peak automotive performance
+                efficiency_factor=0.80,  # Peak automotive performance
                 tile_utilization=0.98,
                 native_acceleration=True,
             ),
             Precision.BF16: PerformanceCharacteristics(
                 precision=Precision.BF16,
                 compute_resource=t300_compute_50w,
-                empirical_derate=0.75,
+                efficiency_factor=0.75,
                 tile_utilization=0.95,
                 native_acceleration=True,
             ),
             Precision.INT4: PerformanceCharacteristics(
                 precision=Precision.INT4,
                 compute_resource=t300_compute_50w,
-                empirical_derate=0.85,
+                efficiency_factor=0.85,
                 tile_utilization=0.98,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=t300_compute_50w,
-                empirical_derate=0.68,
+                efficiency_factor=0.68,
                 tile_utilization=0.75,
                 native_acceleration=True,
             ),
@@ -1844,19 +1853,19 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
                 compute_resource=compute_resource_15w_int8,
                 instruction_efficiency=0.85,
                 memory_bottleneck_factor=0.60,
-                empirical_derate=0.47,  # 47% of sustained (3% of peak!)
+                efficiency_factor=0.47,  # 47% of sustained (3% of peak!)
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_15w_int8,
-                empirical_derate=0.40,  # Worse (more memory bound)
+                efficiency_factor=0.40,  # Worse (more memory bound)
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_15w_int8,
-                empirical_derate=0.25,  # Much worse
+                efficiency_factor=0.25,  # Much worse
                 native_acceleration=True,
             ),
         }
@@ -1894,19 +1903,19 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_30w,
-                empirical_derate=0.60,  # Better (10% of peak)
+                efficiency_factor=0.60,  # Better (10% of peak)
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_30w,
-                empirical_derate=0.50,
+                efficiency_factor=0.50,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_30w,
-                empirical_derate=0.35,
+                efficiency_factor=0.35,
                 native_acceleration=True,
             ),
         }
@@ -1944,19 +1953,19 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_60w,
-                empirical_derate=0.75,  # Best case (still only 30% of peak!)
+                efficiency_factor=0.75,  # Best case (still only 30% of peak!)
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_60w,
-                empirical_derate=0.65,
+                efficiency_factor=0.65,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_60w,
-                empirical_derate=0.50,
+                efficiency_factor=0.50,
                 native_acceleration=True,
             ),
         }
@@ -2073,19 +2082,19 @@ def jetson_thor_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_30w,
-                empirical_derate=0.50,  # 50% of sustained (3% of peak)
+                efficiency_factor=0.50,  # 50% of sustained (3% of peak)
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_30w,
-                empirical_derate=0.45,
+                efficiency_factor=0.45,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_30w,
-                empirical_derate=0.30,
+                efficiency_factor=0.30,
                 native_acceleration=True,
             ),
         }
@@ -2123,19 +2132,19 @@ def jetson_thor_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_60w,
-                empirical_derate=0.65,  # Better (6% of peak)
+                efficiency_factor=0.65,  # Better (6% of peak)
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_60w,
-                empirical_derate=0.60,
+                efficiency_factor=0.60,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_60w,
-                empirical_derate=0.45,
+                efficiency_factor=0.45,
                 native_acceleration=True,
             ),
         }
@@ -2173,19 +2182,19 @@ def jetson_thor_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_100w,
-                empirical_derate=0.80,  # Best case (10% of peak)
+                efficiency_factor=0.80,  # Best case (10% of peak)
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_100w,
-                empirical_derate=0.70,
+                efficiency_factor=0.70,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_100w,
-                empirical_derate=0.55,
+                efficiency_factor=0.55,
                 native_acceleration=True,
             ),
         }
