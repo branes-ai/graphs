@@ -6,7 +6,7 @@ across all major hardware types for deep learning inference.
 
 Hardware Types Compared:
 1. **GPU (NVIDIA H100)**: Cloud/datacenter, best absolute performance
-2. **GPU (Jetson Orin AGX)**: Edge AI platform, 170 TOPS INT8
+2. **GPU (Jetson Orin AGX)**: Edge AI platform, 85 TOPS INT8 (GPU dense for PyTorch)
 3. **GPU (Jetson Thor)**: Next-gen edge AI, 2000 TOPS INT8
 4. **TPU (v4)**: Google's cloud ASIC, optimized for large-batch inference
 5. **TPU (Coral Edge)**: Google's ultra-low-power edge TPU, 4 TOPS INT8
@@ -490,11 +490,12 @@ def test_all_hardware():
 
     if jetson_orin_int8:
         print(f"3. **Jetson Orin AGX @ 15W - Reality Check**")
-        print(f"   - Marketing claim: 170 TOPS INT8 (dense), 275 TOPS (sparse)")
+        print(f"   - Marketing claim: 275 TOPS INT8 (all engines: GPU+DLA+PVA, sparse)")
+        print(f"   - GPU only (dense, PyTorch): 85 TOPS INT8 peak")
         print(f"   - Actual performance @ 15W: {jetson_orin_int8.total_latency*1000:.3f} ms")
         print(f"   - Energy: {jetson_orin_int8.total_energy:.3f} J per inference")
         print(f"   - Root cause: DVFS thermal throttling (39% of boost clock) + 47% empirical derate")
-        print(f"   - Result: Only 1.8% of datasheet peak performance!")
+        print(f"   - Result: Only ~6% of GPU dense peak performance!")
         print(f"   → Reality: Jetson claims are for unrealistic power budgets (60W+)")
         print()
 
