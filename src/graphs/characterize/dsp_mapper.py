@@ -43,6 +43,7 @@ from .hardware_mapper import (
     PerformanceCharacteristics,
     BottleneckType,
     qrb5165_resource_model,
+    ti_tda4vm_resource_model,
 )
 from .fusion_partitioner import FusedSubgraph, FusionReport
 from .graph_structures import SubgraphDescriptor, ParallelismDescriptor
@@ -335,13 +336,89 @@ def create_qrb5165_mapper() -> DSPMapper:
 
 
 # ============================================================================
-# Future DSP Mappers (Placeholders)
+# Texas Instruments C7x DSP Mappers
 # ============================================================================
 
-# TODO: Add TI C7x DSP mapper
-# def create_ti_c7x_mapper() -> DSPMapper:
-#     """Texas Instruments C7x DSP for automotive/ADAS"""
-#     pass
+def create_ti_tda4vm_mapper(thermal_profile: str = "10W") -> DSPMapper:
+    """
+    Create hardware mapper for Texas Instruments TDA4VM (Jacinto 7) ADAS Processor.
+
+    ARCHITECTURE:
+    - C7x floating-point vector DSP @ 1.0 GHz
+    - Matrix Multiply Accelerator (MMA) integrated with C7x
+    - Heterogeneous: Cortex-A72 CPU + C7x DSP + MMA
+    - Automotive-grade: ASIL-D/SIL-3 safety certification
+
+    PERFORMANCE:
+    - C7x DSP: 80 GFLOPS FP32, 256 GOPS INT16
+    - MMA: 8 TOPS INT8 (peak)
+    - ~5 TOPS INT8 (effective @ 10W)
+    - ~6.5 TOPS INT8 (effective @ 20W)
+
+    PRECISION SUPPORT:
+    - INT8: Native via MMA (primary mode for CNNs)
+    - INT16: Native via C7x vector units
+    - FP32: Native via C7x DSP (80 GFLOPS)
+    - FP16: Emulated via C7x
+
+    MEMORY:
+    - LPDDR4x @ 3733 MT/s (dual-channel)
+    - 60 GB/s bandwidth
+    - 8 MB MSMC on-chip SRAM for DSP
+    - Up to 8GB capacity
+
+    POWER PROFILES:
+    - 10W: Front camera ADAS (lane detection, object detection)
+      * Sustained: 850 MHz, ~5 TOPS effective
+      * Use case: Single front-facing camera system
+
+    - 20W: Full ADAS system (multi-camera, radar fusion, parking)
+      * Sustained: 950 MHz, ~6.5 TOPS effective
+      * Use case: 4-6 cameras + radar/lidar fusion
+
+    AUTOMOTIVE FEATURES:
+    - Temperature: -40°C to 125°C (AEC-Q100 Grade 2)
+    - Safety: ASIL-D/SIL-3 with R5F safety cores
+    - Deterministic scheduling for real-time
+    - Secure boot and runtime protection
+
+    USE CASE:
+    - ADAS Level 2-3 (lane keep, adaptive cruise, auto park)
+    - Multi-camera surround view
+    - Sensor fusion (camera + radar + lidar)
+    - Object detection and tracking
+    - Lane detection and segmentation
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on TI published specs and automotive benchmarks
+    - efficiency_factor values are conservative for automotive
+    - Need empirical benchmarking on actual TDA4VM hardware
+
+    REFERENCES:
+    - TI TDA4VM Datasheet (SPRS927)
+    - Jacinto 7 Technical Reference Manual
+    - TI Edge AI documentation
+    - Automotive ADAS performance data
+
+    Args:
+        thermal_profile: Power mode - "10W" (front camera) or "20W" (full system)
+
+    Returns:
+        DSPMapper configured for TI TDA4VM
+    """
+    model = ti_tda4vm_resource_model()
+    mapper = DSPMapper(model)
+
+    # Set the thermal profile if specified
+    if thermal_profile in model.thermal_operating_points:
+        model._active_thermal_profile = thermal_profile
+
+    return mapper
+
+
+# ============================================================================
+# Future DSP Mappers (Placeholders)
+# ============================================================================
 
 # TODO: Add Cadence Tensilica Vision DSP mapper
 # def create_cadence_vision_dsp_mapper() -> DSPMapper:
@@ -351,4 +428,9 @@ def create_qrb5165_mapper() -> DSPMapper:
 # TODO: Add CEVA NeuPro DSP mapper
 # def create_ceva_neupro_mapper() -> DSPMapper:
 #     """CEVA NeuPro AI DSPs"""
+#     pass
+
+# TODO: Add Synopsys ARC EV DSP mapper
+# def create_synopsys_arc_ev_mapper() -> DSPMapper:
+#     """Synopsys ARC EV embedded vision DSPs"""
 #     pass

@@ -9,6 +9,7 @@ Category 1: Computer Vision / Low Power (≤10W)
 - Jetson Orin Nano: 40 TOPS INT8 @ 7-15W
 - KPU-T64: 6.9 TOPS INT8 @ 6W
 - QRB5165 (Hexagon 698): 15 TOPS INT8 @ 7W
+- TI TDA4VM (C7x DSP): 8 TOPS INT8 @ 10W
 
 Category 2: Transformers / Higher Power (≤50W)
 - Hailo-10H: 40 TOPS INT4 @ 2.5W
@@ -43,7 +44,7 @@ from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
 from src.graphs.characterize.hailo_mapper import create_hailo8_mapper, create_hailo10h_mapper
 from src.graphs.characterize.gpu_mapper import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
 from src.graphs.characterize.kpu_mapper import create_kpu_t64_mapper, create_kpu_t256_mapper
-from src.graphs.characterize.dsp_mapper import create_qrb5165_mapper
+from src.graphs.characterize.dsp_mapper import create_qrb5165_mapper, create_ti_tda4vm_mapper
 from src.graphs.characterize.hardware_mapper import Precision
 
 
@@ -208,6 +209,7 @@ def run_category_1_comparison():
         ("Jetson-Orin-Nano", create_jetson_orin_nano_mapper(thermal_profile="7W"), "7W", 7.0, "int8"),
         ("KPU-T64", create_kpu_t64_mapper(thermal_profile="6W"), "6W", 6.0, "int8"),
         ("QRB5165-Hexagon698", create_qrb5165_mapper(), "7W", 7.0, "int8"),
+        ("TI-TDA4VM-C7x", create_ti_tda4vm_mapper(thermal_profile="10W"), "10W", 10.0, "int8"),
     ]
 
     # Models to test
