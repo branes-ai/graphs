@@ -40,6 +40,7 @@ Edge AI hardware is organized into two primary categories based on power budget 
 | **Hailo-8** | 26 TOPS INT8 | 2.5W | Highest TOPS/W (10.4), all on-chip memory |
 | **Jetson Orin Nano** | 40 TOPS INT8 (sparse) | 7-15W | NVIDIA ecosystem, flexible programming |
 | **KPU-T64** | 6.9 TOPS INT8 | 6W | Heterogeneous tiles, predictable performance |
+| **QRB5165 (Hexagon 698)** | 15 TOPS INT8 | 7W | Qualcomm ecosystem, sensor fusion optimized |
 
 ### Power Profiles
 
@@ -64,6 +65,14 @@ Edge AI hardware is organized into two primary categories based on power budget 
 - **Latency**: Best overall (ResNet-50: 4.19ms)
 - **Best for**: Balanced workloads (vision + lightweight transformers)
 
+#### QRB5165 (Hexagon 698) @ 7W
+- **Architecture**: Hexagon DSP with HVX (vector) + HTA (tensor) accelerators
+- **CPU**: Kryo 585 (1×2.84 GHz + 3×2.42 GHz + 4×1.81 GHz)
+- **Memory**: 16GB LPDDR5 @ 44 GB/s
+- **Efficiency**: ~2.1 TOPS/W (effective)
+- **DVFS**: Moderate throttling (60% sustained at 7W)
+- **Best for**: Robotics platforms requiring sensor fusion + vision
+
 ### Benchmark Results (Batch=1, INT8)
 
 #### ResNet-50 (Computer Vision Backbone)
@@ -72,6 +81,7 @@ Edge AI hardware is organized into two primary categories based on power budget 
 | Hailo-8 | 354ms | 2.8 | 1.13 | 14.7% |
 | Jetson Nano | 9.5ms | 105 | 15.08 | 97.9% |
 | KPU-T64 | 4.2ms | 239 | **39.79** | 98.8% |
+| QRB5165 | 105ms | 9.5 | 1.36 | 47.7% |
 
 #### DeepLabV3+ (Semantic Segmentation)
 | Platform | Latency | FPS | FPS/W | Utilization |
@@ -79,6 +89,7 @@ Edge AI hardware is organized into two primary categories based on power budget 
 | Hailo-8 | 4149ms | 0.2 | 0.10 | 13.6% |
 | Jetson Nano | 348ms | 2.9 | 0.41 | 96.5% |
 | KPU-T64 | 88ms | 11.4 | **1.89** | 99.6% |
+| QRB5165 | 1229ms | 0.8 | 0.12 | 44.3% |
 
 #### ViT-Base (Vision Transformer)
 | Platform | Latency | FPS | FPS/W | Utilization |
@@ -86,6 +97,7 @@ Edge AI hardware is organized into two primary categories based on power budget 
 | Hailo-8 | 25ms | 40 | 15.97 | 1.7% |
 | Jetson Nano | 7.6ms | 131 | 18.69 | 25.5% |
 | KPU-T64 | 7.9ms | 126 | **21.03** | 100% |
+| QRB5165 | 32ms | 31 | 4.48 | 3.6% |
 
 ### Winner: KPU-T64
 
@@ -237,6 +249,23 @@ Edge AI hardware is organized into two primary categories based on power budget 
 
 **Best for**: Workloads requiring predictable, sustained performance
 
+### QRB5165 (Qualcomm Hexagon DSP)
+
+**Strengths**:
+- ✅ Heterogeneous compute: CPU + GPU + DSP
+- ✅ Qualcomm ecosystem integration
+- ✅ Optimized for sensor fusion (camera + IMU + etc.)
+- ✅ Good balance of flexibility and efficiency
+- ✅ Production-ready robotics platform
+
+**Limitations**:
+- ❌ Lower efficiency than specialized accelerators (2.1 TOPS/W effective)
+- ❌ Memory bandwidth limited (44 GB/s vs Jetson's 68 GB/s)
+- ❌ Low utilization on large models (3.6-47.7%)
+- ❌ Requires Qualcomm toolchain
+
+**Best for**: Robotics platforms requiring multi-modal sensor processing (not just vision)
+
 ---
 
 ## Decision Matrix
@@ -258,6 +287,13 @@ Edge AI hardware is organized into two primary categories based on power budget 
 - Workload: Mixed (CNNs + lightweight transformers)
 - Need predictable performance (no throttling)
 - Production deployment with multiple models
+
+### Choose QRB5165 when:
+- Power budget: 7W
+- Workload: Multi-modal (vision + sensor fusion)
+- Need Qualcomm ecosystem (ROS, Snapdragon SDK)
+- Robotics platform with heterogeneous processing needs
+- Require integrated CPU + GPU + DSP
 
 ### Choose Hailo-10H when:
 - Power budget ≤ 3W
@@ -287,9 +323,10 @@ Edge AI hardware is organized into two primary categories based on power budget 
 |----------------|-------|-------------|-------------------|
 | No AI (baseline) | 0W | 18.0 min | - |
 | Hailo-8 | 2.5W | 16.8 min | -6.7% |
-| Jetson Nano 7W | 7.0W | 14.4 min | -20.0% |
 | KPU-T64 @ 3W | 3.0W | 16.5 min | -8.3% |
 | KPU-T64 @ 6W | 6.0W | 14.7 min | -18.3% |
+| Jetson Nano 7W | 7.0W | 14.4 min | -20.0% |
+| QRB5165 | 7.0W | 14.4 min | -20.0% |
 
 **Assumptions**:
 - Motors: 60W average (hover + maneuvers)
