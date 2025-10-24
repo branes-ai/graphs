@@ -853,3 +853,168 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
     )
 
     return CPUMapper(model)
+
+
+def create_ampere_ampereone_192_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for Ampere AmpereOne 192-core ARM Server Processor.
+
+    ARCHITECTURE:
+    - 192 ARM v8.6+ cores @ up to 3.6 GHz
+    - 2×128-bit SIMD units per core (NEON + SVE)
+    - Cloud-native server processor (5nm TSMC)
+    - Single thread per core (no SMT)
+
+    PERFORMANCE:
+    - Peak FP32: 5.5 TFLOPS
+    - Peak FP16/BF16: 11.1 TFLOPS
+    - Peak INT8: 22.1 TOPS
+    - Memory: 332.8 GB/s (8-channel DDR5-5200)
+
+    POWER:
+    - TDP: 283W (A192-32X flagship SKU)
+
+    USE CASES:
+    - Cloud-native workloads (microservices, containers)
+    - AI inference at scale (cloud servers)
+    - High-performance computing (HPC)
+    - Hyperscale datacenter deployments
+
+    KEY ADVANTAGES vs x86:
+    - 12× more cores than typical server x86 (192 vs 16-32)
+    - Better power efficiency for cloud workloads
+    - Native ARM architecture (no legacy x86 baggage)
+    - Superior AI inference performance (native FP16/BF16/INT8)
+    - Ampere AIO (AI Optimizer) for ML frameworks
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Ampere published specs
+
+    REFERENCES:
+    - Ampere AmpereOne Family Product Brief (2024)
+    - ARM v8.6+ Architecture Reference Manual
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for Ampere AmpereOne 192-core
+    """
+    from .hardware_mapper import ampere_ampereone_192_resource_model
+
+    model = ampere_ampereone_192_resource_model()
+    return CPUMapper(model)
+
+
+def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for Intel Xeon Platinum 8490H (Sapphire Rapids).
+
+    ARCHITECTURE:
+    - 60 Golden Cove cores @ 2.0-3.5 GHz
+    - Intel 7 process (10nm Enhanced SuperFin)
+    - HyperThreading (120 threads total)
+    - Monolithic die design
+
+    PERFORMANCE:
+    - Peak FP32: 2.78 TFLOPS
+    - Peak INT8: 88.7 TOPS (AMX)
+    - Peak BF16: 44.4 TFLOPS (AMX)
+    - Memory: 307 GB/s (8-channel DDR5-4800)
+
+    POWER:
+    - TDP: 350W
+
+    AI ACCELERATION:
+    - AMX (Advanced Matrix Extensions) for INT8/BF16
+    - VNNI (Vector Neural Network Instructions)
+    - Deep Learning Boost
+    - Much better AI performance than previous Xeon generations
+
+    USE CASES:
+    - AI training and inference (AMX acceleration)
+    - HPC workloads (AVX-512)
+    - Database servers (high thread count)
+    - Virtualization hosts (many cores)
+
+    KEY ADVANTAGES vs Consumer CPUs:
+    - 60 cores (vs 12-16 for consumer)
+    - AMX for AI acceleration (vs basic VNNI)
+    - 8-channel DDR5 (vs 2-channel)
+    - Enterprise features (RAS, security)
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Intel published specs
+
+    REFERENCES:
+    - Intel Xeon Scalable Processors (4th Gen) Product Brief
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for Intel Xeon Platinum 8490H
+    """
+    from .hardware_mapper import intel_xeon_platinum_8490h_resource_model
+
+    model = intel_xeon_platinum_8490h_resource_model()
+    return CPUMapper(model)
+
+
+def create_amd_epyc_9654_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for AMD EPYC 9654 (Genoa).
+
+    ARCHITECTURE:
+    - 96 Zen 4 cores @ 2.4-3.7 GHz
+    - TSMC 5nm process
+    - SMT (192 threads total)
+    - Chiplet design (12× 8-core CCDs)
+
+    PERFORMANCE:
+    - Peak FP32: 1.84 TFLOPS
+    - Peak INT8: 7.37 TOPS
+    - Peak FP16: 3.69 TFLOPS
+    - Memory: 460.8 GB/s (12-channel DDR5-4800)
+
+    POWER:
+    - TDP: 360W (tunable up to 400W)
+
+    AI ACCELERATION:
+    - AVX-512 support (double-pumped 256-bit)
+    - AVX2 for compatibility
+    - No dedicated AI accelerator (unlike Intel AMX)
+
+    USE CASES:
+    - Cloud computing (highest core density)
+    - Virtualization (massive thread count)
+    - Database servers (many cores)
+    - Scientific computing
+
+    KEY ADVANTAGES vs Intel Xeon:
+    - 60% more cores (96 vs 60)
+    - 50% more memory bandwidth (460 GB/s vs 307 GB/s)
+    - TSMC 5nm (vs Intel 10nm)
+    - Chiplet design (better yields)
+
+    DISADVANTAGES vs Intel Xeon:
+    - No AMX (weaker AI performance)
+    - Double-pumped AVX-512 (slower than native)
+    - Lower per-core performance
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on AMD published specs
+
+    REFERENCES:
+    - AMD EPYC 9004 Series Processors Product Brief
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for AMD EPYC 9654
+    """
+    from .hardware_mapper import amd_epyc_9654_resource_model
+
+    model = amd_epyc_9654_resource_model()
+    return CPUMapper(model)
