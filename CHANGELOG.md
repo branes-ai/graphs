@@ -13,6 +13,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-24] - Qualcomm QRB5165 Hexagon DSP Mapper
+
+### Added
+
+- **HardwareType.DSP** - New hardware type for Digital Signal Processors (Qualcomm Hexagon, TI C7x, etc.)
+  - Follows same pattern as CPU/GPU mappers for classification consistency
+  - Extensible for future DSP accelerators
+
+- **QRB5165 Resource Model** (`hardware_mapper.py`, `qrb5165_resource_model()`)
+  - Architecture: Hexagon 698 DSP with HVX (vector) + HTA (tensor accelerator)
+  - Peak performance: 15 TOPS INT8
+  - Power profile: 7W TDP with DVFS (60% throttle factor)
+  - Memory: LPDDR5 @ 44 GB/s bandwidth
+  - CPU: Kryo 585 (8 cores: 1×2.84 GHz + 3×2.42 GHz + 4×1.81 GHz)
+  - Precision support: INT8 (native), INT16 (native), FP16 (emulated), INT4 (experimental)
+
+- **DSP Mapper** (`dsp_mapper.py`, 385 lines)
+  - Generic DSPMapper class for all DSP-based accelerators
+  - Qualcomm Hexagon 698 implementation (`create_qrb5165_mapper()`)
+  - Maps fused subgraphs to 32 equivalent DSP processing elements
+  - Accounts for HVX vector units and HTA tensor accelerator
+  - Realistic efficiency modeling: 60% efficiency_factor for INT8
+  - Placeholders for future DSP mappers (TI C7x, Cadence Tensilica, CEVA NeuPro)
+
+- **Edge AI Comparison Integration**
+  - Added QRB5165 to Category 1 (Low Power ≤10W)
+  - Validated on ResNet-50, DeepLabV3+, ViT-Base
+  - Updated `compare_edge_ai_platforms.py`
+  - Updated documentation in `edge_ai_categories.md`
+
+### Results (Category 1: Low Power ≤10W, Batch=1, INT8)
+
+**ResNet-50:**
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| QRB5165 | 105ms | 9.5 | 1.36 | 47.7% |
+
+**DeepLabV3+ (Segmentation):**
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| QRB5165 | 1229ms | 0.8 | 0.12 | 44.3% |
+
+**ViT-Base (Transformer):**
+| Platform | Latency | FPS | FPS/W | Utilization |
+|----------|---------|-----|-------|-------------|
+| QRB5165 | 32ms | 31 | 4.48 | 3.6% |
+
+### Key Insights
+
+1. **Performance Position**: QRB5165 sits between Hailo-8 (dataflow) and Jetson Orin Nano (GPU)
+   - Better than Hailo-8 on DeepLabV3+ (1229ms vs 4149ms)
+   - Slower than Jetson Orin Nano despite similar 7W TDP (105ms vs 9.5ms on ResNet-50)
+
+2. **Utilization Analysis**: Low utilization (3.6-47.7%) suggests:
+   - Memory bandwidth bottleneck (44 GB/s vs Jetson's 68 GB/s)
+   - DSP resource allocation could be optimized
+   - Efficiency factors may need calibration with real hardware
+
+3. **Best Use Case**: Multi-modal sensor fusion
+   - QRB5165 is optimized for heterogeneous workloads
+   - CPU + GPU + DSP architecture suits robotics platforms
+   - Integrated sensor processing (camera + IMU + GNSS)
+
+4. **Effective Efficiency**: ~2.1 TOPS/W (comparable to Jetson, lower than Hailo/KPU)
+   - Peak: 15 TOPS INT8
+   - Effective: ~6 TOPS @ 7W sustained
+   - Similar throttling characteristics to Jetson (DVFS limited)
+
+5. **Architectural Trade-offs**:
+   - **Hailo**: 10.4 TOPS/W but fixed-function, struggles on large models
+   - **Jetson**: Flexible but severe throttling (2.7 TOPS/W effective)
+   - **QRB5165**: Balanced heterogeneous compute, Qualcomm ecosystem
+   - **KPU**: Best efficiency (10.6 TOPS/W) but hypothetical
+
+### Files Created/Modified
+
+**Source Code** (3 files):
+- `src/graphs/characterize/hardware_mapper.py` - Added DSP type and qrb5165_resource_model() (220 lines)
+- `src/graphs/characterize/dsp_mapper.py` (NEW - 385 lines) - Generic DSP mapper with Hexagon implementation
+
+**Validation** (1 file):
+- `validation/hardware/compare_edge_ai_platforms.py` - Added QRB5165 to comparison
+
+**Documentation** (2 files):
+- `docs/edge_ai_categories.md` - Added QRB5165 specifications, benchmarks, and analysis
+- `CHANGELOG.md` - This file
+
+**Lines Changed**: ~615 lines added
+
+**Architecture Reorganization**:
+- Follows CPU/GPU mapper pattern: `cpu_mapper.py` contains AMD/Intel, `gpu_mapper.py` contains H100/Jetson
+- Now `dsp_mapper.py` contains Qualcomm Hexagon (with space for TI C7x, Cadence, CEVA, etc.)
+- Classification: `HardwareType.DSP` (consistent with "cpu", "gpu", "tpu", "kpu", etc.)
+
+### Recommendation
+
+**Choose QRB5165 when:**
+- Power budget: 7W
+- Workload: Multi-modal (vision + sensor fusion)
+- Need Qualcomm ecosystem (ROS, Snapdragon SDK)
+- Robotics platform with heterogeneous processing needs (not just vision)
+- Require integrated CPU + GPU + DSP on single SoC
+
+**Best competitors:**
+- **Hailo-8** for pure vision at ultra-low power (2.5W)
+- **Jetson Orin Nano** for NVIDIA ecosystem and flexibility
+- **KPU-T64** for best power efficiency (hypothetical)
+
+### Next Steps
+
+**Calibration Needed:**
+1. Test on actual QRB5165 hardware (Qualcomm RB5 platform)
+2. Tune efficiency_factor based on real benchmarks
+3. Investigate low utilization (may need better resource allocation)
+
+**Future Enhancements:**
+4. Add QRB6490 (next-gen with Hexagon 780, 60 TOPS INT8)
+5. Model heterogeneous execution (CPU + GPU + DSP concurrent)
+6. Add sensor fusion workload benchmarks (not just vision)
+
+---
+
 ## [2025-10-22] - Edge AI / Embodied AI Platform Comparison Framework
 
 ### Added
