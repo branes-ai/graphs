@@ -231,6 +231,54 @@ is purpose-built for AI workloads from the ground up.
 
 ---
 
+### `compare_datacenter_cpus.py`
+Compare ARM and x86 datacenter server processors for AI inference workloads.
+
+**Usage:**
+```bash
+# Run datacenter CPU comparison
+python cli/compare_datacenter_cpus.py
+```
+
+**Features:**
+- **Ampere AmpereOne 192-core**: ARM v8.6+ (5nm TSMC)
+  * 192 cores, 22.1 TOPS INT8, 332.8 GB/s memory
+  * Best for cloud-native microservices
+
+- **Intel Xeon Platinum 8490H**: x86 Sapphire Rapids (10nm Intel 7)
+  * 60 cores, 88.7 TOPS INT8 (AMX), 307 GB/s memory
+  * Best for CNN inference (4-10× faster with AMX)
+
+- **AMD EPYC 9654**: x86 Genoa (5nm TSMC)
+  * 96 cores, 7.4 TOPS INT8, 460.8 GB/s memory
+  * Best for Transformer inference (highest bandwidth)
+
+**Models Tested:**
+- ResNet-50 (CNN): Intel Xeon wins (1144 FPS vs 236 FPS Ampere, 217 FPS AMD)
+- DeepLabV3+ (Segmentation): Intel Xeon wins (118 FPS vs 13.5 FPS Ampere, 11.7 FPS AMD)
+- ViT-Base (Transformer): AMD EPYC wins (878 FPS vs 654 FPS Ampere, 606 FPS Intel)
+
+**Key Insights:**
+- **Intel AMX** dominates CNN workloads (4-10× faster)
+- **AMD's high bandwidth** (460 GB/s) excels at Transformers
+- **Ampere's 192 cores** best for general-purpose compute, not AI
+
+**Output:**
+```
+DATACENTER CPU COMPARISON RESULTS
+============================================================================
+ResNet-50
+----------------------------------------------------------------------------
+CPU                            Cores    TDP      Latency      FPS        FPS/W
+Ampere AmpereOne 192-core      192      283      4.24         235.8      0.83
+Intel Xeon Platinum 8490H      60       350      0.87         1143.6     3.27  ← Winner
+AMD EPYC 9654                  96       360      4.61         216.8      0.60
+```
+
+**Documentation**: See `docs/DATACENTER_CPU_COMPARISON.md` for comprehensive analysis
+
+---
+
 ## Common Usage Patterns
 
 ### Quick Model Analysis
