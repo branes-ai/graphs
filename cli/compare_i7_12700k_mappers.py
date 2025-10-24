@@ -17,7 +17,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # cli/ → graphs/
 
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner, FusionReport
 from src.graphs.characterize.cpu_mapper import create_i7_12700k_mapper, create_i7_12700k_large_mapper

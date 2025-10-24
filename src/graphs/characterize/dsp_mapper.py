@@ -44,6 +44,9 @@ from .hardware_mapper import (
     BottleneckType,
     qrb5165_resource_model,
     ti_tda4vm_resource_model,
+    ti_tda4vl_resource_model,
+    ti_tda4al_resource_model,
+    ti_tda4vh_resource_model,
 )
 from .fusion_partitioner import FusedSubgraph, FusionReport
 from .graph_structures import SubgraphDescriptor, ParallelismDescriptor
@@ -410,6 +413,165 @@ def create_ti_tda4vm_mapper(thermal_profile: str = "10W") -> DSPMapper:
     mapper = DSPMapper(model)
 
     # Set the thermal profile if specified
+    if thermal_profile in model.thermal_operating_points:
+        model._active_thermal_profile = thermal_profile
+
+    return mapper
+
+
+def create_ti_tda4vl_mapper(thermal_profile: str = "7W") -> DSPMapper:
+    """
+    Create hardware mapper for Texas Instruments TDA4VL (Entry-Level ADAS).
+
+    ARCHITECTURE:
+    - Entry-level Jacinto 7 for cost-sensitive ADAS applications
+    - C7x DSP + MMAv2 (newer generation, more efficient than TDA4VM's MMAv1)
+    - 4 TOPS INT8 (half of TDA4VM)
+    - Automotive-grade: ASIL-B/C
+
+    PERFORMANCE:
+    - 4 TOPS INT8 @ 1.0 GHz (peak)
+    - ~2-3 TOPS INT8 (effective @ 7W sustained)
+    - ~3 TOPS INT8 (effective @ 12W sustained)
+
+    PRECISION SUPPORT:
+    - INT8: Native via MMAv2 (primary mode)
+    - INT16: Native via C7x
+    - FP32: Native via C7x DSP (40 GFLOPS)
+
+    MEMORY:
+    - LPDDR4x @ 3733 MT/s
+    - 60 GB/s bandwidth
+    - Up to 4GB capacity
+
+    POWER PROFILES:
+    - 7W: Entry-level ADAS (single camera, lane keep, TSR)
+    - 12W: Multi-function ADAS (front + side cameras)
+
+    USE CASES:
+    - Entry-level ADAS (Lane Keep Assist, Traffic Sign Recognition)
+    - Single front-facing camera systems
+    - Cost-sensitive automotive markets
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on TI published specs and TDA4VM benchmarks
+
+    Args:
+        thermal_profile: Power mode - "7W" (entry-level) or "12W" (multi-function)
+
+    Returns:
+        DSPMapper configured for TI TDA4VL
+    """
+    model = ti_tda4vl_resource_model()
+    mapper = DSPMapper(model)
+
+    if thermal_profile in model.thermal_operating_points:
+        model._active_thermal_profile = thermal_profile
+
+    return mapper
+
+
+def create_ti_tda4al_mapper(thermal_profile: str = "10W") -> DSPMapper:
+    """
+    Create hardware mapper for Texas Instruments TDA4AL (Mid-Range ADAS).
+
+    ARCHITECTURE:
+    - Mid-range Jacinto 7 with newer MMAv2 architecture
+    - C7x DSP + MMAv2 (more efficient than TDA4VM's MMAv1)
+    - 8 TOPS INT8 (same as TDA4VM but more efficient)
+    - Automotive-grade: ASIL-D/SIL-3
+
+    PERFORMANCE:
+    - 8 TOPS INT8 @ 1.0 GHz (peak)
+    - ~5 TOPS INT8 (effective @ 10W sustained)
+    - ~6.5 TOPS INT8 (effective @ 18W sustained)
+    - Better power efficiency than TDA4VM @ same power level
+
+    PRECISION SUPPORT:
+    - INT8: Native via MMAv2 (primary mode)
+    - INT16: Native via C7x
+    - FP32: Native via C7x DSP (80 GFLOPS)
+
+    MEMORY:
+    - LPDDR4x @ 3733 MT/s
+    - 60 GB/s bandwidth
+    - Up to 8GB capacity
+
+    POWER PROFILES:
+    - 10W: Front camera ADAS
+    - 18W: Multi-camera ADAS (vs TDA4VM @ 20W for similar performance)
+
+    USE CASES:
+    - ADAS Level 2-3 (replaces TDA4VM in newer designs)
+    - Better power efficiency for same performance
+    - Multi-camera sensor fusion
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on TI published specs and TDA4VM benchmarks
+
+    Args:
+        thermal_profile: Power mode - "10W" (front camera) or "18W" (multi-camera)
+
+    Returns:
+        DSPMapper configured for TI TDA4AL
+    """
+    model = ti_tda4al_resource_model()
+    mapper = DSPMapper(model)
+
+    if thermal_profile in model.thermal_operating_points:
+        model._active_thermal_profile = thermal_profile
+
+    return mapper
+
+
+def create_ti_tda4vh_mapper(thermal_profile: str = "20W") -> DSPMapper:
+    """
+    Create hardware mapper for Texas Instruments TDA4VH (High-Performance ADAS).
+
+    ARCHITECTURE:
+    - High-performance Jacinto 7 for Level 3-4 autonomous driving
+    - 4× C7x DSP + 4× MMAv2 accelerators (4× TDA4VM)
+    - 8× Cortex-A72 @ 2.0 GHz (vs 2× in TDA4VM)
+    - 32 TOPS INT8 (4× TDA4VM)
+    - Automotive-grade: ASIL-D/SIL-3
+
+    PERFORMANCE:
+    - 32 TOPS INT8 @ 1.0 GHz (peak)
+    - ~20 TOPS INT8 (effective @ 20W sustained)
+    - ~25 TOPS INT8 (effective @ 35W sustained)
+
+    PRECISION SUPPORT:
+    - INT8: Native via 4× MMAv2 (primary mode)
+    - INT16: Native via 4× C7x
+    - FP32: Native via 4× C7x DSP (320 GFLOPS total)
+
+    MEMORY:
+    - LPDDR5 @ 6400 MT/s
+    - 100 GB/s bandwidth (higher than TDA4VM)
+    - Up to 16GB capacity
+
+    POWER PROFILES:
+    - 20W: Multi-camera Level 2+ ADAS (4-6 cameras)
+    - 35W: Full Level 3-4 autonomy stack (8-12 cameras + lidar/radar)
+
+    USE CASES:
+    - Advanced ADAS Level 3-4
+    - Highway pilot, urban pilot
+    - 8-12 camera surround view + lidar/radar fusion
+    - Multi-modal sensor fusion
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on TI published specs and TDA4VM scaling
+
+    Args:
+        thermal_profile: Power mode - "20W" (L2+ ADAS) or "35W" (L3-4 autonomy)
+
+    Returns:
+        DSPMapper configured for TI TDA4VH
+    """
+    model = ti_tda4vh_resource_model()
+    mapper = DSPMapper(model)
+
     if thermal_profile in model.thermal_operating_points:
         model._active_thermal_profile = thermal_profile
 
