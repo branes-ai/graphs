@@ -6,13 +6,24 @@ This directory contains unit tests that verify the **correctness** of individual
 
 ```
 tests/
-├── characterize/               # Tests for characterization components
-│   ├── test_graph_partitioner.py
-│   ├── test_graph_partitioner_general.py
-│   ├── test_fusion_partitioner.py
-│   └── test_arithmetic_intensity.py
+├── ir/                         # Tests for Intermediate Representation
+│   ├── __init__.py
+│   └── test_structures.py         # Data structure tests (enums, descriptors)
+├── transform/                  # Tests for Graph Transformations
+│   ├── __init__.py
+│   └── partitioning/              # Partitioning algorithm tests
+│       ├── __init__.py
+│       ├── test_graph_partitioner.py
+│       ├── test_fusion_partitioner.py
+│       ├── test_partitioner_on_resnet18.py
+│       └── test_arithmetic_intensity.py
+├── analysis/                   # Tests for Performance Analysis
+│   ├── __init__.py
+│   └── test_concurrency.py        # Concurrency analyzer tests
 └── README.md                   # This file
 ```
+
+**Note**: Test structure reorganized on 2025-10-24 to mirror the new package structure (`src/graphs/ir/`, `src/graphs/transform/`, etc.). Old `tests/characterize/` has been split into focused directories.
 
 ## Purpose
 
@@ -42,20 +53,25 @@ These tests verify:
 python -m pytest tests/
 
 # Run with coverage
-python -m pytest tests/ --cov=src/graphs/characterize
+python -m pytest tests/ --cov=src/graphs
 ```
 
-### Individual Test Files
+### Individual Test Suites
 ```bash
-# Graph partitioner tests
-python tests/characterize/test_graph_partitioner.py
-python tests/characterize/test_graph_partitioner_general.py
+# IR data structure tests
+python tests/ir/test_structures.py
 
-# Fusion partitioner tests
-python tests/characterize/test_fusion_partitioner.py
+# Analysis tests
+python tests/analysis/test_concurrency.py
 
-# Arithmetic intensity tests
-python tests/characterize/test_arithmetic_intensity.py
+# All partitioning tests
+python -m pytest tests/transform/partitioning/
+
+# Individual partitioning tests
+python tests/transform/partitioning/test_graph_partitioner.py
+python tests/transform/partitioning/test_fusion_partitioner.py
+python tests/transform/partitioning/test_partitioner_on_resnet18.py
+python tests/transform/partitioning/test_arithmetic_intensity.py
 ```
 
 ## Test Organization
@@ -63,10 +79,16 @@ python tests/characterize/test_arithmetic_intensity.py
 Tests are organized by package path to mirror the source code structure:
 
 ```
-tests/characterize/              ← Tests for src/graphs/characterize/
-  ├── test_graph_partitioner.py  ← Tests graph_partitioner.py
-  ├── test_fusion_partitioner.py ← Tests fusion_partitioner.py
+tests/transform/partitioning/         ← Tests for src/graphs/transform/partitioning/
+  ├── test_graph_partitioner.py       ← Tests GraphPartitioner
+  ├── test_fusion_partitioner.py      ← Tests FusionBasedPartitioner
   └── ...
+
+tests/ir/                             ← Tests for src/graphs/ir/
+  └── (future tests for data structures)
+
+tests/analysis/                       ← Tests for src/graphs/analysis/
+  └── (future tests for concurrency analysis)
 ```
 
 **Naming convention:**
@@ -76,27 +98,55 @@ tests/characterize/              ← Tests for src/graphs/characterize/
 
 ## Test Files
 
-### `test_graph_partitioner.py`
+### IR Tests (`tests/ir/`)
+
+#### `test_structures.py`
+Tests core IR data structures:
+- Enumerations (OperationType, BottleneckType, PartitionReason)
+- TensorDescriptor - Shape, dtype, memory footprint
+- ParallelismDescriptor - Thread/warp/block dimensions
+- SubgraphDescriptor - Complete subgraph metadata
+- SubgraphConcurrency - Subgraph-level parallelism
+- ConcurrencyDescriptor - Graph-level concurrency
+- PartitionReport - Complete partition statistics
+- Integration tests combining multiple structures
+
+### Analysis Tests (`tests/analysis/`)
+
+#### `test_concurrency.py`
+Tests concurrency analyzer functionality:
+- Graph-level concurrency (parallel stages, fork-join patterns)
+- Subgraph-level concurrency (thread parallelism, vectorization)
+- Critical path analysis (longest latency path)
+- Dependency graph construction
+- Stage computation (parallel execution groups)
+- Utilization metrics (concurrency efficiency)
+- Batch parallelism detection
+- Integration with realistic graph structures (ResNet-like)
+
+### Transform Tests (`tests/transform/partitioning/`)
+
+#### `test_graph_partitioner.py`
 Tests graph partitioning on ResNet-18:
 - Subgraph extraction
 - FLOP calculation correctness
 - Memory traffic estimation
 - Parallelism analysis
 
-### `test_graph_partitioner_general.py`
-Universal tests on multiple models:
-- ResNet-18, MobileNet-V2, EfficientNet-B0
-- Validates consistency across architectures
-- Tests edge cases (batch sizes, input shapes)
-
-### `test_fusion_partitioner.py`
+#### `test_fusion_partitioner.py`
 Tests fusion-based partitioning:
 - Fusion pattern detection
 - Memory reduction calculations
 - Subgraph aggregation
 - Boundary detection (fork/join)
 
-### `test_arithmetic_intensity.py`
+#### `test_partitioner_on_resnet18.py`
+ResNet-18 specific partitioning validation:
+- End-to-end partitioning
+- Realistic model testing
+- Performance characteristics
+
+#### `test_arithmetic_intensity.py`
 Tests arithmetic intensity calculations:
 - Compute vs memory bound classification
 - Roofline model inputs
@@ -114,10 +164,9 @@ import torch
 from torch.fx import symbolic_trace
 
 import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, 'src')
 
-from src.graphs.characterize.<module> import <Component>
+from graphs.transform.partitioning import <Component>  # Example import
 
 
 def test_basic_functionality():
@@ -166,13 +215,14 @@ if __name__ == '__main__':
 ## Expected Coverage
 
 Target coverage for unit tests:
-- **Core algorithms:** >90% (partitioner, fusion, walker)
-- **Utilities:** >80% (formatters, helpers)
-- **Mappers:** >70% (hardware-specific logic)
+- **Core algorithms:** >90% (partitioner, fusion)
+- **Data structures:** >80% (IR structures)
+- **Analysis:** >80% (concurrency analysis)
+- **Transformations:** >85% (partitioning, fusion)
 
 Run coverage report:
 ```bash
-python -m pytest tests/ --cov=src/graphs/characterize --cov-report=html
+python -m pytest tests/ --cov=src/graphs --cov-report=html
 # Open htmlcov/index.html in browser
 ```
 
@@ -202,11 +252,11 @@ Unit tests pass if:
 ## Future Work
 
 ### Tests to Add
-- [ ] Hardware mapper unit tests (allocation logic)
-- [ ] Precision profile tests
-- [ ] Clock domain DVFS tests
-- [ ] Tiling strategy tests
-- [ ] Energy model tests
+- [x] IR structure tests (`tests/ir/test_structures.py`) - ✅ ADDED
+- [x] Concurrency analysis tests (`tests/analysis/test_concurrency.py`) - ✅ ADDED
+- [ ] Tiling transformation tests (`tests/transform/tiling/`)
+- [ ] Fusion transformation tests (`tests/transform/fusion/`)
+- [ ] Hardware mapper unit tests (allocation logic) - Note: Validation tests already exist in `validation/hardware/`
 
 ### Test Infrastructure
 - [ ] Add pytest configuration (pytest.ini)

@@ -39,8 +39,8 @@ from dataclasses import dataclass
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from src.graphs.characterize.cpu_mapper import (
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import (
     create_ampere_ampereone_192_mapper,
     create_ampere_ampereone_128_mapper,
     create_intel_xeon_platinum_8490h_mapper,
@@ -50,7 +50,7 @@ from src.graphs.characterize.cpu_mapper import (
     create_amd_epyc_9754_mapper,
     create_amd_epyc_turin_mapper,
 )
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.hardware.resource_model import Precision
 
 
 @dataclass

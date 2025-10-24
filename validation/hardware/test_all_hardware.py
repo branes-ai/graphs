@@ -35,18 +35,18 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner, FusionReport
-from src.graphs.characterize.gpu_mapper import (
+from src.graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
+from src.graphs.hardware.mappers.gpu import (
     create_h100_mapper,
     create_jetson_orin_agx_mapper,
     create_jetson_thor_mapper
 )
-from src.graphs.characterize.cpu_mapper import create_intel_cpu_mapper, create_amd_cpu_mapper
-from src.graphs.characterize.kpu_mapper import create_kpu_t100_mapper, create_kpu_t300_mapper
-from src.graphs.characterize.tpu_mapper import create_tpu_v4_mapper, create_coral_edge_tpu_mapper
-from src.graphs.characterize.dpu_mapper import create_dpu_vitis_ai_mapper
-from src.graphs.characterize.cgra_mapper import create_plasticine_v2_mapper
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t100_mapper, create_kpu_t300_mapper
+from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper, create_coral_edge_tpu_mapper
+from src.graphs.hardware.mappers.accelerators.dpu import create_dpu_vitis_ai_mapper
+from src.graphs.hardware.mappers.accelerators.cgra import create_plasticine_v2_mapper
+from src.graphs.hardware.resource_model import Precision
 
 
 def extract_execution_stages(fusion_report: FusionReport) -> List[List[int]]:

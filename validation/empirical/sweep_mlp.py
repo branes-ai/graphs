@@ -35,10 +35,10 @@ from typing import Dict, List, Tuple
 # Add repo to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from src.graphs.characterize.cpu_mapper import create_intel_cpu_mapper, create_i7_12700k_mapper
-from src.graphs.characterize.gpu_mapper import create_h100_mapper
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_i7_12700k_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.resource_model import Precision
 
 # Import existing MLP models
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../workloads/pytorch/mlp'))

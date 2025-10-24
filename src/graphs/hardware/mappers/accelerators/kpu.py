@@ -27,15 +27,15 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import math
 
-from .hardware_mapper import (
+from ...resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareAllocation,
     GraphHardwareAllocation,
     Precision,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import BottleneckType
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import BottleneckType
 
 
 @dataclass
@@ -454,7 +454,7 @@ def create_kpu_t100_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T100 with heterogeneous tiles (70/20/10)
     """
-    from .hardware_mapper import kpu_t100_resource_model
+    from ...resource_model import kpu_t100_resource_model
 
     model = kpu_t100_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)
@@ -471,7 +471,7 @@ def create_kpu_t300_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T300 with heterogeneous tiles (210/60/30)
     """
-    from .hardware_mapper import kpu_t300_resource_model
+    from ...resource_model import kpu_t300_resource_model
 
     model = kpu_t300_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)
@@ -488,7 +488,7 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T64 with heterogeneous tiles (44/13/7)
     """
-    from .hardware_mapper import kpu_t64_resource_model
+    from ...resource_model import kpu_t64_resource_model
 
     model = kpu_t64_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)
@@ -505,7 +505,7 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T256 with heterogeneous tiles (179/51/26)
     """
-    from .hardware_mapper import kpu_t256_resource_model
+    from ...resource_model import kpu_t256_resource_model
 
     model = kpu_t256_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)

@@ -13,7 +13,7 @@ import networkx as nx
 from typing import List, Dict
 import numpy as np
 
-from .graph_structures import (
+from graphs.ir.structures import (
     SubgraphDescriptor,
     SubgraphConcurrency,
     ConcurrencyDescriptor,

@@ -17,13 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from src.graphs.characterize.dsp_mapper import (
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.dsp import (
     create_ceva_neupro_npm11_mapper,
     create_cadence_vision_q8_mapper,
     create_synopsys_arc_ev7x_mapper,
 )
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.hardware.resource_model import Precision
 
 
 def extract_execution_stages(fusion_report):

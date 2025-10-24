@@ -22,15 +22,15 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import math
 
-from .hardware_mapper import (
+from ..resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareAllocation,
     GraphHardwareAllocation,
     Precision,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import BottleneckType
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import BottleneckType
 
 
 class GPUMapper(HardwareMapper):
@@ -303,7 +303,7 @@ def create_h100_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for H100
     """
-    from .hardware_mapper import h100_pcie_resource_model
+    from ..resource_model import h100_pcie_resource_model
     return GPUMapper(h100_pcie_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -318,7 +318,7 @@ def create_jetson_orin_agx_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for Jetson Orin AGX
     """
-    from .hardware_mapper import jetson_orin_agx_resource_model
+    from ..resource_model import jetson_orin_agx_resource_model
     return GPUMapper(jetson_orin_agx_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -333,7 +333,7 @@ def create_jetson_orin_nano_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for Jetson Orin Nano
     """
-    from .hardware_mapper import jetson_orin_nano_resource_model
+    from ..resource_model import jetson_orin_nano_resource_model
     return GPUMapper(jetson_orin_nano_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -348,7 +348,7 @@ def create_jetson_thor_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for Jetson Thor
     """
-    from .hardware_mapper import jetson_thor_resource_model
+    from ..resource_model import jetson_thor_resource_model
     return GPUMapper(jetson_thor_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -410,5 +410,5 @@ def create_arm_mali_g78_mp20_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for ARM Mali-G78 MP20
     """
-    from .hardware_mapper import arm_mali_g78_mp20_resource_model
+    from ..resource_model import arm_mali_g78_mp20_resource_model
     return GPUMapper(arm_mali_g78_mp20_resource_model(), thermal_profile=thermal_profile)

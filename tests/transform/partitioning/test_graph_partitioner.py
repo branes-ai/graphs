@@ -16,8 +16,8 @@ from typing import Optional, Dict, Any
 import sys
 sys.path.insert(0, '/home/stillwater/dev/branes/clones/graphs/src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.concurrency_analyzer import ConcurrencyAnalyzer
+from graphs.transform.partitioning import GraphPartitioner
+from graphs.analysis.concurrency import ConcurrencyAnalyzer
 
 
 @dataclass

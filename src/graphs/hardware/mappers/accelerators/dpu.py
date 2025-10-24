@@ -35,15 +35,15 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import math
 
-from .hardware_mapper import (
+from ...resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareAllocation,
     GraphHardwareAllocation,
     Precision,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import BottleneckType
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import BottleneckType
 
 
 @dataclass
@@ -443,5 +443,5 @@ def create_dpu_vitis_ai_mapper() -> DPUMapper:
     Returns:
         DPUMapper instance
     """
-    from .hardware_mapper import xilinx_vitis_ai_dpu_resource_model
+    from ...resource_model import xilinx_vitis_ai_dpu_resource_model
     return DPUMapper(xilinx_vitis_ai_dpu_resource_model())
