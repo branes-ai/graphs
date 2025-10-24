@@ -2,15 +2,23 @@
 """
 Datacenter CPU Comparison Tool
 
-Compares ARM and x86 datacenter server processors:
-- Ampere AmpereOne 192-core (ARM v8.6+)
-- Intel Xeon Platinum 8490H (Sapphire Rapids)
-- AMD EPYC 9654 (Genoa)
+Compares ARM and x86 datacenter server processors across current and next-gen:
+
+Current Generation (Shipping Now):
+- Ampere AmpereOne 192-core / 128-core (ARM v8.6+)
+- Intel Xeon Platinum 8490H / 8592+ (Sapphire Rapids)
+- AMD EPYC 9654 / 9754 (Genoa, Zen 4)
+
+Next Generation (2024-2025):
+- Intel Xeon Granite Rapids (128-core, Intel 3)
+- AMD EPYC Turin (192-core, Zen 5, 3nm)
 
 Test Models:
-- ResNet-50: Vision backbone
-- DeepLabV3+: Semantic segmentation
-- ViT-Base: Vision Transformer
+- ResNet-50: Vision backbone (25M params)
+- DeepLabV3+: Semantic segmentation (42M params)
+- ViT-Base: Vision Transformer (86M params)
+- ConvNeXt-Large: Modernized ConvNet (198M params)
+- ViT-Large: Large Vision Transformer (304M params)
 
 Metrics:
 - Latency and throughput (FPS)
@@ -34,8 +42,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
 from src.graphs.characterize.cpu_mapper import (
     create_ampere_ampereone_192_mapper,
+    create_ampere_ampereone_128_mapper,
     create_intel_xeon_platinum_8490h_mapper,
+    create_intel_xeon_platinum_8592plus_mapper,
+    create_intel_granite_rapids_mapper,
     create_amd_epyc_9654_mapper,
+    create_amd_epyc_9754_mapper,
+    create_amd_epyc_turin_mapper,
 )
 from src.graphs.characterize.hardware_mapper import Precision
 
@@ -159,6 +172,14 @@ def create_gpt2_xl(batch_size=1, seq_length=512):
     wrapped_model.eval()
 
     return wrapped_model, input_ids, "GPT-2 XL (1.5B)"
+
+
+def create_convnext_large(batch_size=1):
+    """Create ConvNeXt-Large model (198M params) - Modernized ConvNet with Transformer-like performance"""
+    model = models.convnext_large(weights=None)
+    model.eval()
+    input_tensor = torch.randn(batch_size, 3, 224, 224)
+    return model, input_tensor, "ConvNeXt-Large (198M)"
 
 
 def create_vit_large(batch_size=1):
@@ -347,12 +368,13 @@ def print_summary(results: List[CPUBenchmarkResult]):
 def main():
     """Run full datacenter CPU comparison"""
     print("="*140)
-    print("DATACENTER CPU COMPARISON: ARM vs x86")
-    print("Comparing Ampere AmpereOne, Intel Xeon Platinum 8490H, AMD EPYC 9654")
+    print("DATACENTER CPU COMPARISON: Current Generation + Next Generation")
+    print("Testing 8 CPUs: 3 ARM (Ampere), 5 x86 (Intel + AMD)")
     print("="*140)
 
-    # CPU configurations
+    # CPU configurations - Current Generation + Next Generation
     cpu_configs = [
+        # === CURRENT GENERATION (Shipping Now) ===
         {
             "name": "Ampere AmpereOne 192-core",
             "vendor": "Ampere",
@@ -361,6 +383,17 @@ def main():
             "mapper": create_ampere_ampereone_192_mapper(),
             "architecture": "ARM",
             "process": "5nm",
+            "generation": "Current",
+        },
+        {
+            "name": "Ampere AmpereOne 128-core",
+            "vendor": "Ampere",
+            "cores": 128,
+            "tdp": 210,
+            "mapper": create_ampere_ampereone_128_mapper(),
+            "architecture": "ARM",
+            "process": "5nm",
+            "generation": "Current",
         },
         {
             "name": "Intel Xeon Platinum 8490H",
@@ -370,6 +403,17 @@ def main():
             "mapper": create_intel_xeon_platinum_8490h_mapper(),
             "architecture": "x86",
             "process": "10nm",
+            "generation": "Current",
+        },
+        {
+            "name": "Intel Xeon Platinum 8592+",
+            "vendor": "Intel",
+            "cores": 64,
+            "tdp": 350,
+            "mapper": create_intel_xeon_platinum_8592plus_mapper(),
+            "architecture": "x86",
+            "process": "10nm",
+            "generation": "Current",
         },
         {
             "name": "AMD EPYC 9654",
@@ -379,6 +423,39 @@ def main():
             "mapper": create_amd_epyc_9654_mapper(),
             "architecture": "x86",
             "process": "5nm",
+            "generation": "Current",
+        },
+        {
+            "name": "AMD EPYC 9754",
+            "vendor": "AMD",
+            "cores": 128,
+            "tdp": 360,
+            "mapper": create_amd_epyc_9754_mapper(),
+            "architecture": "x86",
+            "process": "5nm",
+            "generation": "Current",
+        },
+
+        # === NEXT GENERATION (2024-2025) ===
+        {
+            "name": "Intel Granite Rapids",
+            "vendor": "Intel",
+            "cores": 128,
+            "tdp": 500,
+            "mapper": create_intel_granite_rapids_mapper(),
+            "architecture": "x86",
+            "process": "Intel 3",
+            "generation": "Next-Gen",
+        },
+        {
+            "name": "AMD EPYC Turin (Zen 5)",
+            "vendor": "AMD",
+            "cores": 192,
+            "tdp": 500,
+            "mapper": create_amd_epyc_turin_mapper(),
+            "architecture": "x86",
+            "process": "3nm",
+            "generation": "Next-Gen",
         },
     ]
 
@@ -387,6 +464,7 @@ def main():
         create_resnet50(batch_size=1),      # CNN: Image classification (25M params)
         create_deeplabv3(batch_size=1),     # CNN: Semantic segmentation (42M params)
         create_vit_base(batch_size=1),      # Transformer: Vision (86M params)
+        create_convnext_large(batch_size=1), # Hybrid: Modernized ConvNet (198M params)
         create_vit_large(batch_size=1),     # Transformer: Large vision (304M params)
     ]
 
