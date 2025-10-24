@@ -3597,3 +3597,374 @@ def ti_tda4vm_resource_model() -> HardwareResourceModel:
         max_concurrent_kernels=4,  # Limited for determinism
         wave_quantization=4,
     )
+
+
+def ti_tda4vl_resource_model() -> HardwareResourceModel:
+    """
+    Texas Instruments TDA4VL (Jacinto 7 Entry-Level) Automotive ADAS Processor.
+
+    ARCHITECTURE:
+    - Entry-level ADAS: Lower cost, lower performance than TDA4VM
+    - Heterogeneous: Cortex-A72 + C7x DSP + MMAv2 (newer generation)
+    - Automotive-grade: ASIL-B/C (lower safety level than TDA4VM)
+    - Temperature: -40°C to 125°C
+
+    KEY DIFFERENCES FROM TDA4VM:
+    - Half the AI performance: 4 TOPS INT8 vs 8 TOPS
+    - Lower CPU frequency: A72 @ 1.2 GHz vs 2.0 GHz
+    - Newer MMAv2 architecture (more efficient than MMAv1 in TDA4VM)
+    - Lower power envelope: 7-12W typical
+
+    PERFORMANCE:
+    - MMAv2: 4 TOPS INT8 @ 1.0 GHz (half of TDA4VM)
+    - C7x DSP: 40 GFLOPS FP32 @ 1.0 GHz
+    - Expected effective: ~2-3 TOPS INT8 under sustained operation
+
+    CPU:
+    - 2× Cortex-A72 @ 1.2 GHz
+    - R5F safety cores for ASIL-B/C
+
+    MEMORY:
+    - LPDDR4x @ 3733 MT/s
+    - Bandwidth: ~60 GB/s
+    - Capacity: Up to 4GB
+
+    Power Profiles:
+    - 7W Mode: Entry-level ADAS (single camera, lane detection)
+    - 12W Mode: Multi-function ADAS (front camera + side cameras)
+
+    USE CASES:
+    - Entry-level ADAS (Lane Keep, TSR, basic ACC)
+    - Cost-sensitive automotive markets
+    - Single front-facing camera systems
+    """
+    num_dsp_units = 16  # Half of TDA4VM (4 TOPS vs 8 TOPS)
+
+    clock_7w = ClockDomain(
+        base_clock_hz=500e6,
+        max_boost_clock_hz=1.0e9,
+        sustained_clock_hz=750e6,  # 75% sustained @ 7W
+        dvfs_enabled=True,
+    )
+
+    compute_resource_7w = ComputeResource(
+        resource_type="TI-C7x-DSP-MMAv2",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={
+            Precision.INT8: 250,
+            Precision.INT16: 125,
+            Precision.FP16: 62,
+            Precision.FP32: 31,
+        },
+        clock_domain=clock_7w,
+    )
+
+    thermal_7w = ThermalOperatingPoint(
+        name="7W-entry-ADAS",
+        tdp_watts=7.0,
+        cooling_solution="automotive-passive",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_7w,
+                instruction_efficiency=0.92,  # MMAv2 more efficient
+                memory_bottleneck_factor=0.75,
+                efficiency_factor=0.72,
+                tile_utilization=0.85,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    clock_12w = ClockDomain(
+        base_clock_hz=700e6,
+        max_boost_clock_hz=1.0e9,
+        sustained_clock_hz=900e6,
+        dvfs_enabled=True,
+    )
+
+    compute_resource_12w = ComputeResource(
+        resource_type="TI-C7x-DSP-MMAv2",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={Precision.INT8: 250, Precision.INT16: 125, Precision.FP16: 62, Precision.FP32: 31},
+        clock_domain=clock_12w,
+    )
+
+    thermal_12w = ThermalOperatingPoint(
+        name="12W-multi-function-ADAS",
+        tdp_watts=12.0,
+        cooling_solution="automotive-passive",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_12w,
+                instruction_efficiency=0.93,
+                memory_bottleneck_factor=0.80,
+                efficiency_factor=0.78,
+                tile_utilization=0.88,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="TI-TDA4VL-C7x-MMAv2",
+        hardware_type=HardwareType.DSP,
+        compute_units=num_dsp_units,
+        threads_per_unit=250,
+        warps_per_unit=1,
+        warp_size=1,
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=4.0e12,  # 4 TOPS INT8
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=40e9,  # 40 GFLOPS FP32
+                tensor_core_supported=False,
+                relative_speedup=0.01,
+                bytes_per_element=4,
+            ),
+        },
+        default_precision=Precision.INT8,
+        peak_bandwidth=60e9,
+        l1_cache_per_unit=48 * 1024,
+        l2_cache_total=8 * 1024 * 1024,
+        main_memory=4 * 1024**3,
+        energy_per_flop_fp32=2.0e-12,
+        energy_per_byte=20e-12,
+        energy_scaling={Precision.INT8: 0.15, Precision.INT16: 0.25, Precision.FP16: 0.50, Precision.FP32: 1.0},
+        min_occupancy=0.70,
+        max_concurrent_kernels=4,
+        wave_quantization=4,
+        thermal_operating_points={"7W": thermal_7w, "12W": thermal_12w},
+        default_thermal_profile="7W",
+    )
+
+
+def ti_tda4al_resource_model() -> HardwareResourceModel:
+    """
+    Texas Instruments TDA4AL (Jacinto 7 Advanced Low-Power) Automotive ADAS Processor.
+
+    ARCHITECTURE:
+    - Mid-range ADAS: Similar AI performance to TDA4VM but newer architecture
+    - Heterogeneous: Dual A72 @ 2.0 GHz + C7x DSP + MMAv2
+    - Automotive-grade: ASIL-D/SIL-3
+    - Process: Newer node, better power efficiency than TDA4VM
+
+    KEY DIFFERENCES FROM TDA4VM:
+    - Same AI performance: 8 TOPS INT8
+    - MMAv2 architecture (more efficient than MMAv1)
+    - Higher CPU frequency: A72 @ 2.0 GHz (vs TDA4VM's 2.0 GHz)
+    - Better power efficiency: 10-18W range
+
+    PERFORMANCE:
+    - MMAv2: 8 TOPS INT8 @ 1.0 GHz
+    - C7x DSP: 80 GFLOPS FP32 @ 1.0 GHz
+    - Expected effective: ~5-6 TOPS INT8 sustained
+
+    MEMORY:
+    - LPDDR4x @ 3733 MT/s
+    - Bandwidth: ~60 GB/s
+    - Capacity: Up to 8GB
+
+    Power Profiles:
+    - 10W Mode: Front camera ADAS
+    - 18W Mode: Multi-camera ADAS (better than TDA4VM @ 20W due to MMAv2)
+
+    USE CASES:
+    - ADAS Level 2-3 (similar to TDA4VM but more efficient)
+    - Replaces TDA4VM in newer designs
+    """
+    num_dsp_units = 32  # Same as TDA4VM
+
+    clock_10w = ClockDomain(base_clock_hz=600e6, max_boost_clock_hz=1.0e9, sustained_clock_hz=880e6, dvfs_enabled=True)
+    compute_resource_10w = ComputeResource(
+        resource_type="TI-C7x-DSP-MMAv2",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={Precision.INT8: 250, Precision.INT16: 125, Precision.FP16: 62, Precision.FP32: 31},
+        clock_domain=clock_10w,
+    )
+    thermal_10w = ThermalOperatingPoint(
+        name="10W-front-camera-ADAS",
+        tdp_watts=10.0,
+        cooling_solution="automotive-passive",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_10w,
+                instruction_efficiency=0.94,  # MMAv2 improvement
+                memory_bottleneck_factor=0.78,
+                efficiency_factor=0.75,  # Better than TDA4VM's 0.70
+                tile_utilization=0.88,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    clock_18w = ClockDomain(base_clock_hz=700e6, max_boost_clock_hz=1.0e9, sustained_clock_hz=980e6, dvfs_enabled=True)
+    compute_resource_18w = ComputeResource(
+        resource_type="TI-C7x-DSP-MMAv2",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={Precision.INT8: 250, Precision.INT16: 125, Precision.FP16: 62, Precision.FP32: 31},
+        clock_domain=clock_18w,
+    )
+    thermal_18w = ThermalOperatingPoint(
+        name="18W-multi-camera-ADAS",
+        tdp_watts=18.0,
+        cooling_solution="automotive-active",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_18w,
+                instruction_efficiency=0.95,
+                memory_bottleneck_factor=0.82,
+                efficiency_factor=0.82,
+                tile_utilization=0.92,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="TI-TDA4AL-C7x-MMAv2",
+        hardware_type=HardwareType.DSP,
+        compute_units=num_dsp_units,
+        threads_per_unit=250,
+        warps_per_unit=1,
+        warp_size=1,
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(precision=Precision.INT8, peak_ops_per_sec=8.0e12, tensor_core_supported=False, relative_speedup=1.0, bytes_per_element=1, accumulator_precision=Precision.INT32),
+            Precision.FP32: PrecisionProfile(precision=Precision.FP32, peak_ops_per_sec=80e9, tensor_core_supported=False, relative_speedup=0.01, bytes_per_element=4),
+        },
+        default_precision=Precision.INT8,
+        peak_bandwidth=60e9,
+        l1_cache_per_unit=48 * 1024,
+        l2_cache_total=8 * 1024 * 1024,
+        main_memory=8 * 1024**3,
+        energy_per_flop_fp32=1.8e-12,  # 10% better than TDA4VM
+        energy_per_byte=18e-12,
+        energy_scaling={Precision.INT8: 0.15, Precision.INT16: 0.25, Precision.FP16: 0.50, Precision.FP32: 1.0},
+        min_occupancy=0.70,
+        max_concurrent_kernels=4,
+        wave_quantization=4,
+        thermal_operating_points={"10W": thermal_10w, "18W": thermal_18w},
+        default_thermal_profile="10W",
+    )
+
+
+def ti_tda4vh_resource_model() -> HardwareResourceModel:
+    """
+    Texas Instruments TDA4VH (Jacinto 7 Very High Performance) Automotive ADAS Processor.
+
+    ARCHITECTURE:
+    - High-performance ADAS for Level 3-4 autonomous driving
+    - 8× Cortex-A72 @ 2.0 GHz (vs 2× in TDA4VM)
+    - 4× C7x DSP cores @ 1.0 GHz (vs 1× in TDA4VM)
+    - 4× MMAv2 accelerators (vs 1× MMAv1 in TDA4VM)
+    - Automotive-grade: ASIL-D/SIL-3
+
+    PERFORMANCE:
+    - 4× MMAv2: 32 TOPS INT8 @ 1.0 GHz (4× TDA4VM)
+    - 4× C7x DSP: 320 GFLOPS FP32
+    - Expected effective: ~20-25 TOPS INT8 sustained
+
+    CPU:
+    - 8× Cortex-A72 @ 2.0 GHz
+    - Multiple R5F cores for safety
+
+    MEMORY:
+    - LPDDR5 @ 6400 MT/s
+    - Bandwidth: ~100 GB/s (higher than TDA4VM)
+    - Capacity: Up to 16GB
+
+    Power Profiles:
+    - 20W Mode: Multi-camera Level 2+ ADAS
+    - 35W Mode: Full Level 3-4 autonomy stack
+
+    USE CASES:
+    - Advanced ADAS Level 3-4
+    - 8-12 camera surround view
+    - Lidar + radar + camera fusion
+    - Highway pilot, urban pilot
+    """
+    num_dsp_units = 128  # 4× TDA4VM (4× MMAv2)
+
+    clock_20w = ClockDomain(base_clock_hz=700e6, max_boost_clock_hz=1.0e9, sustained_clock_hz=850e6, dvfs_enabled=True)
+    compute_resource_20w = ComputeResource(
+        resource_type="TI-4xC7x-DSP-4xMMAv2",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={Precision.INT8: 250, Precision.INT16: 125, Precision.FP16: 62, Precision.FP32: 31},
+        clock_domain=clock_20w,
+    )
+    thermal_20w = ThermalOperatingPoint(
+        name="20W-multi-camera-L2+-ADAS",
+        tdp_watts=20.0,
+        cooling_solution="automotive-active",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_20w,
+                instruction_efficiency=0.93,
+                memory_bottleneck_factor=0.75,
+                efficiency_factor=0.70,  # Lower due to multi-accelerator coordination
+                tile_utilization=0.85,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    clock_35w = ClockDomain(base_clock_hz=800e6, max_boost_clock_hz=1.0e9, sustained_clock_hz=950e6, dvfs_enabled=True)
+    compute_resource_35w = ComputeResource(
+        resource_type="TI-4xC7x-DSP-4xMMAv2",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={Precision.INT8: 250, Precision.INT16: 125, Precision.FP16: 62, Precision.FP32: 31},
+        clock_domain=clock_35w,
+    )
+    thermal_35w = ThermalOperatingPoint(
+        name="35W-full-L3-4-autonomy",
+        tdp_watts=35.0,
+        cooling_solution="automotive-active-enhanced",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_35w,
+                instruction_efficiency=0.95,
+                memory_bottleneck_factor=0.80,
+                efficiency_factor=0.78,
+                tile_utilization=0.90,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="TI-TDA4VH-4xC7x-4xMMAv2",
+        hardware_type=HardwareType.DSP,
+        compute_units=num_dsp_units,
+        threads_per_unit=250,
+        warps_per_unit=1,
+        warp_size=1,
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(precision=Precision.INT8, peak_ops_per_sec=32.0e12, tensor_core_supported=False, relative_speedup=1.0, bytes_per_element=1, accumulator_precision=Precision.INT32),
+            Precision.FP32: PrecisionProfile(precision=Precision.FP32, peak_ops_per_sec=320e9, tensor_core_supported=False, relative_speedup=0.01, bytes_per_element=4),
+        },
+        default_precision=Precision.INT8,
+        peak_bandwidth=100e9,  # LPDDR5 @ 6400 MT/s
+        l1_cache_per_unit=48 * 1024,
+        l2_cache_total=16 * 1024 * 1024,  # Larger cache for multiple accelerators
+        main_memory=16 * 1024**3,
+        energy_per_flop_fp32=1.8e-12,
+        energy_per_byte=15e-12,  # LPDDR5 more efficient
+        energy_scaling={Precision.INT8: 0.15, Precision.INT16: 0.25, Precision.FP16: 0.50, Precision.FP32: 1.0},
+        min_occupancy=0.60,  # Lower due to multi-accelerator complexity
+        max_concurrent_kernels=8,  # 4× accelerators allow more parallelism
+        wave_quantization=8,
+        thermal_operating_points={"20W": thermal_20w, "35W": thermal_35w},
+        default_thermal_profile="20W",
+    )

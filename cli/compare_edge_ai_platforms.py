@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Dict, List
 from dataclasses import dataclass
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # cli/ → graphs/
 
 from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
 from src.graphs.characterize.hailo_mapper import create_hailo8_mapper, create_hailo10h_mapper

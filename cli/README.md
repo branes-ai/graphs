@@ -105,6 +105,82 @@ from cli.model_registry_tv2.3 import get_model
 model = get_model('resnet18')
 ```
 
+---
+
+## Hardware Comparison Tools
+
+### `compare_automotive_adas.py`
+Compare AI accelerators for automotive Advanced Driver Assistance Systems (ADAS Level 2-3).
+
+**Usage:**
+```bash
+# Run full automotive comparison
+python cli/compare_automotive_adas.py
+```
+
+**Features:**
+- **Category 1**: Front Camera ADAS (10-15W) - Lane Keep, ACC, TSR
+- **Category 2**: Multi-Camera ADAS (15-25W) - Surround View, Parking
+- **Hardware**: TI TDA4VM, Jetson Orin Nano/AGX, KPU-T256
+- **Models**: ResNet-50, FCN lane segmentation, YOLOv5 automotive
+- **Metrics**: 30 FPS requirement, <100ms latency, ASIL-D certification
+
+**Output:**
+```
+CATEGORY 1 RESULTS: Front Camera ADAS (10-15W)
+--------------------------------------------------
+Hardware              Power  TDP   Latency  FPS    FPS/W   30FPS?  <100ms?  Util%
+TI-TDA4VM-C7x         10W    10.0  110.76   9.0    0.90    ✗       ✗        47.7
+Jetson-Orin-Nano      15W    15.0  5.45     183.5  12.23   ✓       ✓        97.9
+```
+
+---
+
+### `compare_edge_ai_platforms.py`
+Compare edge AI accelerators for embodied AI and robotics platforms.
+
+**Usage:**
+```bash
+# Run edge AI comparison
+python cli/compare_edge_ai_platforms.py
+```
+
+**Features:**
+- **Category 1**: Computer Vision / Low Power (≤10W) - Drones, robots, cameras
+- **Category 2**: Transformers / Higher Power (≤50W) - Autonomous vehicles, edge servers
+- **Hardware**: Hailo-8/10H, Jetson Orin, KPU-T64/T256, QRB5165, TI TDA4VM
+- **Models**: ResNet-50, DeepLabV3+, ViT-Base
+- **Metrics**: Latency, throughput, power efficiency (FPS/W), TOPS/W
+
+**Output:**
+```
+CATEGORY 1: Computer Vision / Low Power (≤10W)
+--------------------------------------------------
+Hardware              Peak TOPS  FPS/W   Best for
+Hailo-8 @ 2.5W        26         10.4    Edge cameras
+Jetson-Orin-Nano      40         12.2    Robots
+QRB5165-Hexagon698    15         2.1     Mobile robots
+```
+
+---
+
+### `compare_i7_12700k_mappers.py`
+Compare CPU mapper performance for Intel i7-12700K (standard vs large L3 cache).
+
+**Usage:**
+```bash
+# Run CPU mapper comparison
+python cli/compare_i7_12700k_mappers.py
+```
+
+**Features:**
+- Standard i7-12700K (25 MB L3)
+- Large cache variant (30 MB L3)
+- Models: ResNet-50, DeepLabV3+, ViT-Base
+- Metrics: Latency, throughput, cache efficiency
+
+---
+
 ## Common Usage Patterns
 
 ### Quick Model Analysis
