@@ -1018,3 +1018,324 @@ def create_amd_epyc_9654_mapper() -> CPUMapper:
 
     model = amd_epyc_9654_resource_model()
     return CPUMapper(model)
+
+
+def create_amd_epyc_9754_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for AMD EPYC 9754 (Genoa) - Flagship 128-core.
+
+    ARCHITECTURE:
+    - 128 Zen 4 cores @ 2.25-3.1 GHz
+    - TSMC 5nm process
+    - SMT (256 threads total)
+    - Chiplet design (16× 8-core CCDs)
+    - 33% more cores than 9654
+
+    PERFORMANCE:
+    - Peak FP32: 2.30 TFLOPS
+    - Peak INT8: 9.22 TOPS
+    - Peak FP16: 4.61 TFLOPS
+    - Memory: 460.8 GB/s (12-channel DDR5-4800, same as 9654)
+
+    POWER:
+    - TDP: 360W (same as 9654)
+
+    AI ACCELERATION:
+    - AVX-512 support (double-pumped 256-bit)
+    - AVX2 for compatibility
+    - No dedicated AI accelerator (unlike Intel AMX)
+
+    USE CASES:
+    - Cloud computing (extreme core density)
+    - Virtualization (256 threads!)
+    - Database servers (massive concurrent connections)
+    - Scientific computing (massively parallel workloads)
+
+    KEY ADVANTAGES vs EPYC 9654:
+    - 33% more cores (128 vs 96)
+    - Same power envelope (360W)
+    - Same memory bandwidth (460.8 GB/s)
+    - More L3 cache (512 MB vs 384 MB)
+
+    TRADE-OFFS:
+    - Slightly lower clocks (2.25 GHz vs 2.4 GHz base)
+    - More cores share same bandwidth
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on AMD published specs
+
+    REFERENCES:
+    - AMD EPYC 9004 Series Processors Product Brief
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for AMD EPYC 9754
+    """
+    from .hardware_mapper import amd_epyc_9754_resource_model
+
+    model = amd_epyc_9754_resource_model()
+    return CPUMapper(model)
+
+
+def create_intel_xeon_platinum_8592plus_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for Intel Xeon Platinum 8592+ (Sapphire Rapids) - Flagship 64-core.
+
+    ARCHITECTURE:
+    - 64 Golden Cove cores @ 1.9-3.9 GHz
+    - Intel 7 process (10nm Enhanced SuperFin)
+    - HyperThreading (128 threads total)
+    - Monolithic die design
+    - 7% more cores than 8490H
+
+    PERFORMANCE:
+    - Peak FP32: 3.07 TFLOPS
+    - Peak INT8: 98.3 TOPS (AMX)
+    - Peak BF16: 49.2 TFLOPS (AMX)
+    - Memory: 307.2 GB/s (8-channel DDR5-4800)
+
+    POWER:
+    - TDP: 350W (same as 8490H)
+
+    AI ACCELERATION:
+    - AMX (Advanced Matrix Extensions): INT8, BF16 matrix operations
+    - VNNI (Vector Neural Network Instructions): INT8 dot products
+    - Deep Learning Boost
+    - Highest AMX performance in Sapphire Rapids lineup
+
+    USE CASES:
+    - AI training and inference (flagship AI SKU)
+    - HPC workloads
+    - Database servers
+    - Virtualization hosts
+
+    KEY ADVANTAGES vs 8490H:
+    - 7% more cores (64 vs 60)
+    - Higher all-core boost (3.0 GHz vs 2.9 GHz)
+    - Slightly more L2/L3 cache
+
+    KEY ADVANTAGES vs AMD EPYC:
+    - AMX provides 4-10× speedup for CNNs
+    - Native AVX-512 (not double-pumped)
+    - Higher per-core performance
+
+    DISADVANTAGES vs AMD EPYC:
+    - Half the cores (64 vs 128)
+    - 33% less memory bandwidth (307 GB/s vs 461 GB/s)
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Intel published specs
+
+    REFERENCES:
+    - Intel Xeon Scalable Processors (4th Gen) Product Brief
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for Intel Xeon Platinum 8592+
+    """
+    from .hardware_mapper import intel_xeon_platinum_8592plus_resource_model
+
+    model = intel_xeon_platinum_8592plus_resource_model()
+    return CPUMapper(model)
+
+
+def create_ampere_ampereone_128_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for Ampere AmpereOne 128-core (A128-30X) - ARM mid-tier.
+
+    ARCHITECTURE:
+    - 128 ARM v8.6+ cores @ 3.6 GHz
+    - TSMC 5nm process
+    - No SMT (128 threads total, single-threaded per core)
+    - Coherent mesh interconnect
+    - 67% of 192-core flagship
+
+    PERFORMANCE:
+    - Peak FP32: 3.69 TFLOPS
+    - Peak INT8: 14.75 TOPS
+    - Peak FP16/BF16: 7.37 TFLOPS
+    - Memory: 332.8 GB/s (8-channel DDR5-5200)
+
+    POWER:
+    - TDP: 210W (A128-30X, lower than 192-core)
+
+    AI ACCELERATION:
+    - Native FP16/BF16 support (2×128-bit SIMD)
+    - Native INT8/INT16 support
+    - Ampere AIO (AI Optimizer) for ML frameworks
+
+    USE CASES:
+    - Cloud-native workloads (microservices, containers)
+    - AI inference at scale (cloud servers)
+    - High-performance computing (HPC)
+    - Cost-effective datacenter deployments
+
+    KEY ADVANTAGES vs 192-core:
+    - Lower power (210W vs 283W)
+    - Better TCO for non-max-core workloads
+    - Same per-core performance
+
+    KEY ADVANTAGES vs x86:
+    - Lower power per core
+    - Better power efficiency
+    - Native ARM ecosystem
+
+    DISADVANTAGES vs Intel:
+    - No AMX (weaker CNN performance)
+    - ARM software ecosystem (smaller vs x86)
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Ampere published specs
+
+    REFERENCES:
+    - Ampere AmpereOne Family Product Brief (2024)
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for Ampere AmpereOne 128-core
+    """
+    from .hardware_mapper import ampere_ampereone_128_resource_model
+
+    model = ampere_ampereone_128_resource_model()
+    return CPUMapper(model)
+
+
+def create_intel_granite_rapids_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for Intel Xeon Granite Rapids (Next-Gen 2024-2025) - 128-core.
+
+    ARCHITECTURE:
+    - 128 Redwood Cove P-cores @ 2.0-3.8 GHz
+    - Intel 3 process (Enhanced FinFET)
+    - HyperThreading (256 threads total)
+    - Tile-based chiplet design (new for Intel)
+    - 2× core count vs Sapphire Rapids flagship
+
+    PERFORMANCE:
+    - Peak FP32: 6.55 TFLOPS
+    - Peak INT8: 209.7 TOPS (Enhanced AMX)
+    - Peak BF16: 104.9 TFLOPS (Enhanced AMX)
+    - Memory: 358.4 GB/s (8-channel DDR5-5600, up to 537.6 GB/s with 12-channel)
+
+    POWER:
+    - TDP: 500W (high core count)
+
+    AI ACCELERATION:
+    - Enhanced AMX with INT4, FP8 support
+    - Sparsity acceleration (structured sparsity)
+    - VNNI improvements for INT8
+    - Better AMX efficiency than Sapphire Rapids
+
+    USE CASES:
+    - Large-scale AI training and inference
+    - HPC workloads
+    - Cloud computing at scale
+    - Next-generation datacenter deployments
+
+    KEY ADVANTAGES vs Sapphire Rapids:
+    - 2× core count (128 vs 64)
+    - Enhanced AMX (INT4, FP8, sparsity)
+    - 17% higher memory bandwidth (DDR5-5600 vs 4800)
+    - Tile-based design (better scaling)
+
+    KEY ADVANTAGES vs AMD Turin:
+    - Enhanced AMX (4-10× faster for CNNs)
+    - Higher clocks (3.2 GHz all-core vs 2.5 GHz)
+    - Sparsity acceleration
+
+    DISADVANTAGES:
+    - 50% higher power (500W vs AMD's 500W but fewer cores)
+    - Lower memory bandwidth than AMD (358 GB/s vs 576 GB/s)
+
+    CALIBRATION STATUS:
+    ⚠ PROJECTED - Based on Intel roadmap and industry estimates
+    - Not yet shipping (2024-2025 timeline)
+
+    REFERENCES:
+    - Intel Xeon Roadmap 2024
+    - Intel 3 Process Technology Brief
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for Intel Granite Rapids
+    """
+    from .hardware_mapper import intel_granite_rapids_resource_model
+
+    model = intel_granite_rapids_resource_model()
+    return CPUMapper(model)
+
+
+def create_amd_epyc_turin_mapper() -> CPUMapper:
+    """
+    Create CPU mapper for AMD EPYC Turin (Zen 5, Next-Gen 2024-2025) - 192-core.
+
+    ARCHITECTURE:
+    - 192 Zen 5 cores @ 2.5-3.8 GHz
+    - TSMC 3nm process (N3)
+    - SMT (384 threads total)
+    - Chiplet design (24× 8-core CCDs + I/O die)
+    - 50% more cores than EPYC 9754
+
+    PERFORMANCE:
+    - Peak FP32: 3.84 TFLOPS
+    - Peak INT8: 15.36 TOPS
+    - Peak FP16: 7.68 TFLOPS
+    - Memory: 576 GB/s (12-channel DDR5-6000, 25% more than 9000 series)
+
+    POWER:
+    - TDP: 500W (higher core count)
+
+    AI ACCELERATION:
+    - Native AVX-512 support (improved from double-pumped)
+    - AVX2 for compatibility
+    - Possible AI matrix accelerator (rumored, not confirmed)
+    - Better INT8 performance than Zen 4
+
+    USE CASES:
+    - Cloud computing (extreme core density)
+    - Virtualization (384 threads!)
+    - Database servers (massive concurrent connections)
+    - Large-scale AI inference
+
+    KEY ADVANTAGES vs EPYC 9754 (Zen 4):
+    - 50% more cores (192 vs 128)
+    - Native AVX-512 (not double-pumped)
+    - 25% more memory bandwidth (576 GB/s vs 461 GB/s)
+    - 3nm process (improved efficiency)
+    - Larger L1 cache (48 KB vs 32 KB per core)
+
+    KEY ADVANTAGES vs Intel Granite Rapids:
+    - 50% more cores (192 vs 128)
+    - 61% more memory bandwidth (576 GB/s vs 358 GB/s)
+    - More threads (384 vs 256)
+
+    DISADVANTAGES vs Intel:
+    - No AMX-equivalent (weaker CNN performance)
+    - Lower per-core clocks
+
+    CALIBRATION STATUS:
+    ⚠ PROJECTED - Based on AMD roadmap and industry estimates
+    - Not yet shipping (2024-2025 timeline)
+
+    REFERENCES:
+    - AMD EPYC Roadmap 2024
+    - AMD Zen 5 Architecture Disclosures
+
+    Args:
+        None
+
+    Returns:
+        CPUMapper configured for AMD EPYC Turin
+    """
+    from .hardware_mapper import amd_epyc_turin_resource_model
+
+    model = amd_epyc_turin_resource_model()
+    return CPUMapper(model)

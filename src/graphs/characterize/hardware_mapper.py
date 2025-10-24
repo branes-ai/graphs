@@ -2615,6 +2615,754 @@ def amd_epyc_9654_resource_model() -> HardwareResourceModel:
     )
 
 
+def amd_epyc_9754_resource_model() -> HardwareResourceModel:
+    """
+    AMD EPYC 9754 (Genoa) - Flagship 128-core Datacenter Processor.
+
+    ARCHITECTURE:
+    - 128 Zen 4 cores (256 threads with SMT)
+    - TSMC 5nm process
+    - Chiplet design (16× 8-core CCDs + I/O die)
+    - 33% more cores than EPYC 9654
+
+    PERFORMANCE:
+    - Clock: 2.25 GHz base, 3.1 GHz boost
+    - Peak FP32: ~2.30 TFLOPS @ 2.25 GHz base (128 cores × 8 effective ops/cycle)
+    - AVX-512: Double-pumped 256-bit (not native 512-bit)
+    - Peak INT8: ~9.22 TOPS (128 cores × 32 ops/cycle @ 2.25 GHz)
+
+    CACHE HIERARCHY:
+    - L1 Data: 32 KB per core (4 MB total)
+    - L1 Instruction: 32 KB per core (4 MB total)
+    - L2: 1 MB per core (128 MB total)
+    - L3: 512 MB shared (32 MB per CCD × 16 CCDs)
+
+    MEMORY:
+    - 12-channel DDR5-4800
+    - Up to 6TB capacity
+    - Peak bandwidth: 460.8 GB/s (12 × 38.4 GB/s)
+
+    POWER:
+    - TDP: 360W (same as 9654)
+    - Idle: ~95W (estimate, more cores)
+    - Dynamic: ~265W
+
+    AI ACCELERATION:
+    - AVX-512 support (double-pumped, slower than native)
+    - AVX2 for wider compatibility
+    - No dedicated AI accelerator (unlike Intel AMX)
+
+    CONNECTIVITY:
+    - PCIe 5.0: 128 lanes
+    - CXL 1.1+ support
+
+    USE CASES:
+    - Cloud computing (highest core density)
+    - Virtualization (256 threads!)
+    - Database servers (many concurrent connections)
+    - Scientific computing (massively parallel workloads)
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on AMD published specs
+    - Slightly lower clocks than 9654 due to higher core count
+
+    REFERENCES:
+    - AMD EPYC 9004 Series Processors Product Brief
+    - AMD Zen 4 Architecture
+    """
+    # Performance calculations
+    num_cores = 128
+    base_clock_hz = 2.25e9  # 2.25 GHz (lower than 9654 due to more cores)
+    boost_clock_hz = 3.1e9  # 3.1 GHz (single core)
+
+    # AVX-512 (double-pumped): Effective 8 FP32 ops/cycle
+    fp32_ops_per_core = 8  # Effective (double-pumped AVX-512)
+    fp16_ops_per_core = 16  # Effective
+    int8_ops_per_core = 32  # Effective
+
+    # Peak performance (base clock, conservative)
+    peak_fp32 = num_cores * fp32_ops_per_core * base_clock_hz  # 2.30 TFLOPS
+    peak_fp16 = num_cores * fp16_ops_per_core * base_clock_hz  # 4.61 TFLOPS
+    peak_int8 = num_cores * int8_ops_per_core * base_clock_hz  # 9.22 TOPS
+
+    # Memory bandwidth (12-channel DDR5-4800, same as 9654)
+    channels = 12
+    ddr5_rate = 4800e6  # 4800 MT/s
+    bytes_per_transfer = 8  # 64-bit per channel
+    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 460.8 GB/s
+
+    # Power and energy
+    tdp = 360.0  # Watts (same as 9654)
+    idle_power = 95.0  # Estimated (more cores)
+    dynamic_power = tdp - idle_power  # 265W
+
+    # Energy per operation (at peak)
+    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~115 pJ/FLOP
+    energy_per_byte = 28e-12  # 28 pJ/byte (datacenter-class)
+
+    return HardwareResourceModel(
+        name="AMD-EPYC-9754-Genoa",
+        hardware_type=HardwareType.CPU,
+        compute_units=num_cores,  # 128 cores
+        threads_per_unit=2,  # SMT (2 threads per core)
+        warps_per_unit=1,  # No warp concept in CPUs
+        warp_size=8,  # Effective SIMD width for FP32 (double-pumped)
+
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=peak_fp32 / 2,  # 1.15 TFLOPS (half of FP32)
+                tensor_core_supported=False,
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=peak_fp32,  # 2.30 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=peak_fp16,  # 4.61 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=peak_int8,  # 9.22 TOPS
+                tensor_core_supported=False,  # No AMX equivalent
+                relative_speedup=4.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=peak_bandwidth,  # 460.8 GB/s (12-channel DDR5-4800)
+        l1_cache_per_unit=32 * 1024,  # 32 KB L1D per core
+        l2_cache_total=128 * 1024 * 1024,  # 128 MB total L2 (1 MB × 128 cores)
+        main_memory=512 * 1024**3,  # 512 GB (typical server config, up to 6TB)
+        energy_per_flop_fp32=energy_per_flop_fp32,  # ~115 pJ/FLOP
+        energy_per_byte=energy_per_byte,  # 28 pJ/byte
+        min_occupancy=0.5,
+        max_concurrent_kernels=num_cores,  # One kernel per core
+        wave_quantization=1,
+    )
+
+
+def intel_xeon_platinum_8592plus_resource_model() -> HardwareResourceModel:
+    """
+    Intel Xeon Platinum 8592+ (Sapphire Rapids) - Flagship 64-core Datacenter Processor.
+
+    ARCHITECTURE:
+    - 64 Golden Cove cores (128 threads with HyperThreading)
+    - Intel 7 process (10nm Enhanced SuperFin)
+    - Monolithic die design
+    - 7% more cores than 8490H
+
+    PERFORMANCE:
+    - Clock: 1.9 GHz base, 3.9 GHz single-core boost, 3.0 GHz all-core boost
+    - Peak FP32: ~3.07 TFLOPS @ 3.0 GHz all-core (64 cores × 16 ops/cycle)
+    - Peak INT8: ~98.3 TOPS with AMX (64 cores × 2 tiles × 256 ops/cycle @ 3.0 GHz)
+    - AMX: Advanced Matrix Extensions for AI acceleration
+
+    CACHE HIERARCHY:
+    - L1 Data: 48 KB per core (3.1 MB total)
+    - L1 Instruction: 32 KB per core (2.0 MB total)
+    - L2: 2 MB per core (128 MB total)
+    - L3 (LLC): 120 MB shared
+
+    MEMORY:
+    - 8-channel DDR5-4800
+    - Up to 4TB capacity
+    - Peak bandwidth: 307.2 GB/s (8 × 38.4 GB/s)
+
+    POWER:
+    - TDP: 350W (same as 8490H)
+    - Idle: ~85W (estimate)
+    - Dynamic: ~265W
+
+    AI ACCELERATION:
+    - AMX (Advanced Matrix Extensions): INT8, BF16 matrix operations
+    - VNNI (Vector Neural Network Instructions): INT8 dot products
+    - Deep Learning Boost
+    - Highest AMX performance in Sapphire Rapids lineup
+
+    CONNECTIVITY:
+    - PCIe 5.0: 80 lanes
+    - CXL 1.1 support
+
+    USE CASES:
+    - AI training and inference (flagship AI SKU)
+    - HPC workloads
+    - Database servers
+    - Virtualization hosts
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Intel published specs
+    - AMX performance is theoretical peak
+    - Sustained performance depends on thermal limits
+
+    REFERENCES:
+    - Intel Xeon Scalable Processors (4th Gen) Product Brief
+    - Intel AMX Architecture Guide
+    """
+    # Performance calculations
+    num_cores = 64
+    base_clock_hz = 1.9e9  # 1.9 GHz
+    boost_clock_hz = 3.9e9  # 3.9 GHz (single core)
+    all_core_boost_hz = 3.0e9  # 3.0 GHz (realistic sustained, higher than 8490H)
+
+    # AVX-512: 16 FP32 ops/cycle per core
+    fp32_ops_per_core = 16  # AVX-512
+    fp16_ops_per_core = 32  # AVX-512 FP16
+
+    # AMX: 2 tiles per core, each tile 16×16 INT8
+    amx_tiles_per_core = 2
+    amx_ops_per_tile = 256  # 16×16 matrix
+
+    # Peak performance (all-core boost)
+    peak_fp32 = num_cores * fp32_ops_per_core * all_core_boost_hz  # 3.07 TFLOPS
+    peak_fp16 = num_cores * fp16_ops_per_core * all_core_boost_hz  # 6.14 TFLOPS
+    peak_int8_amx = num_cores * amx_tiles_per_core * amx_ops_per_tile * all_core_boost_hz  # 98.3 TOPS
+
+    # Memory bandwidth (8-channel DDR5-4800, same as 8490H)
+    channels = 8
+    ddr5_rate = 4800e6  # 4800 MT/s
+    bytes_per_transfer = 8  # 64-bit per channel
+    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 307.2 GB/s
+
+    # Power and energy
+    tdp = 350.0  # Watts (same as 8490H)
+    idle_power = 85.0  # Estimated
+    dynamic_power = tdp - idle_power  # 265W
+
+    # Energy per operation (at peak)
+    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~86 pJ/FLOP
+    energy_per_byte = 30e-12  # 30 pJ/byte (datacenter-class)
+
+    return HardwareResourceModel(
+        name="Intel-Xeon-Platinum-8592+",
+        hardware_type=HardwareType.CPU,
+        compute_units=num_cores,  # 64 cores
+        threads_per_unit=2,  # HyperThreading (SMT)
+        warps_per_unit=1,  # No warp concept in CPUs
+        warp_size=16,  # AVX-512 width for FP32
+
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=peak_fp32 / 2,  # 1.54 TFLOPS (half of FP32)
+                tensor_core_supported=False,
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=peak_fp32,  # 3.07 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.BF16: PrecisionProfile(
+                precision=Precision.BF16,
+                peak_ops_per_sec=peak_int8_amx / 2,  # 49.2 TFLOPS (AMX BF16)
+                tensor_core_supported=True,  # AMX
+                relative_speedup=16.0,  # AMX is much faster than SIMD
+                bytes_per_element=2,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=peak_fp16,  # 6.14 TFLOPS (AVX-512 FP16)
+                tensor_core_supported=False,
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=peak_int8_amx,  # 98.3 TOPS (AMX INT8)
+                tensor_core_supported=True,  # AMX
+                relative_speedup=32.0,  # AMX is very fast for INT8
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=peak_bandwidth,  # 307.2 GB/s (8-channel DDR5-4800)
+        l1_cache_per_unit=48 * 1024,  # 48 KB L1D per core
+        l2_cache_total=128 * 1024 * 1024,  # 128 MB total L2 (2 MB × 64 cores)
+        main_memory=512 * 1024**3,  # 512 GB (typical server config, up to 4TB)
+        energy_per_flop_fp32=energy_per_flop_fp32,  # ~86 pJ/FLOP
+        energy_per_byte=energy_per_byte,  # 30 pJ/byte
+        min_occupancy=0.5,
+        max_concurrent_kernels=num_cores,  # One kernel per core
+        wave_quantization=1,
+    )
+
+
+def ampere_ampereone_128_resource_model() -> HardwareResourceModel:
+    """
+    Ampere AmpereOne 128-core ARM Server Processor (A128-30X mid-tier).
+
+    ARCHITECTURE:
+    - 128 Ampere 64-bit ARM v8.6+ cores
+    - 2×128-bit SIMD units per core (NEON + SVE)
+    - Coherent mesh interconnect with distributed snoop filtering
+    - TSMC 5nm process
+    - 67% of 192-core flagship
+
+    PERFORMANCE:
+    - Clock: Up to 3.6 GHz (consistent across all cores)
+    - Peak FP32: ~3.69 TFLOPS (128 cores × 8 ops/cycle × 3.6 GHz)
+    - Peak FP16/BF16: ~7.37 TFLOPS (128 cores × 16 ops/cycle × 3.6 GHz)
+    - Peak INT8: ~14.75 TOPS (128 cores × 32 ops/cycle × 3.6 GHz)
+
+    CACHE HIERARCHY:
+    - L1 Data: 64 KB per core (8 MB total)
+    - L1 Instruction: 16 KB per core (2 MB total)
+    - L2: 2 MB per core (256 MB total)
+    - System Cache (L3-like): 48 MB shared
+
+    MEMORY:
+    - 8-channel DDR5-5200 (up to 4TB)
+    - Peak bandwidth: 332.8 GB/s (8 × 41.6 GB/s)
+
+    POWER:
+    - TDP: 210W (A128-30X)
+    - Idle: ~40W (estimate)
+    - Dynamic: ~170W
+
+    AI ACCELERATION:
+    - Native FP16/BF16 support (2×128-bit SIMD)
+    - Native INT8/INT16 support
+    - Ampere AIO (AI Optimizer) for ML frameworks
+    - Better than x86 for AI inference (wider SIMD for low precision)
+
+    CONNECTIVITY:
+    - 128 lanes PCIe 5.0 with 32 controllers
+
+    USE CASES:
+    - Cloud-native workloads (microservices, containers)
+    - AI inference at scale (cloud servers)
+    - High-performance computing (HPC)
+    - Cost-effective datacenter deployments
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Ampere published specs
+    - SIMD calculations based on ARM v8.6+ NEON/SVE
+    - Memory bandwidth from DDR5-5200 8-channel configuration
+
+    REFERENCES:
+    - Ampere AmpereOne Family Product Brief (2024)
+    - ARM v8.6+ Architecture Reference Manual
+    - DDR5-5200 specifications
+    """
+    # Performance calculations
+    num_cores = 128
+    clock_hz = 3.6e9  # 3.6 GHz
+    simd_units_per_core = 2  # 2×128-bit SIMD units
+
+    # SIMD operations per cycle per core
+    # 128-bit SIMD: FP32=4, FP16=8, INT8=16 ops per unit
+    fp32_ops_per_core = simd_units_per_core * 4  # 8 FP32 ops/cycle
+    fp16_ops_per_core = simd_units_per_core * 8  # 16 FP16/BF16 ops/cycle
+    int8_ops_per_core = simd_units_per_core * 16  # 32 INT8 ops/cycle
+
+    # Peak performance
+    peak_fp32 = num_cores * fp32_ops_per_core * clock_hz  # 3.69 TFLOPS
+    peak_fp16 = num_cores * fp16_ops_per_core * clock_hz  # 7.37 TFLOPS
+    peak_int8 = num_cores * int8_ops_per_core * clock_hz  # 14.75 TOPS
+
+    # Memory bandwidth (8-channel DDR5-5200, same as 192-core)
+    channels = 8
+    ddr5_rate = 5200e6  # 5200 MT/s
+    bytes_per_transfer = 8  # 64-bit per channel
+    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 332.8 GB/s
+
+    # Power and energy
+    tdp = 210.0  # Watts (A128-30X, lower than 192-core)
+    idle_power = 40.0  # Estimated
+    dynamic_power = tdp - idle_power  # 170W
+
+    # Energy per operation (at peak)
+    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~46 pJ/FLOP
+    energy_per_byte = 25e-12  # 25 pJ/byte (server-class)
+
+    return HardwareResourceModel(
+        name="Ampere-AmpereOne-128core",
+        hardware_type=HardwareType.CPU,
+        compute_units=num_cores,  # 128 cores
+        threads_per_unit=1,  # No SMT/HyperThreading (single thread per core)
+        warps_per_unit=1,  # No warp concept in CPUs
+        warp_size=16,  # Effective SIMD width for INT8 (per unit)
+
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=peak_fp32 / 2,  # 1.84 TFLOPS (half of FP32)
+                tensor_core_supported=False,
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=peak_fp32,  # 3.69 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.BF16: PrecisionProfile(
+                precision=Precision.BF16,
+                peak_ops_per_sec=peak_fp16,  # 7.37 TFLOPS (native support)
+                tensor_core_supported=True,  # Native ARM SIMD support
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=peak_fp16,  # 7.37 TFLOPS (native support)
+                tensor_core_supported=True,  # Native ARM SIMD support
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT16: PrecisionProfile(
+                precision=Precision.INT16,
+                peak_ops_per_sec=peak_fp16,  # 7.37 TOPS (same as FP16)
+                tensor_core_supported=True,  # Native ARM SIMD support
+                relative_speedup=2.0,
+                bytes_per_element=2,
+                accumulator_precision=Precision.INT32,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=peak_int8,  # 14.75 TOPS (native support)
+                tensor_core_supported=True,  # Native ARM SIMD support
+                relative_speedup=4.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=peak_bandwidth,  # 332.8 GB/s (8-channel DDR5-5200)
+        l1_cache_per_unit=64 * 1024,  # 64 KB L1D per core
+        l2_cache_total=256 * 1024 * 1024,  # 256 MB total L2 (2 MB × 128 cores)
+        main_memory=512 * 1024**3,  # 512 GB (typical server config, up to 4TB)
+        energy_per_flop_fp32=energy_per_flop_fp32,  # ~46 pJ/FLOP
+        energy_per_byte=energy_per_byte,  # 25 pJ/byte
+        min_occupancy=0.5,
+        max_concurrent_kernels=num_cores,  # One kernel per core
+        wave_quantization=1,
+    )
+
+
+def intel_granite_rapids_resource_model() -> HardwareResourceModel:
+    """
+    Intel Xeon Granite Rapids (Next-Gen 2024-2025) - 128-core Datacenter Processor.
+
+    ARCHITECTURE:
+    - 128 Redwood Cove P-cores (256 threads with HyperThreading)
+    - Intel 3 process (Enhanced FinFET)
+    - Tile-based chiplet design (new for Intel)
+    - 2× core count vs Sapphire Rapids flagship
+
+    PERFORMANCE:
+    - Clock: 2.0 GHz base, 3.8 GHz single-core boost, 3.2 GHz all-core boost (estimated)
+    - Peak FP32: ~6.55 TFLOPS @ 3.2 GHz all-core (128 cores × 16 ops/cycle)
+    - Peak INT8: ~209 TOPS with AMX (128 cores × 2 tiles × 256 ops/cycle @ 3.2 GHz)
+    - Enhanced AMX with sparsity acceleration
+
+    CACHE HIERARCHY:
+    - L1 Data: 48 KB per core (6.1 MB total)
+    - L1 Instruction: 32 KB per core (4.1 MB total)
+    - L2: 2 MB per core (256 MB total)
+    - L3 (LLC): 320 MB shared (distributed across tiles)
+
+    MEMORY:
+    - 8-channel DDR5-5600 (improved from DDR5-4800)
+    - 12-channel DDR5-5600 on HBM SKUs
+    - Peak bandwidth: 358.4 GB/s (8 × 44.8 GB/s) or 537.6 GB/s (12-channel)
+
+    POWER:
+    - TDP: 500W (high core count)
+    - Idle: ~100W (estimate)
+    - Dynamic: ~400W
+
+    AI ACCELERATION:
+    - Enhanced AMX with INT4, FP8 support
+    - Sparsity acceleration (structured sparsity)
+    - VNNI improvements for INT8
+    - Better AMX efficiency than Sapphire Rapids
+
+    CONNECTIVITY:
+    - PCIe 6.0: 96 lanes
+    - CXL 2.0 support
+    - UPI (Ultra Path Interconnect) for multi-socket
+
+    USE CASES:
+    - Large-scale AI training and inference
+    - HPC workloads
+    - Cloud computing at scale
+    - Next-generation datacenter deployments
+
+    CALIBRATION STATUS:
+    ⚠ PROJECTED - Based on Intel roadmap and industry estimates
+    - Not yet shipping (2024-2025 timeline)
+    - Specs are projections based on Intel disclosures
+
+    REFERENCES:
+    - Intel Xeon Roadmap 2024
+    - Intel 3 Process Technology Brief
+    - Industry analyst projections
+    """
+    # Performance calculations
+    num_cores = 128
+    base_clock_hz = 2.0e9  # 2.0 GHz
+    boost_clock_hz = 3.8e9  # 3.8 GHz (single core, estimated)
+    all_core_boost_hz = 3.2e9  # 3.2 GHz (estimated, higher than Sapphire Rapids)
+
+    # AVX-512: 16 FP32 ops/cycle per core
+    fp32_ops_per_core = 16  # AVX-512
+    fp16_ops_per_core = 32  # AVX-512 FP16
+
+    # Enhanced AMX: 2 tiles per core, each tile 16×16 INT8
+    amx_tiles_per_core = 2
+    amx_ops_per_tile = 256  # 16×16 matrix
+
+    # Peak performance (all-core boost)
+    peak_fp32 = num_cores * fp32_ops_per_core * all_core_boost_hz  # 6.55 TFLOPS
+    peak_fp16 = num_cores * fp16_ops_per_core * all_core_boost_hz  # 13.11 TFLOPS
+    peak_int8_amx = num_cores * amx_tiles_per_core * amx_ops_per_tile * all_core_boost_hz  # 209.7 TOPS
+
+    # Memory bandwidth (8-channel DDR5-5600, improved)
+    channels = 8
+    ddr5_rate = 5600e6  # 5600 MT/s (up from 4800)
+    bytes_per_transfer = 8  # 64-bit per channel
+    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 358.4 GB/s
+
+    # Power and energy
+    tdp = 500.0  # Watts (higher due to 128 cores)
+    idle_power = 100.0  # Estimated
+    dynamic_power = tdp - idle_power  # 400W
+
+    # Energy per operation (at peak)
+    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~61 pJ/FLOP
+    energy_per_byte = 28e-12  # 28 pJ/byte (improved process)
+
+    return HardwareResourceModel(
+        name="Intel-Xeon-Granite-Rapids",
+        hardware_type=HardwareType.CPU,
+        compute_units=num_cores,  # 128 cores
+        threads_per_unit=2,  # HyperThreading (SMT)
+        warps_per_unit=1,  # No warp concept in CPUs
+        warp_size=16,  # AVX-512 width for FP32
+
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=peak_fp32 / 2,  # 3.28 TFLOPS (half of FP32)
+                tensor_core_supported=False,
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=peak_fp32,  # 6.55 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.BF16: PrecisionProfile(
+                precision=Precision.BF16,
+                peak_ops_per_sec=peak_int8_amx / 2,  # 104.9 TFLOPS (Enhanced AMX BF16)
+                tensor_core_supported=True,  # Enhanced AMX
+                relative_speedup=16.0,  # AMX is much faster than SIMD
+                bytes_per_element=2,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=peak_fp16,  # 13.11 TFLOPS (AVX-512 FP16)
+                tensor_core_supported=False,
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=peak_int8_amx,  # 209.7 TOPS (Enhanced AMX INT8)
+                tensor_core_supported=True,  # Enhanced AMX
+                relative_speedup=32.0,  # AMX is very fast for INT8
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+            Precision.INT4: PrecisionProfile(
+                precision=Precision.INT4,
+                peak_ops_per_sec=peak_int8_amx * 2,  # 419.4 TOPS (Enhanced AMX INT4)
+                tensor_core_supported=True,  # Enhanced AMX with INT4 support
+                relative_speedup=64.0,
+                bytes_per_element=0.5,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=peak_bandwidth,  # 358.4 GB/s (8-channel DDR5-5600)
+        l1_cache_per_unit=48 * 1024,  # 48 KB L1D per core
+        l2_cache_total=256 * 1024 * 1024,  # 256 MB total L2 (2 MB × 128 cores)
+        main_memory=512 * 1024**3,  # 512 GB (typical server config)
+        energy_per_flop_fp32=energy_per_flop_fp32,  # ~61 pJ/FLOP
+        energy_per_byte=energy_per_byte,  # 28 pJ/byte
+        min_occupancy=0.5,
+        max_concurrent_kernels=num_cores,  # One kernel per core
+        wave_quantization=1,
+    )
+
+
+def amd_epyc_turin_resource_model() -> HardwareResourceModel:
+    """
+    AMD EPYC Turin (Zen 5, Next-Gen 2024-2025) - 192-core Datacenter Processor.
+
+    ARCHITECTURE:
+    - 192 Zen 5 cores (384 threads with SMT)
+    - TSMC 3nm process (N3)
+    - Chiplet design (24× 8-core CCDs + I/O die)
+    - 50% more cores than EPYC 9754
+
+    PERFORMANCE:
+    - Clock: 2.5 GHz base, 3.8 GHz boost (estimated)
+    - Peak FP32: ~3.84 TFLOPS @ 2.5 GHz base (192 cores × 8 effective ops/cycle)
+    - AVX-512: Native 512-bit (improved from double-pumped Zen 4)
+    - Peak INT8: ~15.36 TOPS (192 cores × 32 ops/cycle @ 2.5 GHz)
+
+    CACHE HIERARCHY:
+    - L1 Data: 48 KB per core (9.2 MB total, increased from 32 KB)
+    - L1 Instruction: 32 KB per core (6.1 MB total)
+    - L2: 1 MB per core (192 MB total)
+    - L3: 768 MB shared (32 MB per CCD × 24 CCDs)
+
+    MEMORY:
+    - 12-channel DDR5-6000 (up from DDR5-4800)
+    - Up to 6TB capacity
+    - Peak bandwidth: 576 GB/s (12 × 48 GB/s)
+    - 25% more bandwidth than EPYC 9000 series
+
+    POWER:
+    - TDP: 500W (higher core count)
+    - Idle: ~120W (estimate)
+    - Dynamic: ~380W
+
+    AI ACCELERATION:
+    - Native AVX-512 support (improved from double-pumped)
+    - AVX2 for compatibility
+    - Possible AI matrix accelerator (rumored, not confirmed)
+    - Better INT8 performance than Zen 4
+
+    CONNECTIVITY:
+    - PCIe 6.0: 160 lanes
+    - CXL 2.0 support
+
+    USE CASES:
+    - Cloud computing (extreme core density)
+    - Virtualization (384 threads!)
+    - Database servers (massive concurrent connections)
+    - Large-scale AI inference
+
+    CALIBRATION STATUS:
+    ⚠ PROJECTED - Based on AMD roadmap and industry estimates
+    - Not yet shipping (2024-2025 timeline)
+    - Specs are projections based on AMD disclosures
+
+    REFERENCES:
+    - AMD EPYC Roadmap 2024
+    - AMD Zen 5 Architecture Disclosures
+    - Industry analyst projections
+    """
+    # Performance calculations
+    num_cores = 192
+    base_clock_hz = 2.5e9  # 2.5 GHz (estimated)
+    boost_clock_hz = 3.8e9  # 3.8 GHz (single core, estimated)
+
+    # Native AVX-512: Effective 8 FP32 ops/cycle (improved throughput)
+    fp32_ops_per_core = 8  # Native AVX-512 (not double-pumped)
+    fp16_ops_per_core = 16  # Native AVX-512 FP16
+    int8_ops_per_core = 32  # Native AVX-512 INT8
+
+    # Peak performance (base clock, conservative)
+    peak_fp32 = num_cores * fp32_ops_per_core * base_clock_hz  # 3.84 TFLOPS
+    peak_fp16 = num_cores * fp16_ops_per_core * base_clock_hz  # 7.68 TFLOPS
+    peak_int8 = num_cores * int8_ops_per_core * base_clock_hz  # 15.36 TOPS
+
+    # Memory bandwidth (12-channel DDR5-6000, improved)
+    channels = 12
+    ddr5_rate = 6000e6  # 6000 MT/s (up from 4800)
+    bytes_per_transfer = 8  # 64-bit per channel
+    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 576 GB/s
+
+    # Power and energy
+    tdp = 500.0  # Watts (higher due to 192 cores)
+    idle_power = 120.0  # Estimated
+    dynamic_power = tdp - idle_power  # 380W
+
+    # Energy per operation (at peak)
+    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~99 pJ/FLOP
+    energy_per_byte = 26e-12  # 26 pJ/byte (improved 3nm process)
+
+    return HardwareResourceModel(
+        name="AMD-EPYC-Turin-Zen5",
+        hardware_type=HardwareType.CPU,
+        compute_units=num_cores,  # 192 cores
+        threads_per_unit=2,  # SMT (2 threads per core)
+        warps_per_unit=1,  # No warp concept in CPUs
+        warp_size=8,  # SIMD width for FP32
+
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=peak_fp32 / 2,  # 1.92 TFLOPS (half of FP32)
+                tensor_core_supported=False,
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=peak_fp32,  # 3.84 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=peak_fp16,  # 7.68 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=peak_int8,  # 15.36 TOPS
+                tensor_core_supported=False,  # No AMX-like accelerator yet
+                relative_speedup=4.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=peak_bandwidth,  # 576 GB/s (12-channel DDR5-6000)
+        l1_cache_per_unit=48 * 1024,  # 48 KB L1D per core (increased from 32 KB)
+        l2_cache_total=192 * 1024 * 1024,  # 192 MB total L2 (1 MB × 192 cores)
+        main_memory=512 * 1024**3,  # 512 GB (typical server config, up to 6TB)
+        energy_per_flop_fp32=energy_per_flop_fp32,  # ~99 pJ/FLOP
+        energy_per_byte=energy_per_byte,  # 26 pJ/byte
+        min_occupancy=0.5,
+        max_concurrent_kernels=num_cores,  # One kernel per core
+        wave_quantization=1,
+    )
+
+
 def xilinx_vitis_ai_dpu_resource_model() -> HardwareResourceModel:
     """
     Xilinx Vitis AI DPU (Deep Processing Unit) resource model.
