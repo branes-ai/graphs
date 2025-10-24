@@ -22,9 +22,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from src.graphs.characterize.cpu_mapper import create_ampere_ampereone_192_mapper
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import create_ampere_ampereone_192_mapper
+from src.graphs.hardware.resource_model import Precision
 
 
 def test_ampere_ampereone_resnet50():

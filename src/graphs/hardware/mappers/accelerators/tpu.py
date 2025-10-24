@@ -28,15 +28,15 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import math
 
-from .hardware_mapper import (
+from ...resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareAllocation,
     GraphHardwareAllocation,
     Precision,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import BottleneckType
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import BottleneckType
 
 
 @dataclass
@@ -427,7 +427,7 @@ def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
     Returns:
         TPUMapper configured for TPU v4
     """
-    from .hardware_mapper import tpu_v4_resource_model
+    from ...resource_model import tpu_v4_resource_model
 
     model = tpu_v4_resource_model()
     return TPUMapper(model, thermal_profile=thermal_profile)
@@ -443,7 +443,7 @@ def create_coral_edge_tpu_mapper(thermal_profile: str = None) -> TPUMapper:
     Returns:
         TPUMapper configured for Coral Edge TPU (ultra-low-power edge AI)
     """
-    from .hardware_mapper import coral_edge_tpu_resource_model
+    from ...resource_model import coral_edge_tpu_resource_model
 
     model = coral_edge_tpu_resource_model()
     return TPUMapper(model, thermal_profile=thermal_profile)

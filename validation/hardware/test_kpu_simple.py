@@ -12,9 +12,9 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from src.graphs.characterize.kpu_mapper import create_kpu_t100_mapper
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t100_mapper
+from src.graphs.hardware.resource_model import Precision
 
 
 def extract_execution_stages(fusion_report):

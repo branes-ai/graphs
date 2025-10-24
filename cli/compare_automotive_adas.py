@@ -62,11 +62,11 @@ from dataclasses import dataclass, field
 
 sys.path.insert(0, str(Path(__file__).parent.parent))  # cli/ → graphs/
 
-from src.graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from src.graphs.characterize.dsp_mapper import create_ti_tda4vm_mapper
-from src.graphs.characterize.gpu_mapper import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
-from src.graphs.characterize.kpu_mapper import create_kpu_t256_mapper
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.dsp import create_ti_tda4vm_mapper
+from src.graphs.hardware.mappers.gpu import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
+from src.graphs.hardware.resource_model import Precision
 
 
 @dataclass

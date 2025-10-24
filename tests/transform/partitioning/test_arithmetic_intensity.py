@@ -22,8 +22,8 @@ from torch.fx.passes.shape_prop import ShapeProp
 import sys
 sys.path.insert(0, 'src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.fusion_partitioner import FusionBasedPartitioner
+from graphs.transform.partitioning import GraphPartitioner
+from graphs.transform.partitioning import FusionBasedPartitioner
 
 
 class ArithmeticIntensityValidator:

@@ -22,7 +22,7 @@ Use Case: Embodied AI for drones and robots with ~10W power budget
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from .hardware_mapper import (
+from ...resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareType,
@@ -36,8 +36,8 @@ from .hardware_mapper import (
     PerformanceCharacteristics,
     BottleneckType,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import SubgraphDescriptor, ParallelismDescriptor
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import SubgraphDescriptor, ParallelismDescriptor
 
 
 class HailoMapper(HardwareMapper):
@@ -248,7 +248,7 @@ class HailoMapper(HardwareMapper):
         latency_correction_factor = total_latency / naive_latency if naive_latency > 0 else 1.0
 
         # Bottleneck analysis
-        from .graph_structures import BottleneckType
+        from graphs.ir.structures import BottleneckType
         compute_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.COMPUTE_BOUND)
         memory_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.MEMORY_BOUND)
         bandwidth_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BANDWIDTH_BOUND)
@@ -321,7 +321,7 @@ def create_hailo8_mapper() -> HailoMapper:
     - efficiency_factor values are conservative estimates
     - Need empirical benchmarking to refine coefficients
     """
-    from .hardware_mapper import (
+    from ...resource_model import (
         HardwareResourceModel,
         HardwareType,
         Precision,
@@ -534,7 +534,7 @@ def create_hailo10h_mapper() -> HailoMapper:
     - efficiency_factor values are conservative estimates
     - LLM-specific optimizations not yet benchmarked
     """
-    from .hardware_mapper import (
+    from ...resource_model import (
         HardwareResourceModel,
         HardwareType,
         Precision,

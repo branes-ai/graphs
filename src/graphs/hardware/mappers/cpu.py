@@ -26,15 +26,15 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import math
 
-from .hardware_mapper import (
+from ..resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareAllocation,
     GraphHardwareAllocation,
     Precision,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import BottleneckType
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import BottleneckType
 
 
 @dataclass
@@ -407,7 +407,7 @@ def create_intel_cpu_mapper(simd_type: str = "avx512") -> CPUMapper:
     Returns:
         CPUMapper configured for Intel CPU
     """
-    from .hardware_mapper import cpu_x86_resource_model
+    from ..resource_model import cpu_x86_resource_model
 
     model = cpu_x86_resource_model()
 
@@ -425,7 +425,7 @@ def create_intel_cpu_mapper(simd_type: str = "avx512") -> CPUMapper:
 
 def create_amd_cpu_mapper() -> CPUMapper:
     """Create CPU mapper for AMD Ryzen CPU (AVX-2)"""
-    from .hardware_mapper import cpu_x86_resource_model
+    from ..resource_model import cpu_x86_resource_model
 
     model = cpu_x86_resource_model()
     model.name = "AMD-Ryzen-7-16core"
@@ -483,7 +483,7 @@ def create_i7_12700k_mapper() -> CPUMapper:
     - Consumer hardware benchmarking
     - Laptop/desktop deployment
     """
-    from .hardware_mapper import (
+    from ..resource_model import (
         HardwareResourceModel,
         HardwareType,
         Precision,
@@ -712,7 +712,7 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
 
     TODO: Run empirical calibration sweep on large models to refine these values!
     """
-    from .hardware_mapper import (
+    from ..resource_model import (
         HardwareResourceModel,
         HardwareType,
         Precision,
@@ -900,7 +900,7 @@ def create_ampere_ampereone_192_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Ampere AmpereOne 192-core
     """
-    from .hardware_mapper import ampere_ampereone_192_resource_model
+    from ..resource_model import ampere_ampereone_192_resource_model
 
     model = ampere_ampereone_192_resource_model()
     return CPUMapper(model)
@@ -955,7 +955,7 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Xeon Platinum 8490H
     """
-    from .hardware_mapper import intel_xeon_platinum_8490h_resource_model
+    from ..resource_model import intel_xeon_platinum_8490h_resource_model
 
     model = intel_xeon_platinum_8490h_resource_model()
     return CPUMapper(model)
@@ -1014,7 +1014,7 @@ def create_amd_epyc_9654_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for AMD EPYC 9654
     """
-    from .hardware_mapper import amd_epyc_9654_resource_model
+    from ..resource_model import amd_epyc_9654_resource_model
 
     model = amd_epyc_9654_resource_model()
     return CPUMapper(model)
@@ -1073,7 +1073,7 @@ def create_amd_epyc_9754_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for AMD EPYC 9754
     """
-    from .hardware_mapper import amd_epyc_9754_resource_model
+    from ..resource_model import amd_epyc_9754_resource_model
 
     model = amd_epyc_9754_resource_model()
     return CPUMapper(model)
@@ -1137,7 +1137,7 @@ def create_intel_xeon_platinum_8592plus_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Xeon Platinum 8592+
     """
-    from .hardware_mapper import intel_xeon_platinum_8592plus_resource_model
+    from ..resource_model import intel_xeon_platinum_8592plus_resource_model
 
     model = intel_xeon_platinum_8592plus_resource_model()
     return CPUMapper(model)
@@ -1200,7 +1200,7 @@ def create_ampere_ampereone_128_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Ampere AmpereOne 128-core
     """
-    from .hardware_mapper import ampere_ampereone_128_resource_model
+    from ..resource_model import ampere_ampereone_128_resource_model
 
     model = ampere_ampereone_128_resource_model()
     return CPUMapper(model)
@@ -1267,7 +1267,7 @@ def create_intel_granite_rapids_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Granite Rapids
     """
-    from .hardware_mapper import intel_granite_rapids_resource_model
+    from ..resource_model import intel_granite_rapids_resource_model
 
     model = intel_granite_rapids_resource_model()
     return CPUMapper(model)
@@ -1335,7 +1335,7 @@ def create_amd_epyc_turin_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for AMD EPYC Turin
     """
-    from .hardware_mapper import amd_epyc_turin_resource_model
+    from ..resource_model import amd_epyc_turin_resource_model
 
     model = amd_epyc_turin_resource_model()
     return CPUMapper(model)

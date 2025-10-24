@@ -30,15 +30,15 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import math
 
-from .hardware_mapper import (
+from ...resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareAllocation,
     GraphHardwareAllocation,
     Precision,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import BottleneckType
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import BottleneckType
 
 
 @dataclass
@@ -413,5 +413,5 @@ def create_plasticine_v2_mapper() -> CGRAMapper:
     Returns:
         CGRAMapper instance
     """
-    from .hardware_mapper import stanford_plasticine_cgra_resource_model
+    from ...resource_model import stanford_plasticine_cgra_resource_model
     return CGRAMapper(stanford_plasticine_cgra_resource_model())

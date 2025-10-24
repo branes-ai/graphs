@@ -11,12 +11,17 @@ import pandas as pd
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.graphs.characterize.arch_profiles import (
+# DEPRECATED: from src.graphs.characterize.arch_profiles import (
     intel_i7_profile, amd_ryzen7_profile, h100_pcie_profile,
     tpu_v4_profile, kpu_t2_profile, kpu_t100_profile
 )
-from src.graphs.characterize.fused_ops import default_registry
-from src.graphs.characterize.walker import FXGraphWalker
+# DEPRECATED: from src.graphs.characterize.fused_ops import default_registry
+# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
+#
+# TODO: Update to use new partitioning system:
+#   from src.graphs.transform.partitioning import FusionBasedPartitioner
+#   from src.graphs.hardware.resource_model import Precision
+# See validation/hardware/test_all_hardware.py for example usage
 
 def format_number(n):
     """Format large numbers with SI prefixes"""

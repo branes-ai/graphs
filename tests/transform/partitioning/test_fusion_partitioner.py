@@ -22,8 +22,8 @@ from typing import Dict, List, Optional
 import sys
 sys.path.insert(0, 'src')
 
-from graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from graphs.characterize.graph_structures import OperationType
+from graphs.transform.partitioning import FusionBasedPartitioner
+from graphs.ir.structures import OperationType
 
 
 class TestResults:

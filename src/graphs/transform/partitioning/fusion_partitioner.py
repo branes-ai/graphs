@@ -14,14 +14,14 @@ import torch
 from torch.fx import GraphModule
 from collections import defaultdict
 
-from .graph_structures import (
+from graphs.ir.structures import (
     OperationType,
     BottleneckType,
     ParallelismDescriptor,
     SubgraphDescriptor
 )
 
-from .visualization import (
+from ..visualization import (
     detect_terminal_capability,
     get_box_chars,
     get_bottleneck_color,

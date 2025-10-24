@@ -16,8 +16,8 @@ from torch.fx.passes.shape_prop import ShapeProp
 import sys
 sys.path.insert(0, '/home/stillwater/dev/branes/clones/graphs/src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.concurrency_analyzer import ConcurrencyAnalyzer
+from graphs.transform.partitioning import GraphPartitioner
+from graphs.analysis.concurrency import ConcurrencyAnalyzer
 
 
 def test_resnet18():

@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.graphs.characterize.cpu_mapper import create_i7_12700k_mapper, create_i7_12700k_large_mapper
-from src.graphs.characterize.hardware_mapper import Precision
+from src.graphs.hardware.mappers.cpu import create_i7_12700k_mapper, create_i7_12700k_large_mapper
+from src.graphs.hardware.resource_model import Precision
 
 
 def test_mapper_initialization():

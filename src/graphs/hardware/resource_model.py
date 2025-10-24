@@ -20,12 +20,12 @@ from typing import List, Dict, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from .graph_structures import (
+from graphs.ir.structures import (
     SubgraphDescriptor,
     ParallelismDescriptor,
     BottleneckType
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
 
 
 class HardwareType(Enum):

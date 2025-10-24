@@ -40,7 +40,7 @@ Use Cases:
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from .hardware_mapper import (
+from ..resource_model import (
     HardwareMapper,
     HardwareResourceModel,
     HardwareType,
@@ -62,8 +62,8 @@ from .hardware_mapper import (
     cadence_vision_q8_resource_model,
     synopsys_arc_ev7x_resource_model,
 )
-from .fusion_partitioner import FusedSubgraph, FusionReport
-from .graph_structures import SubgraphDescriptor, ParallelismDescriptor
+from graphs.transform.partitioning import FusedSubgraph, FusionReport
+from graphs.ir.structures import SubgraphDescriptor, ParallelismDescriptor
 
 
 class DSPMapper(HardwareMapper):

@@ -10,9 +10,14 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-from src.graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
-from src.graphs.characterize.fused_ops import default_registry
-from src.graphs.characterize.walker import FXGraphWalker
+# DEPRECATED: from src.graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
+# DEPRECATED: from src.graphs.characterize.fused_ops import default_registry
+# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
+#
+# TODO: Update to use new partitioning system:
+#   from src.graphs.transform.partitioning import FusionBasedPartitioner
+#   from src.graphs.hardware.resource_model import Precision
+# See validation/hardware/test_all_hardware.py for example usage
 
 def format_number(n):
     """Format large numbers with SI prefixes"""
