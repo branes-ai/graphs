@@ -359,7 +359,7 @@ def print_summary(all_results):
     print("  │ Mobile camera ISP               │ Cadence Vision Q8    │ 7nm                 │")
     print("  │ Mobile gaming                   │ ARM Mali-G78 MP20    │ 7nm/5nm             │")
     print("  │ Automotive ADAS (traditional)   │ Synopsys ARC EV7x    │ 16nm/7nm            │")
-    print("  │ Automotive ADAS (dataflow)      │ KPU-T64 / KPU-T256   │ 16nm/7nm            │")
+    print("  │ Automotive ADAS (autonomy)      │ KPU-T64 / KPU-T256   │ 16nm/7nm            │")
     print("  │ Edge AI / Embodied AI           │ KPU-T64 / KPU-T256   │ 16nm                │")
     print("  │ Edge server                     │ KPU-T256             │ 16nm                │")
     print("  │ Base station server (note)      │ KPU-T768 (larger)    │ 16nm/7nm            │")
