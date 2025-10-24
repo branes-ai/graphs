@@ -13,6 +13,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-24] - Texas Instruments TDA4VM C7x DSP Mapper (Automotive ADAS)
+
+### Added
+
+- **TI TDA4VM Resource Model** (`hardware_mapper.py`, `ti_tda4vm_resource_model()`)
+  - Architecture: C7x DSP @ 1.0 GHz + Matrix Multiply Accelerator (MMA)
+  - Peak performance: 8 TOPS INT8 (MMA), 80 GFLOPS FP32 (C7x DSP)
+  - Power profiles: 10W (front camera ADAS), 20W (full multi-camera system)
+  - Memory: LPDDR4x @ 60 GB/s, 8 MB MSMC on-chip SRAM
+  - CPU: 2× Cortex-A72 @ 2.0 GHz
+  - Automotive-grade: ASIL-D/SIL-3, -40°C to 125°C (AEC-Q100)
+
+- **TI TDA4VM Mapper** (`dsp_mapper.py`, `create_ti_tda4vm_mapper()`)
+  - Supports 10W and 20W thermal profiles
+  - 10W: ~5 TOPS effective (front camera, lane detection)
+  - 20W: ~6.5 TOPS effective (multi-camera, sensor fusion)
+  - Automotive deterministic scheduling
+  - Native INT8/INT16/FP32 support
+
+### Performance Specifications
+
+**10W Mode (Front Camera ADAS):**
+- Sustained clock: 850 MHz (85% of peak)
+- Effective INT8: ~5 TOPS (62% of 8 TOPS peak)
+- Use case: Single front-facing camera, lane detection, object detection
+
+**20W Mode (Full ADAS System):**
+- Sustained clock: 950 MHz (95% of peak)
+- Effective INT8: ~6.5 TOPS (81% of 8 TOPS peak)
+- Use case: 4-6 cameras, radar/lidar fusion, automatic valet parking
+
+### Key Features
+
+1. **Automotive Safety**: ASIL-D/SIL-3 certification with R5F safety cores
+2. **Thermal Robustness**: -40°C to 125°C operating range (automotive grade)
+3. **Heterogeneous Compute**: CPU + DSP + MMA for flexibility
+4. **Sensor Fusion**: Optimized for camera + radar + lidar processing
+5. **Deterministic Scheduling**: Real-time guarantees for ADAS applications
+
+### Use Cases
+
+- **ADAS Level 2-3**: Lane keep assist, adaptive cruise control, auto parking
+- **Multi-camera Systems**: Surround view (4-6 cameras simultaneously)
+- **Sensor Fusion**: Camera + radar + lidar integration
+- **Object Detection**: YOLOv5, SSD, RetinaNet for automotive
+- **Lane Detection**: Semantic segmentation for lane marking
+
+### Comparison with Other DSPs
+
+| DSP | Peak INT8 | Power | Architecture | Use Case |
+|-----|-----------|-------|--------------|----------|
+| **TI TDA4VM (C7x)** | 8 TOPS | 10-20W | C7x DSP + MMA | Automotive ADAS |
+| **Qualcomm Hexagon 698** | 15 TOPS | 7W | HVX + HTA | Robotics, mobile |
+
+### Files Modified
+
+**Source Code** (2 files):
+- `src/graphs/characterize/hardware_mapper.py` - Added ti_tda4vm_resource_model() (297 lines)
+- `src/graphs/characterize/dsp_mapper.py` - Added create_ti_tda4vm_mapper() (96 lines)
+
+**Documentation** (1 file):
+- `CHANGELOG.md` - This file
+
+**Lines Changed**: ~393 lines added
+
+### Next Steps
+
+**Validation Needed:**
+1. Add TDA4VM to automotive ADAS comparison suite
+2. Test on automotive workloads (YOLOv5, SegNet, lane detection models)
+3. Benchmark against automotive industry standards
+
+**Future Enhancements:**
+4. Add TDA4 family variants (TDA4VL, TDA4VH, TDA4AL)
+5. Model safety core overhead (R5F lockstep)
+6. Add automotive-specific workload benchmarks
+
+---
+
 ## [2025-10-24] - Qualcomm QRB5165 Hexagon DSP Mapper
 
 ### Added
