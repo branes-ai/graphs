@@ -2,10 +2,20 @@
 DSP Hardware Mapper - Digital Signal Processors for AI Acceleration
 
 This module implements mappers for DSP-based AI accelerators:
+
+Qualcomm DSPs:
 - Qualcomm Hexagon 698 (QRB5165): 15 TOPS INT8, robotics platform
-- (Future) Texas Instruments C7x DSP
-- (Future) Cadence Tensilica Vision DSPs
-- (Future) CEVA NeuPro DSPs
+
+Texas Instruments C7x DSPs:
+- TI TDA4VM (Jacinto 7): 8 TOPS INT8, automotive ADAS
+- TI TDA4VL: 4 TOPS INT8, entry-level ADAS
+- TI TDA4AL: 8 TOPS INT8, mid-range ADAS (MMAv2)
+- TI TDA4VH: 32 TOPS INT8, high-performance L3-4 autonomy
+
+Licensable IP Cores:
+- CEVA NeuPro-M NPM11: 20 TOPS INT8, edge AI NPU IP
+- Cadence Tensilica Vision Q8: 3.8 TOPS INT8, vision DSP IP
+- Synopsys ARC EV7x: 35 TOPS INT8, embedded vision processor IP
 
 DSP Architecture Characteristics:
 - Heterogeneous compute: Vector + Tensor + Scalar units
@@ -24,6 +34,7 @@ Use Cases:
 - Mobile devices (always-on AI)
 - Edge IoT (audio + vision processing)
 - Automotive (ADAS sensor fusion)
+- SoC integration (IP licensing)
 """
 
 from dataclasses import dataclass
@@ -47,6 +58,9 @@ from .hardware_mapper import (
     ti_tda4vl_resource_model,
     ti_tda4al_resource_model,
     ti_tda4vh_resource_model,
+    ceva_neupro_npm11_resource_model,
+    cadence_vision_q8_resource_model,
+    synopsys_arc_ev7x_resource_model,
 )
 from .fusion_partitioner import FusedSubgraph, FusionReport
 from .graph_structures import SubgraphDescriptor, ParallelismDescriptor
@@ -579,20 +593,170 @@ def create_ti_tda4vh_mapper(thermal_profile: str = "20W") -> DSPMapper:
 
 
 # ============================================================================
-# Future DSP Mappers (Placeholders)
+# CEVA NeuPro Neural Processing IP Mappers
 # ============================================================================
 
-# TODO: Add Cadence Tensilica Vision DSP mapper
-# def create_cadence_vision_dsp_mapper() -> DSPMapper:
-#     """Cadence Tensilica Vision DSPs"""
-#     pass
+def create_ceva_neupro_npm11_mapper() -> DSPMapper:
+    """
+    Create hardware mapper for CEVA NeuPro-M NPM11 Neural Processing IP.
 
-# TODO: Add CEVA NeuPro DSP mapper
-# def create_ceva_neupro_mapper() -> DSPMapper:
-#     """CEVA NeuPro AI DSPs"""
-#     pass
+    ARCHITECTURE:
+    - Licensable NPU IP core for SoC integration
+    - Single NeuPro-M engine configuration
+    - Heterogeneous: Tensor + Vector + Scalar units
+    - Designed for mobile, automotive, and IoT applications
 
-# TODO: Add Synopsys ARC EV DSP mapper
-# def create_synopsys_arc_ev_mapper() -> DSPMapper:
-#     """Synopsys ARC EV embedded vision DSPs"""
-#     pass
+    PERFORMANCE:
+    - 20 TOPS INT8 @ 1.25 GHz (peak)
+    - ~14 TOPS INT8 (effective @ 2W sustained)
+    - ~10 TOPS/W efficiency
+
+    PRECISION SUPPORT:
+    - INT8: Native, primary mode
+    - INT16: Native (10 TOPS @ 1.25 GHz)
+    - FP16: Supported (10 TFLOPS @ 1.25 GHz)
+    - INT4: Native (40 TOPS @ 1.25 GHz, 2× INT8)
+
+    MEMORY:
+    - 2-4 MB local SRAM (configurable)
+    - 50 GB/s bandwidth (typical SoC integration)
+    - Up to 8 GB external DRAM
+
+    POWER:
+    - 2W typical TDP
+    - Passive mobile cooling
+    - Highly power-efficient for edge AI
+
+    USE CASE:
+    - Mobile devices (always-on AI, camera processing)
+    - Automotive ADAS (sensor fusion, camera AI)
+    - IoT devices (edge inference)
+    - Smart cameras and drones
+    - Wearables and hearables
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on CEVA published specifications
+    - Need empirical benchmarking on actual silicon
+    - Performance varies based on SoC integration
+
+    REFERENCES:
+    - CEVA NeuPro-M Product Brief
+    - NPM11 configuration datasheet
+    - CEVA press releases (2021-2024)
+    """
+    model = ceva_neupro_npm11_resource_model()
+    return DSPMapper(model)
+
+
+# ============================================================================
+# Cadence Tensilica Vision DSP IP Mappers
+# ============================================================================
+
+def create_cadence_vision_q8_mapper() -> DSPMapper:
+    """
+    Create hardware mapper for Cadence Tensilica Vision Q8 DSP IP (7th Gen).
+
+    ARCHITECTURE:
+    - Licensable vision DSP IP core for SoC integration
+    - 7th generation Tensilica Vision DSP (flagship)
+    - 1024-bit SIMD engine
+    - Vector + Scalar architecture
+
+    PERFORMANCE:
+    - 3.8 TOPS INT8/INT16 @ 1.0 GHz
+    - 129 GFLOPS FP32
+    - 2× performance of Vision Q7
+
+    PRECISION SUPPORT:
+    - INT8/INT16: 3.8 TOPS each (vision-optimized)
+    - FP32: 129 GFLOPS
+    - FP16: ~258 GFLOPS (estimated)
+
+    MEMORY:
+    - 512 KB - 2 MB local SRAM (configurable)
+    - 40 GB/s bandwidth (typical SoC integration)
+    - Up to 4 GB external memory
+
+    POWER:
+    - 1W typical TDP
+    - Passive mobile cooling
+    - ~3-7 TOPS/W efficiency
+
+    USE CASE:
+    - Automotive ADAS cameras (ISP + AI vision)
+    - Mobile device cameras (computational photography)
+    - Surveillance cameras (edge analytics)
+    - AR/VR vision processing
+    - Drone vision systems
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Cadence published specifications
+    - Need empirical benchmarking on actual silicon
+    - 2021 announcement, multiple tape-outs since then
+
+    REFERENCES:
+    - Cadence Tensilica Vision Q8 Product Brief (2021)
+    - Tensilica Vision DSP Family documentation
+    - Cadence DesignWare IP catalog
+    """
+    model = cadence_vision_q8_resource_model()
+    return DSPMapper(model)
+
+
+# ============================================================================
+# Synopsys ARC EV Embedded Vision Processor IP Mappers
+# ============================================================================
+
+def create_synopsys_arc_ev7x_mapper() -> DSPMapper:
+    """
+    Create hardware mapper for Synopsys ARC EV7x Embedded Vision Processor IP.
+
+    ARCHITECTURE:
+    - Licensable embedded vision processor IP
+    - 1-4 core heterogeneous configuration
+    - Each core: 512-bit vector DSP (VPU) + DNN accelerator
+    - ARCv2 RISC ISA base
+    - DNN accelerator: 880-14,080 MACs (scalable)
+
+    PERFORMANCE:
+    - 35 TOPS INT8 @ 1.0 GHz (4-core, full config)
+    - ~24 TOPS INT8 (effective @ 5W sustained)
+    - ~7-10 TOPS/W efficiency
+    - 4× performance of ARC EV6x
+
+    PRECISION SUPPORT:
+    - INT8: 35 TOPS (primary mode via DNN accelerator)
+    - INT16: 17.5 TOPS (via VPUs)
+    - INT32: Supported (8.75 TOPS)
+    - FP32: ~8.8 GFLOPS (4 cores × 2.2 GFLOPS)
+
+    MEMORY:
+    - 2-8 MB local memory (configurable)
+    - 60 GB/s bandwidth (automotive SoC integration)
+    - Up to 8 GB external DRAM
+
+    POWER:
+    - 5W typical TDP (4-core configuration)
+    - Automotive passive cooling
+    - Automotive-grade power management
+
+    USE CASE:
+    - Automotive ADAS Level 2-3 (camera processing)
+    - Multi-camera surround view systems
+    - Surveillance edge analytics
+    - Drone/robot vision systems
+    - AR/VR embedded vision
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Synopsys published specifications
+    - 2019 announcement, automotive tape-outs since then
+    - Need empirical benchmarking on actual silicon
+
+    REFERENCES:
+    - Synopsys ARC EV7x Product Brief (2019)
+    - EE Times: "Synopsys ARC Embedded Vision Processors Deliver 35 TOPS" (2019)
+    - Synopsys DesignWare ARC EV Processor IP catalog
+    - ARC EV7xFS (functional safety variant) documentation
+    """
+    model = synopsys_arc_ev7x_resource_model()
+    return DSPMapper(model)
