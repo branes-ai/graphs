@@ -350,3 +350,65 @@ def create_jetson_thor_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     from .hardware_mapper import jetson_thor_resource_model
     return GPUMapper(jetson_thor_resource_model(), thermal_profile=thermal_profile)
+
+
+# ============================================================================
+# ARM Mali GPU IP Mappers
+# ============================================================================
+
+def create_arm_mali_g78_mp20_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for ARM Mali-G78 MP20 GPU IP Core.
+
+    ARCHITECTURE:
+    - Licensable mobile GPU IP core for SoC integration
+    - 2nd generation Valhall architecture
+    - 20 shader cores (MP20 configuration)
+    - Unified shader architecture (graphics + compute)
+
+    PERFORMANCE:
+    - Graphics: 1.94 TFLOPS FP32 @ 848 MHz
+    - Compute: ~2 TOPS INT8 (not AI-optimized)
+    - FP16: 3.88 TFLOPS (2× FP32)
+
+    PRECISION SUPPORT:
+    - FP32: Native (graphics primary)
+    - FP16: Native (2× FP32 throughput)
+    - INT8: Supported but not optimized
+
+    MEMORY:
+    - 2 MB L2 cache (typical)
+    - 40 GB/s bandwidth (typical SoC integration)
+    - Up to 8 GB external memory
+
+    POWER:
+    - 5W typical TDP @ 848 MHz
+    - Passive mobile cooling
+    - DVFS for power management
+
+    USE CASE:
+    - Mobile gaming (flagship smartphones)
+    - Computational photography
+    - Light AI inference (not primary use)
+    - AR/VR rendering
+    - Used in Google Tensor (Pixel 6/6 Pro)
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on ARM specs and Google Tensor
+    - Graphics-optimized, not AI-optimized
+    - For AI workloads, pair with dedicated NPU
+
+    REFERENCES:
+    - ARM Mali-G78 Product Brief (2020)
+    - Google Tensor SoC documentation
+    - AnandTech Mali-G78 analysis
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "5W")
+                        If None, uses default ("5W")
+
+    Returns:
+        GPUMapper configured for ARM Mali-G78 MP20
+    """
+    from .hardware_mapper import arm_mali_g78_mp20_resource_model
+    return GPUMapper(arm_mali_g78_mp20_resource_model(), thermal_profile=thermal_profile)

@@ -3968,3 +3968,701 @@ def ti_tda4vh_resource_model() -> HardwareResourceModel:
         thermal_operating_points={"20W": thermal_20w, "35W": thermal_35w},
         default_thermal_profile="20W",
     )
+
+
+# ============================================================================
+# CEVA NeuPro Neural Processing IP
+# ============================================================================
+
+def ceva_neupro_npm11_resource_model() -> HardwareResourceModel:
+    """
+    CEVA NeuPro-M NPM11 Neural Processing IP Core.
+
+    ARCHITECTURE:
+    - Licensable NPU IP core for edge AI acceleration
+    - Single NeuPro-M engine configuration
+    - Heterogeneous: Tensor + Vector + Scalar units
+    - Designed for SoC integration (mobile, automotive, IoT)
+
+    PERFORMANCE:
+    - Peak: 20 TOPS INT8 @ 1.25 GHz
+    - Scalable architecture (2-256 TOPS range)
+    - Optimized for CNNs, RNNs, and transformer models
+
+    PRECISION SUPPORT:
+    - INT8: Native, primary mode
+    - INT16: Native support
+    - FP16: Supported
+    - INT4: Supported (2× INT8 throughput)
+
+    MEMORY:
+    - Configurable local memory (SRAM)
+    - External DRAM access via SoC interconnect
+    - Typical: 2-4 MB local SRAM
+    - Bandwidth depends on SoC integration
+
+    POWER:
+    - 2W typical for NPM11 @ 1.0 GHz
+    - ~10 TOPS/W efficiency
+    - Highly power-efficient for edge AI
+
+    USE CASES:
+    - Mobile devices (always-on AI)
+    - Automotive ADAS (sensor fusion)
+    - IoT devices (edge AI)
+    - Smart cameras and drones
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on CEVA published specs
+    - Need empirical benchmarking on actual silicon implementations
+    - Performance varies based on SoC integration and memory configuration
+
+    REFERENCES:
+    - CEVA NeuPro-M Product Brief
+    - NPM11 configuration specifications
+    - CEVA press releases (2021-2024)
+    """
+    # Model as 64 equivalent processing elements
+    # 20 TOPS @ 1.25 GHz → 16e12 ops/sec → 250 ops/cycle → 64 units × 312.5 ops/unit/cycle
+    num_npu_units = 64
+
+    clock = ClockDomain(
+        base_clock_hz=800e6,       # 800 MHz minimum
+        max_boost_clock_hz=1.25e9, # 1.25 GHz peak
+        sustained_clock_hz=1.0e9,  # 1.0 GHz sustained
+        dvfs_enabled=True,
+    )
+
+    compute_resource = ComputeResource(
+        resource_type="CEVA-NeuPro-M-NPM11",
+        num_units=num_npu_units,
+        ops_per_unit_per_clock={
+            Precision.INT8: 312,   # 312 INT8 MACs/cycle/unit
+            Precision.INT16: 156,  # 156 INT16 MACs/cycle/unit
+            Precision.FP16: 156,   # 156 FP16 MACs/cycle/unit
+            Precision.INT4: 624,   # 624 INT4 MACs/cycle/unit (2× INT8)
+        },
+        clock_domain=clock,
+    )
+
+    # Peak INT8: 64 units × 312 ops/cycle × 1.25 GHz = 25 TOPS (conservative vs 20 TOPS spec)
+    # This accounts for realistic efficiency
+
+    thermal_2w = ThermalOperatingPoint(
+        name="2W-edge-ai",
+        tdp_watts=2.0,
+        cooling_solution="passive-mobile",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.90,  # High NPU efficiency
+                memory_bottleneck_factor=0.75,  # Depends on SoC integration
+                efficiency_factor=0.70,  # 70% effective utilization
+                tile_utilization=0.85,  # Good tensor utilization
+                native_acceleration=True,
+            ),
+            Precision.INT16: PerformanceCharacteristics(
+                precision=Precision.INT16,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.88,
+                memory_bottleneck_factor=0.70,
+                efficiency_factor=0.65,
+                tile_utilization=0.80,
+                native_acceleration=True,
+            ),
+            Precision.FP16: PerformanceCharacteristics(
+                precision=Precision.FP16,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.85,
+                memory_bottleneck_factor=0.70,
+                efficiency_factor=0.60,
+                tile_utilization=0.80,
+                native_acceleration=True,
+            ),
+            Precision.INT4: PerformanceCharacteristics(
+                precision=Precision.INT4,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.92,
+                memory_bottleneck_factor=0.80,
+                efficiency_factor=0.75,
+                tile_utilization=0.85,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="CEVA-NeuPro-M-NPM11",
+        hardware_type=HardwareType.DSP,
+        compute_units=num_npu_units,
+        threads_per_unit=4,
+        warps_per_unit=1,
+        warp_size=32,
+
+        thermal_operating_points={
+            "2W": thermal_2w,
+        },
+        default_thermal_profile="2W",
+
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=20e12,  # 20 TOPS INT8
+                tensor_core_supported=True,
+                relative_speedup=1.0,
+                bytes_per_element=1,
+            ),
+            Precision.INT16: PrecisionProfile(
+                precision=Precision.INT16,
+                peak_ops_per_sec=10e12,  # 10 TOPS INT16
+                tensor_core_supported=True,
+                relative_speedup=0.5,
+                bytes_per_element=2,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=10e12,  # 10 TFLOPS FP16
+                tensor_core_supported=True,
+                relative_speedup=0.5,
+                bytes_per_element=2,
+            ),
+        },
+        default_precision=Precision.INT8,
+
+        # Memory (depends on SoC integration, typical values)
+        peak_bandwidth=50e9,  # 50 GB/s (typical for mobile SoC integration)
+        l1_cache_per_unit=64 * 1024,  # 64 KB per unit
+        l2_cache_total=2 * 1024 * 1024,  # 2 MB shared cache
+        main_memory=8 * 1024**3,  # Up to 8 GB
+
+        # Energy (edge-optimized)
+        energy_per_flop_fp32=1.2e-12,  # 1.2 pJ/FLOP
+        energy_per_byte=12e-12,  # 12 pJ/byte
+        energy_scaling={
+            Precision.INT8: 0.12,
+            Precision.INT16: 0.20,
+            Precision.FP16: 0.40,
+            Precision.INT4: 0.06,
+        },
+
+        min_occupancy=0.70,
+        max_concurrent_kernels=8,
+        wave_quantization=4,
+    )
+
+
+# ============================================================================
+# Cadence Tensilica Vision DSP IP
+# ============================================================================
+
+def cadence_vision_q8_resource_model() -> HardwareResourceModel:
+    """
+    Cadence Tensilica Vision Q8 DSP IP Core (7th Generation).
+
+    ARCHITECTURE:
+    - Licensable vision DSP IP core for SoC integration
+    - 7th generation Tensilica Vision DSP (flagship)
+    - 1024-bit SIMD engine for vision processing
+    - Heterogeneous: Vector + Scalar units
+
+    PERFORMANCE:
+    - Peak: 3.8 TOPS (INT8/INT16)
+    - 129 GFLOPS FP32
+    - 2× performance of Vision Q7 DSP
+
+    PRECISION SUPPORT:
+    - INT8/INT16: Native, optimized for vision
+    - FP32: 129 GFLOPS
+    - FP16: Supported
+
+    MEMORY:
+    - Configurable local memory
+    - External memory via SoC interconnect
+    - Typical: 512 KB - 2 MB local SRAM
+
+    POWER:
+    - 0.5-1W typical @ 1.0 GHz
+    - ~3-7 TOPS/W efficiency
+    - Power-efficient for always-on vision
+
+    USE CASES:
+    - Automotive vision (ADAS cameras)
+    - Mobile device cameras (ISP + AI)
+    - Surveillance cameras
+    - AR/VR vision processing
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Cadence published specs
+    - Need empirical benchmarking on actual silicon
+
+    REFERENCES:
+    - Cadence Tensilica Vision Q8 Product Brief (2021)
+    - Tensilica Vision DSP Family specifications
+    """
+    # Model as 32 equivalent processing elements
+    # 3.8 TOPS @ 1.0 GHz → 3.8e12 ops/sec → 118.75 ops/cycle → 32 units × 118.75 ops/unit/cycle
+    num_dsp_units = 32
+
+    clock = ClockDomain(
+        base_clock_hz=600e6,      # 600 MHz minimum
+        max_boost_clock_hz=1.2e9, # 1.2 GHz max
+        sustained_clock_hz=1.0e9, # 1.0 GHz sustained
+        dvfs_enabled=True,
+    )
+
+    compute_resource = ComputeResource(
+        resource_type="Cadence-Tensilica-Vision-Q8",
+        num_units=num_dsp_units,
+        ops_per_unit_per_clock={
+            Precision.INT8: 119,   # ~119 INT8 ops/cycle/unit
+            Precision.INT16: 119,  # Same for INT16 (vision optimized)
+            Precision.FP32: 4,     # 129 GFLOPS / 32 units / 1.0 GHz
+            Precision.FP16: 8,     # 2× FP32
+        },
+        clock_domain=clock,
+    )
+
+    thermal_1w = ThermalOperatingPoint(
+        name="1W-vision",
+        tdp_watts=1.0,
+        cooling_solution="passive-mobile",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.88,  # Good vision DSP efficiency
+                memory_bottleneck_factor=0.70,  # Vision workloads are bandwidth-sensitive
+                efficiency_factor=0.65,  # 65% effective
+                tile_utilization=0.80,
+                native_acceleration=True,
+            ),
+            Precision.INT16: PerformanceCharacteristics(
+                precision=Precision.INT16,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.88,
+                memory_bottleneck_factor=0.70,
+                efficiency_factor=0.65,
+                tile_utilization=0.80,
+                native_acceleration=True,
+            ),
+            Precision.FP32: PerformanceCharacteristics(
+                precision=Precision.FP32,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.85,
+                memory_bottleneck_factor=0.65,
+                efficiency_factor=0.60,
+                tile_utilization=0.75,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="Cadence-Tensilica-Vision-Q8",
+        hardware_type=HardwareType.DSP,
+        compute_units=num_dsp_units,
+        threads_per_unit=4,
+        warps_per_unit=1,
+        warp_size=32,
+
+        thermal_operating_points={
+            "1W": thermal_1w,
+        },
+        default_thermal_profile="1W",
+
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=3.8e12,  # 3.8 TOPS
+                tensor_core_supported=False,  # Vector DSP, not tensor cores
+                relative_speedup=1.0,
+                bytes_per_element=1,
+            ),
+            Precision.INT16: PrecisionProfile(
+                precision=Precision.INT16,
+                peak_ops_per_sec=3.8e12,  # 3.8 TOPS (same as INT8)
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=2,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=129e9,  # 129 GFLOPS FP32
+                tensor_core_supported=False,
+                relative_speedup=0.034,
+                bytes_per_element=4,
+            ),
+        },
+        default_precision=Precision.INT8,
+
+        # Memory
+        peak_bandwidth=40e9,  # 40 GB/s (typical SoC integration)
+        l1_cache_per_unit=32 * 1024,  # 32 KB per unit
+        l2_cache_total=1 * 1024 * 1024,  # 1 MB shared cache
+        main_memory=4 * 1024**3,  # Up to 4 GB
+
+        # Energy
+        energy_per_flop_fp32=1.5e-12,  # 1.5 pJ/FLOP
+        energy_per_byte=12e-12,  # 12 pJ/byte
+        energy_scaling={
+            Precision.INT8: 0.15,
+            Precision.INT16: 0.15,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.50,
+        },
+
+        min_occupancy=0.70,
+        max_concurrent_kernels=4,
+        wave_quantization=4,
+    )
+
+
+# ============================================================================
+# Synopsys ARC EV Embedded Vision Processor IP
+# ============================================================================
+
+def synopsys_arc_ev7x_resource_model() -> HardwareResourceModel:
+    """
+    Synopsys ARC EV7x Embedded Vision Processor IP Core.
+
+    ARCHITECTURE:
+    - Licensable embedded vision processor IP for SoC integration
+    - Heterogeneous: 1-4 Vector Processing Units (VPUs) + DNN accelerator
+    - Each VPU: 512-bit wide vector DSP
+    - DNN accelerator: 880-14,080 MACs (scalable)
+    - ARCv2 RISC ISA base
+
+    PERFORMANCE:
+    - Peak: Up to 35 TOPS INT8 @ 16nm FinFET
+    - 4× performance of ARC EV6x
+    - Configurable 1-4 core
+
+    PRECISION SUPPORT:
+    - INT8: Native via DNN accelerator (primary mode)
+    - INT16: Native via VPUs
+    - INT32: Supported
+    - FP32: Via VPU FPU
+
+    MEMORY:
+    - Configurable local memory
+    - External memory via AXI interconnect
+    - Typical: 2-8 MB local memory
+
+    POWER:
+    - 3-5W typical for full EV7x @ 1.0 GHz
+    - ~7-10 TOPS/W efficiency
+    - Automotive-grade power management
+
+    USE CASES:
+    - Automotive ADAS (camera processing)
+    - Surveillance systems
+    - Drone vision
+    - AR/VR applications
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on Synopsys published specs
+    - Need empirical benchmarking on actual silicon
+
+    REFERENCES:
+    - Synopsys ARC EV7x Product Brief (2019)
+    - EE Times coverage (2019)
+    - Synopsys DesignWare IP catalog
+    """
+    # Model 4-core configuration with full DNN accelerator
+    # 35 TOPS @ 1.0 GHz → 35e12 ops/sec → 35,000 ops/cycle
+    # Model as 128 equivalent processing elements: 35,000 / 128 = 273 ops/cycle/unit
+    num_ev_units = 128
+
+    clock = ClockDomain(
+        base_clock_hz=600e6,      # 600 MHz minimum
+        max_boost_clock_hz=1.2e9, # 1.2 GHz max
+        sustained_clock_hz=1.0e9, # 1.0 GHz sustained
+        dvfs_enabled=True,
+    )
+
+    compute_resource = ComputeResource(
+        resource_type="Synopsys-ARC-EV7x-4core",
+        num_units=num_ev_units,
+        ops_per_unit_per_clock={
+            Precision.INT8: 273,   # 273 INT8 MACs/cycle/unit
+            Precision.INT16: 136,  # 136 INT16 MACs/cycle/unit
+            Precision.INT32: 68,   # 68 INT32 MACs/cycle/unit
+            Precision.FP32: 17,    # ~2.2 GFLOPS per core × 4 cores
+        },
+        clock_domain=clock,
+    )
+
+    # Peak INT8: 128 units × 273 ops/cycle × 1.0 GHz = 34.94 TOPS ≈ 35 TOPS ✓
+
+    thermal_5w = ThermalOperatingPoint(
+        name="5W-automotive-vision",
+        tdp_watts=5.0,
+        cooling_solution="automotive-passive",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.90,  # Efficient DNN accelerator
+                memory_bottleneck_factor=0.72,  # Automotive workloads
+                efficiency_factor=0.68,  # 68% effective
+                tile_utilization=0.82,
+                native_acceleration=True,
+            ),
+            Precision.INT16: PerformanceCharacteristics(
+                precision=Precision.INT16,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.88,
+                memory_bottleneck_factor=0.70,
+                efficiency_factor=0.65,
+                tile_utilization=0.80,
+                native_acceleration=True,
+            ),
+            Precision.FP32: PerformanceCharacteristics(
+                precision=Precision.FP32,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.85,
+                memory_bottleneck_factor=0.65,
+                efficiency_factor=0.60,
+                tile_utilization=0.75,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="Synopsys-ARC-EV7x-4core",
+        hardware_type=HardwareType.DSP,
+        compute_units=num_ev_units,
+        threads_per_unit=4,
+        warps_per_unit=1,
+        warp_size=32,
+
+        thermal_operating_points={
+            "5W": thermal_5w,
+        },
+        default_thermal_profile="5W",
+
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=35e12,  # 35 TOPS INT8
+                tensor_core_supported=True,  # DNN accelerator
+                relative_speedup=1.0,
+                bytes_per_element=1,
+            ),
+            Precision.INT16: PrecisionProfile(
+                precision=Precision.INT16,
+                peak_ops_per_sec=17.5e12,  # 17.5 TOPS INT16
+                tensor_core_supported=True,
+                relative_speedup=0.5,
+                bytes_per_element=2,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=8.8e9,  # ~8.8 GFLOPS FP32 (4 cores × 2.2 GFLOPS)
+                tensor_core_supported=False,
+                relative_speedup=0.00025,
+                bytes_per_element=4,
+            ),
+        },
+        default_precision=Precision.INT8,
+
+        # Memory
+        peak_bandwidth=60e9,  # 60 GB/s (automotive SoC integration)
+        l1_cache_per_unit=32 * 1024,  # 32 KB per unit
+        l2_cache_total=4 * 1024 * 1024,  # 4 MB shared cache
+        main_memory=8 * 1024**3,  # Up to 8 GB
+
+        # Energy (automotive-optimized)
+        energy_per_flop_fp32=1.4e-12,  # 1.4 pJ/FLOP
+        energy_per_byte=14e-12,  # 14 pJ/byte
+        energy_scaling={
+            Precision.INT8: 0.14,
+            Precision.INT16: 0.22,
+            Precision.FP32: 1.0,
+            Precision.INT4: 0.07,
+        },
+
+        min_occupancy=0.70,
+        max_concurrent_kernels=8,  # 4 VPUs allow good parallelism
+        wave_quantization=4,
+    )
+
+
+# ============================================================================
+# ARM Mali GPU IP
+# ============================================================================
+
+def arm_mali_g78_mp20_resource_model() -> HardwareResourceModel:
+    """
+    ARM Mali-G78 MP20 GPU IP Core.
+
+    ARCHITECTURE:
+    - Licensable mobile GPU IP core for SoC integration
+    - 2nd generation Valhall architecture
+    - 20 shader cores (MP20 configuration, max 24 cores)
+    - Unified shader architecture (compute + graphics)
+    - Warp width: 16 threads
+
+    PERFORMANCE:
+    - Graphics: ~1.94 TFLOPS FP32 @ 848 MHz (~97 GFLOPS per core)
+    - Compute: ~2 TOPS INT8 (estimated, not optimized for AI)
+    - FP16: ~3.88 TFLOPS (2× FP32)
+    - Primarily a graphics GPU with compute capabilities
+
+    PRECISION SUPPORT:
+    - FP32: Native, primary mode for graphics
+    - FP16: Native, 2× throughput vs FP32
+    - INT8: Supported but not optimized (no tensor cores)
+    - Note: Mali GPUs are graphics-focused, not AI-optimized
+
+    MEMORY:
+    - Configurable L2 cache (512 KB - 2 MB typical)
+    - External memory via SoC interconnect
+    - Bandwidth depends on SoC integration (20-50 GB/s typical)
+
+    POWER:
+    - 3-5W typical TDP @ 848 MHz
+    - Power-efficient for mobile graphics
+    - DVFS for dynamic power management
+
+    USE CASES:
+    - Mobile gaming (flagship smartphones)
+    - Computational photography
+    - Light AI inference (alongside dedicated NPU)
+    - AR/VR applications
+    - UI rendering and composition
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on ARM published specs and Google Tensor SoC
+    - Used in Google Tensor (Pixel 6/6 Pro)
+    - Graphics-optimized, not AI-optimized
+    - For serious AI workloads, pair with dedicated NPU
+
+    REFERENCES:
+    - ARM Mali-G78 Product Brief (2020)
+    - Google Tensor SoC specifications
+    - AnandTech Mali-G78 analysis
+    - Typical configuration: 848 MHz, 20 cores
+    """
+    # Model as 20 shader cores
+    # Each core: 97 GFLOPS FP32 @ 848 MHz
+    # Total: 1.94 TFLOPS FP32
+    num_cores = 20
+
+    clock = ClockDomain(
+        base_clock_hz=400e6,      # 400 MHz minimum
+        max_boost_clock_hz=950e6, # 950 MHz max
+        sustained_clock_hz=848e6, # 848 MHz typical (Google Tensor)
+        dvfs_enabled=True,
+    )
+
+    compute_resource = ComputeResource(
+        resource_type="ARM-Mali-G78-MP20",
+        num_units=num_cores,
+        ops_per_unit_per_clock={
+            # Each core: 97 GFLOPS @ 848 MHz → 114 ops/cycle
+            Precision.FP32: 114,   # 114 FP32 ops/cycle/core
+            Precision.FP16: 228,   # 228 FP16 ops/cycle/core (2× FP32)
+            Precision.INT8: 114,   # ~114 INT8 ops/cycle/core (not optimized)
+            Precision.INT16: 114,  # Similar to FP16 throughput
+        },
+        clock_domain=clock,
+    )
+
+    # Peak FP32: 20 cores × 114 ops/cycle × 848 MHz = 1.93 TFLOPS ✓
+
+    thermal_5w = ThermalOperatingPoint(
+        name="5W-mobile-gaming",
+        tdp_watts=5.0,
+        cooling_solution="passive-mobile",
+        performance_specs={
+            Precision.FP32: PerformanceCharacteristics(
+                precision=Precision.FP32,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.85,  # Graphics GPU efficiency
+                memory_bottleneck_factor=0.65,  # Mobile bandwidth constraints
+                efficiency_factor=0.60,  # Graphics workload optimized
+                tile_utilization=0.75,
+                native_acceleration=True,
+            ),
+            Precision.FP16: PerformanceCharacteristics(
+                precision=Precision.FP16,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.88,
+                memory_bottleneck_factor=0.70,
+                efficiency_factor=0.65,
+                tile_utilization=0.80,
+                native_acceleration=True,
+            ),
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource,
+                instruction_efficiency=0.70,  # Not optimized for INT8 AI
+                memory_bottleneck_factor=0.65,
+                efficiency_factor=0.50,  # Lower for AI workloads
+                tile_utilization=0.70,
+                native_acceleration=False,  # No tensor cores
+            ),
+        }
+    )
+
+    return HardwareResourceModel(
+        name="ARM-Mali-G78-MP20",
+        hardware_type=HardwareType.GPU,
+        compute_units=num_cores,
+        threads_per_unit=256,  # Warp size 16 × 16 execution lanes
+        warps_per_unit=16,
+        warp_size=16,
+
+        thermal_operating_points={
+            "5W": thermal_5w,
+        },
+        default_thermal_profile="5W",
+
+        precision_profiles={
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=1.94e12,  # 1.94 TFLOPS FP32
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=3.88e12,  # 3.88 TFLOPS FP16
+                tensor_core_supported=False,
+                relative_speedup=2.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=1.94e12,  # ~2 TOPS INT8 (not optimized)
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=1,
+            ),
+        },
+        default_precision=Precision.FP16,  # Mobile GPU default
+
+        # Memory (typical mobile SoC integration)
+        peak_bandwidth=40e9,  # 40 GB/s (typical for mobile SoC)
+        l1_cache_per_unit=32 * 1024,  # 32 KB per core
+        l2_cache_total=2 * 1024 * 1024,  # 2 MB shared L2
+        main_memory=8 * 1024**3,  # Up to 8 GB
+
+        # Energy (mobile-optimized)
+        energy_per_flop_fp32=2.0e-12,  # 2.0 pJ/FLOP
+        energy_per_byte=15e-12,  # 15 pJ/byte (mobile DRAM)
+        energy_scaling={
+            Precision.INT8: 0.20,
+            Precision.INT16: 0.30,
+            Precision.FP16: 0.50,
+            Precision.FP32: 1.0,
+        },
+
+        min_occupancy=0.60,
+        max_concurrent_kernels=32,  # High parallelism for graphics
+        wave_quantization=16,  # Process in groups of 16 threads (warp size)
+    )

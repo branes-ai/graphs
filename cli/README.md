@@ -181,6 +181,56 @@ python cli/compare_i7_12700k_mappers.py
 
 ---
 
+### `compare_ip_cores.py`
+Compare licensable AI/compute IP cores for custom SoC integration.
+
+**Usage:**
+```bash
+# Run IP core comparison
+python cli/compare_ip_cores.py
+```
+
+**Features:**
+- **Traditional Architectures** (Stored-Program Extensions):
+  * CEVA NeuPro-M NPM11: 20 TOPS INT8 @ 2W (DSP + NPU)
+  * Cadence Tensilica Vision Q8: 3.8 TOPS INT8 @ 1W (Vision DSP)
+  * Synopsys ARC EV7x: 35 TOPS INT8 @ 5W (CPU + VPU + DNN)
+  * ARM Mali-G78 MP20: 1.94 TFLOPS FP32 @ 5W (GPU)
+
+- **Dataflow Architectures** (AI-Native):
+  * KPU-T64: 6.9 TOPS INT8 @ 6W (64-tile dataflow)
+  * KPU-T256: 33.8 TOPS INT8 @ 30W (256-tile dataflow)
+
+- **Models**: ResNet-50, DeepLabV3+, ViT-Base
+- **Metrics**: Peak TOPS, latency, FPS/W, architecture comparison
+
+**Output:**
+```
+ALL IP CORES - COMPREHENSIVE RESULTS
+-------------------------------------------------------
+IP Core                Vendor      Type              Power  Latency    FPS     FPS/W   Util%
+CEVA NeuPro-M NPM11    CEVA        DSP+NPU IP        2.0    150.57     6.6     3.32    29.3
+Cadence Vision Q8      Cadence     Vision DSP IP     1.0    225.30     4.4     4.44    47.7
+Synopsys ARC EV7x      Synopsys    CPU+VPU+DNN IP    5.0    364.06     2.7     0.55    14.7
+ARM Mali-G78 MP20      ARM         GPU IP            5.0    1221.83    0.8     0.16    99.2
+KPU-T64                KPU         Dataflow NPU IP   6.0    4.19       238.8   39.79   98.8
+KPU-T256               KPU         Dataflow NPU IP   30.0   1.12       893.2   29.77   90.9
+```
+
+**Key Insight:**
+KPU dataflow architecture achieves superior efficiency through AI-native design,
+not just higher power. Traditional IPs extend stored-program machines, while KPU
+is purpose-built for AI workloads from the ground up.
+
+**Typical Use Cases:**
+- Mobile flagship: CEVA NeuPro, ARM Mali-G78
+- Automotive ADAS: Synopsys ARC EV7x (traditional), KPU-T64/T256 (dataflow)
+- Edge AI / Embodied AI: KPU-T64/T256
+- Edge servers: KPU-T256
+- Base station servers: KPU-T768 (larger variant)
+
+---
+
 ## Common Usage Patterns
 
 ### Quick Model Analysis
