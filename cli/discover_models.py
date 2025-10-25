@@ -83,9 +83,9 @@ def discover_models(verbose: bool = False, skip_patterns: list = None):
     print("\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)
-    print(f"\n✓ FX-traceable:  {len(traceable)} models")
-    print(f"✗ Failed:        {len(failed)} models")
-    print(f"⊘ Skipped:       {len(skipped)} models (detection/segmentation/video/quantized)")
+    print(f"\nFX-traceable:  {len(traceable)} models")
+    print(f"  Failed:        {len(failed)} models")
+    print(f"  Skipped:       {len(skipped)} models (detection/segmentation/video/quantized)")
 
     # Show traceable models by family
     print("\n" + "=" * 80)
@@ -152,6 +152,9 @@ Examples:
 
   # Test a specific model
   python cli/discover_models.py --test-model resnet18
+
+  # Scan registery
+  python cli/discover_models.py --skip-patterns fcos vit ssd
         """
     )
 
@@ -164,6 +167,9 @@ Examples:
     parser.add_argument('--test-model', type=str,
                        help='Test a specific model')
 
+    parser.add_argument('--skip-patterns', type=str, nargs='*',
+                       help='Space-separated skip patterns to filter out torchvision models')
+
     args = parser.parse_args()
 
     if args.test_model:
@@ -175,7 +181,7 @@ Examples:
             print(f"\n✗ {args.test_model} is NOT FX-traceable")
     else:
         # Full discovery
-        traceable, failed, skipped = discover_models(verbose=args.verbose)
+        traceable, failed, skipped = discover_models(verbose=args.verbose, skip_patterns=args.skip_patterns)
 
         if args.generate_code:
             generate_registry_code(traceable)

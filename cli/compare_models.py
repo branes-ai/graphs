@@ -18,20 +18,30 @@ import sys
 import argparse
 sys.path.insert(0, 'src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.concurrency_analyzer import ConcurrencyAnalyzer
+from graphs.transform.partitioning.graph_partitioner import GraphPartitioner
+from graphs.analysis.concurrency import ConcurrencyAnalyzer
 
 
 # Model definitions
 AVAILABLE_MODELS = {
     'resnet18': lambda: models.resnet18(weights=None),
     'resnet50': lambda: models.resnet50(weights=None),
+    'resnet101': lambda: models.resnet101(weights=None),
     'mobilenet_v2': lambda: models.mobilenet_v2(weights=None),
     'mobilenet_v3_small': lambda: models.mobilenet_v3_small(weights=None),
     'mobilenet_v3_large': lambda: models.mobilenet_v3_large(weights=None),
     'efficientnet_b0': lambda: models.efficientnet_b0(weights=None),
     'efficientnet_b2': lambda: models.efficientnet_b2(weights=None),
     'vgg16': lambda: models.vgg16(weights=None),
+    'densenet121': lambda: models.densenet121(weights=None),
+    'shufflenet_v2_x1_0': lambda: models.shufflenet_v2_x1_0(weights=None),
+    'deeplabv3_resnet50': lambda: models.segmentation.deeplabv3_resnet50(weights=None),
+    'fcn_resnet50': lambda: models.segmentation.fcn_resnet50(weights=None),
+    'squeezenet1_0': lambda: models.squeezenet1_0(weights=None),
+    'vit_b_16': lambda: models.vit_b_16(weights=None),
+    'vit_l_16': lambda: models.vit_l_16(weights=None),
+    'vit_b_32': lambda: models.vit_b_32(weights=None),
+    'vit_l_32': lambda: models.vit_l_32(weights=None),
 }
 
 
@@ -213,8 +223,8 @@ def print_comparison_table(results):
 def main():
     parser = argparse.ArgumentParser(description='Compare neural network models')
     parser.add_argument('--models', nargs='+',
-                       help='Models to compare (default: resnet18, mobilenet_v2, efficientnet_b0)',
-                       default=['resnet18', 'mobilenet_v2', 'efficientnet_b0'])
+                       help='Models to compare (example: resnet18, mobilenet_v2, efficientnet_b0)',
+                       default=['squeezenet1_0', 'shufflenet_v2_x1_0', 'mobilenet_v3_small', 'mobilenet_v2', 'mobilenet_v3_large', 'efficientnet_b0', 'efficientnet_b2', 'densenet121', 'resnet18', 'fcn_resnet50', 'deeplabv3_resnet50', 'vit_b_16', 'vit_b_32', 'vgg16', 'vit_l_16', 'vit_l_32'])
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed progress')
 
