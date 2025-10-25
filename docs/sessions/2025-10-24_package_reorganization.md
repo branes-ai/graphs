@@ -422,30 +422,159 @@ All hardware validation scripts updated successfully:
 - ✅ All hardware validation scripts compile successfully
 
 ### Estimator Validation Scripts
-Estimator validation scripts flagged for future update:
-- `validation/estimators/test_conv2d.py`
-- `validation/estimators/test_efficientnet.py`
-- `validation/estimators/test_mobilenet.py`
-- `validation/estimators/test_resnet18.py`
-- `validation/estimators/test_resnet_family.py`
+All estimator validation scripts successfully migrated to FusionBasedPartitioner:
+- ✅ `validation/estimators/test_conv2d.py` - Migrated to FusionBasedPartitioner
+- ✅ `validation/estimators/test_efficientnet.py` - Migrated to FusionBasedPartitioner
+- ✅ `validation/estimators/test_mobilenet.py` - Migrated to FusionBasedPartitioner
+- ✅ `validation/estimators/test_resnet18.py` - Migrated to FusionBasedPartitioner
+- ✅ `validation/estimators/test_resnet_family.py` - Migrated to FusionBasedPartitioner
 
-**Status**: Deprecated imports commented out with TODO notes:
-```python
-# DEPRECATED: from src.graphs.characterize.arch_profiles import ...
-# DEPRECATED: from src.graphs.characterize.fused_ops import ...
-# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
-#
-# TODO: Update to use new partitioning system:
-#   from src.graphs.transform.partitioning import FusionBasedPartitioner
-#   from src.graphs.hardware.resource_model import Precision
-# See validation/hardware/test_all_hardware.py for example usage
-```
+**Changes Applied**:
+1. Updated imports to use new package structure:
+   ```python
+   from src.graphs.transform.partitioning import FusionBasedPartitioner
+   from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
+   from src.graphs.hardware.mappers.gpu import create_h100_mapper
+   from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
+   from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t100_mapper
+   from src.graphs.hardware.resource_model import Precision
+   ```
 
-These scripts use the old walker-based characterization system which has been replaced by `FusionBasedPartitioner`. They need to be refactored to use the new system (see `test_all_hardware.py` for the pattern).
+2. Replaced walker-based characterization with FusionBasedPartitioner workflow:
+   - Create partitioner and generate fusion report
+   - Extract execution stages from fused subgraphs
+   - Create hardware mappers using factory functions
+   - Map graph to each hardware architecture with specified precision
+
+3. Updated result handling to use HardwareAllocation objects instead of metrics dictionaries
+
+**Architecture Mappings**:
+- Old "CPU" profile → `create_intel_cpu_mapper("avx512")` or `create_amd_cpu_mapper()`
+- Old "GPU" profile → `create_h100_mapper()`
+- Old "TPU" profile → `create_tpu_v4_mapper()`
+- Old "KPU-T2/KPU-T100" profiles → `create_kpu_t100_mapper()`
+- Old "Intel Core i7" → `create_intel_cpu_mapper("avx512")`
+- Old "AMD Ryzen 7" → `create_amd_cpu_mapper()`
 
 ---
 
-**Migration Status**: ✅ Phase 1 Complete (Package + Tests + Validation)
+**Migration Status**: ✅ Phase 1 Complete (Package + Tests + Validation + Estimators)
 **Next Steps**:
 - Phase 2: Internal refactoring and further modularization
-- Update estimator validation scripts to use FusionBasedPartitioner
+- Test estimator validation scripts to ensure they run correctly
+
+---
+
+## Stillwater KPU Model Updates (2025-10-24)
+
+### KPU Manufacturer Correction
+
+**Issue**: Hardware mappers incorrectly labeled KPU as "Kendryte KPU" with T100/T300 models.
+**Correction**: KPU is manufactured by **Stillwater** with T64/T256/T768 variants.
+
+### Model Changes
+
+**Deleted (obsolete models)**:
+- `kpu_t100_resource_model()` (100 tiles) - 352 lines
+- `kpu_t300_resource_model()` (300 tiles) - 308 lines
+
+**Added (correct models)**:
+- ✅ `kpu_t64_resource_model()` - 64 tiles (44 INT8, 13 BF16, 7 Matrix)
+  - Target: Embodied AI, battery-powered drones, robots
+  - Power profiles: 3W, 6W, 10W
+  - Architecture: 8×8 grid
+
+- ✅ `kpu_t256_resource_model()` - 256 tiles (179 INT8, 51 BF16, 26 Matrix)
+  - Target: High-performance edge, datacenter inference, autonomous vehicles
+  - Power profiles: 15W, 30W, 50W
+  - Architecture: 16×16 grid
+
+- ✅ `kpu_t768_resource_model()` - 768 tiles (537 INT8, 154 BF16, 77 Matrix)
+  - Target: Datacenter AI inference, high-throughput serving, LLM inference
+  - Power profiles: 30W, 60W, 100W
+  - Architecture: 32×24 grid
+
+### Deployment Categorization
+
+All Stillwater KPU models are categorized under **"Embodied AI"** deployment:
+- T64: Battery-powered embodied AI (drones, robots, wearables)
+- T256: High-performance embodied AI (autonomous vehicles, edge servers)
+- T768: Datacenter embodied AI (LLM serving, high-throughput inference)
+
+### Files Updated
+
+**Core Hardware Models** (3 files):
+- `src/graphs/hardware/resource_model.py`:
+  - Deleted T100 (lines 867-1218)
+  - Deleted T300 (lines 1219-1526)
+  - Added T768 (273 lines)
+  - Updated T64/T256 names to include "Stillwater" prefix
+
+- `src/graphs/hardware/mappers/accelerators/kpu.py`:
+  - Added `create_kpu_t768_mapper()` factory function
+  - Updated comments to be generic (removed "100 tiles for T100")
+  - Updated docstrings to include "Stillwater" manufacturer
+
+- `cli/list_hardware_mappers.py`:
+  - Replaced Kendryte KPU T100 with Stillwater KPU-T64
+  - Added Stillwater KPU-T256
+  - Added Stillwater KPU-T768
+  - All KPUs labeled with deployment="Embodied AI"
+  - Updated manufacturer from "Kendryte" to "Stillwater"
+
+**Validation Scripts** (10 files):
+- `validation/estimators/test_conv2d.py`
+- `validation/estimators/test_resnet18.py`
+- `validation/estimators/test_resnet_family.py`
+- `validation/estimators/test_mobilenet.py`
+- `validation/estimators/test_efficientnet.py`
+- `validation/hardware/test_all_hardware.py`
+- `validation/hardware/test_cgra_mapper.py`
+- `validation/hardware/test_dpu_mapper.py`
+- `validation/hardware/test_gpu_cpu_kpu_comparison.py`
+- `validation/hardware/test_kpu_simple.py`
+
+All updated to:
+- Import `create_kpu_t64_mapper` instead of `create_kpu_t100_mapper`
+- Import `create_kpu_t256_mapper` instead of `create_kpu_t300_mapper`
+- Reference "Stillwater KPU-T64/T256" instead of "KPU-T100/T300"
+
+### Key Specifications
+
+**Stillwater KPU-T64** (Embodied AI - Edge):
+- 64 heterogeneous tiles (44/13/7 INT8/BF16/Matrix)
+- 63.8 TOPS INT8 @ 6W (default)
+- 128 GB/s memory bandwidth
+- Target: Robots, drones, edge devices
+- Efficiency: 60-70% empirical derate (vs Jetson's 4%)
+
+**Stillwater KPU-T256** (Embodied AI - High-Performance):
+- 256 heterogeneous tiles (179/51/26)
+- 255.4 TOPS INT8 @ 30W (default)
+- 256 GB/s memory bandwidth
+- Target: Autonomous vehicles, high-throughput edge
+- Efficiency: 68-80% empirical derate
+
+**Stillwater KPU-T768** (Embodied AI - Datacenter):
+- 768 heterogeneous tiles (537/154/77)
+- 130.1 TOPS INT8 @ 60W (default, up to 260 TOPS @ 100W)
+- 512 GB/s memory bandwidth
+- Target: Datacenter inference, LLM serving
+- Efficiency: 75-85% empirical derate
+
+### Verification
+
+✅ All models created successfully
+✅ Factory functions added and tested
+✅ CLI discovery tool updated
+✅ All validation scripts updated
+✅ Manufacturer corrected to "Stillwater"
+✅ Deployment category set to "Embodied AI"
+
+---
+
+**Total Lines Changed**:
+- Deleted: 660 lines (T100 + T300 models)
+- Added: 273 lines (T768 model)
+- Modified: ~30 files (import updates, name corrections)
+- Net change: -387 lines

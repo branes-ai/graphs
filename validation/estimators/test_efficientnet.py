@@ -11,17 +11,12 @@ import pandas as pd
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-# DEPRECATED: from src.graphs.characterize.arch_profiles import (
-    intel_i7_profile, amd_ryzen7_profile, h100_pcie_profile,
-    tpu_v4_profile, kpu_t2_profile, kpu_t100_profile
-)
-# DEPRECATED: from src.graphs.characterize.fused_ops import default_registry
-# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
-#
-# TODO: Update to use new partitioning system:
-#   from src.graphs.transform.partitioning import FusionBasedPartitioner
-#   from src.graphs.hardware.resource_model import Precision
-# See validation/hardware/test_all_hardware.py for example usage
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
+from src.graphs.hardware.resource_model import Precision
 
 def format_number(n):
     """Format large numbers with SI prefixes"""
@@ -52,34 +47,57 @@ def characterize_model(model, model_name, batch_size=1):
         shape_prop = ShapeProp(fx_graph)
         shape_prop.propagate(input_tensor)
 
-        # Characterize across architectures
-        registry = default_registry()
+        # Partition the graph
+        partitioner = FusionBasedPartitioner()
+        fusion_report = partitioner.partition(fx_graph)
+
+        # Extract execution stages
+        def extract_execution_stages(fusion_report):
+            subgraphs = fusion_report.fused_subgraphs
+            n = len(subgraphs)
+            if n == 0:
+                return []
+            stages = []
+            i = 0
+            while i < n:
+                stage_size = min(3, n - i)
+                stages.append(list(range(i, i + stage_size)))
+                i += stage_size
+            return stages
+
+        execution_stages = extract_execution_stages(fusion_report)
+
+        # Create hardware mappers
+        mappers = {
+            "Intel Core i7": create_intel_cpu_mapper("avx512"),
+            "AMD Ryzen 7": create_amd_cpu_mapper(),
+            "H100-PCIe": create_h100_mapper(),
+            "TPU v4": create_tpu_v4_mapper(),
+            "Stillwater KPU-T64": create_kpu_t64_mapper(),
+        }
+
         results = []
+        for arch_name, mapper in mappers.items():
+            try:
+                allocation = mapper.map_graph(
+                    fusion_report=fusion_report,
+                    execution_stages=execution_stages,
+                    batch_size=batch_size,
+                    precision=Precision.FP32
+                )
 
-        architectures = [
-            ("Intel Core i7", intel_i7_profile),
-            ("AMD Ryzen 7", amd_ryzen7_profile),
-            ("H100-PCIe", h100_pcie_profile),
-            ("TPU v4", tpu_v4_profile),
-            ("KPU-T2", kpu_t2_profile),
-            ("KPU-T100", kpu_t100_profile)
-        ]
-
-        for arch_name, arch_profile in architectures:
-            walker = FXGraphWalker(arch_profile, registry)
-            metrics = walker.walk(fx_graph)
-
-            results.append({
-                "Model": model_name,
-                "Architecture": arch_name,
-                "Batch": batch_size,
-                "Parameters": total_params,
-                "FLOPs": metrics['FLOPs'],
-                "Memory_MB": metrics['Memory'] / (1024**2),
-                "Tiles": metrics['Tiles'],
-                "Latency_ms": metrics['Latency'] * 1000,
-                "Energy_J": metrics['Energy']
-            })
+                results.append({
+                    "Model": model_name,
+                    "Architecture": arch_name,
+                    "Batch": batch_size,
+                    "Parameters": total_params,
+                    "FLOPs": fusion_report.total_flops,
+                    "Latency_ms": allocation.total_latency * 1000,
+                    "Energy_J": allocation.total_energy,
+                    "Utilization": allocation.average_utilization
+                })
+            except Exception as e:
+                print(f"   ✗ {arch_name} failed: {e}")
 
         return results, total_params
 
@@ -139,7 +157,7 @@ def main():
     summary['FLOPs_G'] = summary['FLOPs'] / 1e9
     summary['Params_M'] = summary['Parameters'] / 1e6
 
-    print(summary[['Model', 'Params_M', 'FLOPs_G', 'Memory_MB', 'Tiles', 'Latency_ms']].to_string(index=False))
+    print(summary[['Model', 'Params_M', 'FLOPs_G', 'Latency_ms', 'Utilization']].to_string(index=False))
 
     # Comparison with ResNet-18 (reference)
     print("\n" + "=" * 80)
@@ -166,12 +184,12 @@ def main():
 
     print(h100_df[['Model', 'Latency_ms', 'Throughput_FPS']].to_string(index=False))
 
-    # Edge deployment comparison (KPU-T2)
+    # Edge deployment comparison (KPU-T100)
     print("\n" + "=" * 80)
-    print("Edge Deployment (KPU-T2 - IoT/Battery-Powered)")
+    print("Edge Deployment (KPU-T100 - IoT/Battery-Powered)")
     print("=" * 80)
 
-    kpu_df = df[df['Architecture'] == 'KPU-T2'].copy()
+    kpu_df = df[df['Architecture'] == 'KPU-T100'].copy()
     kpu_df = kpu_df.sort_values('Energy_J')
     kpu_df['Throughput_FPS'] = 1000 / kpu_df['Latency_ms']
 

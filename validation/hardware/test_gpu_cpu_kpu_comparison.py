@@ -10,7 +10,7 @@ This script compares GPU, CPU, and KPU hardware mapping to understand:
 Expected results for ResNet-18:
 - GPU (H100): Fastest absolute performance, best for quantized models
 - CPU (Intel): Slowest, bandwidth-bound, good for small batch
-- KPU (T100): Middle ground, optimized for INT8, very energy efficient
+- Stillwater KPU-T64: Middle ground, optimized for INT8, very energy efficient
 """
 
 import torch
@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from src.graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
 from src.graphs.hardware.mappers.gpu import create_h100_mapper
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
-from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t100_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
 from src.graphs.hardware.resource_model import Precision
 
 
@@ -82,7 +82,7 @@ def test_gpu_cpu_kpu_comparison():
         "Intel CPU (AVX-512)": create_intel_cpu_mapper("avx512"),
         "Intel CPU (AVX-2)": create_intel_cpu_mapper("avx2"),
         "AMD CPU (AVX-2)": create_amd_cpu_mapper(),
-        "KPU-T100 (Edge)": create_kpu_t100_mapper(),
+        "Stillwater KPU-T64 (Edge)": create_kpu_t64_mapper(),
     }
 
     print()
@@ -177,7 +177,7 @@ def test_gpu_cpu_kpu_comparison():
     print("-" * 70)
 
     precision = Precision.INT8
-    for hw_name in ["H100 GPU", "KPU-T100 (Edge)", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "Stillwater KPU-T64 (Edge)", "Intel CPU (AVX-512)"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -262,7 +262,7 @@ def test_gpu_cpu_kpu_comparison():
     gpu_int8 = results.get(("H100 GPU", Precision.INT8))
     cpu_fp32 = results.get(("Intel CPU (AVX-512)", Precision.FP32))
     cpu_int8 = results.get(("Intel CPU (AVX-512)", Precision.INT8))
-    kpu_int8 = results.get(("KPU-T100 (Edge)", Precision.INT8))
+    kpu_int8 = results.get(("Stillwater KPU-T64 (Edge)", Precision.INT8))
 
     print(f"1. **GPU vs KPU vs CPU Performance (INT8)**:")
     if gpu_int8 and kpu_int8 and cpu_int8:
@@ -271,7 +271,7 @@ def test_gpu_cpu_kpu_comparison():
         cpu_latency = cpu_int8.total_latency * 1000
 
         print(f"   - GPU (H100): {gpu_latency:.3f} ms (fastest)")
-        print(f"   - KPU (T100): {kpu_latency:.3f} ms ({cpu_latency/kpu_latency:.1f}× faster than CPU)")
+        print(f"   - Stillwater KPU-T64: {kpu_latency:.3f} ms ({cpu_latency/kpu_latency:.1f}× faster than CPU)")
         print(f"   - CPU (AVX-512): {cpu_latency:.3f} ms (slowest)")
         print(f"   - KPU provides {cpu_latency/kpu_latency:.1f}× speedup over CPU with 10× better energy efficiency")
     print()
@@ -281,7 +281,7 @@ def test_gpu_cpu_kpu_comparison():
         gpu_speedup = gpu_fp32.total_latency / gpu_int8.total_latency
         print(f"   - GPU: INT8 is {gpu_speedup:.1f}× faster than FP32 (Tensor Cores)")
     if kpu_int8:
-        kpu_fp32 = results.get(("KPU-T100 (Edge)", Precision.FP32))
+        kpu_fp32 = results.get(("Stillwater KPU-T64 (Edge)", Precision.FP32))
         if kpu_fp32:
             kpu_speedup = kpu_fp32.total_latency / kpu_int8.total_latency
             print(f"   - KPU: INT8 is {kpu_speedup:.1f}× faster than FP32 (optimized for quantization)")
@@ -297,7 +297,7 @@ def test_gpu_cpu_kpu_comparison():
         cpu_energy = cpu_int8.total_energy
 
         print(f"   - GPU (H100): {gpu_energy:.3f} J/inference")
-        print(f"   - KPU (T100): {kpu_energy:.3f} J/inference ({gpu_energy/kpu_energy:.1f}× better than GPU!)")
+        print(f"   - Stillwater KPU-T64: {kpu_energy:.3f} J/inference ({gpu_energy/kpu_energy:.1f}× better than GPU!)")
         print(f"   - CPU: {cpu_energy:.3f} J/inference (least efficient)")
         print(f"   - KPU is the energy efficiency winner for edge deployment")
     print()

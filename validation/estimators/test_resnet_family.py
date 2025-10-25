@@ -11,14 +11,12 @@ import pandas as pd
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-# DEPRECATED: from src.graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
-# DEPRECATED: from src.graphs.characterize.fused_ops import default_registry
-# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
-#
-# TODO: Update to use new partitioning system:
-#   from src.graphs.transform.partitioning import FusionBasedPartitioner
-#   from src.graphs.hardware.resource_model import Precision
-# See validation/hardware/test_all_hardware.py for example usage
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
+from src.graphs.hardware.resource_model import Precision
 
 def format_number(n):
     """Format large numbers with SI prefixes"""
@@ -49,26 +47,56 @@ def characterize_model(model, model_name, batch_size=1):
         shape_prop = ShapeProp(fx_graph)
         shape_prop.propagate(input_tensor)
 
-        # Characterize across architectures
-        registry = default_registry()
+        # Partition the graph
+        partitioner = FusionBasedPartitioner()
+        fusion_report = partitioner.partition(fx_graph)
+
+        # Extract execution stages
+        def extract_execution_stages(fusion_report):
+            subgraphs = fusion_report.fused_subgraphs
+            n = len(subgraphs)
+            if n == 0:
+                return []
+            stages = []
+            i = 0
+            while i < n:
+                stage_size = min(3, n - i)
+                stages.append(list(range(i, i + stage_size)))
+                i += stage_size
+            return stages
+
+        execution_stages = extract_execution_stages(fusion_report)
+
+        # Create hardware mappers
+        mappers = {
+            "CPU": create_intel_cpu_mapper("avx512"),
+            "GPU": create_h100_mapper(),
+            "TPU": create_tpu_v4_mapper(),
+            "Stillwater KPU-T64": create_kpu_t64_mapper(),
+        }
+
         results = []
+        for arch_name, mapper in mappers.items():
+            try:
+                allocation = mapper.map_graph(
+                    fusion_report=fusion_report,
+                    execution_stages=execution_stages,
+                    batch_size=batch_size,
+                    precision=Precision.FP32
+                )
 
-        for arch_name, arch_profile in [("CPU", cpu_profile), ("GPU", gpu_profile),
-                                         ("TPU", tpu_profile), ("KPU", kpu_profile)]:
-            walker = FXGraphWalker(arch_profile, registry)
-            metrics = walker.walk(fx_graph)
-
-            results.append({
-                "Model": model_name,
-                "Architecture": arch_name,
-                "Batch": batch_size,
-                "Parameters": total_params,
-                "FLOPs": metrics['FLOPs'],
-                "Memory_MB": metrics['Memory'] / (1024**2),
-                "Tiles": metrics['Tiles'],
-                "Latency_ms": metrics['Latency'] * 1000,
-                "Energy_J": metrics['Energy']
-            })
+                results.append({
+                    "Model": model_name,
+                    "Architecture": arch_name,
+                    "Batch": batch_size,
+                    "Parameters": total_params,
+                    "FLOPs": fusion_report.total_flops,
+                    "Latency_ms": allocation.total_latency * 1000,
+                    "Energy_J": allocation.total_energy,
+                    "Utilization": allocation.average_utilization
+                })
+            except Exception as e:
+                print(f"   ✗ {arch_name} failed: {e}")
 
         return results, total_params
 
@@ -124,7 +152,7 @@ def main():
     summary['FLOPs_G'] = summary['FLOPs'] / 1e9
     summary['Params_M'] = summary['Parameters'] / 1e6
 
-    print(summary[['Model', 'Params_M', 'FLOPs_G', 'Memory_MB', 'Tiles', 'Latency_ms']].to_string(index=False))
+    print(summary[['Model', 'Params_M', 'FLOPs_G', 'Latency_ms', 'Utilization']].to_string(index=False))
 
     # GPU Performance comparison
     print("\n" + "=" * 80)
