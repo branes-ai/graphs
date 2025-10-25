@@ -92,7 +92,7 @@ class KPUMapper(HardwareMapper):
             raise ValueError(f"KPUMapper requires KPU resource model, got {resource_model.hardware_type}")
 
         # KPU-specific parameters
-        self.num_tiles = resource_model.compute_units  # 100 tiles for T100
+        self.num_tiles = resource_model.compute_units  # 64, 256, or 768 tiles
         self.scratchpad_per_tile = resource_model.l1_cache_per_unit  # 256KB
         self.threads_per_tile = resource_model.threads_per_unit  # 256 threads
 
@@ -443,43 +443,9 @@ class KPUMapper(HardwareMapper):
         )
 
 
-def create_kpu_t100_mapper(thermal_profile: str = None) -> KPUMapper:
-    """
-    Create KPU mapper for KPU-T100 (high-performance edge AI accelerator).
-
-    Args:
-        thermal_profile: Thermal profile name (e.g., "6W", "12W", "24W")
-                        If None, uses default ("6W")
-
-    Returns:
-        KPUMapper configured for KPU-T100 with heterogeneous tiles (70/20/10)
-    """
-    from ...resource_model import kpu_t100_resource_model
-
-    model = kpu_t100_resource_model()
-    return KPUMapper(model, thermal_profile=thermal_profile)
-
-
-def create_kpu_t300_mapper(thermal_profile: str = None) -> KPUMapper:
-    """
-    Create KPU mapper for KPU-T300 (automotive AI accelerator).
-
-    Args:
-        thermal_profile: Thermal profile name (e.g., "12.5W", "25W", "50W")
-                        If None, uses default ("25W")
-
-    Returns:
-        KPUMapper configured for KPU-T300 with heterogeneous tiles (210/60/30)
-    """
-    from ...resource_model import kpu_t300_resource_model
-
-    model = kpu_t300_resource_model()
-    return KPUMapper(model, thermal_profile=thermal_profile)
-
-
 def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
     """
-    Create KPU mapper for KPU-T64 (edge AI / embodied AI accelerator).
+    Create KPU mapper for Stillwater KPU-T64 (edge AI / embodied AI accelerator).
 
     Args:
         thermal_profile: Thermal profile name (e.g., "3W", "6W", "10W")
@@ -496,7 +462,7 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
 
 def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     """
-    Create KPU mapper for KPU-T256 (high-performance edge/datacenter AI).
+    Create KPU mapper for Stillwater KPU-T256 (high-performance edge/datacenter AI).
 
     Args:
         thermal_profile: Thermal profile name (e.g., "15W", "30W", "50W")
@@ -508,4 +474,21 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     from ...resource_model import kpu_t256_resource_model
 
     model = kpu_t256_resource_model()
+    return KPUMapper(model, thermal_profile=thermal_profile)
+
+
+def create_kpu_t768_mapper(thermal_profile: str = None) -> KPUMapper:
+    """
+    Create KPU mapper for Stillwater KPU-T768 (datacenter AI inference).
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "30W", "60W", "100W")
+                        If None, uses default ("60W")
+
+    Returns:
+        KPUMapper configured for KPU-T768 with heterogeneous tiles (537/154/77)
+    """
+    from ...resource_model import kpu_t768_resource_model
+
+    model = kpu_t768_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)

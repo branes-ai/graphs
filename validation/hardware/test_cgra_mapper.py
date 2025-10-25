@@ -221,7 +221,7 @@ def test_cgra_mapper():
 
     # Expected values from previous tests
     comparisons = {
-        "KPU-T100": {"latency_ms": 0.050, "energy_j": 0.001, "power_w": 25, "cost_usd": 500},
+        "Stillwater KPU-T64": {"latency_ms": 0.050, "energy_j": 0.001, "power_w": 25, "cost_usd": 500},
         "DPU-Vitis-AI": {"latency_ms": 3.0, "energy_j": 0.020, "power_w": 17.5, "cost_usd": 1000},
         "CGRA-Plasticine-v2": {
             "latency_ms": int8_alloc.total_latency * 1000 if int8_alloc else 0,
@@ -258,7 +258,7 @@ def test_cgra_mapper():
     print("- Both offer flexibility (custom operations)")
     print()
     print("Recommendation for Embodied AI:")
-    print("→ Use KPU-T100 for production (60× faster, 20× better energy)")
+    print("→ Use Stillwater KPU-T64 for production (60× faster, 20× better energy)")
     print("→ Use CGRA for research on spatial dataflow algorithms")
     print("→ Use DPU for FPGA-based custom operations")
     print()

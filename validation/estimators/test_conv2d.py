@@ -9,15 +9,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.graphs.models.conv2d_stack import make_conv2d
-# DEPRECATED: from src.graphs.characterize.arch_profiles import cpu_profile
-# DEPRECATED: from src.graphs.characterize.fused_ops import default_registry
-# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
-#
-# TODO: Update to use new partitioning system:
-#   from src.graphs.transform.partitioning import FusionBasedPartitioner
-#   from src.graphs.hardware.resource_model import Precision
-# See validation/hardware/test_all_hardware.py for example usage
+from src.graphs.subgraphs.conv2d_stack import make_conv2d
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper
+from src.graphs.hardware.resource_model import Precision
 
 def main():
     print("=" * 60)
@@ -51,21 +46,48 @@ def main():
 
     # Test characterization
     print("\n4. Running characterization...")
-    registry = default_registry()
-    walker = FXGraphWalker(cpu_profile, registry)
-    metrics = walker.walk(fx_graph)
+
+    # Partition the graph
+    partitioner = FusionBasedPartitioner()
+    fusion_report = partitioner.partition(fx_graph)
+
+    # Extract execution stages
+    def extract_execution_stages(fusion_report):
+        subgraphs = fusion_report.fused_subgraphs
+        n = len(subgraphs)
+        if n == 0:
+            return []
+        stages = []
+        i = 0
+        while i < n:
+            stage_size = min(3, n - i)
+            stages.append(list(range(i, i + stage_size)))
+            i += stage_size
+        return stages
+
+    execution_stages = extract_execution_stages(fusion_report)
+
+    # Create CPU mapper and run mapping
+    cpu_mapper = create_intel_cpu_mapper("avx512")
+    allocation = cpu_mapper.map_graph(
+        fusion_report=fusion_report,
+        execution_stages=execution_stages,
+        batch_size=32,
+        precision=Precision.FP32
+    )
 
     print("\n" + "=" * 60)
     print("Results:")
     print("=" * 60)
-    for key, value in metrics.items():
-        if key in ['FLOPs', 'Memory']:
-            print(f"{key:12s}: {value:,}")
-        else:
-            print(f"{key:12s}: {value}")
+    print(f"FLOPs       : {fusion_report.total_flops:,}")
+    print(f"Subgraphs   : {fusion_report.total_subgraphs}")
+    print(f"Stages      : {allocation.total_execution_stages}")
+    print(f"Latency     : {allocation.total_latency:.6f} seconds")
+    print(f"Energy      : {allocation.total_energy:.6f} Joules")
+    print(f"Utilization : {allocation.average_utilization:.1%}")
 
     # Verify non-zero
-    if metrics['FLOPs'] > 0:
+    if fusion_report.total_flops > 0:
         print("\n✓ SUCCESS: Conv2D characterization working!")
     else:
         print("\n✗ FAILED: Conv2D still producing zeros")

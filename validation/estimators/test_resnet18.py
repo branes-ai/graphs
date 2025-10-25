@@ -10,14 +10,12 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-# DEPRECATED: from src.graphs.characterize.arch_profiles import cpu_profile, gpu_profile, tpu_profile, kpu_profile
-# DEPRECATED: from src.graphs.characterize.fused_ops import default_registry
-# DEPRECATED: from src.graphs.characterize.walker import FXGraphWalker
-#
-# TODO: Update to use new partitioning system:
-#   from src.graphs.transform.partitioning import FusionBasedPartitioner
-#   from src.graphs.hardware.resource_model import Precision
-# See validation/hardware/test_all_hardware.py for example usage
+from src.graphs.transform.partitioning import FusionBasedPartitioner
+from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
+from src.graphs.hardware.resource_model import Precision
 
 def format_number(n):
     """Format large numbers with SI prefixes"""
@@ -106,26 +104,57 @@ def main():
     print("\n6. Running characterization across architectures...")
     print("-" * 70)
 
-    registry = default_registry()
-    architectures = [
-        ("CPU", cpu_profile),
-        ("GPU", gpu_profile),
-        ("TPU", tpu_profile),
-        ("KPU", kpu_profile)
-    ]
+    # Partition the graph using FusionBasedPartitioner
+    partitioner = FusionBasedPartitioner()
+    fusion_report = partitioner.partition(fx_graph)
+
+    # Extract execution stages (simple sequential grouping)
+    def extract_execution_stages(fusion_report):
+        subgraphs = fusion_report.fused_subgraphs
+        n = len(subgraphs)
+        if n == 0:
+            return []
+        stages = []
+        i = 0
+        while i < n:
+            stage_size = min(3, n - i)
+            stages.append(list(range(i, i + stage_size)))
+            i += stage_size
+        return stages
+
+    execution_stages = extract_execution_stages(fusion_report)
+
+    print(f"   Partitioned into {fusion_report.total_subgraphs} fused subgraphs")
+    print(f"   Total FLOPs: {format_number(fusion_report.total_flops)}")
+
+    # Create hardware mappers
+    mappers = {
+        "CPU (Intel)": create_intel_cpu_mapper("avx512"),
+        "CPU (AMD)": create_amd_cpu_mapper(),
+        "GPU (H100)": create_h100_mapper(),
+        "TPU (v4)": create_tpu_v4_mapper(),
+        "Stillwater KPU-T64": create_kpu_t64_mapper(),
+    }
 
     results = []
-    for arch_name, arch_profile in architectures:
-        walker = FXGraphWalker(arch_profile, registry)
-        metrics = walker.walk(fx_graph)
-        results.append((arch_name, metrics))
+    for arch_name, mapper in mappers.items():
+        try:
+            allocation = mapper.map_graph(
+                fusion_report=fusion_report,
+                execution_stages=execution_stages,
+                batch_size=batch_size,
+                precision=Precision.FP32
+            )
 
-        print(f"\n{arch_name}:")
-        print(f"   FLOPs:    {format_number(metrics['FLOPs']):>10s} ({metrics['FLOPs']:,})")
-        print(f"   Memory:   {format_number(metrics['Memory']):>10s} bytes")
-        print(f"   Tiles:    {metrics['Tiles']:>10,}")
-        print(f"   Latency:  {metrics['Latency']:>10.6f} seconds")
-        print(f"   Energy:   {metrics['Energy']:>10.6f} Joules")
+            results.append((arch_name, allocation))
+
+            print(f"\n{arch_name}:")
+            print(f"   FLOPs:    {format_number(fusion_report.total_flops):>10s} ({fusion_report.total_flops:,})")
+            print(f"   Latency:  {allocation.total_latency:>10.6f} seconds")
+            print(f"   Energy:   {allocation.total_energy:>10.6f} Joules")
+            print(f"   Util:     {allocation.average_utilization:>10.1%}")
+        except Exception as e:
+            print(f"\n{arch_name}: FAILED - {e}")
 
     # Theoretical comparison for ResNet-18
     print("\n" + "=" * 70)
@@ -134,22 +163,29 @@ def main():
     print("\nResNet-18 theoretical values (ImageNet, batch=1):")
     print("   FLOPs:    ~1.8 GFLOPs")
     print("   Params:   ~11.7M")
-    print(f"   Our FLOPs: {format_number(results[0][1]['FLOPs'])}")
+    print(f"   Our FLOPs: {format_number(fusion_report.total_flops)}")
     print(f"   Our Params: {format_number(total_params)}")
 
     # Check if we got reasonable results
-    measured_flops = results[0][1]['FLOPs']
-    if measured_flops > 1e9:  # At least 1 GFLOP
+    if fusion_report.total_flops > 1e9:  # At least 1 GFLOP
         print("\n✓ SUCCESS: ResNet-18 characterization produced reasonable results!")
 
         # Speedup comparison
         print("\n" + "=" * 70)
         print("Architecture Speedup Comparison (vs CPU)")
         print("=" * 70)
-        cpu_latency = results[0][1]['Latency']
-        for arch_name, metrics in results:
-            speedup = cpu_latency / metrics['Latency']
-            print(f"   {arch_name:10s}: {speedup:>8.2f}×")
+
+        # Get CPU baseline latency (first CPU result)
+        cpu_latency = None
+        for arch_name, allocation in results:
+            if "CPU" in arch_name:
+                cpu_latency = allocation.total_latency
+                break
+
+        if cpu_latency:
+            for arch_name, allocation in results:
+                speedup = cpu_latency / allocation.total_latency
+                print(f"   {arch_name:15s}: {speedup:>8.2f}×")
 
         return 0
     else:

@@ -864,669 +864,9 @@ def tpu_v4_resource_model() -> HardwareResourceModel:
     )
 
 
-def kpu_t100_resource_model() -> HardwareResourceModel:
-    """
-    KPU-T100 with heterogeneous tile allocation for embodied AI.
-
-    ============================================================================
-    WORKLOAD-DRIVEN SILICON ALLOCATION STRATEGY
-    ============================================================================
-
-    Goal: Characterize embodied AI workloads → allocate tiles optimally
-
-    Typical Embodied AI Workload Characterization:
-    - 70% of operations: INT8 Conv, pooling, detection heads
-    - 20% of operations: BF16 normalization, attention, tracking
-    - 10% of operations: Large matmuls (classification, embedding projection)
-
-    KPU T100 Silicon Allocation (100 tiles total):
-    - 70 tiles: INT8-optimized (16×8 array processors with INT8 MACs)
-    - 20 tiles: BF16-optimized (16×8 array processors with BF16 FMAs)
-    - 10 tiles: Matrix units (8×8 systolic arrays for large matmuls)
-
-    Key Advantages:
-    ✓ All precisions are NATIVE (no emulation/fallback)
-    ✓ Silicon matches workload distribution
-    ✓ Excellent tile utilization (minimal idle silicon)
-    ✓ 60-70% empirical derate (vs Jetson's 2-4%!)
-    ✓ No DVFS throttling (well-designed thermal solution @ 6W)
-
-    Comparison to Jetson Orin @ 15W:
-    - Jetson: 85 TOPS peak (GPU dense) → 5 TOPS effective (6% derate, severe DVFS throttling)
-    - KPU: 100 TOPS peak → 60 TOPS effective (60% derate, no throttling!)
-    - KPU delivers 12× higher effective performance at 40% of the power!
-    """
-    # Clock domain (no DVFS issues - well-designed thermal solution)
-    kpu_clock = ClockDomain(
-        base_clock_hz=900e6,         # 900 MHz base (conservative)
-        max_boost_clock_hz=1.0e9,    # 1 GHz boost
-        sustained_clock_hz=950e6,    # 950 MHz sustained (95% of boost!)
-        dvfs_enabled=True,
-    )
-
-    # ========================================================================
-    # TILE TYPE 1: INT8-Optimized Tiles (70 tiles = 70% silicon)
-    # ========================================================================
-    int8_tiles = TileSpecialization(
-        tile_type="INT8-primary",
-        num_tiles=70,
-        array_dimensions=(16, 8),  # 16×8 systolic array
-        pe_configuration="INT8-MAC",
-
-        ops_per_tile_per_clock={
-            Precision.INT8: 128,   # 16×8 = 128 MACs/clock (fully optimized)
-            Precision.INT4: 256,   # 2× throughput (packed INT4)
-            Precision.BF16: 32,    # Supported but not optimal (25% efficiency)
-        },
-
-        optimization_level={
-            Precision.INT8: 1.0,   # 100% optimized silicon
-            Precision.INT4: 1.0,   # Native packed support
-            Precision.BF16: 0.25,  # 25% efficiency (runs but slow)
-        },
-
-        clock_domain=kpu_clock,
-    )
-
-    # ========================================================================
-    # TILE TYPE 2: BF16-Optimized Tiles (20 tiles = 20% silicon)
-    # ========================================================================
-    bf16_tiles = TileSpecialization(
-        tile_type="BF16-primary",
-        num_tiles=20,
-        array_dimensions=(16, 8),
-        pe_configuration="BF16-FMA",
-
-        ops_per_tile_per_clock={
-            Precision.BF16: 128,   # 16×8 = 128 FMAs/clock (fully optimized)
-            Precision.FP32: 64,    # Supported (half rate)
-            Precision.INT8: 64,    # Supported but not optimal (50% efficiency)
-        },
-
-        optimization_level={
-            Precision.BF16: 1.0,
-            Precision.FP32: 0.5,
-            Precision.INT8: 0.5,   # Can run INT8, but inefficient
-        },
-
-        clock_domain=kpu_clock,
-    )
-
-    # ========================================================================
-    # TILE TYPE 3: Matrix Units (10 tiles = 10% silicon)
-    # ========================================================================
-    matrix_tiles = TileSpecialization(
-        tile_type="Matrix-8x8",
-        num_tiles=10,
-        array_dimensions=(8, 8),  # Systolic array for large matmuls
-        pe_configuration="Mixed-INT8-BF16-Matrix",
-
-        ops_per_tile_per_clock={
-            # 8×8 matrix unit with deep pipeline (8 stages)
-            Precision.INT8: 512,   # 8×8×8 = 512 ops/clock (high throughput!)
-            Precision.BF16: 256,   # Half rate for BF16
-        },
-
-        optimization_level={
-            Precision.INT8: 1.0,
-            Precision.BF16: 1.0,
-        },
-
-        clock_domain=kpu_clock,
-    )
-
-    # ========================================================================
-    # KPU Compute Resource (Heterogeneous Tiles)
-    # ========================================================================
-    kpu_compute = KPUComputeResource(
-        total_tiles=100,
-        tile_specializations=[int8_tiles, bf16_tiles, matrix_tiles],
-    )
-
-    # Performance calculations:
-    # INT8 peak: 70×128 + 20×64 + 10×512 = 8960 + 1280 + 5120 = 15,360 ops/clock
-    #           @ 1 GHz = 15.4 TOPS (theoretical peak)
-    # INT8 sustained: @ 950 MHz = 14.6 TOPS
-    # INT8 effective: 14.6 × 0.65 empirical = 9.5 TOPS (60% derate!)
-
-    # BF16 peak: 70×32 + 20×128 + 10×256 = 2240 + 2560 + 2560 = 7,360 ops/clock
-    #           @ 1 GHz = 7.4 TOPS
-    # BF16 effective: 7.0 × 0.60 = 4.2 TOPS
-
-    # INT4 peak: 70×256 = 17,920 ops/clock @ 1 GHz = 17.9 TOPS
-    # INT4 effective: 17.0 × 0.70 = 11.9 TOPS (even better!)
-
-    # ========================================================================
-    # THERMAL PROFILES for T100 (Embodied AI SKUs)
-    # ========================================================================
-
-    # 6W Profile: Battery-powered robots, drones (conservative)
-    thermal_6w = ThermalOperatingPoint(
-        name="6W-battery-optimized",
-        tdp_watts=6.0,
-        cooling_solution="passive-heatsink",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=kpu_compute,
-                efficiency_factor=0.65,  # 65%! (vs Jetson's 3%!)
-                tile_utilization=0.95,   # High tile utilization
-                native_acceleration=True,
-            ),
-            Precision.BF16: PerformanceCharacteristics(
-                precision=Precision.BF16,
-                compute_resource=kpu_compute,
-                efficiency_factor=0.60,
-                tile_utilization=0.85,
-                native_acceleration=True,
-            ),
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=kpu_compute,
-                efficiency_factor=0.70,
-                tile_utilization=0.95,
-                native_acceleration=True,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=kpu_compute,
-                efficiency_factor=0.50,
-                tile_utilization=0.60,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    # 12W Profile: Balanced performance/power for mobile robots
-    kpu_clock_12w = ClockDomain(
-        base_clock_hz=900e6,
-        max_boost_clock_hz=1.0e9,
-        sustained_clock_hz=980e6,  # 98% of boost (better thermal headroom)
-        dvfs_enabled=True,
-    )
-    kpu_compute_12w = KPUComputeResource(
-        total_tiles=100,
-        tile_specializations=[
-            TileSpecialization(
-                tile_type="INT8-primary", num_tiles=70, array_dimensions=(16, 8),
-                pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
-                optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
-                clock_domain=kpu_clock_12w,
-            ),
-            TileSpecialization(
-                tile_type="BF16-primary", num_tiles=20, array_dimensions=(16, 8),
-                pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
-                optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
-                clock_domain=kpu_clock_12w,
-            ),
-            TileSpecialization(
-                tile_type="Matrix-8x8", num_tiles=10, array_dimensions=(8, 8),
-                pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
-                optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
-                clock_domain=kpu_clock_12w,
-            ),
-        ],
-    )
-
-    thermal_12w = ThermalOperatingPoint(
-        name="12W-balanced",
-        tdp_watts=12.0,
-        cooling_solution="active-fan",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=kpu_compute_12w,
-                efficiency_factor=0.70,  # Better with more power headroom
-                tile_utilization=0.97,
-                native_acceleration=True,
-            ),
-            Precision.BF16: PerformanceCharacteristics(
-                precision=Precision.BF16,
-                compute_resource=kpu_compute_12w,
-                efficiency_factor=0.65,
-                tile_utilization=0.90,
-                native_acceleration=True,
-            ),
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=kpu_compute_12w,
-                efficiency_factor=0.75,
-                tile_utilization=0.97,
-                native_acceleration=True,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=kpu_compute_12w,
-                efficiency_factor=0.55,
-                tile_utilization=0.65,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    # 24W Profile: Maximum performance for stationary/tethered robots
-    kpu_clock_24w = ClockDomain(
-        base_clock_hz=900e6,
-        max_boost_clock_hz=1.0e9,
-        sustained_clock_hz=1.0e9,  # 100% of boost! (full thermal headroom)
-        dvfs_enabled=True,
-    )
-    kpu_compute_24w = KPUComputeResource(
-        total_tiles=100,
-        tile_specializations=[
-            TileSpecialization(
-                tile_type="INT8-primary", num_tiles=70, array_dimensions=(16, 8),
-                pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
-                optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
-                clock_domain=kpu_clock_24w,
-            ),
-            TileSpecialization(
-                tile_type="BF16-primary", num_tiles=20, array_dimensions=(16, 8),
-                pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
-                optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
-                clock_domain=kpu_clock_24w,
-            ),
-            TileSpecialization(
-                tile_type="Matrix-8x8", num_tiles=10, array_dimensions=(8, 8),
-                pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
-                optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
-                clock_domain=kpu_clock_24w,
-            ),
-        ],
-    )
-
-    thermal_24w = ThermalOperatingPoint(
-        name="24W-performance",
-        tdp_watts=24.0,
-        cooling_solution="active-fan-enhanced",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=kpu_compute_24w,
-                efficiency_factor=0.75,  # Peak performance mode
-                tile_utilization=0.98,
-                native_acceleration=True,
-            ),
-            Precision.BF16: PerformanceCharacteristics(
-                precision=Precision.BF16,
-                compute_resource=kpu_compute_24w,
-                efficiency_factor=0.70,
-                tile_utilization=0.92,
-                native_acceleration=True,
-            ),
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=kpu_compute_24w,
-                efficiency_factor=0.80,
-                tile_utilization=0.98,
-                native_acceleration=True,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=kpu_compute_24w,
-                efficiency_factor=0.60,
-                tile_utilization=0.70,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    return HardwareResourceModel(
-        name="KPU-T100",
-        hardware_type=HardwareType.KPU,
-        compute_units=100,  # Total tiles
-        threads_per_unit=128,  # Ops per tile (average)
-        warps_per_unit=8,
-        warp_size=16,
-
-        # Thermal operating points for Embodied AI (6W/12W/24W)
-        thermal_operating_points={
-            "6W": thermal_6w,
-            "12W": thermal_12w,
-            "24W": thermal_24w,
-        },
-        default_thermal_profile="6W",
-
-        # Legacy for backward compat
-        precision_profiles={
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=100e12,  # Simplified peak
-                tensor_core_supported=True,
-                bytes_per_element=1,
-            ),
-        },
-        default_precision=Precision.INT8,
-
-        peak_bandwidth=1e12,
-        l1_cache_per_unit=256 * 1024,
-        l2_cache_total=8 * 1024 * 1024,
-        main_memory=16 * 1024**3,
-        energy_per_flop_fp32=0.1e-12,
-        energy_per_byte=12e-12,
-        min_occupancy=0.3,
-        max_concurrent_kernels=4,
-        wave_quantization=2,
-    )
-
-
-def kpu_t300_resource_model() -> HardwareResourceModel:
-    """
-    KPU-T300 with 300 heterogeneous tiles for automotive AI.
-
-    ============================================================================
-    AUTOMOTIVE AI WORKLOAD ALLOCATION (300 tiles)
-    ============================================================================
-
-    Target: Autonomous vehicles requiring higher throughput and redundancy
-    - Same 70/20/10 ratio as T100, but scaled to 300 tiles
-    - 210 INT8 tiles (70%): Detection, tracking, lane finding
-    - 60 BF16 tiles (20%): Transformer-based planning, sensor fusion
-    - 30 Matrix tiles (10%): Large embedding projections, classification
-
-    Power Profiles for Automotive:
-    - 12.5W: Low power mode (parking, idle monitoring)
-    - 25W: Normal driving mode
-    - 50W: High performance mode (full autonomy stack)
-
-    Key Advantages vs Jetson Thor:
-    ✓ 3× more compute tiles than T100
-    ✓ Better thermal design (automotive-grade cooling)
-    ✓ 70-80% empirical derate (vs Jetson's 3%)
-    ✓ Higher reliability for safety-critical applications
-    """
-    # Clock domain for T300 (slightly higher clocks due to advanced process)
-    t300_clock = ClockDomain(
-        base_clock_hz=950e6,
-        max_boost_clock_hz=1.1e9,  # 1.1 GHz boost
-        sustained_clock_hz=1.0e9,  # 91% of boost at 12.5W
-        dvfs_enabled=True,
-    )
-
-    # ========================================================================
-    # T300 TILE ALLOCATION (300 tiles total, 70/20/10 ratio)
-    # ========================================================================
-    t300_int8_tiles = TileSpecialization(
-        tile_type="INT8-primary",
-        num_tiles=210,  # 70% of 300
-        array_dimensions=(16, 8),
-        pe_configuration="INT8-MAC",
-        ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
-        optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
-        clock_domain=t300_clock,
-    )
-
-    t300_bf16_tiles = TileSpecialization(
-        tile_type="BF16-primary",
-        num_tiles=60,  # 20% of 300
-        array_dimensions=(16, 8),
-        pe_configuration="BF16-FMA",
-        ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
-        optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
-        clock_domain=t300_clock,
-    )
-
-    t300_matrix_tiles = TileSpecialization(
-        tile_type="Matrix-8x8",
-        num_tiles=30,  # 10% of 300
-        array_dimensions=(8, 8),
-        pe_configuration="Mixed-INT8-BF16-Matrix",
-        ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
-        optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
-        clock_domain=t300_clock,
-    )
-
-    t300_compute = KPUComputeResource(
-        total_tiles=300,
-        tile_specializations=[t300_int8_tiles, t300_bf16_tiles, t300_matrix_tiles],
-    )
-
-    # ========================================================================
-    # THERMAL PROFILES for T300 (Automotive SKUs)
-    # ========================================================================
-
-    # 12.5W Profile: Low power mode (parking assistance, idle monitoring)
-    thermal_12_5w = ThermalOperatingPoint(
-        name="12.5W-automotive-low",
-        tdp_watts=12.5,
-        cooling_solution="automotive-liquid-cooling",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=t300_compute,
-                efficiency_factor=0.70,  # Better than T100 @ 12W
-                tile_utilization=0.95,
-                native_acceleration=True,
-            ),
-            Precision.BF16: PerformanceCharacteristics(
-                precision=Precision.BF16,
-                compute_resource=t300_compute,
-                efficiency_factor=0.65,
-                tile_utilization=0.88,
-                native_acceleration=True,
-            ),
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=t300_compute,
-                efficiency_factor=0.75,
-                tile_utilization=0.95,
-                native_acceleration=True,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=t300_compute,
-                efficiency_factor=0.58,
-                tile_utilization=0.65,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    # 25W Profile: Normal driving mode (full ADAS/autonomy stack)
-    t300_clock_25w = ClockDomain(
-        base_clock_hz=950e6,
-        max_boost_clock_hz=1.1e9,
-        sustained_clock_hz=1.05e9,  # 95% of boost
-        dvfs_enabled=True,
-    )
-    t300_compute_25w = KPUComputeResource(
-        total_tiles=300,
-        tile_specializations=[
-            TileSpecialization(
-                tile_type="INT8-primary", num_tiles=210, array_dimensions=(16, 8),
-                pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
-                optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
-                clock_domain=t300_clock_25w,
-            ),
-            TileSpecialization(
-                tile_type="BF16-primary", num_tiles=60, array_dimensions=(16, 8),
-                pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
-                optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
-                clock_domain=t300_clock_25w,
-            ),
-            TileSpecialization(
-                tile_type="Matrix-8x8", num_tiles=30, array_dimensions=(8, 8),
-                pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
-                optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
-                clock_domain=t300_clock_25w,
-            ),
-        ],
-    )
-
-    thermal_25w = ThermalOperatingPoint(
-        name="25W-automotive-normal",
-        tdp_watts=25.0,
-        cooling_solution="automotive-liquid-cooling",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=t300_compute_25w,
-                efficiency_factor=0.75,  # Excellent with automotive cooling
-                tile_utilization=0.97,
-                native_acceleration=True,
-            ),
-            Precision.BF16: PerformanceCharacteristics(
-                precision=Precision.BF16,
-                compute_resource=t300_compute_25w,
-                efficiency_factor=0.70,
-                tile_utilization=0.92,
-                native_acceleration=True,
-            ),
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=t300_compute_25w,
-                efficiency_factor=0.80,
-                tile_utilization=0.97,
-                native_acceleration=True,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=t300_compute_25w,
-                efficiency_factor=0.63,
-                tile_utilization=0.70,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    # 50W Profile: High performance mode (full autonomy, highway speeds)
-    t300_clock_50w = ClockDomain(
-        base_clock_hz=950e6,
-        max_boost_clock_hz=1.1e9,
-        sustained_clock_hz=1.1e9,  # 100% of boost! (excellent automotive cooling)
-        dvfs_enabled=True,
-    )
-    t300_compute_50w = KPUComputeResource(
-        total_tiles=300,
-        tile_specializations=[
-            TileSpecialization(
-                tile_type="INT8-primary", num_tiles=210, array_dimensions=(16, 8),
-                pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
-                optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
-                clock_domain=t300_clock_50w,
-            ),
-            TileSpecialization(
-                tile_type="BF16-primary", num_tiles=60, array_dimensions=(16, 8),
-                pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
-                optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
-                clock_domain=t300_clock_50w,
-            ),
-            TileSpecialization(
-                tile_type="Matrix-8x8", num_tiles=30, array_dimensions=(8, 8),
-                pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
-                optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
-                clock_domain=t300_clock_50w,
-            ),
-        ],
-    )
-
-    thermal_50w = ThermalOperatingPoint(
-        name="50W-automotive-performance",
-        tdp_watts=50.0,
-        cooling_solution="automotive-liquid-cooling-enhanced",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=t300_compute_50w,
-                efficiency_factor=0.80,  # Peak automotive performance
-                tile_utilization=0.98,
-                native_acceleration=True,
-            ),
-            Precision.BF16: PerformanceCharacteristics(
-                precision=Precision.BF16,
-                compute_resource=t300_compute_50w,
-                efficiency_factor=0.75,
-                tile_utilization=0.95,
-                native_acceleration=True,
-            ),
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=t300_compute_50w,
-                efficiency_factor=0.85,
-                tile_utilization=0.98,
-                native_acceleration=True,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=t300_compute_50w,
-                efficiency_factor=0.68,
-                tile_utilization=0.75,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    return HardwareResourceModel(
-        name="KPU-T300",
-        hardware_type=HardwareType.KPU,
-        compute_units=300,  # Total tiles (3× T100)
-        threads_per_unit=128,
-        warps_per_unit=8,
-        warp_size=16,
-
-        # Thermal operating points for Automotive (12.5W/25W/50W)
-        thermal_operating_points={
-            "12.5W": thermal_12_5w,
-            "25W": thermal_25w,
-            "50W": thermal_50w,
-        },
-        default_thermal_profile="25W",
-
-        # Legacy for backward compat
-        precision_profiles={
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=46.2e12,  # 46.2 TOPS @ 1.1 GHz (3× T100)
-                tensor_core_supported=True,
-                relative_speedup=2.0,
-                bytes_per_element=1,
-                accumulator_precision=Precision.INT32,
-            ),
-            Precision.BF16: PrecisionProfile(
-                precision=Precision.BF16,
-                peak_ops_per_sec=22.2e12,  # 22.2 TFLOPS (3× T100)
-                tensor_core_supported=True,
-                relative_speedup=1.0,
-                bytes_per_element=2,
-            ),
-            Precision.INT4: PrecisionProfile(
-                precision=Precision.INT4,
-                peak_ops_per_sec=59.2e12,  # 59.2 TOPS (3× T100)
-                tensor_core_supported=True,
-                relative_speedup=2.5,
-                bytes_per_element=0.5,
-                accumulator_precision=Precision.INT16,
-            ),
-        },
-        default_precision=Precision.INT8,
-
-        peak_bandwidth=120e9,  # 120 GB/s (3× T100 scale)
-        l1_cache_per_unit=256 * 1024,  # 256 KB per tile
-        l2_cache_total=8 * 1024 * 1024,  # 8 MB shared
-        main_memory=16 * 1024**3,  # 16 GB DDR5
-        energy_per_flop_fp32=0.08e-12,  # Slightly better process
-        energy_per_byte=10e-12,
-        min_occupancy=0.3,
-        max_concurrent_kernels=4,
-        wave_quantization=2,
-    )
-
-
 def kpu_t64_resource_model() -> HardwareResourceModel:
     """
-    KPU-T64 with 64 heterogeneous tiles for embodied AI / edge devices.
+    Stillwater KPU-T64 with 64 heterogeneous tiles for embodied AI / edge devices.
 
     ============================================================================
     EDGE AI / EMBODIED AI WORKLOAD ALLOCATION (64 tiles)
@@ -1762,7 +1102,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     )
 
     return HardwareResourceModel(
-        name="KPU-T64",
+        name="Stillwater KPU-T64",
         hardware_type=HardwareType.KPU,
         compute_units=64,
         threads_per_unit=256,
@@ -1819,7 +1159,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
 
 def kpu_t256_resource_model() -> HardwareResourceModel:
     """
-    KPU-T256 with 256 heterogeneous tiles for high-performance edge/datacenter AI.
+    Stillwater KPU-T256 with 256 heterogeneous tiles for high-performance edge/datacenter AI.
 
     ============================================================================
     HIGH-PERFORMANCE EDGE AI WORKLOAD ALLOCATION (256 tiles)
@@ -2055,7 +1395,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     )
 
     return HardwareResourceModel(
-        name="KPU-T256",
+        name="Stillwater KPU-T256",
         hardware_type=HardwareType.KPU,
         compute_units=256,
         threads_per_unit=256,
@@ -2106,6 +1446,281 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         energy_per_byte=11e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=4,
+        wave_quantization=2,
+    )
+
+
+def kpu_t768_resource_model() -> HardwareResourceModel:
+    """
+    Stillwater KPU-T768 with 768 heterogeneous tiles for datacenter AI inference.
+
+    ============================================================================
+    DATACENTER AI INFERENCE WORKLOAD ALLOCATION (768 tiles)
+    ============================================================================
+
+    Target: Datacenter inference, high-throughput AI serving, LLM inference
+    - Same 70/20/10 ratio as T64/T256, scaled to 768 tiles
+    - 537 INT8 tiles (70%): Massive parallel vision, object detection
+    - 154 BF16 tiles (20%): Transformer layers, multi-modal fusion
+    - 77 Matrix tiles (10%): Large matmuls, LLM token generation
+
+    Architecture: 32×24 Grid (768 tiles)
+    - 768 compute tiles arranged in optimized grid
+    - 768 L3 memory tiles (256KB each) for distributed memory
+    - Ultra-high-bandwidth interconnect (2D torus + express channels)
+    - Power profiles: 30W, 60W, 100W
+
+    Power Profiles:
+    - 30W: Efficient datacenter (max efficiency)
+    - 60W: Balanced datacenter (default)
+    - 100W: Performance mode (max throughput)
+
+    Key Advantages:
+    ✓ 3× more tiles than T256
+    ✓ Datacenter-class throughput (100+ TOPS effective)
+    ✓ Excellent efficiency_factor (75-85%)
+    ✓ Distributed memory architecture
+    ✓ Optimized for batch inference
+    """
+    # Clock domain for T768 (datacenter-optimized)
+    t768_clock = ClockDomain(
+        base_clock_hz=1.0e9,
+        max_boost_clock_hz=1.2e9,
+        sustained_clock_hz=1.1e9,  # 92% of boost at 30W
+        dvfs_enabled=True,
+    )
+
+    # ========================================================================
+    # T768 TILE ALLOCATION (768 tiles total, 70/20/10 ratio)
+    # ========================================================================
+    t768_int8_tiles = TileSpecialization(
+        tile_type="INT8-primary",
+        num_tiles=537,  # 70% of 768
+        array_dimensions=(16, 8),
+        pe_configuration="INT8-MAC",
+        ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+        optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
+        clock_domain=t768_clock,
+    )
+
+    t768_bf16_tiles = TileSpecialization(
+        tile_type="BF16-primary",
+        num_tiles=154,  # 20% of 768
+        array_dimensions=(16, 8),
+        pe_configuration="BF16-FMA",
+        ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+        optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
+        clock_domain=t768_clock,
+    )
+
+    t768_matrix_tiles = TileSpecialization(
+        tile_type="Matrix-8x8",
+        num_tiles=77,  # 10% of 768
+        array_dimensions=(8, 8),
+        pe_configuration="Mixed-INT8-BF16-Matrix",
+        ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+        optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
+        clock_domain=t768_clock,
+    )
+
+    t768_compute = KPUComputeResource(
+        total_tiles=768,
+        tile_specializations=[t768_int8_tiles, t768_bf16_tiles, t768_matrix_tiles],
+    )
+
+    # ========================================================================
+    # THERMAL PROFILES for T768 (Datacenter SKUs)
+    # ========================================================================
+
+    # 30W Profile: Efficient datacenter
+    thermal_30w = ThermalOperatingPoint(
+        name="30W-efficient",
+        tdp_watts=30.0,
+        cooling_solution="active-datacenter-1U",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=t768_compute,
+                efficiency_factor=0.75,  # 75% efficiency
+                tile_utilization=0.95,
+                native_acceleration=True,
+            ),
+            Precision.BF16: PerformanceCharacteristics(
+                precision=Precision.BF16,
+                compute_resource=t768_compute,
+                efficiency_factor=0.70,
+                tile_utilization=0.92,
+                native_acceleration=True,
+            ),
+            Precision.INT4: PerformanceCharacteristics(
+                precision=Precision.INT4,
+                compute_resource=t768_compute,
+                efficiency_factor=0.78,
+                tile_utilization=0.96,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    # 60W Profile: Balanced datacenter (default)
+    t768_clock_60w = ClockDomain(
+        base_clock_hz=1.1e9,
+        max_boost_clock_hz=1.3e9,
+        sustained_clock_hz=1.2e9,  # 92% of boost
+        dvfs_enabled=True,
+    )
+    t768_compute_60w = KPUComputeResource(
+        total_tiles=768,
+        tile_specializations=[
+            TileSpecialization("INT8-primary", 537, (16, 8), "INT8-MAC",
+                             {Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                             {Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
+                             t768_clock_60w),
+            TileSpecialization("BF16-primary", 154, (16, 8), "BF16-FMA",
+                             {Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                             {Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
+                             t768_clock_60w),
+            TileSpecialization("Matrix-8x8", 77, (8, 8), "Mixed-INT8-BF16-Matrix",
+                             {Precision.INT8: 512, Precision.BF16: 256},
+                             {Precision.INT8: 1.0, Precision.BF16: 1.0},
+                             t768_clock_60w),
+        ],
+    )
+
+    thermal_60w = ThermalOperatingPoint(
+        name="60W-balanced",
+        tdp_watts=60.0,
+        cooling_solution="active-datacenter-2U",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=t768_compute_60w,
+                efficiency_factor=0.80,  # 80% efficiency at higher power
+                tile_utilization=0.96,
+                native_acceleration=True,
+            ),
+            Precision.BF16: PerformanceCharacteristics(
+                precision=Precision.BF16,
+                compute_resource=t768_compute_60w,
+                efficiency_factor=0.75,
+                tile_utilization=0.94,
+                native_acceleration=True,
+            ),
+            Precision.INT4: PerformanceCharacteristics(
+                precision=Precision.INT4,
+                compute_resource=t768_compute_60w,
+                efficiency_factor=0.82,
+                tile_utilization=0.97,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    # 100W Profile: Performance mode
+    t768_clock_100w = ClockDomain(
+        base_clock_hz=1.2e9,
+        max_boost_clock_hz=1.4e9,
+        sustained_clock_hz=1.35e9,  # 96% of boost
+        dvfs_enabled=True,
+    )
+    t768_compute_100w = KPUComputeResource(
+        total_tiles=768,
+        tile_specializations=[
+            TileSpecialization("INT8-primary", 537, (16, 8), "INT8-MAC",
+                             {Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                             {Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
+                             t768_clock_100w),
+            TileSpecialization("BF16-primary", 154, (16, 8), "BF16-FMA",
+                             {Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                             {Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
+                             t768_clock_100w),
+            TileSpecialization("Matrix-8x8", 77, (8, 8), "Mixed-INT8-BF16-Matrix",
+                             {Precision.INT8: 512, Precision.BF16: 256},
+                             {Precision.INT8: 1.0, Precision.BF16: 1.0},
+                             t768_clock_100w),
+        ],
+    )
+
+    thermal_100w = ThermalOperatingPoint(
+        name="100W-performance",
+        tdp_watts=100.0,
+        cooling_solution="active-datacenter-2U-enhanced",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=t768_compute_100w,
+                efficiency_factor=0.85,  # 85% efficiency at max power
+                tile_utilization=0.98,
+                native_acceleration=True,
+            ),
+            Precision.BF16: PerformanceCharacteristics(
+                precision=Precision.BF16,
+                compute_resource=t768_compute_100w,
+                efficiency_factor=0.80,
+                tile_utilization=0.96,
+                native_acceleration=True,
+            ),
+            Precision.INT4: PerformanceCharacteristics(
+                precision=Precision.INT4,
+                compute_resource=t768_compute_100w,
+                efficiency_factor=0.87,
+                tile_utilization=0.99,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    # Build resource model
+    return HardwareResourceModel(
+        name="Stillwater KPU-T768",
+        hardware_type=HardwareType.KPU,
+        compute_units=768,
+        threads_per_unit=256,
+        warps_per_unit=0,  # KPU uses tiles, not warps
+        warp_size=0,
+
+        thermal_operating_points={
+            "30W": thermal_30w,
+            "60W": thermal_60w,
+            "100W": thermal_100w,
+        },
+        default_thermal_profile="60W",
+
+        precision_profiles={
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=130.1e12,  # 130.1 TOPS @ 60W
+                tensor_core_supported=True,
+                relative_speedup=1.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+            Precision.BF16: PrecisionProfile(
+                precision=Precision.BF16,
+                peak_ops_per_sec=48.9e12,  # 48.9 TFLOPS @ 60W
+                tensor_core_supported=True,
+                relative_speedup=1.0,
+                bytes_per_element=2,
+            ),
+            Precision.INT4: PrecisionProfile(
+                precision=Precision.INT4,
+                peak_ops_per_sec=260.2e12,  # 260.2 TOPS @ 60W
+                tensor_core_supported=True,
+                relative_speedup=2.0,
+                bytes_per_element=0.5,
+                accumulator_precision=Precision.INT16,
+            ),
+        },
+        default_precision=Precision.INT8,
+
+        peak_bandwidth=512e9,  # 512 GB/s (8×DDR5 or HBM3)
+        l1_cache_per_unit=256 * 1024,  # 256 KB per tile
+        l2_cache_total=32 * 1024 * 1024,  # 32 MB shared L2
+        main_memory=64 * 1024**3,  # 64 GB
+        energy_per_flop_fp32=0.08e-12,
+        energy_per_byte=10e-12,
+        min_occupancy=0.3,
+        max_concurrent_kernels=8,
         wave_quantization=2,
     )
 

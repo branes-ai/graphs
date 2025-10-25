@@ -10,7 +10,7 @@ Hardware Types Compared:
 3. **GPU (Jetson Thor)**: Next-gen edge AI, 2000 TOPS INT8
 4. **TPU (v4)**: Google's cloud ASIC, optimized for large-batch inference
 5. **TPU (Coral Edge)**: Google's ultra-low-power edge TPU, 4 TOPS INT8
-6. **KPU (T100)**: Edge accelerator, embodied AI champion
+6. **Stillwater KPU-T64**: Edge accelerator, embodied AI champion
 7. **DPU (Xilinx Vitis AI)**: FPGA-based, reconfigurable
 8. **CGRA (Plasticine-v2)**: Spatial dataflow, research architecture
 9. **CPU (Intel)**: General purpose, AVX-512
@@ -42,7 +42,7 @@ from src.graphs.hardware.mappers.gpu import (
     create_jetson_thor_mapper
 )
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
-from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t100_mapper, create_kpu_t300_mapper
+from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper, create_kpu_t256_mapper
 from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper, create_coral_edge_tpu_mapper
 from src.graphs.hardware.mappers.accelerators.dpu import create_dpu_vitis_ai_mapper
 from src.graphs.hardware.mappers.accelerators.cgra import create_plasticine_v2_mapper
@@ -111,14 +111,14 @@ def test_all_hardware():
         "Jetson-Thor @ 30W": create_jetson_thor_mapper(thermal_profile="30W"),
 
         # KPU T100 - Embodied AI SKUs (70 INT8, 20 BF16, 10 Matrix tiles)
-        "KPU-T100 @ 6W (70/20/10)": create_kpu_t100_mapper(thermal_profile="6W"),
-        "KPU-T100 @ 12W (70/20/10)": create_kpu_t100_mapper(thermal_profile="12W"),
-        "KPU-T100 @ 24W (70/20/10)": create_kpu_t100_mapper(thermal_profile="24W"),
+        "Stillwater KPU-T64 @ 6W (70/20/10)": create_kpu_t64_mapper(thermal_profile="6W"),
+        "Stillwater KPU-T64 @ 12W (70/20/10)": create_kpu_t64_mapper(thermal_profile="12W"),
+        "Stillwater KPU-T64 @ 24W (70/20/10)": create_kpu_t64_mapper(thermal_profile="24W"),
 
         # KPU T300 - Automotive SKUs (210 INT8, 60 BF16, 30 Matrix tiles)
-        "KPU-T300 @ 12.5W (210/60/30)": create_kpu_t300_mapper(thermal_profile="12.5W"),
-        "KPU-T300 @ 25W (210/60/30)": create_kpu_t300_mapper(thermal_profile="25W"),
-        "KPU-T300 @ 50W (210/60/30)": create_kpu_t300_mapper(thermal_profile="50W"),
+        "Stillwater KPU-T256 @ 12.5W (210/60/30)": create_kpu_t256_mapper(thermal_profile="12.5W"),
+        "Stillwater KPU-T256 @ 25W (210/60/30)": create_kpu_t256_mapper(thermal_profile="25W"),
+        "Stillwater KPU-T256 @ 50W (210/60/30)": create_kpu_t256_mapper(thermal_profile="50W"),
 
         # Cloud/Datacenter
         "TPU v4": create_tpu_v4_mapper(),
@@ -193,7 +193,7 @@ def test_all_hardware():
     print("-" * 75)
 
     precision = Precision.INT8
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100 @ 6W (70/20/10)", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "Stillwater KPU-T64 @ 6W (70/20/10)", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -215,7 +215,7 @@ def test_all_hardware():
     print(f"{'Hardware':<25} {'FP32 (ms)':<12} {'INT8 (ms)':<12} {'Speedup':<12} {'Benefit':<20}")
     print("-" * 85)
 
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "Stillwater KPU-T64 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
         fp32_alloc = results.get((hw_name, Precision.FP32))
         int8_alloc = results.get((hw_name, Precision.INT8))
 
@@ -249,7 +249,7 @@ def test_all_hardware():
     print(f"{'Hardware':<25} {'FP32 (J)':<12} {'BF16 (J)':<12} {'INT8 (J)':<12} {'Best':<15}")
     print("-" * 80)
 
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "Stillwater KPU-T64 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
         fp32_alloc = results.get((hw_name, Precision.FP32))
         bf16_alloc = results.get((hw_name, Precision.BF16))
         int8_alloc = results.get((hw_name, Precision.INT8))
@@ -289,7 +289,7 @@ def test_all_hardware():
     print("-" * 85)
 
     precision = Precision.INT8  # Use INT8 for analysis
-    for hw_name in ["H100 GPU", "TPU v4", "KPU-T100 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
+    for hw_name in ["H100 GPU", "TPU v4", "Stillwater KPU-T64 @ 6W (70/20/10)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -328,7 +328,7 @@ def test_all_hardware():
 
         # Calculate speedup for all hardware
         comparison_data = []
-        for hw_name in ["H100 GPU", "TPU v4", "Coral-Edge-TPU", "KPU-T100 @ 6W (70/20/10)", "KPU-T300 @ 50W (210/60/30)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2"]:
+        for hw_name in ["H100 GPU", "TPU v4", "Coral-Edge-TPU", "Stillwater KPU-T64 @ 6W (70/20/10)", "Stillwater KPU-T256 @ 50W (210/60/30)", "Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "DPU-Vitis-AI", "CGRA-Plasticine-v2"]:
             alloc = results.get((hw_name, Precision.INT8))
             if alloc is None:
                 continue
@@ -361,14 +361,14 @@ def test_all_hardware():
         "Jetson-Thor @ 30W": 3000,  # Estimated (not yet released) @ realistic 30W edge
 
         # KPU T100 - Embodied AI SKUs (70/20/10 tiles)
-        "KPU-T100 @ 6W (70/20/10)": 400,   # Battery-optimized (passive cooling)
-        "KPU-T100 @ 12W (70/20/10)": 500,  # Balanced (active fan)
-        "KPU-T100 @ 24W (70/20/10)": 650,  # Performance (enhanced cooling)
+        "Stillwater KPU-T64 @ 6W (70/20/10)": 400,   # Battery-optimized (passive cooling)
+        "Stillwater KPU-T64 @ 12W (70/20/10)": 500,  # Balanced (active fan)
+        "Stillwater KPU-T64 @ 24W (70/20/10)": 650,  # Performance (enhanced cooling)
 
         # KPU T300 - Automotive SKUs (210/60/30 tiles)
-        "KPU-T300 @ 12.5W (210/60/30)": 900,   # Automotive low power (liquid cooling)
-        "KPU-T300 @ 25W (210/60/30)": 1200,    # Automotive normal driving
-        "KPU-T300 @ 50W (210/60/30)": 1200,    # Automotive high performance
+        "Stillwater KPU-T256 @ 12.5W (210/60/30)": 900,   # Automotive low power (liquid cooling)
+        "Stillwater KPU-T256 @ 25W (210/60/30)": 1200,    # Automotive normal driving
+        "Stillwater KPU-T256 @ 50W (210/60/30)": 1200,    # Automotive high performance
 
         # Cloud/Datacenter
         "TPU v4": 15000,    # TPU pod slice (minimum configuration)
@@ -387,7 +387,7 @@ def test_all_hardware():
     # Calculate cost-performance for all hardware
     cost_benefit_data = []
     precision = Precision.INT8
-    for hw_name in ["Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "KPU-T100 @ 6W (70/20/10)", "KPU-T300 @ 50W (210/60/30)", "TPU v4", "Coral-Edge-TPU", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)", "H100 GPU"]:
+    for hw_name in ["Jetson-Orin-AGX @ 15W", "Jetson-Thor @ 30W", "Stillwater KPU-T64 @ 6W (70/20/10)", "Stillwater KPU-T256 @ 50W (210/60/30)", "TPU v4", "Coral-Edge-TPU", "DPU-Vitis-AI", "CGRA-Plasticine-v2", "Intel CPU (AVX-512)", "AMD CPU (AVX-2)", "H100 GPU"]:
         alloc = results.get((hw_name, precision))
         if alloc is None:
             continue
@@ -406,9 +406,9 @@ def test_all_hardware():
             target = "Embodied AI"
         elif "Jetson-Thor" in hw_name:
             target = "Automotive"
-        elif "KPU-T100" in hw_name:
+        elif "Stillwater KPU-T64" in hw_name:
             target = "Embodied AI"
-        elif "KPU-T300" in hw_name:
+        elif "Stillwater KPU-T256" in hw_name:
             target = "Automotive"
         elif "Coral" in hw_name:
             target = "IoT/Battery"
@@ -443,16 +443,16 @@ def test_all_hardware():
     print()
     print("Cost-Performance Analysis:")
 
-    kpu_alloc = results.get(("KPU-T100 @ 6W (70/20/10)", Precision.INT8))
+    kpu_alloc = results.get(("Stillwater KPU-T64 @ 6W (70/20/10)", Precision.INT8))
     dpu_alloc = results.get(("DPU-Vitis-AI", Precision.INT8))
 
     if kpu_alloc and dpu_alloc:
         kpu_perf = 1000.0 / (kpu_alloc.total_latency * 1000)  # inferences/sec
         dpu_perf = 1000.0 / (dpu_alloc.total_latency * 1000)
 
-        print(f"   KPU-T100 @ 6W (70/20/10): ${hw_costs['KPU-T100 @ 6W (70/20/10)']:,} for {kpu_perf:.0f} inf/sec → ${hw_costs['KPU-T100 @ 6W (70/20/10)']/kpu_perf:.2f} per inf/sec")
+        print(f"   Stillwater KPU-T64 @ 6W (70/20/10): ${hw_costs['Stillwater KPU-T64 @ 6W (70/20/10)']:,} for {kpu_perf:.0f} inf/sec → ${hw_costs['Stillwater KPU-T64 @ 6W (70/20/10)']/kpu_perf:.2f} per inf/sec")
         print(f"   DPU-Vitis-AI:             ${hw_costs['DPU-Vitis-AI']:,} for {dpu_perf:.0f} inf/sec → ${hw_costs['DPU-Vitis-AI']/dpu_perf:.2f} per inf/sec")
-        print(f"   → KPU is {(hw_costs['DPU-Vitis-AI']/dpu_perf)/(hw_costs['KPU-T100 @ 6W (70/20/10)']/kpu_perf):.1f}× better cost-performance than DPU")
+        print(f"   → KPU is {(hw_costs['DPU-Vitis-AI']/dpu_perf)/(hw_costs['Stillwater KPU-T64 @ 6W (70/20/10)']/kpu_perf):.1f}× better cost-performance than DPU")
     print()
 
     # ========================================================================
@@ -465,7 +465,7 @@ def test_all_hardware():
 
     gpu_int8 = results.get(("H100 GPU", Precision.INT8))
     tpu_int8 = results.get(("TPU v4", Precision.INT8))
-    kpu_int8 = results.get(("KPU-T100 @ 6W (70/20/10)", Precision.INT8))
+    kpu_int8 = results.get(("Stillwater KPU-T64 @ 6W (70/20/10)", Precision.INT8))
     jetson_orin_int8 = results.get(("Jetson-Orin-AGX @ 15W", Precision.INT8))
     jetson_thor_int8 = results.get(("Jetson-Thor @ 30W", Precision.INT8))
     dpu_int8 = results.get(("DPU-Vitis-AI", Precision.INT8))
@@ -582,9 +582,9 @@ def test_all_hardware():
     if kpu_int8 and dpu_int8:
         dpu_speedup = (dpu_int8.total_latency / kpu_int8.total_latency)
         dpu_energy_ratio = (dpu_int8.total_energy / kpu_int8.total_energy)
-        print(f"   - Best choice: KPU-T100 ({dpu_speedup:.1f}× faster than DPU, {dpu_energy_ratio:.1f}× better energy, $500)")
+        print(f"   - Best choice: Stillwater KPU-T64 ({dpu_speedup:.1f}× faster than DPU, {dpu_energy_ratio:.1f}× better energy, $500)")
     else:
-        print("   - Best choice: KPU-T100 (fastest, most efficient, $500)")
+        print("   - Best choice: Stillwater KPU-T64 (fastest, most efficient, $500)")
     print("   - Research alternatives:")
     print("     • DPU: FPGA reconfigurability (tile-based)")
     print("     • CGRA: Spatial dataflow research (ultra-configurable)")
@@ -633,13 +633,13 @@ def test_all_hardware():
         "Jetson-Orin-AGX @ 15W",
         "Jetson-Thor @ 30W",
         # KPU T100 - Embodied AI SKUs
-        "KPU-T100 @ 6W (70/20/10)",
-        "KPU-T100 @ 12W (70/20/10)",
-        "KPU-T100 @ 24W (70/20/10)",
+        "Stillwater KPU-T64 @ 6W (70/20/10)",
+        "Stillwater KPU-T64 @ 12W (70/20/10)",
+        "Stillwater KPU-T64 @ 24W (70/20/10)",
         # KPU T300 - Automotive SKUs
-        "KPU-T300 @ 12.5W (210/60/30)",
-        "KPU-T300 @ 25W (210/60/30)",
-        "KPU-T300 @ 50W (210/60/30)",
+        "Stillwater KPU-T256 @ 12.5W (210/60/30)",
+        "Stillwater KPU-T256 @ 25W (210/60/30)",
+        "Stillwater KPU-T256 @ 50W (210/60/30)",
         # Other edge accelerators
         "Coral-Edge-TPU",
         "DPU-Vitis-AI",
@@ -687,17 +687,17 @@ def test_all_hardware():
             marker = ""
             if "Jetson-Thor" in hw_name:
                 marker = "← Auto performance"
-            elif "KPU-T100 @ 6W" in hw_name:
+            elif "Stillwater KPU-T64 @ 6W" in hw_name:
                 marker = "← Battery-optimized"
-            elif "KPU-T100 @ 12W" in hw_name:
+            elif "Stillwater KPU-T64 @ 12W" in hw_name:
                 marker = "← Balanced"
-            elif "KPU-T100 @ 24W" in hw_name:
+            elif "Stillwater KPU-T64 @ 24W" in hw_name:
                 marker = "← Performance"
-            elif "KPU-T300 @ 12.5W" in hw_name:
+            elif "Stillwater KPU-T256 @ 12.5W" in hw_name:
                 marker = "← Auto low-power"
-            elif "KPU-T300 @ 25W" in hw_name:
+            elif "Stillwater KPU-T256 @ 25W" in hw_name:
                 marker = "← Auto normal"
-            elif "KPU-T300 @ 50W" in hw_name:
+            elif "Stillwater KPU-T256 @ 50W" in hw_name:
                 marker = "← Auto performance"
 
             print(f"{rank:<6} {hw_name:<30} {latency_ms:<15.3f} {vs_fastest:<15.2f}× {marker}")
@@ -822,9 +822,9 @@ def test_all_hardware():
     print("-" * 85)
 
     t100_profiles = [
-        "KPU-T100 @ 6W (70/20/10)",
-        "KPU-T100 @ 12W (70/20/10)",
-        "KPU-T100 @ 24W (70/20/10)",
+        "Stillwater KPU-T64 @ 6W (70/20/10)",
+        "Stillwater KPU-T64 @ 12W (70/20/10)",
+        "Stillwater KPU-T64 @ 24W (70/20/10)",
     ]
 
     t100_6w_alloc = results.get((t100_profiles[0], Precision.INT8))
@@ -846,9 +846,9 @@ def test_all_hardware():
     print("-" * 85)
 
     t300_profiles = [
-        "KPU-T300 @ 12.5W (210/60/30)",
-        "KPU-T300 @ 25W (210/60/30)",
-        "KPU-T300 @ 50W (210/60/30)",
+        "Stillwater KPU-T256 @ 12.5W (210/60/30)",
+        "Stillwater KPU-T256 @ 25W (210/60/30)",
+        "Stillwater KPU-T256 @ 50W (210/60/30)",
     ]
 
     for profile in t300_profiles:
@@ -878,7 +878,7 @@ def test_all_hardware():
 
     cpu_intel = results.get(("Intel CPU (AVX-512)", Precision.INT8))
     cpu_amd = results.get(("AMD CPU (AVX-2)", Precision.INT8))
-    kpu_t100_6w = results.get(("KPU-T100 @ 6W (70/20/10)", Precision.INT8))
+    kpu_t100_6w = results.get(("Stillwater KPU-T64 @ 6W (70/20/10)", Precision.INT8))
 
     if cpu_intel and kpu_t100_6w:
         cpu_latency = cpu_intel.total_latency * 1000
@@ -889,7 +889,7 @@ def test_all_hardware():
         kpu_energy = kpu_t100_6w.total_energy
         energy_ratio = cpu_energy / kpu_energy
 
-        print(f"Intel CPU (AVX-512) vs KPU-T100 @ 6W:")
+        print(f"Intel CPU (AVX-512) vs Stillwater KPU-T64 @ 6W:")
         print(f"  - Latency: {cpu_latency:.3f} ms (CPU) vs {kpu_latency:.3f} ms (KPU)")
         print(f"  - Speedup: KPU is {speedup:.1f}× faster")
         print(f"  - Energy: {cpu_energy:.3f} J (CPU) vs {kpu_energy:.4f} J (KPU)")
@@ -922,35 +922,35 @@ def test_all_hardware():
     print()
 
     print("1. **Battery-Powered Robots/Drones (6-12W budget)**")
-    print("   Best: KPU-T100 @ 6W (70/20/10)")
+    print("   Best: Stillwater KPU-T64 @ 6W (70/20/10)")
     if kpu_t100_6w:
         print(f"   - Latency: {kpu_t100_6w.total_latency*1000:.3f} ms")
         print(f"   - Energy: {kpu_t100_6w.total_energy:.4f} J per inference")
         print(f"   - Battery life: {100/(kpu_t100_6w.total_energy*20):.1f} hours @ 20 FPS")
-        print(f"   - Cost: ${hw_costs['KPU-T100 @ 6W (70/20/10)']:,}")
+        print(f"   - Cost: ${hw_costs['Stillwater KPU-T64 @ 6W (70/20/10)']:,}")
     print()
 
     print("2. **Mobile Robots (12-24W budget)**")
-    print("   Best: KPU-T100 @ 12W (70/20/10) or KPU-T100 @ 24W (70/20/10)")
-    kpu_t100_12w = results.get(("KPU-T100 @ 12W (70/20/10)", Precision.INT8))
+    print("   Best: Stillwater KPU-T64 @ 12W (70/20/10) or Stillwater KPU-T64 @ 24W (70/20/10)")
+    kpu_t100_12w = results.get(("Stillwater KPU-T64 @ 12W (70/20/10)", Precision.INT8))
     if kpu_t100_12w:
         print(f"   - Latency: {kpu_t100_12w.total_latency*1000:.3f} ms")
         print(f"   - Energy: {kpu_t100_12w.total_energy:.4f} J per inference")
-        print(f"   - Cost: ${hw_costs['KPU-T100 @ 12W (70/20/10)']:,}")
+        print(f"   - Cost: ${hw_costs['Stillwater KPU-T64 @ 12W (70/20/10)']:,}")
     print()
 
     print("3. **Autonomous Vehicles (12.5-50W budget)**")
-    print("   Best: KPU-T300 @ 25W (210/60/30) for normal driving")
-    kpu_t300_25w = results.get(("KPU-T300 @ 25W (210/60/30)", Precision.INT8))
+    print("   Best: Stillwater KPU-T256 @ 25W (210/60/30) for normal driving")
+    kpu_t300_25w = results.get(("Stillwater KPU-T256 @ 25W (210/60/30)", Precision.INT8))
     if kpu_t300_25w:
         print(f"   - Latency: {kpu_t300_25w.total_latency*1000:.3f} ms")
         print(f"   - Energy: {kpu_t300_25w.total_energy:.4f} J per inference")
         print(f"   - 3× more tiles than T100 for higher throughput")
-        print(f"   - Cost: ${hw_costs['KPU-T300 @ 25W (210/60/30)']:,}")
+        print(f"   - Cost: ${hw_costs['Stillwater KPU-T256 @ 25W (210/60/30)']:,}")
     print()
 
     print("4. **High-Performance Edge (30W+ budget)**")
-    print("   Options: Jetson Thor @ 30W or KPU-T300 @ 50W")
+    print("   Options: Jetson Thor @ 30W or Stillwater KPU-T256 @ 50W")
     print("   - Jetson: Better software ecosystem (CUDA)")
     print("   - KPU: Better energy efficiency and cost")
     print()

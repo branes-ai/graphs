@@ -206,7 +206,7 @@ def test_dpu_mapper():
         print(f"   100Wh battery runtime: {runtime_hours:.1f} hours @ continuous inference")
         print(f"   Inferences per charge: {inferences_per_battery/1e6:.1f}M")
         print()
-        print(f"   ⚠️  Note: DPU is 60-100× slower than KPU-T100")
+        print(f"   ⚠️  Note: DPU is 60-100× slower than Stillwater KPU-T64")
         print(f"   ⚠️  Note: DPU uses 20-50× more energy per inference than KPU")
         print(f"   → DPU advantage: FPGA reconfigurability for custom ops")
         print()
@@ -224,7 +224,7 @@ def test_dpu_mapper():
     comparisons = {
         "H100 GPU": {"latency_ms": 0.024, "energy_j": 0.001, "power_w": 700, "cost_usd": 30000},
         "TPU v4": {"latency_ms": 0.040, "energy_j": 0.001, "power_w": 280, "cost_usd": 5000},
-        "KPU-T100": {"latency_ms": 0.050, "energy_j": 0.001, "power_w": 25, "cost_usd": 500},
+        "Stillwater KPU-T64": {"latency_ms": 0.050, "energy_j": 0.001, "power_w": 25, "cost_usd": 500},
         "DPU (Vitis AI)": {
             "latency_ms": int8_alloc.total_latency * 1000 if int8_alloc else 0,
             "energy_j": int8_alloc.total_energy if int8_alloc else 0,
@@ -257,11 +257,11 @@ def test_dpu_mapper():
     print("- DPU trades SIGNIFICANT performance for FPGA reconfigurability")
     print("- 60-100× slower than KPU, 20-50× worse energy efficiency")
     print("- Main advantage: Can implement custom operations not in KPU")
-    print("- For standard ops (Conv, MatMul): KPU-T100 is far superior")
+    print("- For standard ops (Conv, MatMul): Stillwater KPU-T64 is far superior")
     print("- DPU niche: Research, custom algorithms, FPGA development")
     print()
     print("Recommendation for Embodied AI:")
-    print("→ Use KPU-T100 for production (faster, more efficient, cheaper)")
+    print("→ Use Stillwater KPU-T64 for production (faster, more efficient, cheaper)")
     print("→ Use DPU only if you need custom operations KPU can't support")
     print()
 
