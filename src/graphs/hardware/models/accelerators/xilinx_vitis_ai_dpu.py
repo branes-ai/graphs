@@ -57,6 +57,14 @@ def xilinx_vitis_ai_dpu_resource_model() -> HardwareResourceModel:
     # Convert to FP32 equivalent (INT8 is ~4× more efficient)
     energy_per_flop_fp32 = energy_per_int8_op * 4  # 7.56e-12 J/FLOP
 
+    # Thermal operating point (Versal VE2302: edge-optimized)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=20.0,  # VE2302 max TDP (15-20W range)
+        cooling_solution="active-fan",
+        performance_specs={}  # Uses precision_profiles for performance
+    )
+
     return HardwareResourceModel(
         name="DPU-Vitis-AI-B4096",
         hardware_type=HardwareType.DPU,
@@ -64,6 +72,12 @@ def xilinx_vitis_ai_dpu_resource_model() -> HardwareResourceModel:
         threads_per_unit=64,  # Operations per tile
         warps_per_unit=8,  # Vector lanes per tile
         warp_size=8,
+
+        # Thermal operating points
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
 
         precision_profiles={
             Precision.FP32: PrecisionProfile(

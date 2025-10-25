@@ -27,6 +27,14 @@ def h100_pcie_resource_model() -> HardwareResourceModel:
     - Massive speedup for low-precision (BF16: 12.5×, FP8: 25× vs FP32)
     - 2 TB/s HBM2e bandwidth
     """
+    # Thermal operating point (datacenter PCIe card)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=350.0,  # H100 PCIe TDP
+        cooling_solution="active-air",
+        performance_specs={}  # Uses precision_profiles for performance
+    )
+
     return HardwareResourceModel(
         name="H100-PCIe-80GB",
         hardware_type=HardwareType.GPU,
@@ -113,6 +121,12 @@ def h100_pcie_resource_model() -> HardwareResourceModel:
         # Tensor Core details
         tensor_cores_per_sm=4,          # 4th gen Tensor Cores
         tensor_core_ops_per_clock=512,  # 512 FP16 FMAs per clock per TC
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 

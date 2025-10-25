@@ -72,6 +72,9 @@ class KPUMapper(HardwareMapper):
     - Tiling overhead
     """
 
+    # Idle power modeling (nanoscale leakage)
+    IDLE_POWER_FRACTION = 0.5  # 50% of TDP consumed at idle due to leakage
+
     def __init__(
         self,
         resource_model: HardwareResourceModel,
@@ -95,6 +98,59 @@ class KPUMapper(HardwareMapper):
         self.num_tiles = resource_model.compute_units  # 64, 256, or 768 tiles
         self.scratchpad_per_tile = resource_model.l1_cache_per_unit  # 256KB
         self.threads_per_tile = resource_model.threads_per_unit  # 256 threads
+
+    def compute_energy_with_idle_power(
+        self,
+        latency: float,
+        dynamic_energy: float
+    ) -> Tuple[float, float]:
+        """
+        Compute total energy including idle power consumption.
+
+        Modern nanoscale SoCs consume ~50% of TDP at idle due to leakage currents.
+        This method adds idle energy to the dynamic energy.
+
+        Args:
+            latency: Total execution time (seconds)
+            dynamic_energy: Energy from compute + memory transfers (Joules)
+
+        Returns:
+            (total_energy, average_power) in Joules and Watts
+        """
+        # Get TDP from thermal operating point
+        tdp_watts = None
+        if self.thermal_profile and self.resource_model.thermal_operating_points:
+            thermal_point = self.resource_model.thermal_operating_points.get(self.thermal_profile)
+            if thermal_point:
+                tdp_watts = thermal_point.tdp_watts
+
+        # Fallback logic: try "default" profile, then first available
+        if tdp_watts is None and self.resource_model.thermal_operating_points:
+            default_thermal = self.resource_model.thermal_operating_points.get("default")
+            if default_thermal:
+                tdp_watts = default_thermal.tdp_watts
+            else:
+                # Use first available thermal profile
+                first_profile = next(iter(self.resource_model.thermal_operating_points.values()), None)
+                if first_profile:
+                    tdp_watts = first_profile.tdp_watts
+
+        # Final fallback: estimate TDP from dynamic power
+        if tdp_watts is None:
+            dynamic_power = dynamic_energy / latency if latency > 0 else 0
+            tdp_watts = dynamic_power * 2.0  # Assume 50% headroom
+
+        # Calculate idle energy (constant power × time)
+        idle_power = tdp_watts * self.IDLE_POWER_FRACTION
+        idle_energy = idle_power * latency
+
+        # Total energy = idle + dynamic
+        total_energy = idle_energy + dynamic_energy
+
+        # Average power during execution
+        average_power = total_energy / latency if latency > 0 else 0
+
+        return total_energy, average_power
 
     def _analyze_tiling(
         self,
@@ -402,8 +458,11 @@ class KPUMapper(HardwareMapper):
         # Total latency = sum of stage latencies (sequential)
         total_latency = sum(latency_breakdown.values())
 
-        # Total energy
-        total_energy = sum(a.total_energy for a in subgraph_allocations)
+        # Total energy with idle power
+        dynamic_energy = sum(a.total_energy for a in subgraph_allocations)
+        total_energy, average_power = self.compute_energy_with_idle_power(
+            total_latency, dynamic_energy
+        )
 
         # Naive latency (assuming 100% utilization)
         total_ops = fusion_report.total_flops
