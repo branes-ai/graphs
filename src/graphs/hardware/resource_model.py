@@ -401,6 +401,17 @@ class HardwareResourceModel:
     thermal_operating_points: Optional[Dict[str, ThermalOperatingPoint]] = None
     default_thermal_profile: Optional[str] = None
 
+    # GPU Microarchitecture (for accurate compute modeling)
+    # These parameters define the actual hardware implementation
+    cuda_cores_per_sm: Optional[int] = None           # 64 (Pascal-Turing), 128 (Ampere-Hopper)
+    ops_per_clock_per_core: Optional[float] = 2.0     # FMA: 2 ops/clock for FP32
+    sm_boost_clock_hz: Optional[float] = None         # Maximum boost frequency (short bursts)
+    sm_sustained_clock_hz: Optional[float] = None     # Sustained frequency under thermal load
+
+    # Tensor Core microarchitecture (for matrix operations)
+    tensor_cores_per_sm: Optional[int] = None         # 4 (Volta/Turing/Ampere/Hopper)
+    tensor_core_ops_per_clock: Optional[float] = None # Varies by precision and generation
+
     def get_peak_ops(self, precision: Precision) -> float:
         """
         Get peak operations per second for a given precision.
@@ -806,6 +817,307 @@ def h100_pcie_resource_model() -> HardwareResourceModel:
         min_occupancy=0.25,
         max_concurrent_kernels=128,  # Can run many kernels concurrently
         wave_quantization=4,  # Launch in waves of 4 SMs
+
+        # Hopper microarchitecture (for compute modeling)
+        cuda_cores_per_sm=128,          # Doubled from Turing (64→128)
+        ops_per_clock_per_core=2.0,     # FMA: 2 ops/clock
+        sm_boost_clock_hz=1980e6,       # 1980 MHz boost
+        sm_sustained_clock_hz=1830e6,   # 1830 MHz sustained (92% of boost)
+
+        # Tensor Core details
+        tensor_cores_per_sm=4,          # 4th gen Tensor Cores
+        tensor_core_ops_per_clock=512,  # 512 FP16 FMAs per clock per TC
+    )
+
+
+def v100_sxm2_resource_model() -> HardwareResourceModel:
+    """
+    NVIDIA V100 SXM2 (32GB) resource model - Volta generation (2017).
+
+    ARCHITECTURE:
+    - First generation with Tensor Cores
+    - 80 SMs with 64 CUDA cores each (5,120 CUDA cores total)
+    - 8 Tensor Cores per SM (640 total)
+    - Volta microarchitecture
+
+    PERFORMANCE:
+    - FP32: 15.7 TFLOPS (CUDA cores)
+    - FP16: 31.4 TFLOPS (CUDA cores, 2× FP32)
+    - FP16 (Tensor Cores): 125 TFLOPS (8× CUDA cores)
+    - Boost clock: 1530 MHz
+
+    MEMORY:
+    - 32 GB HBM2
+    - 900 GB/s bandwidth
+
+    POWER:
+    - 300W TDP
+
+    USE CASE:
+    - Training pioneer (first with Tensor Cores)
+    - DGX-1 V100, Cloud instances (AWS P3, GCP)
+    """
+    return HardwareResourceModel(
+        name="V100-SXM2-32GB",
+        hardware_type=HardwareType.GPU,
+        compute_units=80,  # SMs
+        threads_per_unit=2048,
+        warps_per_unit=64,
+        warp_size=32,
+
+        # Precision profiles
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=7.8e12,  # 7.8 TFLOPS
+                tensor_core_supported=False,
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=15.7e12,  # 15.7 TFLOPS (CUDA cores)
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=125e12,  # 125 TFLOPS (with Tensor Cores)
+                tensor_core_supported=True,
+                relative_speedup=7.96,  # 125 / 15.7
+                bytes_per_element=2,
+                accumulator_precision=Precision.FP32,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=125e12,  # Same as FP16 Tensor Cores
+                tensor_core_supported=True,
+                relative_speedup=7.96,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=900e9,  # 900 GB/s HBM2
+        l1_cache_per_unit=128 * 1024,  # 128 KB per SM
+        l2_cache_total=6 * 1024 * 1024,  # 6 MB
+        main_memory=32 * 1024**3,  # 32 GB HBM2
+        energy_per_flop_fp32=0.64e-12,  # ~0.64 pJ/FLOP (300W / 15.7 TFLOPS / efficiency)
+        energy_per_byte=12e-12,  # ~12 pJ/byte
+        min_occupancy=0.25,
+        max_concurrent_kernels=32,
+        wave_quantization=4,
+
+        # Volta microarchitecture
+        cuda_cores_per_sm=64,           # First with 64 cores/SM
+        ops_per_clock_per_core=2.0,     # FMA
+        sm_boost_clock_hz=1530e6,       # 1530 MHz boost
+        sm_sustained_clock_hz=1400e6,   # 1400 MHz sustained (~91% of boost)
+
+        # Tensor Core details (1st generation)
+        tensor_cores_per_sm=8,          # 8 TCs per SM (first generation)
+        tensor_core_ops_per_clock=256,  # 256 FP16 FMAs per clock per TC
+    )
+
+
+def t4_resource_model() -> HardwareResourceModel:
+    """
+    NVIDIA T4 resource model - Turing generation (2018).
+
+    ARCHITECTURE:
+    - Inference-optimized GPU (low power, high INT8 throughput)
+    - 40 SMs with 64 CUDA cores each (2,560 CUDA cores total)
+    - 8 Tensor Cores per SM (2nd gen, improved INT8)
+    - Turing microarchitecture
+
+    PERFORMANCE:
+    - FP32: 8.1 TFLOPS (CUDA cores)
+    - FP16 (Tensor Cores): 65 TFLOPS
+    - INT8 (Tensor Cores): 130 TOPS (2× FP16)
+    - INT4: 260 TOPS
+    - Boost clock: 1590 MHz
+
+    MEMORY:
+    - 16 GB GDDR6
+    - 320 GB/s bandwidth
+
+    POWER:
+    - 70W TDP (inference-optimized!)
+
+    USE CASE:
+    - Inference-optimized (low latency, high throughput)
+    - Cloud inference (AWS G4, GCP T4)
+    - Edge servers
+    """
+    return HardwareResourceModel(
+        name="T4",
+        hardware_type=HardwareType.GPU,
+        compute_units=40,  # SMs
+        threads_per_unit=1024,  # Reduced from V100
+        warps_per_unit=32,
+        warp_size=32,
+
+        # Precision profiles (inference-optimized)
+        precision_profiles={
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=8.1e12,  # 8.1 TFLOPS (CUDA cores)
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=65e12,  # 65 TFLOPS (Tensor Cores)
+                tensor_core_supported=True,
+                relative_speedup=8.0,
+                bytes_per_element=2,
+                accumulator_precision=Precision.FP32,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=130e12,  # 130 TOPS (2× FP16)
+                tensor_core_supported=True,
+                relative_speedup=16.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+            Precision.INT4: PrecisionProfile(
+                precision=Precision.INT4,
+                peak_ops_per_sec=260e12,  # 260 TOPS (2× INT8)
+                tensor_core_supported=True,
+                relative_speedup=32.0,
+                bytes_per_element=0.5,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=320e9,  # 320 GB/s GDDR6
+        l1_cache_per_unit=96 * 1024,  # 96 KB per SM
+        l2_cache_total=4 * 1024 * 1024,  # 4 MB
+        main_memory=16 * 1024**3,  # 16 GB GDDR6
+        energy_per_flop_fp32=0.29e-12,  # ~0.29 pJ/FLOP (70W / 8.1 TFLOPS / efficiency)
+        energy_per_byte=8e-12,  # ~8 pJ/byte
+        min_occupancy=0.25,
+        max_concurrent_kernels=32,
+        wave_quantization=4,
+
+        # Turing microarchitecture (same core count as Volta)
+        cuda_cores_per_sm=64,           # Same as Volta
+        ops_per_clock_per_core=2.0,     # FMA
+        sm_boost_clock_hz=1590e6,       # 1590 MHz boost
+        sm_sustained_clock_hz=1470e6,   # 1470 MHz sustained (~92% of boost)
+
+        # Tensor Core details (2nd generation, improved INT8)
+        tensor_cores_per_sm=8,          # 8 TCs per SM
+        tensor_core_ops_per_clock=256,  # Similar to Volta
+    )
+
+
+def a100_sxm4_80gb_resource_model() -> HardwareResourceModel:
+    """
+    NVIDIA A100 SXM4 (80GB) resource model - Ampere generation (2020).
+
+    ARCHITECTURE:
+    - Ampere microarchitecture (GA100 die)
+    - 108 SMs with 128 CUDA cores each (6,912 CUDA cores total)
+    - 4 Tensor Cores per SM (3rd gen, added TF32, BF16, FP64 TC support)
+    - Doubled CUDA cores per SM (64→128)
+
+    PERFORMANCE:
+    - FP32: 19.5 TFLOPS (CUDA cores)
+    - TF32 (Tensor Cores): 156 TFLOPS (new in Ampere)
+    - BF16 (Tensor Cores): 312 TFLOPS
+    - FP16 (Tensor Cores): 312 TFLOPS
+    - INT8 (Tensor Cores): 624 TOPS
+    - Boost clock: 1410 MHz
+
+    MEMORY:
+    - 80 GB HBM2e
+    - 2 TB/s bandwidth (same as H100)
+
+    POWER:
+    - 400W TDP
+
+    USE CASE:
+    - Training standard (DGX A100, cloud)
+    - First with TF32 and BF16 support
+    - Strong balance of training and inference
+    """
+    return HardwareResourceModel(
+        name="A100-SXM4-80GB",
+        hardware_type=HardwareType.GPU,
+        compute_units=108,  # SMs
+        threads_per_unit=2048,
+        warps_per_unit=64,
+        warp_size=32,
+
+        # Precision profiles
+        precision_profiles={
+            Precision.FP64: PrecisionProfile(
+                precision=Precision.FP64,
+                peak_ops_per_sec=9.7e12,  # 9.7 TFLOPS
+                tensor_core_supported=True,  # New in Ampere!
+                relative_speedup=0.5,
+                bytes_per_element=8,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=19.5e12,  # 19.5 TFLOPS (CUDA cores)
+                tensor_core_supported=False,
+                relative_speedup=1.0,
+                bytes_per_element=4,
+            ),
+            # TF32: New in Ampere (FP32 range, FP16 precision)
+            Precision.BF16: PrecisionProfile(
+                precision=Precision.BF16,
+                peak_ops_per_sec=312e12,  # 312 TFLOPS (Tensor Cores)
+                tensor_core_supported=True,
+                relative_speedup=16.0,
+                bytes_per_element=2,
+                accumulator_precision=Precision.FP32,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=312e12,  # 312 TFLOPS (Tensor Cores)
+                tensor_core_supported=True,
+                relative_speedup=16.0,
+                bytes_per_element=2,
+                accumulator_precision=Precision.FP32,
+            ),
+            Precision.INT8: PrecisionProfile(
+                precision=Precision.INT8,
+                peak_ops_per_sec=624e12,  # 624 TOPS (2× FP16)
+                tensor_core_supported=True,
+                relative_speedup=32.0,
+                bytes_per_element=1,
+                accumulator_precision=Precision.INT32,
+            ),
+        },
+        default_precision=Precision.FP32,
+
+        peak_bandwidth=2e12,  # 2 TB/s HBM2e (same as H100)
+        l1_cache_per_unit=192 * 1024,  # 192 KB per SM
+        l2_cache_total=40 * 1024 * 1024,  # 40 MB
+        main_memory=80 * 1024**3,  # 80 GB HBM2e
+        energy_per_flop_fp32=0.69e-12,  # ~0.69 pJ/FLOP (400W / 19.5 TFLOPS / efficiency)
+        energy_per_byte=14e-12,  # ~14 pJ/byte
+        min_occupancy=0.25,
+        max_concurrent_kernels=128,
+        wave_quantization=4,
+
+        # Ampere microarchitecture (doubled CUDA cores!)
+        cuda_cores_per_sm=128,          # Doubled from Volta/Turing (64→128)
+        ops_per_clock_per_core=2.0,     # FMA
+        sm_boost_clock_hz=1410e6,       # 1410 MHz boost
+        sm_sustained_clock_hz=1300e6,   # 1300 MHz sustained (~92% of boost)
+
+        # Tensor Core details (3rd generation, added TF32/BF16/FP64)
+        tensor_cores_per_sm=4,          # Reduced from 8 (but much more capable)
+        tensor_core_ops_per_clock=512,  # 512 ops/clock (doubled throughput)
     )
 
 
