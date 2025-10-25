@@ -76,6 +76,10 @@ class TPUMapper(HardwareMapper):
     - Pipeline depth overhead
     """
 
+    # Idle power fraction (nanoscale transistor leakage)
+    # Modern datacenter accelerators consume ~50% TDP at idle
+    IDLE_POWER_FRACTION = 0.5
+
     def __init__(
         self,
         resource_model: HardwareResourceModel,
@@ -99,6 +103,71 @@ class TPUMapper(HardwareMapper):
         self.num_tensor_cores = resource_model.compute_units  # 2 TensorCores
         self.systolic_array_size = resource_model.warp_size  # 128 (128×128 array)
         self.threads_per_core = resource_model.threads_per_unit  # 16,384 (128×128)
+
+    def compute_energy_with_idle_power(
+        self,
+        latency: float,
+        dynamic_energy: float
+    ) -> Tuple[float, float]:
+        """
+        Compute total energy including idle power consumption.
+
+        Modern TPUs consume significant power even at idle due to:
+        - Transistor leakage in nanoscale processes (7nm, 5nm)
+        - Always-on circuitry (memory controllers, interconnects)
+        - Typical idle consumption: ~50% of TDP
+
+        Power model:
+        P_total = P_idle + P_dynamic
+        P_idle = TDP × 0.5 (constant)
+        P_dynamic = dynamic_energy / latency
+
+        Args:
+            latency: Total execution time (seconds)
+            dynamic_energy: Energy from computation and memory transfers (Joules)
+
+        Returns:
+            (total_energy, average_power)
+        """
+        if latency <= 0:
+            return dynamic_energy, 0.0
+
+        # Get TDP from thermal operating point if available
+        tdp_watts = None
+        if self.thermal_profile and self.resource_model.thermal_operating_points:
+            thermal_point = self.resource_model.thermal_operating_points.get(self.thermal_profile)
+            if thermal_point:
+                tdp_watts = thermal_point.tdp_watts
+
+        # If no thermal profile specified, try to use the first available one
+        if tdp_watts is None and self.resource_model.thermal_operating_points:
+            # Try "default" first
+            default_thermal = self.resource_model.thermal_operating_points.get("default")
+            if default_thermal:
+                tdp_watts = default_thermal.tdp_watts
+            else:
+                # Use the first available thermal profile
+                first_profile = next(iter(self.resource_model.thermal_operating_points.values()), None)
+                if first_profile:
+                    tdp_watts = first_profile.tdp_watts
+
+        # If still no TDP, estimate from dynamic power
+        # For datacenter accelerators: dynamic power is typically ~50% of TDP at peak
+        if tdp_watts is None:
+            dynamic_power = dynamic_energy / latency if latency > 0 else 0
+            tdp_watts = dynamic_power * 2.0
+
+        # Idle power: ~50% TDP constantly consumed
+        idle_power = tdp_watts * self.IDLE_POWER_FRACTION
+        idle_energy = idle_power * latency
+
+        # Total energy = idle + dynamic
+        total_energy = idle_energy + dynamic_energy
+
+        # Average power during execution
+        average_power = total_energy / latency
+
+        return total_energy, average_power
 
     def _analyze_operation_type(
         self,
@@ -376,8 +445,11 @@ class TPUMapper(HardwareMapper):
         # Total latency = sum of stage latencies (sequential)
         total_latency = sum(latency_breakdown.values())
 
-        # Total energy
-        total_energy = sum(a.total_energy for a in subgraph_allocations)
+        # Total energy: dynamic energy from compute + memory, plus idle power
+        dynamic_energy = sum(a.total_energy for a in subgraph_allocations)
+        total_energy, average_power = self.compute_energy_with_idle_power(
+            total_latency, dynamic_energy
+        )
 
         # Naive latency (assuming 100% utilization)
         total_ops = fusion_report.total_flops
@@ -427,7 +499,7 @@ def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
     Returns:
         TPUMapper configured for TPU v4
     """
-    from ...resource_model import tpu_v4_resource_model
+    from ...models.datacenter.tpu_v4 import tpu_v4_resource_model
 
     model = tpu_v4_resource_model()
     return TPUMapper(model, thermal_profile=thermal_profile)
@@ -443,7 +515,7 @@ def create_coral_edge_tpu_mapper(thermal_profile: str = None) -> TPUMapper:
     Returns:
         TPUMapper configured for Coral Edge TPU (ultra-low-power edge AI)
     """
-    from ...resource_model import coral_edge_tpu_resource_model
+    from ...models.edge.coral_edge_tpu import coral_edge_tpu_resource_model
 
     model = coral_edge_tpu_resource_model()
     return TPUMapper(model, thermal_profile=thermal_profile)

@@ -67,8 +67,12 @@ class CPUMapper(HardwareMapper):
     - Threading overhead
     """
 
-    def __init__(self, resource_model: HardwareResourceModel):
-        super().__init__(resource_model)
+    # Idle power fraction (nanoscale transistor leakage)
+    # Modern datacenter CPUs consume ~50% TDP at idle
+    IDLE_POWER_FRACTION = 0.5
+
+    def __init__(self, resource_model: HardwareResourceModel, thermal_profile: str = None):
+        super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a CPU model
         if resource_model.hardware_type.value != "cpu":
@@ -78,6 +82,73 @@ class CPUMapper(HardwareMapper):
         self.simd_width = resource_model.warp_size  # Reuse warp_size for SIMD width
         self.cores = resource_model.compute_units
         self.threads_per_core = resource_model.threads_per_unit  # SMT/HyperThreading
+
+    def compute_energy_with_idle_power(
+        self,
+        latency: float,
+        dynamic_energy: float
+    ) -> Tuple[float, float]:
+        """
+        Compute total energy including idle power consumption.
+
+        Modern datacenter CPUs consume significant power even at idle due to:
+        - Transistor leakage in nanoscale processes (7nm, 5nm, 3nm)
+        - Always-on circuitry (memory controllers, PCIe, interconnects)
+        - Typical idle consumption: ~50% of TDP
+
+        Power model:
+        P_total = P_idle + P_dynamic
+        P_idle = TDP × 0.5 (constant, independent of frequency/DVFS)
+        P_dynamic = dynamic_energy / latency
+
+        Args:
+            latency: Total execution time (seconds)
+            dynamic_energy: Energy from computation and memory transfers (Joules)
+
+        Returns:
+            (total_energy, average_power)
+        """
+        if latency <= 0:
+            return dynamic_energy, 0.0
+
+        # Get TDP from thermal operating point if available
+        # Datacenter CPUs have multiple thermal profiles (different core counts, frequencies)
+        tdp_watts = None
+        if self.thermal_profile and self.resource_model.thermal_operating_points:
+            thermal_point = self.resource_model.thermal_operating_points.get(self.thermal_profile)
+            if thermal_point:
+                tdp_watts = thermal_point.tdp_watts
+
+        # If no thermal profile specified, try to use the first available one
+        if tdp_watts is None and self.resource_model.thermal_operating_points:
+            # Try "default" first
+            default_thermal = self.resource_model.thermal_operating_points.get("default")
+            if default_thermal:
+                tdp_watts = default_thermal.tdp_watts
+            else:
+                # Use the first available thermal profile
+                first_profile = next(iter(self.resource_model.thermal_operating_points.values()), None)
+                if first_profile:
+                    tdp_watts = first_profile.tdp_watts
+
+        # If still no TDP, estimate from dynamic power
+        # For datacenter CPUs: dynamic power is typically ~40-60% of TDP at peak
+        if tdp_watts is None:
+            dynamic_power = dynamic_energy / latency if latency > 0 else 0
+            tdp_watts = dynamic_power * 2.0
+
+        # Idle power: ~50% TDP constantly consumed (leakage + always-on circuits)
+        # Note: This does NOT scale with DVFS - leakage is largely independent of frequency
+        idle_power = tdp_watts * self.IDLE_POWER_FRACTION
+        idle_energy = idle_power * latency
+
+        # Total energy = idle + dynamic
+        total_energy = idle_energy + dynamic_energy
+
+        # Average power during execution
+        average_power = total_energy / latency
+
+        return total_energy, average_power
 
     def _analyze_vectorization(
         self,
@@ -356,8 +427,11 @@ class CPUMapper(HardwareMapper):
         # Total latency = sum of stage latencies (sequential)
         total_latency = sum(latency_breakdown.values())
 
-        # Total energy
-        total_energy = sum(a.total_energy for a in subgraph_allocations)
+        # Total energy: dynamic energy from compute + memory, plus idle power
+        dynamic_energy = sum(a.total_energy for a in subgraph_allocations)
+        total_energy, average_power = self.compute_energy_with_idle_power(
+            total_latency, dynamic_energy
+        )
 
         # Naive latency (assuming 100% utilization)
         total_ops = fusion_report.total_flops
@@ -407,7 +481,7 @@ def create_intel_cpu_mapper(simd_type: str = "avx512") -> CPUMapper:
     Returns:
         CPUMapper configured for Intel CPU
     """
-    from ..resource_model import cpu_x86_resource_model
+    from ..models.datacenter.cpu_x86 import cpu_x86_resource_model
 
     model = cpu_x86_resource_model()
 
@@ -425,7 +499,7 @@ def create_intel_cpu_mapper(simd_type: str = "avx512") -> CPUMapper:
 
 def create_amd_cpu_mapper() -> CPUMapper:
     """Create CPU mapper for AMD Ryzen CPU (AVX-2)"""
-    from ..resource_model import cpu_x86_resource_model
+    from ..models.datacenter.cpu_x86 import cpu_x86_resource_model
 
     model = cpu_x86_resource_model()
     model.name = "AMD-Ryzen-7-16core"
@@ -900,7 +974,7 @@ def create_ampere_ampereone_192_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Ampere AmpereOne 192-core
     """
-    from ..resource_model import ampere_ampereone_192_resource_model
+    from ..models.datacenter.ampere_ampereone_192 import ampere_ampereone_192_resource_model
 
     model = ampere_ampereone_192_resource_model()
     return CPUMapper(model)
@@ -955,7 +1029,7 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Xeon Platinum 8490H
     """
-    from ..resource_model import intel_xeon_platinum_8490h_resource_model
+    from ..models.datacenter.intel_xeon_platinum_8490h import intel_xeon_platinum_8490h_resource_model
 
     model = intel_xeon_platinum_8490h_resource_model()
     return CPUMapper(model)
@@ -1014,7 +1088,7 @@ def create_amd_epyc_9654_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for AMD EPYC 9654
     """
-    from ..resource_model import amd_epyc_9654_resource_model
+    from ..models.datacenter.amd_epyc_9654 import amd_epyc_9654_resource_model
 
     model = amd_epyc_9654_resource_model()
     return CPUMapper(model)
@@ -1073,7 +1147,7 @@ def create_amd_epyc_9754_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for AMD EPYC 9754
     """
-    from ..resource_model import amd_epyc_9754_resource_model
+    from ..models.datacenter.amd_epyc_9754 import amd_epyc_9754_resource_model
 
     model = amd_epyc_9754_resource_model()
     return CPUMapper(model)
@@ -1137,7 +1211,7 @@ def create_intel_xeon_platinum_8592plus_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Xeon Platinum 8592+
     """
-    from ..resource_model import intel_xeon_platinum_8592plus_resource_model
+    from ..models.datacenter.intel_xeon_platinum_8592plus import intel_xeon_platinum_8592plus_resource_model
 
     model = intel_xeon_platinum_8592plus_resource_model()
     return CPUMapper(model)
@@ -1200,7 +1274,7 @@ def create_ampere_ampereone_128_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Ampere AmpereOne 128-core
     """
-    from ..resource_model import ampere_ampereone_128_resource_model
+    from ..models.datacenter.ampere_ampereone_128 import ampere_ampereone_128_resource_model
 
     model = ampere_ampereone_128_resource_model()
     return CPUMapper(model)
@@ -1267,7 +1341,7 @@ def create_intel_granite_rapids_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Granite Rapids
     """
-    from ..resource_model import intel_granite_rapids_resource_model
+    from ..models.datacenter.intel_granite_rapids import intel_granite_rapids_resource_model
 
     model = intel_granite_rapids_resource_model()
     return CPUMapper(model)
@@ -1335,7 +1409,7 @@ def create_amd_epyc_turin_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for AMD EPYC Turin
     """
-    from ..resource_model import amd_epyc_turin_resource_model
+    from ..models.datacenter.amd_epyc_turin import amd_epyc_turin_resource_model
 
     model = amd_epyc_turin_resource_model()
     return CPUMapper(model)

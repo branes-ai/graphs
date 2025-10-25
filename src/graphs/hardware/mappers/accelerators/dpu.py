@@ -443,5 +443,5 @@ def create_dpu_vitis_ai_mapper() -> DPUMapper:
     Returns:
         DPUMapper instance
     """
-    from ...resource_model import xilinx_vitis_ai_dpu_resource_model
+    from ...models.accelerators.xilinx_vitis_ai_dpu import xilinx_vitis_ai_dpu_resource_model
     return DPUMapper(xilinx_vitis_ai_dpu_resource_model())
