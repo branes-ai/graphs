@@ -102,7 +102,7 @@ class AutomotiveBenchmarkResult:
 
 @dataclass
 class AutomotiveUseCase:
-    """Automotive ADAS use case definition"""
+    """Automotive ADAS use case definition with realistic performance requirements"""
     name: str
     description: str
     camera_count: int
@@ -110,6 +110,8 @@ class AutomotiveUseCase:
     target_fps: int
     max_latency_ms: float
     safety_level: str  # "ASIL-B", "ASIL-D", etc.
+    min_tops_required: float  # Minimum TOPS needed for this use case
+    autonomy_level: str  # "L1", "L2", "L3", "L4"
 
 
 def extract_execution_stages(fusion_report):
@@ -399,8 +401,236 @@ def run_multi_camera_adas_comparison():
     return results
 
 
+# ============================================================================
+# ADAS Use Case Definitions (Based on Industry Standards)
+# ============================================================================
+
+def get_adas_use_cases():
+    """
+    Define realistic ADAS use cases with actual TOPS requirements.
+
+    Performance requirements based on:
+    - SAE J3016 autonomy levels
+    - Industry benchmarks (Tesla, Mobileye, NVIDIA)
+    - Academic research on DNN compute requirements
+    """
+    return [
+        AutomotiveUseCase(
+            name="Lane Keep Assist (LKA)",
+            description="Single front camera, lane detection",
+            camera_count=1,
+            power_budget_w=15.0,
+            target_fps=30,
+            max_latency_ms=100.0,
+            safety_level="ASIL-B",
+            min_tops_required=5.0,  # Simple lane detection + tracking
+            autonomy_level="L1"
+        ),
+        AutomotiveUseCase(
+            name="Adaptive Cruise Control (ACC)",
+            description="Front camera + radar fusion, object detection",
+            camera_count=1,
+            power_budget_w=15.0,
+            target_fps=30,
+            max_latency_ms=100.0,
+            safety_level="ASIL-B",
+            min_tops_required=8.0,  # Object detection + tracking + fusion
+            autonomy_level="L1"
+        ),
+        AutomotiveUseCase(
+            name="Traffic Sign Recognition (TSR)",
+            description="Front camera, sign detection and classification",
+            camera_count=1,
+            power_budget_w=10.0,
+            target_fps=10,  # Can be lower FPS
+            max_latency_ms=200.0,
+            safety_level="ASIL-A",
+            min_tops_required=3.0,  # Lightweight detection + classification
+            autonomy_level="L1"
+        ),
+        AutomotiveUseCase(
+            name="Forward Collision Warning (FCW)",
+            description="Front camera, real-time collision detection",
+            camera_count=1,
+            power_budget_w=15.0,
+            target_fps=30,
+            max_latency_ms=50.0,  # Critical safety function
+            safety_level="ASIL-D",
+            min_tops_required=10.0,  # Real-time detection + trajectory prediction
+            autonomy_level="L1"
+        ),
+        AutomotiveUseCase(
+            name="Surround View Monitoring (SVM)",
+            description="4-6 cameras, 360° view stitching",
+            camera_count=4,
+            power_budget_w=20.0,
+            target_fps=30,
+            max_latency_ms=100.0,
+            safety_level="ASIL-B",
+            min_tops_required=20.0,  # Multi-camera processing
+            autonomy_level="L2"
+        ),
+        AutomotiveUseCase(
+            name="Automatic Parking Assist",
+            description="Surround view + object detection + path planning",
+            camera_count=4,
+            power_budget_w=25.0,
+            target_fps=15,  # Lower FPS acceptable for parking
+            max_latency_ms=150.0,
+            safety_level="ASIL-C",
+            min_tops_required=30.0,  # Multi-camera + planning
+            autonomy_level="L2"
+        ),
+        AutomotiveUseCase(
+            name="Highway Pilot (L2/L3)",
+            description="Multi-sensor fusion (cameras + radar + lidar)",
+            camera_count=8,
+            power_budget_w=60.0,
+            target_fps=30,
+            max_latency_ms=100.0,
+            safety_level="ASIL-D",
+            min_tops_required=300.0,  # Full sensor fusion + path planning + redundancy
+            autonomy_level="L3"
+        ),
+    ]
+
+
+@dataclass
+class PlatformScore:
+    """Score for a platform on a specific use case"""
+    use_case: str
+    hardware_name: str
+    power_mode: str
+    tdp_watts: float
+
+    # Requirements check
+    meets_tops_requirement: bool
+    meets_power_budget: bool
+    meets_latency_requirement: bool
+    meets_fps_requirement: bool
+
+    # Performance metrics
+    effective_tops: float
+    latency_ms: float
+    fps: float
+    fps_per_watt: float
+
+    # Overall score (0-100)
+    total_score: float
+
+    # Warnings
+    warnings: list = field(default_factory=list)
+
+
+def calculate_platform_score(
+    use_case: AutomotiveUseCase,
+    result: AutomotiveBenchmarkResult
+) -> PlatformScore:
+    """
+    Calculate how well a platform meets a use case's requirements.
+
+    Scoring methodology:
+    - Performance (50%): Must meet minimum TOPS requirement
+    - Efficiency (20%): FPS per watt within power budget
+    - Latency (20%): Must meet real-time requirements
+    - Safety (10%): Bonus for certification
+    """
+    warnings = []
+
+    # Check requirements
+    meets_tops = result.tops_per_watt * result.tdp_watts >= use_case.min_tops_required
+    meets_power = result.tdp_watts <= use_case.power_budget_w
+    meets_latency = result.latency_ms <= use_case.max_latency_ms
+    meets_fps = result.throughput_fps >= use_case.target_fps
+
+    # Calculate effective TOPS (TOPS/W × actual power)
+    effective_tops = result.tops_per_watt * result.tdp_watts
+
+    # Performance score (0-50 points)
+    if not meets_tops:
+        performance_score = 0.0
+        warnings.append(f"INSUFFICIENT PERFORMANCE: {effective_tops:.1f} TOPS < {use_case.min_tops_required:.1f} TOPS required")
+    else:
+        # Scale based on how much over requirement
+        tops_ratio = effective_tops / use_case.min_tops_required
+        performance_score = min(50.0, 30.0 + 20.0 * (tops_ratio - 1.0))
+
+    # Efficiency score (0-20 points)
+    if not meets_power:
+        efficiency_score = 0.0
+        warnings.append(f"POWER BUDGET EXCEEDED: {result.tdp_watts:.1f}W > {use_case.power_budget_w:.1f}W budget")
+    else:
+        # Higher FPS/W is better
+        efficiency_score = min(20.0, result.fps_per_watt * 2.0)
+
+    # Latency score (0-20 points)
+    if not meets_latency:
+        latency_score = 0.0
+        warnings.append(f"LATENCY TOO HIGH: {result.latency_ms:.1f}ms > {use_case.max_latency_ms:.1f}ms max")
+    else:
+        # Scale based on margin below requirement
+        latency_margin = (use_case.max_latency_ms - result.latency_ms) / use_case.max_latency_ms
+        latency_score = 10.0 + 10.0 * latency_margin
+
+    # Safety certification bonus (0-10 points)
+    safety_score = 0.0
+    if result.safety_certified:
+        safety_score += 5.0
+    if result.temperature_range == "automotive":
+        safety_score += 5.0
+
+    # Total score
+    total_score = performance_score + efficiency_score + latency_score + safety_score
+
+    return PlatformScore(
+        use_case=use_case.name,
+        hardware_name=result.hardware_name,
+        power_mode=result.power_mode,
+        tdp_watts=result.tdp_watts,
+        meets_tops_requirement=meets_tops,
+        meets_power_budget=meets_power,
+        meets_latency_requirement=meets_latency,
+        meets_fps_requirement=meets_fps,
+        effective_tops=effective_tops,
+        latency_ms=result.latency_ms,
+        fps=result.throughput_fps,
+        fps_per_watt=result.fps_per_watt,
+        total_score=total_score,
+        warnings=warnings,
+    )
+
+
+def recommend_platforms_for_use_cases(all_results: List[AutomotiveBenchmarkResult]):
+    """
+    Generate data-driven recommendations for each ADAS use case.
+
+    For each use case, scores all tested platforms and recommends the best.
+    """
+    use_cases = get_adas_use_cases()
+    recommendations = {}
+
+    for use_case in use_cases:
+        # Score all platforms for this use case
+        scores = []
+        for result in all_results:
+            score = calculate_platform_score(use_case, result)
+            scores.append(score)
+
+        # Sort by total score (descending)
+        scores.sort(key=lambda s: s.total_score, reverse=True)
+
+        # Best recommendation is highest score
+        recommendations[use_case.name] = {
+            'use_case': use_case,
+            'scores': scores,
+            'best': scores[0] if scores else None,
+        }
+
+    return recommendations
+
+
 def print_automotive_summary(cat1_results, cat2_results):
-    """Print automotive-specific executive summary"""
+    """Print automotive-specific executive summary with data-driven recommendations"""
     print("\n" + "="*120)
     print("AUTOMOTIVE ADAS EXECUTIVE SUMMARY")
     print("="*120)
@@ -440,27 +670,140 @@ def print_automotive_summary(cat1_results, cat2_results):
     print(f"\n✓ Best efficiency (Multi-Camera): {cat2_best.hardware_name} @ {cat2_best.power_mode}")
     print(f"  {cat2_best.fps_per_watt:.2f} FPS/W on {cat2_best.model_name}")
 
-    print("\n## Automotive Use Case Recommendations")
-    print("-" * 120)
-    print("\n┌─────────────────────────────────┬──────────────────────────┬──────────────────────┐")
-    print("│ ADAS Use Case                   │ Recommended Platform     │ Power Budget         │")
-    print("├─────────────────────────────────┼──────────────────────────┼──────────────────────┤")
-    print("│ Lane Keep Assist (LKA)          │ TI TDA4VM @ 10W          │ 10W                  │")
-    print("│ Adaptive Cruise Control (ACC)   │ TI TDA4VM @ 10W          │ 10W                  │")
-    print("│ Traffic Sign Recognition        │ TI TDA4VM @ 10W          │ 10W                  │")
-    print("│ Forward Collision Warning       │ TI TDA4VM @ 10W          │ 10W                  │")
-    print("│ Surround View Monitoring        │ TI TDA4VM @ 20W          │ 20W                  │")
-    print("│ Automatic Parking Assist        │ TI TDA4VM @ 20W          │ 20W                  │")
-    print("│ Highway Pilot (L2/L3)           │ TI TDA4VM @ 20W          │ 20W                  │")
-    print("└─────────────────────────────────┴──────────────────────────┴──────────────────────┘")
+    # Generate data-driven recommendations
+    all_results = cat1_results + cat2_results
+    recommendations = recommend_platforms_for_use_cases(all_results)
 
-    print("\n## Key Findings")
+    print("\n## Automotive Use Case Recommendations (Data-Driven)")
     print("-" * 120)
-    print("\n1. **Safety Certification Critical**: TI TDA4VM offers ASIL-D/SIL-3 certification")
-    print("2. **Temperature Range**: Automotive-grade (-40°C to 125°C) required for production")
-    print("3. **Real-Time Performance**: 30 FPS minimum, <100ms latency for safety")
-    print("4. **Power Budget**: Front camera (10W), Multi-camera (20W) typical")
-    print("5. **Deterministic Execution**: Required for safety-critical ADAS functions")
+    print("\n┌─────────────────────────────────┬──────────────────────────┬──────────┬──────────┬──────────────────────────────────┐")
+    print("│ ADAS Use Case                   │ Recommended Platform     │ Power    │ Eff TOPS │ Status / Warnings                │")
+    print("├─────────────────────────────────┼──────────────────────────┼──────────┼──────────┼──────────────────────────────────┤")
+
+    for use_case_name, rec_data in recommendations.items():
+        best = rec_data['best']
+        use_case = rec_data['use_case']
+
+        if best:
+            platform_str = f"{best.hardware_name} @ {best.power_mode}"
+            power_str = f"{best.tdp_watts:.0f}W"
+            tops_str = f"{best.effective_tops:.1f}"
+
+            # Status indicator
+            if best.meets_tops_requirement and best.meets_power_budget:
+                status = "✓ MEETS REQUIREMENTS"
+            elif not best.meets_tops_requirement:
+                status = f"✗ INSUFFICIENT ({best.effective_tops:.1f}/{use_case.min_tops_required:.0f} TOPS)"
+            elif not best.meets_power_budget:
+                status = f"⚠ OVER BUDGET ({best.tdp_watts:.0f}/{use_case.power_budget_w:.0f}W)"
+            else:
+                status = "⚠ CHECK WARNINGS"
+
+            # Truncate for table width
+            uc_str = use_case_name[:31].ljust(31)
+            plat_str = platform_str[:24].ljust(24)
+            power_str = power_str[:8].ljust(8)
+            tops_str = tops_str[:8].ljust(8)
+            status_str = status[:32].ljust(32)
+
+            print(f"│ {uc_str} │ {plat_str} │ {power_str} │ {tops_str} │ {status_str} │")
+        else:
+            print(f"│ {use_case_name[:31].ljust(31)} │ {'NO DATA':24} │ {'N/A':8} │ {'N/A':8} │ {'NO PLATFORMS TESTED':32} │")
+
+    print("└─────────────────────────────────┴──────────────────────────┴──────────┴──────────┴──────────────────────────────────┘")
+
+    # Print detailed warnings for problematic recommendations
+    print("\n## Performance Warnings")
+    print("-" * 120)
+
+    critical_warnings_found = False
+    for use_case_name, rec_data in recommendations.items():
+        best = rec_data['best']
+        use_case = rec_data['use_case']
+
+        if best and best.warnings:
+            critical_warnings_found = True
+            print(f"\n⚠ {use_case_name} ({use_case.autonomy_level}):")
+            for warning in best.warnings:
+                print(f"  - {warning}")
+
+            # Additional context for L3/L4
+            if use_case.autonomy_level in ["L3", "L4"]:
+                print(f"  ⚠ CRITICAL: {use_case.autonomy_level} autonomy requires {use_case.min_tops_required:.0f} TOPS minimum")
+                print(f"  → Industry examples: Tesla FSD (~1000 TOPS), Waymo (~2000 TOPS)")
+
+    if not critical_warnings_found:
+        print("\n✓ All recommended platforms meet minimum requirements for their use cases")
+
+    print("\n## Key Findings (Data-Driven Analysis)")
+    print("-" * 120)
+
+    # Analyze which platforms are suitable for which autonomy levels
+    l1_suitable = []
+    l2_suitable = []
+    l3_suitable = []
+
+    for use_case_name, rec_data in recommendations.items():
+        best = rec_data['best']
+        use_case = rec_data['use_case']
+
+        if best and best.meets_tops_requirement and best.meets_power_budget:
+            if use_case.autonomy_level == "L1":
+                l1_suitable.append(best.hardware_name)
+            elif use_case.autonomy_level == "L2":
+                l2_suitable.append(best.hardware_name)
+            elif use_case.autonomy_level == "L3":
+                l3_suitable.append(best.hardware_name)
+
+    # Count unique platforms per level
+    l1_platforms = set(l1_suitable)
+    l2_platforms = set(l2_suitable)
+    l3_platforms = set(l3_suitable)
+
+    print("\n1. **Autonomy Level Suitability:**")
+    print(f"   - L1 ADAS (Lane Keep, ACC, FCW): {len(l1_platforms)} platforms meet requirements")
+    if l1_platforms:
+        print(f"     → Suitable: {', '.join(l1_platforms)}")
+    print(f"   - L2 ADAS (Surround View, Parking): {len(l2_platforms)} platforms meet requirements")
+    if l2_platforms:
+        print(f"     → Suitable: {', '.join(l2_platforms)}")
+    print(f"   - L3 Highway Pilot (300 TOPS): {len(l3_platforms)} platforms meet requirements")
+    if l3_platforms:
+        print(f"     → Suitable: {', '.join(l3_platforms)}")
+    else:
+        print(f"     → ⚠ CRITICAL: None of the tested platforms meet L3 requirements!")
+
+    print("\n2. **Performance vs Safety Certification Trade-off:**")
+    certified_platforms = [r for r in all_results if r.safety_certified]
+    high_perf_platforms = [r for r in all_results if r.tops_per_watt * r.tdp_watts >= 50.0]
+
+    if certified_platforms:
+        avg_tops_certified = sum(r.tops_per_watt * r.tdp_watts for r in certified_platforms) / len(certified_platforms)
+        print(f"   - ASIL-D certified platforms: {len(certified_platforms)} tested (avg {avg_tops_certified:.1f} TOPS)")
+    else:
+        print(f"   - ASIL-D certified platforms: 0 tested")
+
+    if high_perf_platforms:
+        print(f"   - High-performance (>50 TOPS): {len(high_perf_platforms)} platforms")
+        print(f"   → Modern L3 systems prioritize performance + system-level safety over chip certification")
+
+    print("\n3. **Real-Time Performance Requirements:**")
+    fps_ok = sum(1 for r in all_results if r.meets_30fps_requirement)
+    latency_ok = sum(1 for r in all_results if r.meets_100ms_latency)
+    print(f"   - {fps_ok}/{len(all_results)} configurations meet 30 FPS requirement")
+    print(f"   - {latency_ok}/{len(all_results)} configurations meet <100ms latency requirement")
+
+    print("\n4. **Power Efficiency Analysis:**")
+    best_efficiency = max(all_results, key=lambda r: r.fps_per_watt)
+    print(f"   - Best FPS/W: {best_efficiency.hardware_name} @ {best_efficiency.power_mode}")
+    print(f"     → {best_efficiency.fps_per_watt:.2f} FPS/W ({best_efficiency.model_name})")
+
+    print("\n5. **Industry Reality Check:**")
+    print(f"   - Tesla FSD Computer: ~144 TOPS (2× redundant 72 TOPS chips)")
+    print(f"   - NVIDIA DRIVE Orin: ~254 TOPS (full SoC, all accelerators)")
+    print(f"   - L3 systems typically: 300-500 TOPS for full sensor fusion")
+    print(f"   - L4 urban autonomy: 1000-2000 TOPS (POPS scale)")
+    print(f"   → Performance gap is the primary bottleneck, not certification status")
 
 
 def main():

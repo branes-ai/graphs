@@ -27,6 +27,14 @@ def tpu_v4_resource_model() -> HardwareResourceModel:
     - 2× INT8 performance vs BF16
     - Very energy efficient
     """
+    # Thermal operating point (datacenter TPU pod)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=350.0,  # TPU v4 TDP
+        cooling_solution="active-liquid",
+        performance_specs={}  # Uses precision_profiles for performance
+    )
+
     return HardwareResourceModel(
         name="TPU-v4",
         hardware_type=HardwareType.TPU,
@@ -70,6 +78,12 @@ def tpu_v4_resource_model() -> HardwareResourceModel:
         min_occupancy=0.5,  # Systolic arrays need high utilization
         max_concurrent_kernels=1,  # Typically runs one large batch
         wave_quantization=1,
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 
