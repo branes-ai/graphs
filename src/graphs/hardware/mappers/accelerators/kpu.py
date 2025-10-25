@@ -454,7 +454,7 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T64 with heterogeneous tiles (44/13/7)
     """
-    from ...resource_model import kpu_t64_resource_model
+    from ...models.accelerators.kpu_t64 import kpu_t64_resource_model
 
     model = kpu_t64_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)
@@ -471,7 +471,7 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T256 with heterogeneous tiles (179/51/26)
     """
-    from ...resource_model import kpu_t256_resource_model
+    from ...models.accelerators.kpu_t256 import kpu_t256_resource_model
 
     model = kpu_t256_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)
@@ -488,7 +488,7 @@ def create_kpu_t768_mapper(thermal_profile: str = None) -> KPUMapper:
     Returns:
         KPUMapper configured for KPU-T768 with heterogeneous tiles (537/154/77)
     """
-    from ...resource_model import kpu_t768_resource_model
+    from ...models.accelerators.kpu_t768 import kpu_t768_resource_model
 
     model = kpu_t768_resource_model()
     return KPUMapper(model, thermal_profile=thermal_profile)

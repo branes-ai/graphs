@@ -602,7 +602,7 @@ def create_h100_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for H100
     """
-    from ..resource_model import h100_pcie_resource_model
+    from ..models.datacenter.h100_pcie import h100_pcie_resource_model
     return GPUMapper(h100_pcie_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -637,7 +637,7 @@ def create_a100_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for A100
     """
-    from ..resource_model import a100_sxm4_80gb_resource_model
+    from ..models.datacenter.a100_sxm4_80gb import a100_sxm4_80gb_resource_model
     return GPUMapper(a100_sxm4_80gb_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -672,7 +672,7 @@ def create_v100_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for V100
     """
-    from ..resource_model import v100_sxm2_resource_model
+    from ..models.datacenter.v100_sxm2 import v100_sxm2_resource_model
     return GPUMapper(v100_sxm2_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -710,7 +710,7 @@ def create_t4_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for T4
     """
-    from ..resource_model import t4_resource_model
+    from ..models.datacenter.t4 import t4_resource_model
     return GPUMapper(t4_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -725,7 +725,7 @@ def create_jetson_orin_agx_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for Jetson Orin AGX
     """
-    from ..resource_model import jetson_orin_agx_resource_model
+    from ..models.edge.jetson_orin_agx import jetson_orin_agx_resource_model
     return GPUMapper(jetson_orin_agx_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -740,7 +740,7 @@ def create_jetson_orin_nano_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for Jetson Orin Nano
     """
-    from ..resource_model import jetson_orin_nano_resource_model
+    from ..models.edge.jetson_orin_nano import jetson_orin_nano_resource_model
     return GPUMapper(jetson_orin_nano_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -755,7 +755,7 @@ def create_jetson_thor_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for Jetson Thor
     """
-    from ..resource_model import jetson_thor_resource_model
+    from ..models.automotive.jetson_thor import jetson_thor_resource_model
     return GPUMapper(jetson_thor_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -817,5 +817,5 @@ def create_arm_mali_g78_mp20_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for ARM Mali-G78 MP20
     """
-    from ..resource_model import arm_mali_g78_mp20_resource_model
+    from ..models.mobile.arm_mali_g78_mp20 import arm_mali_g78_mp20_resource_model
     return GPUMapper(arm_mali_g78_mp20_resource_model(), thermal_profile=thermal_profile)

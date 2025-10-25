@@ -413,5 +413,5 @@ def create_plasticine_v2_mapper() -> CGRAMapper:
     Returns:
         CGRAMapper instance
     """
-    from ...resource_model import stanford_plasticine_cgra_resource_model
+    from ...models.accelerators.stanford_plasticine_cgra import stanford_plasticine_cgra_resource_model
     return CGRAMapper(stanford_plasticine_cgra_resource_model())

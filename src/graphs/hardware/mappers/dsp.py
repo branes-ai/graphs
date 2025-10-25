@@ -53,15 +53,15 @@ from ..resource_model import (
     ThermalOperatingPoint,
     PerformanceCharacteristics,
     BottleneckType,
-    qrb5165_resource_model,
-    ti_tda4vm_resource_model,
-    ti_tda4vl_resource_model,
-    ti_tda4al_resource_model,
-    ti_tda4vh_resource_model,
-    ceva_neupro_npm11_resource_model,
-    cadence_vision_q8_resource_model,
-    synopsys_arc_ev7x_resource_model,
 )
+from ..models.edge.qrb5165 import qrb5165_resource_model
+from ..models.automotive.ti_tda4vm import ti_tda4vm_resource_model
+from ..models.automotive.ti_tda4vl import ti_tda4vl_resource_model
+from ..models.automotive.ti_tda4al import ti_tda4al_resource_model
+from ..models.automotive.ti_tda4vh import ti_tda4vh_resource_model
+from ..models.accelerators.ceva_neupro_npm11 import ceva_neupro_npm11_resource_model
+from ..models.accelerators.cadence_vision_q8 import cadence_vision_q8_resource_model
+from ..models.accelerators.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
 from graphs.ir.structures import SubgraphDescriptor, ParallelismDescriptor
 
