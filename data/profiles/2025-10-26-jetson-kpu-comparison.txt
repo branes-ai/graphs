@@ -1,0 +1,188 @@
+========================================================================================================================
+HARDWARE COMPARISON: resnet18 (batch_size=1)
+========================================================================================================================
+
+[1/2] Analyzing Jetson-Orin-AGX...
+
+====================================================================================================
+Graph Mapping Analysis: resnet18 → Jetson-Orin-AGX
+====================================================================================================
+
+[1/5] Creating model: resnet18 (batch_size=1)...
+[2/5] Tracing and partitioning graph...
+      ✓ Graph partitioned into 32 subgraphs
+      ✓ Total FLOPs: 3.63 GFLOPs
+      ✓ Total memory: 78.58 MB
+[3/5] Creating hardware mapper: Jetson-Orin-AGX...
+      ✓ Hardware: NVIDIA Jetson Orin AGX
+      ✓ Peak FLOPS: 85.00 TFLOPS (FP16)
+      ✓ Memory BW: 204.8 GB/s
+      ✓ TDP: 30.0W (thermal profile: 30W)
+[4/5] Allocating resources and estimating performance...
+      ✓ Allocated resources for 32 subgraphs
+[5/5] Creating execution plan...
+      ✓ Execution plan created
+      ✓ Total latency: 1.82 ms
+      ✓ Average power: 26.8 W
+      ✓ Average utilization: 93.8%
+      ✓ Jetson-Orin-AGX: 1.822 ms, 26.8 W
+
+[2/2] Analyzing KPU-T256...
+
+====================================================================================================
+Graph Mapping Analysis: resnet18 → KPU-T256
+====================================================================================================
+
+[1/5] Creating model: resnet18 (batch_size=1)...
+[2/5] Tracing and partitioning graph...
+      ✓ Graph partitioned into 32 subgraphs
+      ✓ Total FLOPs: 3.63 GFLOPs
+      ✓ Total memory: 78.58 MB
+[3/5] Creating hardware mapper: KPU-T256...
+      ✓ Hardware: Stillwater KPU-T256
+      ✓ Peak FLOPS: 33.80 TFLOPS (FP16)
+      ✓ Memory BW: 256.0 GB/s
+      ✓ TDP: 30.0W (thermal profile: 30W)
+[4/5] Allocating resources and estimating performance...
+      ✓ Allocated resources for 32 subgraphs
+[5/5] Creating execution plan...
+      ✓ Execution plan created
+      ✓ Total latency: 26.59 ms
+      ✓ Average power: 15.1 W
+      ✓ Average utilization: 50.0%
+      ✓ KPU-T256: 26.594 ms, 15.1 W
+
+
+========================================================================================================================
+COMPARISON TABLE
+========================================================================================================================
+
+Metric                             Jetson-Orin-AGX            KPU-T256
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Model                                     resnet18            resnet18
+Batch Size                                       1                   1
+
+PERFORMANCE
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Total Latency (ms)                           1.822              26.594
+Throughput (FPS)                             549.0                37.6
+Subgraphs                                       32                  32
+
+POWER & ENERGY
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Average Power (W)                             26.8                15.1
+Peak Power (W)                                30.0                25.3
+Energy/Inference (mJ)                         48.7               401.0
+
+UTILIZATION & EFFICIENCY
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Avg Utilization (%)                           93.8                50.0
+Peak Utilization (%)                         100.0                90.0
+Hardware Efficiency (%)                        2.3                 0.4
+Memory Efficiency (%)                         21.1                 1.2
+
+HARDWARE SPECS
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Peak FLOPS (TFLOPS)                          85.00               33.80
+Memory BW (GB/s)                             204.8               256.0
+TDP (W)                                       30.0                30.0
+
+BOTTLENECK ANALYSIS
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Compute-bound subgraphs                    13 ( 41%)             13 ( 41%)
+Memory-bound subgraphs                     12 ( 38%)             12 ( 38%)
+
+========================================================================================================================
+
+PERFORMANCE RANKING (by latency):
+  1. Jetson-Orin-AGX              1.822 ms  ( 549.0 FPS)  Power:  26.8W  Energy:    48.7mJ
+  2. KPU-T256                    26.594 ms  (  37.6 FPS)  Power:  15.1W  Energy:   401.0mJ
+
+ENERGY EFFICIENCY RANKING (by energy/inference):
+  1. Jetson-Orin-AGX               48.7 mJ/inference  Power:  26.8W  Latency:   1.822ms
+  2. KPU-T256                     401.0 mJ/inference  Power:  15.1W  Latency:  26.594ms
+
+========================================================================================================================
+HARDWARE ARCHITECTURE REFERENCE
+========================================================================================================================
+
+This section shows the compute building blocks allocated in the subgraph comparison below.
+
+Jetson-Orin-AGX (GPU):
+  Total Units: 16 SMs
+  Threads per Unit: 64
+  Architecture:
+    - 128 CUDA cores per SM
+    - 2.0 ops/clock/core (FMA)
+    - 0.65 GHz clock (sustained)
+    → 166.4 GOPS per SM
+    → 2662.4 GOPS total (16 SMs)
+    - 4 Tensor Cores per SM (matrix ops)
+  Memory:
+    - Bandwidth: 204.8 GB/s
+    - L1 per unit: 128 KB
+    - L2 total: 4.0 MB
+    - Main memory: 64.0 GB
+
+KPU-T256 (KPU):
+  Total Units: 256 tiles
+  Threads per Unit: 256
+  Architecture (Heterogeneous Tiles @ 15W):
+    - 179 tiles: INT8-primary
+      • 256 ops/clock/tile @ 1.00 GHz
+      → 45824.0 GOPS (int4)
+    - 51 tiles: BF16-primary
+      • 128 ops/clock/tile @ 1.00 GHz
+      → 6528.0 GOPS (bf16)
+    - 26 tiles: Matrix-8x8
+      • 512 ops/clock/tile @ 1.00 GHz
+      → 13312.0 GOPS (int8)
+  Memory:
+    - Bandwidth: 256.0 GB/s
+    - L1 per unit: 256 KB
+    - L2 total: 16.0 MB
+    - Main memory: 32.0 GB
+
+
+========================================================================================================================
+DETAILED SUBGRAPH-BY-SUBGRAPH COMPARISON
+========================================================================================================================
+
+ID   Operations                FLOPs      Memory     |                  Jetson-Orin-AGX                   |                      KPU-T256                     
+                                                     | Alloc        Util%   Bottleneck   Lat(ms)   Pwr(W)  | Alloc        Util%   Bottleneck   Lat(ms)   Pwr(W) 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+0    conv2d_batchnorm_relu     236.03M    3.67MB     | 16 SMs       100.0   compute_bou  0.089     30.0    | 196 tiles    90.0    compute_bou  0.015     25.3   
+1    maxpool                   0          3.83MB     | 16 SMs       100.0   bandwidth_b  0.020     30.0    | 49 tiles     71.4    bandwidth_b  0.016     17.0   
+2    conv2d_batchnorm_relu     231.21M    1.67MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 49 tiles     71.4    compute_bou  0.061     17.0   
+3    conv2d_batchnorm          231.21M    1.67MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 49 tiles     71.4    compute_bou  0.061     17.0   
+4    unknown_relu              0          2.30MB     | 16 SMs       100.0   bandwidth_b  0.012     30.0    | 49 tiles     71.4    bandwidth_b  0.009     17.0   
+5    conv2d_batchnorm_relu     231.21M    1.67MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 49 tiles     71.4    compute_bou  0.061     17.0   
+6    conv2d_batchnorm          231.21M    1.67MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 49 tiles     71.4    compute_bou  0.061     17.0   
+7    unknown_relu              0          2.30MB     | 16 SMs       100.0   bandwidth_b  0.012     30.0    | 49 tiles     71.4    bandwidth_b  0.009     17.0   
+8    conv2d_batchnorm_relu     115.61M    1.43MB     | 16 SMs       100.0   compute_bou  0.043     30.0    | 12 tiles     47.8    compute_bou  0.187     15.3   
+9    conv2d_batchnorm          231.21M    1.33MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 12 tiles     47.8    compute_bou  0.374     15.3   
+10   conv2d_pointwise_batchno  12.85M     1.18MB     | 16 SMs       100.0   balanced     0.006     30.0    | 12 tiles     47.8    balanced     0.021     15.3   
+11   unknown_relu              0          1.15MB     | 16 SMs       100.0   bandwidth_b  0.006     30.0    | 12 tiles     47.8    bandwidth_b  0.005     15.3   
+12   conv2d_batchnorm_relu     231.21M    1.33MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 12 tiles     47.8    compute_bou  0.374     15.3   
+13   conv2d_batchnorm          231.21M    1.33MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 12 tiles     47.8    compute_bou  0.374     15.3   
+14   unknown_relu              0          1.15MB     | 16 SMs       100.0   bandwidth_b  0.006     30.0    | 12 tiles     47.8    bandwidth_b  0.005     15.3   
+15   conv2d_batchnorm_relu     115.61M    1.70MB     | 16 SMs       100.0   compute_bou  0.043     30.0    | 3 tiles      42.0    compute_bou  0.853     15.1   
+16   conv2d_batchnorm          231.21M    2.63MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 3 tiles      42.0    compute_bou  1.706     15.1   
+17   conv2d_pointwise_batchno  12.85M     718.00KB   | 16 SMs       100.0   balanced     0.005     30.0    | 3 tiles      42.0    balanced     0.095     15.1   
+18   unknown_relu              0          588.00KB   | 16 SMs       100.0   bandwidth_b  0.003     30.0    | 3 tiles      42.0    bandwidth_b  0.002     15.1   
+19   conv2d_batchnorm_relu     231.21M    2.63MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 3 tiles      42.0    compute_bou  1.706     15.1   
+20   conv2d_batchnorm          231.21M    2.63MB     | 16 SMs       100.0   compute_bou  0.087     30.0    | 3 tiles      42.0    compute_bou  1.706     15.1   
+21   unknown_relu              0          588.00KB   | 16 SMs       100.0   bandwidth_b  0.003     30.0    | 3 tiles      42.0    bandwidth_b  0.002     15.1   
+22   conv2d_batchnorm_relu     115.61M    4.79MB     | 16 SMs       100.0   balanced     0.043     30.0    | 1 tiles      40.5    balanced     2.652     15.0   
+23   conv2d_batchnorm          231.21M    9.20MB     | 16 SMs       100.0   balanced     0.087     30.0    | 1 tiles      40.5    balanced     5.303     15.0   
+24   conv2d_pointwise_batchno  12.85M     810.00KB   | 16 SMs       100.0   balanced     0.005     30.0    | 1 tiles      40.5    balanced     0.295     15.0   
+25   unknown_relu              0          294.00KB   | 16 SMs       100.0   bandwidth_b  0.001     30.0    | 1 tiles      40.5    bandwidth_b  0.001     15.0   
+26   conv2d_batchnorm_relu     231.21M    9.20MB     | 16 SMs       100.0   balanced     0.087     30.0    | 1 tiles      40.5    balanced     5.303     15.0   
+27   conv2d_batchnorm          231.21M    9.20MB     | 16 SMs       100.0   balanced     0.087     30.0    | 1 tiles      40.5    balanced     5.303     15.0   
+28   unknown_relu              0          294.00KB   | 16 SMs       100.0   bandwidth_b  0.001     30.0    | 1 tiles      40.5    bandwidth_b  0.001     15.0   
+29   adaptiveavgpool           0          100.00KB   | 8 SMs        100.0   bandwidth_b  0.001     22.5    | 1 tiles      40.0    bandwidth_b  0.000     15.0   
+30   unknown                   0          4.00KB     | 4 SMs        0.4     bandwidth_b  0.000     15.0    | 1 tiles      30.0    bandwidth_b  0.000     15.0   
+31   linear                    1.02M      1.96MB     | 4 SMs        0.4     bandwidth_b  0.394     15.0    | 1 tiles      30.0    bandwidth_b  0.032     15.0   
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                           3.63G      74.94MB    |                                   1.822     26.8    |                                   26.594    15.1   
+

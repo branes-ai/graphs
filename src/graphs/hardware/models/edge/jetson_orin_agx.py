@@ -22,7 +22,7 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
     """
     NVIDIA Jetson Orin AGX with realistic DVFS-aware multi-power-profile modeling.
 
-    Configuration: AGX variant (2048 CUDA cores, 32 Ampere SMs, 64 Tensor Cores)
+    Configuration: AGX variant (2048 CUDA cores, 16 Ampere SMs, 64 Tensor Cores)
 
     CRITICAL REALITY CHECK - Performance Specifications:
     - Marketing claim: 275 TOPS INT8 (sparse networks, all engines: GPU+DLA+PVA)
@@ -60,10 +60,12 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
     - DVFS behavior: Observed clock throttling under sustained load
     """
     # Physical hardware specs (constant across power modes)
-    num_sms = 32
-    cuda_cores_per_sm = 64
-    int8_ops_per_sm_per_clock = 512  # Tensor Core capability: 64 × 8
-    fp32_ops_per_sm_per_clock = 64   # CUDA core capability
+    # Official specs: 2048 CUDA cores total, Ampere architecture
+    num_sms = 16                     # 2048 CUDA cores ÷ 128 cores/SM = 16 SMs
+    cuda_cores_per_sm = 128          # Ampere architecture standard
+    tensor_cores_per_sm = 4          # 64 Tensor cores ÷ 16 SMs = 4 per SM
+    int8_ops_per_sm_per_clock = 512  # Tensor Core capability: 128 × 4
+    fp32_ops_per_sm_per_clock = 256  # CUDA core capability: 128 cores × 2 ops (FMA)
     fp16_ops_per_sm_per_clock = 512  # Tensor Core FP16
 
     # ========================================================================
@@ -87,10 +89,10 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
         clock_domain=clock_15w,
     )
 
-    # Peak INT8: 32 SMs × 512 ops/SM/clock × 1.02 GHz = 16.7 TOPS (simplified model)
+    # Peak INT8: 16 SMs × 512 ops/SM/clock × 1.02 GHz = 8.4 TOPS (simplified model)
     # NOTE: Actual GPU dense peak is 85 TOPS at 1.3 GHz (using all 64 Tensor Cores)
-    # Sustained INT8: 32 × 512 × 400 MHz = 6.5 TOPS
-    # Effective INT8: 6.5 TOPS × 0.47 empirical derate = 3.1 TOPS (3.6% of 85 TOPS GPU dense)
+    # Sustained INT8: 16 × 512 × 400 MHz = 3.3 TOPS
+    # Effective INT8: 3.3 TOPS × 0.47 empirical derate = 1.5 TOPS (1.8% of 85 TOPS GPU dense)
 
     thermal_15w = ThermalOperatingPoint(
         name="15W-passive",
@@ -141,8 +143,8 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
         clock_domain=clock_30w,
     )
 
-    # Sustained INT8: 32 × 512 × 650 MHz = 10.6 TOPS
-    # Effective: 10.6 × 0.60 = 6.4 TOPS (7.5% of 85 TOPS GPU dense peak)
+    # Sustained INT8: 16 × 512 × 650 MHz = 5.3 TOPS
+    # Effective: 5.3 × 0.60 = 3.2 TOPS (3.8% of 85 TOPS GPU dense peak)
 
     thermal_30w = ThermalOperatingPoint(
         name="30W-active",
@@ -230,6 +232,13 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
         threads_per_unit=64,
         warps_per_unit=2,
         warp_size=32,
+
+        # GPU Microarchitecture (Ampere)
+        cuda_cores_per_sm=cuda_cores_per_sm,
+        tensor_cores_per_sm=tensor_cores_per_sm,
+        ops_per_clock_per_core=2.0,  # FMA: 2 ops/clock for FP32
+        sm_boost_clock_hz=1.3e9,     # 1.3 GHz boost (60W mode)
+        sm_sustained_clock_hz=650e6,  # 650 MHz sustained (30W mode typical)
 
         # NEW: Thermal operating points with DVFS modeling
         thermal_operating_points={

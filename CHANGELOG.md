@@ -13,6 +13,123 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-26] - Graph Mapping Analysis Tool: Hardware Comparison & Architecture Legend
+
+### Added
+
+- **Hardware Comparison Mode** (`cli/analyze_graph_mapping.py`)
+  - New `--compare` flag: Compare multiple hardware targets side-by-side
+  - Usage: `--compare "H100,KPU-T256,Jetson-Orin-AGX"`
+  - Comprehensive comparison table showing performance, power, efficiency metrics
+  - Detailed subgraph-by-subgraph allocation comparison (170-column wide format)
+  - Performance ranking by latency and energy efficiency
+  - Functions: `run_comparison()`, `print_comparison_table()`, `print_subgraph_comparison()`
+
+- **Hardware Architecture Legend** (`cli/analyze_graph_mapping.py`)
+  - Shows compute building block specifications before subgraph comparison
+  - GPU: CUDA cores per SM, clock speeds, GOPS per SM, Tensor Core info
+  - KPU: Heterogeneous tile breakdown (INT8/BF16/Matrix tiles), ops/clock/tile
+  - CPU: SIMD width, cores, FP32 ops/clock, all-core clock
+  - TPU: Systolic array tiles, TOPS per tile
+  - DSP: Vector units, HVX threads
+  - Memory subsystem: Bandwidth, L1/L2 cache, main memory
+  - Function: `print_hardware_architecture_legend()`
+
+- **Jetson Hardware Specifications Reference** (`docs/hardware/jetson_specifications.md`)
+  - Official specs from NVIDIA technical briefs (2024-2025)
+  - Jetson Thor (Blackwell): 20 SMs, 2560 CUDA cores, 96 Tensor cores
+  - Jetson AGX Orin 64GB: 16 SMs, 2048 CUDA cores, 64 Tensor cores
+  - Jetson AGX Orin 32GB: 14 SMs, 1792 CUDA cores
+  - Jetson Orin Nano 8GB: 8 SMs, 1024 CUDA cores
+  - Jetson Orin Nano 4GB: 4 SMs, 512 CUDA cores
+  - Key constant: **128 CUDA cores per SM** (Ampere/Blackwell)
+  - Usage guidelines for hardware model creation
+
+- **New Hardware Support** (`cli/analyze_graph_mapping.py`)
+  - Stillwater KPU-T64 (edge accelerator)
+  - Intel Core i7-12700K (consumer CPU, hybrid architecture)
+  - AMD Ryzen 7 5800X (consumer CPU, Zen 3)
+
+### Fixed
+
+- **Critical: Jetson AGX Orin Specifications** (`src/graphs/hardware/models/edge/jetson_orin_agx.py`)
+  - **BEFORE**: 32 SMs, 64 CUDA cores per SM (WRONG - not Ampere architecture)
+  - **AFTER**: 16 SMs, 128 CUDA cores per SM (CORRECT - official specs)
+  - Added microarchitecture fields:
+    - `cuda_cores_per_sm=128`
+    - `tensor_cores_per_sm=4` (64 total ÷ 16 SMs)
+    - `ops_per_clock_per_core=2.0` (FMA)
+    - `sm_boost_clock_hz=1.3e9` (60W mode)
+    - `sm_sustained_clock_hz=650e6` (30W mode)
+  - Updated performance comments to reflect corrected SM count
+  - Impact: More realistic performance estimates (1.822ms vs 1.159ms for ResNet-18 @ batch=1)
+
+- **TDP Extraction for Legacy Hardware** (`cli/analyze_graph_mapping.py`)
+  - Added fallback for hardware models without `thermal_operating_points`
+  - Type-based defaults: CPU=105W, GPU=300W, DSP=15W, KPU=30W, TPU=200W
+  - Enables Ryzen-7-5800X and other legacy models to work
+  - Lines 729-743, 605-626
+
+- **Memory Bandwidth Display** (`cli/analyze_graph_mapping.py`)
+  - Fixed division by 1e9 bug (memory_bandwidth already in GB/s)
+  - Line 1186
+
+### Changed
+
+- **Vendor Naming for KPU Products** (`cli/analyze_graph_mapping.py`)
+  - KPU-T64: "KPU-T64" → "Stillwater KPU-T64"
+  - KPU-T256: "KPU-T256" → "Stillwater KPU-T256"
+  - KPU-T768: "KPU-T768" → "Stillwater KPU-T768"
+  - Consistent with NVIDIA, Google, Intel, AMD, Qualcomm, TI vendor naming
+
+- **CLI Argument Validation** (`cli/analyze_graph_mapping.py`)
+  - `--hardware` now optional (required if `--compare` not specified)
+  - Mutually exclusive: Cannot use both `--hardware` and `--compare`
+  - Clear error messages when neither or both specified
+
+### Impact
+
+**Example Comparison Output:**
+```
+HARDWARE ARCHITECTURE REFERENCE
+
+Jetson-Orin-AGX (GPU):
+  Total Units: 16 SMs
+  Architecture:
+    - 128 CUDA cores per SM
+    - 2.0 ops/clock/core (FMA)
+    - 0.65 GHz clock (sustained)
+    → 166.4 GOPS per SM
+    → 2662.4 GOPS total (16 SMs)
+    - 4 Tensor Cores per SM (matrix ops)
+
+KPU-T256 (KPU):
+  Total Units: 256 tiles
+  Architecture (Heterogeneous Tiles @ 15W):
+    - 179 tiles: INT8-primary (256 ops/clock/tile @ 1.00 GHz → 45824.0 GOPS)
+    - 51 tiles: BF16-primary (128 ops/clock/tile @ 1.00 GHz → 6528.0 GOPS)
+    - 26 tiles: Matrix-8x8 (512 ops/clock/tile @ 1.00 GHz → 13312.0 GOPS)
+```
+
+**Comparison Insights:**
+- Jetson AGX Orin @ 30W: 1.822ms, 549 FPS, 48.7 mJ/inference
+- KPU-T256 @ 30W: 26.594ms, 37.6 FPS, 401.0 mJ/inference
+- Jetson 14.6× faster (was 23× before SM count fix - more realistic)
+- Root cause identified: KPU tile allocation collapses for low-parallelism subgraphs
+  - Early layers: 196 tiles @ 90% util → 0.015ms
+  - Final layers: 1 tile @ 40% util → 5.3ms (100× slower!)
+
+### Validation
+
+- ✅ Hardware comparison mode works for 2-10 hardware targets
+- ✅ Architecture legend extracts specs from resource models correctly
+- ✅ Jetson AGX Orin now reports correct 16 SMs (not 32)
+- ✅ All newly added hardware tested: KPU-T64, i7-12700K, Ryzen-7-5800X
+- ✅ TDP fallback handles legacy models without thermal profiles
+- ✅ Vendor names consistent across all hardware categories
+
+---
+
 ## [2025-10-25] - Automotive ADAS Comparison Fix: Data-Driven Recommendations
 
 ### Problem Statement

@@ -1008,6 +1008,559 @@ def print_execution_plan_report(plan: ExecutionPlan):
 # Main CLI
 # =============================================================================
 
+def run_comparison(
+    model_name: str,
+    hardware_list: List[str],
+    batch_size: int = 1,
+    precision: str = 'fp16',
+    thermal_profile: str = None
+):
+    """
+    Run analysis on multiple hardware targets and display comparison.
+
+    Args:
+        model_name: Name of the model to analyze
+        hardware_list: List of hardware names to compare
+        batch_size: Batch size for inference
+        precision: Numerical precision
+        thermal_profile: Optional thermal profile
+    """
+    print("=" * 120)
+    print(f"HARDWARE COMPARISON: {model_name} (batch_size={batch_size})")
+    print("=" * 120)
+    print()
+
+    # Run analysis on each hardware target
+    execution_plans = []
+    for hw_name in hardware_list:
+        print(f"[{len(execution_plans)+1}/{len(hardware_list)}] Analyzing {hw_name}...")
+        try:
+            plan = analyze_graph_mapping(
+                model_name=model_name,
+                hardware_name=hw_name,
+                batch_size=batch_size,
+                precision=precision,
+                thermal_profile=thermal_profile
+            )
+            execution_plans.append((hw_name, plan))
+            print(f"      ✓ {hw_name}: {plan.total_latency_ms:.3f} ms, {plan.average_power_watts:.1f} W")
+        except Exception as e:
+            print(f"      ✗ {hw_name}: FAILED - {str(e)}")
+            continue
+        print()
+
+    if not execution_plans:
+        print("ERROR: No hardware targets analyzed successfully")
+        return
+
+    # Print comparison table
+    print_comparison_table(execution_plans, model_name, batch_size)
+
+
+def format_flops(flops: int) -> str:
+    """Format FLOP count with appropriate units"""
+    if flops == 0:
+        return "0"
+    elif flops >= 1e9:
+        return f"{flops/1e9:.2f}G"
+    elif flops >= 1e6:
+        return f"{flops/1e6:.2f}M"
+    elif flops >= 1e3:
+        return f"{flops/1e3:.2f}K"
+    else:
+        return str(flops)
+
+
+def format_bytes(bytes_val: int) -> str:
+    """Format byte count with appropriate units"""
+    if bytes_val == 0:
+        return "0"
+    elif bytes_val >= 1024**3:
+        return f"{bytes_val/(1024**3):.2f}GB"
+    elif bytes_val >= 1024**2:
+        return f"{bytes_val/(1024**2):.2f}MB"
+    elif bytes_val >= 1024:
+        return f"{bytes_val/1024:.2f}KB"
+    else:
+        return f"{bytes_val}B"
+
+
+def print_hardware_architecture_legend(execution_plans: List[tuple]):
+    """
+    Print hardware architecture details showing compute building block specifications.
+
+    Args:
+        execution_plans: List of (hardware_name, ExecutionPlan) tuples
+    """
+    print("=" * 120)
+    print("HARDWARE ARCHITECTURE REFERENCE")
+    print("=" * 120)
+    print()
+    print("This section shows the compute building blocks allocated in the subgraph comparison below.")
+    print()
+
+    for hw_name, plan in execution_plans:
+        # Get the hardware mapper to access the model
+        try:
+            # Try to recreate the mapper with default thermal profile
+            mapper_fn, hw_type_str, display_name = SUPPORTED_HARDWARE[hw_name]
+            try:
+                mapper = mapper_fn(None)  # Try with None first
+            except TypeError:
+                mapper = mapper_fn()  # Fallback for mappers without thermal profile
+            hw_model = mapper.resource_model
+        except Exception as e:
+            print(f"WARNING: Could not extract architecture info for {hw_name}: {e}")
+            continue
+
+        unit_name = get_unit_name(plan.hardware_type)
+
+        print(f"{hw_name} ({plan.hardware_type}):")
+        print(f"  Total Units: {hw_model.compute_units} {unit_name}")
+        print(f"  Threads per Unit: {hw_model.threads_per_unit}")
+
+        # Extract microarchitecture details based on hardware type
+        if plan.hardware_type == 'GPU':
+            # GPU: CUDA cores per SM, clock, ops per clock
+            if hw_model.cuda_cores_per_sm:
+                cuda_cores = hw_model.cuda_cores_per_sm
+                ops_per_clock_per_core = hw_model.ops_per_clock_per_core or 2.0
+
+                # Get clock frequency
+                if hw_model.sm_sustained_clock_hz:
+                    clock_ghz = hw_model.sm_sustained_clock_hz / 1e9
+                    clock_label = "sustained"
+                elif hw_model.sm_boost_clock_hz:
+                    clock_ghz = hw_model.sm_boost_clock_hz / 1e9
+                    clock_label = "boost"
+                else:
+                    clock_ghz = 1.5  # fallback
+                    clock_label = "est"
+
+                # Calculate GOPS per SM
+                ops_per_sm = cuda_cores * ops_per_clock_per_core * clock_ghz * 1e9
+                gops_per_sm = ops_per_sm / 1e9
+
+                print(f"  Architecture:")
+                print(f"    - {cuda_cores} CUDA cores per SM")
+                print(f"    - {ops_per_clock_per_core:.1f} ops/clock/core (FMA)")
+                print(f"    - {clock_ghz:.2f} GHz clock ({clock_label})")
+                print(f"    → {gops_per_sm:.1f} GOPS per SM")
+                print(f"    → {hw_model.compute_units * gops_per_sm:.1f} GOPS total ({hw_model.compute_units} SMs)")
+
+                # Tensor core info if available
+                if hw_model.tensor_cores_per_sm:
+                    print(f"    - {hw_model.tensor_cores_per_sm} Tensor Cores per SM (matrix ops)")
+
+        elif plan.hardware_type == 'KPU':
+            # KPU: Array size, PEs, clock
+            # Try to extract from thermal operating points or compute resource
+            if hw_model.thermal_operating_points:
+                for profile_name, thermal_point in hw_model.thermal_operating_points.items():
+                    perf_spec = thermal_point.performance_specs.get(Precision.FP16) or \
+                               thermal_point.performance_specs.get(Precision.INT8) or \
+                               list(thermal_point.performance_specs.values())[0]
+
+                    if perf_spec.compute_resource:
+                        cr = perf_spec.compute_resource
+                        if hasattr(cr, 'tile_specializations'):
+                            # Heterogeneous KPU
+                            print(f"  Architecture (Heterogeneous Tiles @ {profile_name}):")
+                            for ts in cr.tile_specializations:
+                                clock_ghz = ts.clock_domain.sustained_clock_hz / 1e9
+                                # Get ops per tile for best precision
+                                best_prec = max(ts.ops_per_tile_per_clock.items(),
+                                              key=lambda x: x[1])
+                                prec, ops_per_clock = best_prec
+
+                                gops_per_tile = ts.num_tiles * ops_per_clock * clock_ghz
+
+                                print(f"    - {ts.num_tiles} tiles: {ts.tile_type}")
+                                print(f"      • {ops_per_clock} ops/clock/tile @ {clock_ghz:.2f} GHz")
+                                print(f"      → {gops_per_tile:.1f} GOPS ({prec.value})")
+                        else:
+                            # Homogeneous KPU
+                            clock_ghz = cr.clock_domain.sustained_clock_hz / 1e9
+                            ops_per_tile = cr.ops_per_unit_per_clock.get(Precision.FP16, 0) or \
+                                         cr.ops_per_unit_per_clock.get(Precision.INT8, 0)
+
+                            # Try to infer array size
+                            array_size = int(ops_per_tile ** 0.5) if ops_per_tile > 0 else 16
+                            gops_per_tile = ops_per_tile * clock_ghz
+
+                            print(f"  Architecture @ {profile_name}:")
+                            print(f"    - Array: {array_size}×{array_size} = {array_size*array_size} PEs per tile")
+                            print(f"    - {ops_per_tile} ops/clock/tile")
+                            print(f"    - {clock_ghz:.2f} GHz clock")
+                            print(f"    → {gops_per_tile:.1f} GOPS per tile")
+                            print(f"    → {hw_model.compute_units * gops_per_tile:.1f} GOPS total ({hw_model.compute_units} tiles)")
+                    break  # Just show first profile
+
+        elif plan.hardware_type == 'CPU':
+            # CPU: SIMD width, cores, clock
+            if hw_model.thermal_operating_points:
+                for profile_name, thermal_point in hw_model.thermal_operating_points.items():
+                    perf_spec = thermal_point.performance_specs.get(Precision.FP32)
+                    if perf_spec and perf_spec.compute_resource:
+                        cr = perf_spec.compute_resource
+                        clock_ghz = cr.clock_domain.sustained_clock_hz / 1e9
+                        ops_per_core = cr.ops_per_unit_per_clock.get(Precision.FP32, 0)
+
+                        # Infer SIMD width
+                        simd_width = ops_per_core // 2  # FMA = 2 ops
+                        gops_per_core = ops_per_core * clock_ghz
+
+                        print(f"  Architecture @ {profile_name}:")
+                        print(f"    - SIMD: {simd_width}-wide (AVX2/AVX512)")
+                        print(f"    - {ops_per_core} FP32 ops/clock/core (FMA)")
+                        print(f"    - {clock_ghz:.2f} GHz all-core clock")
+                        print(f"    → {gops_per_core:.1f} GOPS per core")
+                        print(f"    → {hw_model.compute_units * gops_per_core:.1f} GOPS total ({hw_model.compute_units} cores)")
+                    break
+            else:
+                # Legacy: estimate from peak FLOPS
+                peak_flops = hw_model.get_peak_ops(Precision.FP32)
+                gops_per_core = peak_flops / hw_model.compute_units / 1e9
+                print(f"  Architecture:")
+                print(f"    → {gops_per_core:.1f} GOPS per core (estimated)")
+                print(f"    → {peak_flops/1e9:.1f} GOPS total ({hw_model.compute_units} cores)")
+
+        elif plan.hardware_type == 'DSP':
+            # DSP: Vector units, HVX threads
+            print(f"  Architecture:")
+            print(f"    - Vector units optimized for DSP operations")
+            print(f"    - HVX threads: {hw_model.threads_per_unit} per VU")
+            if hw_model.thermal_operating_points:
+                for profile_name, thermal_point in hw_model.thermal_operating_points.items():
+                    perf_spec = thermal_point.performance_specs.get(Precision.INT8)
+                    if perf_spec:
+                        effective_gops = perf_spec.effective_ops_per_sec / 1e9
+                        gops_per_vu = effective_gops / hw_model.compute_units
+                        print(f"    → {gops_per_vu:.1f} GOPS per VU @ {profile_name}")
+                        print(f"    → {effective_gops:.1f} GOPS total (effective)")
+                    break
+
+        elif plan.hardware_type == 'TPU':
+            # TPU: Systolic array tiles
+            print(f"  Architecture:")
+            print(f"    - Systolic array tiles for matrix operations")
+            if hw_model.thermal_operating_points:
+                for profile_name, thermal_point in hw_model.thermal_operating_points.items():
+                    for prec in [Precision.INT8, Precision.BF16, Precision.FP16]:
+                        perf_spec = thermal_point.performance_specs.get(prec)
+                        if perf_spec:
+                            effective_tops = perf_spec.effective_ops_per_sec / 1e12
+                            tops_per_tile = effective_tops / hw_model.compute_units
+                            print(f"    → {tops_per_tile:.1f} TOPS per tile ({prec.value}, effective)")
+                            print(f"    → {effective_tops:.1f} TOPS total")
+                            break
+                    break
+
+        # Memory subsystem
+        print(f"  Memory:")
+        print(f"    - Bandwidth: {hw_model.peak_bandwidth/1e9:.1f} GB/s")
+        print(f"    - L1 per unit: {hw_model.l1_cache_per_unit/1024:.0f} KB")
+        print(f"    - L2 total: {hw_model.l2_cache_total/(1024**2):.1f} MB")
+        print(f"    - Main memory: {hw_model.main_memory/(1024**3):.1f} GB")
+
+        print()
+
+    print()
+
+
+def print_subgraph_comparison(execution_plans: List[tuple]):
+    """
+    Print detailed subgraph-by-subgraph comparison showing hardware allocation.
+
+    Args:
+        execution_plans: List of (hardware_name, ExecutionPlan) tuples
+    """
+    # First, show hardware architecture reference
+    print_hardware_architecture_legend(execution_plans)
+
+    print("=" * 120)
+    print("DETAILED SUBGRAPH-BY-SUBGRAPH COMPARISON")
+    print("=" * 120)
+    print()
+
+    # Get first plan to determine number of subgraphs
+    _, first_plan = execution_plans[0]
+    num_subgraphs = first_plan.num_subgraphs
+
+    # For 2 hardware comparison (most common case), use wide format
+    if len(execution_plans) == 2:
+        hw1_name, plan1 = execution_plans[0]
+        hw2_name, plan2 = execution_plans[1]
+
+        # Header
+        print(f"{'ID':<4} {'Operations':<25} {'FLOPs':<10} {'Memory':<10} | "
+              f"{hw1_name:^50} | {hw2_name:^50}")
+        print(f"{'':4} {'':25} {'':10} {'':10} | "
+              f"{'Alloc':<12} {'Util%':<7} {'Bottleneck':<12} {'Lat(ms)':<9} {'Pwr(W)':<7} | "
+              f"{'Alloc':<12} {'Util%':<7} {'Bottleneck':<12} {'Lat(ms)':<9} {'Pwr(W)':<7}")
+        print("─" * 170)
+
+        # Iterate through subgraphs
+        for i in range(num_subgraphs):
+            alloc1 = plan1.subgraph_allocations[i]
+            alloc2 = plan2.subgraph_allocations[i]
+
+            # Subgraph info (common to both)
+            sg_id = alloc1.subgraph_id
+            ops = '_'.join(alloc1.operation_types[:3])  # First 3 ops
+            if len(alloc1.operation_types) > 3:
+                ops += "..."
+            ops = ops[:24]  # Truncate
+
+            flops_str = format_flops(alloc1.flops)
+            mem_str = format_bytes(alloc1.memory_bytes)
+
+            # Hardware 1 details
+            hw1_alloc = f"{alloc1.hardware_allocation.allocated_units} {get_unit_name(plan1.hardware_type)}"[:11]
+            hw1_util = f"{alloc1.hardware_allocation.utilization*100:.1f}"
+            hw1_bottleneck = str(alloc1.bottleneck_type.value)[:11]
+            hw1_latency = f"{alloc1.actual_latency_ms:.3f}"
+            hw1_power = f"{alloc1.total_power_watts:.1f}"
+
+            # Hardware 2 details
+            hw2_alloc = f"{alloc2.hardware_allocation.allocated_units} {get_unit_name(plan2.hardware_type)}"[:11]
+            hw2_util = f"{alloc2.hardware_allocation.utilization*100:.1f}"
+            hw2_bottleneck = str(alloc2.bottleneck_type.value)[:11]
+            hw2_latency = f"{alloc2.actual_latency_ms:.3f}"
+            hw2_power = f"{alloc2.total_power_watts:.1f}"
+
+            # Print row
+            print(f"{sg_id:<4} {ops:<25} {flops_str:<10} {mem_str:<10} | "
+                  f"{hw1_alloc:<12} {hw1_util:<7} {hw1_bottleneck:<12} {hw1_latency:<9} {hw1_power:<7} | "
+                  f"{hw2_alloc:<12} {hw2_util:<7} {hw2_bottleneck:<12} {hw2_latency:<9} {hw2_power:<7}")
+
+        print("─" * 170)
+
+        # Totals
+        print(f"{'TOTAL':<4} {'':25} {format_flops(plan1.total_flops):<10} {format_bytes(plan1.total_memory_traffic):<10} | "
+              f"{'':12} {'':7} {'':12} {plan1.total_latency_ms:<9.3f} {plan1.average_power_watts:<7.1f} | "
+              f"{'':12} {'':7} {'':12} {plan2.total_latency_ms:<9.3f} {plan2.average_power_watts:<7.1f}")
+
+    else:
+        # For 3+ hardware targets, use compact vertical format
+        print("Showing first 10 subgraphs (for 3+ hardware comparison):")
+        print()
+
+        for i in range(min(10, num_subgraphs)):
+            allocs = [(hw_name, plan.subgraph_allocations[i]) for hw_name, plan in execution_plans]
+            first_alloc = allocs[0][1]
+
+            print(f"Subgraph {first_alloc.subgraph_id}: {', '.join(first_alloc.operation_types)}")
+            print(f"  FLOPs: {format_flops(first_alloc.flops)}, Memory: {format_bytes(first_alloc.memory_bytes)}")
+            print()
+
+            for hw_name, alloc in allocs:
+                hw_type = [plan.hardware_type for hw, plan in execution_plans if hw == hw_name][0]
+                unit_name = get_unit_name(hw_type)
+                print(f"    {hw_name:<20}: {alloc.hardware_allocation.allocated_units:>3} {unit_name:<8} "
+                      f"Util: {alloc.hardware_allocation.utilization*100:>5.1f}%  "
+                      f"{str(alloc.bottleneck_type.value):<12}  "
+                      f"Lat: {alloc.actual_latency_ms:>7.3f}ms  "
+                      f"Pwr: {alloc.total_power_watts:>5.1f}W")
+            print()
+
+    print()
+
+
+def get_unit_name(hw_type: str) -> str:
+    """Get friendly name for hardware units"""
+    unit_names = {
+        'GPU': 'SMs',
+        'CPU': 'cores',
+        'TPU': 'tiles',
+        'KPU': 'tiles',
+        'DSP': 'VUs',
+        'DPU': 'tiles',
+        'CGRA': 'PEs',
+    }
+    return unit_names.get(hw_type, 'units')
+
+
+def print_comparison_table(execution_plans: List[tuple], model_name: str, batch_size: int):
+    """
+    Print side-by-side comparison table of execution plans.
+
+    Args:
+        execution_plans: List of (hardware_name, ExecutionPlan) tuples
+        model_name: Name of the model
+        batch_size: Batch size used
+    """
+    print()
+    print("=" * 120)
+    print("COMPARISON TABLE")
+    print("=" * 120)
+    print()
+
+    # Header
+    print(f"{'Metric':<30}", end='')
+    for hw_name, _ in execution_plans:
+        print(f"{hw_name:>20}", end='')
+    print()
+    print("─" * 120)
+
+    # Model info
+    print(f"{'Model':<30}", end='')
+    for _ in execution_plans:
+        print(f"{model_name:>20}", end='')
+    print()
+
+    print(f"{'Batch Size':<30}", end='')
+    for _ in execution_plans:
+        print(f"{batch_size:>20}", end='')
+    print()
+
+    print()
+    print("PERFORMANCE")
+    print("─" * 120)
+
+    # Latency
+    print(f"{'Total Latency (ms)':<30}", end='')
+    for _, plan in execution_plans:
+        print(f"{plan.total_latency_ms:>20.3f}", end='')
+    print()
+
+    # FPS
+    print(f"{'Throughput (FPS)':<30}", end='')
+    for _, plan in execution_plans:
+        fps = plan.throughput_fps()
+        print(f"{fps:>20.1f}", end='')
+    print()
+
+    # Subgraphs
+    print(f"{'Subgraphs':<30}", end='')
+    for _, plan in execution_plans:
+        print(f"{plan.num_subgraphs:>20}", end='')
+    print()
+
+    print()
+    print("POWER & ENERGY")
+    print("─" * 120)
+
+    # Average power
+    print(f"{'Average Power (W)':<30}", end='')
+    for _, plan in execution_plans:
+        print(f"{plan.average_power_watts:>20.1f}", end='')
+    print()
+
+    # Peak power
+    print(f"{'Peak Power (W)':<30}", end='')
+    for _, plan in execution_plans:
+        print(f"{plan.peak_power_watts:>20.1f}", end='')
+    print()
+
+    # Energy per inference
+    print(f"{'Energy/Inference (mJ)':<30}", end='')
+    for _, plan in execution_plans:
+        energy_mj = plan.energy_per_inference_mj()
+        print(f"{energy_mj:>20.1f}", end='')
+    print()
+
+    print()
+    print("UTILIZATION & EFFICIENCY")
+    print("─" * 120)
+
+    # Average utilization
+    print(f"{'Avg Utilization (%)':<30}", end='')
+    for _, plan in execution_plans:
+        util_pct = plan.average_utilization * 100
+        print(f"{util_pct:>20.1f}", end='')
+    print()
+
+    # Peak utilization
+    print(f"{'Peak Utilization (%)':<30}", end='')
+    for _, plan in execution_plans:
+        peak_util_pct = plan.peak_utilization * 100
+        print(f"{peak_util_pct:>20.1f}", end='')
+    print()
+
+    # Hardware efficiency
+    print(f"{'Hardware Efficiency (%)':<30}", end='')
+    for _, plan in execution_plans:
+        hw_eff_pct = plan.hardware_efficiency * 100
+        print(f"{hw_eff_pct:>20.1f}", end='')
+    print()
+
+    # Memory efficiency
+    print(f"{'Memory Efficiency (%)':<30}", end='')
+    for _, plan in execution_plans:
+        mem_eff_pct = plan.memory_efficiency * 100
+        print(f"{mem_eff_pct:>20.1f}", end='')
+    print()
+
+    print()
+    print("HARDWARE SPECS")
+    print("─" * 120)
+
+    # Peak FLOPS
+    print(f"{'Peak FLOPS (TFLOPS)':<30}", end='')
+    for _, plan in execution_plans:
+        peak_tflops = plan.peak_flops / 1e12
+        print(f"{peak_tflops:>20.2f}", end='')
+    print()
+
+    # Memory bandwidth
+    print(f"{'Memory BW (GB/s)':<30}", end='')
+    for _, plan in execution_plans:
+        # memory_bandwidth is already in GB/s
+        print(f"{plan.memory_bandwidth:>20.1f}", end='')
+    print()
+
+    # TDP
+    print(f"{'TDP (W)':<30}", end='')
+    for _, plan in execution_plans:
+        print(f"{plan.tdp_watts:>20.1f}", end='')
+    print()
+
+    print()
+    print("BOTTLENECK ANALYSIS")
+    print("─" * 120)
+
+    # Compute-bound
+    print(f"{'Compute-bound subgraphs':<30}", end='')
+    for _, plan in execution_plans:
+        compute_pct = (plan.compute_bound_subgraphs / plan.num_subgraphs * 100) if plan.num_subgraphs > 0 else 0
+        print(f"{plan.compute_bound_subgraphs:>15} ({compute_pct:>3.0f}%)", end='')
+    print()
+
+    # Memory-bound
+    print(f"{'Memory-bound subgraphs':<30}", end='')
+    for _, plan in execution_plans:
+        memory_pct = (plan.memory_bound_subgraphs / plan.num_subgraphs * 100) if plan.num_subgraphs > 0 else 0
+        print(f"{plan.memory_bound_subgraphs:>15} ({memory_pct:>3.0f}%)", end='')
+    print()
+
+    print()
+    print("=" * 120)
+    print()
+
+    # Performance ranking
+    print("PERFORMANCE RANKING (by latency):")
+    sorted_plans = sorted(execution_plans, key=lambda x: x[1].total_latency_ms)
+    for rank, (hw_name, plan) in enumerate(sorted_plans, 1):
+        fps = plan.throughput_fps()
+        energy = plan.energy_per_inference_mj()
+        print(f"  {rank}. {hw_name:<25} {plan.total_latency_ms:>8.3f} ms  ({fps:>6.1f} FPS)  "
+              f"Power: {plan.average_power_watts:>5.1f}W  Energy: {energy:>7.1f}mJ")
+
+    print()
+    print("ENERGY EFFICIENCY RANKING (by energy/inference):")
+    sorted_by_energy = sorted(execution_plans, key=lambda x: x[1].energy_per_inference_mj())
+    for rank, (hw_name, plan) in enumerate(sorted_by_energy, 1):
+        energy = plan.energy_per_inference_mj()
+        print(f"  {rank}. {hw_name:<25} {energy:>8.1f} mJ/inference  "
+              f"Power: {plan.average_power_watts:>5.1f}W  Latency: {plan.total_latency_ms:>7.3f}ms")
+
+    print()
+
+    # Detailed subgraph comparison
+    print_subgraph_comparison(execution_plans)
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -1026,8 +1579,14 @@ def main():
     parser.add_argument(
         '--hardware',
         type=str,
-        required=True,
+        required=False,
         help='Exact hardware name (run with invalid name to see full list)'
+    )
+
+    parser.add_argument(
+        '--compare',
+        type=str,
+        help='Compare multiple hardware targets (comma-separated, e.g., "H100,KPU-T256,Jetson-Orin-AGX")'
     )
 
     parser.add_argument(
@@ -1054,17 +1613,35 @@ def main():
 
     args = parser.parse_args()
 
-    # Run analysis
-    execution_plan = analyze_graph_mapping(
-        model_name=args.model,
-        hardware_name=args.hardware,
-        batch_size=args.batch_size,
-        precision=args.precision,
-        thermal_profile=args.thermal_profile
-    )
+    # Validate arguments
+    if not args.hardware and not args.compare:
+        parser.error("Either --hardware or --compare must be specified")
 
-    # Print report
-    print_execution_plan_report(execution_plan)
+    if args.hardware and args.compare:
+        parser.error("Cannot use both --hardware and --compare at the same time")
+
+    # Comparison mode
+    if args.compare:
+        hardware_list = [hw.strip() for hw in args.compare.split(',')]
+        run_comparison(
+            model_name=args.model,
+            hardware_list=hardware_list,
+            batch_size=args.batch_size,
+            precision=args.precision,
+            thermal_profile=args.thermal_profile
+        )
+    else:
+        # Single hardware analysis
+        execution_plan = analyze_graph_mapping(
+            model_name=args.model,
+            hardware_name=args.hardware,
+            batch_size=args.batch_size,
+            precision=args.precision,
+            thermal_profile=args.thermal_profile
+        )
+
+        # Print report
+        print_execution_plan_report(execution_plan)
 
 
 if __name__ == '__main__':
