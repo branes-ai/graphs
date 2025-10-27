@@ -2,6 +2,29 @@
 
 This directory contains command-line utilities for graph characterization, profiling, and model analysis.
 
+---
+
+## 📚 Detailed Documentation
+
+Comprehensive how-to guides for each tool:
+
+### Core Analysis Tools
+- **[analyze_graph_mapping.py](docs/analyze_graph_mapping.md)** - Complete guide to hardware mapping analysis
+- **[compare_models.py](docs/compare_models.md)** - Compare models across hardware targets
+- **[list_hardware_mappers.py](docs/list_hardware_mappers.md)** - Discover available hardware (35+ models)
+- **[discover_models.py](docs/discover_models.md)** - Find FX-traceable models (140+ models)
+
+### Profiling & Partitioning
+- **[profile_graph.py](docs/profile_graph.md)** - Hardware-independent graph profiling
+- **[partitioner.py](docs/partitioner.md)** - Graph partitioning strategies
+
+### Specialized Comparisons
+- **[Comparison Tools](docs/comparison_tools.md)** - Automotive, Datacenter, Edge, IP Cores
+
+*💡 Tip: Start with the detailed guides above for step-by-step instructions, examples, and troubleshooting.*
+
+---
+
 ## Tools
 
 ### `partitioner.py`
@@ -427,9 +450,76 @@ if __name__ == '__main__':
     main()
 ```
 
+---
+
+## Quick Reference
+
+### Common Workflows
+
+**1. Discover and Profile a Model**
+```bash
+# Find available models
+python3 cli/discover_models.py
+
+# Profile the model
+python3 cli/profile_graph.py --model resnet50
+
+# Analyze hardware mapping
+python3 cli/analyze_graph_mapping.py --model resnet50 --hardware H100
+```
+
+**2. Compare Hardware Options**
+```bash
+# List available hardware
+python3 cli/list_hardware_mappers.py
+
+# Compare multiple hardware targets
+python3 cli/analyze_graph_mapping.py --model resnet50 \
+  --compare "H100,Jetson-Orin-AGX,KPU-T256"
+```
+
+**3. Evaluate Edge Deployment**
+```bash
+# Quick edge platform comparison
+python3 cli/compare_edge_ai_platforms.py
+
+# Detailed edge hardware analysis
+python3 cli/analyze_graph_mapping.py --model mobilenet_v2 \
+  --hardware Jetson-Orin-Nano --thermal-profile 7W
+```
+
+**4. Specialized Comparisons**
+```bash
+# Automotive ADAS platforms
+python3 cli/compare_automotive_adas.py
+
+# Datacenter CPUs
+python3 cli/compare_datacenter_cpus.py
+
+# IP cores for SoC integration
+python3 cli/compare_ip_cores.py
+```
+
+### Tool Selection Guide
+
+| Goal | Tool |
+|------|------|
+| Find available models | `discover_models.py` |
+| Profile model (HW-independent) | `profile_graph.py` |
+| Find available hardware | `list_hardware_mappers.py` |
+| Analyze single HW target | `analyze_graph_mapping.py --hardware` |
+| Compare multiple HW targets | `analyze_graph_mapping.py --compare` |
+| Compare models on same HW | `compare_models.py` |
+| Automotive deployment | `compare_automotive_adas.py` |
+| Edge deployment | `compare_edge_ai_platforms.py` |
+| Datacenter CPUs | `compare_datacenter_cpus.py` |
+
+---
+
 ## Documentation
 
 See also:
+- `cli/docs/` - **Detailed how-to guides for each tool**
 - `../examples/README.md` - Usage demonstrations
 - `../validation/README.md` - Validation tests
 - `../docs/` - Architecture documentation

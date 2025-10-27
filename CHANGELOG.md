@@ -13,6 +13,124 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-27] - CLI Documentation: Comprehensive How-To Guides
+
+### Added
+
+- **CLI Documentation Suite** (`cli/docs/`)
+  - Created 7 comprehensive how-to markdown guides (~17,500 lines total)
+  - 50+ real-world usage examples across all tools
+  - Step-by-step tutorials for new developers
+  - Troubleshooting sections for common issues
+  - Consistent structure across all guides
+
+- **Core Analysis Tool Documentation**
+  - `cli/docs/analyze_graph_mapping.md` (4,300+ lines)
+    - Complete hardware mapping analysis guide
+    - Single hardware and comparison modes
+    - All 35+ hardware options documented
+    - Architecture building blocks explained (CUDA cores/SM, tiles, etc.)
+    - Performance optimization tips
+    - 7 detailed usage examples
+  - `cli/docs/compare_models.md` (2,400+ lines)
+    - Compare models across hardware targets
+    - Deployment scenarios (datacenter, edge, embedded)
+    - Interpretation guides (utilization, bottlenecks, efficiency)
+    - Hardware-specific notes (GPU, TPU, KPU, CPU, DSP)
+  - `cli/docs/list_hardware_mappers.md` (3,000+ lines)
+    - Discover and catalog 35+ hardware models
+    - Detailed specification tables by category
+    - Category explanations (CPU, GPU, TPU, KPU, DSP, DPU, CGRA)
+    - JSON export integration
+    - Factory function reference
+  - `cli/docs/discover_models.md` (2,000+ lines)
+    - Find FX-traceable models (140+ torchvision models)
+    - Test individual models for traceability
+    - Generate MODEL_REGISTRY code
+    - FX-traceability concepts explained
+    - Model categories (CNNs, Transformers, etc.)
+
+- **Profiling & Partitioning Documentation**
+  - `cli/docs/profile_graph.md` (1,500+ lines)
+    - Hardware-independent profiling guide
+    - Covers both `profile_graph.py` and `profile_graph_with_fvcore.py`
+    - Arithmetic intensity analysis
+    - Bottleneck identification (compute vs memory-bound)
+    - Model selection use cases
+  - `cli/docs/partitioner.md` (800+ lines)
+    - Graph partitioning strategies
+    - Fusion vs unfused comparison
+    - Visualization options
+    - Fusion benefits quantification
+
+- **Specialized Comparison Tools Documentation**
+  - `cli/docs/comparison_tools.md` (3,500+ lines)
+    - Documents 5 specialized comparison tools:
+      - `compare_automotive_adas.py`: Automotive ADAS (Level 2-3)
+      - `compare_datacenter_cpus.py`: ARM vs x86 server CPUs
+      - `compare_edge_ai_platforms.py`: Edge AI accelerators
+      - `compare_ip_cores.py`: Licensable IP cores for SoC integration
+      - `compare_i7_12700k_mappers.py`: Intel i7 CPU variants
+    - Pre-configured use cases with realistic constraints
+    - Power budgets and latency requirements
+    - Data-driven recommendations
+    - Architecture trade-off analysis
+
+- **Enhanced CLI README** (`cli/README.md`)
+  - Added "Detailed Documentation" section at top
+  - Links to all 7 how-to guides
+  - Quick reference workflows section (4 common patterns):
+    1. Discover and profile a model
+    2. Compare hardware options
+    3. Evaluate edge deployment
+    4. Specialized comparisons
+  - Tool selection guide table (goal → tool mapping)
+  - Updated "Documentation" section with reference to `cli/docs/`
+
+### Documentation Structure
+
+Each guide follows a consistent template:
+- **Overview**: Purpose, capabilities, target users
+- **Quick Start**: 30-second setup
+- **Command-Line Arguments**: Complete reference tables
+- **Usage Examples**: Real-world scenarios with code
+- **Output Format**: What to expect from each tool
+- **Interpretation Guide**: How to read and act on results
+- **Troubleshooting**: Common errors and solutions
+- **Advanced Usage**: Power user features
+- **Related Tools**: Cross-references to other CLIs
+
+### Coverage
+
+- **CLI Scripts**: 12 tools fully documented
+- **Hardware Models**: 35+ hardware targets explained
+- **DNN Models**: 140+ torchvision models covered
+- **Deployment Scenarios**: Datacenter, edge, automotive, embedded
+- **Architecture Comparisons**: CPU vs GPU vs TPU vs KPU vs DSP
+- **Usage Examples**: 50+ code examples across all guides
+
+### Impact
+
+**Developer Experience:**
+- New developers can get started in minutes (vs hours exploring code)
+- Clear examples for every major use case
+- Self-service troubleshooting reduces support burden
+- Cross-references enable tool discovery
+
+**Knowledge Transfer:**
+- Complete reference for CLI capabilities
+- Hardware selection guidance with trade-off analysis
+- Model selection guidance
+- Performance optimization tips and best practices
+
+**Documentation Quality:**
+- Professional-grade how-to guides
+- Consistent structure for easy navigation
+- Comprehensive coverage (no tool left undocumented)
+- Real-world examples (not toy demos)
+
+---
+
 ## [2025-10-26] - Graph Mapping Analysis Tool: Hardware Comparison & Architecture Legend
 
 ### Added
