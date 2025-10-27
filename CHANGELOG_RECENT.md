@@ -2,7 +2,77 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-10-26
+**Last Updated**: 2025-10-27
+
+---
+
+## [2025-10-27] - CLI Documentation: Comprehensive How-To Guides
+
+### Added
+
+- **CLI Documentation Suite** (`cli/docs/`)
+  - 7 comprehensive how-to markdown guides (~17,500 lines total)
+  - 50+ usage examples across all tools
+  - Step-by-step tutorials for new developers
+  - Troubleshooting sections for common issues
+
+- **Core Analysis Tool Guides**
+  - `analyze_graph_mapping.md` (4,300+ lines): Complete hardware mapping guide
+  - `compare_models.md` (2,400+ lines): Model comparison across hardware
+  - `list_hardware_mappers.md` (3,000+ lines): Hardware discovery (35+ models)
+  - `discover_models.md` (2,000+ lines): Model discovery (140+ models)
+
+- **Profiling & Partitioning Guides**
+  - `profile_graph.md` (1,500+ lines): Hardware-independent profiling
+  - `partitioner.md` (800+ lines): Graph partitioning strategies
+
+- **Specialized Comparison Guide**
+  - `comparison_tools.md` (3,500+ lines): 5 specialized tools documented
+    - Automotive ADAS comparison
+    - Datacenter CPU comparison
+    - Edge AI platform comparison
+    - IP core comparison for SoC integration
+    - CPU variant comparison
+
+- **Enhanced CLI README** (`cli/README.md`)
+  - Documentation links section
+  - Quick reference workflows (4 common patterns)
+  - Tool selection guide table
+  - Common workflow examples
+
+### Documentation Features
+
+**Consistent Structure:**
+- Overview and capabilities
+- Quick start (30-second setup)
+- Complete command-line reference
+- Real-world usage examples
+- Output format explanations
+- Interpretation guides
+- Troubleshooting sections
+- Advanced usage patterns
+- Cross-tool references
+
+**Coverage:**
+- 12 CLI scripts fully documented
+- 35+ hardware models explained
+- 140+ DNN models covered
+- Deployment scenarios (datacenter, edge, automotive, embedded)
+- Architecture comparisons (CPU vs GPU vs TPU vs KPU vs DSP)
+
+### Impact
+
+**Developer Experience:**
+- New users can get started in minutes (vs hours of code exploration)
+- Clear examples for every major use case
+- Troubleshooting guides reduce support burden
+- Cross-references enable discovery of related tools
+
+**Knowledge Transfer:**
+- Complete reference for tool capabilities
+- Hardware selection guidance
+- Model selection guidance
+- Performance optimization tips
 
 ---
 
