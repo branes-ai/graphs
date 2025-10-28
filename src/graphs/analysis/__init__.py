@@ -11,6 +11,12 @@ from .memory import (
     MemoryReport,
     MemoryEstimator,
 )
+from .roofline import (
+    LatencyDescriptor,
+    RooflinePoint,
+    RooflineReport,
+    RooflineAnalyzer,
+)
 
 __all__ = [
     'ConcurrencyAnalyzer',
@@ -18,4 +24,8 @@ __all__ = [
     'MemoryDescriptor',
     'MemoryReport',
     'MemoryEstimator',
+    'LatencyDescriptor',
+    'RooflinePoint',
+    'RooflineReport',
+    'RooflineAnalyzer',
 ]
