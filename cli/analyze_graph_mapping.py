@@ -30,12 +30,15 @@ from torch.fx.passes.shape_prop import ShapeProp
 from torchvision import models
 from typing import Tuple, List, Dict
 
-from graphs.transform.partitioning import FusionBasedPartitioner
+from graphs.transform.partitioning import FusionBasedPartitioner, GraphPartitioner
 from graphs.analysis.allocation import (
     SubgraphAllocation,
     ExecutionPlan,
     HardwareAllocation
 )
+from graphs.analysis.roofline import RooflineAnalyzer, RooflineReport
+from graphs.analysis.energy import EnergyAnalyzer, EnergyReport
+from graphs.analysis.memory import MemoryEstimator, MemoryReport
 from graphs.hardware.resource_model import Precision
 from graphs.ir.structures import BottleneckType
 
@@ -1557,6 +1560,224 @@ def print_comparison_table(execution_plans: List[tuple], model_name: str, batch_
     print_subgraph_comparison(execution_plans)
 
 
+# =============================================================================
+# Phase 3 Analysis Integration (NEW)
+# =============================================================================
+
+def run_phase3_analysis(
+    fx_graph,
+    partition_report,
+    hardware_mapper,
+    precision_str: str,
+    analysis_mode: str,
+    show_energy_breakdown: bool = False,
+    show_roofline: bool = False,
+    show_memory_timeline: bool = False
+):
+    """
+    Run Phase 3 analyzers based on analysis mode
+
+    Args:
+        fx_graph: FX traced graph
+        partition_report: Graph partition report
+        hardware_mapper: Hardware mapper
+        precision_str: Precision string ('fp32', 'fp16', 'int8')
+        analysis_mode: Analysis mode ('basic', 'full', 'energy', 'roofline', 'memory', 'all')
+        show_energy_breakdown: Show detailed energy breakdown
+        show_roofline: Show ASCII roofline plot
+        show_memory_timeline: Show memory timeline
+
+    Returns:
+        Dictionary with analysis results
+    """
+
+    # Convert precision string to enum
+    precision_map = {
+        'fp32': Precision.FP32,
+        'fp16': Precision.FP16,
+        'int8': Precision.INT8,
+        'int4': Precision.INT8,  # Map int4 to int8 for now
+    }
+    precision = precision_map[precision_str.lower()]
+
+    hardware = hardware_mapper.resource_model
+    results = {}
+
+    # Determine which analyses to run
+    run_roofline = analysis_mode in ['roofline', 'full', 'all']
+    run_energy = analysis_mode in ['energy', 'full', 'all']
+    run_memory = analysis_mode in ['memory', 'full', 'all']
+
+    # Run Roofline Analysis
+    if run_roofline:
+        print("\n" + "="*80)
+        print("ROOFLINE ANALYSIS")
+        print("="*80)
+
+        roofline_analyzer = RooflineAnalyzer(hardware, precision=precision)
+        roofline_report = roofline_analyzer.analyze(
+            partition_report.subgraphs,
+            partition_report
+        )
+        results['roofline'] = roofline_report
+
+        # Print summary
+        print(f"\nArithmetic Intensity Breakpoint: {roofline_analyzer.ai_breakpoint:.2f} FLOP/byte")
+        print(f"Total Latency: {roofline_report.total_latency * 1e3:.2f} ms")
+        print(f"Average FLOP Utilization: {roofline_report.average_flops_utilization * 100:.1f}%")
+        print(f"Average Bandwidth Utilization: {roofline_report.average_bandwidth_utilization * 100:.1f}%")
+
+        # Bottleneck distribution
+        total_ops = roofline_report.num_compute_bound + roofline_report.num_memory_bound + roofline_report.num_balanced
+        if total_ops > 0:
+            print(f"\nBottleneck Distribution:")
+            print(f"  Compute-bound: {roofline_report.num_compute_bound} ({roofline_report.num_compute_bound/total_ops*100:.1f}%)")
+            print(f"  Memory-bound:  {roofline_report.num_memory_bound} ({roofline_report.num_memory_bound/total_ops*100:.1f}%)")
+            print(f"  Balanced:      {roofline_report.num_balanced} ({roofline_report.num_balanced/total_ops*100:.1f}%)")
+
+        # ASCII roofline plot
+        if show_roofline:
+            print("\nRoofline Plot (ASCII):")
+            print_ascii_roofline(roofline_report, hardware)
+
+    # Run Energy Analysis
+    if run_energy:
+        print("\n" + "="*80)
+        print("ENERGY ANALYSIS")
+        print("="*80)
+
+        energy_analyzer = EnergyAnalyzer(hardware, precision=precision)
+
+        # Use roofline latencies if available
+        latencies = None
+        if 'roofline' in results:
+            latencies = [lat.actual_latency for lat in results['roofline'].latencies]
+
+        energy_report = energy_analyzer.analyze(
+            partition_report.subgraphs,
+            partition_report,
+            latencies=latencies
+        )
+        results['energy'] = energy_report
+
+        # Print summary
+        print(f"\nTotal Energy: {energy_report.total_energy_mj:.2f} mJ ({energy_report.total_energy_j * 1e6:.0f} μJ)")
+        print(f"  Compute Energy: {energy_report.compute_energy_j * 1e3:.2f} mJ ({energy_report.compute_energy_j / energy_report.total_energy_j * 100:.1f}%)")
+        print(f"  Memory Energy:  {energy_report.memory_energy_j * 1e3:.2f} mJ ({energy_report.memory_energy_j / energy_report.total_energy_j * 100:.1f}%)")
+        print(f"  Static Energy:  {energy_report.static_energy_j * 1e3:.2f} mJ ({energy_report.static_energy_j / energy_report.total_energy_j * 100:.1f}%)")
+        print(f"\nAverage Power: {energy_report.average_power_w:.1f} W")
+        print(f"Energy Efficiency: {energy_report.average_efficiency * 100:.1f}%")
+
+        # Energy breakdown visualization
+        if show_energy_breakdown:
+            print("\nEnergy Breakdown (ASCII):")
+            print_energy_breakdown(energy_report)
+
+            # Top energy consumers
+            print("\nTop 5 Energy Consumers:")
+            top_consumers = sorted(
+                energy_report.energy_descriptors,
+                key=lambda d: d.total_energy_j,
+                reverse=True
+            )[:5]
+            for i, desc in enumerate(top_consumers, 1):
+                energy_mj = desc.total_energy_j * 1e3
+                pct = desc.total_energy_j / energy_report.total_energy_j * 100
+                print(f"  {i}. {desc.subgraph_name}: {energy_mj:.2f} mJ ({pct:.1f}%)")
+
+    # Run Memory Analysis
+    if run_memory:
+        print("\n" + "="*80)
+        print("MEMORY ANALYSIS")
+        print("="*80)
+
+        memory_estimator = MemoryEstimator(hardware)
+        memory_report = memory_estimator.estimate_memory(
+            partition_report.subgraphs,
+            partition_report
+        )
+        results['memory'] = memory_report
+
+        # Print summary
+        print(f"\nPeak Memory: {memory_report.peak_memory_bytes / 1e6:.1f} MB")
+        print(f"  Weights:     {memory_report.weight_memory_bytes / 1e6:.1f} MB ({memory_report.weight_memory_bytes / memory_report.peak_memory_bytes * 100:.1f}%)")
+        print(f"  Activations: {memory_report.activation_memory_bytes / 1e6:.1f} MB ({memory_report.activation_memory_bytes / memory_report.peak_memory_bytes * 100:.1f}%)")
+        print(f"  Workspace:   {memory_report.workspace_memory_bytes / 1e6:.1f} MB ({memory_report.workspace_memory_bytes / memory_report.peak_memory_bytes * 100:.1f}%)")
+
+        # Hardware fit analysis
+        print(f"\nHardware Fit:")
+        if memory_report.fits_in_l2_cache:
+            print(f"  ✓ Fits in L2 cache ({hardware.l2_cache_total / 1e6:.1f} MB)")
+        else:
+            print(f"  ✗ Does not fit in L2 cache ({hardware.l2_cache_total / 1e6:.1f} MB)")
+
+        if memory_report.fits_in_shared_memory:
+            print(f"  ✓ Fits in shared memory (per SM)")
+        else:
+            print(f"  ✗ Does not fit in shared memory (per SM)")
+
+        # Check if fits in main memory
+        fits_in_main = memory_report.peak_memory_bytes <= hardware.main_memory
+        if fits_in_main:
+            print(f"  ✓ Fits in device memory ({hardware.main_memory / 1e9:.1f} GB)")
+        else:
+            print(f"  ✗ Does not fit in device memory ({hardware.main_memory / 1e9:.1f} GB)")
+
+        # Memory timeline
+        if show_memory_timeline and memory_report.timeline:
+            print("\nMemory Timeline (first 10 steps):")
+            for i, entry in enumerate(memory_report.timeline[:10], 1):
+                print(f"  Step {i}: {entry.total_memory_bytes / 1e6:.1f} MB "
+                      f"(+{len(entry.allocated_tensors)} allocated, "
+                      f"-{len(entry.freed_tensors)} freed)")
+
+    return results
+
+
+def print_ascii_roofline(roofline_report: RooflineReport, hardware):
+    """Print ASCII roofline plot"""
+
+    # Simple ASCII visualization
+    print(f"\nPeak Performance: {hardware.precision_profiles[Precision.FP32].peak_ops_per_sec / 1e12:.1f} TFLOPS")
+    print(f"Peak Bandwidth: {hardware.peak_bandwidth / 1e9:.1f} GB/s")
+    print(f"AI Breakpoint: {roofline_report.arithmetic_intensity_breakpoint:.2f} FLOP/byte")
+    print("\n  Attained Performance vs Arithmetic Intensity")
+    print("  ────────────────────────────────────────────")
+    print("  ● = Operation (colored by bottleneck)")
+    print("  Red    = Memory-bound")
+    print("  Green  = Compute-bound")
+    print("  Yellow = Balanced")
+
+    # Group operations by bottleneck type
+    compute_bound = [lat for lat in roofline_report.latencies if lat.bottleneck == 'compute-bound']
+    memory_bound = [lat for lat in roofline_report.latencies if lat.bottleneck == 'memory-bound']
+    balanced = [lat for lat in roofline_report.latencies if lat.bottleneck == 'balanced']
+
+    print(f"\n  Operations breakdown:")
+    print(f"    Compute-bound: {len(compute_bound)}")
+    print(f"    Memory-bound:  {len(memory_bound)}")
+    print(f"    Balanced:      {len(balanced)}")
+
+
+def print_energy_breakdown(energy_report: EnergyReport):
+    """Print ASCII energy breakdown visualization"""
+
+    total = energy_report.total_energy_j
+    compute_pct = energy_report.compute_energy_j / total * 100
+    memory_pct = energy_report.memory_energy_j / total * 100
+    static_pct = energy_report.static_energy_j / total * 100
+
+    # Create bar chart
+    max_bar_len = 50
+    compute_bar = "█" * int(compute_pct / 100 * max_bar_len)
+    memory_bar = "█" * int(memory_pct / 100 * max_bar_len)
+    static_bar = "█" * int(static_pct / 100 * max_bar_len)
+
+    print(f"\n  Compute ({compute_pct:.1f}%): {compute_bar}")
+    print(f"  Memory  ({memory_pct:.1f}%): {memory_bar}")
+    print(f"  Static  ({static_pct:.1f}%): {static_bar}")
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -1607,6 +1828,33 @@ def main():
         help='Thermal/power profile (10W, 350W, etc.) - uses hardware default if not specified'
     )
 
+    # Phase 3 Analysis Options (NEW)
+    parser.add_argument(
+        '--analysis',
+        type=str,
+        default='basic',
+        choices=['basic', 'full', 'energy', 'roofline', 'memory', 'all'],
+        help='Analysis mode (default: basic - allocation only, full: roofline+energy+memory, all: everything)'
+    )
+
+    parser.add_argument(
+        '--show-energy-breakdown',
+        action='store_true',
+        help='Show detailed energy breakdown visualization'
+    )
+
+    parser.add_argument(
+        '--show-roofline',
+        action='store_true',
+        help='Show ASCII roofline plot'
+    )
+
+    parser.add_argument(
+        '--show-memory-timeline',
+        action='store_true',
+        help='Show memory timeline'
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
@@ -1638,6 +1886,38 @@ def main():
 
         # Print report
         print_execution_plan_report(execution_plan)
+
+        # Run Phase 3 analysis if requested
+        if args.analysis != 'basic':
+            print("\n" + "="*80)
+            print("RUNNING PHASE 3 ADVANCED ANALYSIS")
+            print("="*80)
+
+            # Need to retrace the model for Phase 3 analyzers
+            # (Phase 3 uses GraphPartitioner while basic analysis uses FusionBasedPartitioner)
+            print("\n[Phase 3] Retracing model for advanced analysis...")
+            model, input_tensor, _ = create_model(args.model, args.batch_size)
+            fx_graph = symbolic_trace(model)
+            ShapeProp(fx_graph).propagate(input_tensor)
+
+            # Use GraphPartitioner for Phase 3
+            partitioner = GraphPartitioner()
+            partition_report = partitioner.partition(fx_graph)
+
+            # Get hardware mapper
+            mapper, _, _ = create_hardware_mapper(args.hardware, args.thermal_profile)
+
+            # Run Phase 3 analysis
+            run_phase3_analysis(
+                fx_graph=fx_graph,
+                partition_report=partition_report,
+                hardware_mapper=mapper,
+                precision_str=args.precision,
+                analysis_mode=args.analysis,
+                show_energy_breakdown=args.show_energy_breakdown,
+                show_roofline=args.show_roofline,
+                show_memory_timeline=args.show_memory_timeline
+            )
 
 
 if __name__ == '__main__':
