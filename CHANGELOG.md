@@ -13,6 +13,100 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-28] - Unified Range Selection Across CLI Tools
+
+### Fixed
+
+- **Critical: Off-by-One Bugs in Range Selection**
+  - **Problem**: `--start 5 --end 10` showed nodes 6-10 (wrong start), then 6-9 (wrong end)
+  - **Problem**: `--around 10 --context 2` showed nodes 9-13 instead of 8-12
+  - **Root Cause**: User-facing 1-based node numbers were treated as 0-based array indices
+  - **Root Cause**: `--end` was incorrectly decremented (should remain as-is for Python slicing)
+  - **Solution**: Proper conversion in `cli/graph_explorer.py::determine_range()`
+    ```python
+    start = (args.start - 1) if args.start is not None else 0
+    end = args.end if args.end is not None else total_nodes  # Don't subtract 1!
+    ```
+  - **Impact**: All range selections now work correctly and intuitively
+
+- **Variable Shadowing in FusionBasedPartitioner**
+  - `total_nodes` variable used for both graph size and subgraph node count
+  - Renamed subgraph variable to `sg_total_nodes` to avoid confusion
+  - Fixed in `src/graphs/transform/partitioning/fusion_partitioner.py`
+
+### Added
+
+- **Unified Range Selection for `partition_analyzer.py`**
+  - Implemented `determine_range()` method with identical logic to `graph_explorer.py`
+  - Added range selection arguments: `--start`, `--end`, `--around`, `--context`
+  - Updated `visualize_strategy()` method to accept and use start/end parameters
+  - Updated CLI argument parser with range selection argument group
+  - Now feature-complete and behavior-identical to graph_explorer
+
+- **Start/End Support in FusionBasedPartitioner**
+  - `visualize_partitioning()`: Changed signature from `max_nodes: int` to `start: int, end: int`
+  - `visualize_partitioning_colored()`: Applied same changes for color-coded visualization
+  - Proper node slicing: `nodes_to_show = all_nodes[start:end]`
+  - Correct node enumeration: `enumerate(nodes_to_show, start + 1)`
+  - Accurate footer messages showing nodes before/after the displayed range
+  - Preserves all visualization features while adding range selection
+
+### Changed
+
+- **Unified Node Addressing Convention Across All CLI Tools**
+  - **1-based numbering**: Node numbers match display output (node #5 in display = `--start 5`)
+  - **Inclusive ranges**: Both start and end are inclusive
+    - Example: `--start 5 --end 10` shows nodes 5, 6, 7, 8, 9, 10 (6 nodes total)
+  - **Natural language semantics**: "start at 5, end at 10" means exactly that
+  - **Three selection methods** (in priority order):
+    1. `--around N --context K`: Show K nodes before/after node N
+    2. `--start N --end M`: Explicit range from N to M (inclusive)
+    3. `--max-nodes N`: First N nodes (backward compatible)
+  - Applied consistently to: `graph_explorer.py`, `partition_analyzer.py`
+
+- **Documentation Overhaul for Range Selection**
+  - **`cli/README.md`**: Added "Common Conventions" section
+    - Explains unified range selection across all visualization tools
+    - Shows examples for all three selection methods
+    - Emphasizes "learn once, use everywhere" philosophy
+  - **`cli/docs/partition_analyzer.md`**: Added comprehensive range selection section
+    - Table of all range selection arguments with descriptions
+    - Priority order explanation
+    - Updated all examples to show three selection methods
+  - **`cli/docs/graph_explorer.md`**: Clarified 1-based inclusive behavior
+    - Changed all references from "0-based" to "1-based"
+    - Changed end parameter from "exclusive" to "inclusive"
+    - Added clear examples demonstrating inclusive range behavior
+
+### Impact
+
+**User Experience Transformation:**
+- **Before**: `--start 5 --end 10` showed nodes 6-9 (confusing, incorrect)
+- **After**: `--start 5 --end 10` shows nodes 5-10 (intuitive, correct)
+- **Principle**: "Learn once, use everywhere" - same commands work identically across all visualization tools
+
+**Testing Verification:**
+- ✅ `graph_explorer --start 5 --end 10`: Shows nodes 5-10 (6 nodes)
+- ✅ `partition_analyzer --start 5 --end 10`: Shows nodes 5-10 (6 nodes)
+- ✅ `graph_explorer --around 10 --context 2`: Shows nodes 8-12 (5 nodes)
+- ✅ `partition_analyzer --around 10 --context 2`: Shows nodes 8-12 (5 nodes)
+- ✅ `--max-nodes 5`: Shows nodes 1-5 (backward compatible)
+- ✅ Both tools show identical behavior for all selection methods
+
+**Technical Insight:**
+For `--end`, we keep the user's value as-is (don't subtract 1) because Python's slice notation `[start:end]` is already exclusive on the end. To display node 10 (1-based user numbering), we need slice index 10 (0-based).
+
+**Files Modified:**
+- `cli/graph_explorer.py` - Fixed determine_range() off-by-one bugs
+- `cli/partition_analyzer.py` - Added complete range selection support
+- `src/graphs/transform/partitioning/fusion_partitioner.py` - Updated both visualization methods
+- `cli/docs/partition_analyzer.md` - Added range selection documentation
+- `cli/docs/graph_explorer.md` - Clarified 1-based inclusive behavior
+- `cli/README.md` - Added unified conventions section
+- `docs/sessions/2025-10-28_unified_range_selection.md` - Complete session documentation
+
+---
+
 ## [2025-10-28] - Graph Explorer & Tool Renaming
 
 ### Fixed

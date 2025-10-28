@@ -6,6 +6,68 @@
 
 ---
 
+## [2025-10-28] - Unified Range Selection Across CLI Tools
+
+### Fixed
+
+- **Critical: Off-by-One Bug in Range Selection**
+  - `--start 5 --end 10` was showing nodes 6-10 (wrong start) and then 6-9 (wrong end)
+  - `--around 10 --context 2` was showing nodes 9-13 instead of 8-12
+  - Root cause: User-facing 1-based node numbers treated as 0-based indices
+  - Root cause: `--end` was incorrectly decremented (should stay as-is for Python slicing)
+  - Fixed in `cli/graph_explorer.py::determine_range()`
+
+- **Variable Shadowing in FusionBasedPartitioner**
+  - `total_nodes` used for both graph size and subgraph node count
+  - Renamed to `sg_total_nodes` for subgraph context
+  - Fixed in `src/graphs/transform/partitioning/fusion_partitioner.py`
+
+### Added
+
+- **Unified Range Selection for `partition_analyzer.py`**
+  - Implemented `determine_range()` method (identical to graph_explorer)
+  - Added `--start`, `--end`, `--around`, `--context` arguments
+  - Updated `visualize_strategy()` to use start/end parameters
+  - Now feature-complete with graph_explorer
+
+- **Start/End Support in FusionBasedPartitioner**
+  - `visualize_partitioning()`: Changed signature from `max_nodes` to `start/end`
+  - `visualize_partitioning_colored()`: Same changes
+  - Proper node enumeration with correct display numbering
+  - Accurate footer counts for nodes before/after range
+
+### Changed
+
+- **Unified Node Addressing Convention**
+  - **1-based numbering**: Node numbers match display output (node #5 = `--start 5`)
+  - **Inclusive ranges**: Both start and end are inclusive (`--start 5 --end 10` shows 5,6,7,8,9,10)
+  - **Natural language semantics**: "start at 5, end at 10" means exactly that
+  - Applied to both `graph_explorer.py` and `partition_analyzer.py`
+
+- **Documentation Updates**
+  - `cli/README.md`: Added "Common Conventions" section explaining unified behavior
+  - `cli/docs/partition_analyzer.md`: Added range selection section with examples
+  - `cli/docs/graph_explorer.md`: Clarified 1-based inclusive behavior
+  - All examples updated to show three selection methods
+
+### Impact
+
+**User Experience:**
+- Before: `--start 5 --end 10` showed nodes 6-9 (confusing, wrong)
+- After: `--start 5 --end 10` shows nodes 5-10 (intuitive, correct)
+- "Learn once, use everywhere" - same commands work across all visualization tools
+
+**Testing Results:**
+- ✅ `--start 5 --end 10`: Shows nodes 5-10 (6 nodes) correctly
+- ✅ `--around 10 --context 2`: Shows nodes 8-12 (5 nodes) correctly
+- ✅ `--max-nodes 5`: Shows nodes 1-5 (backward compatible)
+- ✅ Both tools show identical behavior
+
+**Key Insight:**
+For `--end`, we keep the user value as-is (don't subtract 1) because Python's slice `[start:end]` is already exclusive on end. To show node 10 (1-based), we need slice index 10.
+
+---
+
 ## [2025-10-28] - Graph Explorer & Tool Renaming
 
 ### Fixed
