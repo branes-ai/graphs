@@ -7,61 +7,90 @@ This repository provides tools to analyze PyTorch models and understand how they
 ## Quick Start
 
 ```bash
-cd /home/stillwater/dev/branes/clones/graphs
-source ~/venv/p311/bin/activate
+# Discover available hardware platforms
+python cli/list_hardware_mappers.py
 
-# Analyze a model
+# Analyze a model on specific hardware
+python cli/analyze_graph_mapping.py resnet18 --hardware H100
+
+# Compare multiple hardware targets
+python cli/analyze_graph_mapping.py resnet18 --compare "H100,A100,Jetson-Orin-AGX"
+
+# Compare models across hardware
+python cli/compare_models.py resnet50 --deployment datacenter
+
+# Profile graph partitioning
+python cli/profile_graph.py resnet18
+
+# Test partitioner with examples
 python examples/quick_start_partitioner.py
-
-# Compare multiple models
-python examples/compare_models.py
-
-# Validate partitioner
-python tests/test_graph_partitioner_general.py resnet18
 ```
 
-**New to graph partitioning?** Start with the [Getting Started Guide](docs/GETTING_STARTED.md)
+**New to the project?** Start with the [CLI Documentation](cli/README.md) or [Getting Started Guide](docs/getting_started.md)
 
 ## Key Features
 
 ### Phase 1: Graph Partitioning and Concurrency Analysis ✅ (Complete)
 
-- **GraphPartitioner**: Decomposes PyTorch FX graphs into analyzable subgraphs with:
-  - FLOPs/MACs computation
-  - Memory traffic analysis
-  - Arithmetic intensity classification
+- **Graph Partitioning**: Decomposes PyTorch FX graphs into analyzable subgraphs
+  - FLOPs/MACs computation with depthwise convolution support
+  - Memory traffic analysis and arithmetic intensity classification
+  - Fusion-based partitioning for realistic operator grouping
   - Parallelism detection (batch, channel, spatial dimensions)
-  - Depthwise convolution support
 
-- **ConcurrencyAnalyzer**: Analyzes available parallelism at multiple levels:
-  - Graph-level: Which operations can run in parallel (stages)
-  - Subgraph-level: Thread-level parallelism within each operation
-  - Critical path analysis: Minimum latency bounds
+- **Concurrency Analysis**: Multi-level parallelism analysis
+  - Graph-level: Parallel execution stages
+  - Subgraph-level: Thread-level parallelism within operations
+  - Critical path analysis for minimum latency bounds
 
-- **Validation Framework**: Generalized validation across architectures:
-  - Universal checks (apply to all models)
-  - Architecture-specific validation (expected ranges)
-  - Pre-configured profiles for ResNet, MobileNet, EfficientNet, VGG
+### Phase 2: Hardware Mapping ✅ (Complete)
 
-### Phase 2: Hardware Mapping (In Progress)
+- **32+ Hardware Models** across 5 deployment categories:
+  - **Datacenter**: H100, A100, V100, T4, TPU v4, Intel Xeon, AMD EPYC, Ampere
+  - **Edge**: Jetson Orin (AGX/Nano), Coral Edge TPU, QRB5165
+  - **Automotive**: Jetson Thor, TI TDA4x series (VM/VL/AL/VH)
+  - **Accelerators**: Stillwater KPU (T64/T256/T768), Xilinx Vitis AI DPU, CGRA
+  - **IP Cores**: CEVA NeuPro, Cadence Vision Q8, Synopsys ARC EV7x
 
-- CPU/GPU/TPU/KPU resource models
-- Realistic utilization estimates
-- SM/core/tile allocation
+- **Architecture-Specific Mappers**:
+  - CPU: Multi-core + SIMD (AVX-512, AMX) with NUMA awareness
+  - GPU: SM allocation with sequential/parallel execution modes
+  - TPU: Systolic array mapping with tensor core utilization
+  - KPU: Heterogeneous tile allocation (INT8/BF16/Matrix tiles)
+  - DSP: Vector/tensor unit mapping (Hexagon HVX)
+  - DPU/CGRA: Reconfigurable fabric mapping
 
-### Phase 3: Performance/Energy/Memory Estimation (Future)
+- **Realistic Performance Modeling**:
+  - Microarchitecture-aware (CUDA cores/SM, Tensor Cores, AMX tiles)
+  - Leakage-based power modeling (50% idle power for nanoscale chips)
+  - Memory bandwidth bottleneck analysis
+  - Thermal operating points with multi-power profiles
 
-- Roofline-based latency modeling
-- Component-level energy breakdown
-- Peak memory estimation
+### Phase 3: Advanced Analysis (In Progress)
+
+- Roofline-based bottleneck identification
+- Component-level energy breakdown (compute vs memory)
+- Multi-batch performance scaling
+- Fusion optimization opportunities
 
 ## Documentation
 
-- **[Getting Started Guide](docs/GETTING_STARTED.md)** - Start here! 5-minute intro to graph partitioning
-- **[Tutorial](docs/graph_partitioner_tutorial.md)** - Hands-on tutorials from basic to advanced
-- **[Validation Framework](docs/graph_partitioner_validation.md)** - How validation works
-- **[Implementation Plan](docs/realistic_performance_modeling_plan.md)** - Phase 1-3 roadmap
-- **[Examples](examples/)** - Quick start scripts and model comparison tools
+### CLI Tools Documentation
+- **[CLI README](cli/README.md)** - Overview of all command-line tools
+- **[Analyze Graph Mapping](cli/docs/analyze_graph_mapping.md)** - Hardware mapping analysis
+- **[Compare Models](cli/docs/compare_models.md)** - Multi-model hardware comparison
+- **[List Hardware](cli/docs/list_hardware_mappers.md)** - Hardware catalog and discovery
+- **[Discover Models](cli/docs/discover_models.md)** - FX-traceable model discovery
+- **[Profile Graph](cli/docs/profile_graph.md)** - Hardware-independent profiling
+- **[Partitioner](cli/docs/partitioner.md)** - Graph partitioning and fusion
+- **[Comparison Tools](cli/docs/comparison_tools.md)** - Specialized comparison utilities
+
+### Core Documentation
+- **[Getting Started Guide](docs/getting_started.md)** - Introduction to the framework
+- **[Graph Partitioner Tutorial](docs/graph_partitioner_tutorial.md)** - Hands-on tutorials
+- **[Package Reorganization](docs/sessions/2025-10-24_package_reorganization.md)** - Architecture overview
+- **[Hardware Characterization](docs/hardware_characterization_2025-10.md)** - Hardware modeling details
+- **[Examples](examples/)** - Quick start scripts and demonstrations
 
 ## Example Output
 
@@ -90,47 +119,96 @@ Key Insight: With batch=1, ResNet-18 speedup limited to 12× by graph structure
 
 ## Repository Structure
 
-Repo structure for synthetic workloads and FX graph-based workload characterization and estimation
-
 ```txt
 graphs/
-├── src/
-│   └── graphs/
-│       ├── models/                        # Synthetic DNN definitions
-│       │   ├── mlp.py                    # Parameterized MLP
-│       │   ├── resnet_block.py           # Synthetic ResNet block
-│       │   └── conv2d_stack.py           # Stacked Conv2D layers
-│       │
-│       └── characterize/                  # NEW: Phase 1 implementation ✅
-│           ├── graph_structures.py       # Data structures (SubgraphDescriptor, etc.)
-│           ├── graph_partitioner.py      # Graph partitioning engine
-│           ├── concurrency_analyzer.py   # Concurrency analysis
-│           ├── arch_profiles.py          # Hardware architecture profiles
-│           ├── tiling.py                 # Tiling strategies (CPU/GPU/TPU/KPU)
-│           ├── fused_ops.py              # Fused operation registry
-│           ├── introspect.py             # Operator introspection
-│           ├── walker.py                 # FX graph walker
-│           ├── sweep.py                  # Sweep harness
-│           └── visualize.py              # Visualization utilities
+├── src/graphs/                            # Core library packages
+│   ├── ir/                                   # Intermediate Representation
+│   │   └── structures.py                        # Graph data structures (SubgraphDescriptor, etc.)
+│   │
+│   ├── transform/                            # Graph Transformations
+│   │   ├── partitioning/                        # Graph partitioning strategies
+│   │   │   ├── graph_partitioner.py                # Basic partitioning
+│   │   │   └── fusion_partitioner.py               # Fusion-based partitioning
+│   │   ├── fusion/                              # Fusion transformations (future)
+│   │   ├── tiling/                              # Tiling transformations (future)
+│   │   └── visualization.py                     # Graph visualization
+│   │
+│   ├── analysis/                             # Performance Analysis
+│   │   ├── concurrency.py                       # Multi-level parallelism analysis
+│   │   └── allocation.py                        # Resource allocation analysis
+│   │
+│   ├── hardware/                             # Hardware Modeling & Mapping
+│   │   ├── resource_model.py                    # Base hardware resource models
+│   │   ├── table_formatter.py                   # Hardware comparison tables
+│   │   ├── models/                              # Hardware specifications
+│   │   │   ├── datacenter/                         # H100, A100, V100, T4, TPU v4, Xeon, EPYC
+│   │   │   ├── edge/                               # Jetson Orin, Coral Edge TPU
+│   │   │   ├── automotive/                         # Jetson Thor, TI TDA4x
+│   │   │   ├── mobile/                             # ARM Mali, Qualcomm Adreno
+│   │   │   └── accelerators/                       # KPU, DPU, CGRA, NPU IP cores
+│   │   └── mappers/                             # Architecture-specific mappers
+│   │       ├── cpu.py                              # CPU multi-core + SIMD
+│   │       ├── gpu.py                              # GPU SM allocation
+│   │       ├── dsp.py                              # DSP vector/tensor units
+│   │       └── accelerators/                       # TPU, KPU, DPU, CGRA, Hailo
+│   │
+│   ├── subgraphs/                            # Synthetic DNN definitions
+│   │   ├── mlp.py                               # Parameterized MLP
+│   │   ├── resnet_block.py                      # Synthetic ResNet block
+│   │   └── conv2d_stack.py                      # Stacked Conv2D layers
+│   │
+│   ├── execute/                              # Execution utilities
+│   │   ├── walker.py                            # FX graph walker
+│   │   └── fused_ops.py                         # Fused operation registry
+│   │
+│   ├── compile/                              # Compilation utilities
+│   │   └── tiling.py                            # Tiling strategies
+│   │
+│   ├── experiment/                           # Experimental tools
+│   │   ├── complexity.py                        # Complexity analysis
+│   │   ├── sweep.py                             # Parameter sweeps
+│   │   └── estimateEDP.py                       # Energy-delay product
+│   │
+│   └── validation/                           # Validation utilities
 │
-├── examples/                              # NEW: Hands-on examples ✅
-│   ├── README.md                         # Examples overview
-│   ├── quick_start_partitioner.py        # Quick start example
-│   └── compare_models.py                 # Model comparison tool
+├── cli/                                   # Command-line tools
+│   ├── analyze_graph_mapping.py              # Hardware mapping analysis
+│   ├── compare_models.py                     # Multi-model comparison
+│   ├── compare_datacenter_cpus.py            # CPU comparison (datacenter)
+│   ├── compare_edge_ai_platforms.py          # Edge AI comparison
+│   ├── compare_automotive_adas.py            # Automotive ADAS comparison
+│   ├── compare_ip_cores.py                   # IP core comparison
+│   ├── list_hardware_mappers.py              # Hardware catalog
+│   ├── discover_models.py                    # Model discovery
+│   ├── profile_graph.py                      # Graph profiling
+│   ├── partitioner.py                        # Graph partitioning
+│   └── docs/                                 # CLI documentation (7 guides)
 │
-├── tests/                                 # NEW: Validation framework ✅
-│   ├── test_graph_partitioner.py         # ResNet-18 validation
-│   └── test_graph_partitioner_general.py # Generalized validation
+├── validation/                            # Validation scripts
+│   ├── estimators/                           # Estimator validation
+│   ├── hardware/                             # Hardware model validation
+│   └── empirical/                            # Empirical calibration
 │
-├── docs/                                  # NEW: Comprehensive documentation ✅
-│   ├── GETTING_STARTED.md                # 5-minute quick start guide
-│   ├── graph_partitioner_tutorial.md     # Hands-on tutorials
-│   ├── graph_partitioner_validation.md   # Validation framework docs
-│   └── realistic_performance_modeling_plan.md  # Phase 1-3 roadmap
+├── tests/                                 # Test suite
+│   ├── transform/partitioning/               # Partitioning tests
+│   ├── hardware/                             # Hardware mapper tests
+│   ├── analysis/                             # Analysis tests
+│   └── ir/                                   # IR structure tests
 │
-├── scripts/
-│   └── run_characterization.py           # CLI entry point
+├── examples/                              # Example scripts
+│   ├── quick_start_partitioner.py            # Quick start
+│   ├── demo_fusion_comparison.py             # Fusion demo
+│   └── visualize_partitioning.py             # Visualization demo
 │
-├── README.md
-└── requirements.txt
+├── docs/                                  # Documentation
+│   ├── sessions/                             # Development session notes
+│   ├── hardware/                             # Hardware specifications
+│   ├── validation/                           # Validation reports
+│   └── bugs/                                 # Bug tracking and fixes
+│
+├── data/profiles/                         # Profiling data and analysis
+├── workloads/                             # Reference workloads (PyTorch, JAX, TF)
+├── experiments/                           # Research experiments
+├── archive/                               # Archived/deprecated code
+└── tools/                                 # Utility tools
 ```
