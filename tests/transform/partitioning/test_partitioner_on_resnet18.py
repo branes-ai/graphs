@@ -13,9 +13,6 @@ import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-import sys
-sys.path.insert(0, '/home/stillwater/dev/branes/clones/graphs/src')
-
 from graphs.transform.partitioning import GraphPartitioner
 from graphs.analysis.concurrency import ConcurrencyAnalyzer
 
@@ -41,7 +38,7 @@ def test_resnet18():
     except Exception as e:
         print(f"Error during FX trace: {e}")
         print("This is expected for some models. Trying with custom tracer...")
-        return False
+        assert False, f"FX trace failed: {e}"
 
     # Shape propagation
     print("[3/5] Shape propagation...")
@@ -159,9 +156,12 @@ def test_resnet18():
 
     print(f"\n{checks_passed}/{checks_total} validation checks passed")
 
-    return checks_passed == checks_total
+    assert checks_passed == checks_total, f"Only {checks_passed}/{checks_total} validation checks passed"
 
 
 if __name__ == "__main__":
-    success = test_resnet18()
-    exit(0 if success else 1)
+    try:
+        test_resnet18()
+        exit(0)
+    except AssertionError:
+        exit(1)

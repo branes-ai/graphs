@@ -27,8 +27,8 @@ from graphs.ir.structures import (
 )
 
 
-class TestResults:
-    """Track test results and generate summary"""
+class ResultsTracker:
+    """Track test results and generate summary (not a pytest test class)"""
     def __init__(self):
         self.passed = 0
         self.failed = 0
@@ -61,7 +61,7 @@ class TestResults:
             print("\n✅ ALL TESTS PASSED")
 
 
-results = TestResults()
+results = ResultsTracker()
 
 
 def create_test_subgraph(
