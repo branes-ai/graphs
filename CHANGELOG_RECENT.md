@@ -6,6 +6,85 @@
 
 ---
 
+## [2025-10-28] - Phase 3: Energy Estimator Implementation Complete
+
+### Added
+
+- **Energy Estimator (Phase 3.2 Complete)**
+  - **Core Algorithm**: `EnergyAnalyzer` class with three-component energy model
+    - Compute energy = FLOPs × energy_per_flop
+    - Memory energy = bytes_transferred × energy_per_byte
+    - Static energy = idle_power × latency (leakage, always-on circuits)
+  - **Precision-Aware Energy**: Scaling factors for FP16 (50% compute energy), INT8 (25% compute energy)
+  - **TDP Estimation**: Hardware power modeling from thermal profiles or peak operation estimation
+  - **Efficiency Metrics**: Energy efficiency, utilization, wasted energy analysis
+  - **Optimization Detection**: Identifies opportunities for latency reduction, utilization improvement, quantization
+  - **Data Structures**: `EnergyDescriptor`, `EnergyReport`
+  - **Files**: `src/graphs/analysis/energy.py` (~450 lines)
+
+- **Integration Tests**: `tests/analysis/test_energy_analyzer.py` (8 tests, all passing)
+  - Simple model energy analysis
+  - Energy breakdown (compute, memory, static)
+  - Energy efficiency calculation
+  - GPU vs CPU energy comparison
+  - Precision scaling (FP32 vs FP16)
+  - Top energy consumers identification
+  - Optimization opportunities
+  - ResNet-18 validation
+
+- **End-to-End Demo**: `examples/demo_energy_analyzer.py`
+  - Analyzes ResNet-18 and MobileNet-V2 on GPU and Edge device
+  - Hardware comparison (GPU-A100 vs Edge-Jetson)
+  - Precision comparison (FP32 vs FP16)
+  - ASCII-art energy breakdown visualization
+  - Optimization strategies and key insights
+
+- **Exports**: `EnergyAnalyzer`, `EnergyDescriptor`, `EnergyReport` added to `src/graphs/analysis/__init__.py`
+
+### Implementation Notes
+
+- **Energy Model Components**:
+  - **Compute Energy**: Proportional to FLOPs executed
+    - Energy = FLOPs × energy_per_flop
+    - Precision scaling: FP16 = 0.5×, INT8 = 0.25× of FP32
+  - **Memory Energy**: Proportional to data movement
+    - Energy = (input_bytes + output_bytes + weight_bytes) × energy_per_byte
+    - Memory transfers dominate for memory-bound operations
+  - **Static Energy**: Leakage and always-on circuits
+    - Energy = idle_power × latency
+    - GPUs: ~30% of TDP at idle, CPUs: ~10% of TDP at idle
+    - Dominates for small models or long latency
+
+- **TDP (Thermal Design Power) Estimation**:
+  - Preferred: Use hardware thermal_operating_points if available
+  - Fallback: Estimate from peak_ops_per_sec × energy_per_flop
+  - Idle power = TDP × IDLE_POWER_FRACTION (0.3 for GPU, 0.1 for CPU)
+
+- **Energy Efficiency**:
+  - Efficiency = dynamic_energy / total_energy
+  - Dynamic energy = compute + memory
+  - Low efficiency indicates high static power (leakage)
+
+- **Key Observations from Demo**:
+  - **ResNet-18 on GPU-A100**: 205 mJ total, 64% static energy, 14.8% efficiency
+    - Low efficiency due to short latency (0.56ms) → static power dominates
+    - Optimization: Increase batch size to amortize static energy
+  - **MobileNet-V2 on GPU-A100**: 219 mJ total, 93% static energy, 5.5% efficiency
+    - Extremely low efficiency → designed for mobile, not datacenter
+    - More subgraphs (151) → more overhead, longer latency (0.87ms)
+  - **ResNet-18 on Edge-Jetson**: 667 mJ total, 44% static energy, 21.1% efficiency
+    - Higher total energy but better efficiency (lower idle power)
+    - Higher energy per operation (100 pJ/FLOP vs 20 pJ/FLOP)
+    - Edge devices: higher energy/op, lower idle power
+    - Datacenter GPUs: lower energy/op, higher idle power
+  - **Precision Comparison**: FP16 can use more total energy than FP32 in some cases
+    - FP16 has 16× higher peak_ops_per_sec (tensor cores)
+    - Higher peak performance → higher estimated TDP
+    - Trade-off: faster execution vs higher power draw
+    - Best for throughput scenarios where high utilization amortizes static power
+
+---
+
 ## [2025-10-28] - Phase 3: Roofline Analyzer Implementation Complete
 
 ### Added

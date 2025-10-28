@@ -17,6 +17,11 @@ from .roofline import (
     RooflineReport,
     RooflineAnalyzer,
 )
+from .energy import (
+    EnergyDescriptor,
+    EnergyReport,
+    EnergyAnalyzer,
+)
 
 __all__ = [
     'ConcurrencyAnalyzer',
@@ -28,4 +33,7 @@ __all__ = [
     'RooflinePoint',
     'RooflineReport',
     'RooflineAnalyzer',
+    'EnergyDescriptor',
+    'EnergyReport',
+    'EnergyAnalyzer',
 ]

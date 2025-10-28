@@ -8,8 +8,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Phase 3: Advanced Analysis (Complete)
+- ✅ Concurrency Analysis: Multi-level parallelism analysis (thread/warp/block)
+- ✅ Roofline Model: Latency and bottleneck analysis (compute vs memory-bound)
+- ✅ Energy Estimator: Power and energy consumption analysis (compute/memory/static)
+- ✅ Memory Estimator: Memory footprint and timeline analysis
+
 ### Phase 2: Hardware Mapping (In Progress)
 - Continue with advanced hardware analysis and edge AI benchmarking
+
+---
+
+## [2025-10-28] - Phase 3: Energy Estimator Complete
+
+### Added
+
+- **Energy Estimator (Phase 3.2)**
+  - Three-component energy model: compute, memory, static (leakage)
+  - Precision-aware energy scaling (FP16: 50%, INT8: 25%)
+  - TDP estimation and idle power modeling
+  - Energy efficiency and optimization detection
+  - Files: `src/graphs/analysis/energy.py` (~450 lines)
+  - Tests: `tests/analysis/test_energy_analyzer.py` (8 tests passing)
+  - Demo: `examples/demo_energy_analyzer.py` (hardware & precision comparison)
+
+### Key Insights
+
+- **Static energy dominates for small batch inference** (64-93% of total)
+- **Edge devices more efficient than GPUs** for single-image inference (21% vs 15%)
+- **FP16 trade-off**: Faster execution but higher peak power
+- **Optimization strategies**: Batch size, quantization, latency reduction
+
+---
+
+## [2025-10-28] - Phase 3: Roofline Model Complete
+
+### Added
+
+- **Roofline Analyzer (Phase 3.1)**
+  - Arithmetic intensity analysis (AI = FLOPs / bytes)
+  - Bottleneck classification (compute-bound vs memory-bound)
+  - Hardware-aware latency estimation
+  - Files: `src/graphs/analysis/roofline.py` (547 lines)
+  - Tests: `tests/analysis/test_roofline_analyzer.py` (7 tests passing)
+  - Demo: `examples/demo_roofline_analyzer.py` (ASCII roofline plots)
+
+### Key Insights
+
+- **ResNet-18**: 72% memory-bound operations on GPU-A100
+- **MobileNet-V2**: 82% memory-bound (more overhead)
+- **GPU kernel launch overhead**: 60-86% of total latency for small models
+
+---
+
+## [2025-10-28] - Phase 3: Memory Estimator Complete
+
+### Added
+
+- **Memory Estimator (Phase 3.3)**
+  - Execution simulation with topological sort
+  - Peak memory detection and timeline tracking
+  - Workspace estimation (im2col, transpose buffers)
+  - Optimization detection (checkpointing, quantization, in-place)
+  - Files: `src/graphs/analysis/memory.py` (807 lines)
+  - Tests: `tests/analysis/test_memory_estimator.py` (8 tests passing)
+  - Demo: `examples/demo_memory_estimator.py` (timeline visualization)
+
+### Fixed
+
+- Double-counting bug: Workspace excluded from activation memory
+- Dependency graph construction from SubgraphDescriptor
 
 ---
 
