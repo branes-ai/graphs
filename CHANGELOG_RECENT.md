@@ -2,7 +2,80 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-10-27
+**Last Updated**: 2025-10-28
+
+---
+
+## [2025-10-28] - Graph Explorer & Tool Renaming
+
+### Fixed
+
+- **Package Import Structure** (Critical)
+  - `pyproject.toml`: Changed from hardcoded package list to automatic discovery
+  - `[tool.setuptools.packages.find]` now auto-discovers all 21 packages
+  - Fixed `examples/visualize_partitioning.py` imports (removed sys.path manipulation)
+  - Impact: Clean package installation with `pip install -e .`
+
+### Added
+
+- **Graph Explorer Tool** (`cli/graph_explorer.py`)
+  - Three-level progressive disclosure UX:
+    1. **Level 1 (no args)**: Discover 20+ models organized by family
+    2. **Level 2 (--model only)**: Comprehensive summary statistics
+    3. **Level 3 (--model + range)**: Detailed side-by-side visualization
+  - Prevents accidental output floods (large models have 300+ nodes)
+  - Flexible range selection: `--start/--end`, `--around/--context`, `--max-nodes`
+  - Summary statistics: FLOPs, memory, arithmetic intensity, bottleneck distribution
+  - 368 lines of production code
+
+- **Comprehensive Documentation** (`cli/docs/graph_explorer.md`)
+  - ~600 lines covering all three modes
+  - Real-world examples and workflows
+  - Troubleshooting guide
+  - Integration with other tools
+
+### Changed
+
+- **Tool Renaming for Clarity**
+  - `cli/visualize_partitioning.py` → `cli/graph_explorer.py`
+  - `cli/partitioner.py` → `cli/partition_analyzer.py`
+  - Rationale: "Explorer" = inspection, "Analyzer" = strategy comparison
+  - Updated all documentation and cross-references
+  - Class names: `GraphExplorerCLI`, `PartitionAnalyzerCLI`
+
+- **CLI Tool Organization** (`cli/README.md`)
+  - Reorganized into logical sections:
+    - Discovery Tools: Profiling & Partitioning
+    - Core Analysis Tools
+    - Specialized Comparisons
+  - Natural workflow order: discover → explore → analyze → map
+
+- **Example Script Simplified** (`examples/visualize_partitioning.py`)
+  - Reduced to 110-line teaching example
+  - Step-by-step API demonstration
+  - Clear comments and variations
+  - Points to CLI tool for production use
+
+### Impact
+
+**Progressive Disclosure:**
+- Before: `--model vit_l_16` would dump 300 nodes → terminal flood
+- After: Shows informative summary → user makes informed decision
+
+**Tool Clarity:**
+- Before: "visualize_partitioning" + "partitioner" (confusing overlap)
+- After: "graph_explorer" + "partition_analyzer" (clear distinction)
+
+**Developer Experience:**
+- Summary mode prevents information overload
+- Natural workflow: discover → understand → investigate
+- Model discovery built-in (no need to remember names)
+
+**Testing Results:**
+- ✅ All three levels working (no args, summary, visualization)
+- ✅ Range selection working (--max-nodes, --around, --start/--end)
+- ✅ All renamed tools tested and working
+- ✅ Example script runs successfully
 
 ---
 

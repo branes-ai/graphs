@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 """
-Graph Partitioning CLI
+Partition Analyzer CLI
 ======================
 
-Command-line tool to apply different partitioning strategies to FX graphs,
-quantify results, and visualize the partitioning.
+Command-line tool to analyze and compare different partitioning strategies for FX graphs.
+Compares unfused (baseline) vs fusion strategies, quantifying benefits of operator fusion.
 
 Usage:
     # Compare all strategies on ResNet-18
-    python cli/partitioner.py --model resnet18 --strategy all
+    python cli/partition_analyzer.py --model resnet18 --strategy all
 
     # Test fusion strategy with visualization
-    python cli/partitioner.py --model mobilenet_v2 --strategy fusion --visualize
+    python cli/partition_analyzer.py --model mobilenet_v2 --strategy fusion --visualize
 
     # Compare unfused vs fusion
-    python cli/partitioner.py --model efficientnet_b0 --strategy all --compare
+    python cli/partition_analyzer.py --model efficientnet_b0 --strategy all --compare
 
 Command-line Options:
     --model: Choose model (resnet18, mobilenet_v2, etc.)
@@ -27,7 +27,6 @@ Command-line Options:
 
 """
 
-
 import torch
 import torchvision.models as models
 from torch.fx import symbolic_trace
@@ -35,14 +34,13 @@ from torch.fx.passes.shape_prop import ShapeProp
 import sys
 import argparse
 from typing import Dict, Any
-sys.path.insert(0, 'src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.fusion_partitioner import FusionBasedPartitioner
+from graphs.transform.partitioning.graph_partitioner import GraphPartitioner
+from graphs.transform.partitioning.fusion_partitioner import FusionBasedPartitioner
 
 
-class PartitionCLI:
-    """Command-line interface for graph partitioning"""
+class PartitionAnalyzerCLI:
+    """Command-line interface for analyzing partitioning strategies"""
 
     SUPPORTED_MODELS = {
         'resnet18': models.resnet18,
@@ -416,11 +414,11 @@ Examples:
     )
 
     parser.add_argument('--model', type=str, default='resnet18',
-                       choices=list(PartitionCLI.SUPPORTED_MODELS.keys()),
+                       choices=list(PartitionAnalyzerCLI.SUPPORTED_MODELS.keys()),
                        help='Model to partition')
 
     parser.add_argument('--strategy', type=str, default='all',
-                       choices=list(PartitionCLI.STRATEGIES.keys()) + ['all'],
+                       choices=list(PartitionAnalyzerCLI.STRATEGIES.keys()) + ['all'],
                        help='Partitioning strategy to apply')
 
     parser.add_argument('--compare', action='store_true',
@@ -457,7 +455,7 @@ Examples:
 def main():
     args = parse_args()
 
-    cli = PartitionCLI()
+    cli = PartitionAnalyzerCLI()
     return cli.run(args)
 
 

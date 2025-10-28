@@ -8,18 +8,21 @@ This directory contains command-line utilities for graph characterization, profi
 
 Comprehensive how-to guides for each tool:
 
-### Core Analysis Tools
-- **[analyze_graph_mapping.py](docs/analyze_graph_mapping.md)** - Complete guide to hardware mapping analysis
-- **[compare_models.py](docs/compare_models.md)** - Compare models across hardware targets
-- **[list_hardware_mappers.py](docs/list_hardware_mappers.md)** - Discover available hardware (35+ models)
-- **[discover_models.py](docs/discover_models.md)** - Find FX-traceable models (140+ models)
 
-### Profiling & Partitioning
+### Discovery Tools: Profiling & Partitioning
+- **[discover_models.py](docs/discover_models.md)** - Find FX-traceable models (140+ models)
 - **[profile_graph.py](docs/profile_graph.md)** - Hardware-independent graph profiling
-- **[partitioner.py](docs/partitioner.md)** - Graph partitioning strategies
+- **[profile_graph_with_fvcore](docs/profile_graph.md)** - PyTorch Engineering fvcore-based graph profiling
+- **[graph_explorer.py](docs/graph_explorer.md)** - Explore FX graphs interactively (discovery → summary → visualization)
+- **[partition_analyzer.py](docs/partition_analyzer.md)** - Analyze and compare partitioning strategies
+- **[list_hardware_mappers.py](docs/list_hardware_mappers.md)** - Discover available hardware (35+ models)
+
+### Core Analysis Tools
+- **[compare_models.py](docs/compare_models.md)** - Compare models across hardware targets
+- **[analyze_graph_mapping.py](docs/analyze_graph_mapping.md)** - Complete guide to hardware mapping analysis
 
 ### Specialized Comparisons
-- **[Comparison Tools](docs/comparison_tools.md)** - Automotive, Datacenter, Edge, IP Cores
+- **[Comparison Tools](docs/comparison_tools.md)** - Automotive, Edge, IP Cores, Datacenter
 
 *💡 Tip: Start with the detailed guides above for step-by-step instructions, examples, and troubleshooting.*
 
@@ -27,19 +30,19 @@ Comprehensive how-to guides for each tool:
 
 ## Tools
 
-### `partitioner.py`
-Full-featured graph partitioning tool with multiple output formats.
+### `partition_analyzer.py`
+Analyze and compare different partitioning strategies to quantify fusion benefits.
 
 **Usage:**
 ```bash
 # Partition a torchvision model
-./cli/partitioner.py --model resnet18 --input-shape 1,3,224,224
+./cli/partition_analyzer.py --model resnet18 --input-shape 1,3,224,224
 
 # Custom model with detailed output
-./cli/partitioner.py --model path/to/model.py --verbose
+./cli/partition_analyzer.py --model path/to/model.py --verbose
 
 # Export results to JSON
-./cli/partitioner.py --model mobilenet_v2 --output results.json
+./cli/partition_analyzer.py --model mobilenet_v2 --output results.json
 ```
 
 **Features:**
@@ -49,6 +52,33 @@ Full-featured graph partitioning tool with multiple output formats.
 - Verbose logging
 - Fusion-based partitioning
 - Subgraph analysis
+
+---
+
+### `graph_explorer.py`
+Explore FX computational graphs interactively with three progressive modes.
+
+**Three Modes:**
+```bash
+# 1. Discover models (no arguments)
+./cli/graph_explorer.py
+
+# 2. Get model summary (model only)
+./cli/graph_explorer.py --model resnet18
+
+# 3. Visualize sections (model + range)
+./cli/graph_explorer.py --model resnet18 --max-nodes 20
+./cli/graph_explorer.py --model resnet18 --around 35 --context 10
+```
+
+**Features:**
+- Progressive disclosure: models → summary → visualization
+- Prevents accidental output floods (large models have 300+ nodes)
+- Comprehensive summary statistics (FLOPs, bottlenecks, operation distribution)
+- Side-by-side visualization of FX graph and partitions
+- Range selection (--start, --end, --around, --max-nodes)
+- Export to file (--output)
+- Shows operation details, arithmetic intensity, partition reasoning
 
 ---
 
@@ -76,6 +106,25 @@ Profile PyTorch models to understand computational characteristics.
 
 ---
 
+### `profile_graph_with_fvcore.py`
+Compare our FLOP estimates against fvcore library.
+
+**Usage:**
+```bash
+# Compare ResNet-18
+./cli/profile_graph_with_fvcore.py --model resnet18
+
+# Compare multiple models
+./cli/profile_graph_with_fvcore.py --models resnet18,mobilenet_v2,efficientnet_b0
+```
+
+**Outputs:**
+- Side-by-side FLOP comparison
+- Accuracy percentages
+- Discrepancy analysis
+
+---
+
 ### `discover_models.py`
 Discover and list available models from torchvision and custom sources.
 
@@ -99,31 +148,12 @@ Discover and list available models from torchvision and custom sources.
 
 ---
 
-### `show_fvcore_table.py`
-Compare our FLOP estimates against fvcore library.
-
-**Usage:**
-```bash
-# Compare ResNet-18
-./cli/show_fvcore_table.py --model resnet18
-
-# Compare multiple models
-./cli/show_fvcore_table.py --models resnet18,mobilenet_v2,efficientnet_b0
-```
-
-**Outputs:**
-- Side-by-side FLOP comparison
-- Accuracy percentages
-- Discrepancy analysis
-
----
-
-### `model_registry_tv2.3.py`
-Model registry for torchvision 2.3 compatibility.
+### `model_registry_tv2dot7.py`
+Model registry for torchvision 2.7 compatibility.
 
 **Usage:**
 ```python
-from cli.model_registry_tv2.3 import get_model
+from cli.model_registry_tv2dot7 import get_model
 
 model = get_model('resnet18')
 ```
@@ -313,7 +343,7 @@ AMD EPYC 9654                  96       360      4.61         216.8      0.60
 ./cli/profile_graph.py --model resnet18
 
 # 3. Partition into subgraphs
-./cli/partitioner.py --model resnet18 --output results.json
+./cli/partition_analyzer.py --model resnet18 --output results.json
 
 # 4. Compare against fvcore
 ./cli/show_fvcore_table.py --model resnet18
@@ -325,10 +355,10 @@ AMD EPYC 9654                  96       360      4.61         216.8      0.60
 ./cli/profile_graph.py --model path/to/model.py --input-shape 1,3,224,224
 
 # 2. Partition and analyze
-./cli/partitioner.py --model path/to/model.py --verbose
+./cli/partition_analyzer.py --model path/to/model.py --verbose
 
 # 3. Export for further analysis
-./cli/partitioner.py --model path/to/model.py --output analysis.json
+./cli/partition_analyzer.py --model path/to/model.py --output analysis.json
 ```
 
 ## Output Formats
@@ -392,11 +422,11 @@ pip install torch torchvision fvcore
 Tools use the repo root as the working directory:
 ```bash
 # Run from repo root
-./cli/partitioner.py --model resnet18
+./cli/partition_analyzer.py --model resnet18
 
 # Or set PYTHONPATH
 export PYTHONPATH=/path/to/graphs/repo
-python cli/partitioner.py --model resnet18
+python cli/partition_analyzer.py --model resnet18
 ```
 
 ## Troubleshooting

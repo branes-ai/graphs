@@ -1,8 +1,8 @@
-# How to Use: partitioner.py
+# How to Use: partition_analyzer.py
 
 ## Overview
 
-`partitioner.py` applies graph partitioning strategies to computational graphs, comparing different fusion approaches and visualizing the results.
+`partition_analyzer.py` analyzes and compares different partitioning strategies for FX computational graphs. It quantifies the benefits of operator fusion by comparing unfused (baseline) vs fusion strategies, showing metrics like subgraph reduction and data movement savings.
 
 **Key Capabilities:**
 - Partition graphs using different strategies (unfused vs fusion)
@@ -21,10 +21,10 @@
 
 ```bash
 # Compare all strategies on ResNet-18
-python3 cli/partitioner.py --model resnet18 --strategy all --compare
+python3 cli/partition_analyzer.py --model resnet18 --strategy all --compare
 
 # Visualize fusion partitioning
-python3 cli/partitioner.py --model mobilenet_v2 --strategy fusion --visualize
+python3 cli/partition_analyzer.py --model mobilenet_v2 --strategy fusion --visualize
 ```
 
 ---
@@ -68,7 +68,7 @@ Aggregate operators to minimize data movement:
 ### Example 1: Basic Comparison
 
 ```bash
-python3 cli/partitioner.py \
+python3 cli/partition_analyzer.py \
   --model resnet50 \
   --strategy all \
   --compare
@@ -103,7 +103,7 @@ Fusion Benefits:
 ### Example 2: Visualize Fusion
 
 ```bash
-python3 cli/partitioner.py \
+python3 cli/partition_analyzer.py \
   --model mobilenet_v2 \
   --strategy fusion \
   --visualize \
@@ -117,7 +117,7 @@ python3 cli/partitioner.py \
 ### Example 3: Quantify Fusion Benefits
 
 ```bash
-python3 cli/partitioner.py \
+python3 cli/partition_analyzer.py \
   --model efficientnet_b0 \
   --strategy fusion \
   --quantify
@@ -163,5 +163,5 @@ python3 cli/partitioner.py \
 
 ## Further Reading
 
-- **Fusion Partitioner**: `src/graphs/transform/partitioning/fusion_partitioner.py`
+- **Fusion Partitioner**: `src/graphs/transform/partitioning/fusion_partition_analyzer.py`
 - **Architecture Guide**: `CLAUDE.md`

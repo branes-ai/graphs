@@ -1,76 +1,108 @@
 #!/usr/bin/env python
 """
-Visualize Graph Partitioning
-=============================
+Visualize Graph Partitioning - API Example
+===========================================
 
-This script demonstrates the side-by-side visualization of FX graph
-and partitioned subgraphs.
+This example demonstrates the core API for visualizing FX graph partitioning.
+Shows how to:
+1. Load and trace a model with PyTorch FX
+2. Apply graph partitioning
+3. Visualize the results side-by-side
+
+For production use with full features (range selection, multiple models),
+see the CLI tool: cli/graph_explorer.py
 
 Usage:
-    python examples/visualize_partitioning.py [max_nodes]
-
-Arguments:
-    max_nodes: Optional, maximum number of nodes to display (default: 20)
+    python examples/visualize_partitioning.py
 """
 
 import torch
 import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
-import sys
-sys.path.insert(0, 'src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
+from graphs.transform.partitioning.graph_partitioner import GraphPartitioner
 
 
 def main():
-    # Get max_nodes from command line, default to 20
-    max_nodes = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-
-    print("Graph Partitioning Visualization Demo")
+    print("=" * 80)
+    print("Graph Partitioning Visualization - API Example")
     print("=" * 80)
     print()
 
-    # Load and trace ResNet-18
-    print("Loading ResNet-18...")
+    # Step 1: Load and trace a model
+    print("Step 1: Load and trace ResNet-18 with PyTorch FX")
+    print("-" * 80)
     model = models.resnet18(weights=None)
     model.eval()
 
-    print("Tracing with PyTorch FX...")
     input_tensor = torch.randn(1, 3, 224, 224)
     fx_graph = symbolic_trace(model)
+    print(f"✓ Model traced: {len(list(fx_graph.graph.nodes))} FX nodes")
+    print()
 
-    print("Propagating shapes...")
+    # Step 2: Propagate shapes (required for partitioning)
+    print("Step 2: Propagate tensor shapes through the graph")
+    print("-" * 80)
     shape_prop = ShapeProp(fx_graph)
     shape_prop.propagate(input_tensor)
+    print("✓ Shapes propagated")
+    print()
 
-    print("Partitioning graph...")
+    # Step 3: Partition the graph
+    print("Step 3: Partition graph into fused subgraphs")
+    print("-" * 80)
     partitioner = GraphPartitioner()
     report = partitioner.partition(fx_graph)
-
-    print(f"Created {report.total_subgraphs} subgraphs from {len(list(fx_graph.graph.nodes))} FX nodes")
+    print(f"✓ Created {report.total_subgraphs} subgraphs")
     print()
 
-    # Generate and display visualization
-    print("Generating side-by-side visualization...")
-    print()
-    visualization = partitioner.visualize_partitioning(fx_graph, max_nodes=max_nodes)
+    # Step 4: Visualize (basic - show first 15 nodes)
+    print("Step 4: Visualize FX graph and partitioned subgraphs side-by-side")
+    print("-" * 80)
+    visualization = partitioner.visualize_partitioning(fx_graph, max_nodes=15)
     print(visualization)
 
-    # Usage tips
+    # Example variations
     print()
     print("=" * 80)
-    print("TIPS:")
+    print("API Variations")
     print("=" * 80)
     print()
-    print("- Increase max_nodes to see more of the graph:")
-    print(f"  python {sys.argv[0]} 50")
+
+    # Variation 1: Show all nodes
+    print("# To visualize all nodes:")
+    print("visualization = partitioner.visualize_partitioning(fx_graph)")
     print()
-    print("- See the entire graph (may be very long):")
-    print(f"  python {sys.argv[0]} 999")
+
+    # Variation 2: Show specific range
+    print("# To show first 50 nodes:")
+    print("visualization = partitioner.visualize_partitioning(fx_graph, max_nodes=50)")
     print()
-    print("- Pipe to a file for easier viewing:")
-    print(f"  python {sys.argv[0]} 999 > partitioning_viz.txt")
+
+    # Variation 3: Access partition report data
+    print("# To access partition report data:")
+    print(f"print(f'Total subgraphs: {{report.total_subgraphs}}')")
+    print(f"print(f'Total FLOPs: {{report.total_flops / 1e9:.2f}} GFLOPs')")
+    print(f"print(f'Total memory traffic: {{report.total_memory_traffic / 1e6:.2f}} MB')")
+    print()
+    print(f"Total subgraphs: {report.total_subgraphs}")
+    print(f"Total FLOPs: {report.total_flops / 1e9:.2f} GFLOPs")
+    print(f"Total memory traffic: {report.total_memory_traffic / 1e6:.2f} MB")
+    print()
+
+    # Next steps
+    print("=" * 80)
+    print("Next Steps")
+    print("=" * 80)
+    print()
+    print("For production use with advanced features:")
+    print("  - Range selection (--start, --end, --around)")
+    print("  - Multiple models (--model)")
+    print("  - Save to file (--output)")
+    print()
+    print("See: cli/graph_explorer.py")
+    print("     cli/docs/graph_explorer.md")
     print()
 
 
