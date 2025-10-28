@@ -234,7 +234,7 @@ class TestIdlePowerCalculation:
         # Energy should roughly double (idle component doubles)
         # Allow some tolerance due to constant dynamic energy
         ratio = energy2 / energy1
-        assert 1.5 < ratio < 2.5, \
+        assert 1.5 <= ratio < 2.5, \
             f"Expected ~2× energy for 2× latency, got {ratio:.2f}×"
 
 

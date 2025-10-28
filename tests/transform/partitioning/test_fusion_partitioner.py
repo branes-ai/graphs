@@ -18,16 +18,14 @@ from torch.fx import symbolic_trace, GraphModule
 from torch.fx.passes.shape_prop import ShapeProp
 from collections import Counter
 from typing import Dict, List, Optional
-
-import sys
-sys.path.insert(0, 'src')
+import pytest
 
 from graphs.transform.partitioning import FusionBasedPartitioner
 from graphs.ir.structures import OperationType
 
 
-class TestResults:
-    """Track test results and generate summary"""
+class ResultsTracker:
+    """Track test results and generate summary (not a pytest test class)"""
     def __init__(self):
         self.passed = 0
         self.failed = 0
@@ -63,6 +61,12 @@ class TestResults:
         return self.failed == 0
 
 
+@pytest.fixture
+def results():
+    """Pytest fixture to provide ResultsTracker object"""
+    return ResultsTracker()
+
+
 def trace_model(model: nn.Module, input_shape=(1, 3, 224, 224)) -> Optional[GraphModule]:
     """Trace a model with FX and shape propagation"""
     try:
@@ -75,7 +79,7 @@ def trace_model(model: nn.Module, input_shape=(1, 3, 224, 224)) -> Optional[Grap
         return None
 
 
-def test_fusion_pattern_detection(results: TestResults):
+def test_fusion_pattern_detection(results: ResultsTracker):
     """Test 1: Validate fusion pattern detection"""
     print("\n" + "=" * 80)
     print("TEST 1: Fusion Pattern Detection")
@@ -154,7 +158,7 @@ def test_fusion_pattern_detection(results: TestResults):
             results.fail_test("add-ReLU detection", "Pattern not found in ResNet")
 
 
-def test_metrics_calculations(results: TestResults):
+def test_metrics_calculations(results: ResultsTracker):
     """Test 2: Validate FLOPs, memory, and AI calculations"""
     print("\n" + "=" * 80)
     print("TEST 2: Metrics Calculations")
@@ -216,7 +220,7 @@ def test_metrics_calculations(results: TestResults):
         results.warn(f"{invalid_count} subgraphs have zero FLOPs")
 
 
-def test_fvcore_comparison(results: TestResults):
+def test_fvcore_comparison(results: ResultsTracker):
     """Test 3: Cross-validate with fvcore FlopCountAnalysis"""
     print("\n" + "=" * 80)
     print("TEST 3: Cross-validation with fvcore")
@@ -292,7 +296,7 @@ def test_fvcore_comparison(results: TestResults):
         results.warn(f"torch.profiler test failed: {e}")
 
 
-def test_fusion_quality(results: TestResults):
+def test_fusion_quality(results: ResultsTracker):
     """Test 4: Validate fusion quality metrics"""
     print("\n" + "=" * 80)
     print("TEST 4: Fusion Quality Analysis")
@@ -344,7 +348,7 @@ def test_fusion_quality(results: TestResults):
                         f"{report.data_movement_reduction * 100:.1f}%")
 
 
-def test_balance_analysis(results: TestResults):
+def test_balance_analysis(results: ResultsTracker):
     """Test 5: Validate balance analysis functionality"""
     print("\n" + "=" * 80)
     print("TEST 5: Balance Analysis")
@@ -395,7 +399,7 @@ def test_balance_analysis(results: TestResults):
         results.fail_test("Baseline comparison", "Missing from analysis")
 
 
-def test_edge_cases(results: TestResults):
+def test_edge_cases(results: ResultsTracker):
     """Test 6: Edge cases and error handling"""
     print("\n" + "=" * 80)
     print("TEST 6: Edge Cases")
@@ -459,7 +463,7 @@ def test_edge_cases(results: TestResults):
         results.fail_test("Skip connection", "Failed to trace")
 
 
-def test_diverse_architectures(results: TestResults):
+def test_diverse_architectures(results: ResultsTracker):
     """Test 7: Validate on diverse modern architectures"""
     print("\n" + "=" * 80)
     print("TEST 7: Diverse Architecture Validation")
@@ -534,7 +538,7 @@ def run_all_tests():
     print("FUSION PARTITIONER UNIT TESTS")
     print("=" * 80)
 
-    results = TestResults()
+    results = ResultsTracker()
 
     # Run test suites
     test_fusion_pattern_detection(results)

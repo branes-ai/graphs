@@ -54,6 +54,42 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
     energy_per_flop_fp32 = 0.6e-12  # ~0.6 pJ/FLOP (most efficient!)
     energy_per_byte = 20e-12  # USB bandwidth limited
 
+    # Clock domain (single operating point - no DVFS on Edge TPU)
+    clock_domain = ClockDomain(
+        base_clock_hz=500e6,  # 500 MHz (estimated)
+        max_boost_clock_hz=500e6,
+        sustained_clock_hz=500e6,  # No throttling on this low-power device
+        dvfs_enabled=False,  # No DVFS on this fixed-frequency device
+    )
+
+    # Compute resource
+    compute_resource = ComputeResource(
+        resource_type="Systolic-Array",
+        num_units=1,
+        ops_per_unit_per_clock={
+            Precision.INT8: 8,  # 4 TOPS / 500 MHz = 8 ops/clock
+        },
+        clock_domain=clock_domain,
+    )
+
+    # Thermal operating point (single profile)
+    thermal_operating_points = {
+        "2W": ThermalOperatingPoint(
+            name="2W",
+            tdp_watts=2.0,
+            cooling_solution="Passive (heatsink)",
+            performance_specs={
+                Precision.INT8: PerformanceCharacteristics(
+                    precision=Precision.INT8,
+                    compute_resource=compute_resource,
+                    efficiency_factor=efficiency,  # 0.85 - very efficient systolic array
+                    native_acceleration=True,
+                    tile_utilization=1.0,
+                ),
+            },
+        ),
+    }
+
     return HardwareResourceModel(
         name="Coral-Edge-TPU",
         hardware_type=HardwareType.TPU,
@@ -87,6 +123,8 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         min_occupancy=1.0,  # Always fully utilized
         max_concurrent_kernels=1,  # Single model at a time
         wave_quantization=1,
+        thermal_operating_points=thermal_operating_points,
+        default_thermal_profile="2W",
     )
 
 
