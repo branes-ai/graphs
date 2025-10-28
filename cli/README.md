@@ -21,6 +21,11 @@ Comprehensive how-to guides for each tool:
 - **[compare_models.py](docs/compare_models.md)** - Compare models across hardware targets
 - **[analyze_graph_mapping.py](docs/analyze_graph_mapping.md)** - Complete guide to hardware mapping analysis
 
+### Advanced Analysis Tools (Phase 4.1)
+- **[analyze_comprehensive.py](docs/analyze_comprehensive.md)** - Deep-dive analysis with roofline, energy, and memory profiling
+- **[analyze_batch.py](docs/analyze_batch.md)** - Batch size sweeps and configuration comparison
+- **Enhanced analyze_graph_mapping.py** - Now includes Phase 3 analysis modes (--analysis flag)
+
 ### Specialized Comparisons
 - **[Comparison Tools](docs/comparison_tools.md)** - Automotive, Edge, IP Cores, Datacenter
 
@@ -364,6 +369,211 @@ AMD EPYC 9654                  96       360      4.61         216.8      0.60
 
 ---
 
+## Advanced Analysis Tools (Phase 4.1)
+
+### `analyze_comprehensive.py`
+Deep-dive comprehensive analysis combining roofline modeling, energy profiling, and memory analysis.
+
+**Usage:**
+```bash
+# Basic analysis (text output)
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
+
+# JSON output with all details
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output results.json
+
+# CSV output for spreadsheet analysis
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+  --output results.csv --format csv
+
+# Markdown report
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware KPU-T256 \
+  --output report.md --format markdown
+
+# FP16 precision analysis
+./cli/analyze_comprehensive.py --model resnet50 --hardware H100 \
+  --precision fp16 --batch-size 32
+```
+
+**Features:**
+- **Roofline Analysis**: Latency, bottlenecks (compute vs memory-bound), utilization
+- **Energy Analysis**: Three-component model (compute, memory, static/leakage)
+- **Memory Analysis**: Peak memory, activation/weight breakdown, hardware fit
+- **Multiple Output Formats**: text, JSON, CSV, markdown
+- **Executive Summary**: Quick overview with key metrics and recommendations
+- **Top Energy Consumers**: Identify optimization opportunities
+
+**Output Example:**
+```
+═══════════════════════════════════════════════════════════════
+                 COMPREHENSIVE ANALYSIS REPORT
+═══════════════════════════════════════════════════════════════
+
+EXECUTIVE SUMMARY
+─────────────────────────────────────────────────────────────────
+Model:                   ResNet-18
+Hardware:                H100 SXM5 80GB
+Precision:               FP32
+Batch Size:              1
+
+Performance:             5.98 ms latency, 167.2 fps
+Energy:                  29.4 mJ total (10.1 mJ compute, 2.4 mJ memory, 16.9 mJ static)
+Energy per Inference:    29.4 mJ (57% static overhead)
+Efficiency:              5.5% hardware utilization
+
+Memory:                  Peak 44.7 MB (activations: 22.4 MB, weights: 44.7 MB)
+                         ✓ Fits in L2 cache (50 MB)
+
+Recommendations:
+  • Increase batch size to amortize static energy (57% overhead)
+  • Consider FP16 for 2× speedup with minimal accuracy loss
+  • Current bottleneck: Memory-bound (optimize data layout)
+```
+
+**Documentation**: See `cli/docs/analyze_comprehensive.md` for detailed guide
+
+---
+
+### `analyze_batch.py`
+Analyze the impact of batching on performance, energy, and efficiency.
+
+**Usage:**
+```bash
+# Batch size sweep (single model/hardware)
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+  --batch-size 1 2 4 8 16 32 --output results.csv
+
+# Model comparison (same hardware, same batch sizes)
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 efficientnet_b0 \
+  --hardware H100 --batch-size 1 16 32
+
+# Hardware comparison (same model, same batch sizes)
+./cli/analyze_batch.py --model resnet50 \
+  --hardware H100 Jetson-Orin-AGX KPU-T256 \
+  --batch-size 1 8 16
+
+# JSON output with insights
+./cli/analyze_batch.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+  --batch-size 1 2 4 8 --output results.json --format json
+
+# Quiet mode (no progress output)
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+  --batch-size 1 4 16 32 --output results.csv --quiet
+```
+
+**Features:**
+- **Batch Size Sweeps**: Understand batching impact on latency, throughput, energy
+- **Model Comparison**: Compare different models with same hardware/batch sizes
+- **Hardware Comparison**: Compare different hardware with same model/batch sizes
+- **Intelligent Insights**: Automatic analysis and recommendations
+- **Multiple Output Formats**: CSV, JSON, text
+
+**Key Insights Provided:**
+- Throughput improvement (e.g., "3.2× throughput increase from batch 1 to 32")
+- Energy per inference improvement (e.g., "3.7× better energy efficiency with batching")
+- Latency vs throughput trade-offs
+- Memory growth analysis
+- Recommended batch sizes for different scenarios
+
+**Output Example:**
+```
+═══════════════════════════════════════════════════════════════
+         BATCH SIZE ANALYSIS: resnet18 on H100 SXM5 80GB
+═══════════════════════════════════════════════════════════════
+
+Batch  Latency    Throughput  Energy/Inf  Peak Mem  Efficiency
+  1    5.98 ms    167.2 fps   29.4 mJ     44.7 MB   5.5%
+  2    6.45 ms    310.1 fps   18.9 mJ     89.4 MB   9.6%
+  4    7.40 ms    540.5 fps   13.7 mJ     178.8 MB  14.6%
+  8    9.29 ms    861.1 fps   10.8 mJ     357.6 MB  17.3%
+ 16    13.08 ms   1223.5 fps  10.7 mJ     715.2 MB  24.4%
+ 32    20.65 ms   1549.5 fps  13.3 mJ     1430.4 MB 31.0%
+
+KEY INSIGHTS:
+─────────────────────────────────────────────────────────────────
+Throughput Improvement:
+  • 9.3× throughput increase (batch 1: 167 fps → batch 32: 1550 fps)
+  • Best throughput: batch 32 at 1549.5 fps
+
+Energy Per Inference:
+  • 2.7× energy efficiency improvement with batching
+  • Best efficiency: batch 16 at 10.7 mJ/inference
+  • Static energy dominates at small batches (57% at batch 1)
+
+Memory Growth:
+  • 32× memory increase (44.7 MB → 1430.4 MB)
+  • Sub-linear growth: weights reused across batch
+
+Recommendations:
+  • For latency-critical: Use batch 1-2 (<7ms latency)
+  • For throughput-critical: Use batch 16-32 (>1200 fps)
+  • For energy efficiency: Use batch 16 (best energy/inference)
+```
+
+**Documentation**: See `cli/docs/analyze_batch.md` for detailed guide
+
+---
+
+### Enhanced `analyze_graph_mapping.py`
+Now includes Phase 3 analysis modes via `--analysis` flag.
+
+**New Analysis Modes:**
+```bash
+# Basic mode (backward compatible - allocation analysis only)
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100
+
+# Energy analysis mode
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 --analysis energy
+
+# Roofline analysis mode
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 --analysis roofline
+
+# Memory analysis mode
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 --analysis memory
+
+# Full analysis (roofline + energy + memory)
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 --analysis full
+
+# All analysis modes
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 --analysis all
+```
+
+**New Visualization Flags:**
+```bash
+# Show energy breakdown chart
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --analysis energy --show-energy-breakdown
+
+# Show roofline plot
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --analysis roofline --show-roofline
+
+# Show memory timeline
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --analysis memory --show-memory-timeline
+
+# All visualizations
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --analysis all --show-energy-breakdown --show-roofline --show-memory-timeline
+```
+
+**Analysis Modes:**
+- **basic**: Original allocation analysis (backward compatible)
+- **energy**: Three-component energy model (compute, memory, static)
+- **roofline**: Bottleneck analysis (compute vs memory-bound)
+- **memory**: Peak memory, activation/weight breakdown, hardware fit
+- **full**: Combines roofline + energy + memory
+- **all**: Everything including concurrency analysis
+
+**Backward Compatibility:**
+- Default mode is `--analysis basic` (original behavior)
+- All existing scripts and workflows continue to work unchanged
+- Phase 3 analysis only runs when explicitly requested
+
+**Documentation**: See `cli/docs/analyze_graph_mapping.md` for comprehensive guide
+
+---
+
 ## Common Usage Patterns
 
 ### Quick Model Analysis
@@ -391,6 +601,69 @@ AMD EPYC 9654                  96       360      4.61         216.8      0.60
 
 # 3. Export for further analysis
 ./cli/partition_analyzer.py --model path/to/model.py --output analysis.json
+```
+
+### Advanced Analysis Workflows (Phase 4.1)
+
+**1. Deep-Dive Model Analysis**
+```bash
+# Comprehensive analysis with all Phase 3 components
+./cli/analyze_comprehensive.py --model resnet50 --hardware H100 \
+  --output comprehensive_analysis.json
+
+# Generate markdown report for documentation
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+  --output edge_deployment_report.md --format markdown
+```
+
+**2. Batch Size Optimization**
+```bash
+# Find optimal batch size for throughput
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+  --batch-size 1 2 4 8 16 32 --output batch_sweep.csv
+
+# Compare batching behavior across models
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 efficientnet_b0 \
+  --hardware H100 --batch-size 1 16 32 --output model_comparison.csv
+```
+
+**3. Hardware Selection for Deployment**
+```bash
+# Compare hardware options with comprehensive analysis
+./cli/analyze_batch.py --model resnet50 \
+  --hardware H100 Jetson-Orin-AGX KPU-T256 \
+  --batch-size 1 8 16 --output hardware_comparison.csv
+
+# Deep-dive into specific hardware
+./cli/analyze_comprehensive.py --model resnet50 --hardware KPU-T256 \
+  --precision fp16 --batch-size 8 --output kpu_deployment.json
+```
+
+**4. Energy Efficiency Analysis**
+```bash
+# Analyze energy characteristics
+./cli/analyze_graph_mapping.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+  --analysis energy --show-energy-breakdown
+
+# Find energy-optimal batch size
+./cli/analyze_batch.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+  --batch-size 1 2 4 8 --output energy_optimization.csv
+# Look for "Best efficiency" in the insights
+```
+
+**5. Complete Deployment Analysis**
+```bash
+# Step 1: Comprehensive analysis
+./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-AGX \
+  --output analysis_report.json
+
+# Step 2: Batch size sweep
+./cli/analyze_batch.py --model resnet18 --hardware Jetson-Orin-AGX \
+  --batch-size 1 2 4 8 --output batch_analysis.csv
+
+# Step 3: Full Phase 3 analysis with visualizations
+./cli/analyze_graph_mapping.py --model resnet18 --hardware Jetson-Orin-AGX \
+  --analysis full --show-energy-breakdown --show-roofline --show-memory-timeline
 ```
 
 ## Output Formats
@@ -526,8 +799,8 @@ python3 cli/discover_models.py
 # Profile the model
 python3 cli/profile_graph.py --model resnet50
 
-# Analyze hardware mapping
-python3 cli/analyze_graph_mapping.py --model resnet50 --hardware H100
+# Comprehensive analysis (Phase 4.1)
+python3 cli/analyze_comprehensive.py --model resnet50 --hardware H100
 ```
 
 **2. Compare Hardware Options**
@@ -545,9 +818,9 @@ python3 cli/analyze_graph_mapping.py --model resnet50 \
 # Quick edge platform comparison
 python3 cli/compare_edge_ai_platforms.py
 
-# Detailed edge hardware analysis
-python3 cli/analyze_graph_mapping.py --model mobilenet_v2 \
-  --hardware Jetson-Orin-Nano --thermal-profile 7W
+# Detailed edge hardware analysis with energy profiling (Phase 4.1)
+python3 cli/analyze_comprehensive.py --model mobilenet_v2 \
+  --hardware Jetson-Orin-Nano --output edge_analysis.json
 ```
 
 **4. Specialized Comparisons**
@@ -562,6 +835,21 @@ python3 cli/compare_datacenter_cpus.py
 python3 cli/compare_ip_cores.py
 ```
 
+**5. Advanced Analysis (Phase 4.1)**
+```bash
+# Comprehensive roofline/energy/memory analysis
+python3 cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
+  --output comprehensive_report.json
+
+# Batch size optimization
+python3 cli/analyze_batch.py --model resnet18 --hardware H100 \
+  --batch-size 1 2 4 8 16 32 --output batch_analysis.csv
+
+# Full Phase 3 analysis with enhanced tool
+python3 cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --analysis full --show-energy-breakdown --show-roofline
+```
+
 ### Tool Selection Guide
 
 | Goal | Tool |
@@ -572,6 +860,9 @@ python3 cli/compare_ip_cores.py
 | Analyze single HW target | `analyze_graph_mapping.py --hardware` |
 | Compare multiple HW targets | `analyze_graph_mapping.py --compare` |
 | Compare models on same HW | `compare_models.py` |
+| **Deep-dive analysis** | **`analyze_comprehensive.py`** |
+| **Batch size impact analysis** | **`analyze_batch.py`** |
+| **Roofline/energy/memory analysis** | **`analyze_graph_mapping.py --analysis full`** |
 | Automotive deployment | `compare_automotive_adas.py` |
 | Edge deployment | `compare_edge_ai_platforms.py` |
 | Datacenter CPUs | `compare_datacenter_cpus.py` |
