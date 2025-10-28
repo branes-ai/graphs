@@ -238,25 +238,34 @@ class GraphExplorerCLI:
         return self.fx_graph, self.report
 
     def determine_range(self, args) -> Tuple[Optional[int], Optional[int]]:
-        """Determine start/end range based on arguments"""
+        """Determine start/end range based on arguments
+
+        Note: User-provided node numbers are 1-based (display numbering).
+        This method converts them to 0-based array indices for slicing.
+        """
         total_nodes = len(list(self.fx_graph.graph.nodes))
 
         # Priority 1: --around with --context
         if args.around is not None:
             context = args.context if args.context is not None else 10
-            start = max(0, args.around - context)
-            end = min(total_nodes, args.around + context + 1)
+            # Convert 1-based display node number to 0-based index
+            center_idx = args.around - 1
+            start = max(0, center_idx - context)
+            end = min(total_nodes, center_idx + context + 1)
             print(f"Showing nodes around #{args.around} (context: ±{context} nodes)")
-            print(f"Range: {start} to {end-1} (total: {end-start} nodes)")
+            print(f"Range: nodes {start+1} to {end} (total: {end-start} nodes)")
             return start, end
 
         # Priority 2: --start and/or --end
         if args.start is not None or args.end is not None:
-            start = args.start if args.start is not None else 0
+            # Convert 1-based display numbers to 0-based indices
+            # start: subtract 1 (node 5 -> index 4)
+            # end: keep as-is (node 10 -> slice index 10, since slicing is exclusive on end)
+            start = (args.start - 1) if args.start is not None else 0
             end = args.end if args.end is not None else total_nodes
             start = max(0, start)
             end = min(total_nodes, end)
-            print(f"Showing nodes {start} to {end-1} (total: {end-start} nodes)")
+            print(f"Showing nodes {start+1} to {end} (total: {end-start} nodes)")
             return start, end
 
         # Priority 3: --max-nodes
@@ -281,23 +290,12 @@ class GraphExplorerCLI:
         # Determine range
         start, end = self.determine_range(args)
 
-        # Generate visualization
-        if start is not None and end is not None:
-            # Calculate max_nodes for backward compatibility with visualize_partitioning
-            max_nodes = end - start
-            # Note: GraphPartitioner.visualize_partitioning doesn't support start offset yet
-            # For now, we'll use max_nodes approach
-            visualization = self.partitioner.visualize_partitioning(
-                self.fx_graph,
-                max_nodes=end
-            )
-            # TODO: Update visualize_partitioning to support start/end range
-            if start > 0:
-                print(f"Note: Displaying from beginning to node {end-1}")
-                print(f"      (Range selection starting at node {start} not yet fully supported)")
-                print()
-        else:
-            visualization = self.partitioner.visualize_partitioning(self.fx_graph)
+        # Generate visualization with start/end range
+        visualization = self.partitioner.visualize_partitioning(
+            self.fx_graph,
+            start=start,
+            end=end
+        )
 
         # Display or save
         if args.output:

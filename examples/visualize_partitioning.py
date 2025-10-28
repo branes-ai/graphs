@@ -60,7 +60,7 @@ def main():
     # Step 4: Visualize (basic - show first 15 nodes)
     print("Step 4: Visualize FX graph and partitioned subgraphs side-by-side")
     print("-" * 80)
-    visualization = partitioner.visualize_partitioning(fx_graph, max_nodes=15)
+    visualization = partitioner.visualize_partitioning(fx_graph, start=0, end=15)
     print(visualization)
 
     # Example variations
@@ -77,7 +77,10 @@ def main():
 
     # Variation 2: Show specific range
     print("# To show first 50 nodes:")
-    print("visualization = partitioner.visualize_partitioning(fx_graph, max_nodes=50)")
+    print("visualization = partitioner.visualize_partitioning(fx_graph, start=0, end=50)")
+    print()
+    print("# To show nodes 20-40:")
+    print("visualization = partitioner.visualize_partitioning(fx_graph, start=20, end=40)")
     print()
 
     # Variation 3: Access partition report data

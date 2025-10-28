@@ -693,7 +693,9 @@ class FusionBasedPartitioner:
             max_fusion_size=max_fusion_size
         )
 
-    def visualize_partitioning(self, fx_graph: GraphModule, max_nodes: Optional[int] = None) -> str:
+    def visualize_partitioning(self, fx_graph: GraphModule,
+                              start: Optional[int] = None,
+                              end: Optional[int] = None) -> str:
         """
         Create side-by-side visualization of FX graph and fused subgraphs.
 
@@ -701,7 +703,8 @@ class FusionBasedPartitioner:
 
         Args:
             fx_graph: The FX graph that was partitioned
-            max_nodes: Maximum number of nodes to show (None for all)
+            start: Starting node index (0-based, inclusive), None for beginning
+            end: Ending node index (0-based, exclusive), None for end
 
         Returns:
             String containing the formatted visualization
@@ -719,9 +722,18 @@ class FusionBasedPartitioner:
 
         # Collect all nodes in execution order
         all_nodes = list(fx_graph.graph.nodes)
+        total_nodes = len(all_nodes)
 
-        if max_nodes:
-            all_nodes = all_nodes[:max_nodes]
+        # Determine range
+        start = start if start is not None else 0
+        end = end if end is not None else total_nodes
+
+        # Clamp to valid range
+        start = max(0, min(start, total_nodes))
+        end = max(start, min(end, total_nodes))
+
+        # Slice to requested range
+        nodes_to_show = all_nodes[start:end]
 
         # Build visualization
         lines = []
@@ -746,9 +758,11 @@ class FusionBasedPartitioner:
         # Process each node
         subgraph_counter = 1
         current_subgraph_id = None
+        nodes_shown = 0
 
-        for idx, node in enumerate(all_nodes, 1):
+        for idx, node in enumerate(nodes_to_show, start + 1):
             node_id = node.name  # Use node name, not id()
+            nodes_shown += 1
 
             # LEFT SIDE: FX Node info
             left_lines = self._format_fx_node(node, fx_graph, idx)
@@ -757,9 +771,9 @@ class FusionBasedPartitioner:
             right_lines = []
 
             if node_id in node_to_fused_subgraph:
-                fused_sg, node_idx, total_nodes = node_position_in_subgraph[node_id]
+                fused_sg, node_idx, sg_total_nodes = node_position_in_subgraph[node_id]
                 is_first = (node_idx == 0)
-                is_last = (node_idx == total_nodes - 1)
+                is_last = (node_idx == sg_total_nodes - 1)
 
                 # New subgraph starting
                 if fused_sg.subgraph_id != current_subgraph_id:
@@ -795,14 +809,21 @@ class FusionBasedPartitioner:
             lines.append("")
 
         # Footer
-        if max_nodes and len(fx_graph.graph.nodes) > max_nodes:
-            lines.append(f"... ({len(fx_graph.graph.nodes) - max_nodes} more nodes not shown)")
+        if nodes_shown < total_nodes:
+            nodes_before = start
+            nodes_after = total_nodes - end
+            if nodes_before > 0 and nodes_after > 0:
+                lines.append(f"... ({nodes_before} nodes before, {nodes_after} nodes after not shown)")
+            elif nodes_before > 0:
+                lines.append(f"... ({nodes_before} nodes before not shown)")
+            elif nodes_after > 0:
+                lines.append(f"... ({nodes_after} more nodes not shown)")
             lines.append("")
 
         lines.append("=" * total_width)
-        lines.append(f"Total FX nodes: {len(fx_graph.graph.nodes)}")
+        lines.append(f"Total FX nodes: {total_nodes}")
         lines.append(f"Fused subgraphs: {len(self.fused_subgraphs)}")
-        lines.append(f"Reduction: {len(fx_graph.graph.nodes) / max(1, len(self.fused_subgraphs)):.1f}× fewer execution units")
+        lines.append(f"Reduction: {total_nodes / max(1, len(self.fused_subgraphs)):.1f}× fewer execution units")
 
         if self.fused_subgraphs:
             avg_fusion = sum(sg.num_operators for sg in self.fused_subgraphs) / len(self.fused_subgraphs)
@@ -1500,7 +1521,8 @@ class FusionBasedPartitioner:
         return "\n".join(lines)
 
     def visualize_partitioning_colored(self, fx_graph: GraphModule,
-                                      max_nodes: Optional[int] = None,
+                                      start: Optional[int] = None,
+                                      end: Optional[int] = None,
                                       use_color: Optional[bool] = None) -> str:
         """
         Create color-coded visualization of fusion partitioning.
@@ -1513,7 +1535,8 @@ class FusionBasedPartitioner:
 
         Args:
             fx_graph: The FX graph that was partitioned
-            max_nodes: Maximum number of nodes to show (None for all)
+            start: Starting node index (0-based, inclusive), None for beginning
+            end: Ending node index (0-based, exclusive), None for end
             use_color: Force color on/off (None for auto-detect)
 
         Returns:
@@ -1540,8 +1563,18 @@ class FusionBasedPartitioner:
 
         # Collect nodes
         all_nodes = list(fx_graph.graph.nodes)
-        if max_nodes:
-            all_nodes = all_nodes[:max_nodes]
+        total_nodes = len(all_nodes)
+
+        # Determine range
+        start = start if start is not None else 0
+        end = end if end is not None else total_nodes
+
+        # Clamp to valid range
+        start = max(0, min(start, total_nodes))
+        end = max(start, min(end, total_nodes))
+
+        # Slice to requested range
+        nodes_to_show = all_nodes[start:end]
 
         # Build visualization
         lines = []
@@ -1572,9 +1605,11 @@ class FusionBasedPartitioner:
         # Process each node
         subgraph_counter = 1
         current_subgraph_id = None
+        nodes_shown = 0
 
-        for idx, node in enumerate(all_nodes, 1):
+        for idx, node in enumerate(nodes_to_show, start + 1):
             node_id = node.name
+            nodes_shown += 1
 
             # LEFT SIDE: FX Node info
             left_lines = self._format_fx_node_colored(node, fx_graph, idx, capability, box)
@@ -1583,9 +1618,9 @@ class FusionBasedPartitioner:
             right_lines = []
 
             if node_id in node_to_fused_subgraph:
-                fused_sg, node_idx, total_nodes = node_position_in_subgraph[node_id]
+                fused_sg, node_idx, sg_total_nodes = node_position_in_subgraph[node_id]
                 is_first = (node_idx == 0)
-                is_last = (node_idx == total_nodes - 1)
+                is_last = (node_idx == sg_total_nodes - 1)
 
                 if fused_sg.subgraph_id != current_subgraph_id:
                     current_subgraph_id = fused_sg.subgraph_id
@@ -1617,14 +1652,21 @@ class FusionBasedPartitioner:
             lines.append("")
 
         # Footer
-        if max_nodes and len(fx_graph.graph.nodes) > max_nodes:
-            lines.append(f"... ({len(fx_graph.graph.nodes) - max_nodes} more nodes not shown)")
+        if nodes_shown < total_nodes:
+            nodes_before = start
+            nodes_after = total_nodes - end
+            if nodes_before > 0 and nodes_after > 0:
+                lines.append(f"... ({nodes_before} nodes before, {nodes_after} nodes after not shown)")
+            elif nodes_before > 0:
+                lines.append(f"... ({nodes_before} nodes before not shown)")
+            elif nodes_after > 0:
+                lines.append(f"... ({nodes_after} more nodes not shown)")
             lines.append("")
 
         lines.append(box['heavy_horizontal'] * total_width)
-        lines.append(f"Total FX nodes: {len(fx_graph.graph.nodes)}")
+        lines.append(f"Total FX nodes: {total_nodes}")
         lines.append(f"Fused subgraphs: {len(self.fused_subgraphs)}")
-        lines.append(f"Reduction: {len(fx_graph.graph.nodes) / max(1, len(self.fused_subgraphs)):.1f}× fewer execution units")
+        lines.append(f"Reduction: {total_nodes / max(1, len(self.fused_subgraphs)):.1f}× fewer execution units")
 
         if self.fused_subgraphs:
             avg_fusion = sum(sg.num_operators for sg in self.fused_subgraphs) / len(self.fused_subgraphs)
