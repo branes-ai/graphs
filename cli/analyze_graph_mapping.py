@@ -1724,9 +1724,9 @@ def run_phase3_analysis(
             print(f"  ✗ Does not fit in device memory ({hardware.main_memory / 1e9:.1f} GB)")
 
         # Memory timeline
-        if show_memory_timeline and memory_report.timeline:
+        if show_memory_timeline and memory_report.memory_timeline:
             print("\nMemory Timeline (first 10 steps):")
-            for i, entry in enumerate(memory_report.timeline[:10], 1):
+            for i, entry in enumerate(memory_report.memory_timeline[:10], 1):
                 print(f"  Step {i}: {entry.total_memory_bytes / 1e6:.1f} MB "
                       f"(+{len(entry.allocated_tensors)} allocated, "
                       f"-{len(entry.freed_tensors)} freed)")
