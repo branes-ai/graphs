@@ -6,6 +6,74 @@
 
 ---
 
+## [2025-10-28] - Phase 3: Memory Estimator Implementation Complete
+
+### Added
+
+- **Memory Estimator (Phase 3.3 Complete)**
+  - **Core Algorithm**: `MemoryEstimator` class with execution simulation
+    - Topological sort for correct execution order (Kahn's algorithm)
+    - Step-by-step memory allocation/deallocation tracking
+    - Peak memory detection across entire execution
+    - Dead tensor analysis for automatic freeing
+  - **Workspace Estimation**: Conv2d im2col buffers, MatMul/Linear transpose buffers, Attention QKV projections
+  - **Optimization Detection**:
+    - Activation checkpointing (>50% activations)
+    - Weight quantization (>30% weights)
+    - In-place operations (ReLU, Dropout)
+  - **Hardware Fit Analysis**: L2 cache, shared memory, device memory constraints
+  - **Data Structures**: `MemoryTimelineEntry`, `MemoryDescriptor`, `MemoryReport`
+  - **Files**: `src/graphs/analysis/memory.py` (807 lines total)
+
+- **Integration Tests**: `tests/analysis/test_memory_estimator.py` (8 tests, all passing)
+  - Simple sequential models
+  - Tensor lifetime tracking
+  - Workspace allocation for Conv2d
+  - Models with branching (fork/join)
+  - Optimization detection
+  - ResNet-18 validation
+  - Hardware fit analysis
+  - Timeline accuracy validation
+
+- **End-to-End Demo**: `examples/demo_memory_estimator.py`
+  - Analyzes ResNet-18, MobileNet-V2, ResNet-50
+  - Text-based timeline visualization
+  - Model comparison table
+  - Optimization opportunities summary
+
+- **Exports**: `MemoryEstimator` added to `src/graphs/analysis/__init__.py`
+
+### Fixed
+
+- **Double-Counting Bug**: Workspace was counted in both `activation_memory_bytes` and `workspace_memory_bytes`
+  - Fixed by excluding workspace from activation calculation
+  - Now: `activation_memory = all non-weight, non-workspace tensors`
+- **Dependency Graph Construction**: Built from `SubgraphDescriptor.depends_on` field instead of expecting pre-built graph
+- **OperationType Enum**: Removed reference to non-existent `SOFTMAX`, using existing types only
+
+### Implementation Notes
+
+- **Memory Simulation Algorithm**:
+  1. Allocate persistent weights upfront (live throughout execution)
+  2. For each subgraph in execution order:
+     - Allocate output tensor
+     - Allocate workspace (temporary)
+     - Record timeline entry (peak memory snapshot)
+     - Free workspace immediately
+     - Free dead input tensors (no longer needed by remaining ops)
+  3. Track peak memory across all steps
+  4. Analyze for optimization opportunities
+
+- **Key Insight**: Peak memory ≠ sum of all tensors (tensors are freed over time)
+
+- **Timeline Entry Contents**:
+  - Total memory (all live tensors including weights)
+  - Activation memory (non-weight, non-workspace tensors)
+  - Workspace memory (temporary buffers)
+  - List of live tensors, allocated tensors, freed tensors
+
+---
+
 ## [2025-10-28] - Unified Range Selection Across CLI Tools
 
 ### Fixed
