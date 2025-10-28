@@ -6,6 +6,64 @@
 
 ---
 
+## [2025-10-28] - Phase 3: Roofline Analyzer Implementation Complete
+
+### Added
+
+- **Roofline Analyzer (Phase 3.1 Complete)**
+  - **Core Algorithm**: `RooflineAnalyzer` class with roofline model
+    - Compute time = FLOPs / peak_FLOPS
+    - Memory time = bytes / peak_bandwidth
+    - Actual latency = max(compute_time, memory_time) + overhead
+    - Bottleneck classification (compute-bound vs memory-bound vs balanced)
+  - **Arithmetic Intensity Analysis**: AI = FLOPs / bytes, AI_breakpoint = peak_FLOPS / peak_bandwidth
+  - **Hardware-Aware**: Works with any HardwareResourceModel, precision-aware
+  - **Utilization Metrics**: FLOP utilization and bandwidth utilization
+  - **Data Structures**: `LatencyDescriptor`, `RooflinePoint`, `RooflineReport`
+  - **Files**: `src/graphs/analysis/roofline.py` (547 lines)
+
+- **Integration Tests**: `tests/analysis/test_roofline_analyzer.py` (7 tests, all passing)
+  - Simple model analysis
+  - Compute-bound on high-FLOP hardware
+  - Memory-bound on high-bandwidth hardware
+  - Arithmetic intensity breakpoint calculation
+  - Roofline points generation (for visualization)
+  - ResNet-18 validation
+  - Latency descriptor formatting
+
+- **End-to-End Demo**: `examples/demo_roofline_analyzer.py`
+  - Analyzes ResNet-18 and MobileNet-V2 on GPU and CPU
+  - ASCII-art roofline plot visualization
+  - Hardware comparison (GPU vs CPU)
+  - Bottleneck distribution analysis
+  - Key insights and optimization strategies
+
+- **Exports**: `RooflineAnalyzer`, `LatencyDescriptor`, `RooflinePoint`, `RooflineReport` added to `src/graphs/analysis/__init__.py`
+
+### Implementation Notes
+
+- **Roofline Model Formula**:
+  - Latency = max(FLOPs/peak_FLOPS, bytes/peak_bandwidth) + overhead
+  - If compute_time > memory_time: compute-bound
+  - If memory_time > compute_time: memory-bound
+  - Otherwise: balanced
+
+- **Arithmetic Intensity (AI)**:
+  - AI = FLOPs / total_bytes (inputs + outputs + weights)
+  - AI_breakpoint = peak_FLOPS / peak_bandwidth
+  - Operations with AI < breakpoint are memory-bound
+  - Operations with AI > breakpoint are compute-bound
+
+- **Key Observations from Demo**:
+  - ResNet-18 on GPU-A100: 72% memory-bound ops, 0.56ms total
+  - MobileNet-V2 on GPU-A100: 82% memory-bound ops, 0.87ms total (more overhead)
+  - ResNet-18 on CPU-Xeon: 75% memory-bound ops, 1.18ms total (slower)
+  - GPU kernel launch overhead dominates for small models (60-86% of latency)
+  - Conv layers with high channels are compute-bound (high AI)
+  - Element-wise ops (ReLU, Add) are always memory-bound (low AI)
+
+---
+
 ## [2025-10-28] - Phase 3: Memory Estimator Implementation Complete
 
 ### Added
