@@ -15,12 +15,10 @@ import torch
 import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
-import sys
 import argparse
-sys.path.insert(0, 'src')
 
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.table_formatter import format_partition_table
+from graphs.transform.partitioning import GraphPartitioner
+from graphs.hardware.table_formatter import format_partition_table
 
 
 # Model registry - maps model names to constructors

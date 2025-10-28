@@ -32,15 +32,12 @@ import torch.nn as nn
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 from torchvision import models
-import sys
 from pathlib import Path
 from typing import List
 from dataclasses import dataclass
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from src.graphs.transform.partitioning import FusionBasedPartitioner
-from src.graphs.hardware.mappers.cpu import (
+from graphs.transform.partitioning import FusionBasedPartitioner
+from graphs.hardware.mappers.cpu import (
     create_ampere_ampereone_192_mapper,
     create_ampere_ampereone_128_mapper,
     create_intel_xeon_platinum_8490h_mapper,
@@ -50,7 +47,7 @@ from src.graphs.hardware.mappers.cpu import (
     create_amd_epyc_9754_mapper,
     create_amd_epyc_turin_mapper,
 )
-from src.graphs.hardware.resource_model import Precision
+from graphs.hardware.resource_model import Precision
 
 
 @dataclass

@@ -55,18 +55,15 @@ import torch.nn as nn
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 from torchvision import models
-import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 from dataclasses import dataclass, field
 
-sys.path.insert(0, str(Path(__file__).parent.parent))  # cli/ → graphs/
-
-from src.graphs.transform.partitioning import FusionBasedPartitioner
-from src.graphs.hardware.mappers.dsp import create_ti_tda4vm_mapper
-from src.graphs.hardware.mappers.gpu import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
-from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
-from src.graphs.hardware.resource_model import Precision
+from graphs.transform.partitioning import FusionBasedPartitioner
+from graphs.hardware.mappers.dsp import create_ti_tda4vm_mapper
+from graphs.hardware.mappers.gpu import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
+from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
+from graphs.hardware.resource_model import Precision
 
 
 @dataclass

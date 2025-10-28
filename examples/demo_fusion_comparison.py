@@ -10,11 +10,8 @@ import torch
 import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
-import sys
-sys.path.insert(0, 'src')
 
-from graphs.characterize.fusion_partitioner import FusionBasedPartitioner
-from graphs.characterize.graph_partitioner import GraphPartitioner
+from graphs.transform.partitioning import FusionBasedPartitioner, GraphPartitioner
 
 
 def test_fusion(model_name='resnet18', input_shape=(1, 3, 224, 224)):

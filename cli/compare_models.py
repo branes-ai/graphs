@@ -17,10 +17,8 @@ import torch
 import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
-import sys
 import argparse
 from typing import List, Dict, Tuple
-sys.path.insert(0, 'src')
 
 from graphs.transform.partitioning import FusionBasedPartitioner
 from graphs.analysis.concurrency import ConcurrencyAnalyzer

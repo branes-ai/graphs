@@ -14,11 +14,7 @@ Key Results:
 - KPU delivers 19× better performance at 40% of the power!
 """
 
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from src.graphs.hardware.resource_model import (
+from graphs.hardware.resource_model import (
     jetson_orin_agx_resource_model,
     jetson_thor_resource_model,
     kpu_t100_resource_model,
