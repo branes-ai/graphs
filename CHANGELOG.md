@@ -8,7 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Phase 3: Advanced Analysis (Complete)
+### Phase 4: Integration & Unified Analysis (Planned)
+- ⬜ 4.1 CLI Integration: Bring all Phase 3 analysis into CLI tools
+- ⬜ 4.2 Unified Workflows: Comprehensive analysis pipelines combining all analyzers
+- ⬜ 4.3 Enhanced Visualizations: Roofline plots, energy charts, memory timelines
+- ⬜ 4.4 Multi-Objective Optimization: Pareto frontier analysis and trade-off exploration
+- See `docs/PHASE4_INTEGRATION_PLAN.md` for details
+
+### Phase 3: Advanced Analysis (Complete ✅)
 - ✅ Concurrency Analysis: Multi-level parallelism analysis (thread/warp/block)
 - ✅ Roofline Model: Latency and bottleneck analysis (compute vs memory-bound)
 - ✅ Energy Estimator: Power and energy consumption analysis (compute/memory/static)
