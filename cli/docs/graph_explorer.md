@@ -53,26 +53,35 @@ python3 cli/graph_explorer.py --model resnet18 --around 35 --context 10
 |----------|------|---------|-------------|
 | `--model` | str | resnet18 | Model name from torchvision |
 | `--input-shape` | str | 1,3,224,224 | Input tensor shape (comma-separated) |
-| `--start` | int | None | Start node index (0-based, inclusive) |
-| `--end` | int | None | End node index (exclusive) |
-| `--around` | int | None | Center node for context view |
+| `--start` | int | None | Start node (1-based, inclusive) |
+| `--end` | int | None | End node (1-based, inclusive) |
+| `--around` | int | None | Center node for context view (1-based) |
 | `--context` | int | 10 | Nodes before/after center (with --around) |
 | `--max-nodes` | int | None | Max nodes from start (backward compatible) |
 | `--output` | str | None | Save visualization to file |
 
 ### Range Selection Methods
 
+**IMPORTANT:** Node numbers are **1-based** (matching the display output) and ranges are **inclusive** on both ends.
+
 **Method 1: Explicit Range (--start, --end)**
 - Best for: Systematic exploration of graph sections
-- Example: `--start 20 --end 50` shows nodes 20-49
+- Example: `--start 20 --end 50` shows nodes 20 through 50 (31 nodes total)
+- Both start and end are inclusive
 
 **Method 2: Context View (--around, --context)**
 - Best for: Debugging specific nodes
-- Example: `--around 35 --context 10` shows nodes 25-45
+- Example: `--around 35 --context 10` shows nodes 25 through 45 (21 nodes: center ± 10)
+- Shows nodes from (center - context) to (center + context)
 
 **Method 3: Max Nodes (--max-nodes)**
 - Best for: Quick overview from beginning
-- Example: `--max-nodes 50` shows first 50 nodes
+- Example: `--max-nodes 50` shows first 50 nodes (nodes 1-50)
+
+**Range Selection Priority:**
+1. `--around` with `--context` (highest priority)
+2. `--start` and/or `--end`
+3. `--max-nodes`
 
 **Note:** Only use one method at a time. Methods are mutually exclusive.
 

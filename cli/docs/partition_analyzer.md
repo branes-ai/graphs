@@ -38,8 +38,24 @@ python3 cli/partition_analyzer.py --model mobilenet_v2 --strategy fusion --visua
 | `--compare` | flag | False | Show side-by-side comparison |
 | `--quantify` | flag | False | Show detailed metrics |
 | `--visualize` | flag | False | Show graph visualization |
-| `--max-nodes` | int | 50 | Max nodes in visualization |
 | `--input-shape` | int[] | 1,3,224,224 | Input tensor shape |
+
+### Range Selection (for visualization)
+
+**Note:** Node numbers are **1-based** (matching display output) and ranges are **inclusive** on both ends.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--start` | int | None | Start node (1-based, inclusive) |
+| `--end` | int | None | End node (1-based, inclusive) |
+| `--around` | int | None | Center node for context view |
+| `--context` | int | 10 | Nodes before/after center (with --around) |
+| `--max-nodes` | int | 20 | Max nodes from start (backward compatible) |
+
+**Range Selection Priority:**
+1. `--around` with `--context` (highest priority)
+2. `--start` and/or `--end`
+3. `--max-nodes` (default: first 20 nodes)
 
 ---
 
@@ -103,14 +119,29 @@ Fusion Benefits:
 ### Example 2: Visualize Fusion
 
 ```bash
+# Show first 30 nodes
 python3 cli/partition_analyzer.py \
   --model mobilenet_v2 \
   --strategy fusion \
   --visualize \
   --max-nodes 30
+
+# Show specific range (nodes 10-25, inclusive)
+python3 cli/partition_analyzer.py \
+  --model mobilenet_v2 \
+  --strategy fusion \
+  --visualize \
+  --start 10 --end 25
+
+# Investigate around node 15 (±5 nodes)
+python3 cli/partition_analyzer.py \
+  --model mobilenet_v2 \
+  --strategy fusion \
+  --visualize \
+  --around 15 --context 5
 ```
 
-**Output:** ASCII graph showing fused subgraphs
+**Output:** ASCII graph showing fused subgraphs with node-by-node details
 
 ---
 

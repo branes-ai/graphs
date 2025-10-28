@@ -805,7 +805,9 @@ class GraphPartitioner:
             critical_path_subgraphs=critical_path
         )
 
-    def visualize_partitioning(self, fx_graph: GraphModule, max_nodes: Optional[int] = None) -> str:
+    def visualize_partitioning(self, fx_graph: GraphModule,
+                              start: Optional[int] = None,
+                              end: Optional[int] = None) -> str:
         """
         Create side-by-side visualization of FX graph and partitioned subgraphs.
 
@@ -813,7 +815,8 @@ class GraphPartitioner:
 
         Args:
             fx_graph: The FX graph that was partitioned
-            max_nodes: Maximum number of nodes to show (None for all)
+            start: Starting node index (0-based, inclusive), None for beginning
+            end: Ending node index (0-based, exclusive), None for end
 
         Returns:
             String containing the formatted visualization
@@ -825,9 +828,18 @@ class GraphPartitioner:
 
         # Collect all nodes in execution order
         all_nodes = list(fx_graph.graph.nodes)
+        total_nodes = len(all_nodes)
 
-        if max_nodes:
-            all_nodes = all_nodes[:max_nodes]
+        # Determine range to display
+        start = start if start is not None else 0
+        end = end if end is not None else total_nodes
+
+        # Clamp to valid range
+        start = max(0, min(start, total_nodes))
+        end = max(start, min(end, total_nodes))
+
+        # Slice to requested range
+        nodes_to_show = all_nodes[start:end]
 
         # Build visualization
         lines = []
@@ -851,7 +863,7 @@ class GraphPartitioner:
 
         # Process each node
         subgraph_counter = 1
-        for idx, node in enumerate(all_nodes, 1):
+        for idx, node in enumerate(nodes_to_show, start + 1):
             node_id = str(id(node))
 
             # LEFT SIDE: FX Node info
@@ -876,14 +888,21 @@ class GraphPartitioner:
             lines.append("")
 
         # Footer
-        if max_nodes and len(fx_graph.graph.nodes) > max_nodes:
-            lines.append(f"... ({len(fx_graph.graph.nodes) - max_nodes} more nodes not shown)")
+        nodes_shown = end - start
+        if nodes_shown < total_nodes:
+            nodes_not_shown = total_nodes - nodes_shown
+            if start > 0 and end < total_nodes:
+                lines.append(f"... ({start} nodes before, {total_nodes - end} nodes after not shown)")
+            elif start > 0:
+                lines.append(f"... ({start} nodes before not shown)")
+            else:
+                lines.append(f"... ({nodes_not_shown} more nodes not shown)")
             lines.append("")
 
         lines.append("=" * total_width)
-        lines.append(f"Total FX nodes: {len(fx_graph.graph.nodes)}")
+        lines.append(f"Total FX nodes: {total_nodes}")
         lines.append(f"Partitioned subgraphs: {len(self.subgraphs)}")
-        lines.append(f"Nodes not partitioned: {len(fx_graph.graph.nodes) - len(self.subgraphs)}")
+        lines.append(f"Nodes not partitioned: {total_nodes - len(self.subgraphs)}")
         lines.append("=" * total_width)
 
         return "\n".join(lines)

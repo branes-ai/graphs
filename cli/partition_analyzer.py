@@ -16,13 +16,26 @@ Usage:
     # Compare unfused vs fusion
     python cli/partition_analyzer.py --model efficientnet_b0 --strategy all --compare
 
+    # Visualize specific node range
+    python cli/partition_analyzer.py --model resnet18 --strategy fusion --visualize --start 5 --end 20
+
+    # Investigate around specific node
+    python cli/partition_analyzer.py --model resnet18 --strategy fusion --visualize --around 10 --context 5
+
 Command-line Options:
-    --model: Choose model (resnet18, mobilenet_v2, etc.)
+    --model:       Choose model (resnet18, mobilenet_v2, etc.)
     --strategy:    Select strategy (unfused, fusion, all)
     --compare:     Show side-by-side comparison
     --quantify:    Show detailed metrics
     --visualize:   Show graph visualization
-    --max-nodes:   Control visualization length
+
+    Range Selection (for visualization):
+    --start:       Start node (1-based, inclusive)
+    --end:         End node (1-based, inclusive)
+    --around:      Center node for context view
+    --context:     Nodes before/after center (default: 10)
+    --max-nodes:   Maximum nodes from start (default: 20)
+
     --input-shape: Customize input tensor dimensions
 
 """
@@ -102,6 +115,48 @@ class PartitionAnalyzerCLI:
         self.model_name = model_name
         print(f"\nSuccess: {len(list(self.fx_graph.graph.nodes))} FX nodes")
         return True
+
+    def determine_range(self, args) -> tuple:
+        """Determine start/end range based on arguments
+
+        Note: User-provided node numbers are 1-based (display numbering).
+        This method converts them to 0-based array indices for slicing.
+        """
+        total_nodes = len(list(self.fx_graph.graph.nodes))
+
+        # Priority 1: --around with --context
+        if args.around is not None:
+            context = args.context if args.context is not None else 10
+            # Convert 1-based display node number to 0-based index
+            center_idx = args.around - 1
+            start = max(0, center_idx - context)
+            end = min(total_nodes, center_idx + context + 1)
+            print(f"Showing nodes around #{args.around} (context: ±{context} nodes)")
+            print(f"Range: nodes {start+1} to {end} (total: {end-start} nodes)")
+            return start, end
+
+        # Priority 2: --start and/or --end
+        if args.start is not None or args.end is not None:
+            # Convert 1-based display numbers to 0-based indices
+            # start: subtract 1 (node 5 -> index 4)
+            # end: keep as-is (node 10 -> slice index 10, since slicing is exclusive on end)
+            start = (args.start - 1) if args.start is not None else 0
+            end = args.end if args.end is not None else total_nodes
+            start = max(0, start)
+            end = min(total_nodes, end)
+            print(f"Showing nodes {start+1} to {end} (total: {end-start} nodes)")
+            return start, end
+
+        # Priority 3: --max-nodes (backward compatible)
+        if args.max_nodes is not None:
+            start = 0
+            end = min(args.max_nodes, total_nodes)
+            print(f"Showing first {end} nodes")
+            return start, end
+
+        # Default: first 20 nodes
+        print(f"Showing first 20 nodes (default)")
+        return 0, min(20, total_nodes)
 
     def apply_strategy(self, strategy: str) -> Dict[str, Any]:
         """Apply a partitioning strategy and return results"""
@@ -280,7 +335,7 @@ class PartitionAnalyzerCLI:
                   f"({fused['data_movement_reduction'] * 100:.1f}% reduction)")
             print(f"Arithmetic Intensity: {fused['avg_ai'] / max(0.01, unfused['avg_ai']):.2f}x improvement")
 
-    def visualize_strategy(self, strategy: str, max_nodes: int = 20, use_color: bool = False, no_color: bool = False):
+    def visualize_strategy(self, strategy: str, args, start: int = None, end: int = None, use_color: bool = False, no_color: bool = False):
         """Visualize partitioning for a strategy"""
         if strategy not in self.results:
             print(f"Error: No results for strategy '{strategy}'")
@@ -299,12 +354,13 @@ class PartitionAnalyzerCLI:
             # Use color-coded visualization for fusion
             color_enabled = not no_color
             viz = partitioner.visualize_partitioning_colored(self.fx_graph,
-                                                            max_nodes=max_nodes,
+                                                            start=start,
+                                                            end=end,
                                                             use_color=color_enabled if no_color else None)
             print(viz)
         elif hasattr(partitioner, 'visualize_partitioning'):
             # Use standard visualization
-            viz = partitioner.visualize_partitioning(self.fx_graph, max_nodes=max_nodes)
+            viz = partitioner.visualize_partitioning(self.fx_graph, start=start, end=end)
             print(viz)
         else:
             print(f"Error: Visualization not implemented for '{strategy}' strategy")
@@ -344,10 +400,14 @@ class PartitionAnalyzerCLI:
 
         # Visualize
         if args.visualize:
+            # Determine range for visualization
+            start, end = self.determine_range(args)
             for strategy in strategies:
                 if strategy in self.results:
                     self.visualize_strategy(strategy,
-                                          max_nodes=args.max_nodes,
+                                          args=args,
+                                          start=start,
+                                          end=end,
                                           use_color=args.color,
                                           no_color=args.no_color)
 
@@ -385,9 +445,16 @@ class PartitionAnalyzerCLI:
         print(f"FX graph size: {len(list(self.fx_graph.graph.nodes))} nodes")
 
         if args.visualize:
-            print(f"\nTo see full visualization, run:")
-            print(f"  python cli/partitioner.py --model {args.model} "
-                  f"--strategy {strategies[0]} --visualize --max-nodes 999")
+            print(f"\nTo see more nodes in visualization:")
+            print(f"  # Show first 50 nodes")
+            print(f"  python cli/partition_analyzer.py --model {args.model} "
+                  f"--strategy {strategies[0]} --visualize --max-nodes 50")
+            print(f"  # Show specific range (nodes 20-50)")
+            print(f"  python cli/partition_analyzer.py --model {args.model} "
+                  f"--strategy {strategies[0]} --visualize --start 20 --end 50")
+            print(f"  # Investigate around node 35")
+            print(f"  python cli/partition_analyzer.py --model {args.model} "
+                  f"--strategy {strategies[0]} --visualize --around 35 --context 10")
 
         return 0
 
@@ -400,16 +467,22 @@ def parse_args():
         epilog="""
 Examples:
   # Compare all strategies on ResNet-18
-  python cli/partitioner.py --model resnet18 --strategy all --compare
+  python cli/partition_analyzer.py --model resnet18 --strategy all --compare
 
-  # Test fusion with visualization
-  python cli/partitioner.py --model mobilenet_v2 --strategy fusion --visualize
+  # Test fusion with visualization (first 20 nodes)
+  python cli/partition_analyzer.py --model mobilenet_v2 --strategy fusion --visualize
+
+  # Visualize specific node range (nodes 5-20, inclusive)
+  python cli/partition_analyzer.py --model resnet18 --strategy fusion --visualize --start 5 --end 20
+
+  # Investigate around node 10 (±5 nodes context)
+  python cli/partition_analyzer.py --model resnet18 --strategy fusion --visualize --around 10 --context 5
 
   # Analyze fusion balance
-  python cli/partitioner.py --model resnet50 --strategy fusion --analyze-balance
+  python cli/partition_analyzer.py --model resnet50 --strategy fusion --analyze-balance
 
   # Full analysis with visualization and balance
-  python cli/partitioner.py --model efficientnet_b0 --strategy fusion --visualize --analyze-balance
+  python cli/partition_analyzer.py --model efficientnet_b0 --strategy fusion --visualize --analyze-balance
         """
     )
 
@@ -433,8 +506,25 @@ Examples:
     parser.add_argument('--analyze-balance', action='store_true',
                        help='Analyze fusion balance and quality (requires --strategy fusion)')
 
-    parser.add_argument('--max-nodes', type=int, default=20,
-                       help='Maximum nodes to show in visualization')
+    # Range selection (mutually exclusive groups)
+    range_group = parser.add_argument_group('range selection',
+                                            'Choose one method to select node range for visualization')
+
+    # Method 1: Explicit start/end
+    range_group.add_argument('--start', type=int, default=None,
+                            help='Start node index (1-based, inclusive)')
+    range_group.add_argument('--end', type=int, default=None,
+                            help='End node index (1-based, inclusive)')
+
+    # Method 2: Context around a node
+    range_group.add_argument('--around', type=int, default=None,
+                            help='Center node for context view (1-based)')
+    range_group.add_argument('--context', type=int, default=10,
+                            help='Number of nodes before/after center (default: 10)')
+
+    # Method 3: Simple max-nodes (backward compatible)
+    range_group.add_argument('--max-nodes', '-n', type=int, default=20,
+                            help='Maximum nodes to display from start (default: 20)')
 
     parser.add_argument('--input-shape', type=int, nargs=4, default=[1, 3, 224, 224],
                        metavar=('B', 'C', 'H', 'W'),

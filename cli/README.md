@@ -28,6 +28,36 @@ Comprehensive how-to guides for each tool:
 
 ---
 
+## Common Conventions
+
+### Unified Range Selection
+
+CLI tools that visualize graphs (`graph_explorer.py`, `partition_analyzer.py`) use unified node addressing:
+
+**Node Numbering:**
+- Node numbers are **1-based** (matching the display output)
+- Ranges are **inclusive** on both ends
+- Example: `--start 5 --end 10` shows nodes 5, 6, 7, 8, 9, and 10
+
+**Range Selection Methods:**
+1. **Explicit Range**: `--start N --end M` (show nodes N through M)
+2. **Context View**: `--around N --context K` (show K nodes before/after N)
+3. **Max Nodes**: `--max-nodes N` (show first N nodes from start)
+
+**Examples:**
+```bash
+# Show nodes 5-10 (inclusive, 6 nodes total)
+./cli/graph_explorer.py --model resnet18 --start 5 --end 10
+
+# Show 10 nodes around node 35 (nodes 25-45)
+./cli/graph_explorer.py --model resnet18 --around 35 --context 10
+
+# Show first 20 nodes (nodes 1-20)
+./cli/partition_analyzer.py --model resnet18 --strategy fusion --visualize --max-nodes 20
+```
+
+---
+
 ## Tools
 
 ### `partition_analyzer.py`
@@ -35,23 +65,23 @@ Analyze and compare different partitioning strategies to quantify fusion benefit
 
 **Usage:**
 ```bash
-# Partition a torchvision model
-./cli/partition_analyzer.py --model resnet18 --input-shape 1,3,224,224
+# Compare all strategies
+./cli/partition_analyzer.py --model resnet18 --strategy all --compare
 
-# Custom model with detailed output
-./cli/partition_analyzer.py --model path/to/model.py --verbose
+# Visualize with specific range
+./cli/partition_analyzer.py --model resnet18 --strategy fusion --visualize --start 5 --end 20
 
-# Export results to JSON
-./cli/partition_analyzer.py --model mobilenet_v2 --output results.json
+# Investigate around specific node
+./cli/partition_analyzer.py --model mobilenet_v2 --strategy fusion --visualize --around 15 --context 5
 ```
 
 **Features:**
-- Supports torchvision models
-- Custom model loading
-- Multiple output formats (JSON, CSV, text)
-- Verbose logging
-- Fusion-based partitioning
-- Subgraph analysis
+- Compare partitioning strategies (unfused vs fusion)
+- Visualize partitioned graphs with range selection
+- Unified range selection (--start/--end, --around/--context, --max-nodes)
+- **Node addressing**: 1-based, inclusive ranges matching display output
+- Quantify fusion benefits (subgraph reduction, memory savings)
+- Analyze fusion patterns and bottlenecks
 
 ---
 
@@ -68,6 +98,7 @@ Explore FX computational graphs interactively with three progressive modes.
 
 # 3. Visualize sections (model + range)
 ./cli/graph_explorer.py --model resnet18 --max-nodes 20
+./cli/graph_explorer.py --model resnet18 --start 5 --end 20
 ./cli/graph_explorer.py --model resnet18 --around 35 --context 10
 ```
 
@@ -76,7 +107,8 @@ Explore FX computational graphs interactively with three progressive modes.
 - Prevents accidental output floods (large models have 300+ nodes)
 - Comprehensive summary statistics (FLOPs, bottlenecks, operation distribution)
 - Side-by-side visualization of FX graph and partitions
-- Range selection (--start, --end, --around, --max-nodes)
+- Unified range selection (--start/--end, --around/--context, --max-nodes)
+- **Node addressing**: 1-based, inclusive ranges matching display output
 - Export to file (--output)
 - Shows operation details, arithmetic intensity, partition reasoning
 
