@@ -15,13 +15,11 @@ import torch.nn as nn
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))  # cli/ → graphs/
 
-from src.graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
-from src.graphs.hardware.mappers.cpu import create_i7_12700k_mapper, create_i7_12700k_large_mapper
-from src.graphs.hardware.resource_model import Precision
+from graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
+from graphs.hardware.mappers.cpu import create_i7_12700k_mapper, create_i7_12700k_large_mapper
+from graphs.hardware.resource_model import Precision
 
 
 def extract_execution_stages(fusion_report: FusionReport):

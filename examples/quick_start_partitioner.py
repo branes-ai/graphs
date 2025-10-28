@@ -14,12 +14,10 @@ import torch
 import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
-import sys
-sys.path.insert(0, 'src')
-
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.concurrency_analyzer import ConcurrencyAnalyzer
 from collections import Counter
+
+from graphs.transform.partitioning import GraphPartitioner
+from graphs.analysis.concurrency import ConcurrencyAnalyzer
 
 
 def analyze_fx_graph_nodes(fx_graph, shape_prop=None):
@@ -214,7 +212,7 @@ def main():
     # Step 6: Visualize partitioning (first 15 nodes)
     print("[6/7] Generating partition visualization...")
     print("\n")
-    visualization = partitioner.visualize_partitioning(fx_graph, max_nodes=15)
+    visualization = partitioner.visualize_partitioning(fx_graph, start=0, end=15)
     print(visualization)
 
     # Step 7: Analyze concurrency

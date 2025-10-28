@@ -28,43 +28,39 @@ import torch.nn as nn
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 from torchvision import models
-import sys
-from pathlib import Path
 from typing import Tuple, List, Dict
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from src.graphs.transform.partitioning import FusionBasedPartitioner
-from src.graphs.analysis.allocation import (
+from graphs.transform.partitioning import FusionBasedPartitioner
+from graphs.analysis.allocation import (
     SubgraphAllocation,
     ExecutionPlan,
     HardwareAllocation
 )
-from src.graphs.hardware.resource_model import Precision
-from src.graphs.ir.structures import BottleneckType
+from graphs.hardware.resource_model import Precision
+from graphs.ir.structures import BottleneckType
 
 # Import hardware mappers
-from src.graphs.hardware.mappers.gpu import (
+from graphs.hardware.mappers.gpu import (
     create_h100_mapper,
     create_jetson_orin_agx_mapper,
     create_jetson_orin_nano_mapper,
 )
-from src.graphs.hardware.mappers.accelerators.tpu import (
+from graphs.hardware.mappers.accelerators.tpu import (
     create_tpu_v4_mapper,
     create_coral_edge_tpu_mapper,
 )
-from src.graphs.hardware.mappers.accelerators.kpu import (
+from graphs.hardware.mappers.accelerators.kpu import (
     create_kpu_t64_mapper,
     create_kpu_t256_mapper,
     create_kpu_t768_mapper,
 )
-from src.graphs.hardware.mappers.cpu import (
+from graphs.hardware.mappers.cpu import (
     create_amd_epyc_9754_mapper,
     create_intel_xeon_platinum_8490h_mapper,
     create_i7_12700k_mapper,
     create_amd_cpu_mapper,
 )
-from src.graphs.hardware.mappers.dsp import (
+from graphs.hardware.mappers.dsp import (
     create_qrb5165_mapper,
     create_ti_tda4vm_mapper,
 )

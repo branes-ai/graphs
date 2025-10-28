@@ -12,13 +12,10 @@ Usage:
     python cli/list_hardware_mappers.py --format json
 """
 
-import sys
 import json
 import argparse
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
-
-sys.path.insert(0, 'src')
 
 from graphs.hardware.resource_model import HardwareType, Precision
 

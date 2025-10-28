@@ -50,22 +50,19 @@ import torch.nn as nn
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 from torchvision import models
-import sys
 from pathlib import Path
 from typing import Dict, List
 from dataclasses import dataclass
 
-sys.path.insert(0, str(Path(__file__).parent.parent))  # cli/ → graphs/
-
-from src.graphs.transform.partitioning import FusionBasedPartitioner
-from src.graphs.hardware.mappers.dsp import (
+from graphs.transform.partitioning import FusionBasedPartitioner
+from graphs.hardware.mappers.dsp import (
     create_ceva_neupro_npm11_mapper,
     create_cadence_vision_q8_mapper,
     create_synopsys_arc_ev7x_mapper,
 )
-from src.graphs.hardware.mappers.gpu import create_arm_mali_g78_mp20_mapper
-from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper, create_kpu_t256_mapper
-from src.graphs.hardware.resource_model import Precision
+from graphs.hardware.mappers.gpu import create_arm_mali_g78_mp20_mapper
+from graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper, create_kpu_t256_mapper
+from graphs.hardware.resource_model import Precision
 
 
 @dataclass
