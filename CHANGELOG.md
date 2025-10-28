@@ -13,6 +13,121 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-28] - Graph Explorer & Tool Renaming
+
+### Fixed
+
+- **Package Import Structure** (Critical Bug Fix)
+  - Fixed `pyproject.toml` to use automatic package discovery
+  - Changed from hardcoded package list to `[tool.setuptools.packages.find]`
+  - Now correctly discovers all 21 packages after 2025-10-24 reorganization
+  - Fixed `examples/visualize_partitioning.py` imports (removed sys.path manipulation)
+  - Verified clean installation with `pip install -e .`
+
+### Added
+
+- **Graph Explorer Tool** (`cli/graph_explorer.py` - 368 lines)
+  - Interactive FX graph exploration with three-level progressive disclosure
+  - **Level 1 (no arguments)**: Discover available models
+    - Shows 20+ models organized by family (ResNet, MobileNet, EfficientNet, ViT, Swin, ConvNeXt)
+    - Usage hints and examples
+  - **Level 2 (--model only)**: Comprehensive summary statistics
+    - Total FX nodes and partitioned subgraphs
+    - Computation stats (FLOPs, MACs, memory traffic)
+    - Arithmetic intensity (average and range)
+    - Bottleneck distribution (compute-bound, bandwidth-bound, balanced)
+    - Operation type distribution (top 10 most common)
+    - Partition reason distribution
+    - Guidance on how to visualize specific sections
+  - **Level 3 (--model + range)**: Detailed side-by-side visualization
+    - FX graph nodes with operation details
+    - Subgraph characteristics (FLOPs, arithmetic intensity, bottlenecks)
+    - Partition reasoning displayed
+  - Flexible range selection:
+    - `--start N --end M`: Explicit range (nodes N to M)
+    - `--around N --context C`: Context view (N ± C nodes)
+    - `--max-nodes N`: First N nodes (backward compatible)
+  - Prevents accidental output floods (large models like ViT-L have 300+ nodes)
+  - Export to file with `--output`
+
+- **Graph Explorer Documentation** (`cli/docs/graph_explorer.md` - ~600 lines)
+  - Complete documentation of three-level UX
+  - 7 detailed usage examples
+  - Interpretation guides (arithmetic intensity, bottlenecks, partition reasons)
+  - Troubleshooting section
+  - Integration with other CLI tools
+
+### Changed
+
+- **Tool Renaming for Clarity**
+  - Renamed `cli/visualize_partitioning.py` → `cli/graph_explorer.py`
+    - Rationale: Tool explores graph structure, doesn't actually partition (baseline view only)
+    - Better reflects interactive, progressive disclosure UX
+  - Renamed `cli/partitioner.py` → `cli/partition_analyzer.py`
+    - Rationale: Tool analyzes and compares partitioning strategies (unfused vs fusion)
+    - Clearer distinction from exploration
+  - Updated class names:
+    - `VisualizationCLI` → `GraphExplorerCLI`
+    - `PartitionCLI` → `PartitionAnalyzerCLI`
+  - Renamed documentation files:
+    - `cli/docs/visualize_partitioning.md` → `cli/docs/graph_explorer.md`
+    - `cli/docs/partitioner.md` → `cli/docs/partition_analyzer.md`
+  - Updated all cross-references in documentation
+
+- **CLI Tool Organization** (`cli/README.md`)
+  - Reorganized tool categories for natural workflow:
+    - **Discovery Tools: Profiling & Partitioning** (discover → explore → analyze)
+    - **Core Analysis Tools** (compare → map to hardware)
+    - **Specialized Comparisons** (automotive, datacenter, edge, IP cores)
+  - Updated all tool descriptions to match new names
+  - Clarified tool purposes (exploration vs analysis)
+
+- **Example Script Simplified** (`examples/visualize_partitioning.py`)
+  - Reduced from full-featured script to 110-line teaching example
+  - Step-by-step API demonstration with clear comments
+  - Shows three variations:
+    1. Basic usage (visualize first 15 nodes)
+    2. API variations (all nodes, specific range)
+    3. Access partition report data
+  - Points to `cli/graph_explorer.py` for production use
+
+### Impact
+
+**Progressive Disclosure Prevents Information Overload:**
+- Before: Running `--model vit_l_16` would dump 300+ nodes → terminal flood
+- After: Shows informative summary first → user makes informed decision about what to visualize
+
+**Clear Tool Distinction:**
+- Before: "visualize_partitioning" + "partitioner" (confusing overlap in names and purpose)
+- After: "graph_explorer" + "partition_analyzer" (clear mental models)
+  - **Explorer**: Inspection without transformation (baseline view)
+  - **Analyzer**: Comparison of transformation strategies (unfused vs fusion)
+
+**Improved Developer Experience:**
+- Model discovery built-in (no need to remember names)
+- Summary mode shows graph characteristics before diving deep
+- Natural workflow: discover → understand → investigate
+- Flexible range selection for debugging specific nodes
+
+**Testing Verification:**
+- ✅ All three levels tested (no args, summary, visualization)
+- ✅ All range selection modes tested (--max-nodes, --around, --start/--end)
+- ✅ Both renamed tools working correctly
+- ✅ Example script runs successfully
+- ✅ Package imports working cleanly
+
+### Statistics
+
+- New code: ~368 lines (graph_explorer.py)
+- New documentation: ~600 lines (graph_explorer.md)
+- Teaching example: 110 lines (examples/visualize_partitioning.py)
+- Total: ~1,100 lines new/refactored
+- Files renamed: 4
+- Files modified: 7
+- Cross-references updated: ~100
+
+---
+
 ## [2025-10-27] - CLI Documentation: Comprehensive How-To Guides
 
 ### Added

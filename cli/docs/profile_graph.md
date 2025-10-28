@@ -331,7 +331,7 @@ Check model name spelling and FX-traceability.
 | Tool | Purpose |
 |------|---------|
 | `discover_models.py` | Find available models |
-| `partitioner.py` | Apply fusion strategies |
+| `partition_analyzer.py` | Apply fusion strategies |
 | `analyze_graph_mapping.py` | Map to hardware |
 
 ---
