@@ -1,5 +1,7 @@
 # Graphs: Neural Network Performance Analysis and Characterization
 
+[![CI](https://github.com/branes-ai/graphs/workflows/CI/badge.svg)](https://github.com/branes-ai/graphs/actions/workflows/ci.yml)
+
 Collection of compute graph definitions and tools for realistic performance modeling.
 
 This repository provides tools to analyze PyTorch models and understand how they map to hardware resources, enabling realistic performance predictions instead of overly-optimistic peak theoretical estimates.
@@ -88,6 +90,7 @@ python examples/quick_start_partitioner.py
 ### Core Documentation
 - **[Getting Started Guide](docs/getting_started.md)** - Introduction to the framework
 - **[Graph Partitioner Tutorial](docs/graph_partitioner_tutorial.md)** - Hands-on tutorials
+- **[CI Workflow](docs/ci_workflow.md)** - Continuous integration and testing
 - **[Package Reorganization](docs/sessions/2025-10-24_package_reorganization.md)** - Architecture overview
 - **[Hardware Characterization](docs/hardware_characterization_2025-10.md)** - Hardware modeling details
 - **[Examples](examples/)** - Quick start scripts and demonstrations
