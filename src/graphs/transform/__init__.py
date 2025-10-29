@@ -5,4 +5,12 @@ This package provides transformations that modify or reorganize computational gr
 Includes partitioning, fusion, tiling, and other graph restructuring operations.
 """
 
-__all__ = []
+from .decomposing_tracer import (
+    DecomposingAttentionTracer,
+    trace_with_decomposition,
+)
+
+__all__ = [
+    'DecomposingAttentionTracer',
+    'trace_with_decomposition',
+]
