@@ -4,21 +4,21 @@ Demonstration of New DVFS-Aware Performance Model with Heterogeneous Tiles
 
 This script demonstrates the new performance modeling capabilities:
 1. DVFS thermal throttling (Jetson Orin @ 15W: 3% of peak)
-2. Heterogeneous tile allocation (KPU T100: 70/20/10 split)
-3. Per-precision derates (different for INT8/BF16/FP32)
+2. Heterogeneous tile allocation (KPU T256: 70/20/10 split)
+3. Per-precision efficiency factors (different for INT8/BF16/FP32)
 4. Realistic comparison: KPU beats Jetson at 40% of the power!
 
 Key Results:
-- Jetson Orin @ 15W: 170 TOPS peak → 3.1 TOPS effective (1.8% derate)
-- KPU T100 @ 6W: 100 TOPS peak → 60 TOPS effective (60% derate)
+- Jetson Orin @ 15W: 170 TOPS peak → 3.1 TOPS effective (1.8% efficiency)
+- KPU T64 @ 6W: 100 TOPS peak → 60 TOPS effective (60% efficiency)
 - KPU delivers 19× better performance at 40% of the power!
 """
-
-from graphs.hardware.resource_model import (
-    jetson_orin_agx_resource_model,
+from graphs.hardware.resource_model import Precision
+from graphs.hardware.models import (
+    jetson_orin_agx_resource_model,   # Jetson Orin AGX model: 16 SMs, 128 CUDA cores each, 1.5 GHz base clock = 16 * 192GOPS peak = 3.072 TOPS
     jetson_thor_resource_model,
-    kpu_t100_resource_model,
-    Precision,
+    kpu_t256_resource_model,          # KPU T256 model: 256 tiles, 16x16 = 256 cores each, 512 ops/clock at 1.5 GHz = 256 * 768GOPS peak = 196 TOPS
+    kpu_t64_resource_model,           # KPU T64 model: 64 tiles, low-power edge deployment
 )
 
 
@@ -51,7 +51,7 @@ def demo_dvfs_throttling():
 
         clock = perf_spec.compute_resource.clock_domain
         throttle_pct = clock.thermal_throttle_factor * 100
-        derate_vs_peak = (effective_tops / 170) * 100  # vs 170 TOPS dense peak
+        efficiency_vs_peak = (effective_tops / 170) * 100  # vs 170 TOPS dense peak
 
         print(f"{profile_name} Mode ({thermal_point.cooling_solution}):")
         print(f"  Base clock:      {clock.base_clock_hz/1e6:.0f} MHz")
@@ -59,8 +59,8 @@ def demo_dvfs_throttling():
         print(f"  Sustained clock: {clock.sustained_clock_hz/1e6:.0f} MHz ({throttle_pct:.0f}% of boost)")
         print(f"  Peak INT8:       {peak_tops:.1f} TOPS (datasheet)")
         print(f"  Sustained INT8:  {sustained_tops:.1f} TOPS (DVFS throttled)")
-        print(f"  Effective INT8:  {effective_tops:.1f} TOPS (empirical derate)")
-        print(f"  → {derate_vs_peak:.1f}% of 170 TOPS peak")
+        print(f"  Effective INT8:  {effective_tops:.1f} TOPS (with efficiency factors)")
+        print(f"  → {efficiency_vs_peak:.1f}% of 170 TOPS peak")
         print()
 
     print("Key Insight:")
@@ -69,17 +69,17 @@ def demo_dvfs_throttling():
 
 
 def demo_heterogeneous_tiles():
-    """Demonstrate heterogeneous tile allocation on KPU T100"""
-    print_separator("DEMO 2: Heterogeneous Tile Allocation (KPU T100)")
+    """Demonstrate heterogeneous tile allocation on KPU T256"""
+    print_separator("DEMO 2: Heterogeneous Tile Allocation (KPU T256)")
 
-    kpu = kpu_t100_resource_model()
-    thermal_point = kpu.thermal_operating_points["6W"]
+    kpu = kpu_t256_resource_model()
+    thermal_point = kpu.thermal_operating_points["30W"]   # mid-range power profile
 
-    print("KPU T100 - Workload-Driven Silicon Allocation")
+    print("KPU T256 - Workload-Driven Silicon Allocation")
     print("-" * 60)
     print("Design Philosophy:")
     print("  1. Characterize embodied AI workloads")
-    print("  2. Discover: 70% INT8, 20% BF16, 10% large matmuls")
+    print("  2. Discover: 70% INT8, 20% BF16, 10% matmuls")
     print("  3. Allocate silicon to match workload distribution")
     print("  4. Result: All precisions native, no emulation!\n")
 
@@ -117,100 +117,174 @@ def demo_heterogeneous_tiles():
         peak = perf_spec.peak_ops_per_sec / 1e12
         sustained = perf_spec.sustained_ops_per_sec / 1e12
         effective = perf_spec.effective_ops_per_sec / 1e12
-        derate = perf_spec.empirical_derate
+        efficiency = perf_spec.efficiency_factor
 
         print(f"\n{precision.value}:")
         print(f"  Peak:      {peak:5.1f} TOPS @ boost clock")
         print(f"  Sustained: {sustained:5.1f} TOPS @ sustained clock")
-        print(f"  Effective: {effective:5.1f} TOPS (derate: {derate:.0%})")
+        print(f"  Effective: {effective:5.1f} TOPS (efficiency: {efficiency:.0%})")
 
     print("\n\nKey Insight:")
-    print("  KPU achieves 60-65% derate (vs Jetson's 2-4%)")
+    print("  KPU achieves 60-65% efficiency (vs Jetson's 2-4%)")
     print("  Reason: No DVFS throttling + well-optimized tile allocation")
 
 
 def demo_head_to_head():
-    """Head-to-head comparison: Jetson vs KPU"""
-    print_separator("DEMO 3: Head-to-Head Comparison (Embodied AI Deployment)")
+    """Head-to-head comparison: 2 KPUs vs 2 Nvidia Jetsons"""
+    print_separator("DEMO 3: 2×2 Comparison - KPU T64/T256 vs Jetson Orin/Thor")
 
     orin = jetson_orin_agx_resource_model()
     thor = jetson_thor_resource_model()
-    kpu = kpu_t100_resource_model()
+    kpu64 = kpu_t64_resource_model()
+    kpu256 = kpu_t256_resource_model()
 
-    print("Realistic Embodied AI Deployment Scenario")
-    print("-" * 60)
-    print("Target: Autonomous robot with battery power constraint")
+    print("Realistic Embodied AI Deployment Scenarios")
+    print("-" * 90)
     print("Workload: DeepLabV3-ResNet101 @ 1024×1024 (semantic segmentation)")
-    print("Requirement: 10-30 FPS (33-100ms per frame)\n")
+    print("Requirement: 10-30 FPS (33-100ms per frame)")
+    print("\nComparison organized by power tier:\n")
 
+    # Organize configs by power tier for better comparison
     configs = [
-        ("Jetson Orin AGX @ 15W", orin, "15W", 15.0),
-        ("Jetson Orin AGX @ 30W", orin, "30W", 30.0),
-        ("Jetson Thor @ 30W", thor, "30W", 30.0),
-        ("KPU T100 @ 6W", kpu, "6W", 6.0),
+        # Low power tier (edge/battery)
+        ("KPU T64 @ 6W", kpu64, "6W", 6.0, "Edge/Battery"),
+        ("KPU T64 @ 10W", kpu64, "10W", 10.0, "Edge/Battery"),
+        ("Jetson Orin AGX @ 15W", orin, "15W", 15.0, "Edge/Battery"),
+
+        # Medium power tier (balanced)
+        ("KPU T256 @ 15W", kpu256, "15W", 15.0, "Balanced"),
+        ("KPU T256 @ 30W", kpu256, "30W", 30.0, "Balanced"),
+        ("Jetson Orin AGX @ 30W", orin, "30W", 30.0, "Balanced"),
+        ("Jetson Thor @ 30W", thor, "30W", 30.0, "Balanced"),
+
+        # High power tier (performance)
+        ("KPU T256 @ 50W", kpu256, "50W", 50.0, "Performance"),
+        ("Jetson Orin AGX @ 60W", orin, "60W", 60.0, "Performance"),
+        ("Jetson Thor @ 60W", thor, "60W", 60.0, "Performance"),
     ]
 
-    print(f"{'Hardware':<25} {'Power':>8} {'Peak':>10} {'Effective':>12} {'Derate':>10} {'$/W-TOPS':>12}")
-    print("-" * 90)
+    print(f"{'Hardware':<25} {'Power':>8} {'Peak':>10} {'Effective':>12} {'Efficiency':>12} {'$/W-TOPS':>12} {'Tier'}")
+    print("-" * 110)
 
-    baseline_cost = {"Jetson Orin AGX": 2000, "Jetson Thor": 3000, "KPU T100": 500}
+    baseline_cost = {"Jetson Orin AGX": 2000, "Jetson Thor": 3000, "KPU T64": 500, "KPU T256": 1200}
 
-    for name, model, profile, power in configs:
+    current_tier = None
+    for name, model, profile, power, tier in configs:
+        # Print tier separator
+        if tier != current_tier:
+            if current_tier is not None:
+                print()  # Blank line between tiers
+            current_tier = tier
+
         thermal_point = model.thermal_operating_points[profile]
         perf_spec = thermal_point.performance_specs[Precision.INT8]
 
         peak = perf_spec.peak_ops_per_sec / 1e12
         effective = perf_spec.effective_ops_per_sec / 1e12
-        derate_pct = (effective / peak) * 100
+        efficiency_pct = (effective / peak) * 100
 
         # Extract base hardware name
         base_name = name.split('@')[0].strip()
         cost = baseline_cost.get(base_name, 1000)
         cost_efficiency = cost / (power * effective) if effective > 0 else 999
 
-        print(f"{name:<25} {power:7.1f}W {peak:9.1f}T {effective:11.1f}T {derate_pct:9.1f}% ${cost_efficiency:11.2f}")
+        print(f"{name:<25} {power:7.1f}W {peak:9.1f}T {effective:11.1f}T {efficiency_pct:11.1f}% ${cost_efficiency:11.2f}  {tier}")
 
-    print("\n\nPerformance vs Power Analysis:")
+    print("\n\n" + "="*90)
+    print("DETAILED COMPARISON ANALYSIS")
+    print("="*90)
+
+    # Comparison 1: Low Power (Battery-Powered Edge)
+    print("\n[1] Low Power Tier - Battery-Powered Edge Devices:")
     print("-" * 60)
+    kpu64_6w = kpu64.thermal_operating_points["6W"].performance_specs[Precision.INT8]
+    orin_15w = orin.thermal_operating_points["15W"].performance_specs[Precision.INT8]
 
-    orin_15w_perf = orin.thermal_operating_points["15W"].performance_specs[Precision.INT8]
-    kpu_perf = kpu.thermal_operating_points["6W"].performance_specs[Precision.INT8]
+    kpu64_eff = kpu64_6w.effective_ops_per_sec / 1e12
+    orin_eff = orin_15w.effective_ops_per_sec / 1e12
 
-    orin_effective = orin_15w_perf.effective_ops_per_sec / 1e12
-    kpu_effective = kpu_perf.effective_ops_per_sec / 1e12
-
-    perf_ratio = kpu_effective / orin_effective
+    perf_ratio = kpu64_eff / orin_eff
     power_ratio = 6.0 / 15.0
-    efficiency_ratio = perf_ratio / power_ratio
+    perf_per_watt = perf_ratio / power_ratio
 
-    print(f"KPU vs Jetson Orin @ 15W:")
-    print(f"  Performance: {kpu_effective:.1f} vs {orin_effective:.1f} TOPS → {perf_ratio:.1f}× faster")
-    print(f"  Power: 6W vs 15W → {1/power_ratio:.1f}× less power")
-    print(f"  Efficiency: {efficiency_ratio:.1f}× better performance per watt")
-    print(f"\n  Battery Life (100 Wh battery, continuous inference):")
+    print(f"KPU T64 @ 6W vs Jetson Orin AGX @ 15W:")
+    print(f"  Performance:     {kpu64_eff:.1f} vs {orin_eff:.1f} TOPS → {perf_ratio:.1f}× faster")
+    print(f"  Power:           6W vs 15W → {1/power_ratio:.1f}× less power")
+    print(f"  Perf/Watt:       {perf_per_watt:.1f}× better (KPU advantage)")
+    print(f"  Cost:            ${baseline_cost['KPU T64']} vs ${baseline_cost['Jetson Orin AGX']} → {baseline_cost['Jetson Orin AGX']/baseline_cost['KPU T64']:.1f}× cheaper")
 
-    # Estimate latency for 1929 GFLOP workload
-    orin_latency = (1929e9 / orin_effective / 1e12)  # seconds
-    kpu_latency = (1929e9 / kpu_effective / 1e12)
+    # Battery life calculation
+    battery_wh = 100
+    orin_hours = battery_wh / 15.0
+    kpu64_hours = battery_wh / 6.0
+    workload_gflops = 1929e9
 
-    orin_inferences_per_sec = 1 / orin_latency if orin_latency > 0 else 0
-    kpu_inferences_per_sec = 1 / kpu_latency if kpu_latency > 0 else 0
+    orin_infs_per_sec = orin_eff * 1e12 / workload_gflops
+    kpu64_infs_per_sec = kpu64_eff * 1e12 / workload_gflops
 
-    orin_battery_hours = (100 / 15.0)  # Wh / W
-    kpu_battery_hours = (100 / 6.0)
+    orin_total = orin_hours * 3600 * orin_infs_per_sec
+    kpu64_total = kpu64_hours * 3600 * kpu64_infs_per_sec
 
-    orin_total_inferences = orin_battery_hours * 3600 * orin_inferences_per_sec
-    kpu_total_inferences = kpu_battery_hours * 3600 * kpu_inferences_per_sec
+    print(f"\n  Battery Life ({battery_wh}Wh, {workload_gflops/1e9:.0f} GFLOPS workload):")
+    print(f"    Orin: {orin_hours:.1f}h runtime → {orin_total/1000:.0f}K inferences")
+    print(f"    KPU:  {kpu64_hours:.1f}h runtime → {kpu64_total/1000:.0f}K inferences")
+    print(f"    → {kpu64_total/orin_total:.1f}× more inferences on same battery!")
 
-    print(f"    Orin: {orin_battery_hours:.1f} hours → {orin_total_inferences/1000:.0f}K inferences")
-    print(f"    KPU:  {kpu_battery_hours:.1f} hours → {kpu_total_inferences/1000:.0f}K inferences")
-    print(f"    → KPU enables {kpu_total_inferences/orin_total_inferences:.1f}× more inferences on same battery")
+    # Comparison 2: Medium Power (Balanced Performance)
+    print("\n[2] Medium Power Tier - Balanced Deployment:")
+    print("-" * 60)
+    kpu256_30w = kpu256.thermal_operating_points["30W"].performance_specs[Precision.INT8]
+    orin_30w = orin.thermal_operating_points["30W"].performance_specs[Precision.INT8]
+    thor_30w = thor.thermal_operating_points["30W"].performance_specs[Precision.INT8]
 
-    print("\n\nKey Takeaway:")
-    print("  ✓ KPU delivers superior performance at lower power")
-    print("  ✓ Reason: Better thermal design (no DVFS throttling)")
-    print("  ✓ Reason: Silicon optimized for workload (heterogeneous tiles)")
-    print("  ✓ Result: Ideal for battery-powered embodied AI")
+    kpu256_eff = kpu256_30w.effective_ops_per_sec / 1e12
+    orin30_eff = orin_30w.effective_ops_per_sec / 1e12
+    thor30_eff = thor_30w.effective_ops_per_sec / 1e12
+
+    print(f"KPU T256 @ 30W: {kpu256_eff:.1f} TOPS")
+    print(f"Jetson Orin AGX @ 30W: {orin30_eff:.1f} TOPS → KPU is {kpu256_eff/orin30_eff:.1f}× faster")
+    print(f"Jetson Thor @ 30W: {thor30_eff:.1f} TOPS → KPU is {kpu256_eff/thor30_eff:.1f}× faster")
+    print(f"\nAll at same 30W power budget:")
+    print(f"  KPU T256 delivers {kpu256_eff/orin30_eff:.1f}-{kpu256_eff/thor30_eff:.1f}× more throughput")
+
+    # Comparison 3: High Power (Max Performance)
+    print("\n[3] High Power Tier - Maximum Performance:")
+    print("-" * 60)
+    kpu256_50w = kpu256.thermal_operating_points["50W"].performance_specs[Precision.INT8]
+    orin_60w = orin.thermal_operating_points["60W"].performance_specs[Precision.INT8]
+    thor_60w = thor.thermal_operating_points["60W"].performance_specs[Precision.INT8]
+
+    kpu256_50_eff = kpu256_50w.effective_ops_per_sec / 1e12
+    orin60_eff = orin_60w.effective_ops_per_sec / 1e12
+    thor60_eff = thor_60w.effective_ops_per_sec / 1e12
+
+    print(f"KPU T256 @ 50W: {kpu256_50_eff:.1f} TOPS effective")
+    print(f"Jetson Orin AGX @ 60W: {orin60_eff:.1f} TOPS effective")
+    print(f"Jetson Thor @ 60W: {thor60_eff:.1f} TOPS effective")
+    print(f"\nKPU T256 @ 50W vs Jetson Thor @ 60W:")
+    print(f"  Performance:   {kpu256_50_eff:.1f} vs {thor60_eff:.1f} TOPS → {kpu256_50_eff/thor60_eff:.1f}× faster")
+    print(f"  Power:         50W vs 60W → {60/50:.1f}× less power")
+    print(f"  Perf/Watt:     {(kpu256_50_eff/50)/(thor60_eff/60):.1f}× better")
+
+    print("\n" + "="*90)
+    print("KEY TAKEAWAYS")
+    print("="*90)
+    print("\n✓ KPU T64 dominates low-power edge (6-10W):")
+    print(f"    - {perf_per_watt:.1f}× better performance/watt than Jetson Orin")
+    print(f"    - {baseline_cost['Jetson Orin AGX']/baseline_cost['KPU T64']:.1f}× lower cost")
+    print("    - Ideal for battery-powered drones, robots, IoT devices")
+
+    print("\n✓ KPU T256 dominates all power tiers (15W-50W):")
+    print(f"    - {kpu256_eff/orin30_eff:.1f}× faster than Jetson Orin at 30W")
+    print(f"    - {kpu256_eff/thor30_eff:.1f}× faster than Jetson Thor at 30W")
+    print(f"    - {kpu256_50_eff/thor60_eff:.1f}× faster than Jetson Thor at 50W vs 60W")
+    print("    - Ideal for autonomous vehicles, edge servers, high-throughput inference")
+
+    print("\n✓ Root Causes of KPU Advantage:")
+    print("    1. No DVFS throttling → predictable sustained performance")
+    print("    2. Heterogeneous tiles → silicon optimized for workload distribution")
+    print("    3. Higher efficiency_factor → 60-70% vs Nvidia's 2-20%")
+    print("    4. Better thermal design → stable clocks under load")
 
 
 def main():
