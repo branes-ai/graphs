@@ -20,14 +20,19 @@ from ...resource_model import (
 
 def kpu_t256_resource_model() -> HardwareResourceModel:
     """
-    Stillwater KPU-T256 with 256 heterogeneous tiles for high-performance edge/datacenter AI.
+    Stillwater KPU-T256 with 256 heterogeneous tiles for high-performance Embodied AI.
 
     ============================================================================
     HIGH-PERFORMANCE EDGE AI WORKLOAD ALLOCATION (256 tiles)
     ============================================================================
 
-    Target: High-throughput edge servers, datacenter inference, autonomous vehicles
-    - Same 70/20/10 ratio as T100/T300, scaled to 256 tiles
+    Target: High-throughput edge servers, autonomous vehicles, drones
+    - Designed for real-time multi-modal AI workloads
+    - Optimized for power efficiency (15W-50W TDP range)
+    - Heterogeneous tile allocation to match workload profiles
+    - Tiles are 16x16 KPU compute fabrics, scaled to 256 tiles
+    - Distributed L3 memory for low-latency data access
+    - 70/20/10 tile ratio for INT8/BF16/Matrix workloads
     - 179 INT8 tiles (70%): Massive parallel vision processing
     - 51 BF16 tiles (20%): Multi-modal fusion, transformers
     - 26 Matrix tiles (10%): Large-scale embeddings, LLM inference
@@ -42,18 +47,22 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     - 15W: Efficient mode (edge servers)
     - 30W: Balanced mode (datacenter inference)
     - 50W: Performance mode (max throughput)
+     
+    Competition: 
+    - Jetson Orin AGX model: 16 SMs, 128 CUDA cores each, 1.5 GHz base clock = 16 * 192GOPS peak = 3.072 TOPS 
+    - KPU T256 model: 256 tiles, 16x16 = 256 cores each, 512 ops/clock at 1.5 GHz = 256 * 768GOPS peak = 196 TOPS
 
     Key Advantages vs Jetson Orin AGX:
-    ✓ 2.56× more tiles than T100
+    ✓ 65× more raw performance than Jetson Orin AGX (196 TOPS vs 3.0 TOPS)
     ✓ Higher efficiency_factor (70-80% vs 5-12%)
     ✓ Better memory hierarchy (distributed L3)
     ✓ Predictable performance (no DVFS throttling)
     """
     # Clock domain for T256
     t256_clock = ClockDomain(
-        base_clock_hz=900e6,
-        max_boost_clock_hz=1.05e9,
-        sustained_clock_hz=1.0e9,  # 95% of boost at 15W
+        base_clock_hz=1.0e9,
+        max_boost_clock_hz=1.15e9,
+        sustained_clock_hz=1.1e9,  # 95% of boost at 15W
         dvfs_enabled=True,
     )
 
@@ -131,9 +140,9 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
 
     # 30W Profile: Balanced mode
     t256_clock_30w = ClockDomain(
-        base_clock_hz=950e6,
-        max_boost_clock_hz=1.1e9,
-        sustained_clock_hz=1.05e9,  # 95% of boost
+        base_clock_hz=1.350e6,
+        max_boost_clock_hz=1.5e9,
+        sustained_clock_hz=1.4e9,  # 95% of boost
         dvfs_enabled=True,
     )
     t256_compute_30w = KPUComputeResource(
@@ -194,9 +203,9 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
 
     # 50W Profile: Performance mode
     t256_clock_50w = ClockDomain(
-        base_clock_hz=1.0e9,
-        max_boost_clock_hz=1.15e9,
-        sustained_clock_hz=1.1e9,  # 96% of boost
+        base_clock_hz=1.5e9,
+        max_boost_clock_hz=1.75e9,
+        sustained_clock_hz=1.65e9,  # 96% of boost
         dvfs_enabled=True,
     )
     t256_compute_50w = KPUComputeResource(
