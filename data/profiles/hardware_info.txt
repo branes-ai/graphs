@@ -1,0 +1,49 @@
+
+
+# Multi-core CPU profiles
+# Precision   Intel Core i7      AMD Ryzen 7
+# FP32         1.5 TFLOPS          1.0 TFLOPS
+# BF16
+# INT8        6 TOPS               4 TOPS
+# DDR5         80 GB/s             80 GB/s
+
+
+# NVIDIA H100 SXM5 and PCIe profiles
+# Precision     SXM5           PCIe
+# FP32         67 TFLOPS    51 TFLOPS
+# BF16        980 TFLOPS   750 TFLOPS  Raw Peak
+# BF16       1979 TFLOPS  1513 TFLOPS  Sparsity
+# INT8       1979 TOPS    1513 TOPS    Raw Peak
+# INT8       3958 TOPS    3026 TOPS    Sparsity
+# HBM3       3350 GB/s
+# HBM2e                   2000 GB/s
+
+# Google TPUv4 profile
+# Precision    v4
+# BF16         275 TFLOPS
+# INT8         275 TOPS
+# HBM2e        1200 GB/s
+
+# Chip Structure: 
+#   A single TPU v4 chip typically contains two TensorCores, which Google refers to 
+#   as a "megacore" configuration that share a unified 32 GB HBM memory space.
+# 
+# TPU v4i: 
+#   A specific inference variant, the TPU v4i, is a single-core chip (half the compute 
+#   of the full TPU v4) designed for air cooling and optimized for inference workloads. 
+#   Its peak performance is roughly half the dual-core TPU v4.
+# 
+# Scalability: 
+#   TPUs are designed to scale massively using a custom, high-speed optical interconnect, 
+#   which allows a single TPU v4 Pod of 4,096 chips to achieve an aggregate compute of 1.1 ExaFLOPS.
+
+
+# KPUs are very scalable, so there are many different profiles possible.
+# The nomenclature is T###, representing the available TOPS capability of the SoC
+
+
+# GDDR6 memory subsystem profile
+#  Component           Typical Specifications        Peak System Bandwidth
+# Data Rate (per pin)  14 to 18 Gbps                  N/A
+# Mid-Range Bus Width  192-bit or 256-bit             336 to 576 GB/s
+# High-End Bus Width   384-bit                        672 to 768 GB/s
