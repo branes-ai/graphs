@@ -8,11 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Phase 4: Integration & Unified Analysis (Planned)
-- ⬜ 4.1 CLI Integration: Bring all Phase 3 analysis into CLI tools
-- ⬜ 4.2 Unified Workflows: Comprehensive analysis pipelines combining all analyzers
-- ⬜ 4.3 Enhanced Visualizations: Roofline plots, energy charts, memory timelines
-- ⬜ 4.4 Multi-Objective Optimization: Pareto frontier analysis and trade-off exploration
+### Phase 4: Integration & Unified Analysis
+- ✅ 4.1 CLI Integration: Bring all Phase 3 analysis into CLI tools (Complete)
+- ✅ 4.2 Unified Workflows: Comprehensive analysis pipelines combining all analyzers (Complete)
+- ⬜ 4.3 Enhanced Visualizations: Roofline plots, energy charts, memory timelines (Planned)
+- ⬜ 4.4 Multi-Objective Optimization: Pareto frontier analysis and trade-off exploration (Planned)
 - See `docs/PHASE4_INTEGRATION_PLAN.md` for details
 
 ### Phase 3: Advanced Analysis (Complete ✅)
@@ -23,6 +23,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Phase 2: Hardware Mapping (In Progress)
 - Continue with advanced hardware analysis and edge AI benchmarking
+
+---
+
+## [2025-10-28] - Phase 4.2: Unified Analysis Framework Complete ✅
+
+### Added
+
+- **UnifiedAnalyzer** (`src/graphs/analysis/unified_analyzer.py`, 700 lines)
+  - Single orchestrator for all Phase 3 analyzers (roofline, energy, memory, concurrency)
+  - Automatic FX tracing, shape propagation, and partitioning
+  - Configurable analysis via AnalysisConfig
+  - Returns UnifiedAnalysisResult with derived metrics
+  - Methods: `analyze_model()`, `analyze_graph()`, `analyze_fx_graph()`
+  - Tests: 27 unit tests passing
+
+- **ReportGenerator** (`src/graphs/reporting/report_generator.py`, 900 lines)
+  - Multi-format output: text, JSON, CSV, markdown
+  - Comparison reports for batch/model/hardware sweeps
+  - Auto-detection from file extension
+  - Selective sections and customizable styles
+  - Methods: `generate_text_report()`, `generate_json_report()`, `generate_csv_report()`, `generate_markdown_report()`, `generate_comparison_report()`
+  - Tests: 16 unit tests passing
+
+- **UnifiedAnalysisResult** Data Structure
+  - Metadata: model, hardware, batch size, precision, timestamp
+  - Phase 3 reports: roofline_report, energy_report, memory_report, concurrency_report
+  - Derived metrics: latency, throughput, energy, memory, utilization
+  - Graph structure: partition_report, num_subgraphs, subgraphs
+
+### Refactored
+
+- **analyze_comprehensive_v2.py** (262 lines, down from 962)
+  - **73% code reduction** using unified framework
+  - Drop-in replacement for Phase 4.1 tool
+  - All features preserved and enhanced
+  - Tests: 9 CLI integration tests passing
+
+- **analyze_batch_v2.py** (329 lines, down from 572)
+  - **42% code reduction** using unified framework
+  - Drop-in replacement for Phase 4.1 tool
+  - Enhanced insights and comparison reports
+  - Tests: 7 CLI integration tests passing
+
+### Testing
+
+- **Integration Tests**
+  - `tests/integration/test_unified_workflows.py` (17 tests)
+    - End-to-end workflows (complete analysis, batch sweeps, multi-model)
+    - Consistency tests (direct Phase 3 vs unified, cross-precision, formats)
+    - Configuration tests (selective analysis, validation)
+    - Report generation tests (sections, CSV details, comparisons)
+    - File I/O tests (save/load, auto-detection)
+    - Performance tests (reasonable execution times)
+    - Error handling tests (invalid model/hardware)
+  - `tests/integration/test_cli_refactored.py` (18 tests)
+    - CLI execution tests (subprocess validation)
+    - Output format tests (JSON, CSV, markdown)
+    - Configuration tests (precision, batch size)
+    - Comparison tests (model, hardware, batch)
+    - Error handling tests (invalid inputs)
+    - Performance tests (execution time)
+    - Cross-tool consistency tests
+
+### Documentation
+
+- **API Documentation**
+  - `docs/UNIFIED_FRAMEWORK_API.md` - Comprehensive Python API guide
+  - Quick start examples and common workflows
+  - Error handling and performance tips
+  - Advanced usage (custom hardware, FX graphs)
+
+- **Migration Guide**
+  - `docs/MIGRATION_GUIDE_PHASE4_2.md` - Phase 4.1 → 4.2 migration
+  - CLI migration (drop-in replacements)
+  - Python API migration (before/after examples)
+  - Breaking changes and rollback plan
+
+- **Project Documentation Updates**
+  - `cli/README.md` - Added Phase 4.2 section, updated workflows
+  - `CLAUDE.md` - Updated project structure and architecture
+  - `docs/PHASE4_2_COMPLETE.md` - Complete achievement summary
+
+### Key Achievements
+
+- **Code Reduction: 61.5% (943 lines eliminated)**
+  - analyze_comprehensive: 962 → 262 lines (73% reduction)
+  - analyze_batch: 572 → 329 lines (42% reduction)
+
+- **Test Coverage: 78 tests, 100% passing**
+  - Unit tests: 43 tests (UnifiedAnalyzer + ReportGenerator)
+  - Integration tests: 35 tests (workflows + CLI)
+
+- **Benefits Delivered**
+  - Simpler API: Single entry point, 6-10× code reduction in user code
+  - Consistent output: Same ReportGenerator across all tools
+  - More formats: Text, JSON, CSV, Markdown
+  - Better maintenance: Fix bugs once, benefit everywhere
+  - Faster development: Leverage unified components
+
+### Breaking Changes
+
+**None for CLI users** - v2 tools are 100% backward compatible
+
+**Minor changes for Python API users:**
+- Energy report attributes: `total_compute_energy_j` → `compute_energy_j` (removed "total_" prefix)
+- Memory report attributes: `timeline` → `memory_timeline` (more explicit)
+- Concurrency report: `ConcurrencyReport` → `ConcurrencyDescriptor` (import change)
+
+### Migration
+
+- **CLI users**: Just change script name (`analyze_comprehensive.py` → `analyze_comprehensive_v2.py`)
+- **Python API users**: Use UnifiedAnalyzer instead of manual orchestration (see migration guide)
+- **Migration effort**: 5 minutes for CLI, 30-60 minutes for Python API
+- **Rollback**: Phase 4.1 tools remain available for compatibility
+
+### Production Status
+
+✅ **Production Ready**
+- All 78 tests passing
+- Documentation complete
+- CLI tools are drop-in replacements
+- Python API fully documented
 
 ---
 
