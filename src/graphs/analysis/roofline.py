@@ -342,6 +342,12 @@ class RooflineAnalyzer:
         total_bytes = sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
         memory_time = total_bytes / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
 
+        # Apply discrete resource correction for accelerators with few compute units
+        # TPUs, KPUs can't fractionally utilize their arrays - adjust for realistic allocation
+        correction_factor = self._get_discrete_resource_correction(sg)
+        compute_time *= correction_factor
+        memory_time *= correction_factor
+
         # Actual latency = max(compute_time, memory_time)
         bottleneck_time = max(compute_time, memory_time)
 
@@ -394,12 +400,61 @@ class RooflineAnalyzer:
             explanation=explanation,
         )
 
+    def _get_discrete_resource_correction(self, sg: SubgraphDescriptor) -> float:
+        """
+        Apply correction factor for hardware with discrete, non-divisible compute units.
+
+        Problem: Naive calculation assumes fractional utilization of peak performance.
+        Reality: Can't use 0.3 TensorCores or 2.7 SMs - resources are discrete!
+
+        For TPU (2 TensorCores):
+        - Small kernels (< 100M FLOPs): use 1 TensorCore → 2× slower than peak
+        - Large kernels (>= 100M FLOPs): use 2 TensorCores → use peak
+
+        For other hardware: no correction (GPUs have many SMs, CPUs have many cores)
+        """
+        hw_type = self.resource_model.hardware_type.name
+
+        if hw_type == 'TPU':
+            # TPU v4: 2 TensorCores, each 128×128 systolic array
+            # Small kernels suffer from:
+            # 1. Can only use 1 TensorCore (2× penalty)
+            # 2. Matrix dimensions < 128×128 (poor array utilization)
+            # 3. Sequential execution overhead
+
+            if sg.flops < 10e6:  # < 10M FLOPs (very small kernels)
+                # Tiny kernels: 1 array, ~20% utilization → 10× penalty
+                return 10.0
+            elif sg.flops < 100e6:  # < 100M FLOPs (small kernels like ResNet18)
+                # Small kernels: 1 array, ~50% utilization → 4× penalty
+                return 4.0
+            elif sg.flops < 500e6:  # < 500M FLOPs (medium kernels)
+                # Medium kernels: can start using both arrays → 2× penalty
+                return 2.0
+            else:
+                # Large kernels: both arrays, good utilization
+                return 1.0
+
+        elif hw_type == 'KPU':
+            # KPU: 256 tiles, but small kernels don't use all of them
+            # Already handled by KPU mapper, so no correction needed here
+            return 1.0
+
+        else:
+            # GPU (132 SMs), CPU (many cores): enough units that fractional is reasonable
+            return 1.0
+
     def _estimate_overhead(self, sg: SubgraphDescriptor) -> float:
         """Estimate overhead (kernel launch, etc.)"""
         # GPU kernel launch overhead
         if self.resource_model.hardware_type.name == 'GPU':
             # Typical kernel launch: 5-10 μs
             return 5e-6  # 5 microseconds
+
+        # TPU systolic array setup overhead
+        if self.resource_model.hardware_type.name == 'TPU':
+            # Systolic array pipeline fill/drain: ~64 ns
+            return 64e-9  # 64 nanoseconds
 
         # Most other hardware has negligible overhead
         return 0.0

@@ -12,9 +12,12 @@ Levels:
 Educational focus: Not just "what" but "WHY" one architecture is better.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
+import json
+import csv
+import io
 
 from graphs.hardware.resource_model import Precision
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer, UnifiedAnalysisResult
@@ -904,3 +907,512 @@ class ArchitectureComparator:
             return f"{bytes_val/1e3:.2f} KB"
         else:
             return f"{bytes_val} B"
+
+    # Export methods
+
+    def export_json(self) -> str:
+        """
+        Export comparison data as JSON.
+
+        Returns complete structured data including all metrics,
+        breakdowns, and insights for programmatic analysis.
+
+        Returns:
+            JSON string with complete comparison data
+        """
+        data = {
+            'model': self.model_name,
+            'batch_size': self.batch_size,
+            'precision': self.precision.value,
+            'architectures': {},
+            'summary': {
+                'best_energy': self.summary.energy_winner,
+                'best_latency': self.summary.latency_winner,
+                'best_throughput': self.summary.throughput_winner,
+                'best_memory': self.summary.memory_winner,
+                'best_balance': self.summary.balance_winner,
+                'insights': self.summary.insights,
+            }
+        }
+
+        # Add per-architecture data
+        for name, metrics in self.metrics.items():
+            arch_data = {
+                'energy': {
+                    'total_j': metrics.total_energy_j,
+                    'total_mj': metrics.total_energy_j * 1000,
+                    'compute_j': metrics.compute_energy_j,
+                    'memory_j': metrics.memory_energy_j,
+                    'architectural_overhead_j': metrics.architectural_overhead_j,
+                    'per_inference_j': metrics.energy_per_inference_j,
+                },
+                'performance': {
+                    'latency_s': metrics.total_latency_s,
+                    'latency_ms': metrics.total_latency_s * 1000,
+                    'throughput_fps': metrics.throughput_inferences_per_sec,
+                    'utilization_percent': metrics.utilization * 100,
+                },
+                'memory': {
+                    'peak_bytes': metrics.peak_memory_bytes,
+                    'peak_mb': metrics.peak_memory_bytes / 1e6,
+                },
+                'bottlenecks': {
+                    'compute_bound': metrics.compute_bound_subgraphs,
+                    'memory_bound': metrics.memory_bound_subgraphs,
+                    'total_subgraphs': metrics.total_subgraphs,
+                    'compute_bound_percent': (metrics.compute_bound_subgraphs / metrics.total_subgraphs * 100) if metrics.total_subgraphs > 0 else 0,
+                }
+            }
+
+            # Add architectural energy breakdown if available
+            if metrics.architectural_breakdown:
+                b = metrics.architectural_breakdown
+                arch_data['architectural_energy'] = {
+                    'compute_overhead_j': b.compute_overhead,
+                    'memory_overhead_j': b.memory_overhead,
+                    'control_overhead_j': b.control_overhead,
+                    'total_overhead_j': b.total_overhead,
+                    'extra_details': b.extra_details if b.extra_details else {},
+                    'explanation': b.explanation,
+                }
+
+            data['architectures'][name] = arch_data
+
+        return json.dumps(data, indent=2)
+
+    def export_csv(self) -> str:
+        """
+        Export comparison data as CSV.
+
+        Returns tabular data suitable for spreadsheets and analysis tools.
+        Includes summary metrics and per-architecture breakdowns.
+
+        Returns:
+            CSV string with comparison data
+        """
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Header
+        writer.writerow([
+            'Architecture',
+            'Energy (J)',
+            'Energy (mJ)',
+            'Latency (ms)',
+            'Throughput (FPS)',
+            'Peak Memory (MB)',
+            'Utilization (%)',
+            'Compute Energy (J)',
+            'Memory Energy (J)',
+            'Architectural Overhead (J)',
+            'Compute Bound (%)',
+            'Memory Bound (%)',
+            'Total Subgraphs',
+        ])
+
+        # Data rows
+        for name in sorted(self.metrics.keys()):
+            metrics = self.metrics[name]
+            writer.writerow([
+                name,
+                f"{metrics.total_energy_j:.6f}",
+                f"{metrics.total_energy_j * 1000:.3f}",
+                f"{metrics.total_latency_s * 1000:.3f}",
+                f"{metrics.throughput_inferences_per_sec:.1f}",
+                f"{metrics.peak_memory_bytes / 1e6:.2f}",
+                f"{metrics.utilization * 100:.1f}",
+                f"{metrics.compute_energy_j:.6f}",
+                f"{metrics.memory_energy_j:.6f}",
+                f"{metrics.architectural_overhead_j:.6f}",
+                f"{(metrics.compute_bound_subgraphs / metrics.total_subgraphs * 100) if metrics.total_subgraphs > 0 else 0:.1f}",
+                f"{(metrics.memory_bound_subgraphs / metrics.total_subgraphs * 100) if metrics.total_subgraphs > 0 else 0:.1f}",
+                metrics.total_subgraphs,
+            ])
+
+        # Add architectural energy breakdown if available
+        has_arch_breakdown = any(m.architectural_breakdown is not None for m in self.metrics.values())
+        if has_arch_breakdown:
+            output.write('\n')
+            writer.writerow(['Architectural Energy Breakdown'])
+            writer.writerow([
+                'Architecture',
+                'Compute Overhead (J)',
+                'Memory Overhead (J)',
+                'Control Overhead (J)',
+                'Total Overhead (J)',
+            ])
+
+            for name in sorted(self.metrics.keys()):
+                metrics = self.metrics[name]
+                if metrics.architectural_breakdown:
+                    b = metrics.architectural_breakdown
+                    writer.writerow([
+                        name,
+                        f"{b.compute_overhead:.9f}",
+                        f"{b.memory_overhead:.9f}",
+                        f"{b.control_overhead:.9f}",
+                        f"{b.total_overhead:.9f}",
+                    ])
+                else:
+                    writer.writerow([name, 'N/A', 'N/A', 'N/A', 'N/A'])
+
+        return output.getvalue()
+
+    def export_html(self) -> str:
+        """
+        Export comparison data as interactive HTML with charts.
+
+        Creates a standalone HTML file with:
+        - Bar charts for energy, latency, throughput comparison
+        - Pie charts for energy breakdown
+        - Bottleneck distribution charts
+        - Interactive tooltips and legends
+
+        Uses Chart.js for visualization (loaded from CDN).
+
+        Returns:
+            HTML string with embedded charts
+        """
+        # Prepare data for charts
+        arch_names = sorted(self.metrics.keys())
+        energies = [self.metrics[name].total_energy_j * 1000 for name in arch_names]  # mJ
+        latencies = [self.metrics[name].total_latency_s * 1000 for name in arch_names]  # ms
+        throughputs = [self.metrics[name].throughput_inferences_per_sec for name in arch_names]
+        memories = [self.metrics[name].peak_memory_bytes / 1e6 for name in arch_names]  # MB
+
+        # Energy breakdown for first architecture (as example)
+        first_arch = arch_names[0]
+        first_metrics = self.metrics[first_arch]
+        compute_pct = (first_metrics.compute_energy_j / first_metrics.total_energy_j * 100) if first_metrics.total_energy_j > 0 else 0
+        memory_pct = (first_metrics.memory_energy_j / first_metrics.total_energy_j * 100) if first_metrics.total_energy_j > 0 else 0
+        overhead_pct = (first_metrics.architectural_overhead_j / first_metrics.total_energy_j * 100) if first_metrics.total_energy_j > 0 else 0
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture Comparison: {self.model_name}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }}
+        .header {{
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        h1 {{
+            margin: 0 0 10px 0;
+            color: #333;
+        }}
+        .metadata {{
+            color: #666;
+            font-size: 14px;
+        }}
+        .recommendations {{
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }}
+        .recommendations h2 {{
+            margin: 0 0 15px 0;
+            color: #1976D2;
+        }}
+        .rec-item {{
+            margin: 5px 0;
+            font-size: 14px;
+        }}
+        .chart-container {{
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        .chart-row {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }}
+        h2 {{
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 18px;
+        }}
+        .insights {{
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .insights ul {{
+            margin: 10px 0;
+            padding-left: 20px;
+        }}
+        .insights li {{
+            margin: 8px 0;
+            color: #555;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }}
+        th {{
+            background: #f5f5f5;
+            font-weight: 600;
+            color: #333;
+        }}
+        tr:hover {{
+            background: #f9f9f9;
+        }}
+        .winner {{
+            color: #4CAF50;
+            font-weight: 600;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Architecture Comparison: {self.model_name}</h1>
+        <div class="metadata">
+            Batch Size: {self.batch_size} | Precision: {self.precision.value}
+        </div>
+    </div>
+
+    <div class="recommendations">
+        <h2>🎯 Recommendations</h2>
+        <div class="rec-item">✓ Best for Energy: <strong>{self.summary.energy_winner}</strong></div>
+        <div class="rec-item">✓ Best for Latency: <strong>{self.summary.latency_winner}</strong></div>
+        <div class="rec-item">✓ Best for Throughput: <strong>{self.summary.throughput_winner}</strong></div>
+        <div class="rec-item">✓ Best Balance: <strong>{self.summary.balance_winner}</strong></div>
+    </div>
+
+    <div class="chart-row">
+        <div class="chart-container">
+            <h2>Energy Consumption (mJ)</h2>
+            <canvas id="energyChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2>Latency (ms)</h2>
+            <canvas id="latencyChart"></canvas>
+        </div>
+    </div>
+
+    <div class="chart-row">
+        <div class="chart-container">
+            <h2>Throughput (FPS)</h2>
+            <canvas id="throughputChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2>Peak Memory (MB)</h2>
+            <canvas id="memoryChart"></canvas>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Energy Breakdown: {first_arch}</h2>
+        <canvas id="energyBreakdownChart"></canvas>
+    </div>
+
+    <div class="insights">
+        <h2>Key Insights</h2>
+        <ul>
+"""
+
+        for insight in self.summary.insights:
+            html += f"            <li>{insight}</li>\n"
+
+        html += """        </ul>
+    </div>
+
+    <script>
+        // Color schemes
+        const colors = [
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+        ];
+
+        const borderColors = [
+            'rgba(255, 99, 132, 1)',
+            'rgba(54, 162, 235, 1)',
+            'rgba(255, 206, 86, 1)',
+            'rgba(75, 192, 192, 1)',
+            'rgba(153, 102, 255, 1)',
+            'rgba(255, 159, 64, 1)',
+        ];
+
+        // Energy Chart
+        new Chart(document.getElementById('energyChart'), {
+            type: 'bar',
+            data: {
+                labels: """ + json.dumps(arch_names) + """,
+                datasets: [{
+                    label: 'Energy (mJ)',
+                    data: """ + json.dumps(energies) + """,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Energy (mJ)' }
+                    }
+                }
+            }
+        });
+
+        // Latency Chart
+        new Chart(document.getElementById('latencyChart'), {
+            type: 'bar',
+            data: {
+                labels: """ + json.dumps(arch_names) + """,
+                datasets: [{
+                    label: 'Latency (ms)',
+                    data: """ + json.dumps(latencies) + """,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Latency (ms)' }
+                    }
+                }
+            }
+        });
+
+        // Throughput Chart
+        new Chart(document.getElementById('throughputChart'), {
+            type: 'bar',
+            data: {
+                labels: """ + json.dumps(arch_names) + """,
+                datasets: [{
+                    label: 'Throughput (FPS)',
+                    data: """ + json.dumps(throughputs) + """,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Throughput (FPS)' }
+                    }
+                }
+            }
+        });
+
+        // Memory Chart
+        new Chart(document.getElementById('memoryChart'), {
+            type: 'bar',
+            data: {
+                labels: """ + json.dumps(arch_names) + """,
+                datasets: [{
+                    label: 'Peak Memory (MB)',
+                    data: """ + json.dumps(memories) + """,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Peak Memory (MB)' }
+                    }
+                }
+            }
+        });
+
+        // Energy Breakdown Pie Chart
+        new Chart(document.getElementById('energyBreakdownChart'), {
+            type: 'pie',
+            data: {
+                labels: ['Compute', 'Memory', 'Architectural Overhead'],
+                datasets: [{
+                    data: [""" + f"{compute_pct:.2f}, {memory_pct:.2f}, {overhead_pct:.2f}" + """],
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.8)',
+                        'rgba(54, 162, 235, 0.8)',
+                        'rgba(255, 206, 86, 0.8)',
+                    ],
+                    borderColor: [
+                        'rgba(255, 99, 132, 1)',
+                        'rgba(54, 162, 235, 1)',
+                        'rgba(255, 206, 86, 1)',
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.label + ': ' + context.parsed.toFixed(1) + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>"""
+
+        return html
