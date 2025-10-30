@@ -16,7 +16,7 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple, Union
+from typing import List, Dict, Optional, Tuple, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 from enum import Enum
 
@@ -26,6 +26,9 @@ from graphs.ir.structures import (
     BottleneckType
 )
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
+
+if TYPE_CHECKING:
+    from graphs.hardware.architectural_energy import ArchitecturalEnergyModel
 
 
 class HardwareType(Enum):
@@ -368,6 +371,10 @@ class HardwareResourceModel:
     energy_per_byte: float  # Joules per byte transferred
 
     # Optional fields (with defaults)
+
+    # NEW: Architectural energy modeling
+    # Captures architecture-specific energy events (instruction fetch, coherence, etc.)
+    architecture_energy_model: Optional['ArchitecturalEnergyModel'] = None
     warp_size: int = 32  # Threads per warp (32 for NVIDIA, varies for others)
 
     # Precision-specific performance
@@ -730,6 +737,59 @@ class HardwareMapper(ABC):
         compute_energy = ops * energy_per_op
         memory_energy = bytes_transferred * self.resource_model.energy_per_byte
         return compute_energy, memory_energy
+
+    def _calculate_energy_with_architecture(
+        self,
+        ops: int,
+        bytes_transferred: int,
+        precision: Precision,
+        execution_context: Optional[Dict] = None
+    ) -> Tuple[float, float, Optional['ArchitecturalEnergyBreakdown']]:
+        """
+        Calculate energy consumption WITH architectural overhead.
+
+        This method computes baseline energy (compute + memory) and then
+        adds architecture-specific energy events if an architectural energy
+        model is configured.
+
+        Args:
+            ops: Number of operations
+            bytes_transferred: Bytes read/written
+            precision: Numerical precision
+            execution_context: Additional context (threads, batch size, etc.)
+
+        Returns:
+            (compute_energy_total, memory_energy_total, architectural_breakdown)
+            where architectural_breakdown is None if no model is configured
+        """
+        # Baseline energy (as before)
+        compute_energy, memory_energy = self._calculate_energy(
+            ops, bytes_transferred, precision
+        )
+
+        # Add architectural energy if model available
+        if self.resource_model.architecture_energy_model:
+            from graphs.hardware.architectural_energy import ArchitecturalEnergyBreakdown
+
+            if execution_context is None:
+                execution_context = {}
+
+            arch_breakdown = self.resource_model.architecture_energy_model.compute_architectural_energy(
+                ops=ops,
+                bytes_transferred=bytes_transferred,
+                compute_energy_baseline=compute_energy,
+                memory_energy_baseline=memory_energy,
+                execution_context=execution_context
+            )
+
+            # Apply architectural overheads
+            compute_energy += arch_breakdown.compute_overhead
+            memory_energy += arch_breakdown.memory_overhead
+
+            return compute_energy, memory_energy, arch_breakdown
+        else:
+            # Legacy path - no architectural energy model
+            return compute_energy, memory_energy, None
 
 
 # Pre-defined hardware resource models

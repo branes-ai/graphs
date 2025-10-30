@@ -531,8 +531,22 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
         KPUMapper configured for KPU-T256 with heterogeneous tiles (179/51/26)
     """
     from ...models.accelerators.kpu_t256 import kpu_t256_resource_model
+    from ...architectural_energy import DomainFlowEnergyModel
 
     model = kpu_t256_resource_model()
+
+    # Configure architectural energy model for KPU (DOMAIN_FLOW)
+    model.architecture_energy_model = DomainFlowEnergyModel(
+        domain_tracking_per_op=1.0e-12,
+        network_overlay_update=2.0e-12,
+        wavefront_control=0.8e-12,
+        schedule_adaptation_energy=50.0e-12,
+        domain_data_injection=0.7e-12,
+        domain_data_extraction=0.7e-12,
+        compute_efficiency=0.30,  # 70% reduction vs CPU
+        memory_efficiency=0.35,   # 65% reduction vs CPU
+    )
+
     return KPUMapper(model, thermal_profile=thermal_profile)
 
 
