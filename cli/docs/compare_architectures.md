@@ -39,23 +39,31 @@ Batch Size: 1, Precision: fp32
 ================================================================================
 
 Recommendations:
-  Best for Energy:      TPU
+  Best for Energy:      KPU
   Best for Latency:     GPU
   Best for Throughput:  GPU
   Best Balance:         KPU
 
-Architecture    Energy       Latency      Memory       Util%    vs GPU
+Architecture Energy      Latency     Throughput  Attained   Compute   Mem BW   Units      vs GPU
+                                     (FPS)       (TOPS)     Util%     Util%    Alloc
+------------------------------------------------------------------------------------------------------------------------
+CPU          408.59 mJ   1.48 ms     677         2.47       88.6%     25.8%    0/60       8.36× energy
+GPU          48.89 mJ    431.50 µs   2318        8.44       14.1%     13.6%    0/132      baseline     ⭐ (speed)
+KPU          5.76 mJ     461.04 µs   2169        7.90       23.4%     99.1%    0/256      0.12× energy ⭐ (energy)
+TPU          62.09 mJ    566.27 µs   1766        6.43       4.7%      17.2%    0/2        1.27× energy
+
+Architectural Energy Breakdown:
+Architecture    Compute OH      Memory OH       Control OH      Total OH
 --------------------------------------------------------------------------------
-CPU             125.30 mJ    2.15 ms      512.00 MB    12.5%    2.56× energy
-GPU             48.89 mJ     431.50 µs    54.97 MB     18.2%    baseline     ⭐ (speed)
-TPU             15.42 mJ     1.20 ms      256.00 MB    85.0%    0.32× energy  ⭐ (energy)
-KPU             62.18 mJ     1.85 ms      128.00 MB    67.3%    1.27× energy
+CPU             —               18.27 µJ        783.38 µJ       801.65 µJ
+GPU             —               9.32 µJ         116.07 mJ       116.08 mJ
+KPU             -229.55 µJ      -795.26 µJ      3.75 mJ         2.72 mJ
+TPU             -1.24 µJ        -906.37 nJ      100.00 pJ       -2.15 µJ
 
 Key Insights:
-  • TPU is 3.2× more energy efficient than GPU
-  • GPU is 2.8× faster than TPU
-  • Trade-off: TPU wins energy, GPU wins latency
-  • KPU offers best energy-latency balance with programmability
+  • KPU is 8.5× more energy efficient than GPU
+  • Trade-off: KPU wins energy, GPU wins latency
+  • GPU efficiency improves at larger batch sizes (current: 1)
 ```
 
 **30-second workflow:**
@@ -79,31 +87,52 @@ Key Insights:
 1. **Multi-Architecture Comparison**
    - CPU (Intel Xeon Platinum 8490H)
    - GPU (NVIDIA H100)
-   - TPU (Google TPU v4)
+   - TPU (Google TPU v4 - with MXU terminology!)
    - KPU (Stillwater KPU-T256)
+   - DFM (Data Flow Machine DFM-128 - reference architecture)
 
 2. **Hierarchical Drill-Down**
    - Level 0 (summary): Executive summary with recommendations
    - Level 1 (detailed): Per-architecture energy/latency breakdowns
    - Level 2 (subgraph): Per-layer comparison across architectures
 
-3. **Educational Explanations**
+3. **Hardware Utilization Metrics** ⭐ NEW!
+   - **Attained Performance (TOPS)**: Actual vs theoretical peak
+   - **Compute Utilization (%)**: How much compute is actually used
+   - **Memory Bandwidth Utilization (%)**: Shows if memory-bound
+   - **Arithmetic Intensity (FLOPs/byte)**: Workload characteristic
+   - **Compute Units Allocated**: Discrete resource allocation (e.g., 24/132 SMs)
+   - **Energy Efficiency (TOPS/W)**: Performance per watt
+
+4. **Architectural Energy Breakdowns** ⭐ NEW!
+   - Instruction fetch overhead (CPU, GPU)
+   - Coherence machinery energy (GPU SIMT)
+   - Domain tracking energy (KPU)
+   - Systolic array efficiency (TPU MXUs)
+   - Control overhead quantification
+
+5. **Export Formats** ⭐ NEW!
+   - **JSON**: Complete structured data for programmatic analysis
+   - **CSV**: Tabular format for spreadsheets and plotting
+   - **HTML**: Interactive Chart.js visualizations
+
+6. **Educational Explanations**
    - Not just "what" but "WHY" one architecture is better
    - Architectural difference explanations
-   - Trade-off analysis
+   - Trade-off analysis with quantified impacts
 
-4. **Flexible Configuration**
+7. **Flexible Configuration**
    - Any batch size (1, 8, 16, 32, 64, ...)
    - Multiple precisions (FP32, FP16, BF16, INT8, ...)
    - Select specific architectures to compare
 
 ### 🚧 Planned Enhancements
 
-- Architectural energy event breakdowns (instruction fetch, coherence, etc.)
-- Export formats: JSON, CSV, HTML with interactive charts
 - Cost analysis ($/inference based on cloud pricing)
 - Batch sweep mode (automatically compare across batch sizes)
 - Custom model support (beyond torchvision)
+- Carbon intensity (gCO2/inference)
+- Batch efficiency metrics
 
 ---
 
@@ -208,9 +237,17 @@ Summary:
 |--------|-------------|------------------|
 | **Energy** | Total energy per inference (Joules or mJ) | ✅ Yes |
 | **Latency** | Time per inference (seconds, ms, or µs) | ✅ Yes |
-| **Memory** | Peak memory usage (MB or GB) | ✅ Yes |
-| **Util%** | Hardware utilization (0-100%) | ❌ No (higher = better) |
-| **Throughput** | Inferences per second | ❌ No (higher = better) |
+| **Throughput** | Inferences per second (FPS) | ❌ No (higher = better) |
+| **Attained (TOPS)** | Actual performance achieved | ❌ No (higher = better) |
+| **Compute Util%** | Compute hardware utilization (0-100%) | ❌ No (higher = better) |
+| **Mem BW Util%** | Memory bandwidth utilization (0-100%) | ❌ No (higher = better) |
+| **Units Alloc** | Compute units allocated/total (e.g., 24/132 SMs) | - (context-dependent) |
+
+**NEW Utilization Metrics:**
+- **Attained TOPS**: Reveals actual performance vs theoretical peak (e.g., 8.44 TOPS out of 60 TFLOPS = 14.1% util)
+- **Compute Util%**: Shows how much compute capability is used (low % = hardware underutilized)
+- **Mem BW Util%**: Shows if memory system is bottleneck (high % = memory-bound)
+- **Units Alloc**: Discrete resource allocation (can't use 0.3 SMs or 1.5 MXUs!)
 
 ### Winner Categories
 
@@ -228,6 +265,55 @@ vs GPU
 0.32×  - This architecture uses 0.32× the energy (3.1× more efficient)
 2.56×  - This architecture uses 2.56× the energy (2.6× less efficient)
 ```
+
+### Understanding Utilization Metrics ⭐ NEW!
+
+The new utilization metrics reveal **WHY** hardware is underutilized:
+
+**Example: ResNet18 @ batch=1**
+
+```
+Architecture  Attained   Compute   Mem BW    Interpretation
+             (TOPS)     Util%     Util%
+----------------------------------------------------------------
+CPU           2.47       88.6%     25.8%    Well-matched! ✅
+GPU           8.44       14.1%     13.6%    Massively underutilized ❌
+TPU           6.43        4.7%     17.2%    Severely underutilized ❌
+KPU           7.90       23.4%     99.1%    Memory-bound! ⚠️
+```
+
+**Key Insights:**
+
+1. **CPU: 88.6% compute utilization**
+   - 60 cores are well-matched to ResNet18's parallelism
+   - **Why it matters:** No wasted hardware, but higher energy
+
+2. **GPU: 14.1% compute utilization**
+   - Only 24 of 132 SMs are used (small kernels)
+   - Remaining 108 SMs sit idle burning power
+   - **Why it matters:** GPU designed for batch ≥ 16, not single inference
+
+3. **TPU: 4.7% compute utilization**
+   - Only 1 of 2 MXUs active, and barely utilized
+   - ResNet18 layers too small for 128×128 systolic arrays
+   - **Why it matters:** TPU needs batch ≥ 16 OR larger model (ResNet50+)
+
+4. **KPU: 99.1% memory bandwidth utilization**
+   - Memory system saturated despite only 23.4% compute util
+   - **Bottleneck:** Memory bandwidth, not compute
+   - **Why it matters:** Won't scale with larger batch until memory optimized
+
+**For Large Models (ResNet50, batch=32):**
+
+Expected utilization improvements:
+- GPU: 50-70% compute util (justify the hardware!)
+- TPU: 60-80% compute util (both MXUs active, better array utilization)
+- CPU: Still ~90% util (already saturated)
+
+**Decision Rule:**
+- Compute util < 20% → Hardware too powerful OR batch too small
+- Mem BW util > 90% → Memory-bound, need optimization
+- Both low → Perfect opportunity to increase batch size!
 
 ---
 
@@ -404,17 +490,45 @@ Architectural Differences:
     --explain-difference GPU CPU --metric memory
 ```
 
-### Save Output
+### Export to Multiple Formats ⭐ NEW!
 
 ```bash
 # Save to text file
 ./cli/compare_architectures.py --model resnet18 \
     --output comparison.txt
 
-# Future: Export to JSON/CSV/HTML (planned)
+# Export to JSON (complete structured data)
 ./cli/compare_architectures.py --model resnet18 \
-    --output comparison.json  # Planned
+    --output comparison.json
+
+# Export to CSV (spreadsheet-ready)
+./cli/compare_architectures.py --model resnet18 \
+    --output comparison.csv
+
+# Export to HTML (interactive charts with Chart.js)
+./cli/compare_architectures.py --model resnet18 \
+    --output comparison.html
 ```
+
+**Export format is auto-detected from file extension!**
+
+**JSON Export includes:**
+- All metrics (energy, latency, throughput, utilization)
+- Architectural energy breakdowns
+- Bottleneck analysis
+- Hardware utilization details
+
+**CSV Export includes:**
+- Tabular data for easy spreadsheet import
+- All utilization metrics
+- Architectural overhead breakdown
+
+**HTML Export includes:**
+- Interactive Chart.js visualizations
+- Energy, latency, throughput bar charts
+- Memory and utilization comparisons
+- Energy breakdown pie charts
+- Standalone file (no internet required after download)
 
 ---
 
@@ -444,34 +558,35 @@ Architectural Differences:
 
 ### Planned Features
 
-1. **Architectural Energy Breakdowns** (Next)
-   - Show instruction fetch, coherence, domain tracking energy
-   - Visualize where energy goes for each architecture
-   - Quantify specific architectural overheads
-
-2. **Export Formats**
-   - JSON: Structured data for programmatic analysis
-   - CSV: Spreadsheet import for custom analysis
-   - HTML: Interactive charts with Plotly
-
-3. **Cost Analysis**
-   - $/inference based on cloud pricing
+1. **Cost Analysis**
+   - $/inference based on cloud pricing (GPU: $2.50/hr, TPU: $4.50/hr)
    - TCO comparison (hardware cost + energy cost)
-   - Break-even analysis
+   - Break-even analysis (when does accelerator pay for itself?)
 
-4. **Batch Sweep Mode**
+2. **Batch Sweep Mode**
    - Automatic comparison across batch sizes [1, 4, 8, 16, 32, 64]
    - Find optimal batch size per architecture
-   - Visualize batch size impact
+   - Visualize batch size scaling and crossover points
 
-5. **Custom Model Support**
+3. **Custom Model Support**
    - Support for user-provided PyTorch modules
    - Not limited to torchvision models
+   - ONNX model import
+
+4. **Enhanced Utilization Metrics**
+   - Batch efficiency: `throughput(N) / (N × throughput(1))`
+   - Thermal headroom: `current_power / TDP`
+   - Roofline position visualization
+
+5. **Sustainability Metrics**
+   - Carbon intensity (gCO2/inference)
+   - Grid carbon factor integration
+   - Total carbon footprint estimation
 
 6. **Interactive Visualization**
    - Terminal heatmaps (best arch per layer)
-   - Energy breakdown charts
-   - Roofline overlays
+   - Roofline plot overlays
+   - Utilization vs batch size curves
 
 ---
 
