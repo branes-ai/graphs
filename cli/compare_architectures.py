@@ -252,20 +252,36 @@ def main():
     if args.output:
         ext = os.path.splitext(args.output)[1].lower()
 
-        if ext == '.json':
-            # TODO: Implement JSON export
-            print(f"JSON export not yet implemented")
-        elif ext == '.csv':
-            # TODO: Implement CSV export
-            print(f"CSV export not yet implemented")
-        elif ext == '.html':
-            # TODO: Implement HTML export
-            print(f"HTML export not yet implemented")
-        else:
-            # Plain text
-            with open(args.output, 'w') as f:
-                f.write(output)
-            print(f"Output saved to {args.output}")
+        try:
+            if ext == '.json':
+                # JSON export
+                json_output = comparator.export_json()
+                with open(args.output, 'w') as f:
+                    f.write(json_output)
+                print(f"✓ JSON export saved to {args.output}")
+            elif ext == '.csv':
+                # CSV export
+                csv_output = comparator.export_csv()
+                with open(args.output, 'w') as f:
+                    f.write(csv_output)
+                print(f"✓ CSV export saved to {args.output}")
+            elif ext == '.html':
+                # HTML export with interactive charts
+                html_output = comparator.export_html()
+                with open(args.output, 'w') as f:
+                    f.write(html_output)
+                print(f"✓ HTML export saved to {args.output}")
+                print(f"  Open in browser: file://{os.path.abspath(args.output)}")
+            else:
+                # Plain text
+                with open(args.output, 'w') as f:
+                    f.write(output)
+                print(f"✓ Text output saved to {args.output}")
+        except Exception as e:
+            print(f"Error saving output: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 
 if __name__ == '__main__':

@@ -74,7 +74,11 @@ class TPUMapper(HardwareMapper):
     - Batch size scaling (TPU loves large batches)
     - BF16/INT8 quantization benefits
     - Pipeline depth overhead
+    - Sequential execution for small workloads (critical!)
     """
+
+    # Systolic array setup overhead (~64 ns for 128-cycle pipeline @ 2 GHz)
+    ARRAY_SETUP_OVERHEAD = 64e-9  # 64 nanoseconds
 
     # Idle power fraction (nanoscale transistor leakage)
     # Modern datacenter accelerators consume ~50% TDP at idle
@@ -367,6 +371,177 @@ class TPUMapper(HardwareMapper):
             is_parallel=is_parallel,
         )
 
+    def should_use_sequential_execution(
+        self,
+        fusion_report: FusionReport,
+        batch_size: int
+    ) -> bool:
+        """
+        Determine if we should model sequential array execution.
+
+        Sequential mode is appropriate when:
+        - Small batch size (< 16) - TPU needs large batches to saturate
+        - Small average workload per subgraph (< 500M FLOPs)
+
+        This represents the common case of single-sample inference on small DNNs
+        where there isn't enough parallelism to saturate multiple TensorCores.
+
+        Args:
+            fusion_report: Fusion partitioning report
+            batch_size: Batch size
+
+        Returns:
+            True if sequential execution should be modeled
+        """
+        num_subgraphs = len(fusion_report.fused_subgraphs)
+        if num_subgraphs == 0:
+            return False
+
+        avg_flops_per_subgraph = fusion_report.total_flops / num_subgraphs
+
+        # Threshold: TPU needs larger workloads than GPU
+        # If average subgraph has < 500M FLOPs, use sequential mode
+        return (batch_size < 16 and avg_flops_per_subgraph < 500e6)
+
+    def determine_array_allocation(
+        self,
+        subgraph: FusedSubgraph
+    ) -> int:
+        """
+        Determine how many TensorCores to allocate for a subgraph in sequential mode.
+
+        Array allocation based on kernel size:
+        - < 100M FLOPs: 1 TensorCore (typical ResNet18 layers)
+        - >= 100M FLOPs: 2 TensorCores (large kernels that can saturate both)
+
+        This models realistic array scheduling where most small kernels run on
+        a single TensorCore due to limited parallelism.
+
+        Args:
+            subgraph: Fused subgraph to analyze
+
+        Returns:
+            Number of TensorCores to allocate (1-2)
+        """
+        flops = subgraph.total_flops
+
+        if flops < 100e6:
+            return 1  # Single TensorCore
+        else:
+            return 2  # Both TensorCores
+
+    def compute_sequential_latency(
+        self,
+        fusion_report: FusionReport,
+        precision: Precision
+    ) -> Tuple[float, List[HardwareAllocation]]:
+        """
+        Compute latency assuming sequential array execution.
+
+        For small DNNs with limited parallelism:
+        - Each subgraph uses 1-2 TensorCores (not both)
+        - Operations execute sequentially (no overlap)
+        - Add array setup overhead (~64 ns per kernel)
+        - Account for matrix dimension underutilization
+
+        This is much more accurate than assuming full chip parallelization.
+
+        Args:
+            fusion_report: Fusion partitioning report
+            precision: Numerical precision
+
+        Returns:
+            (total_latency, list of allocations)
+        """
+        allocations = []
+        total_latency = 0.0
+
+        # Per-TensorCore performance
+        # TPU v4: 2 TensorCores, 275 TFLOPS total → 137.5 TFLOPS per core
+        peak_ops_total = self.resource_model.get_peak_ops(precision)
+        tensor_core_ops = peak_ops_total / self.num_tensor_cores
+
+        # Bandwidth scales with TensorCores
+        peak_bandwidth = self.resource_model.peak_bandwidth
+        tensor_core_bandwidth = peak_bandwidth / self.num_tensor_cores
+
+        for idx, sg in enumerate(fusion_report.fused_subgraphs):
+            # Determine TensorCore allocation for this subgraph
+            arrays_allocated = self.determine_array_allocation(sg)
+
+            # Analyze operation type (systolic vs vector)
+            tpu_alloc = self._analyze_operation_type(sg)
+
+            # Calculate ops and bytes
+            ops = sg.total_flops if sg.total_flops > 0 else sg.total_macs * 2
+            bytes_transferred = (
+                sg.total_input_bytes +
+                sg.total_output_bytes +
+                sg.total_weight_bytes
+            )
+
+            # Adjust ops for operation type and matrix utilization
+            effective_ops = ops
+            if not tpu_alloc.uses_systolic_array:
+                # Vector ops are ~10× slower (not using systolic hardware)
+                effective_ops = ops * 10.0
+            else:
+                # For systolic array ops: account for matrix dimension underutilization
+                # Small matrices don't fully utilize 128×128 array
+                if tpu_alloc.systolic_array_utilization < 1.0:
+                    # Inflate ops to account for unused MACs
+                    # If utilization is 50%, we waste half the array → 2× effective ops
+                    utilization_factor = max(0.1, tpu_alloc.systolic_array_utilization)
+                    effective_ops = ops / utilization_factor
+
+            # Roofline model on allocated TensorCores
+            compute_time = effective_ops / (tensor_core_ops * arrays_allocated)
+            memory_time = bytes_transferred / (tensor_core_bandwidth * arrays_allocated)
+
+            # Bottleneck is the limiting factor
+            kernel_time = max(compute_time, memory_time)
+            bottleneck = (BottleneckType.COMPUTE_BOUND if compute_time > memory_time
+                         else BottleneckType.BANDWIDTH_BOUND)
+
+            # Add systolic array setup overhead
+            kernel_latency = kernel_time + self.ARRAY_SETUP_OVERHEAD
+
+            # Calculate energy for this kernel
+            compute_energy, memory_energy = self._calculate_energy(
+                ops=ops,  # Use original ops, not effective_ops
+                bytes_transferred=bytes_transferred,
+                precision=precision
+            )
+
+            # Utilization: fraction of TensorCores used
+            utilization = arrays_allocated / self.num_tensor_cores
+
+            allocation = HardwareAllocation(
+                subgraph_id=str(sg.subgraph_id),
+                subgraph_name=", ".join(sg.node_names[:2]),
+                precision=precision,
+                threads_required=0,  # Not relevant for systolic arrays
+                warps_required=0,
+                compute_units_allocated=arrays_allocated,
+                compute_units_ideal=arrays_allocated,
+                occupancy=tpu_alloc.systolic_array_utilization if tpu_alloc.uses_systolic_array else 1.0,
+                utilization=utilization,
+                bottleneck=bottleneck,
+                compute_time=compute_time,
+                memory_time=memory_time,
+                estimated_latency=kernel_latency,
+                compute_energy=compute_energy,
+                memory_energy=memory_energy,
+                total_energy=compute_energy + memory_energy,
+                execution_stage=idx,  # Each kernel is its own stage
+                is_parallel=False,
+            )
+
+            allocations.append(allocation)
+            total_latency += kernel_latency
+
+        return total_latency, allocations
+
     def map_graph(
         self,
         fusion_report: FusionReport,
@@ -377,6 +552,18 @@ class TPUMapper(HardwareMapper):
         """
         Map entire computation graph to TPU.
 
+        Two execution modes:
+        1. **Sequential mode** (small DNNs, batch < 16):
+           - Each subgraph uses 1-2 TensorCores sequentially
+           - Add array setup overhead (~64 ns)
+           - Account for matrix dimension underutilization
+           - More accurate for models like ResNet-18/50
+
+        2. **Parallel mode** (large DNNs or large batch):
+           - Subgraphs in same stage run in parallel
+           - Allocate TensorCores based on parallelism
+           - Full systolic array modeling
+
         Args:
             fusion_report: Output from Phase 1 fusion partitioner
             execution_stages: Execution stages with subgraph indices
@@ -386,6 +573,66 @@ class TPUMapper(HardwareMapper):
         Returns:
             Complete hardware allocation
         """
+        # Detect execution mode
+        use_sequential = self.should_use_sequential_execution(fusion_report, batch_size)
+
+        if use_sequential:
+            # Sequential array execution mode (accurate for small DNNs)
+            total_latency, subgraph_allocations = self.compute_sequential_latency(
+                fusion_report, precision
+            )
+
+            # Aggregate metrics
+            total_subgraphs = len(subgraph_allocations)
+            average_cores_used = sum(a.compute_units_allocated for a in subgraph_allocations) / max(1, total_subgraphs)
+            peak_cores_used = max((a.compute_units_allocated for a in subgraph_allocations), default=0)
+            average_utilization = average_cores_used / self.num_tensor_cores
+            peak_utilization = peak_cores_used / self.num_tensor_cores
+
+            # Total energy (dynamic from subgraphs + idle power baseline)
+            dynamic_energy = sum(a.total_energy for a in subgraph_allocations)
+            total_energy, average_power = self.compute_energy_with_idle_power(
+                total_latency, dynamic_energy
+            )
+
+            # Naive latency
+            total_ops = fusion_report.total_flops
+            peak_ops_per_sec = self.resource_model.get_peak_ops(precision)
+            naive_latency = total_ops / peak_ops_per_sec if peak_ops_per_sec > 0 else 0
+
+            # Latency breakdown (each subgraph is its own stage in sequential mode)
+            latency_breakdown = {i: a.estimated_latency for i, a in enumerate(subgraph_allocations)}
+
+            # Bottleneck counts
+            compute_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.COMPUTE_BOUND)
+            memory_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.MEMORY_BOUND)
+            bandwidth_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BANDWIDTH_BOUND)
+            balanced_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BALANCED)
+
+            return GraphHardwareAllocation(
+                model_name="Unknown",
+                hardware_name=self.resource_model.name,
+                batch_size=batch_size,
+                model_precision=precision,
+                subgraph_allocations=subgraph_allocations,
+                total_subgraphs=total_subgraphs,
+                total_execution_stages=total_subgraphs,  # Each subgraph is a stage
+                peak_compute_units_used=peak_cores_used,
+                average_compute_units_used=average_cores_used,
+                peak_utilization=peak_utilization,
+                average_utilization=average_utilization,
+                total_latency=total_latency,
+                latency_breakdown=latency_breakdown,
+                total_energy=total_energy,
+                naive_latency=naive_latency,
+                latency_correction_factor=total_latency / naive_latency if naive_latency > 0 else 1.0,
+                compute_bound_count=compute_bound_count,
+                memory_bound_count=memory_bound_count,
+                bandwidth_bound_count=bandwidth_bound_count,
+                balanced_count=balanced_count,
+            )
+
+        # Otherwise, use parallel execution mode (original logic)
         subgraph_allocations: List[HardwareAllocation] = []
         latency_breakdown: Dict[int, float] = {}
 
