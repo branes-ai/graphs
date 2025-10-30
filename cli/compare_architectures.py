@@ -47,6 +47,7 @@ from graphs.hardware.mappers.cpu import create_intel_xeon_platinum_8490h_mapper
 from graphs.hardware.mappers.gpu import create_h100_mapper
 from graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
+from graphs.hardware.mappers.research.dfm import create_dfm_128_mapper
 
 
 # Available architectures and their factory functions
@@ -55,6 +56,7 @@ AVAILABLE_ARCHITECTURES = {
     'GPU': ('NVIDIA H100', create_h100_mapper),
     'TPU': ('Google TPU v4', create_tpu_v4_mapper),
     'KPU': ('Stillwater KPU-T256', create_kpu_t256_mapper),
+    'DFM': ('Data Flow Machine DFM-128', create_dfm_128_mapper),
 }
 
 
