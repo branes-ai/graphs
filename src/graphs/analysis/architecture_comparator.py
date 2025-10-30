@@ -60,6 +60,16 @@ class ArchitectureMetrics:
     # Architectural energy breakdown (optional)
     architectural_breakdown: Optional['ArchitecturalEnergyBreakdown'] = None
 
+    # NEW: Hardware utilization metrics
+    attained_tops: float = 0.0  # Actual performance achieved (TOPS)
+    peak_tops: float = 0.0  # Hardware peak performance (TOPS)
+    compute_utilization_pct: float = 0.0  # Compute utilization (%)
+    memory_bandwidth_utilization_pct: float = 0.0  # Memory BW utilization (%)
+    arithmetic_intensity: float = 0.0  # FLOPs/byte
+    compute_units_allocated: int = 0  # Actual compute units used (SMs, MXUs, cores)
+    compute_units_total: int = 0  # Total available compute units
+    energy_efficiency_tops_per_watt: float = 0.0  # Performance per watt
+
 
 @dataclass
 class ComparisonSummary:
@@ -249,6 +259,51 @@ class ArchitectureComparator:
         if result.roofline_report and hasattr(result.roofline_report, 'average_utilization'):
             utilization = result.roofline_report.average_utilization
 
+        # NEW: Calculate hardware utilization metrics
+        mapper = self.architectures.get(name)
+        hardware = mapper.resource_model if mapper else result.hardware
+
+        # Attained performance (TOPS) = total_ops / latency
+        total_ops = 0
+        total_bytes = 0
+        if result.partition_report:
+            for sg in result.partition_report.subgraphs:
+                total_ops += sg.flops
+                total_bytes += sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+
+        latency_s = result.total_latency_ms / 1000.0
+        attained_tops = (total_ops / latency_s / 1e12) if latency_s > 0 else 0.0
+
+        # Peak performance (TOPS)
+        peak_tops = hardware.get_peak_ops(self.precision) / 1e12
+
+        # Compute utilization (%)
+        compute_util_pct = (attained_tops / peak_tops * 100.0) if peak_tops > 0 else 0.0
+
+        # Memory bandwidth utilization (%)
+        attained_bandwidth = (total_bytes / latency_s) if latency_s > 0 else 0.0
+        peak_bandwidth = hardware.peak_bandwidth
+        mem_bw_util_pct = (attained_bandwidth / peak_bandwidth * 100.0) if peak_bandwidth > 0 else 0.0
+
+        # Arithmetic intensity (FLOPs/byte)
+        arith_intensity = (total_ops / total_bytes) if total_bytes > 0 else 0.0
+
+        # Compute units allocated/total
+        compute_units_allocated = 0
+        compute_units_total = hardware.compute_units
+
+        if result.roofline_report and hasattr(result.roofline_report, 'average_compute_units_used'):
+            compute_units_allocated = int(result.roofline_report.average_compute_units_used)
+        elif result.partition_report and hasattr(result.partition_report, 'average_compute_units_used'):
+            compute_units_allocated = int(result.partition_report.average_compute_units_used)
+        else:
+            # Estimate from utilization
+            compute_units_allocated = int(utilization * compute_units_total)
+
+        # Energy efficiency (TOPS/W)
+        average_power_w = (result.energy_per_inference_mj / 1000.0) / latency_s if latency_s > 0 else 0.0
+        energy_efficiency = (attained_tops / average_power_w) if average_power_w > 0 else 0.0
+
         return ArchitectureMetrics(
             name=name,
             total_energy_j=result.energy_per_inference_mj / 1000.0,  # Convert mJ to J
@@ -264,7 +319,16 @@ class ArchitectureComparator:
             memory_bound_subgraphs=memory_bound,
             total_subgraphs=total_subgraphs,
             full_result=result,
-            architectural_breakdown=architectural_breakdown
+            architectural_breakdown=architectural_breakdown,
+            # NEW: Hardware utilization metrics
+            attained_tops=attained_tops,
+            peak_tops=peak_tops,
+            compute_utilization_pct=compute_util_pct,
+            memory_bandwidth_utilization_pct=mem_bw_util_pct,
+            arithmetic_intensity=arith_intensity,
+            compute_units_allocated=compute_units_allocated,
+            compute_units_total=compute_units_total,
+            energy_efficiency_tops_per_watt=energy_efficiency,
         )
 
     def _build_execution_context(
@@ -430,16 +494,22 @@ class ArchitectureComparator:
         lines.append(f"  Best Balance:         {self.summary.balance_winner}")
         lines.append("")
 
-        # Comparison table
-        lines.append(f"{'Architecture':<15} {'Energy':<12} {'Latency':<12} {'Memory':<12} {'Util%':<8} {'vs ' + self.summary.baseline:<12}")
-        lines.append("-" * 80)
+        # Comparison table (expanded with utilization metrics)
+        lines.append(f"{'Architecture':<12} {'Energy':<11} {'Latency':<11} {'Throughput':<11} {'Attained':<10} {'Compute':<9} {'Mem BW':<8} {'Units':<10} {'vs ' + self.summary.baseline:<12}")
+        lines.append(f"{'':12} {'':11} {'':11} {'(FPS)':11} {'(TOPS)':10} {'Util%':9} {'Util%':8} {'Alloc':10} {'':12}")
+        lines.append("-" * 120)
 
         for name in sorted(self.metrics.keys()):
             metrics = self.metrics[name]
             energy_str = self._format_energy(metrics.total_energy_j)
             latency_str = self._format_time(metrics.total_latency_s)
-            memory_str = self._format_bytes(metrics.peak_memory_bytes)
-            util_str = f"{metrics.utilization*100:.1f}%"
+            throughput_str = f"{metrics.throughput_inferences_per_sec:.0f}"
+
+            # NEW: Format new metrics
+            attained_str = f"{metrics.attained_tops:.2f}"
+            compute_util_str = f"{metrics.compute_utilization_pct:.1f}%"
+            mem_bw_util_str = f"{metrics.memory_bandwidth_utilization_pct:.1f}%"
+            units_str = f"{metrics.compute_units_allocated}/{metrics.compute_units_total}"
 
             # Ratio vs baseline
             if name == self.summary.baseline:
@@ -456,8 +526,8 @@ class ArchitectureComparator:
                 style = " ⭐ (speed)"
 
             lines.append(
-                f"{name:<15} {energy_str:<12} {latency_str:<12} {memory_str:<12} "
-                f"{util_str:<8} {ratio_str:<12}{style}"
+                f"{name:<12} {energy_str:<11} {latency_str:<11} {throughput_str:<11} "
+                f"{attained_str:<10} {compute_util_str:<9} {mem_bw_util_str:<8} {units_str:<10} {ratio_str:<12}{style}"
             )
 
         lines.append("")
@@ -1000,8 +1070,15 @@ class ArchitectureComparator:
             'Energy (mJ)',
             'Latency (ms)',
             'Throughput (FPS)',
+            'Attained (TOPS)',
+            'Peak (TOPS)',
+            'Compute Util (%)',
+            'Mem BW Util (%)',
+            'Arith Intensity (FLOPs/byte)',
+            'Compute Units Allocated',
+            'Compute Units Total',
+            'Energy Efficiency (TOPS/W)',
             'Peak Memory (MB)',
-            'Utilization (%)',
             'Compute Energy (J)',
             'Memory Energy (J)',
             'Architectural Overhead (J)',
@@ -1019,8 +1096,15 @@ class ArchitectureComparator:
                 f"{metrics.total_energy_j * 1000:.3f}",
                 f"{metrics.total_latency_s * 1000:.3f}",
                 f"{metrics.throughput_inferences_per_sec:.1f}",
+                f"{metrics.attained_tops:.4f}",
+                f"{metrics.peak_tops:.2f}",
+                f"{metrics.compute_utilization_pct:.2f}",
+                f"{metrics.memory_bandwidth_utilization_pct:.2f}",
+                f"{metrics.arithmetic_intensity:.2f}",
+                metrics.compute_units_allocated,
+                metrics.compute_units_total,
+                f"{metrics.energy_efficiency_tops_per_watt:.4f}",
                 f"{metrics.peak_memory_bytes / 1e6:.2f}",
-                f"{metrics.utilization * 100:.1f}",
                 f"{metrics.compute_energy_j:.6f}",
                 f"{metrics.memory_energy_j:.6f}",
                 f"{metrics.architectural_overhead_j:.6f}",
