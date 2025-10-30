@@ -603,7 +603,22 @@ def create_h100_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for H100
     """
     from ..models.datacenter.h100_pcie import h100_pcie_resource_model
-    return GPUMapper(h100_pcie_resource_model(), thermal_profile=thermal_profile)
+    from ..architectural_energy import DataParallelEnergyModel
+
+    # Create resource model
+    resource_model = h100_pcie_resource_model()
+
+    # Configure architectural energy model for GPU (DATA_PARALLEL)
+    resource_model.architecture_energy_model = DataParallelEnergyModel(
+        instruction_fetch_energy=2.0e-12,
+        operand_fetch_overhead=10.0e-12,
+        coherence_energy_per_request=5.0e-12,  # GPU-specific coherence machinery
+        thread_scheduling_overhead=1.0e-12,
+        warp_divergence_penalty=3.0e-12,
+        memory_coalescing_overhead=2.0e-12,
+    )
+
+    return GPUMapper(resource_model, thermal_profile=thermal_profile)
 
 
 def create_a100_mapper(thermal_profile: str = None) -> GPUMapper:

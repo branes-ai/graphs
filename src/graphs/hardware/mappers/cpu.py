@@ -1030,8 +1030,18 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
         CPUMapper configured for Intel Xeon Platinum 8490H
     """
     from ..models.datacenter.intel_xeon_platinum_8490h import intel_xeon_platinum_8490h_resource_model
+    from ..architectural_energy import StoredProgramEnergyModel
 
     model = intel_xeon_platinum_8490h_resource_model()
+
+    # Configure architectural energy model for CPU (STORED_PROGRAM)
+    model.architecture_energy_model = StoredProgramEnergyModel(
+        instruction_fetch_energy=2.0e-12,
+        operand_fetch_overhead=10.0e-12,
+        pipeline_control_per_cycle=0.5e-12,
+        branch_prediction_overhead=0.3e-12,
+    )
+
     return CPUMapper(model)
 
 
