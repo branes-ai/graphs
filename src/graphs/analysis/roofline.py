@@ -416,23 +416,23 @@ class RooflineAnalyzer:
         hw_type = self.resource_model.hardware_type.name
 
         if hw_type == 'TPU':
-            # TPU v4: 2 TensorCores, each 128×128 systolic array
+            # TPU v4: 2 MXUs (Matrix Multiplier Units), each 128×128 systolic array
             # Small kernels suffer from:
-            # 1. Can only use 1 TensorCore (2× penalty)
+            # 1. Can only use 1 MXU (2× penalty)
             # 2. Matrix dimensions < 128×128 (poor array utilization)
             # 3. Sequential execution overhead
 
             if sg.flops < 10e6:  # < 10M FLOPs (very small kernels)
-                # Tiny kernels: 1 array, ~20% utilization → 10× penalty
+                # Tiny kernels: 1 MXU, ~20% utilization → 10× penalty
                 return 10.0
             elif sg.flops < 100e6:  # < 100M FLOPs (small kernels like ResNet18)
-                # Small kernels: 1 array, ~50% utilization → 4× penalty
+                # Small kernels: 1 MXU, ~50% utilization → 4× penalty
                 return 4.0
             elif sg.flops < 500e6:  # < 500M FLOPs (medium kernels)
-                # Medium kernels: can start using both arrays → 2× penalty
+                # Medium kernels: can start using both MXUs → 2× penalty
                 return 2.0
             else:
-                # Large kernels: both arrays, good utilization
+                # Large kernels: both MXUs, good utilization
                 return 1.0
 
         elif hw_type == 'KPU':

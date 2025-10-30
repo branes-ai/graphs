@@ -2,15 +2,16 @@
 TPU Hardware Mapper - Maps fused subgraphs to TPU systolic arrays
 
 This module implements realistic TPU mapping considering:
-- Systolic array allocation (128×128 matrix units)
+- MXU (Matrix Multiplier Unit) allocation - 2 MXUs per TPU v4
+- Each MXU: 128×128 systolic array (16,384 MACs)
 - Matrix vs vector operation routing
 - High batch size optimization
 - BF16/INT8 quantization (2× speedup for INT8)
 - Deep pipeline depth for matrix operations
 
 Key differences from GPU:
-- Fewer compute units (2 TensorCores vs 132 SMs)
-- Massive systolic arrays (128×128 = 16K MACs)
+- Fewer compute units (2 MXUs vs 132 GPU SMs)
+- Massive systolic arrays per MXU (128×128 = 16K MACs)
 - Optimized for matrix multiplication (Conv, Linear)
 - Less flexible than GPU (no dynamic branching)
 - Best performance at large batch sizes (64+)
@@ -18,10 +19,10 @@ Key differences from GPU:
 
 Example:
   ResNet-18 Conv layer with 64 channels:
-  - Matrix op: Use systolic array (275 TFLOPS BF16)
+  - Matrix op: Use systolic array (275 TFLOPS BF16 total, 137.5 TFLOPS per MXU)
   - Element-wise (ReLU): Use vector units (~10% of systolic array performance)
-  - Batch=1: Low utilization (~10-20%)
-  - Batch=64: High utilization (~80-90%)
+  - Batch=1: Low utilization (~10-20%), typically uses 1 MXU
+  - Batch=64: High utilization (~80-90%), uses both MXUs
 """
 
 from typing import List, Dict, Tuple
@@ -104,9 +105,9 @@ class TPUMapper(HardwareMapper):
             raise ValueError(f"TPUMapper requires TPU resource model, got {resource_model.hardware_type}")
 
         # TPU-specific parameters
-        self.num_tensor_cores = resource_model.compute_units  # 2 TensorCores
-        self.systolic_array_size = resource_model.warp_size  # 128 (128×128 array)
-        self.threads_per_core = resource_model.threads_per_unit  # 16,384 (128×128)
+        self.num_mxus = resource_model.compute_units  # 2 MXUs (Matrix Multiplier Units)
+        self.systolic_array_size = resource_model.warp_size  # 128 (128×128 array per MXU)
+        self.threads_per_mxu = resource_model.threads_per_unit  # 16,384 (128×128)
 
     def compute_energy_with_idle_power(
         self,
@@ -281,21 +282,21 @@ class TPUMapper(HardwareMapper):
         # Get parallelism
         if subgraph.parallelism is None:
             # Fallback: assume minimal parallelism
-            threads_required = self.threads_per_core
-            cores_allocated = self.num_tensor_cores
+            threads_required = self.threads_per_mxu
+            mxus_allocated = self.num_mxus
         else:
-            # TPU parallelism is limited by TensorCore count
+            # TPU parallelism is limited by MXU count
             parallelism = subgraph.parallelism.total_threads
 
-            # Calculate cores needed
-            threads_per_core = self.threads_per_core
-            cores_needed = math.ceil(parallelism / threads_per_core)
+            # Calculate MXUs needed
+            threads_per_mxu = self.threads_per_mxu
+            mxus_needed = math.ceil(parallelism / threads_per_mxu)
 
-            # Allocate up to all cores
-            cores_allocated = min(cores_needed, self.num_tensor_cores)
+            # Allocate up to all MXUs
+            mxus_allocated = min(mxus_needed, self.num_mxus)
 
-        cores_allocated = max(1, cores_allocated)  # At least 1 core
-        threads_required = cores_allocated * self.threads_per_core
+        mxus_allocated = max(1, mxus_allocated)  # At least 1 MXU
+        threads_required = mxus_allocated * self.threads_per_mxu
 
         # Calculate occupancy
         # For systolic array ops, occupancy depends on matrix size
@@ -303,10 +304,10 @@ class TPUMapper(HardwareMapper):
             occupancy = tpu_alloc.systolic_array_utilization
         else:
             # Vector ops: standard occupancy
-            occupancy = cores_allocated / self.num_tensor_cores
+            occupancy = mxus_allocated / self.num_mxus
 
         # Calculate utilization
-        utilization = cores_allocated / self.num_tensor_cores
+        utilization = mxus_allocated / self.num_mxus
 
         # Calculate latency using roofline model
         ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
@@ -332,7 +333,7 @@ class TPUMapper(HardwareMapper):
         compute_time, memory_time, bottleneck = self._calculate_latency(
             ops=int(effective_ops),
             bytes_transferred=bytes_transferred,
-            allocated_units=cores_allocated,
+            allocated_units=mxus_allocated,
             occupancy=occupancy,
             precision=precision
         )
@@ -356,8 +357,8 @@ class TPUMapper(HardwareMapper):
             precision=precision,
             threads_required=threads_required,
             warps_required=0,  # TPU doesn't use warps like GPU
-            compute_units_allocated=cores_allocated,
-            compute_units_ideal=cores_allocated,
+            compute_units_allocated=mxus_allocated,
+            compute_units_ideal=mxus_allocated,
             occupancy=occupancy,
             utilization=utilization,
             bottleneck=bottleneck,
@@ -384,7 +385,7 @@ class TPUMapper(HardwareMapper):
         - Small average workload per subgraph (< 500M FLOPs)
 
         This represents the common case of single-sample inference on small DNNs
-        where there isn't enough parallelism to saturate multiple TensorCores.
+        where there isn't enough parallelism to saturate multiple MXUs.
 
         Args:
             fusion_report: Fusion partitioning report
@@ -408,27 +409,27 @@ class TPUMapper(HardwareMapper):
         subgraph: FusedSubgraph
     ) -> int:
         """
-        Determine how many TensorCores to allocate for a subgraph in sequential mode.
+        Determine how many MXUs to allocate for a subgraph in sequential mode.
 
         Array allocation based on kernel size:
-        - < 100M FLOPs: 1 TensorCore (typical ResNet18 layers)
-        - >= 100M FLOPs: 2 TensorCores (large kernels that can saturate both)
+        - < 100M FLOPs: 1 MXU (typical ResNet18 layers)
+        - >= 100M FLOPs: 2 MXUs (large kernels that can saturate both)
 
         This models realistic array scheduling where most small kernels run on
-        a single TensorCore due to limited parallelism.
+        a single MXU due to limited parallelism.
 
         Args:
             subgraph: Fused subgraph to analyze
 
         Returns:
-            Number of TensorCores to allocate (1-2)
+            Number of MXUs to allocate (1-2)
         """
         flops = subgraph.total_flops
 
         if flops < 100e6:
-            return 1  # Single TensorCore
+            return 1  # Single MXU
         else:
-            return 2  # Both TensorCores
+            return 2  # Both MXUs
 
     def compute_sequential_latency(
         self,
@@ -439,7 +440,7 @@ class TPUMapper(HardwareMapper):
         Compute latency assuming sequential array execution.
 
         For small DNNs with limited parallelism:
-        - Each subgraph uses 1-2 TensorCores (not both)
+        - Each subgraph uses 1-2 MXUs (not both)
         - Operations execute sequentially (no overlap)
         - Add array setup overhead (~64 ns per kernel)
         - Account for matrix dimension underutilization
@@ -456,17 +457,17 @@ class TPUMapper(HardwareMapper):
         allocations = []
         total_latency = 0.0
 
-        # Per-TensorCore performance
-        # TPU v4: 2 TensorCores, 275 TFLOPS total → 137.5 TFLOPS per core
+        # Per-MXU performance
+        # TPU v4: 2 MXUs, 275 TFLOPS total → 137.5 TFLOPS per MXU
         peak_ops_total = self.resource_model.get_peak_ops(precision)
-        tensor_core_ops = peak_ops_total / self.num_tensor_cores
+        mxu_ops = peak_ops_total / self.num_mxus
 
-        # Bandwidth scales with TensorCores
+        # Bandwidth scales with MXUs
         peak_bandwidth = self.resource_model.peak_bandwidth
-        tensor_core_bandwidth = peak_bandwidth / self.num_tensor_cores
+        mxu_bandwidth = peak_bandwidth / self.num_mxus
 
         for idx, sg in enumerate(fusion_report.fused_subgraphs):
-            # Determine TensorCore allocation for this subgraph
+            # Determine MXU allocation for this subgraph
             arrays_allocated = self.determine_array_allocation(sg)
 
             # Analyze operation type (systolic vs vector)
@@ -494,9 +495,9 @@ class TPUMapper(HardwareMapper):
                     utilization_factor = max(0.1, tpu_alloc.systolic_array_utilization)
                     effective_ops = ops / utilization_factor
 
-            # Roofline model on allocated TensorCores
-            compute_time = effective_ops / (tensor_core_ops * arrays_allocated)
-            memory_time = bytes_transferred / (tensor_core_bandwidth * arrays_allocated)
+            # Roofline model on allocated MXUs
+            compute_time = effective_ops / (mxu_ops * arrays_allocated)
+            memory_time = bytes_transferred / (mxu_bandwidth * arrays_allocated)
 
             # Bottleneck is the limiting factor
             kernel_time = max(compute_time, memory_time)
@@ -513,8 +514,8 @@ class TPUMapper(HardwareMapper):
                 precision=precision
             )
 
-            # Utilization: fraction of TensorCores used
-            utilization = arrays_allocated / self.num_tensor_cores
+            # Utilization: fraction of MXUs used
+            utilization = arrays_allocated / self.num_mxus
 
             allocation = HardwareAllocation(
                 subgraph_id=str(sg.subgraph_id),
@@ -554,14 +555,14 @@ class TPUMapper(HardwareMapper):
 
         Two execution modes:
         1. **Sequential mode** (small DNNs, batch < 16):
-           - Each subgraph uses 1-2 TensorCores sequentially
+           - Each subgraph uses 1-2 MXUs sequentially
            - Add array setup overhead (~64 ns)
            - Account for matrix dimension underutilization
            - More accurate for models like ResNet-18/50
 
         2. **Parallel mode** (large DNNs or large batch):
            - Subgraphs in same stage run in parallel
-           - Allocate TensorCores based on parallelism
+           - Allocate MXUs based on parallelism
            - Full systolic array modeling
 
         Args:
@@ -584,10 +585,10 @@ class TPUMapper(HardwareMapper):
 
             # Aggregate metrics
             total_subgraphs = len(subgraph_allocations)
-            average_cores_used = sum(a.compute_units_allocated for a in subgraph_allocations) / max(1, total_subgraphs)
-            peak_cores_used = max((a.compute_units_allocated for a in subgraph_allocations), default=0)
-            average_utilization = average_cores_used / self.num_tensor_cores
-            peak_utilization = peak_cores_used / self.num_tensor_cores
+            average_mxus_used = sum(a.compute_units_allocated for a in subgraph_allocations) / max(1, total_subgraphs)
+            peak_mxus_used = max((a.compute_units_allocated for a in subgraph_allocations), default=0)
+            average_utilization = average_mxus_used / self.num_mxus
+            peak_utilization = peak_mxus_used / self.num_mxus
 
             # Total energy (dynamic from subgraphs + idle power baseline)
             dynamic_energy = sum(a.total_energy for a in subgraph_allocations)
@@ -617,8 +618,8 @@ class TPUMapper(HardwareMapper):
                 subgraph_allocations=subgraph_allocations,
                 total_subgraphs=total_subgraphs,
                 total_execution_stages=total_subgraphs,  # Each subgraph is a stage
-                peak_compute_units_used=peak_cores_used,
-                average_compute_units_used=average_cores_used,
+                peak_compute_units_used=peak_mxus_used,
+                average_compute_units_used=average_mxus_used,
                 peak_utilization=peak_utilization,
                 average_utilization=average_utilization,
                 total_latency=total_latency,
