@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-10-31] - Documentation Consolidation & Python 3.8 Fix
+
+### Added
+
+**Guided Tour Documentation**
+- **`docs/GUIDED_TOUR.md`** (500+ lines) - Comprehensive progressive learning guide
+  - 5-level learning path from beginner (5 min) to expert (ongoing)
+  - Level 0: First Contact - Run your first analysis
+  - Level 1: Understanding the Basics - Core concepts and visualization
+  - Level 2: Common Workflows - Practical deployment scenarios
+  - Level 3: Advanced Usage - Custom models and Python API
+  - Level 4: Expert Topics - Contributing and extending the framework
+  - Quick reference with "I want to..." lookup table
+  - Learning pathways for different user types (ML Engineer, Researcher, Contributor, Hardware Architect)
+  - Hands-on exercises and complete code examples
+  - Consolidates 150+ markdown files into single progressive guide
+
+### Fixed
+
+**Python 3.8 Compatibility**
+- Fixed f-string syntax error in `src/graphs/visualization/mermaid_generator.py:1208-1209`
+  - Replaced backslash-escaped quotes `\'` with HTML entity `&apos;` in f-string expressions
+  - Python 3.8 does not allow backslashes in f-string expression parts
+  - Resolves CI test failures due to Python syntax error
+  - HTML functionality unchanged (semantic equivalence)
+
+### Documentation
+
+**Session Log:**
+- `docs/sessions/2025-10-31_documentation_consolidation.md`
+  - Guided tour design and implementation
+  - Progressive learning path methodology
+  - CI failure fix
+
+---
+
 ## [2025-10-29] - Enhanced Attention Fusion Complete ✅
 
 ### Added - Enhanced Attention Fusion System (Phases 1-4)
