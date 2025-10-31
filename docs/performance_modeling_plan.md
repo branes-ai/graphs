@@ -1,7 +1,11 @@
-# Realistic Performance Modeling: Implementation Plan
+# Realistic Performance Modeling
+
+## Implementation Plan
 
 **Date**: October 17, 2025
+
 **Goal**: Transform characterization from peak theoretical to realistic hardware performance modeling
+
 **Key Principle**: Explainability - every step produces verifiable statistics
 
 ---
@@ -15,10 +19,10 @@
 3. **No concurrency analysis**: Doesn't model how graphs map to parallel hardware
 4. **Missing CPU vector units**: Doesn't account for AVX-512, AMX on modern CPUs
 
-### Example of Current Error
+### Error Modeling with T = service demand / peak service
 
 **EfficientNet-B0 on H100**:
-- Current model: 1.88 ms latency (assumes 750 TFLOPS utilization)
+- Simplistic model: 1.88 ms latency (assumes 750 TFLOPS utilization)
 - Reality: Likely 10-50 ms (only 5-20% utilization due to limited parallelism)
 - **Error magnitude**: 5-25× too optimistic
 
@@ -64,10 +68,10 @@
                              │
                              ├──────────────┬─────────────────┐
                              ▼              ▼                 ▼
-                    ┌─────────────┐  ┌──────────┐  ┌──────────────┐
-                    │   Energy    │  │  Memory  │  │ Explainability│
-                    │  Estimator  │  │Estimator │  │     Data      │
-                    └─────────────┘  └──────────┘  └──────────────┘
+                    ┌─────────────┐  ┌───────────┐  ┌────────────────┐
+                    │   Energy    │  │   Memory  │  │ Explainability │
+                    │  Estimator  │  │ Estimator │  │     Data       │
+                    └─────────────┘  └───────────┘  └────────────────┘
 ```
 
 ---
@@ -444,7 +448,7 @@ tpu_v4 = TPUResourceModel(
 ```python
 @dataclass
 class KPUResourceModel:
-    """KPU wavefront/tile architecture"""
+    """KPU tile architecture"""
 
     # Tile engines
     num_tile_engines: int
@@ -461,12 +465,12 @@ class KPUResourceModel:
     # Tiling
     optimal_tile_size: Tuple[int, int]  # for efficiency
 
-# Example: KPU-T100
-kpu_t100 = KPUResourceModel(
-    num_tile_engines=16,
+# Example: KPU-T256
+kpu_t256 = KPUResourceModel(
+    num_tile_engines=256,  # 16x16 checkerboard
     tile_memory_per_engine=4 * 1024**2,
-    peak_tops=200e12,
-    peak_tflops_fp16=100e12,
+    peak_tops=128e12,  # 16x16 FMAs@1GHz = 512GOPS/tile = 128TOPS
+    peak_tflops_fp16=128e12,
     shared_memory=64 * 1024**2,
     dram_bandwidth=1000e9,
     optimal_tile_size=(64, 64)

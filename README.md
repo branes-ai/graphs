@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/branes-ai/graphs/workflows/CI/badge.svg)](https://github.com/branes-ai/graphs/actions/workflows/ci.yml)
 
-Collection of compute graph definitions and tools for realistic performance modeling.
+Collection of compute graph analysis tools for realistic performance modeling across many different hardware platforms.
 
 This repository provides tools to analyze PyTorch models and understand how they map to hardware resources, enabling realistic performance predictions instead of overly-optimistic peak theoretical estimates.
 
