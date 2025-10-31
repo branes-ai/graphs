@@ -8,26 +8,26 @@ This guide explains how to track and document work on this project.
 
 ```
 graphs/
-├── SUMMARY.md                    # 🎯 START HERE - Current project state
-├── CHANGELOG.md                  # 📝 Daily updates log
-├── DOCUMENTATION_GUIDE.md        # 📖 This file
-├── CLAUDE.md                     # 🤖 Instructions for AI assistant
+├── SUMMARY.md                           # START HERE - Current project state
+├── CHANGELOG.md                         # Daily updates log
+├── DOCUMENTATION_GUIDE.md               # This file
+├── CLAUDE.md                            #  Instructions for AI assistant
 ├── docs/
-│   ├── sessions/                 # 📅 Detailed session logs
-│   │   ├── README.md            # How to use sessions
-│   │   ├── template.md          # Template for new sessions
+│   ├── sessions/                        # Detailed session logs
+│   │   ├── README.md                    # How to use sessions
+│   │   ├── template.md                  # Template for new sessions
 │   │   ├── 2025-10-20_fusion_partitioning.md
 │   │   └── 2025-10-19_graph_partitioning.md
-│   ├── GETTING_STARTED.md       # 🚀 User quick start
+│   ├── GETTING_STARTED.md               # 🚀 User quick start
 │   ├── graph_partitioner_tutorial.md
-│   ├── realistic_performance_modeling_plan.md  # 🗺️ Master plan
-│   └── ...                      # Technical documentation
+│   ├── performance_modeling_plan.md     # 🗺️ Master plan
+│   └── ...                              # Technical documentation
 └── ...
 ```
 
 ---
 
-## 📖 Documentation Hierarchy
+## Documentation Hierarchy
 
 ### Level 1: Quick Overview
 **File**: `SUMMARY.md`
@@ -102,7 +102,7 @@ graphs/
 
 ---
 
-## 🔄 Daily Workflow
+## Daily Workflow
 
 ### At Start of Work Session
 
@@ -174,7 +174,7 @@ graphs/
 
 ---
 
-## 📅 Weekly Review
+## Weekly Review
 
 Every week (or major milestone):
 
@@ -205,7 +205,7 @@ Every week (or major milestone):
 
 ---
 
-## 🎯 Use Cases
+## Use Cases
 
 ### "I'm starting work today. What should I do?"
 
@@ -250,7 +250,7 @@ ls -lt docs/sessions/*.md | head -7
 Reading order:
 1. `SUMMARY.md` - Get the big picture (10-15 min)
 2. `CHANGELOG.md` - See recent progress (5-10 min)
-3. `docs/realistic_performance_modeling_plan.md` - Understand architecture (30-60 min)
+3. `docs/performance_modeling_plan.md` - Understand architecture (30-60 min)
 4. Recent session summaries - Understand current work (30-60 min)
 5. `docs/GETTING_STARTED.md` - Try running code (30 min)
 
@@ -408,7 +408,7 @@ Implemented GPU hardware mapper using wave-based allocation:
 
 ---
 
-## 📊 Example Timeline
+## Example Timeline
 
 ### Day 1: Starting Hardware Mapping
 
@@ -466,7 +466,7 @@ vim docs/sessions/2025-10-24_weekly_plan.md
 
 ---
 
-## 🎓 Learning from Documentation
+## Learning from Documentation
 
 Good documentation helps you:
 
@@ -479,7 +479,7 @@ Good documentation helps you:
 
 ---
 
-## 🤝 Collaboration
+## Collaboration
 
 When working with others:
 
@@ -491,7 +491,7 @@ When working with others:
 
 ---
 
-## ❓ FAQ
+## FAQ
 
 **Q: How much time should I spend documenting?**
 A: ~15-20 minutes at end of session. Worth it for future productivity!
@@ -513,7 +513,7 @@ A: Create session summaries at natural breakpoints, even if work continues.
 
 ---
 
-## 🎯 Summary
+## Summary
 
 ### The System
 - **SUMMARY.md**: Current project state (update after milestones)
@@ -541,4 +541,4 @@ A: Create session summaries at natural breakpoints, even if work continues.
 - `docs/sessions/template.md` - Template with all sections
 - Recent session summaries - Real examples
 
-Happy documenting! 📝
+Happy documenting!
