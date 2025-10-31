@@ -1205,8 +1205,8 @@ class MermaidGenerator:
 
         <div class="diagram-container" id="diagram-container">
             {'<div class="toggle-buttons">' if include_legend else ''}
-                {'<button class="toggle-btn" id="legend-toggle" onclick="togglePanel(\'legend\')">📊 Legend</button>' if include_legend else ''}
-                {'<button class="toggle-btn" id="help-toggle" onclick="togglePanel(\'instructions\')">💡 Help</button>' if include_legend else ''}
+                {'<button class="toggle-btn" id="legend-toggle" onclick="togglePanel(&apos;legend&apos;)">📊 Legend</button>' if include_legend else ''}
+                {'<button class="toggle-btn" id="help-toggle" onclick="togglePanel(&apos;instructions&apos;)">💡 Help</button>' if include_legend else ''}
             {'</div>' if include_legend else ''}
 
             <div class="diagram-wrapper" id="diagram-wrapper">
