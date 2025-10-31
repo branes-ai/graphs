@@ -115,7 +115,7 @@ Supported hardware:
     parser.add_argument('--output', '-o', type=str,
                        help='Output file path (format auto-detected from extension)')
     parser.add_argument('--format', '-f',
-                       choices=['text', 'json', 'csv', 'markdown'],
+                       choices=['text', 'json', 'csv', 'markdown', 'html'],
                        help='Output format (auto-detected if --output provided)')
 
     # Report options
@@ -127,9 +127,9 @@ Supported hardware:
     parser.add_argument('--subgraph-details', action='store_true',
                        help='Include per-subgraph details in CSV output')
 
-    # Diagram options (for markdown output)
+    # Diagram options (for markdown/HTML output)
     parser.add_argument('--include-diagrams', action='store_true',
-                       help='Include Mermaid diagrams in markdown output')
+                       help='Include Mermaid diagrams in markdown/HTML output')
     parser.add_argument('--diagram-types', nargs='+',
                        choices=['partitioned', 'bottleneck', 'hardware_mapping'],
                        help='Types of diagrams to include (default: partitioned bottleneck)')
@@ -209,6 +209,7 @@ Supported hardware:
                     '.csv': 'csv',
                     '.md': 'markdown',
                     '.txt': 'text',
+                    '.html': 'html',
                 }
                 format_type = format_map.get(ext, 'text')
 
@@ -226,6 +227,14 @@ Supported hardware:
                 content = generator.generate_markdown_report(
                     result,
                     include_diagrams=args.include_diagrams,
+                    diagram_types=args.diagram_types
+                )
+                with open(args.output, 'w') as f:
+                    f.write(content)
+            elif format_type == 'html':
+                content = generator.generate_html_report(
+                    result,
+                    include_diagrams=args.include_diagrams or True,  # Default to True for HTML
                     diagram_types=args.diagram_types
                 )
                 with open(args.output, 'w') as f:
@@ -257,6 +266,12 @@ Supported hardware:
                 print(generator.generate_markdown_report(
                     result,
                     include_diagrams=args.include_diagrams,
+                    diagram_types=args.diagram_types
+                ))
+            elif format_type == 'html':
+                print(generator.generate_html_report(
+                    result,
+                    include_diagrams=args.include_diagrams or True,  # Default to True for HTML
                     diagram_types=args.diagram_types
                 ))
             else:
