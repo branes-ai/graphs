@@ -119,10 +119,10 @@ digraph FusionGraph {
     edge [color=gray];
 
     sg_0 [label="Subgraph 0\nPattern: Conv2d_BatchNorm2d_ReLU\nOps: 3\nFLOPs: 0.24G\nAI: 61.3\nType: compute_bound",
-          fillcolor="#90EE90", style="filled,rounded"];
+          fillcolor="#228B22", style="filled,rounded"];
 
     sg_1 [label="Subgraph 1\nPattern: Unfused\nOps: 1\nFLOPs: 0.00G\nAI: 0.0\nType: bandwidth_bound",
-          fillcolor="#FF6B6B", style="filled,rounded"];
+          fillcolor="#DC143C", style="filled,rounded"];
 
     sg_0 -> sg_1;  // Data dependency
     ...
@@ -291,10 +291,10 @@ partitioner.export_to_graphviz(fx_graph, "resnet18_fusion.dot")
 ### ANSI Colors Used
 
 ```python
-COMPUTE_BOUND     = GREEN      # #90EE90 / ANSI Green
+COMPUTE_BOUND     = GREEN      # #228B22 / ANSI Green
 BALANCED          = CYAN       # #87CEEB / ANSI Cyan
 MEMORY_BOUND      = YELLOW     # #FFD700 / ANSI Yellow
-BANDWIDTH_BOUND   = RED        # #FF6B6B / ANSI Red
+BANDWIDTH_BOUND   = RED        # #DC143C / ANSI Red
 ```
 
 ### Interpreting Colors
