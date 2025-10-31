@@ -550,6 +550,485 @@ class ReportGenerator:
 
         return "\n".join(lines)
 
+    def generate_html_report(
+        self,
+        result: UnifiedAnalysisResult,
+        include_diagrams: bool = True,
+        diagram_types: Optional[List[str]] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> str:
+        """
+        Generate interactive HTML report with Mermaid diagrams.
+
+        Args:
+            result: Analysis result
+            include_diagrams: Include interactive Mermaid diagrams
+            diagram_types: List of diagram types to include:
+                          ['partitioned', 'bottleneck', 'hardware_mapping']
+                          If None, includes partitioned and bottleneck diagrams
+            title: Custom page title (auto-generated if None)
+            description: Custom description (auto-generated if None)
+
+        Returns:
+            Complete HTML document as string
+        """
+        # Generate title and description
+        if title is None:
+            title = f"{result.display_name} Analysis - {result.hardware_display_name}"
+
+        if description is None:
+            description = (
+                f"Comprehensive performance analysis of {result.display_name} on {result.hardware_display_name} "
+                f"(Batch: {result.batch_size}, Precision: {result.precision.name})"
+            )
+
+        # Determine which diagrams to include
+        if diagram_types is None:
+            diagram_types = ['partitioned', 'bottleneck']
+
+        # Generate Mermaid diagrams
+        diagrams_html = ""
+        if include_diagrams and result.partition_report:
+            for diagram_type in diagram_types:
+                if diagram_type == 'partitioned':
+                    diagram = self.mermaid_generator.generate_partitioned_graph(
+                        result.partition_report,
+                        direction='TD',
+                        color_by='bottleneck',
+                        show_metrics=True,
+                        max_subgraphs=20
+                    )
+                    diagrams_html += f"""
+                    <div class="diagram-section">
+                        <h2>Graph Partitioning Visualization</h2>
+                        <p>Fused subgraphs colored by bottleneck type (green=compute-bound, red=memory-bound)</p>
+                        <div class="mermaid-container">
+                            <div class="mermaid">
+{diagram}
+                            </div>
+                        </div>
+                    </div>
+                    """
+
+                elif diagram_type == 'bottleneck':
+                    diagram = self.mermaid_generator.generate_bottleneck_analysis(
+                        result.partition_report,
+                        threshold=0.15,
+                        max_subgraphs=25
+                    )
+                    diagrams_html += f"""
+                    <div class="diagram-section">
+                        <h2>Bottleneck Analysis</h2>
+                        <p>Critical path analysis highlighting operations consuming >15% of total execution time</p>
+                        <div class="mermaid-container">
+                            <div class="mermaid">
+{diagram}
+                            </div>
+                        </div>
+                    </div>
+                    """
+
+                elif diagram_type == 'hardware_mapping' and result.partition_report:
+                    # Estimate peak compute units from hardware name
+                    peak_units = 132  # Default (H100 SMs)
+                    if 'A100' in result.hardware_display_name:
+                        peak_units = 108
+                    elif 'V100' in result.hardware_display_name:
+                        peak_units = 80
+                    elif 'Jetson' in result.hardware_display_name:
+                        peak_units = 16
+                    elif 'TPU' in result.hardware_display_name:
+                        peak_units = 128
+                    elif 'KPU' in result.hardware_display_name:
+                        peak_units = 256
+
+                    diagram = self.mermaid_generator.generate_hardware_mapping(
+                        result.partition_report,
+                        result.hardware_display_name,
+                        peak_units,
+                        direction='TD',
+                        show_allocation=True,
+                        show_utilization=True,
+                        max_subgraphs=15
+                    )
+                    diagrams_html += f"""
+                    <div class="diagram-section">
+                        <h2>Hardware Resource Mapping</h2>
+                        <p>Subgraph allocation to {result.hardware_display_name} compute units</p>
+                        <div class="mermaid-container">
+                            <div class="mermaid">
+{diagram}
+                            </div>
+                        </div>
+                    </div>
+                    """
+
+        # Build HTML document
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }}
+
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+        }}
+
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }}
+
+        .header h1 {{
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #b794f6 0%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }}
+
+        .description {{
+            color: #cbd5e0;
+            font-size: 1.1rem;
+        }}
+
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }}
+
+        .metric-card {{
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(183, 148, 246, 0.3);
+            transition: all 0.3s ease;
+        }}
+
+        .metric-card:hover {{
+            transform: translateY(-2px);
+            border-color: #b794f6;
+            box-shadow: 0 4px 12px rgba(183, 148, 246, 0.2);
+        }}
+
+        .metric-label {{
+            font-size: 0.9rem;
+            color: #cbd5e0;
+            margin-bottom: 8px;
+        }}
+
+        .metric-value {{
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #b794f6;
+        }}
+
+        .metric-unit {{
+            font-size: 1rem;
+            color: #cbd5e0;
+            margin-left: 5px;
+        }}
+
+        .section {{
+            background: rgba(255, 255, 255, 0.03);
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(183, 148, 246, 0.2);
+        }}
+
+        .section h2 {{
+            color: #b794f6;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }}
+
+        .section table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }}
+
+        .section th, .section td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(183, 148, 246, 0.2);
+        }}
+
+        .section th {{
+            color: #b794f6;
+            font-weight: 600;
+        }}
+
+        .diagram-section {{
+            margin-bottom: 40px;
+        }}
+
+        .diagram-section h2 {{
+            color: #b794f6;
+            margin-bottom: 10px;
+            font-size: 1.4rem;
+        }}
+
+        .diagram-section p {{
+            color: #cbd5e0;
+            margin-bottom: 20px;
+        }}
+
+        .mermaid-container {{
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-x: auto;
+            border: 1px solid rgba(183, 148, 246, 0.2);
+        }}
+
+        .recommendations {{
+            background: rgba(183, 148, 246, 0.1);
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 4px solid #b794f6;
+        }}
+
+        .recommendations h2 {{
+            color: #b794f6;
+            margin-bottom: 15px;
+        }}
+
+        .recommendations ul {{
+            list-style-position: inside;
+            padding-left: 20px;
+        }}
+
+        .recommendations li {{
+            margin-bottom: 10px;
+            color: #cbd5e0;
+        }}
+
+        @media (max-width: 768px) {{
+            .header h1 {{
+                font-size: 1.8rem;
+            }}
+            .metrics-grid {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{title}</h1>
+            <p class="description">{description}</p>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Latency</div>
+                <div class="metric-value">{result.total_latency_ms:.2f}<span class="metric-unit">ms</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Throughput</div>
+                <div class="metric-value">{result.throughput_fps:.1f}<span class="metric-unit">fps</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Energy/Inference</div>
+                <div class="metric-value">{result.energy_per_inference_mj:.1f}<span class="metric-unit">mJ</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Peak Memory</div>
+                <div class="metric-value">{result.peak_memory_mb:.1f}<span class="metric-unit">MB</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Utilization</div>
+                <div class="metric-value">{result.average_utilization_pct:.1f}<span class="metric-unit">%</span></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Performance Breakdown</h2>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td>Total FLOPs</td>
+                    <td>{result.partition_report.total_flops / 1e9:.2f} GFLOPs</td>
+                </tr>
+                <tr>
+                    <td>Subgraphs</td>
+                    <td>{len(result.partition_report.subgraphs)}</td>
+                </tr>
+"""
+
+        # Add bottleneck stats if available
+        if result.roofline_report:
+            memory_bound = sum(1 for lat in result.roofline_report.latencies if lat.bottleneck == 'memory')
+            compute_bound = len(result.roofline_report.latencies) - memory_bound
+            html += f"""
+                <tr>
+                    <td>Compute-bound operations</td>
+                    <td>{compute_bound}</td>
+                </tr>
+                <tr>
+                    <td>Memory-bound operations</td>
+                    <td>{memory_bound}</td>
+                </tr>
+"""
+
+        html += """
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Energy Breakdown</h2>
+            <table>
+                <tr>
+                    <th>Component</th>
+                    <th>Energy (mJ)</th>
+                    <th>Percentage</th>
+                </tr>
+"""
+
+        if result.energy_report:
+            total = result.total_energy_mj
+            compute_pct = (result.energy_report.compute_energy_j * 1000 / total * 100) if total > 0 else 0
+            memory_pct = (result.energy_report.memory_energy_j * 1000 / total * 100) if total > 0 else 0
+            static_pct = (result.energy_report.static_energy_j * 1000 / total * 100) if total > 0 else 0
+
+            html += f"""
+                <tr>
+                    <td>Compute</td>
+                    <td>{result.energy_report.compute_energy_j * 1000:.1f}</td>
+                    <td>{compute_pct:.1f}%</td>
+                </tr>
+                <tr>
+                    <td>Memory</td>
+                    <td>{result.energy_report.memory_energy_j * 1000:.1f}</td>
+                    <td>{memory_pct:.1f}%</td>
+                </tr>
+                <tr>
+                    <td>Static/Leakage</td>
+                    <td>{result.energy_report.static_energy_j * 1000:.1f}</td>
+                    <td>{static_pct:.1f}%</td>
+                </tr>
+                <tr style="font-weight: bold;">
+                    <td>Total</td>
+                    <td>{total:.1f}</td>
+                    <td>100.0%</td>
+                </tr>
+"""
+
+        html += """
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Memory Breakdown</h2>
+            <table>
+                <tr>
+                    <th>Component</th>
+                    <th>Memory (MB)</th>
+                </tr>
+"""
+
+        if result.memory_report:
+            html += f"""
+                <tr>
+                    <td>Activations</td>
+                    <td>{result.memory_report.activation_memory_bytes/1e6:.1f}</td>
+                </tr>
+                <tr>
+                    <td>Weights</td>
+                    <td>{result.memory_report.weight_memory_bytes/1e6:.1f}</td>
+                </tr>
+                <tr>
+                    <td>Workspace</td>
+                    <td>{result.memory_report.workspace_memory_bytes/1e6:.1f}</td>
+                </tr>
+                <tr style="font-weight: bold;">
+                    <td>Peak Total</td>
+                    <td>{result.peak_memory_mb:.1f}</td>
+                </tr>
+"""
+
+        html += """
+            </table>
+        </div>
+"""
+
+        # Add diagrams
+        html += diagrams_html
+
+        # Add recommendations
+        recommendations = result._generate_recommendations()
+        if recommendations:
+            html += """
+        <div class="recommendations">
+            <h2>Recommendations</h2>
+            <ul>
+"""
+            for rec in recommendations:
+                html += f"                <li>{rec}</li>\n"
+            html += """
+            </ul>
+        </div>
+"""
+
+        html += """
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                primaryColor: '#b794f6',
+                primaryTextColor: '#fff',
+                primaryBorderColor: '#7c3aed',
+                lineColor: '#cbd5e0',
+                secondaryColor: '#4a5568',
+                tertiaryColor: '#2d3748'
+            },
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+</body>
+</html>"""
+
+        return html
+
     # =========================================================================
     # Comparison Reports
     # =========================================================================
@@ -567,7 +1046,7 @@ class ReportGenerator:
         Args:
             results: List of analysis results to compare
             comparison_dimension: What varies ('model', 'hardware', 'batch_size', or 'auto')
-            format: Output format ('text', 'csv', 'markdown')
+            format: Output format ('text', 'csv', 'markdown', 'html')
             sort_by: Metric to sort by ('latency', 'energy', 'throughput', 'efficiency')
 
         Returns:
@@ -587,6 +1066,8 @@ class ReportGenerator:
             return self._comparison_csv(results_sorted, comparison_dimension)
         elif format == 'markdown':
             return self._comparison_markdown(results_sorted, comparison_dimension)
+        elif format == 'html':
+            return self._comparison_html(results_sorted, comparison_dimension)
         else:
             return self._comparison_text(results_sorted, comparison_dimension)
 
@@ -714,6 +1195,245 @@ class ReportGenerator:
         lines.append("")
         return "\n".join(lines)
 
+    def _comparison_html(self, results: List[UnifiedAnalysisResult], dimension: str) -> str:
+        """
+        Generate interactive HTML comparison report with rich Mermaid visualization.
+
+        For hardware comparisons, uses the multi-track rich visualization.
+        For other comparisons, uses a table-based comparison.
+        """
+        if dimension == 'hardware' and len(results) >= 2:
+            return self._hardware_comparison_html_rich(results)
+        else:
+            return self._comparison_html_table(results, dimension)
+
+    def _hardware_comparison_html_rich(self, results: List[UnifiedAnalysisResult]) -> str:
+        """
+        Generate rich HTML hardware comparison using MermaidGenerator.generate_hardware_comparison_rich().
+
+        This creates the beautiful multi-track visualization with performance metrics.
+        """
+        # Prepare hardware analysis data for Mermaid generator
+        model_name = results[0].display_name if results else "Model"
+        hardware_analyses = []
+
+        for result in results:
+            # Build layer data from partition report
+            layers = []
+            if result.partition_report and result.partition_report.subgraphs:
+                # Group subgraphs into logical layers (first 8 or so)
+                subgraphs = result.partition_report.subgraphs[:8]
+
+                for idx, sg in enumerate(subgraphs):
+                    layer_name = f"Layer{idx+1}"
+                    if hasattr(sg, 'ops') and sg.ops:
+                        # Get first operation name
+                        layer_name = sg.ops[0].split('.')[-1] if sg.ops else f"SG{idx}"
+
+                    layer = {'name': layer_name}
+
+                    # Add latency if available
+                    if hasattr(sg, 'latency_ms') and sg.latency_ms > 0:
+                        layer['latency_ms'] = sg.latency_ms
+
+                    # Estimate energy from FLOPs if energy report available
+                    if result.energy_report and hasattr(sg, 'total_flops'):
+                        # Rough estimate: proportional to FLOPs
+                        energy_fraction = sg.total_flops / result.partition_report.total_flops if result.partition_report.total_flops > 0 else 0
+                        layer['energy_uj'] = result.total_energy_mj * 1000 * energy_fraction
+
+                    # Add bandwidth (use hardware's memory bandwidth as reference)
+                    if hasattr(sg, 'memory_bytes') and sg.latency_ms > 0:
+                        bandwidth_gbps = (sg.memory_bytes / 1e9) / (sg.latency_ms / 1000)
+                        layer['bandwidth_gbps'] = min(bandwidth_gbps, 1000)  # Cap at reasonable max
+
+                    layers.append(layer)
+
+            # Determine architecture type
+            hw_name = result.hardware_display_name.lower()
+            if 'h100' in hw_name or 'a100' in hw_name or 'v100' in hw_name or 'jetson' in hw_name:
+                arch_type = 'gpu'
+            elif 'tpu' in hw_name or 'coral' in hw_name:
+                arch_type = 'tpu'
+            elif 'kpu' in hw_name:
+                arch_type = 'kpu'
+            else:
+                arch_type = 'cpu'
+
+            # Build summary
+            summary = {
+                'total_latency_ms': result.total_latency_ms,
+                'total_energy_uj': result.total_energy_mj * 1000,  # Convert mJ to μJ
+                'power_w': result.energy_report.average_power_w if result.energy_report else 0,
+                'throughput': result.throughput_fps,
+            }
+
+            hardware_analyses.append({
+                'name': result.hardware_display_name,
+                'arch_type': arch_type,
+                'layers': layers,
+                'summary': summary,
+            })
+
+        # Generate rich Mermaid diagram
+        diagram = self.mermaid_generator.generate_hardware_comparison_rich(
+            model_name=model_name,
+            hardware_analyses=hardware_analyses,
+            include_summary=True
+        )
+
+        # Wrap in HTML
+        title = f"{model_name}: Multi-Hardware Performance Comparison"
+        description = f"Comparing {len(results)} hardware architectures on {model_name} (Batch: {results[0].batch_size}, Precision: {results[0].precision.name})"
+
+        html = self.mermaid_generator.generate_html_wrapper(
+            mermaid_diagram=diagram,
+            title=title,
+            description=description,
+            include_controls=True,
+            include_legend=True
+        )
+
+        return html
+
+    def _comparison_html_table(self, results: List[UnifiedAnalysisResult], dimension: str) -> str:
+        """Generate table-based HTML comparison report"""
+        title = f"Comparison Report: {dimension.title()}"
+        description = f"Performance comparison across {len(results)} configurations"
+
+        # Build comparison table rows
+        table_rows = ""
+        for result in results:
+            if dimension == 'model':
+                name = result.display_name
+            elif dimension == 'hardware':
+                name = result.hardware_display_name
+            elif dimension == 'batch_size':
+                name = f"Batch {result.batch_size}"
+            else:
+                name = f"{result.display_name}@{result.hardware_display_name}"
+
+            table_rows += f"""
+                <tr>
+                    <td>{name}</td>
+                    <td>{result.total_latency_ms:.2f}</td>
+                    <td>{result.throughput_fps:.1f}</td>
+                    <td>{result.total_energy_mj:.1f}</td>
+                    <td>{result.peak_memory_mb:.1f}</td>
+                    <td>{result.average_utilization_pct:.1f}%</td>
+                </tr>
+"""
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }}
+
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }}
+
+        .header h1 {{
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #b794f6 0%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }}
+
+        .description {{
+            color: #cbd5e0;
+            font-size: 1.1rem;
+        }}
+
+        .comparison-table {{
+            width: 100%;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        th, td {{
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(183, 148, 246, 0.2);
+        }}
+
+        th {{
+            background: rgba(183, 148, 246, 0.2);
+            color: #b794f6;
+            font-weight: 600;
+        }}
+
+        tr:hover {{
+            background: rgba(183, 148, 246, 0.1);
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{title}</h1>
+            <p class="description">{description}</p>
+        </div>
+
+        <div class="comparison-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Latency (ms)</th>
+                        <th>Throughput (fps)</th>
+                        <th>Energy (mJ)</th>
+                        <th>Memory (MB)</th>
+                        <th>Utilization</th>
+                    </tr>
+                </thead>
+                <tbody>
+{table_rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>"""
+
+        return html
+
     # =========================================================================
     # File Output
     # =========================================================================
@@ -751,6 +1471,8 @@ class ReportGenerator:
             content = self.generate_csv_report(result)
         elif format == 'markdown':
             content = self.generate_markdown_report(result)
+        elif format == 'html':
+            content = self.generate_html_report(result)
         else:
             content = self.generate_text_report(result)
 
@@ -771,6 +1493,7 @@ class ReportGenerator:
             '.csv': 'csv',
             '.md': 'markdown',
             '.txt': 'text',
+            '.html': 'html',
         }
         format = format_map.get(ext, 'text')
 

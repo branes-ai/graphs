@@ -205,9 +205,9 @@ Examples:
 
     # Output configuration
     parser.add_argument('--output', '-o', type=str,
-                       help='Output file path (CSV or JSON)')
+                       help='Output file path (CSV, JSON, Markdown, or HTML)')
     parser.add_argument('--format', '-f',
-                       choices=['csv', 'json', 'markdown'],
+                       choices=['csv', 'json', 'markdown', 'html'],
                        help='Output format (auto-detected if --output provided)')
 
     # Display options
@@ -290,6 +290,7 @@ Examples:
                     '.json': 'json',
                     '.csv': 'csv',
                     '.md': 'markdown',
+                    '.html': 'html',
                 }
                 format_type = format_map.get(ext, 'csv')
 
