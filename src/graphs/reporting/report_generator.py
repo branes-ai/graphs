@@ -39,6 +39,7 @@ from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 
 from graphs.analysis.unified_analyzer import UnifiedAnalysisResult
+from graphs.visualization.mermaid_generator import MermaidGenerator, ColorScheme
 
 
 class ReportGenerator:
@@ -77,6 +78,7 @@ class ReportGenerator:
             style: Report style ('default', 'compact', 'detailed')
         """
         self.style = style
+        self.mermaid_generator = MermaidGenerator()
 
     # =========================================================================
     # Single Model Reports
@@ -387,7 +389,9 @@ class ReportGenerator:
         self,
         result: UnifiedAnalysisResult,
         include_tables: bool = True,
-        include_charts: bool = False
+        include_charts: bool = False,
+        include_diagrams: bool = False,
+        diagram_types: Optional[List[str]] = None
     ) -> str:
         """
         Generate Markdown report.
@@ -396,6 +400,10 @@ class ReportGenerator:
             result: Analysis result
             include_tables: Include formatted tables
             include_charts: Include ASCII charts (experimental)
+            include_diagrams: Include Mermaid diagrams
+            diagram_types: List of diagram types to include:
+                          ['partitioned', 'bottleneck', 'hardware_mapping']
+                          If None, includes all available diagrams
 
         Returns:
             Markdown string
@@ -447,6 +455,42 @@ class ReportGenerator:
             lines.append(f"- **Compute-bound operations:** {compute_bound}")
             lines.append(f"- **Memory-bound operations:** {memory_bound}")
             lines.append("")
+
+            # Add diagrams if requested
+            if include_diagrams:
+                if diagram_types is None:
+                    diagram_types = ['partitioned', 'bottleneck']
+
+                if 'partitioned' in diagram_types and result.partition_report:
+                    lines.append("### Graph Partitioning Visualization")
+                    lines.append("")
+                    diagram = self.mermaid_generator.generate_partitioned_graph(
+                        result.partition_report,
+                        direction='TD',
+                        color_by='bottleneck',
+                        show_metrics=True,
+                        max_subgraphs=15
+                    )
+                    lines.append("```mermaid")
+                    lines.append(diagram)
+                    lines.append("```")
+                    lines.append("")
+                    lines.append(self.mermaid_generator.generate_legend(ColorScheme.BOTTLENECK))
+                    lines.append("")
+
+                if 'bottleneck' in diagram_types and result.partition_report:
+                    lines.append("### Bottleneck Analysis")
+                    lines.append("")
+                    lines.append("Critical path analysis showing operations by execution time:")
+                    lines.append("")
+                    diagram = self.mermaid_generator.generate_bottleneck_analysis(
+                        result.partition_report,
+                        threshold=0.15
+                    )
+                    lines.append("```mermaid")
+                    lines.append(diagram)
+                    lines.append("```")
+                    lines.append("")
 
         # Energy Details
         if result.energy_report:

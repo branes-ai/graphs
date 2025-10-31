@@ -127,6 +127,13 @@ Supported hardware:
     parser.add_argument('--subgraph-details', action='store_true',
                        help='Include per-subgraph details in CSV output')
 
+    # Diagram options (for markdown output)
+    parser.add_argument('--include-diagrams', action='store_true',
+                       help='Include Mermaid diagrams in markdown output')
+    parser.add_argument('--diagram-types', nargs='+',
+                       choices=['partitioned', 'bottleneck', 'hardware_mapping'],
+                       help='Types of diagrams to include (default: partitioned bottleneck)')
+
     # Display options
     parser.add_argument('--quiet', '-q', action='store_true',
                        help='Suppress progress output')
@@ -216,7 +223,13 @@ Supported hardware:
                 with open(args.output, 'w') as f:
                     f.write(content)
             elif format_type == 'markdown':
-                generator.save_report(result, args.output, format='markdown')
+                content = generator.generate_markdown_report(
+                    result,
+                    include_diagrams=args.include_diagrams,
+                    diagram_types=args.diagram_types
+                )
+                with open(args.output, 'w') as f:
+                    f.write(content)
             else:
                 content = generator.generate_text_report(
                     result,
@@ -241,7 +254,11 @@ Supported hardware:
                     include_subgraph_details=args.subgraph_details
                 ))
             elif format_type == 'markdown':
-                print(generator.generate_markdown_report(result))
+                print(generator.generate_markdown_report(
+                    result,
+                    include_diagrams=args.include_diagrams,
+                    diagram_types=args.diagram_types
+                ))
             else:
                 print(generator.generate_text_report(
                     result,
