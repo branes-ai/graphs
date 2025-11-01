@@ -95,6 +95,14 @@ python examples/quick_start_partitioner.py
 - **[Hardware Characterization](docs/hardware_characterization_2025-10.md)** - Hardware modeling details
 - **[Examples](examples/)** - Quick start scripts and demonstrations
 
+### Hardware Architecture Documentation
+- **[Hardware Architecture Taxonomy](docs/hardware/architecture_taxonomy.md)** 🌟 **Essential Reference**
+  - Comprehensive guide to CPU, GPU, TPU, KPU, DSP, DPU, and CGRA execution models
+  - Flynn's taxonomy classification and programming paradigms
+  - Execution model comparison (temporal vs spatial, SIMD vs SIMT vs MIMD)
+  - Architecture selection guide and mapper implementation patterns
+- **[Hardware Documentation Index](docs/hardware/)** - All hardware specifications and references
+
 ## Example Output
 
 ```bash
