@@ -408,7 +408,14 @@ iree-import-tflite model.tflite -o model_tosa.mlir
 - **Shape Propagation**: Always run `ShapeProp` after FX tracing to populate tensor metadata
 - **Fusion Partitioning**: The partitioner fuses operations to minimize data movement and maximize compute efficiency
 - **Hardware Resource Models**: Add new hardware targets by creating resource models in `hardware/resource_model.py` and mappers in `hardware/mappers/`
-- **Programmable vs. Fixed-Function**: CPUs, GPUs, and DSPs are programmable ISAs; TPUs, KPUs, DPUs, and CGRAs are accelerators
+- **Hardware Architecture Taxonomy**: See `docs/hardware/architecture_taxonomy.md` for comprehensive guide to execution models:
+  - CPU: MIMD Stored Program Machine (multi-core + SIMD)
+  - GPU: SIMT Data Parallel (warps of 32 threads lockstep)
+  - TPU: Systolic Array / Weight-Stationary Dataflow
+  - KPU: MIMD Domain Flow / Spatial Dataflow (stream processing)
+  - DSP: VLIW with heterogeneous vector/tensor units
+  - DPU: Reconfigurable FPGA tiles (AIE)
+  - CGRA: Spatial dataflow with reconfiguration overhead
 - **Roofline Model**: Latency estimation considers both compute-bound and memory-bound performance based on arithmetic intensity
 - **Package Organization**:
   - `ir/`: Hardware-independent graph structures

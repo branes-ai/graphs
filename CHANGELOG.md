@@ -6,6 +6,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-01] - Hardware Architecture Taxonomy & KPU Documentation Cleanup
+
+### Added
+
+**Hardware Architecture Documentation**
+- **`docs/hardware/architecture_taxonomy.md`** (650+ lines) - Comprehensive hardware execution model reference
+  - Flynn's Taxonomy classification for all 7 architecture types
+  - **CPU**: MIMD Stored Program Machine (multi-core + SIMD/AVX-512/AMX)
+  - **GPU**: SIMT Data Parallel (warp-level lockstep, wave quantization)
+  - **DSP**: VLIW with heterogeneous vector/tensor units (Hexagon, TI C7x)
+  - **TPU**: Systolic Arrays with weight-stationary dataflow (pipeline overhead)
+  - **KPU**: MIMD Domain Flow / Spatial Dataflow (stream processing, no bubbles)
+  - **DPU**: Reconfigurable FPGA tiles (AIE, scratchpad constraints)
+  - **CGRA**: Spatial dataflow fabric (reconfiguration overhead)
+  - Execution paradigm comparison (temporal vs spatial)
+  - Memory hierarchy comparison across all architectures
+  - Mapper implementation strategies and common patterns
+  - Architecture selection guide based on workload characteristics
+  - Quick reference tables for developers
+
+- **`docs/hardware/README.md`** - Hardware documentation index and navigation hub
+  - "Start Here" pointer to Architecture Taxonomy
+  - Links to all hardware-specific docs (Jetson, KPU, DSP, etc.)
+  - Quick navigation table ("Want to understand...")
+  - Mapper developer guide
+
+### Fixed
+
+**KPU Documentation Accuracy**
+- **Removed misleading demo data** - Identified source of "sparsity and gating" misinformation
+  - Issue: Files in `tbd/demo_rich_visualization.py` and `tbd/demo_rich_viz_standalone.py` contained fictional "Sparsity Engine" marketing data
+  - Problem: Chatbots reading the repository incorrectly attributed non-existent sparsity/gating features to KPU
+  - Root cause: Demo visualization files with made-up performance data (never meant to represent actual hardware)
+  - Impact: External users and AI assistants received incorrect information about KPU capabilities
+  - Investigation: Verified actual KPU mapper (`src/graphs/hardware/mappers/accelerators/kpu.py`) has **zero references** to sparsity or gating
+  - **Real KPU benefits** (from implementation):
+    - Stream processing dataflow (continuous data flow, no weight loading bubbles)
+    - High utilization (90-100% even at batch=1)
+    - Tile-based architecture with 256KB scratchpad per tile
+    - Heterogeneous precision (70% INT8, 20% BF16, 10% FP32 tiles)
+    - FP32 vector engines for precision-critical fusion
+    - Energy efficiency from near-memory compute
+  - **Recommendation**: Add disclaimers to `tbd/` demo files or relocate to archive
+
+### Documentation
+
+**Updated Integration Points:**
+- **`README.md`** - Added "Hardware Architecture Documentation" section with prominent link to taxonomy
+- **`CLAUDE.md`** - Updated Important Notes with architecture taxonomy reference and execution model summary
+- **`docs/hardware/`** - Created hardware docs directory structure
+
+**Benefits:**
+- Single authoritative source for hardware execution models
+- Answers fundamental questions (e.g., "Why does KPU perform better at batch=1?")
+- Helps users select appropriate hardware for their workload
+- Provides mapper implementation patterns for developers
+- Academic rigor with proper terminology and citations
+
+**Session Log:**
+- `docs/sessions/2025-11-01_hardware_architecture_taxonomy.md`
+  - KPU misinformation investigation
+  - Architecture taxonomy design and creation
+  - Documentation integration strategy
+
+---
+
 ## [2025-10-31] - Documentation Consolidation & Python 3.8 Fix
 
 ### Added
