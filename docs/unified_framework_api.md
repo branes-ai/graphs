@@ -795,5 +795,5 @@ memory = result.peak_memory_mb
 
 For issues or questions:
 - Check `tests/integration/test_unified_workflows.py` for comprehensive examples
-- Review CLI tools (`cli/analyze_comprehensive_v2.py`, `cli/analyze_batch_v2.py`) for real-world usage
+- Review CLI tools (`cli/analyze_comprehensive.py`, `cli/analyze_batch.py`) for real-world usage
 - File issues on GitHub

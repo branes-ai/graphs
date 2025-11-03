@@ -56,6 +56,13 @@ class EnergyDescriptor:
     # Comparison
     peak_energy_j: float = 0.0  # If 100% utilized
 
+    # Power management (NEW - Phase 1)
+    allocated_units: int = 0  # Compute units allocated (from mapper)
+    static_energy_allocated_j: float = 0.0  # Idle energy for allocated units
+    static_energy_unallocated_j: float = 0.0  # Idle energy for unallocated units
+    power_gating_savings_j: float = 0.0  # Energy saved by power gating
+    power_gating_enabled: bool = False  # Whether power gating was modeled
+
     # Explanation
     explanation: str = ""
 
@@ -73,6 +80,15 @@ class EnergyDescriptor:
         lines.append(f"    Compute:  {self.compute_energy_j * 1e6:.2f} μJ ({self.compute_energy_j / self.total_energy_j * 100:.1f}%)")
         lines.append(f"    Memory:   {self.memory_energy_j * 1e6:.2f} μJ ({self.memory_energy_j / self.total_energy_j * 100:.1f}%)")
         lines.append(f"    Static:   {self.static_energy_j * 1e6:.2f} μJ ({self.static_energy_j / self.total_energy_j * 100:.1f}%)")
+
+        # Power management details (NEW)
+        if self.allocated_units > 0:
+            lines.append(f"  Allocated Units: {self.allocated_units}")
+            lines.append(f"    Allocated idle:   {self.static_energy_allocated_j * 1e6:.2f} μJ")
+            lines.append(f"    Unallocated idle: {self.static_energy_unallocated_j * 1e6:.2f} μJ")
+            if self.power_gating_enabled and self.power_gating_savings_j > 0:
+                lines.append(f"    Power gating savings: {self.power_gating_savings_j * 1e6:.2f} μJ")
+
         lines.append(f"  Efficiency: {self.efficiency * 100:.1f}%")
         lines.append(f"  Utilization: {self.utilization * 100:.1f}%")
         if self.wasted_energy_j > 0:
@@ -118,6 +134,13 @@ class EnergyReport:
     # Optimization suggestions
     optimization_opportunities: List[str] = field(default_factory=list)
 
+    # Power management (NEW - Phase 1)
+    total_allocated_units_energy_j: float = 0.0  # Idle energy for allocated units
+    total_unallocated_units_energy_j: float = 0.0  # Idle energy for unallocated units
+    total_power_gating_savings_j: float = 0.0  # Energy saved by power gating
+    power_gating_enabled: bool = False  # Whether power gating was modeled
+    average_allocated_units: float = 0.0  # Average units allocated across subgraphs
+
     def __str__(self) -> str:
         """Short summary"""
         return (f"EnergyReport(total={self.total_energy_mj:.2f}mJ, "
@@ -154,6 +177,22 @@ class EnergyReport:
         lines.append(f"  Average Utilization:  {self.average_utilization * 100:.1f}%")
         lines.append(f"  Wasted Energy: {self.wasted_energy_j * 1e6:.0f} μJ ({self.wasted_energy_percent:.1f}%)")
         lines.append("")
+
+        # Power management (NEW)
+        if self.average_allocated_units > 0:
+            lines.append("Power Management:")
+            lines.append(f"  Average Units Allocated: {self.average_allocated_units:.1f}")
+            lines.append(f"  Allocated Units Idle Energy:   {self.total_allocated_units_energy_j * 1e6:.0f} μJ")
+            lines.append(f"  Unallocated Units Idle Energy: {self.total_unallocated_units_energy_j * 1e6:.0f} μJ")
+            if self.power_gating_enabled:
+                lines.append(f"  Power Gating: ENABLED")
+                if self.total_power_gating_savings_j > 0:
+                    savings_pct = (self.total_power_gating_savings_j /
+                                 (self.total_allocated_units_energy_j + self.total_unallocated_units_energy_j + self.total_power_gating_savings_j)) * 100
+                    lines.append(f"  Power Gating Savings: {self.total_power_gating_savings_j * 1e6:.0f} μJ ({savings_pct:.1f}% of potential idle energy)")
+            else:
+                lines.append(f"  Power Gating: DISABLED (conservative estimate)")
+            lines.append("")
 
         # Top consumers
         if self.top_energy_consumers:
@@ -224,7 +263,8 @@ class EnergyAnalyzer:
         self,
         resource_model: HardwareResourceModel,
         precision: Precision = Precision.FP32,
-        latency_s: Optional[float] = None
+        latency_s: Optional[float] = None,
+        power_gating_enabled: bool = False  # NEW: Phase 1 integration
     ):
         """
         Initialize energy analyzer.
@@ -233,10 +273,12 @@ class EnergyAnalyzer:
             resource_model: Hardware specifications
             precision: Precision to use for energy calculations
             latency_s: Optional total latency (if not provided, estimated from roofline)
+            power_gating_enabled: If True, unallocated units consume 0 idle power (NEW)
         """
         self.resource_model = resource_model
         self.precision = precision
         self.latency_s = latency_s
+        self.power_gating_enabled = power_gating_enabled  # NEW
 
         # Get energy coefficients
         self.energy_per_flop = resource_model.energy_per_flop_fp32
@@ -250,6 +292,10 @@ class EnergyAnalyzer:
 
         # Calculate TDP (thermal design power)
         self._estimate_tdp()
+
+        # NEW: Per-unit idle power for power gating calculations
+        self.total_compute_units = resource_model.compute_units
+        self.idle_power_per_unit = self.idle_power_watts / max(1, self.total_compute_units)
 
     def _estimate_tdp(self):
         """Estimate TDP from hardware specs"""
@@ -282,7 +328,8 @@ class EnergyAnalyzer:
         self,
         subgraphs: List[SubgraphDescriptor],
         partition_report: Optional[PartitionReport] = None,
-        latencies: Optional[List[float]] = None
+        latencies: Optional[List[float]] = None,
+        hardware_allocation: Optional['GraphHardwareAllocation'] = None  # NEW
     ) -> EnergyReport:
         """
         Analyze energy for all subgraphs.
@@ -291,10 +338,17 @@ class EnergyAnalyzer:
             subgraphs: List of computational subgraphs
             partition_report: Optional partition report
             latencies: Optional per-subgraph latencies (from roofline analysis)
+            hardware_allocation: Optional hardware allocation for per-unit power states (NEW)
 
         Returns:
             EnergyReport with energy analysis
         """
+
+        # Build allocation map (NEW)
+        allocation_map = {}
+        if hardware_allocation:
+            for alloc in hardware_allocation.subgraph_allocations:
+                allocation_map[alloc.subgraph_id] = alloc
 
         energy_descriptors = []
 
@@ -305,7 +359,9 @@ class EnergyAnalyzer:
         # Analyze each subgraph
         for i, sg in enumerate(subgraphs):
             latency = latencies[i] if i < len(latencies) else 0.001  # default 1ms
-            descriptor = self._analyze_subgraph(sg, latency)
+            # NEW: Get allocation for this subgraph (use str(subgraph_id) to match mapper key)
+            allocation = allocation_map.get(str(sg.subgraph_id)) if allocation_map else None
+            descriptor = self._analyze_subgraph(sg, latency, allocation)
             energy_descriptors.append(descriptor)
 
         # Aggregate statistics
@@ -319,6 +375,12 @@ class EnergyAnalyzer:
         avg_efficiency = sum(d.efficiency for d in energy_descriptors) / len(energy_descriptors) if energy_descriptors else 0.0
         avg_utilization = sum(d.utilization for d in energy_descriptors) / len(energy_descriptors) if energy_descriptors else 0.0
         wasted_percent = wasted_energy / total_energy * 100 if total_energy > 0 else 0.0
+
+        # NEW: Aggregate power management metrics
+        total_allocated_units_energy = sum(d.static_energy_allocated_j for d in energy_descriptors)
+        total_unallocated_units_energy = sum(d.static_energy_unallocated_j for d in energy_descriptors)
+        total_power_gating_savings = sum(d.power_gating_savings_j for d in energy_descriptors)
+        avg_allocated_units = sum(d.allocated_units for d in energy_descriptors) / len(energy_descriptors) if energy_descriptors else 0.0
 
         # Power analysis
         total_latency = sum(latencies)
@@ -357,10 +419,31 @@ class EnergyAnalyzer:
             energy_descriptors=energy_descriptors,
             top_energy_consumers=top_consumers,
             optimization_opportunities=optimizations,
+            # NEW: Power management aggregates
+            total_allocated_units_energy_j=total_allocated_units_energy,
+            total_unallocated_units_energy_j=total_unallocated_units_energy,
+            total_power_gating_savings_j=total_power_gating_savings,
+            power_gating_enabled=self.power_gating_enabled,
+            average_allocated_units=avg_allocated_units,
         )
 
-    def _analyze_subgraph(self, sg: SubgraphDescriptor, latency: float) -> EnergyDescriptor:
-        """Analyze energy for a single subgraph"""
+    def _analyze_subgraph(
+        self,
+        sg: SubgraphDescriptor,
+        latency: float,
+        allocation: Optional['HardwareAllocation'] = None  # NEW
+    ) -> EnergyDescriptor:
+        """
+        Analyze energy for a single subgraph with per-unit power state modeling (NEW).
+
+        Args:
+            sg: Subgraph descriptor
+            latency: Execution latency in seconds
+            allocation: Hardware allocation with unit allocation info (optional)
+
+        Returns:
+            EnergyDescriptor with energy breakdown
+        """
 
         # Compute energy = FLOPs × energy_per_flop
         compute_energy = sg.flops * self.energy_per_flop
@@ -369,19 +452,44 @@ class EnergyAnalyzer:
         total_bytes = sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
         memory_energy = total_bytes * self.energy_per_byte
 
-        # Static energy = idle_power × latency
-        static_energy = self.idle_power_watts * latency
+        # ========================================================================
+        # NEW: Per-unit static energy calculation (Phase 1)
+        # ========================================================================
+        if allocation and allocation.compute_units_allocated > 0:
+            # Use actual allocation from hardware mapper
+            allocated_units = allocation.compute_units_allocated
+            unallocated_units = self.total_compute_units - allocated_units
+
+            if self.power_gating_enabled:
+                # Power gating: Only allocated units consume idle power
+                static_energy_allocated = self.idle_power_per_unit * allocated_units * latency
+                static_energy_unallocated = 0.0  # Power gated
+                power_gating_savings = self.idle_power_per_unit * unallocated_units * latency
+            else:
+                # No power gating: All units consume idle power
+                static_energy_allocated = self.idle_power_per_unit * allocated_units * latency
+                static_energy_unallocated = self.idle_power_per_unit * unallocated_units * latency
+                power_gating_savings = 0.0
+
+            static_energy = static_energy_allocated + static_energy_unallocated
+            utilization = allocation.utilization  # From mapper
+        else:
+            # Fallback: Old method (no allocation info)
+            allocated_units = 0
+            static_energy_allocated = 0.0
+            static_energy_unallocated = 0.0
+            static_energy = self.idle_power_watts * latency
+            power_gating_savings = 0.0
+
+            # Estimate utilization from thread count
+            utilization = 1.0
+            if sg.parallelism and sg.parallelism.total_threads > 0:
+                max_threads = self.total_compute_units * self.resource_model.threads_per_unit
+                utilization = min(1.0, sg.parallelism.total_threads / max_threads)
 
         # Total energy
         dynamic_energy = compute_energy + memory_energy
         total_energy = dynamic_energy + static_energy
-
-        # Utilization (from parallelism descriptor if available)
-        utilization = 1.0
-        if sg.parallelism and sg.parallelism.total_threads > 0:
-            # Estimate utilization based on thread count
-            max_threads = self.resource_model.compute_units * self.resource_model.threads_per_unit
-            utilization = min(1.0, sg.parallelism.total_threads / max_threads)
 
         # Wasted energy = energy on idle resources
         # If utilization is 50%, then 50% of static energy is wasted
@@ -411,6 +519,12 @@ class EnergyAnalyzer:
             wasted_energy_j=wasted_energy,
             efficiency=efficiency,
             peak_energy_j=peak_energy,
+            # NEW: Power management fields
+            allocated_units=allocated_units,
+            static_energy_allocated_j=static_energy_allocated,
+            static_energy_unallocated_j=static_energy_unallocated,
+            power_gating_savings_j=power_gating_savings,
+            power_gating_enabled=self.power_gating_enabled,
             explanation=explanation,
         )
 

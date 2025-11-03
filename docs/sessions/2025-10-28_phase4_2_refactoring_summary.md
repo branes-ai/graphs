@@ -55,7 +55,7 @@ Successfully refactored CLI tools to use UnifiedAnalyzer and ReportGenerator, ac
 
 ## Features Maintained
 
-### analyze_comprehensive_v2.py
+### analyze_comprehensive.py
 
 ✅ **All original functionality preserved:**
 - Single model analysis
@@ -73,7 +73,7 @@ Successfully refactored CLI tools to use UnifiedAnalyzer and ReportGenerator, ac
 - Easier maintenance
 - Consistent output across formats
 
-### analyze_batch_v2.py
+### analyze_batch.py
 
 ✅ **All original functionality preserved:**
 - Batch size sweeps
@@ -93,42 +93,42 @@ Successfully refactored CLI tools to use UnifiedAnalyzer and ReportGenerator, ac
 
 ## Example Usage
 
-### analyze_comprehensive_v2.py
+### analyze_comprehensive.py
 
 ```bash
 # Text report (default)
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # JSON output
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
     --output results.json
 
 # CSV for spreadsheet
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
     --output results.csv --subgraph-details
 
 # Markdown report
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
     --output report.md
 
 # FP16 precision
-./cli/analyze_comprehensive_v2.py --model resnet50 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet50 --hardware H100 \
     --precision fp16 --batch-size 32
 ```
 
-### analyze_batch_v2.py
+### analyze_batch.py
 
 ```bash
 # Batch size sweep
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
     --batch-size 1 2 4 8 16 32 --output sweep.csv
 
 # Model comparison
-./cli/analyze_batch_v2.py --models resnet18 mobilenet_v2 efficientnet_b0 \
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 efficientnet_b0 \
     --hardware H100 --batch-size 1 16 32 --output model_comp.csv
 
 # Hardware comparison
-./cli/analyze_batch_v2.py --model resnet50 \
+./cli/analyze_batch.py --model resnet50 \
     --hardware H100 Jetson-Orin-AGX KPU-T256 \
     --batch-size 1 8 16 --output hw_comp.csv
 ```
@@ -304,7 +304,7 @@ To migrate:
 ./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # New (same command!)
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 ```
 
 ### For Developers
@@ -350,8 +350,8 @@ Update documentation:
 ## Files Created
 
 **Refactored CLI Tools:**
-- `cli/analyze_comprehensive_v2.py` (262 lines, down from 962)
-- `cli/analyze_batch_v2.py` (329 lines, down from 572)
+- `cli/analyze_comprehensive.py` (262 lines, down from 962)
+- `cli/analyze_batch.py` (329 lines, down from 572)
 
 **Documentation:**
 - `docs/sessions/2025-10-28_phase4_2_refactoring_summary.md` (this file)

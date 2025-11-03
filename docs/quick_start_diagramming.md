@@ -5,7 +5,7 @@
 Generate a markdown report with Mermaid diagrams:
 
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet18 \
     --hardware H100 \
     --output report.md \
@@ -21,7 +21,7 @@ View `report.md` in GitHub or VSCode to see the diagrams!
 ### 1. Basic Analysis with Diagrams
 
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model mobilenet_v2 \
     --hardware Jetson-Orin-AGX \
     --output analysis.md \
@@ -36,7 +36,7 @@ View `report.md` in GitHub or VSCode to see the diagrams!
 ### 2. Select Specific Diagrams
 
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet50 \
     --hardware H100 \
     --output report.md \
@@ -54,7 +54,7 @@ View `report.md` in GitHub or VSCode to see the diagrams!
 ```bash
 # Analyze multiple models
 for model in resnet18 resnet50 mobilenet_v2; do
-    ./cli/analyze_comprehensive_v2.py \
+    ./cli/analyze_comprehensive.py \
         --model $model \
         --hardware H100 \
         --output "reports/${model}_H100.md" \
@@ -65,7 +65,7 @@ done
 ### 4. High-Precision Analysis
 
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet50 \
     --hardware H100 \
     --precision fp16 \
@@ -281,7 +281,7 @@ See the `docs/` directory for examples:
 - **Design Document**: `docs/mermaid_visualization_design.md`
 - **Integration Guide**: `docs/MERMAID_INTEGRATION_COMPLETE.md`
 - **Color Guide**: `docs/COLOR_CONTRAST_IMPROVEMENTS.md`
-- **CLI Help**: `./cli/analyze_comprehensive_v2.py --help`
+- **CLI Help**: `./cli/analyze_comprehensive.py --help`
 
 ---
 

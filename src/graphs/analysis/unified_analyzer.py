@@ -52,7 +52,12 @@ from graphs.analysis.concurrency import ConcurrencyAnalyzer
 from graphs.ir.structures import ConcurrencyDescriptor
 
 # Hardware models
-from graphs.hardware.resource_model import Precision, HardwareResourceModel
+from graphs.hardware.resource_model import (
+    Precision,
+    HardwareResourceModel,
+    GraphHardwareAllocation,
+    HardwareAllocation,
+)
 
 # Hardware mapper imports
 from graphs.hardware.mappers.gpu import (
@@ -104,6 +109,7 @@ class AnalysisConfig:
     run_energy: bool = True
     run_memory: bool = True
     run_concurrency: bool = False  # Optional, expensive
+    run_hardware_mapping: bool = True  # NEW: Use hardware mapper for allocation
 
     # Partitioning strategy
     use_fusion_partitioning: bool = False  # Reserved for future use (FusionBasedPartitioner needs integration work)
@@ -112,6 +118,9 @@ class AnalysisConfig:
     estimate_checkpointing_savings: bool = False
     estimate_quantization_savings: bool = False
     detailed_memory_timeline: bool = True
+
+    # Power management (Phase 2)
+    power_gating_enabled: bool = False  # NEW: Model power gating of unused units
 
     # Validation
     validate_consistency: bool = True  # Check reports agree with each other
@@ -139,6 +148,9 @@ class UnifiedAnalysisResult:
     # Graph structures
     fx_graph: GraphModule
     partition_report: PartitionReport
+
+    # Phase 2: Hardware mapping (NEW)
+    hardware_allocation: Optional['GraphHardwareAllocation'] = None
 
     # Phase 3 analysis results
     roofline_report: Optional[RooflineReport] = None
@@ -406,7 +418,18 @@ class UnifiedAnalyzer:
             partition_report=partition_report,
         )
 
-        # Step 2: Run roofline analysis
+        # Step 2: Run hardware mapping (NEW)
+        if config.run_hardware_mapping:
+            if self.verbose:
+                print("Running hardware mapping...")
+            result.hardware_allocation = self._run_hardware_mapping(
+                partition_report, hardware_mapper, batch_size, precision
+            )
+            if self.verbose:
+                print(f"  Peak units allocated: {result.hardware_allocation.peak_compute_units_used}/{hardware.compute_units}")
+                print(f"  Average utilization: {result.hardware_allocation.average_utilization * 100:.1f}%")
+
+        # Step 3: Run roofline analysis
         if config.run_roofline:
             if self.verbose:
                 print("Running roofline analysis...")
@@ -414,12 +437,13 @@ class UnifiedAnalyzer:
                 partition_report, hardware, precision
             )
 
-        # Step 3: Run energy analysis (depends on roofline for latencies)
+        # Step 4: Run energy analysis (depends on roofline for latencies, hardware mapping for allocation)
         if config.run_energy:
             if self.verbose:
                 print("Running energy analysis...")
             result.energy_report = self._run_energy_analysis(
-                partition_report, hardware, result.roofline_report, precision
+                partition_report, hardware, result.roofline_report,
+                result.hardware_allocation, precision, config
             )
 
         # Step 4: Run memory analysis
@@ -484,6 +508,87 @@ class UnifiedAnalyzer:
 
         return fx_graph, partition_report
 
+    def _run_hardware_mapping(
+        self,
+        partition_report: PartitionReport,
+        hardware_mapper: 'HardwareMapper',
+        batch_size: int,
+        precision: Precision
+    ) -> GraphHardwareAllocation:
+        """
+        Map subgraphs to hardware resources (NEW - Phase 1).
+
+        This integrates the hardware mapper to get actual allocation decisions
+        (compute_units_allocated) which feed into energy calculation for
+        accurate idle power accounting.
+
+        Args:
+            partition_report: Partitioned graph
+            hardware_mapper: Hardware mapper (GPU, CPU, TPU, etc.)
+            batch_size: Batch size for scaling
+            precision: Numerical precision
+
+        Returns:
+            GraphHardwareAllocation with per-subgraph allocations
+        """
+        hardware = hardware_mapper.resource_model
+        allocations = []
+
+        # Map each subgraph
+        for sg in partition_report.subgraphs:
+            # Simple defaults for Phase 1 (no concurrency analysis)
+            execution_stage = 0  # All sequential
+            concurrent_subgraphs = 1  # No parallelism
+
+            # Map subgraph to hardware
+            allocation = hardware_mapper.map_subgraph(
+                subgraph=sg,
+                execution_stage=execution_stage,
+                concurrent_subgraphs=concurrent_subgraphs,
+                precision=precision
+            )
+            allocations.append(allocation)
+
+        # Compute aggregate stats
+        total_subgraphs = len(allocations)
+        peak_units = max((a.compute_units_allocated for a in allocations), default=0)
+        avg_units = sum(a.compute_units_allocated for a in allocations) / max(1, total_subgraphs)
+        peak_util = peak_units / hardware.compute_units
+        avg_util = avg_units / hardware.compute_units
+
+        # Compute total latency (sequential for now)
+        total_latency = sum(a.estimated_latency for a in allocations)
+        total_energy = sum(a.total_energy for a in allocations)
+
+        # Bottleneck counts
+        compute_bound = sum(1 for a in allocations if a.bottleneck == 'compute')
+        memory_bound = sum(1 for a in allocations if a.bottleneck == 'memory')
+        bandwidth_bound = sum(1 for a in allocations if a.bottleneck == 'bandwidth')
+        balanced = total_subgraphs - compute_bound - memory_bound - bandwidth_bound
+
+        return GraphHardwareAllocation(
+            model_name=partition_report.model_name if hasattr(partition_report, 'model_name') else "model",
+            hardware_name=hardware.name,
+            batch_size=batch_size,
+            model_precision=precision,
+            subgraph_allocations=allocations,
+            total_subgraphs=total_subgraphs,
+            total_execution_stages=1,  # Sequential for Phase 1
+            peak_compute_units_used=peak_units,
+            average_compute_units_used=avg_units,
+            peak_utilization=peak_util,
+            average_utilization=avg_util,
+            total_latency=total_latency,
+            latency_breakdown={0: total_latency},  # Single stage
+            total_energy=total_energy,
+            naive_latency=total_latency,  # Will compute properly later
+            latency_correction_factor=1.0,  # Placeholder
+            compute_bound_count=compute_bound,
+            memory_bound_count=memory_bound,
+            bandwidth_bound_count=bandwidth_bound,
+            balanced_count=balanced,
+        )
+
     def _run_roofline_analysis(
         self,
         partition_report: PartitionReport,
@@ -499,10 +604,16 @@ class UnifiedAnalyzer:
         partition_report: PartitionReport,
         hardware: HardwareResourceModel,
         roofline_report: Optional[RooflineReport],
-        precision: Precision
+        hardware_allocation: Optional[GraphHardwareAllocation],
+        precision: Precision,
+        config: AnalysisConfig
     ) -> EnergyReport:
-        """Run energy analysis using roofline latencies"""
-        analyzer = EnergyAnalyzer(hardware, precision=precision)
+        """Run energy analysis using roofline latencies and hardware allocation (NEW)"""
+        analyzer = EnergyAnalyzer(
+            hardware,
+            precision=precision,
+            power_gating_enabled=config.power_gating_enabled  # NEW
+        )
 
         # Extract latencies from roofline if available
         latencies = None
@@ -512,7 +623,8 @@ class UnifiedAnalyzer:
         return analyzer.analyze(
             partition_report.subgraphs,
             partition_report,
-            latencies=latencies
+            latencies=latencies,
+            hardware_allocation=hardware_allocation  # NEW
         )
 
     def _run_memory_analysis(

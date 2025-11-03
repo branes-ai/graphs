@@ -408,7 +408,7 @@ merged = FusedSubgraph(
    - CPU: SIMD-friendly fusion decisions
 
 4. **Production Integration**
-   - Add to CLI tools (`analyze_comprehensive_v2.py`)
+   - Add to CLI tools (`analyze_comprehensive.py`)
    - Default partitioner for transformer models
    - Fusion pattern library for common architectures
 

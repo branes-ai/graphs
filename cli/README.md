@@ -382,31 +382,31 @@ The refactored v2 tools use the unified analysis framework for simplified code a
 - **Better Maintenance**: Fix bugs once, benefit everywhere
 - **More Formats**: Text, JSON, CSV, Markdown all supported
 
-#### `analyze_comprehensive_v2.py` (Recommended)
+#### `analyze_comprehensive.py` (Recommended)
 Deep-dive comprehensive analysis using the unified framework.
 
 **Usage:**
 ```bash
 # Basic analysis (text output)
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # JSON output with all details
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --output results.json
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output results.json
 
 # CSV output for spreadsheet analysis
-./cli/analyze_comprehensive_v2.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
   --output results.csv
 
 # Markdown report
-./cli/analyze_comprehensive_v2.py --model efficientnet_b0 --hardware KPU-T256 \
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware KPU-T256 \
   --output report.md
 
 # FP16 precision analysis
-./cli/analyze_comprehensive_v2.py --model resnet50 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet50 --hardware H100 \
   --precision fp16 --batch-size 32
 
 # Custom output format
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
   --format json --quiet
 ```
 
@@ -450,30 +450,30 @@ RECOMMENDATIONS
 
 ---
 
-#### `analyze_batch_v2.py` (Recommended)
+#### `analyze_batch.py` (Recommended)
 Batch size impact analysis using the unified framework.
 
 **Usage:**
 ```bash
 # Batch size sweep (single model/hardware)
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 2 4 8 16 32 --output results.csv
 
 # Model comparison (same hardware, same batch sizes)
-./cli/analyze_batch_v2.py --models resnet18 mobilenet_v2 efficientnet_b0 \
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 efficientnet_b0 \
   --hardware H100 --batch-size 1 16 32
 
 # Hardware comparison (same model, same batch sizes)
-./cli/analyze_batch_v2.py --model resnet50 \
+./cli/analyze_batch.py --model resnet50 \
   --hardware H100 Jetson-Orin-AGX KPU-T256 \
   --batch-size 1 8 16
 
 # JSON output with insights
-./cli/analyze_batch_v2.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+./cli/analyze_batch.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
   --batch-size 1 2 4 8 --output results.json --format json
 
 # Quiet mode (no progress output)
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 4 16 32 --output results.csv --quiet
 ```
 
@@ -518,7 +518,7 @@ The v2 tools are **drop-in replacements** with identical command-line arguments:
 ./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # New (Phase 4.2) - same command!
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 ```
 
 ---
@@ -730,6 +730,246 @@ Now includes Phase 3 analysis modes via `--analysis` flag.
 
 ---
 
+## Power Management Analysis
+
+**NEW (2025-11-03)**: Enhanced energy analysis with hardware mapper integration and power gating support.
+
+### Overview
+
+The unified framework now provides accurate power management modeling by:
+- **Hardware Mapper Integration**: Uses actual compute unit allocations (e.g., 24/132 SMs on H100) instead of thread-based estimates
+- **Power Gating**: Models the ability to turn off unused compute units (unallocated units consume 0W idle power)
+- **Per-Unit Energy Accounting**: Tracks energy for allocated vs unallocated units separately
+
+**Impact**: Up to 61.7% idle energy savings on low-utilization workloads (e.g., ResNet-18 batch size 1).
+
+### Basic Usage
+
+```bash
+# Enable power gating for accurate energy estimates
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --power-gating
+
+# Compare with and without power gating
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output no_pg.json
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output with_pg.json --power-gating
+
+# Disable hardware mapping (fallback to thread-based estimation)
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --no-hardware-mapping
+```
+
+### Understanding the Output
+
+**Power Management Section** (appears in energy analysis when `--power-gating` is enabled):
+
+```
+ENERGY ANALYSIS
+-------------------------------------------------------------------------------
+Total Energy:            20.9 mJ
+  Compute Energy:        1.8 mJ
+  Memory Energy:         1.8 mJ
+  Static Energy:         17.3 mJ
+
+Energy per Inference:    20.9 mJ
+Average Power:           48.5 W
+Peak Power:              117.0 W
+Energy Efficiency:       16.8%
+
+Power Management:
+  Average Units Allocated: 48.1
+  Allocated Units Idle:    17.3 mJ
+  Unallocated Units Idle:  0.0 mJ
+  Power Gating:            ENABLED
+  Power Gating Savings:    28.0 mJ (61.7%)
+```
+
+**Without power gating** (conservative estimate):
+```
+Power Management:
+  Average Units Allocated: 48.1
+  Allocated Units Idle:    17.3 mJ
+  Unallocated Units Idle:  28.0 mJ
+  Power Gating:            DISABLED (conservative estimate)
+```
+
+### Key Metrics
+
+| Metric | Description |
+|--------|-------------|
+| **Average Units Allocated** | Average compute units (SMs/tiles/cores) allocated across all operations |
+| **Allocated Units Idle** | Idle energy consumed by units actively allocated to workload |
+| **Unallocated Units Idle** | Idle energy consumed by unused units (0 with power gating) |
+| **Power Gating Savings** | Energy saved by turning off unused units |
+
+### Use Cases
+
+**1. Low-Utilization Workloads** (batch size 1, small models)
+```bash
+# Power gating has maximum impact on low-utilization workloads
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware H100 \
+    --batch-size 1 --power-gating --output mobile_pg.json
+```
+Expected savings: 50-70% idle energy reduction
+
+**2. Edge Device Power Budgeting**
+```bash
+# Accurate power modeling for battery-powered devices
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware Jetson-Orin-Nano \
+    --power-gating --precision fp16 --output edge_power.json
+```
+Use the "Energy per Inference" metric for battery life estimation.
+
+**3. Datacenter TCO Analysis**
+```bash
+# Compare power gating impact across different batch sizes
+./cli/analyze_batch.py --model resnet50 --hardware H100 \
+    --batch-size 1 2 4 8 16 32 64 128 \
+    --power-gating --output datacenter_tco.csv
+```
+Higher batch sizes reduce power gating benefit (better utilization).
+
+**4. Hardware Comparison with Accurate Power**
+```bash
+# Compare energy efficiency across hardware with realistic idle power
+for hw in H100 A100 Jetson-Orin-AGX; do
+    ./cli/analyze_comprehensive.py --model resnet18 --hardware $hw \
+        --power-gating --output ${hw}_power.json
+done
+```
+
+**5. EDP (Energy-Delay Product) Comparison**
+
+Compare hardware efficiency using EDP (Energy × Latency), which balances energy and performance trade-offs:
+
+```bash
+# Compare edge accelerators: Jetson-Orin-AGX vs KPU-T256
+# Lower EDP = better efficiency
+
+# Jetson-Orin-AGX (GPU-based edge device)
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware Jetson-Orin-AGX \
+    --power-gating --precision fp16 --output jetson_edp.json
+
+# KPU-T256 (dataflow NPU)
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware KPU-T256 \
+    --power-gating --precision int8 --output kpu_edp.json
+
+# Extract EDP from results
+python -c "
+import json
+for hw in ['jetson', 'kpu']:
+    with open(f'{hw}_edp.json') as f:
+        data = json.load(f)
+        energy_mj = data['derived_metrics']['energy_per_inference_mj']
+        latency_ms = data['derived_metrics']['latency_ms']
+        edp_ujs = energy_mj * latency_ms  # mJ × ms = µJ·s
+        throughput = data['derived_metrics']['throughput_fps']
+        print(f'{hw.upper()}: EDP={edp_ujs:.2f} µJ·s, E={energy_mj:.2f} mJ, L={latency_ms:.2f} ms, T={throughput:.0f} fps')
+"
+```
+
+**Example Output:**
+```
+JETSON: EDP=27.47 µJ·s, E=12.39 mJ, L=2.22 ms, T=451 fps
+KPU: EDP=6.95 µJ·s, E=8.49 mJ, L=0.82 ms, T=1222 fps
+
+→ KPU has 75% better EDP (4.0× more efficient overall)
+→ KPU has 63% better latency (2.7× faster inference)
+→ KPU has 31% better energy efficiency
+→ KPU has 2.7× better throughput
+```
+
+**Analysis:** For EfficientNet-B0, KPU-T256 dominates Jetson-Orin-AGX across all metrics due to its specialized dataflow architecture optimized for depthwise separable convolutions.
+
+**Interpretation:**
+- **EDP < 1**: Excellent efficiency (datacenter GPUs at high batch size)
+- **EDP 1-5**: Good efficiency (edge accelerators, optimized workloads)
+- **EDP 5-20**: Moderate efficiency (CPUs, low-batch GPU)
+- **EDP > 20**: Poor efficiency (unoptimized workloads)
+
+Lower EDP is better - it means you get the work done with less energy and in less time.
+
+**Advanced EDP Analysis:**
+
+For more detailed EDP breakdown and subgraph-level analysis, use the specialized architecture comparison tool:
+```bash
+# Comprehensive EDP comparison with subgraph breakdown
+./cli/compare_architectures.py --model efficientnet_b0 --architectures GPU KPU \
+    --level subgraph --output edp_detailed.html
+
+# See which specific operations drive EDP differences
+./cli/compare_architectures.py --model efficientnet_b0 \
+    --explain-difference GPU KPU --metric energy
+```
+
+This provides EDP breakdown by architecture component (compute, memory, control overhead) and per-subgraph EDP analysis.
+
+### When to Use Power Gating
+
+**Enable `--power-gating` when:**
+- ✅ Analyzing low-utilization workloads (batch size 1-4, small models)
+- ✅ Estimating battery life for edge devices
+- ✅ Comparing energy efficiency across hardware
+- ✅ You have control over hardware power management policies
+
+**Use default (no power gating) when:**
+- ⚠️ You want conservative (worst-case) energy estimates
+- ⚠️ Hardware doesn't support power gating (older GPUs, some FPGAs)
+- ⚠️ Workload keeps all units busy (high batch size, large models)
+
+### Python API
+
+```python
+from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
+from graphs.hardware.resource_model import Precision
+
+# Enable power gating in analysis
+config = AnalysisConfig(
+    run_hardware_mapping=True,      # Get actual unit allocations
+    power_gating_enabled=True,       # Model turning off unused units
+    run_roofline=True,
+    run_energy=True,
+    run_memory=True
+)
+
+analyzer = UnifiedAnalyzer()
+result = analyzer.analyze_model('resnet18', 'H100', batch_size=1, config=config)
+
+# Access power management metrics
+print(f"Total Energy: {result.total_energy_mj:.1f} mJ")
+print(f"Power Gating Savings: {result.energy_report.total_power_gating_savings_j * 1000:.1f} mJ")
+print(f"Average Allocated Units: {result.energy_report.average_allocated_units:.1f}")
+```
+
+### Technical Details
+
+**Hardware Mapper Integration:**
+- Maps each subgraph to specific compute units (e.g., SMs on GPU, tiles on TPU)
+- Provides `compute_units_allocated` for each operation
+- Accounts for wave quantization and occupancy limits
+
+**Per-Unit Idle Power:**
+```
+idle_power_per_unit = total_idle_power / total_compute_units
+
+# Without power gating:
+static_energy = idle_power_per_unit × (allocated + unallocated) × latency
+
+# With power gating:
+static_energy = idle_power_per_unit × allocated × latency
+```
+
+**Accuracy Improvements:**
+- **Utilization**: 48× more accurate (36.5% actual vs 0.76% from thread count)
+- **Idle Energy**: 61.7% savings for ResNet-18 batch size 1 on H100
+- **Functional Composition**: Energy composes correctly from unit → subgraph → model
+
+### Related Documentation
+
+- **Design Document**: `docs/designs/functional_energy_composition.md`
+- **Validation Tests**: `validation/analysis/test_phase1_mapper_integration.py`
+- **Enhanced Reporting**: `validation/analysis/test_power_management_reporting.py`
+
+---
+
 ## Common Usage Patterns
 
 ### Quick Model Analysis
@@ -766,53 +1006,53 @@ Now includes Phase 3 analysis modes via `--analysis` flag.
 **1. Deep-Dive Model Analysis**
 ```bash
 # Comprehensive analysis with all Phase 3 components (v2 recommended)
-./cli/analyze_comprehensive_v2.py --model resnet50 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet50 --hardware H100 \
   --output comprehensive_analysis.json
 
 # Generate markdown report for documentation
-./cli/analyze_comprehensive_v2.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
   --output edge_deployment_report.md
 
 # CSV format with subgraph details
-./cli/analyze_comprehensive_v2.py --model efficientnet_b0 --hardware KPU-T256 \
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware KPU-T256 \
   --output detailed_analysis.csv --subgraph-details
 ```
 
 **2. Batch Size Optimization**
 ```bash
 # Find optimal batch size for throughput (v2 recommended)
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 2 4 8 16 32 --output batch_sweep.csv
 
 # Compare batching behavior across models
-./cli/analyze_batch_v2.py --models resnet18 mobilenet_v2 efficientnet_b0 \
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 efficientnet_b0 \
   --hardware H100 --batch-size 1 16 32 --output model_comparison.csv
 
 # Quiet mode for scripting
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 4 16 32 --output batch_sweep.csv --quiet --no-insights
 ```
 
 **3. Hardware Selection for Deployment**
 ```bash
 # Compare hardware options (v2 recommended)
-./cli/analyze_batch_v2.py --model resnet50 \
+./cli/analyze_batch.py --model resnet50 \
   --hardware H100 Jetson-Orin-AGX KPU-T256 \
   --batch-size 1 8 16 --output hardware_comparison.csv
 
 # Deep-dive into specific hardware
-./cli/analyze_comprehensive_v2.py --model resnet50 --hardware KPU-T256 \
+./cli/analyze_comprehensive.py --model resnet50 --hardware KPU-T256 \
   --precision fp16 --batch-size 8 --output kpu_deployment.json
 ```
 
 **4. Energy Efficiency Analysis**
 ```bash
 # Comprehensive energy analysis (v2 recommended)
-./cli/analyze_comprehensive_v2.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
   --output energy_analysis.json
 
 # Find energy-optimal batch size
-./cli/analyze_batch_v2.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+./cli/analyze_batch.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
   --batch-size 1 2 4 8 --output energy_optimization.csv
 # Look for "Best efficiency" in the insights
 
@@ -824,11 +1064,11 @@ Now includes Phase 3 analysis modes via `--analysis` flag.
 **5. Complete Deployment Analysis**
 ```bash
 # Step 1: Comprehensive analysis (v2 recommended)
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware Jetson-Orin-AGX \
+./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-AGX \
   --output analysis_report.json
 
 # Step 2: Batch size sweep
-./cli/analyze_batch_v2.py --model resnet18 --hardware Jetson-Orin-AGX \
+./cli/analyze_batch.py --model resnet18 --hardware Jetson-Orin-AGX \
   --batch-size 1 2 4 8 --output batch_analysis.csv
 
 # Step 3: Full Phase 3 analysis with visualizations (use original tool)
@@ -1032,8 +1272,8 @@ python3 cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
 | Analyze single HW target | `analyze_graph_mapping.py --hardware` | |
 | Compare multiple HW targets | `analyze_graph_mapping.py --compare` | |
 | Compare models on same HW | `compare_models.py` | |
-| **Deep-dive analysis** | **`analyze_comprehensive_v2.py`** | ⭐ Recommended (Phase 4.2) |
-| **Batch size impact analysis** | **`analyze_batch_v2.py`** | ⭐ Recommended (Phase 4.2) |
+| **Deep-dive analysis** | **`analyze_comprehensive.py`** | ⭐ Recommended (Phase 4.2) |
+| **Batch size impact analysis** | **`analyze_batch.py`** | ⭐ Recommended (Phase 4.2) |
 | **Roofline/energy/memory analysis** | **`analyze_graph_mapping.py --analysis full`** | |
 | Automotive deployment | `compare_automotive_adas.py` | |
 | Edge deployment | `compare_edge_ai_platforms.py` | |

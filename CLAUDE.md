@@ -55,10 +55,10 @@ graphs/
 │   └── scripts/                # Entry point scripts
 │       └── run_characterization.py
 ├── cli/                        # Command-line tools
-│   ├── analyze_comprehensive_v2.py  # Comprehensive analysis
-│   ├── analyze_batch_v2.py          # Batch size analysis
-│   ├── analyze_comprehensive.py     # Legacy comprehensive analysis
-│   ├── analyze_batch.py             # Legacy batch analysis
+│   ├── analyze_comprehensive.py     # Comprehensive analysis (Phase 4.2 unified framework)
+│   ├── analyze_batch.py             # Batch size analysis (Phase 4.2 unified framework)
+│   ├── analyze_comprehensive_v1.py  # Legacy comprehensive analysis
+│   ├── analyze_batch_v1.py          # Legacy batch analysis
 │   ├── analyze_graph_mapping.py     # Hardware mapping analysis
 │   ├── partitioner.py               # Graph partitioning CLI
 │   ├── profile_graph.py             # Model profiling tool
@@ -178,17 +178,21 @@ python tests/characterize/test_graph_partitioner.py
 **Phase 4.2 Unified Framework (Recommended):**
 ```bash
 # Comprehensive analysis with all Phase 3 components
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # Batch size impact analysis
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 --batch-size 1 4 8 16
+./cli/analyze_batch.py --model resnet18 --hardware H100 --batch-size 1 4 8 16
 
 # JSON/CSV/Markdown output
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --output report.json
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --output report.csv
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --output report.md
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output report.json
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output report.csv
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output report.md
 
-# See cli/README.md for full documentation
+# Power management analysis (NEW 2025-11-03)
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --power-gating
+./cli/analyze_batch.py --model resnet50 --hardware H100 --batch-size 1 4 16 64 --power-gating
+
+# See cli/README.md for full documentation (including Power Management Analysis section)
 ```
 
 **Other Tools:**
@@ -204,7 +208,7 @@ python tests/characterize/test_graph_partitioner.py
 
 **Python API (Unified Framework):**
 ```python
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer
+from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.reporting import ReportGenerator
 
 # Single call for complete analysis
@@ -216,6 +220,14 @@ generator = ReportGenerator()
 text_report = generator.generate_text_report(result)
 json_report = generator.generate_json_report(result)
 csv_report = generator.generate_csv_report(result)
+
+# Power management analysis (NEW 2025-11-03)
+config = AnalysisConfig(
+    run_hardware_mapping=True,
+    power_gating_enabled=True
+)
+result_pg = analyzer.analyze_model('resnet18', 'H100', batch_size=1, config=config)
+print(f"Power Gating Savings: {result_pg.energy_report.total_power_gating_savings_j * 1000:.1f} mJ")
 
 # See docs/UNIFIED_FRAMEWORK_API.md for full API documentation
 ```

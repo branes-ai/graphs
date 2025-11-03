@@ -165,7 +165,7 @@ Phase 2 is now **COMPLETE** and **PRODUCTION-READY**. Recommended next steps:
    - Benchmark on larger models (ViT-L, ViT-H)
 
 3. **Integration**
-   - Integrate into CLI tools (`analyze_comprehensive_v2.py`)
+   - Integrate into CLI tools (`analyze_comprehensive.py`)
    - Add automatic decomposition flag to existing analysis tools
    - Create comparison reports (standard vs decomposed)
    - Add to production fusion pipeline

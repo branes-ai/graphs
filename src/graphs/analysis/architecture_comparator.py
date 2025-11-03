@@ -18,6 +18,7 @@ from enum import Enum
 import json
 import csv
 import io
+import math
 
 from graphs.hardware.resource_model import Precision
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer, UnifiedAnalysisResult
@@ -148,6 +149,56 @@ class SubgraphEDPDescriptor:
         """Short summary"""
         return (f"SubgraphEDP({self.subgraph_name}: "
                 f"{self.edp * 1e9:.2f} nJ·s, {self.edp_fraction * 100:.1f}% of total)")
+
+
+@dataclass
+class OperatorEDPDescriptor:
+    """
+    Per-operator EDP breakdown within a subgraph (Phase 2).
+
+    Decomposes subgraph EDP to individual operators, applying architectural
+    modifiers to reveal fusion benefits and architecture-specific overhead.
+
+    Example:
+        Subgraph: fc1 (Linear_Bias_ReLU, 3 ops)
+          Linear:  95.0%  (1.0× modifier - dominates)
+          Bias:     2.5%  (0.05× modifier - hidden in dataflow on KPU)
+          ReLU:     2.5%  (0.05× modifier - hidden in dataflow on KPU)
+    """
+
+    # Identity
+    operator_id: str
+    operator_type: str  # "Linear", "Conv2d", "ReLU", "Bias", "BatchNorm2d", etc.
+    subgraph_id: str    # Parent subgraph
+    subgraph_name: str
+
+    # Base EDP (hardware-agnostic, FLOP-proportional allocation)
+    base_edp: float  # J·s
+
+    # Architectural EDP (with architecture-specific modifiers)
+    architectural_edp: float  # J·s
+    architectural_modifier: float  # Multiplier applied (e.g., 0.05 for hidden ReLU, 3.0 for separate kernel)
+
+    # Contribution
+    edp_fraction_of_subgraph: float  # Percentage within parent subgraph
+    edp_fraction_of_model: float     # Percentage of total model EDP
+
+    # Fusion metadata
+    is_fused: bool  # True if this operator is fused with others in subgraph
+    fusion_benefit: Optional[float] = None  # EDP savings from fusion (if applicable)
+
+    # Operator characteristics
+    flops: float = 0.0  # Floating-point operations
+    memory_bytes: float = 0.0  # Memory footprint
+    arithmetic_intensity: float = 0.0  # FLOPs/byte
+
+    def __str__(self) -> str:
+        """Short summary"""
+        modifier_str = f"{self.architectural_modifier:.2f}×"
+        return (f"OperatorEDP({self.operator_type}: "
+                f"{self.architectural_edp * 1e9:.2f} nJ·s, "
+                f"{self.edp_fraction_of_subgraph * 100:.1f}% of subgraph, "
+                f"modifier={modifier_str})")
 
 
 class ArchitectureComparator:
@@ -355,8 +406,13 @@ class ArchitectureComparator:
         elif result.partition_report and hasattr(result.partition_report, 'average_compute_units_used'):
             compute_units_allocated = int(result.partition_report.average_compute_units_used)
         else:
-            # Estimate from utilization
-            compute_units_allocated = int(utilization * compute_units_total)
+            # Estimate from compute utilization percentage (calculated above)
+            # Use ceil() to ensure at least 1 unit is allocated if there's any activity
+            utilization_fraction = compute_util_pct / 100.0
+            if utilization_fraction > 0:
+                compute_units_allocated = math.ceil(utilization_fraction * compute_units_total)
+            else:
+                compute_units_allocated = 0
 
         # Energy efficiency (TOPS/W)
         average_power_w = (result.energy_per_inference_mj / 1000.0) / latency_s if latency_s > 0 else 0.0
@@ -1002,6 +1058,481 @@ class ArchitectureComparator:
             top3_pct = sum(sg.edp_fraction for sg in subgraph_edps[:3]) * 100
             lines.append(f"  → Focus optimization efforts on top 3 subgraphs ({top3_pct:.1f}% of total EDP)")
             lines.append(f"  → Top subgraph: {subgraph_edps[0].subgraph_name} ({subgraph_edps[0].edp_fraction*100:.1f}%)")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    # ==========================================================================
+    # Phase 2: Operator-Level EDP Breakdown
+    # ==========================================================================
+
+    def _get_architecture_class(self, mapper: 'HardwareMapper') -> 'ArchitectureClass':
+        """
+        Determine architecture class from mapper's energy model.
+
+        Args:
+            mapper: Hardware mapper instance
+
+        Returns:
+            ArchitectureClass enum value
+        """
+        from graphs.hardware.architectural_energy import (
+            ArchitectureClass,
+            StoredProgramEnergyModel,
+            DataParallelEnergyModel,
+            SystolicArrayEnergyModel,
+            DomainFlowEnergyModel,
+            DataFlowMachineEnergyModel,
+            SpatialPartitionEnergyModel,
+            AdaptiveDatapathEnergyModel
+        )
+
+        # Get energy model from resource model
+        energy_model = mapper.resource_model.architecture_energy_model
+
+        # Map energy model type to architecture class
+        if isinstance(energy_model, StoredProgramEnergyModel):
+            return ArchitectureClass.STORED_PROGRAM
+        elif isinstance(energy_model, DataParallelEnergyModel):
+            return ArchitectureClass.DATA_PARALLEL
+        elif isinstance(energy_model, SystolicArrayEnergyModel):
+            return ArchitectureClass.SYSTOLIC_ARRAY
+        elif isinstance(energy_model, DomainFlowEnergyModel):
+            return ArchitectureClass.DOMAIN_FLOW
+        elif isinstance(energy_model, DataFlowMachineEnergyModel):
+            return ArchitectureClass.DATA_FLOW_MACHINE
+        elif isinstance(energy_model, SpatialPartitionEnergyModel):
+            return ArchitectureClass.SPATIAL_PARTITION
+        elif isinstance(energy_model, AdaptiveDatapathEnergyModel):
+            return ArchitectureClass.ADAPTIVE_DATAPATH
+        else:
+            # Default to STORED_PROGRAM if unknown
+            return ArchitectureClass.STORED_PROGRAM
+
+    def get_operator_edp_breakdown(
+        self,
+        arch_name: str,
+        subgraph_name: Optional[str] = None
+    ) -> List['OperatorEDPDescriptor']:
+        """
+        Get per-operator EDP breakdown within subgraphs (Phase 2).
+
+        Decomposes subgraph EDP to individual operators using:
+        1. FLOP-proportional base allocation
+        2. Architectural modifiers (fusion-aware)
+        3. Normalization to match subgraph total
+
+        Args:
+            arch_name: Architecture name (e.g., 'GPU', 'KPU')
+            subgraph_name: Optional subgraph to focus on (all if None)
+
+        Returns:
+            List of OperatorEDPDescriptor, sorted by architectural_edp (descending)
+
+        Example:
+            >>> operator_edps = comparator.get_operator_edp_breakdown('KPU', 'fc1')
+            >>> for op in operator_edps:
+            ...     print(f"{op.operator_type}: {op.architectural_edp*1e9:.2f} nJ·s ({op.edp_fraction_of_subgraph*100:.1f}%)")
+            Linear: 0.48 nJ·s (95.0%)
+            Bias: 0.01 nJ·s (2.5%)
+            ReLU: 0.01 nJ·s (2.5%)
+        """
+        from graphs.analysis.architectural_modifiers import get_architectural_modifier, get_fusion_benefit
+        from graphs.hardware.architectural_energy import ArchitectureClass
+
+        if not self.metrics or arch_name not in self.metrics:
+            raise ValueError(f"No metrics for architecture '{arch_name}'. Run analyze_all() first.")
+
+        # Get architecture metrics and extract full result
+        metrics = self.metrics[arch_name]
+        result = metrics.full_result
+
+        if not result.energy_report or not result.roofline_report or not result.partition_report:
+            raise ValueError(f"Missing reports for {arch_name}")
+
+        # Get architecture class from the energy model
+        mapper = self.architectures[arch_name]
+        arch_class = self._get_architecture_class(mapper)
+
+        # Get subgraph EDP breakdown
+        subgraph_edps = self.get_subgraph_edp_breakdown(arch_name)
+
+        # Filter to specific subgraph if requested
+        if subgraph_name:
+            subgraph_edps = [sg for sg in subgraph_edps if sg.subgraph_name == subgraph_name]
+            if not subgraph_edps:
+                raise ValueError(f"Subgraph '{subgraph_name}' not found for {arch_name}")
+
+        # Decompose each subgraph to operators
+        all_operator_edps = []
+
+        for sg_edp in subgraph_edps:
+            # Find corresponding subgraph descriptor for operator info
+            sg_desc = next((sg for sg in result.partition_report.subgraphs if sg.node_name == sg_edp.subgraph_name), None)
+            if not sg_desc:
+                continue
+
+            # Parse fusion pattern to get operator list
+            operators = self._parse_fusion_pattern(sg_desc.fusion_pattern, sg_desc.flops)
+
+            if not operators:
+                # Fallback: create single operator from fusion pattern
+                operators = [{
+                    'type': sg_desc.fusion_pattern,
+                    'flops': sg_desc.flops,
+                    'memory_bytes': sg_desc.total_input_bytes + sg_desc.total_output_bytes + sg_desc.total_weight_bytes
+                }]
+
+            # Calculate base EDP allocation (FLOP-proportional)
+            total_flops = sum(op['flops'] for op in operators)
+            if total_flops == 0:
+                total_flops = len(operators)  # Equal split if no FLOP info
+
+            is_fused = len(operators) > 1
+
+            for i, op_info in enumerate(operators):
+                # Base EDP (FLOP-proportional)
+                flop_fraction = op_info['flops'] / total_flops if total_flops > 0 else 1.0 / len(operators)
+                base_edp = sg_edp.edp * flop_fraction
+
+                # Get architectural modifier
+                modifier = get_architectural_modifier(op_info['type'], arch_class, is_fused)
+
+                # Architectural EDP (before normalization)
+                architectural_edp_raw = base_edp * modifier
+
+                # Store for normalization
+                op_info['base_edp'] = base_edp
+                op_info['modifier'] = modifier
+                op_info['architectural_edp_raw'] = architectural_edp_raw
+                op_info['index'] = i
+
+            # Normalize architectural EDPs to match subgraph total
+            total_arch_edp_raw = sum(op['architectural_edp_raw'] for op in operators)
+            normalization = sg_edp.edp / total_arch_edp_raw if total_arch_edp_raw > 0 else 1.0
+
+            # Create OperatorEDPDescriptor for each operator
+            for op_info in operators:
+                architectural_edp = op_info['architectural_edp_raw'] * normalization
+
+                # Calculate fusion benefit (if fused)
+                fusion_benefit_ratio = None
+                if is_fused:
+                    fusion_benefit_ratio = get_fusion_benefit(op_info['type'], arch_class)
+
+                operator_edp = OperatorEDPDescriptor(
+                    operator_id=f"{sg_desc.node_id}_op{op_info['index']}",
+                    operator_type=op_info['type'],
+                    subgraph_id=sg_desc.node_id,
+                    subgraph_name=sg_desc.node_name,
+                    base_edp=op_info['base_edp'],
+                    architectural_edp=architectural_edp,
+                    architectural_modifier=op_info['modifier'],
+                    edp_fraction_of_subgraph=architectural_edp / sg_edp.edp if sg_edp.edp > 0 else 0.0,
+                    edp_fraction_of_model=sg_edp.edp_fraction * (architectural_edp / sg_edp.edp) if sg_edp.edp > 0 else 0.0,
+                    is_fused=is_fused,
+                    fusion_benefit=fusion_benefit_ratio,
+                    flops=op_info['flops'],
+                    memory_bytes=op_info.get('memory_bytes', 0),
+                    arithmetic_intensity=op_info['flops'] / op_info.get('memory_bytes', 1) if op_info.get('memory_bytes', 0) > 0 else 0.0
+                )
+
+                all_operator_edps.append(operator_edp)
+
+        # Sort by architectural EDP (descending)
+        all_operator_edps.sort(key=lambda x: x.architectural_edp, reverse=True)
+
+        return all_operator_edps
+
+    def _parse_fusion_pattern(self, fusion_pattern: str, total_flops: float) -> List[Dict]:
+        """
+        Parse fusion pattern to extract operator list with estimated FLOPs.
+
+        Args:
+            fusion_pattern: e.g., "conv_bn_relu", "linear", "add"
+            total_flops: Total FLOPs for the subgraph
+
+        Returns:
+            List of dicts: [{'type': 'Conv2d', 'flops': ...}, {'type': 'BatchNorm2d', 'flops': ...}, ...]
+        """
+        # Common fusion pattern mappings
+        pattern_to_ops = {
+            # Convolution patterns
+            'conv_bn_relu': [('Conv2d', 0.95), ('BatchNorm2d', 0.04), ('ReLU', 0.01)],
+            'conv_relu': [('Conv2d', 0.98), ('ReLU', 0.02)],
+            'conv_bn': [('Conv2d', 0.96), ('BatchNorm2d', 0.04)],
+            'conv': [('Conv2d', 1.0)],
+
+            # Linear patterns
+            'linear_bias_relu': [('Linear', 0.95), ('Bias', 0.03), ('ReLU', 0.02)],
+            'linear_relu': [('Linear', 0.98), ('ReLU', 0.02)],
+            'linear': [('Linear', 1.0)],
+
+            # Activation
+            'relu': [('ReLU', 1.0)],
+            'gelu': [('GELU', 1.0)],
+            'sigmoid': [('Sigmoid', 1.0)],
+            'tanh': [('Tanh', 1.0)],
+
+            # Pooling
+            'max_pool2d': [('MaxPool2d', 1.0)],
+            'avg_pool2d': [('AvgPool2d', 1.0)],
+            'adaptive_avg_pool2d': [('AdaptiveAvgPool2d', 1.0)],
+
+            # Normalization
+            'batch_norm': [('BatchNorm2d', 1.0)],
+            'layer_norm': [('LayerNorm', 1.0)],
+
+            # Other
+            'add': [('add', 1.0)],
+            'matmul': [('matmul', 1.0)],
+            'bmm': [('bmm', 1.0)],
+            'softmax': [('Softmax', 1.0)],
+        }
+
+        # Normalize pattern (lowercase, remove underscores at ends)
+        pattern_normalized = fusion_pattern.lower().strip('_')
+
+        # Try exact match first
+        if pattern_normalized in pattern_to_ops:
+            ops_with_fractions = pattern_to_ops[pattern_normalized]
+        else:
+            # Try splitting by underscore and mapping each part
+            parts = pattern_normalized.split('_')
+            ops_with_fractions = []
+
+            for part in parts:
+                # Map common abbreviations
+                if part in ['conv', 'conv2d']:
+                    ops_with_fractions.append(('Conv2d', 1.0))
+                elif part in ['bn', 'batchnorm']:
+                    ops_with_fractions.append(('BatchNorm2d', 1.0))
+                elif part == 'relu':
+                    ops_with_fractions.append(('ReLU', 1.0))
+                elif part in ['linear', 'fc']:
+                    ops_with_fractions.append(('Linear', 1.0))
+                elif part == 'add':
+                    ops_with_fractions.append(('add', 1.0))
+                elif part == 'bias':
+                    ops_with_fractions.append(('Bias', 1.0))
+                else:
+                    # Unknown pattern - return as-is
+                    ops_with_fractions.append((part.capitalize(), 1.0))
+
+            # Normalize fractions if auto-split
+            if len(ops_with_fractions) > 1:
+                # Heuristic: compute ops get more FLOPs
+                normalized_fractions = []
+                for op_type, _ in ops_with_fractions:
+                    if op_type in ['Conv2d', 'Linear', 'matmul', 'bmm']:
+                        normalized_fractions.append(0.9 / sum(1 for t, _ in ops_with_fractions if t in ['Conv2d', 'Linear', 'matmul', 'bmm']))
+                    else:
+                        remaining_ops = sum(1 for t, _ in ops_with_fractions if t not in ['Conv2d', 'Linear', 'matmul', 'bmm'])
+                        normalized_fractions.append(0.1 / remaining_ops if remaining_ops > 0 else 0.0)
+
+                ops_with_fractions = [(op_type, frac) for (op_type, _), frac in zip(ops_with_fractions, normalized_fractions)]
+
+        # Convert to dict list with absolute FLOPs
+        operators = []
+        for op_type, frac in ops_with_fractions:
+            operators.append({
+                'type': op_type,
+                'flops': total_flops * frac,
+                'memory_bytes': 0  # TODO: could estimate from tensor sizes
+            })
+
+        return operators
+
+    def generate_operator_edp_report(
+        self,
+        arch_name: str,
+        subgraph_name: Optional[str] = None,
+        top_n: int = 10,
+        show_fusion_benefits: bool = True
+    ) -> str:
+        """
+        Generate comprehensive operator-level EDP breakdown report (Phase 2).
+
+        Args:
+            arch_name: Architecture name
+            subgraph_name: Optional subgraph to focus on (all if None)
+            top_n: Number of top operators to show
+            show_fusion_benefits: Whether to show fusion benefit analysis
+
+        Returns:
+            Formatted report string
+
+        Example Output:
+            ==============================================================================
+            Operator-Level EDP Breakdown: KPU
+            ==============================================================================
+
+            Top 10 Operators by EDP:
+
+            Rank  Operator   Subgraph  EDP (nJ·s)  % Subgraph  % Model  Modifier  Fused
+            ------------------------------------------------------------------------------
+            1 ⭐  Linear     fc1       0.48        95.0%       76.0%    1.00×     Yes
+            2     Linear     fc2       0.12        95.0%       19.0%    1.00×     Yes
+            3     Bias       fc1       0.01         2.5%        2.0%    0.05×     Yes ✓
+            ...
+        """
+        from graphs.analysis.architectural_modifiers import explain_modifier
+
+        lines = []
+        lines.append("=" * 140)
+        lines.append(f"Operator-Level EDP Breakdown: {arch_name}")
+        if subgraph_name:
+            lines.append(f"Subgraph: {subgraph_name}")
+        lines.append("=" * 140)
+        lines.append("")
+
+        # Get operator EDPs
+        operator_edps = self.get_operator_edp_breakdown(arch_name, subgraph_name)
+
+        if not operator_edps:
+            lines.append("No operator data available.")
+            return "\n".join(lines)
+
+        # Summary
+        total_operators = len(operator_edps)
+        unique_subgraphs = len(set(op.subgraph_name for op in operator_edps))
+        lines.append(f"Total Operators: {total_operators}")
+        lines.append(f"Subgraphs: {unique_subgraphs}")
+        lines.append("")
+
+        # Top N operators
+        lines.append(f"Top {min(top_n, len(operator_edps))} Operators by EDP:")
+        lines.append("")
+        lines.append(f"{'Rank':<5} {'Operator':<15} {'Subgraph':<25} {'EDP (nJ·s)':<12} {'% Subgraph':<12} {'% Model':<10} {'Modifier':<10} {'Fused':<8}")
+        lines.append("-" * 140)
+
+        for i, op in enumerate(operator_edps[:top_n], 1):
+            marker = " ⭐" if i == 1 else ""
+            fused_str = "Yes" if op.is_fused else "No"
+            if op.is_fused and op.fusion_benefit and op.fusion_benefit > 5.0:
+                fused_str += " ✓"  # High fusion benefit
+
+            lines.append(
+                f"{i:<5} "
+                f"{op.operator_type:<15} "
+                f"{op.subgraph_name:<25} "
+                f"{op.architectural_edp*1e9:<12.2f} "
+                f"{op.edp_fraction_of_subgraph*100:<12.1f}% "
+                f"{op.edp_fraction_of_model*100:<10.1f}% "
+                f"{op.architectural_modifier:<10.2f}× "
+                f"{fused_str:<8}"
+                f"{marker}"
+            )
+
+        lines.append("")
+
+        # Top operator detailed breakdown
+        if operator_edps:
+            top_op = operator_edps[0]
+            lines.append("Top Operator Detailed Breakdown:")
+            lines.append(f"  Operator: {top_op.operator_type}")
+            lines.append(f"  Subgraph: {top_op.subgraph_name}")
+            lines.append(f"    Base EDP (FLOP-proportional):     {top_op.base_edp*1e9:>10.2f} nJ·s")
+            lines.append(f"    Architectural Modifier:           {top_op.architectural_modifier:>10.2f}×")
+            lines.append(f"    Architectural EDP (final):        {top_op.architectural_edp*1e9:>10.2f} nJ·s")
+            lines.append(f"    Fraction of subgraph:             {top_op.edp_fraction_of_subgraph*100:>10.1f}%")
+            lines.append(f"    Fraction of model:                {top_op.edp_fraction_of_model*100:>10.1f}%")
+            lines.append(f"    Fused: {top_op.is_fused}")
+
+            # Get architecture class for explanation
+            mapper = self.architectures[arch_name]
+            arch_class = self._get_architecture_class(mapper)
+            explanation = explain_modifier(top_op.operator_type, arch_class, top_op.is_fused)
+            lines.append(f"    Modifier explanation: {explanation}")
+
+            lines.append("")
+
+        # Fusion benefit analysis (if requested and applicable)
+        if show_fusion_benefits:
+            fused_ops = [op for op in operator_edps if op.is_fused and op.fusion_benefit is not None]
+
+            if fused_ops:
+                lines.append("Fusion Benefit Analysis:")
+                lines.append("  (Shows EDP multiplier: separate_execution / fused_execution)")
+                lines.append("")
+                lines.append(f"  {'Operator':<15} {'Subgraph':<25} {'Fusion Benefit':<15} {'Interpretation'}")
+                lines.append("  " + "-" * 100)
+
+                # Sort by fusion benefit (descending)
+                fused_ops_sorted = sorted(fused_ops, key=lambda x: x.fusion_benefit or 0, reverse=True)
+
+                for op in fused_ops_sorted[:10]:  # Top 10 fusion benefits
+                    if op.fusion_benefit >= 10.0:
+                        interpretation = "High benefit - fusion critical"
+                    elif op.fusion_benefit >= 3.0:
+                        interpretation = "Moderate benefit - fusion helpful"
+                    elif op.fusion_benefit >= 1.5:
+                        interpretation = "Low benefit - fusion optional"
+                    elif op.fusion_benefit > 1.0:
+                        interpretation = "Marginal benefit"
+                    elif op.fusion_benefit == 1.0:
+                        interpretation = "No benefit (same either way)"
+                    else:
+                        interpretation = "Fusion hurts (rare)"
+
+                    lines.append(
+                        f"  {op.operator_type:<15} "
+                        f"{op.subgraph_name:<25} "
+                        f"{op.fusion_benefit or 0.0:<15.2f}× "
+                        f"{interpretation}"
+                    )
+
+                lines.append("")
+
+        # Operator type distribution
+        op_type_counts = {}
+        op_type_edps = {}
+        for op in operator_edps:
+            op_type_counts[op.operator_type] = op_type_counts.get(op.operator_type, 0) + 1
+            op_type_edps[op.operator_type] = op_type_edps.get(op.operator_type, 0.0) + op.architectural_edp
+
+        lines.append("Operator Type Distribution:")
+        lines.append("")
+        lines.append(f"  {'Operator Type':<15} {'Count':<8} {'Total EDP (nJ·s)':<20} {'% of Model'}")
+        lines.append("  " + "-" * 80)
+
+        # Sort by total EDP (descending)
+        total_model_edp = sum(op_type_edps.values())
+        sorted_types = sorted(op_type_edps.items(), key=lambda x: x[1], reverse=True)
+
+        for op_type, total_edp in sorted_types[:15]:  # Top 15 operator types
+            count = op_type_counts[op_type]
+            pct = (total_edp / total_model_edp * 100) if total_model_edp > 0 else 0.0
+
+            lines.append(
+                f"  {op_type:<15} "
+                f"{count:<8} "
+                f"{total_edp*1e9:<20.2f} "
+                f"{pct:>6.1f}%"
+            )
+
+        lines.append("")
+
+        # Optimization insights
+        lines.append("Optimization Insights:")
+
+        # Top operator
+        if operator_edps:
+            top_op = operator_edps[0]
+            lines.append(f"  → Top operator: {top_op.operator_type} in {top_op.subgraph_name} ({top_op.edp_fraction_of_model*100:.1f}% of model)")
+
+        # High fusion benefit ops
+        high_benefit_ops = [op for op in operator_edps if op.is_fused and op.fusion_benefit and op.fusion_benefit > 10.0]
+        if high_benefit_ops:
+            lines.append(f"  → {len(high_benefit_ops)} operators show high fusion benefit (>10×)")
+            lines.append(f"    Types: {', '.join(set(op.operator_type for op in high_benefit_ops[:5]))}")
+
+        # Low-modifier ops (architectural optimization opportunities)
+        low_modifier_ops = [op for op in operator_edps if op.is_fused and op.architectural_modifier < 0.2]
+        if low_modifier_ops:
+            lines.append(f"  → {len(low_modifier_ops)} operators hidden in dataflow (modifier < 0.2)")
+            total_hidden_pct = sum(op.edp_fraction_of_model for op in low_modifier_ops) * 100
+            lines.append(f"    Total EDP: {total_hidden_pct:.1f}% of model (effectively 'free' due to fusion)")
 
         lines.append("")
         return "\n".join(lines)

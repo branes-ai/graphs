@@ -37,13 +37,13 @@ Phase 4.2 successfully delivered a unified analysis framework that dramatically 
 
 ### Refactored CLI Tools
 
-4. **analyze_comprehensive_v2.py** (262 lines, down from 962)
+4. **analyze_comprehensive.py** (262 lines, down from 962)
    - **73% code reduction**
    - Drop-in replacement for Phase 4.1 tool
    - All features preserved and enhanced
    - Production-ready
 
-5. **analyze_batch_v2.py** (329 lines, down from 572)
+5. **analyze_batch.py** (329 lines, down from 572)
    - **42% code reduction**
    - Drop-in replacement for Phase 4.1 tool
    - Enhanced comparison reports
@@ -150,14 +150,14 @@ All tests passing (100% success rate)!
 
 ### CLI Tools
 
-✅ **analyze_comprehensive_v2.py**
+✅ **analyze_comprehensive.py**
 - All 9 CLI tests passing
 - Drop-in replacement for Phase 4.1
 - Identical command-line arguments
 - Same output formats
 - Production-ready
 
-✅ **analyze_batch_v2.py**
+✅ **analyze_batch.py**
 - All 7 CLI tests passing
 - Drop-in replacement for Phase 4.1
 - Enhanced insights generation
@@ -231,8 +231,8 @@ All tests passing (100% success rate)!
 - `src/graphs/reporting/report_generator.py` (900 lines)
 
 **Refactored CLI Tools:**
-- `cli/analyze_comprehensive_v2.py` (262 lines)
-- `cli/analyze_batch_v2.py` (329 lines)
+- `cli/analyze_comprehensive.py` (262 lines)
+- `cli/analyze_batch.py` (329 lines)
 
 **Tests:**
 - `tests/analysis/test_unified_analyzer.py` (260 lines)
@@ -260,18 +260,18 @@ All tests passing (100% success rate)!
 
 ```bash
 # Comprehensive analysis (v2 recommended)
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # Batch size sweep
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 4 8 16 --output sweep.csv
 
 # JSON/CSV/Markdown output
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
   --output report.json
 
 # Model comparison
-./cli/analyze_batch_v2.py --models resnet18 mobilenet_v2 efficientnet_b0 \
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 efficientnet_b0 \
   --hardware H100 --batch-size 1 16 --output comparison.csv
 ```
 
