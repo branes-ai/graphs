@@ -87,6 +87,7 @@ jobs:
           # Run quick validation tests, skip slow ones
           pytest validation/hardware/ -v -k "not slow" || echo "⚠️  Some validation tests failed (non-blocking)"
           pytest validation/estimators/test_conv2d.py -v || echo "⚠️  Estimator tests failed (non-blocking)"
+          pytest validation/analysis/test_building_blocks_simple.py -v || echo "⚠️  Analysis validation tests failed (non-blocking)"
 
   # Job 3: CLI Tools Smoke Tests
   cli-tools:
