@@ -103,6 +103,53 @@ class ComparisonSummary:
     insights: List[str] = field(default_factory=list)
 
 
+@dataclass
+class SubgraphEDPDescriptor:
+    """
+    Per-subgraph EDP breakdown for a single architecture.
+
+    Combines energy and latency from existing analyzers to compute
+    subgraph-level EDP, revealing which subgraphs dominate total EDP.
+    """
+
+    # Identity
+    subgraph_id: str
+    subgraph_name: str
+    fusion_pattern: str  # e.g., "Conv_BN_ReLU", "Linear_Bias_ReLU"
+    num_operators: int   # Number of operators fused (1 if not fused)
+
+    # Energy components (Joules)
+    energy_j: float
+    compute_energy_j: float
+    memory_energy_j: float
+    static_energy_j: float
+
+    # Latency components (seconds)
+    latency_s: float
+    compute_time_s: float
+    memory_time_s: float
+
+    # EDP (Energy-Delay Product, J·s)
+    edp: float
+
+    # Component EDPs
+    compute_edp: float   # compute_energy × latency
+    memory_edp: float    # memory_energy × latency
+    static_edp: float    # static_energy × latency
+
+    # Contribution to total
+    edp_fraction: float = 0.0  # Percentage of total model EDP
+
+    # Bottleneck analysis
+    bottleneck: str = "balanced"  # "compute_bound", "memory_bound", "balanced"
+    arithmetic_intensity: float = 0.0  # FLOPs/byte
+
+    def __str__(self) -> str:
+        """Short summary"""
+        return (f"SubgraphEDP({self.subgraph_name}: "
+                f"{self.edp * 1e9:.2f} nJ·s, {self.edp_fraction * 100:.1f}% of total)")
+
+
 class ArchitectureComparator:
     """
     Multi-architecture comparison with hierarchical drill-down.
@@ -640,6 +687,7 @@ class ArchitectureComparator:
         lines.append("")
         lines.append("→ Use --level detailed to see per-architecture breakdowns")
         lines.append("→ Use --level subgraph to see per-layer analysis")
+        lines.append("→ Use generate_subgraph_edp_report(<arch>) to see per-subgraph EDP breakdown")
         lines.append("→ Use --explain <arch1> <arch2> to understand differences")
         lines.append("")
 
@@ -750,6 +798,212 @@ class ArchitectureComparator:
                 lines.append(f"  Average Utilization:   {result.roofline_report.average_utilization*100:.1f}%")
             lines.append("")
 
+        return "\n".join(lines)
+
+    def get_subgraph_edp_breakdown(self, arch_name: str) -> List[SubgraphEDPDescriptor]:
+        """
+        Get per-subgraph EDP breakdown for one architecture.
+
+        Combines energy descriptors and latency descriptors from existing
+        analyzers to compute EDP at subgraph granularity.
+
+        Args:
+            arch_name: Architecture name (e.g., "GPU", "TPU", "KPU")
+
+        Returns:
+            List of SubgraphEDPDescriptor sorted by EDP (descending)
+
+        Raises:
+            ValueError: If architecture not found or analysis not run
+        """
+        if arch_name not in self.results:
+            raise ValueError(f"Architecture '{arch_name}' not found. Available: {list(self.results.keys())}")
+
+        result = self.results[arch_name]
+
+        # Check that we have the required reports
+        if not result.energy_report or not result.roofline_report:
+            raise ValueError(f"Missing energy or roofline report for {arch_name}")
+
+        energy_descriptors = result.energy_report.energy_descriptors
+        latency_descriptors = result.roofline_report.latencies
+
+        if len(energy_descriptors) != len(latency_descriptors):
+            raise ValueError(
+                f"Mismatch: {len(energy_descriptors)} energy descriptors vs "
+                f"{len(latency_descriptors)} latency descriptors"
+            )
+
+        # Extract subgraph information from partition report
+        subgraph_info = {}
+        if result.partition_report:
+            for sg in result.partition_report.subgraphs:
+                subgraph_info[sg.node_id] = {
+                    'fusion_pattern': sg.fusion_pattern or sg.node_name,
+                    'num_operators': 1,  # Default to 1 (will update if fusion report available)
+                    'arithmetic_intensity': sg.arithmetic_intensity,
+                }
+
+            # If we have fusion report, get operator counts
+            if hasattr(result.partition_report, 'fusion_report') and result.partition_report.fusion_report:
+                for fused_sg in result.partition_report.fusion_report.fused_subgraphs:
+                    sg_id = str(fused_sg.subgraph_id)
+                    if sg_id in subgraph_info:
+                        subgraph_info[sg_id]['num_operators'] = fused_sg.num_operators
+                        subgraph_info[sg_id]['fusion_pattern'] = fused_sg.fusion_pattern
+
+        # Build subgraph EDP descriptors
+        subgraph_edps = []
+
+        for e_desc, l_desc in zip(energy_descriptors, latency_descriptors):
+            # Ensure IDs match
+            if e_desc.subgraph_id != l_desc.subgraph_id:
+                print(f"Warning: ID mismatch: {e_desc.subgraph_id} vs {l_desc.subgraph_id}")
+
+            # Calculate EDP
+            edp = e_desc.total_energy_j * l_desc.actual_latency
+
+            # Component EDPs
+            compute_edp = e_desc.compute_energy_j * l_desc.actual_latency
+            memory_edp = e_desc.memory_energy_j * l_desc.actual_latency
+            static_edp = e_desc.static_energy_j * l_desc.actual_latency
+
+            # Get subgraph metadata
+            sg_info = subgraph_info.get(e_desc.subgraph_id, {})
+            fusion_pattern = sg_info.get('fusion_pattern', e_desc.subgraph_name)
+            num_operators = sg_info.get('num_operators', 1)
+            arithmetic_intensity = sg_info.get('arithmetic_intensity', 0.0)
+
+            # Determine bottleneck
+            bottleneck = l_desc.bottleneck.value if hasattr(l_desc.bottleneck, 'value') else str(l_desc.bottleneck)
+
+            subgraph_edps.append(SubgraphEDPDescriptor(
+                subgraph_id=e_desc.subgraph_id,
+                subgraph_name=e_desc.subgraph_name,
+                fusion_pattern=fusion_pattern,
+                num_operators=num_operators,
+                energy_j=e_desc.total_energy_j,
+                compute_energy_j=e_desc.compute_energy_j,
+                memory_energy_j=e_desc.memory_energy_j,
+                static_energy_j=e_desc.static_energy_j,
+                latency_s=l_desc.actual_latency,
+                compute_time_s=l_desc.compute_time,
+                memory_time_s=l_desc.memory_time,
+                edp=edp,
+                compute_edp=compute_edp,
+                memory_edp=memory_edp,
+                static_edp=static_edp,
+                edp_fraction=0.0,  # Will be set below
+                bottleneck=bottleneck,
+                arithmetic_intensity=arithmetic_intensity,
+            ))
+
+        # Calculate EDP fractions
+        total_edp = sum(sg.edp for sg in subgraph_edps)
+        for sg in subgraph_edps:
+            sg.edp_fraction = sg.edp / total_edp if total_edp > 0 else 0.0
+
+        # Sort by EDP (descending)
+        subgraph_edps.sort(key=lambda x: x.edp, reverse=True)
+
+        return subgraph_edps
+
+    def generate_subgraph_edp_report(self, arch_name: str, top_n: int = 10) -> str:
+        """
+        Generate subgraph-level EDP breakdown report for one architecture.
+
+        Args:
+            arch_name: Architecture name
+            top_n: Number of top subgraphs to show (default: 10)
+
+        Returns:
+            Human-readable report string
+        """
+        subgraph_edps = self.get_subgraph_edp_breakdown(arch_name)
+
+        lines = []
+        lines.append("=" * 100)
+        lines.append(f"Subgraph-Level EDP Breakdown: {self.model_name} on {arch_name}")
+        lines.append("=" * 100)
+        lines.append("")
+
+        # Summary statistics
+        total_edp = sum(sg.edp for sg in subgraph_edps)
+        total_subgraphs = len(subgraph_edps)
+
+        lines.append(f"Total Subgraphs: {total_subgraphs}")
+        lines.append(f"Total Model EDP: {total_edp * 1e9:.2f} nJ·s")
+        lines.append("")
+
+        # Verify against model-level EDP
+        if arch_name in self.metrics:
+            model_edp = self.metrics[arch_name].edp
+            diff_pct = abs(total_edp - model_edp) / model_edp * 100 if model_edp > 0 else 0
+            if diff_pct > 1.0:
+                lines.append(f"⚠ Warning: Subgraph EDP sum ({total_edp*1e9:.2f} nJ·s) differs from model EDP "
+                           f"({model_edp*1e9:.2f} nJ·s) by {diff_pct:.1f}%")
+            else:
+                lines.append(f"✓ Validation: Subgraph EDPs sum to model EDP (within {diff_pct:.2f}%)")
+            lines.append("")
+
+        # Show top N subgraphs
+        lines.append(f"Top {min(top_n, len(subgraph_edps))} Subgraphs by EDP:")
+        lines.append("")
+        lines.append(f"{'Rank':<5} {'Subgraph':<35} {'Energy':<12} {'Latency':<12} {'EDP':<15} {'% Total':<10} {'Pattern (Ops)':<25} {'Bottleneck'}")
+        lines.append("-" * 140)
+
+        for i, sg in enumerate(subgraph_edps[:top_n], 1):
+            # Highlight top contributor
+            marker = " ⭐" if i == 1 else ""
+
+            pattern_str = f"{sg.fusion_pattern}"
+            if sg.num_operators > 1:
+                pattern_str += f" ({sg.num_operators} ops)"
+
+            lines.append(
+                f"{i:<5} "
+                f"{sg.subgraph_name:<35} "
+                f"{sg.energy_j*1e6:<12.2f} µJ "
+                f"{sg.latency_s*1e6:<12.2f} µs "
+                f"{sg.edp*1e9:<15.2f} nJ·s "
+                f"{sg.edp_fraction*100:<10.1f}% "
+                f"{pattern_str:<25} "
+                f"{sg.bottleneck:<12}"
+                f"{marker}"
+            )
+
+        lines.append("")
+
+        # Component breakdown for top subgraph
+        if subgraph_edps:
+            top_sg = subgraph_edps[0]
+            lines.append("Top Subgraph Component Breakdown:")
+            lines.append(f"  {top_sg.subgraph_name}")
+            lines.append(f"    Compute EDP:  {top_sg.compute_edp*1e9:>10.2f} nJ·s ({top_sg.compute_edp/top_sg.edp*100:.1f}%)")
+            lines.append(f"    Memory EDP:   {top_sg.memory_edp*1e9:>10.2f} nJ·s ({top_sg.memory_edp/top_sg.edp*100:.1f}%)")
+            lines.append(f"    Static EDP:   {top_sg.static_edp*1e9:>10.2f} nJ·s ({top_sg.static_edp/top_sg.edp*100:.1f}%)")
+            lines.append(f"    Total EDP:    {top_sg.edp*1e9:>10.2f} nJ·s")
+            lines.append("")
+
+        # Cumulative analysis
+        cumulative_pct = 0.0
+        lines.append("Cumulative EDP Distribution:")
+        for i, threshold in enumerate([50, 80, 90, 95, 99]):
+            for j, sg in enumerate(subgraph_edps, 1):
+                cumulative_pct += sg.edp_fraction * 100
+                if cumulative_pct >= threshold:
+                    lines.append(f"  Top {j} subgraphs account for {threshold}% of total EDP")
+                    cumulative_pct = 0.0  # Reset for next threshold
+                    break
+
+        lines.append("")
+        lines.append("Optimization Insight:")
+        if subgraph_edps:
+            top3_pct = sum(sg.edp_fraction for sg in subgraph_edps[:3]) * 100
+            lines.append(f"  → Focus optimization efforts on top 3 subgraphs ({top3_pct:.1f}% of total EDP)")
+            lines.append(f"  → Top subgraph: {subgraph_edps[0].subgraph_name} ({subgraph_edps[0].edp_fraction*100:.1f}%)")
+
+        lines.append("")
         return "\n".join(lines)
 
     def generate_subgraph_comparison(self, show_details: bool = False) -> str:
