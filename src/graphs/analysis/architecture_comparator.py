@@ -70,6 +70,15 @@ class ArchitectureMetrics:
     compute_units_total: int = 0  # Total available compute units
     energy_efficiency_tops_per_watt: float = 0.0  # Performance per watt
 
+    # NEW: EDP metrics (Energy-Delay Product)
+    edp: float = 0.0  # Energy-Delay Product (J·s)
+    edp_normalized: float = 0.0  # Normalized to baseline
+
+    # Energy breakdown for EDP analysis
+    compute_edp: float = 0.0  # Compute energy × latency
+    memory_edp: float = 0.0   # Memory energy × latency
+    architectural_edp: float = 0.0  # Architectural overhead × latency
+
 
 @dataclass
 class ComparisonSummary:
@@ -82,11 +91,13 @@ class ComparisonSummary:
     throughput_winner: str
     memory_winner: str
     balance_winner: str  # Best energy-latency product
+    edp_winner: str  # Best EDP (Energy-Delay Product)
 
     # Ratios (all relative to baseline, which is typically GPU or CPU)
     baseline: str
     energy_ratios: Dict[str, float]
     latency_ratios: Dict[str, float]
+    edp_ratios: Dict[str, float]  # EDP ratios vs baseline
 
     # Insights
     insights: List[str] = field(default_factory=list)
@@ -304,6 +315,15 @@ class ArchitectureComparator:
         average_power_w = (result.energy_per_inference_mj / 1000.0) / latency_s if latency_s > 0 else 0.0
         energy_efficiency = (attained_tops / average_power_w) if average_power_w > 0 else 0.0
 
+        # NEW: Calculate EDP (Energy-Delay Product)
+        energy_j = result.energy_per_inference_mj / 1000.0  # Convert mJ to J
+        edp = energy_j * latency_s  # J·s
+
+        # Component EDPs
+        compute_edp = compute_energy * latency_s
+        memory_edp = memory_energy * latency_s
+        architectural_edp = architectural_overhead * latency_s
+
         return ArchitectureMetrics(
             name=name,
             total_energy_j=result.energy_per_inference_mj / 1000.0,  # Convert mJ to J
@@ -329,6 +349,12 @@ class ArchitectureComparator:
             compute_units_allocated=compute_units_allocated,
             compute_units_total=compute_units_total,
             energy_efficiency_tops_per_watt=energy_efficiency,
+            # NEW: EDP metrics
+            edp=edp,
+            edp_normalized=0.0,  # Will be set in _generate_summary()
+            compute_edp=compute_edp,
+            memory_edp=memory_edp,
+            architectural_edp=architectural_edp,
         )
 
     def _build_execution_context(
@@ -391,10 +417,14 @@ class ArchitectureComparator:
             key=lambda x: x[1].total_energy_j * x[1].total_latency_s
         )[0]
 
+        # NEW: EDP winner: minimize Energy-Delay Product
+        edp_winner = min(self.metrics.items(), key=lambda x: x[1].edp)[0]
+
         # Choose baseline (typically GPU if present, else first architecture)
         baseline = 'GPU' if 'GPU' in self.metrics else list(self.metrics.keys())[0]
         baseline_energy = self.metrics[baseline].total_energy_j
         baseline_latency = self.metrics[baseline].total_latency_s
+        baseline_edp = self.metrics[baseline].edp
 
         # Calculate ratios
         energy_ratios = {
@@ -406,6 +436,16 @@ class ArchitectureComparator:
             name: metrics.total_latency_s / baseline_latency
             for name, metrics in self.metrics.items()
         }
+
+        # NEW: Calculate EDP ratios
+        edp_ratios = {
+            name: metrics.edp / baseline_edp
+            for name, metrics in self.metrics.items()
+        }
+
+        # Update normalized EDP values in metrics
+        for name, metrics in self.metrics.items():
+            metrics.edp_normalized = edp_ratios[name]
 
         # Generate insights
         insights = self._generate_insights(
@@ -420,9 +460,11 @@ class ArchitectureComparator:
             throughput_winner=throughput_winner,
             memory_winner=memory_winner,
             balance_winner=balance_winner,
+            edp_winner=edp_winner,
             baseline=baseline,
             energy_ratios=energy_ratios,
             latency_ratios=latency_ratios,
+            edp_ratios=edp_ratios,
             insights=insights
         )
 
@@ -491,6 +533,7 @@ class ArchitectureComparator:
         lines.append(f"  Best for Energy:      {self.summary.energy_winner}")
         lines.append(f"  Best for Latency:     {self.summary.latency_winner}")
         lines.append(f"  Best for Throughput:  {self.summary.throughput_winner}")
+        lines.append(f"  Best EDP (E×D):       {self.summary.edp_winner}")
         lines.append(f"  Best Balance:         {self.summary.balance_winner}")
         lines.append("")
 
@@ -529,6 +572,39 @@ class ArchitectureComparator:
                 f"{name:<12} {energy_str:<11} {latency_str:<11} {throughput_str:<11} "
                 f"{attained_str:<10} {compute_util_str:<9} {mem_bw_util_str:<8} {units_str:<10} {ratio_str:<12}{style}"
             )
+
+        lines.append("")
+
+        # NEW: EDP Comparison Table
+        lines.append("Energy-Delay Product (EDP) Comparison:")
+        lines.append(f"{'Architecture':<12} {'EDP (nJ·s)':<15} {'vs ' + self.summary.baseline:<12} {'Breakdown':<30}")
+        lines.append("-" * 80)
+
+        for name in sorted(self.metrics.keys()):
+            metrics = self.metrics[name]
+            edp_nj_s = metrics.edp * 1e9  # Convert J·s to nJ·s
+            edp_ratio = self.summary.edp_ratios[name]
+
+            # Breakdown percentages
+            total_component_edp = metrics.compute_edp + metrics.memory_edp + metrics.architectural_edp
+            if total_component_edp > 0:
+                compute_pct = metrics.compute_edp / total_component_edp * 100
+                memory_pct = metrics.memory_edp / total_component_edp * 100
+                arch_pct = metrics.architectural_edp / total_component_edp * 100
+                breakdown = f"C:{compute_pct:.0f}% M:{memory_pct:.0f}% A:{arch_pct:.0f}%"
+            else:
+                breakdown = "—"
+
+            # Highlight EDP winner
+            style = " ⭐ (EDP)" if name == self.summary.edp_winner else ""
+
+            # Format ratio
+            if name == self.summary.baseline:
+                ratio_str = "baseline"
+            else:
+                ratio_str = f"{edp_ratio:.2f}×"
+
+            lines.append(f"{name:<12} {edp_nj_s:<15.2f} {ratio_str:<12} {breakdown:<30}{style}")
 
         lines.append("")
 
@@ -1000,6 +1076,7 @@ class ArchitectureComparator:
                 'best_latency': self.summary.latency_winner,
                 'best_throughput': self.summary.throughput_winner,
                 'best_memory': self.summary.memory_winner,
+                'best_edp': self.summary.edp_winner,
                 'best_balance': self.summary.balance_winner,
                 'insights': self.summary.insights,
             }
@@ -1031,6 +1108,14 @@ class ArchitectureComparator:
                     'memory_bound': metrics.memory_bound_subgraphs,
                     'total_subgraphs': metrics.total_subgraphs,
                     'compute_bound_percent': (metrics.compute_bound_subgraphs / metrics.total_subgraphs * 100) if metrics.total_subgraphs > 0 else 0,
+                },
+                'edp': {
+                    'total_j_s': metrics.edp,
+                    'total_nj_s': metrics.edp * 1e9,
+                    'normalized': metrics.edp_normalized,
+                    'compute_j_s': metrics.compute_edp,
+                    'memory_j_s': metrics.memory_edp,
+                    'architectural_j_s': metrics.architectural_edp,
                 }
             }
 
@@ -1070,6 +1155,11 @@ class ArchitectureComparator:
             'Energy (mJ)',
             'Latency (ms)',
             'Throughput (FPS)',
+            'EDP (nJ·s)',
+            'EDP (normalized)',
+            'Compute EDP (nJ·s)',
+            'Memory EDP (nJ·s)',
+            'Architectural EDP (nJ·s)',
             'Attained (TOPS)',
             'Peak (TOPS)',
             'Compute Util (%)',
@@ -1096,6 +1186,11 @@ class ArchitectureComparator:
                 f"{metrics.total_energy_j * 1000:.3f}",
                 f"{metrics.total_latency_s * 1000:.3f}",
                 f"{metrics.throughput_inferences_per_sec:.1f}",
+                f"{metrics.edp * 1e9:.4f}",  # EDP in nJ·s
+                f"{metrics.edp_normalized:.4f}",
+                f"{metrics.compute_edp * 1e9:.4f}",  # Compute EDP in nJ·s
+                f"{metrics.memory_edp * 1e9:.4f}",   # Memory EDP in nJ·s
+                f"{metrics.architectural_edp * 1e9:.4f}",  # Architectural EDP in nJ·s
                 f"{metrics.attained_tops:.4f}",
                 f"{metrics.peak_tops:.2f}",
                 f"{metrics.compute_utilization_pct:.2f}",
