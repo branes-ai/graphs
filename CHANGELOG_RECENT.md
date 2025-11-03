@@ -2,7 +2,67 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-10-30
+**Last Updated**: 2025-11-03
+
+---
+
+## [2025-11-03] - CLI Script Naming Update
+
+### Changed
+
+- **Promoted unified framework CLI tools to default names**:
+  - `analyze_comprehensive_v2.py` → `analyze_comprehensive.py` (Phase 4.2 unified framework)
+  - `analyze_batch_v2.py` → `analyze_batch.py` (Phase 4.2 unified framework)
+  - Legacy scripts renamed: `analyze_comprehensive.py` → `analyze_comprehensive_v1.py`, `analyze_batch.py` → `analyze_batch_v1.py`
+  - **Rationale**: The unified framework versions are production-ready and should be the default user experience
+
+- **Documentation updated**:
+  - `CLAUDE.md` - Updated CLI examples to use new names and added power management examples
+  - `cli/README.md` - Updated all tool references and added comprehensive "Power Management Analysis" section
+  - Script help text updated to reference new names
+
+---
+
+## [2025-11-03] - Mapper-Integrated Pipeline & Enhanced Power Management Reporting
+
+### Key Changes
+
+- **Hardware Mapper Integration**: `UnifiedAnalyzer` now integrates hardware mapper allocation decisions into energy calculation
+  - Per-unit static energy calculation based on actual `compute_units_allocated` from mapper
+  - Power gating support: `power_gating_enabled` flag models turning off unused units
+  - **Impact**: 48× more accurate utilization (36.5% actual vs 0.76% from threads), 61.7% idle energy savings with power gating on ResNet-18
+
+- **Enhanced Energy Reporting**: `EnergyDescriptor` and `EnergyReport` extended with power management fields
+  - Per-subgraph: `allocated_units`, `static_energy_allocated_j`, `static_energy_unallocated_j`, `power_gating_savings_j`
+  - Aggregate: `average_allocated_units`, `total_power_gating_savings_j`
+  - Reports now show "Power Management" section with allocated vs unallocated unit energy breakdown
+
+- **API Changes**:
+  - `AnalysisConfig`: New `run_hardware_mapping=True` and `power_gating_enabled=False` flags
+  - `UnifiedAnalysisResult`: New `hardware_allocation` field
+  - `EnergyAnalyzer`: New `power_gating_enabled` parameter, accepts `hardware_allocation` in `analyze()`
+  - Backward compatible: Falls back to old method when no allocation info
+
+- **Files Modified**:
+  - `src/graphs/analysis/unified_analyzer.py` - Mapper integration
+  - `src/graphs/analysis/energy.py` - Per-unit energy calculation and enhanced reporting
+  - `src/graphs/reporting/report_generator.py` - Enhanced text/JSON reports with Power Management section
+  - `src/graphs/ir/structures.py` - Compatibility properties for SubgraphDescriptor
+  - `cli/analyze_comprehensive.py` - Added `--power-gating` and `--no-hardware-mapping` flags
+  - `cli/analyze_batch.py` - Added `--power-gating` and `--no-hardware-mapping` flags
+  - `validation/analysis/test_phase1_mapper_integration.py` (NEW)
+  - `validation/analysis/test_power_management_reporting.py` (NEW)
+  - `docs/designs/functional_energy_composition.md` (NEW) - Comprehensive design document
+
+- **Documentation**:
+  - `cli/README.md` - New "Power Management Analysis" section with 5 use cases:
+    1. Low-utilization workloads
+    2. Edge device power budgeting
+    3. Datacenter TCO analysis
+    4. Hardware comparison with accurate power
+    5. **EDP (Energy-Delay Product) comparison** for Jetson-Orin-AGX vs KPU-T256
+  - `CLAUDE.md` - Added power management CLI and Python API examples
+  - See full technical details in `CHANGELOG.md`
 
 ---
 
@@ -30,11 +90,11 @@
     - Automatic diagram embedding in markdown output
     - Seamless integration with existing analysis pipeline
 
-  - **CLI Integration** (`cli/analyze_comprehensive_v2.py`):
+  - **CLI Integration** (`cli/analyze_comprehensive.py`):
     - New `--include-diagrams` flag to enable Mermaid diagrams in markdown output
     - New `--diagram-types` flag to select specific diagram types (partitioned, bottleneck, hardware_mapping)
     - Auto-format detection from file extension
-    - Example: `./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --output report.md --include-diagrams`
+    - Example: `./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output report.md --include-diagrams`
 
   - **Test Files and Examples** (8 files in `docs/`):
     - `test_fx_graph.md`: Basic FX graph visualization
@@ -124,14 +184,14 @@
 - **CLI Usage**:
   ```bash
   # Basic report with diagrams
-  ./cli/analyze_comprehensive_v2.py \
+  ./cli/analyze_comprehensive.py \
       --model resnet18 \
       --hardware H100 \
       --output report.md \
       --include-diagrams
 
   # Select specific diagrams
-  ./cli/analyze_comprehensive_v2.py \
+  ./cli/analyze_comprehensive.py \
       --model mobilenet_v2 \
       --hardware Jetson-Orin-AGX \
       --output analysis.md \

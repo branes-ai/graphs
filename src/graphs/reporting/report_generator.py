@@ -173,6 +173,22 @@ class ReportGenerator:
                 lines.append(f"Average Power:           {result.energy_report.average_power_w:.1f} W")
                 lines.append(f"Peak Power:              {result.energy_report.peak_power_w:.1f} W")
                 lines.append(f"Energy Efficiency:       {result.energy_report.average_efficiency * 100:.1f}%")
+
+                # Power Management section (if hardware mapping was used)
+                if result.energy_report.average_allocated_units > 0:
+                    lines.append("")
+                    lines.append("Power Management:")
+                    lines.append(f"  Average Units Allocated: {result.energy_report.average_allocated_units:.1f}")
+                    lines.append(f"  Allocated Units Idle:    {result.energy_report.total_allocated_units_energy_j * 1000:.1f} mJ")
+                    lines.append(f"  Unallocated Units Idle:  {result.energy_report.total_unallocated_units_energy_j * 1000:.1f} mJ")
+                    if result.energy_report.power_gating_enabled:
+                        savings_pct = (result.energy_report.total_power_gating_savings_j /
+                                      (result.energy_report.total_power_gating_savings_j + result.energy_report.static_energy_j) * 100)
+                        lines.append(f"  Power Gating:            ENABLED")
+                        lines.append(f"  Power Gating Savings:    {result.energy_report.total_power_gating_savings_j * 1000:.1f} mJ ({savings_pct:.1f}%)")
+                    else:
+                        lines.append(f"  Power Gating:            DISABLED (conservative estimate)")
+
                 lines.append("")
 
         # Memory Analysis
@@ -272,6 +288,16 @@ class ReportGenerator:
                     'peak_power_w': result.energy_report.peak_power_w,
                     'average_efficiency': result.energy_report.average_efficiency,
                 }
+
+                # Add power management fields if hardware mapping was used
+                if result.energy_report.average_allocated_units > 0:
+                    data['energy_analysis']['power_management'] = {
+                        'average_allocated_units': result.energy_report.average_allocated_units,
+                        'total_allocated_units_energy_j': result.energy_report.total_allocated_units_energy_j,
+                        'total_unallocated_units_energy_j': result.energy_report.total_unallocated_units_energy_j,
+                        'power_gating_enabled': result.energy_report.power_gating_enabled,
+                        'total_power_gating_savings_j': result.energy_report.total_power_gating_savings_j,
+                    }
 
             if result.memory_report:
                 data['memory_analysis'] = {

@@ -29,10 +29,10 @@ This guide helps you migrate from Phase 4.1 tools to the new Phase 4.2 unified f
 
 | Phase 4.1 Tool | Phase 4.2 Tool | Status |
 |----------------|----------------|--------|
-| `analyze_comprehensive.py` | `analyze_comprehensive_v2.py` | ✅ Production-ready |
-| `analyze_batch.py` | `analyze_batch_v2.py` | ✅ Production-ready |
+| `analyze_comprehensive.py` | `analyze_comprehensive.py` | ✅ Production-ready |
+| `analyze_batch.py` | `analyze_batch.py` | ✅ Production-ready |
 
-### analyze_comprehensive.py → analyze_comprehensive_v2.py
+### analyze_comprehensive.py → analyze_comprehensive.py
 
 **Good News:** The v2 tool is a **drop-in replacement** with identical command-line arguments!
 
@@ -44,7 +44,7 @@ This guide helps you migrate from Phase 4.1 tools to the new Phase 4.2 unified f
 
 **After (Phase 4.2):**
 ```bash
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
   --output results.json --precision fp16 --batch-size 8
 ```
 
@@ -67,7 +67,7 @@ This guide helps you migrate from Phase 4.1 tools to the new Phase 4.2 unified f
 - All features and functionality
 - Output format and structure
 
-### analyze_batch.py → analyze_batch_v2.py
+### analyze_batch.py → analyze_batch.py
 
 **Before (Phase 4.1):**
 ```bash
@@ -77,7 +77,7 @@ This guide helps you migrate from Phase 4.1 tools to the new Phase 4.2 unified f
 
 **After (Phase 4.2):**
 ```bash
-./cli/analyze_batch_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 4 8 16 --output batch_sweep.csv
 ```
 
@@ -539,7 +539,7 @@ from graphs.ir.structures import ConcurrencyDescriptor
 
 ```bash
 # Just change the script name
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 
 # Compare output with v1
 ./cli/analyze_comprehensive.py --model resnet18 --hardware H100
@@ -554,7 +554,7 @@ from graphs.ir.structures import ConcurrencyDescriptor
 ./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output results.json
 
 # After (just add _v2)
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --output results.json
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --output results.json
 ```
 
 ### Step 3: Migrate Python Code

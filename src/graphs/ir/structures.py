@@ -197,6 +197,28 @@ class SubgraphDescriptor:
 
         return summary
 
+    # Compatibility properties for hardware mapper integration
+    @property
+    def total_flops(self) -> int:
+        """Alias for flops to match FusedSubgraph interface"""
+        return self.flops
+
+    @property
+    def total_macs(self) -> int:
+        """Alias for macs to match FusedSubgraph interface"""
+        return self.macs
+
+    @property
+    def subgraph_id(self) -> int:
+        """Provide integer ID for mapper compatibility"""
+        # Use hash of node_id for deterministic integer ID
+        return abs(hash(self.node_id)) % (2**31)
+
+    @property
+    def node_names(self) -> List[str]:
+        """Return list of node names for mapper compatibility"""
+        return [self.node_name]
+
 
 @dataclass
 class SubgraphConcurrency:

@@ -328,7 +328,7 @@ grep -rE "#90EE90|#FFB6C1|#FFFFE0|#D3D3D3|#FF6B6B|#E0E0E0" docs/ \
 
 ### CLI Integration
 
-**File**: `cli/analyze_comprehensive_v2.py`
+**File**: `cli/analyze_comprehensive.py`
 
 **Changes**:
 1. Added new command-line arguments:
@@ -351,7 +351,7 @@ grep -rE "#90EE90|#FFB6C1|#FFFFE0|#D3D3D3|#FF6B6B|#E0E0E0" docs/ \
 
 **Testing**: Verified with real model
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet18 \
     --hardware H100 \
     --output /tmp/test_report_with_diagrams.md \
@@ -472,7 +472,7 @@ docs/
 ```
 User Request
     ↓
-CLI (analyze_comprehensive_v2.py)
+CLI (analyze_comprehensive.py)
     ↓
 UnifiedAnalyzer.analyze_model()
     ↓
@@ -521,7 +521,7 @@ All colors meet WCAG AA standards (4.5:1 minimum contrast) ✅
 
 **Basic**:
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet18 \
     --hardware H100 \
     --output report.md \
@@ -530,7 +530,7 @@ All colors meet WCAG AA standards (4.5:1 minimum contrast) ✅
 
 **With Options**:
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model mobilenet_v2 \
     --hardware Jetson-Orin-AGX \
     --output analysis.md \
@@ -541,7 +541,7 @@ All colors meet WCAG AA standards (4.5:1 minimum contrast) ✅
 **Batch Analysis**:
 ```bash
 for model in resnet18 resnet50 mobilenet_v2; do
-    ./cli/analyze_comprehensive_v2.py \
+    ./cli/analyze_comprehensive.py \
         --model $model \
         --hardware H100 \
         --output "reports/${model}_H100.md" \
@@ -599,7 +599,7 @@ diagram = generator.generate_architecture_comparison(
 
 **Test 1: ResNet-18 on H100**
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet18 \
     --hardware H100 \
     --output /tmp/test_report.md \
@@ -656,7 +656,7 @@ grep -rE "#90EE90|#FFB6C1|#FFFFE0|#D3D3D3|#FF6B6B|#E0E0E0" docs/ \
    - Mermaid integration
    - New parameters for diagrams
 
-4. **`cli/analyze_comprehensive_v2.py`** (modified)
+4. **`cli/analyze_comprehensive.py`** (modified)
    - New CLI flags
    - Diagram generation support
 
@@ -817,7 +817,7 @@ The system is ready for production use and provides significant value:
 
 ### Files Modified
 - `report_generator.py` (Mermaid integration)
-- `analyze_comprehensive_v2.py` (CLI flags)
+- `analyze_comprehensive.py` (CLI flags)
 - `CHANGELOG_RECENT.md` (updated)
 
 ### Commands Executed
@@ -826,7 +826,7 @@ The system is ready for production use and provides significant value:
 python test_mermaid_visualization.py
 
 # CLI testing
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 \
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
     --output /tmp/test_report.md --include-diagrams
 
 # Color verification

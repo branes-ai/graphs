@@ -5,6 +5,8 @@
 **Duration:** Full session (continued from previous context)
 **Status:** ✅ Complete
 
+> **Note (2025-11-03):** The scripts created in this session (`analyze_comprehensive_v2.py`, `analyze_batch_v2.py`) have been promoted to default names (`analyze_comprehensive.py`, `analyze_batch.py`). Legacy scripts renamed to `*_v1.py`. Historical references in this document preserved for context.
+
 ---
 
 ## Session Overview
@@ -97,7 +99,7 @@ This session completed Phase 4.2 of the unified analysis framework, delivering a
 
 **Files Refactored:**
 
-1. **analyze_comprehensive_v2.py** (262 lines, down from 962)
+1. **analyze_comprehensive.py** (262 lines, down from 962)
    - **73% code reduction**
    - Eliminated ~200 lines of analysis orchestration
    - Eliminated ~300 lines of report formatting
@@ -105,7 +107,7 @@ This session completed Phase 4.2 of the unified analysis framework, delivering a
    - Uses UnifiedAnalyzer for all analysis
    - Uses ReportGenerator for all output
 
-2. **analyze_batch_v2.py** (329 lines, down from 572)
+2. **analyze_batch.py** (329 lines, down from 572)
    - **42% code reduction**
    - Eliminated ~150 lines of analysis orchestration
    - Eliminated ~200 lines of report formatting
@@ -224,8 +226,8 @@ This session completed Phase 4.2 of the unified analysis framework, delivering a
 
 4. **cli/README.md**
    - Added Phase 4.2 Unified Framework section
-   - Documented analyze_comprehensive_v2.py
-   - Documented analyze_batch_v2.py
+   - Documented analyze_comprehensive.py
+   - Documented analyze_batch.py
    - Updated Tool Selection Guide with v2 recommendations
    - Updated Advanced Analysis Workflows to use v2 tools
    - Added migration notes
@@ -313,8 +315,8 @@ analysis/
 **CLI Tools:**
 ```
 cli/
-├── analyze_comprehensive_v2.py  # ⭐ Refactored (262 lines)
-├── analyze_batch_v2.py          # ⭐ Refactored (329 lines)
+├── analyze_comprehensive.py  # ⭐ Refactored (262 lines)
+├── analyze_batch.py          # ⭐ Refactored (329 lines)
 ├── analyze_comprehensive.py     # Legacy (962 lines)
 ├── analyze_batch.py             # Legacy (572 lines)
 └── ...
@@ -566,8 +568,8 @@ No significant change in memory usage compared to Phase 4.1.
 - [x] AnalysisConfig implemented
 
 ✅ **CLI Tools**
-- [x] analyze_comprehensive_v2.py implemented
-- [x] analyze_batch_v2.py implemented
+- [x] analyze_comprehensive.py implemented
+- [x] analyze_batch.py implemented
 - [x] Both tools fully tested
 - [x] Drop-in replacements for Phase 4.1
 
@@ -754,8 +756,8 @@ Phase 4.2 successfully delivered a production-ready unified analysis framework t
 - `src/graphs/reporting/report_generator.py` (900 lines) [Phase 4.2.2]
 
 **CLI Tools:**
-- `cli/analyze_comprehensive_v2.py` (262 lines) [Phase 4.2.3]
-- `cli/analyze_batch_v2.py` (329 lines) [Phase 4.2.3]
+- `cli/analyze_comprehensive.py` (262 lines) [Phase 4.2.3]
+- `cli/analyze_batch.py` (329 lines) [Phase 4.2.3]
 
 **Tests:**
 - `tests/analysis/test_unified_analyzer.py` (260 lines, 27 tests) [Phase 4.2.1]

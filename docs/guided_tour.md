@@ -44,7 +44,7 @@ You'll see a list of available models. We'll use ResNet-18.
 
 **Step 2: Run your first analysis**
 ```bash
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100
 ```
 
 **Step 3: Understand the output**
@@ -118,7 +118,7 @@ Key concepts to understand:
 
 **Generate a visual report:**
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model mobilenet_v2 \
     --hardware H100 \
     --output mobilenet_analysis.md \
@@ -170,7 +170,7 @@ Key concepts to understand:
 **Problem**: What batch size gives best throughput without excessive latency?
 
 ```bash
-./cli/analyze_batch_v2.py \
+./cli/analyze_batch.py \
     --model resnet18 \
     --hardware H100 \
     --batch-size 1 2 4 8 16 32 \
@@ -190,7 +190,7 @@ Key concepts to understand:
 **Problem**: Which hardware is best for my model?
 
 ```bash
-./cli/analyze_batch_v2.py \
+./cli/analyze_batch.py \
     --model resnet50 \
     --hardware H100 Jetson-Orin-AGX KPU-T256 \
     --batch-size 1 8 16 \
@@ -209,7 +209,7 @@ Key concepts to understand:
 **Problem**: How can I minimize energy consumption?
 
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model mobilenet_v2 \
     --hardware Jetson-Orin-Nano \
     --output energy_analysis.json \
@@ -230,7 +230,7 @@ Key concepts to understand:
 **Problem**: Which model architecture is best for my use case?
 
 ```bash
-./cli/analyze_batch_v2.py \
+./cli/analyze_batch.py \
     --models resnet18 mobilenet_v2 efficientnet_b0 \
     --hardware Jetson-Orin-AGX \
     --batch-size 1 8 \
@@ -270,7 +270,7 @@ python cli/compare_datacenter_cpus.py
 
 **Step 1**: Analyze baseline performance
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet50 \
     --hardware Jetson-Orin-AGX \
     --output baseline.json
@@ -278,7 +278,7 @@ python cli/compare_datacenter_cpus.py
 
 **Step 2**: Find batch size that meets 30 FPS
 ```bash
-./cli/analyze_batch_v2.py \
+./cli/analyze_batch.py \
     --model resnet50 \
     --hardware Jetson-Orin-AGX \
     --batch-size 1 2 4 8 \
@@ -287,7 +287,7 @@ python cli/compare_datacenter_cpus.py
 
 **Step 3**: Try FP16 precision for speedup
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model resnet50 \
     --hardware Jetson-Orin-AGX \
     --precision fp16 \
@@ -473,7 +473,7 @@ print(f"Latency: {result.total_latency_ms:.2f} ms")
 
 **Step 1: Baseline analysis**
 ```bash
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model efficientnet_b0 \
     --hardware Jetson-Orin-Nano \
     --output baseline.md \
@@ -488,14 +488,14 @@ print(f"Latency: {result.total_latency_ms:.2f} ms")
 **Step 3: Test optimizations**
 ```bash
 # Try FP16 precision
-./cli/analyze_comprehensive_v2.py \
+./cli/analyze_comprehensive.py \
     --model efficientnet_b0 \
     --hardware Jetson-Orin-Nano \
     --precision fp16 \
     --output fp16_optimized.json
 
 # Try different batch sizes
-./cli/analyze_batch_v2.py \
+./cli/analyze_batch.py \
     --model efficientnet_b0 \
     --hardware Jetson-Orin-Nano \
     --batch-size 1 2 4 8 \
@@ -782,20 +782,20 @@ python validation/hardware/test_all_hardware.py
 ./cli/list_hardware_mappers.py
 
 # Quick analysis
-./cli/analyze_comprehensive_v2.py --model MODEL --hardware HW
+./cli/analyze_comprehensive.py --model MODEL --hardware HW
 
 # Batch size sweep
-./cli/analyze_batch_v2.py --model MODEL --hardware HW --batch-size 1 4 8 16
+./cli/analyze_batch.py --model MODEL --hardware HW --batch-size 1 4 8 16
 
 # Visual report with diagrams
-./cli/analyze_comprehensive_v2.py --model MODEL --hardware HW \
+./cli/analyze_comprehensive.py --model MODEL --hardware HW \
     --output report.md --include-diagrams
 
 # Compare models
-./cli/analyze_batch_v2.py --models MODEL1 MODEL2 MODEL3 --hardware HW
+./cli/analyze_batch.py --models MODEL1 MODEL2 MODEL3 --hardware HW
 
 # Compare hardware
-./cli/analyze_batch_v2.py --model MODEL --hardware HW1 HW2 HW3
+./cli/analyze_batch.py --model MODEL --hardware HW1 HW2 HW3
 
 # Explore graph structure
 ./cli/graph_explorer.py --model MODEL
@@ -842,7 +842,7 @@ pip install -e .
 ### "Too much output, can't find what I need"
 Use the `--quiet` flag:
 ```bash
-./cli/analyze_comprehensive_v2.py --model resnet18 --hardware H100 --quiet
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --quiet
 ```
 
 ### "I want to go deeper on a specific topic"

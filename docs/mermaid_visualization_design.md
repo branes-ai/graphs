@@ -150,7 +150,7 @@ Update existing tools:
 
 ```bash
 # Single architecture analysis with diagrams
-python cli/analyze_comprehensive_v2.py \
+python cli/analyze_comprehensive.py \
     --model resnet18 \
     --hardware h100 \
     --output report.md \
@@ -683,7 +683,7 @@ Markdown reports with Mermaid diagrams work perfectly in:
 
 ### Use Case 1: Debug Why GPU Utilization is Low
 ```bash
-python cli/analyze_comprehensive_v2.py \
+python cli/analyze_comprehensive.py \
     --model resnet18 \
     --hardware h100 \
     --output analysis.md \
@@ -713,7 +713,7 @@ python cli/compare_architectures.py \
 
 ### Use Case 3: Optimize Model for TPU
 ```bash
-python cli/analyze_comprehensive_v2.py \
+python cli/analyze_comprehensive.py \
     --model bert_base \
     --hardware tpu-v4 \
     --output tpu_optimization.md \
