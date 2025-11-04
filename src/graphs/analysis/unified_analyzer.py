@@ -51,6 +51,10 @@ from graphs.analysis.memory import MemoryEstimator, MemoryReport
 from graphs.analysis.concurrency import ConcurrencyAnalyzer
 from graphs.ir.structures import ConcurrencyDescriptor
 
+# Phase 2: Operator-level EDP (NEW)
+# Note: Import moved to method to avoid circular dependency
+# from graphs.analysis.architecture_comparator import (...)
+
 # Hardware models
 from graphs.hardware.resource_model import (
     Precision,
@@ -122,6 +126,9 @@ class AnalysisConfig:
     # Power management (Phase 2)
     power_gating_enabled: bool = False  # NEW: Model power gating of unused units
 
+    # Operator-level EDP (Phase 2)
+    run_operator_edp: bool = True  # NEW: Generate operator-level EDP breakdown
+
     # Validation
     validate_consistency: bool = True  # Check reports agree with each other
 
@@ -157,6 +164,11 @@ class UnifiedAnalysisResult:
     energy_report: Optional[EnergyReport] = None
     memory_report: Optional[MemoryReport] = None
     concurrency_report: Optional[ConcurrencyDescriptor] = None
+
+    # Phase 2: Operator-level EDP breakdown (NEW)
+    # Using Any to avoid circular import (actual types: SubgraphEDPDescriptor, OperatorEDPDescriptor)
+    subgraph_edp_breakdown: Optional[List[Any]] = None
+    operator_edp_breakdown: Optional[List[Any]] = None
 
     # Derived metrics (computed from above)
     total_latency_ms: float = 0.0
@@ -364,6 +376,7 @@ class UnifiedAnalyzer:
             hardware_mapper=hardware_mapper,
             precision=precision,
             config=config,
+            original_model_name=model_name,  # NEW: Keep original for ArchitectureComparator
         )
 
     def analyze_model_with_custom_hardware(
@@ -374,6 +387,7 @@ class UnifiedAnalyzer:
         hardware_mapper: Any,  # Any mapper type (GPUMapper, CPUMapper, etc.) with resource_model attribute
         precision: Precision = Precision.FP32,
         config: Optional[AnalysisConfig] = None,
+        original_model_name: Optional[str] = None,  # NEW: Original model name for ArchitectureComparator
     ) -> UnifiedAnalysisResult:
         """
         Analyze with custom model/hardware (for advanced users).
@@ -459,6 +473,21 @@ class UnifiedAnalyzer:
             if self.verbose:
                 print("Running concurrency analysis...")
             result.concurrency_report = self._run_concurrency_analysis(partition_report)
+
+        # Step 5.5: Optionally run operator-level EDP breakdown (NEW)
+        if config.run_operator_edp and result.energy_report and result.roofline_report:
+            if self.verbose:
+                print("Running operator-level EDP breakdown...")
+            # Use original_model_name for ArchitectureComparator (it needs lowercase 'resnet18', not 'ResNet-18')
+            model_name_for_comparator = original_model_name if original_model_name else model_name
+            subgraph_edps, operator_edps = self._run_operator_edp_analysis(
+                model_name_for_comparator, hardware_mapper, batch_size, precision,
+                model=model, input_tensor=input_tensor
+            )
+            result.subgraph_edp_breakdown = subgraph_edps
+            result.operator_edp_breakdown = operator_edps
+            if self.verbose:
+                print(f"  Found {len(operator_edps)} operators across {len(subgraph_edps)} subgraphs")
 
         # Step 6: Compute derived metrics
         self._compute_derived_metrics(result)
@@ -644,6 +673,59 @@ class UnifiedAnalyzer:
         """Run concurrency analysis for parallelism opportunities"""
         analyzer = ConcurrencyAnalyzer()
         return analyzer.analyze(partition_report)
+
+    def _run_operator_edp_analysis(
+        self,
+        model_name: str,
+        hardware_mapper: 'HardwareMapper',
+        batch_size: int,
+        precision: Precision,
+        model: Optional[Any] = None,
+        input_tensor: Optional[Any] = None
+    ) -> Tuple[List[Any], List[Any]]:  # Returns (SubgraphEDPDescriptor list, OperatorEDPDescriptor list)
+        """
+        Run operator-level EDP breakdown analysis (Phase 2).
+
+        Uses ArchitectureComparator to compute subgraph and operator-level
+        EDP breakdowns with architectural modifiers.
+
+        Args:
+            model_name: Model name (e.g., 'resnet18')
+            hardware_mapper: Hardware mapper instance
+            batch_size: Batch size for analysis
+            precision: Numerical precision
+            model: Optional pre-loaded model instance (for custom models)
+            input_tensor: Optional input tensor (for custom models)
+
+        Returns:
+            Tuple of (subgraph_edp_breakdown, operator_edp_breakdown)
+        """
+        # Local import to avoid circular dependency
+        from graphs.analysis.architecture_comparator import ArchitectureComparator
+
+        # Extract hardware name from mapper
+        hardware_name = hardware_mapper.resource_model.name
+
+        # Create ArchitectureComparator with single architecture
+        architectures = {hardware_name: hardware_mapper}
+
+        comparator = ArchitectureComparator(
+            model_name=model_name,
+            architectures=architectures,
+            batch_size=batch_size,
+            precision=precision,
+            model=model,
+            input_tensor=input_tensor
+        )
+
+        # Run analysis
+        comparator.analyze_all()
+
+        # Extract breakdowns
+        subgraph_edps = comparator.get_subgraph_edp_breakdown(hardware_name)
+        operator_edps = comparator.get_operator_edp_breakdown(hardware_name)
+
+        return subgraph_edps, operator_edps
 
     def _compute_derived_metrics(self, result: UnifiedAnalysisResult) -> None:
         """Compute derived metrics from analysis reports"""

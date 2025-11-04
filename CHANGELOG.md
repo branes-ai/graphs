@@ -6,6 +6,112 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-03] - Phase 2: Operator-Level EDP Analysis
+
+### Added
+
+**Hierarchical EDP Breakdown: Model → Subgraph → Operator**
+
+- **Operator-Level EDP Analysis** (`src/graphs/analysis/architecture_comparator.py`)
+  - New `get_operator_edp_breakdown(arch_name)` method returns list of `OperatorEDPDescriptor` objects
+  - New `get_subgraph_edp_breakdown(arch_name)` method returns list of `SubgraphEDPDescriptor` objects
+  - New `generate_operator_edp_report(arch_name, top_n)` method generates formatted operator-level reports
+  - Energy-based normalization: Operator EDP fractions sum to **96.7%** of model energy (remaining 3.3% is static/leakage)
+  - Extracts 68 operators from ResNet-18 with correct operator types (Conv2d, BatchNorm2d, ReLU, etc.)
+
+- **Architectural Modifiers** (`src/graphs/analysis/architectural_modifiers.py`)
+  - Architecture-specific cost multipliers for operators based on architecture class and fusion status
+  - **Spatial architectures (KPU, TPU)**: ReLU 0.05× (fused) / 1.0× (separate) = 20× fusion benefit
+  - **Sequential architectures (CPU, GPU)**: ReLU 0.5× (fused) / 3.0× (separate) = 6× fusion benefit
+  - BatchNorm2d: 1.5× modifier on spatial architectures (higher overhead)
+  - System already implemented and validated in previous work
+
+- **UnifiedAnalyzer Integration** (`src/graphs/analysis/unified_analyzer.py`)
+  - `UnifiedAnalysisResult` extended with `operator_edp_breakdown` and `subgraph_edp_breakdown` fields
+  - `AnalysisConfig` extended with `run_operator_edp` flag (default: True)
+  - New `_run_operator_edp_analysis()` method integrates operator-level analysis into unified pipeline
+  - Runs after roofline and energy analysis (dependencies satisfied)
+  - Results seamlessly available in unified analysis results
+  - Fixed circular dependency issue with local import and config-based loop prevention
+
+- **Data Structures**
+  - `OperatorEDPDescriptor`: Per-operator EDP with 13 fields including:
+    - `architectural_edp`: EDP with architecture-specific modifiers applied
+    - `edp_fraction_of_model`: Energy fraction of total model (correct normalization)
+    - `architectural_modifier`: Architecture-specific cost multiplier (0.05× to 3.0×)
+    - `fusion_benefit`: EDP savings from fusion (up to 20× on spatial architectures)
+  - `SubgraphEDPDescriptor`: Per-subgraph EDP with energy/latency component breakdown
+
+### Fixed
+
+- **Phase 2.1**: Operator name parsing - now uses `operation_type` enum instead of `fusion_pattern` strings
+  - Before: "Bn1", "Layer4", "0", "Conv2"
+  - After: "BatchNorm2d", "Conv2d", "ReLU", "Linear"
+
+- **Phase 2.3**: EDP fraction normalization - energy-based instead of EDP-based
+  - Key insight: Energy is additive, latency is shared at model level
+  - Formula: `operator_fraction = operator_energy / model_energy`
+  - Result: Fractions sum to 96.7% (correct - remaining 3.3% is static energy)
+
+- **Phase 2.6**: Infinite recursion loop when ArchitectureComparator calls UnifiedAnalyzer
+  - Solution: Disable operator EDP when ArchitectureComparator internally calls UnifiedAnalyzer
+  - Prevents circular dependency: ArchitectureComparator → UnifiedAnalyzer → ArchitectureComparator
+
+### Documentation
+
+- **User Guide**: `docs/OPERATOR_LEVEL_EDP.md` (600+ lines)
+  - Complete API reference and usage examples
+  - Architectural modifiers detailed tables
+  - Interpretation guide for energy-based normalization
+  - Advanced usage patterns and optimization strategies
+
+- **Session Log**: `docs/sessions/2025-11-03_phase2_operator_level_edp_complete.md`
+  - Complete implementation history with technical details
+  - All 7 phases documented with code examples
+  - Troubleshooting guide and performance notes
+
+### Testing
+
+- **Comprehensive Validation Suite**: `validation/analysis/test_operator_edp_comprehensive.py` (374 lines)
+  - **Test 1**: Basic operator extraction (68 operators from ResNet-18) ✅
+  - **Test 2**: EDP fraction normalization (sums to 96.7%) ✅
+  - **Test 3**: Architectural modifiers (Conv2d: 1.0×, BatchNorm: 1.5×) ✅
+  - **Test 4**: Subgraph-level EDP breakdown (68 subgraphs) ✅
+  - **Test 5**: UnifiedAnalyzer integration (works with/without operator EDP) ✅
+  - **Test 6**: Cross-architecture consistency (GPU and KPU extract same operators) ✅
+  - **Result**: 6/6 tests passing (100% success rate)
+
+### Performance
+
+- Analysis time with operator EDP enabled: ~30-40 seconds for ResNet-18
+- Operator extraction: 68 operators covering 96.7% of model energy
+- Cross-architecture: Consistent results across GPU, KPU, and TPU
+
+### Example Output
+
+```
+Operator-Level EDP Breakdown: resnet18 on KPU
+========================================
+Total Operators: 68
+Operator EDP Coverage: 96.7% of model energy
+
+Top Operators:
+1. Conv2d (layer4_0_conv2): 17.53 nJ·s (8.1% of model)
+2. Conv2d (layer4_1_conv1): 17.53 nJ·s (8.1% of model)
+3. BatchNorm2d (bn1): 7.45 nJ·s (5.2% of model)
+
+Operator Type Distribution:
+  Conv2d:      74.7% of model energy
+  BatchNorm2d: 10.6%
+  ReLU:        10.4%
+```
+
+### Breaking Changes
+
+None. All changes are additive and backward compatible.
+
+---
+
 ## [2025-11-03] - CLI Script Naming Update
 
 ### Changed

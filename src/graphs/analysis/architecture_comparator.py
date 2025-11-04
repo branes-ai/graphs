@@ -13,7 +13,7 @@ Educational focus: Not just "what" but "WHY" one architecture is better.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 import json
 import csv
@@ -229,7 +229,9 @@ class ArchitectureComparator:
         model_name: str,
         architectures: Dict[str, 'HardwareMapper'],
         batch_size: int = 1,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
+        model: Optional[Any] = None,
+        input_tensor: Optional[Any] = None
     ):
         """
         Initialize comparator.
@@ -239,11 +241,15 @@ class ArchitectureComparator:
             architectures: Dict mapping architecture name to HardwareMapper
             batch_size: Batch size for analysis
             precision: Numerical precision
+            model: Optional pre-loaded model instance (for custom models)
+            input_tensor: Optional input tensor (for custom models)
         """
         self.model_name = model_name
         self.architectures = architectures
         self.batch_size = batch_size
         self.precision = precision
+        self.custom_model = model
+        self.custom_input_tensor = input_tensor
 
         # Results storage
         self.results: Dict[str, UnifiedAnalysisResult] = {}
@@ -258,29 +264,39 @@ class ArchitectureComparator:
         print(f"Analyzing {self.model_name} on {len(self.architectures)} architectures...")
         print()
 
-        # Load model once (shared across all architectures)
-        # Use torchvision models
-        try:
-            model = getattr(models, self.model_name)(pretrained=False)
-            model.eval()
-        except AttributeError:
-            raise ValueError(f"Model '{self.model_name}' not found in torchvision.models")
+        # Use custom model if provided, otherwise load from torchvision
+        if self.custom_model is not None and self.custom_input_tensor is not None:
+            model = self.custom_model
+            input_tensor = self.custom_input_tensor
+        else:
+            # Load model from torchvision
+            try:
+                model = getattr(models, self.model_name)(pretrained=False)
+                model.eval()
+            except AttributeError:
+                raise ValueError(f"Model '{self.model_name}' not found in torchvision.models")
 
-        # Create input tensor with correct batch size
-        # Assume standard ImageNet input shape
-        input_shape = (self.batch_size, 3, 224, 224)
-        input_tensor = torch.randn(input_shape)
+            # Create input tensor with correct batch size
+            # Assume standard ImageNet input shape
+            input_shape = (self.batch_size, 3, 224, 224)
+            input_tensor = torch.randn(input_shape)
 
         for arch_name, mapper in self.architectures.items():
             print(f"  Analyzing {arch_name}...")
             analyzer = UnifiedAnalyzer(verbose=False)
+
+            # Disable operator EDP to avoid circular dependency
+            # (ArchitectureComparator provides operator EDP directly via get_operator_edp_breakdown)
+            from graphs.analysis.unified_analyzer import AnalysisConfig
+            config = AnalysisConfig(run_operator_edp=False)
 
             result = analyzer.analyze_model_with_custom_hardware(
                 model=model,
                 input_tensor=input_tensor,
                 model_name=self.model_name,
                 hardware_mapper=mapper,
-                precision=self.precision
+                precision=self.precision,
+                config=config
             )
             self.results[arch_name] = result
 
@@ -1172,13 +1188,24 @@ class ArchitectureComparator:
             if not sg_desc:
                 continue
 
-            # Parse fusion pattern to get operator list
-            operators = self._parse_fusion_pattern(sg_desc.fusion_pattern, sg_desc.flops)
+            # Check if this is a truly fused subgraph (multiple operations)
+            # For now, most subgraphs are single operations, so use operation_type directly
+            if hasattr(sg_desc, 'ops') and sg_desc.ops and len(sg_desc.ops) > 1:
+                # Truly fused subgraph - parse fusion pattern
+                operators = self._parse_fusion_pattern(sg_desc.fusion_pattern, sg_desc.flops)
+            else:
+                # Single operation subgraph - use operation_type directly
+                op_type_str = self._operation_type_to_string(sg_desc.operation_type)
+                operators = [{
+                    'type': op_type_str,
+                    'flops': sg_desc.flops,
+                    'memory_bytes': sg_desc.total_input_bytes + sg_desc.total_output_bytes + sg_desc.total_weight_bytes
+                }]
 
             if not operators:
-                # Fallback: create single operator from fusion pattern
+                # Final fallback: use node name
                 operators = [{
-                    'type': sg_desc.fusion_pattern,
+                    'type': sg_desc.node_name,
                     'flops': sg_desc.flops,
                     'memory_bytes': sg_desc.total_input_bytes + sg_desc.total_output_bytes + sg_desc.total_weight_bytes
                 }]
@@ -1239,10 +1266,76 @@ class ArchitectureComparator:
 
                 all_operator_edps.append(operator_edp)
 
+        # Recalculate operator fractions based on energy, not EDP
+        # Key insight: At the model level, all operators share the same total latency.
+        # Therefore: operator_edp_fraction = operator_energy / model_energy
+        #
+        # Because: Model_EDP = Model_Energy × Model_Latency
+        #          Operator contribution to Model_EDP = Operator_Energy × Model_Latency
+        #          Fraction = (Op_Energy × Model_Lat) / (Model_Energy × Model_Lat)
+        #                   = Op_Energy / Model_Energy
+        #
+        # Energy is additive, latency is shared!
+        model_energy = metrics.total_energy_j
+
+        if model_energy > 0:
+            # Build lookup of subgraph latencies
+            sg_latencies = {sg.subgraph_id: sg.latency_s for sg in subgraph_edps}
+
+            for op in all_operator_edps:
+                # Extract operator energy from its EDP
+                # operator_edp = operator_energy × subgraph_latency
+                sg_latency = sg_latencies.get(op.subgraph_id, 1.0)
+                if sg_latency > 0:
+                    operator_energy = op.architectural_edp / sg_latency
+                    op.edp_fraction_of_model = operator_energy / model_energy
+                else:
+                    op.edp_fraction_of_model = 0.0
+
         # Sort by architectural EDP (descending)
         all_operator_edps.sort(key=lambda x: x.architectural_edp, reverse=True)
 
         return all_operator_edps
+
+    def _operation_type_to_string(self, op_type) -> str:
+        """
+        Convert OperationType enum to human-readable string.
+
+        Args:
+            op_type: OperationType enum value
+
+        Returns:
+            Human-readable operator name (e.g., "Conv2d", "ReLU", "Linear")
+        """
+        from graphs.ir.structures import OperationType
+
+        mapping = {
+            OperationType.CONV2D: 'Conv2d',
+            OperationType.CONV2D_DEPTHWISE: 'Conv2d_Depthwise',
+            OperationType.CONV2D_POINTWISE: 'Conv2d_Pointwise',
+            OperationType.LINEAR: 'Linear',
+            OperationType.MATMUL: 'MatMul',
+            OperationType.BATCHNORM: 'BatchNorm2d',
+            OperationType.LAYERNORM: 'LayerNorm',
+            OperationType.RELU: 'ReLU',
+            OperationType.RELU6: 'ReLU6',
+            OperationType.SILU: 'SiLU',
+            OperationType.SWISH: 'Swish',
+            OperationType.GELU: 'GELU',
+            OperationType.HARDSWISH: 'Hardswish',
+            OperationType.SIGMOID: 'Sigmoid',
+            OperationType.MAXPOOL: 'MaxPool2d',
+            OperationType.AVGPOOL: 'AvgPool2d',
+            OperationType.ADAPTIVEAVGPOOL: 'AdaptiveAvgPool2d',
+            OperationType.ELEMENTWISE: 'Elementwise',
+            OperationType.SQUEEZE_EXCITE: 'SqueezeExcite',
+            OperationType.MULTIHEAD_ATTENTION: 'MultiheadAttention',
+            OperationType.DROPOUT: 'Dropout',
+            OperationType.STOCHASTIC_DEPTH: 'StochasticDepth',
+            OperationType.UNKNOWN: 'Unknown',
+        }
+
+        return mapping.get(op_type, str(op_type))
 
     def _parse_fusion_pattern(self, fusion_pattern: str, total_flops: float) -> List[Dict]:
         """
@@ -1396,8 +1489,14 @@ class ArchitectureComparator:
         # Summary
         total_operators = len(operator_edps)
         unique_subgraphs = len(set(op.subgraph_name for op in operator_edps))
+        total_edp_fraction = sum(op.edp_fraction_of_model for op in operator_edps)
+
         lines.append(f"Total Operators: {total_operators}")
         lines.append(f"Subgraphs: {unique_subgraphs}")
+        lines.append(f"Operator EDP Coverage: {total_edp_fraction*100:.1f}% of model energy")
+        if total_edp_fraction < 0.99:
+            remaining_pct = (1.0 - total_edp_fraction) * 100
+            lines.append(f"  (Remaining {remaining_pct:.1f}% is static/leakage energy)")
         lines.append("")
 
         # Top N operators

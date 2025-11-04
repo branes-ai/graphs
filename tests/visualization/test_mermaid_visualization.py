@@ -15,6 +15,7 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+import pytest
 import torch
 import torch.fx as fx
 from torchvision.models import resnet18
@@ -69,6 +70,21 @@ def run_partitioning(traced_model, example_input):
         sg.latency_ms = 0.001 * (idx + 1) * (100 if idx < 5 else 10)
 
     return partition_report
+
+
+# Pytest fixtures
+@pytest.fixture
+def traced_model():
+    """Fixture to provide traced model."""
+    model, _ = trace_resnet18()
+    return model
+
+
+@pytest.fixture
+def partition_report(traced_model):
+    """Fixture to provide partition report."""
+    example_input = torch.randn(1, 3, 224, 224)
+    return run_partitioning(traced_model, example_input)
 
 
 def test_fx_graph_visualization(traced_model):
