@@ -6,6 +6,114 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-05] - Fusion Calibration Framework
+
+### Added
+
+**Comprehensive Fusion Calibration System**
+
+- **Fusion Benchmark Modules** (1,400 lines)
+  - `benchmarks/fused_linear_bench.py`: Linear+Bias, Linear+Bias+ReLU, Linear+Bias+GELU patterns
+  - `benchmarks/fused_conv_bench.py`: Conv2d+ReLU, Conv2d+BN, Conv2d+BN+ReLU with BatchNorm folding
+  - `benchmarks/fused_attention_bench.py`: Q@K.T, Q@K.T+Softmax, Full Attention with SDPA
+  - Measures unfused vs fused performance: speedup, memory reduction, GFLOPS improvement
+  - Uses PyTorch fusion (torch.addmm, torch.jit.script, F.scaled_dot_product_attention)
+
+- **Schema Extension** (`src/graphs/hardware/calibration/schema.py`)
+  - New `FusionCalibration` dataclass: captures fusion pattern performance
+  - Extended `HardwareCalibration` with `fusion_profiles` field
+  - New methods: `add_fusion_pattern()`, `get_fusion_pattern()`, `get_fusion_speedup()`
+  - Enhanced JSON serialization/deserialization for fusion data
+  - Updated `print_summary()` with fusion verdicts (Strong/Moderate/Minimal/Avoid)
+
+- **Calibrator Integration** (`src/graphs/hardware/calibration/calibrator.py`)
+  - New `fusion_patterns` parameter to `calibrate_hardware()`
+  - CLI support: `--fusion-patterns linear,conv,attention,all`
+  - Automatic fusion benchmark orchestration
+  - Conversion of benchmark results to `FusionCalibration` objects
+
+- **Comprehensive Documentation** (2,000+ lines)
+  - `DOCUMENTATION_INDEX.md`: Navigation guide to all calibration docs
+  - `FUSION_WORK_COMPLETE.md`: Complete implementation summary
+  - `FUSION_CALIBRATION_DESIGN.md`: Design document (439 lines)
+  - `FUSION_INTEGRATION_PLAN.md`: Integration plan and timeline
+  - `FUSION_INTEGRATION_EXAMPLE.md`: Usage examples and API guide
+  - `FUSION_BENCHMARKS_SUMMARY.md`: Results and analysis (328 lines)
+  - `benchmarks/README.md`: Benchmarks guide with implementation details
+
+- **Calibration Profiles**
+  - `profiles/i7_12700k_with_fusion.json`: Full calibration with 9 fusion patterns
+  - Includes Linear, Conv, and Attention fusion measurements on i7-12700K
+
+### Changed
+
+- **File Organization**
+  - Moved `CALIBRATION_STATISTICS_FIX.md` from repo root → `src/graphs/hardware/calibration/`
+  - Moved `MAPPER_CALIBRATION_INTEGRATION.md` from repo root → `src/graphs/hardware/calibration/`
+  - Moved `test_calibration_integration.py` from repo root → `validation/hardware/`
+  - All calibration-related files now properly organized in calibration directory
+
+### Fixed
+
+- **Calibration Statistics Bug** (`schema.py`)
+  - Fixed confusing "Worst GFLOPS: 0.0 (56.0% efficiency)" display
+  - Root cause: `_update_statistics()` mixed compute and memory operation statistics
+  - Solution: Separate compute (measured_gflops > 0) from memory operations
+  - Result: "Worst GFLOPS: 744.7 (74.5% efficiency)" - now consistent
+  - Documentation: `CALIBRATION_STATISTICS_FIX.md`
+
+- **DomainFlowEnergyModel Parameter Names** (4 test failures fixed)
+  - Fixed `kpu.py`: Changed `domain_tracking_per_op` → `domainflow_tracking_per_op`
+  - Fixed `kpu.py`: Changed `schedule_adaptation_energy` → `dataflow_adaptation_energy`
+  - Fixed `kpu.py`: Removed invalid parameters (`network_overlay_update`, `wavefront_control`)
+  - Fixed `demo_architectural_energy.py`: Updated parameter name
+  - Test results: 4 failed → 0 failed (178 passed, 4 skipped)
+
+### Key Findings
+
+**CPU Fusion Performance (i7-12700K)**:
+- QK^T attention: 1.07-1.28× speedup (best on CPU)
+- Conv+BN: 1.03-1.07× speedup
+- Conv+BN+ReLU: 1.03-1.07× speedup with 63% memory reduction
+- Linear+Bias: 0.99-1.01× (minimal benefit)
+- Full Attention (SDPA): 0.60-0.71× (slower on CPU!)
+
+**Hardware-Specific Insights**:
+- CPU fusion benefits: 1.0-1.3× (modest) due to deep caches
+- GPU fusion expected: 2-5× (strong) due to kernel launch overhead
+- Fusion benefits are **hardware-specific** - requires different strategies
+- Memory reduction ≠ speedup on CPU (caches hide latency)
+
+### Usage
+
+```bash
+# Calibrate with all fusion patterns
+python -m graphs.hardware.calibration.calibrator \
+    --hardware i7-12700K \
+    --peak-gflops 1000 \
+    --peak-bandwidth 50 \
+    --fusion-patterns all \
+    --output profiles/my_calibration.json
+```
+
+```python
+# Query fusion speedup in code
+from graphs.hardware.calibration import load_calibration
+
+cal = load_calibration('profiles/i7_12700k_fusion.json')
+speedup = cal.get_fusion_speedup('Conv2d_BN_ReLU')
+if speedup > 1.1:  # 10% threshold
+    print("✓ Fusing Conv+BN+ReLU (beneficial)")
+```
+
+### Documentation
+
+- Session log: `docs/sessions/2025-11-05_fusion_calibration_framework.md`
+- Total implementation: ~3,600 lines (code + documentation)
+- Start here: `src/graphs/hardware/calibration/DOCUMENTATION_INDEX.md`
+
+---
+
 ## [2025-11-03] - Phase 2: Operator-Level EDP Analysis
 
 ### Added
