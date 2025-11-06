@@ -136,6 +136,9 @@ class HierarchicalTableFormatter:
             if module_path is None:
                 module_path = self._node_name_to_module_path(sg.node_name)
 
+            # Abbreviate the module path for storage
+            module_path = self._abbreviate_name(module_path, max_length=200)  # Don't truncate at storage time
+
             # Create stats for this module
             # Level is dot count + 1 (to indent under 'model' which is level 0)
             self.module_stats[module_path] = ModuleStats(
@@ -282,17 +285,101 @@ class HierarchicalTableFormatter:
         else:
             return f"{bytes}B"
 
+    def _abbreviate_name(self, module_path: str, max_length: int = 30) -> str:
+        """
+        Abbreviate long module names for readability
+
+        Examples:
+            getattr_getattr_L__yolo_model___model_23_cv3_0___0_____0___conv
+            -> model.23.cv3.0[0][0].conv
+
+            L__yolo_model___model_0_conv -> model.0.conv
+        """
+        name = module_path
+
+        # Strip common prefixes (case-insensitive for some)
+        prefixes = [
+            'getattr_getattr_',
+            'getattr_',
+            'L__yolo_model___',
+            'L__self_',
+            'g__model___model',  # Dynamo closure variable pattern
+            'G__model___model',  # Dynamo closure variable pattern (uppercase)
+        ]
+        for prefix in prefixes:
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+                break
+
+        # Handle Dynamo wrapping patterns
+        # L.model.model.X -> model.X
+        if name.startswith('L.') or name.startswith('L__'):
+            # Strip L. or L__ prefix
+            name = name[2:] if name.startswith('L.') else name[3:]
+
+        # If we have repetitive patterns like "model.model.X", simplify to "model.X"
+        parts = name.split('.')
+        if len(parts) >= 3 and parts[0] == parts[1] == 'model':
+            # Special case: model.model.X -> model.X
+            name = 'model.' + '.'.join(parts[2:])
+
+        # Handle repeated underscores (from Dynamo's name mangling)
+        # ___model_23___ -> .model.23.
+        # _____0___ -> [0]
+        import re
+
+        # Replace patterns like ___X___ or ____X____ with [X]
+        name = re.sub(r'_{4,}(\d+)_{2,}', r'[\1]', name)
+
+        # Replace triple underscores with dots (hierarchy separator)
+        name = re.sub(r'_{3,}', '.', name)
+
+        # Replace double underscores followed by digit with dot + digit (module indices)
+        # model_23_cv3 -> model.23.cv3
+        name = re.sub(r'_(\d+)_', r'.\1.', name)
+
+        # Clean up any remaining double underscores at edges
+        name = re.sub(r'^_+', '', name)
+        name = re.sub(r'_+$', '', name)
+
+        # Replace single underscores with dots in most cases
+        # but preserve them in identifiers like cv1, bn, etc.
+        parts = name.split('.')
+        cleaned_parts = []
+        for part in parts:
+            # If part has underscores but looks like an identifier (cv1_conv), keep it
+            if '_' in part and not part.replace('_', '').replace('[', '').replace(']', '').isdigit():
+                # Replace underscore with dot only if it separates module hierarchy
+                # cv1_conv -> cv1.conv
+                subparts = part.split('_')
+                cleaned_parts.append('.'.join(subparts))
+            else:
+                cleaned_parts.append(part)
+        name = '.'.join(cleaned_parts)
+
+        # Clean up any double dots
+        name = re.sub(r'\.+', '.', name)
+        name = name.strip('.')
+
+        # If still too long, show start...end
+        if len(name) > max_length:
+            prefix_len = (max_length - 3) // 2
+            suffix_len = max_length - 3 - prefix_len
+            name = name[:prefix_len] + '...' + name[-suffix_len:]
+
+        return name
+
     def _generate_table(self, sorted_modules: List[str], show_shapes: bool) -> str:
         """Generate formatted markdown table"""
         lines = []
 
         # Header - Tensor Shape column right after #Parameters (operator info grouped together)
         if show_shapes:
-            lines.append(f"| {'Module':<35} | {'#Parameters':<20} | {'Tensor Shape':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
-            lines.append(f"|:{'-'*36}|:{'-'*21}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
+            lines.append(f"| {'Module':<40} | {'#Parameters':<20} | {'Tensor Shape':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
+            lines.append(f"|:{'-'*41}|:{'-'*21}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
         else:
-            lines.append(f"| {'Module':<35} | {'#Parameters':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
-            lines.append(f"|:{'-'*36}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
+            lines.append(f"| {'Module':<40} | {'#Parameters':<20} | {'MACs':<12} | {'FLOPs':<12} | {'Memory':<12} |")
+            lines.append(f"|:{'-'*41}|:{'-'*21}|:{'-'*13}|:{'-'*13}|:{'-'*13}|")
 
         # Rows
         for module_path in sorted_modules:
@@ -301,17 +388,20 @@ class HierarchicalTableFormatter:
             # Indentation based on level
             indent = ' ' * stats.level
 
-            # Display name (show more context for ambiguous names)
-            parts = module_path.split('.')
-            if len(parts) > 1 and parts[-1].isdigit() and stats.level > 0:
-                # For numeric names like "0", "1", show parent context
-                # "layer1.0" -> show as "0" but we want to show what layer
-                if len(parts) >= 2:
-                    name = indent + '.'.join(parts[-2:])  # e.g., "layer1.0"
-                else:
-                    name = indent + parts[-1]
+            # Display name - use abbreviation for long names
+            if module_path == 'model':
+                display_name = 'model'
             else:
-                name = indent + parts[-1]
+                abbreviated = self._abbreviate_name(module_path, max_length=35)
+                parts = abbreviated.split('.')
+
+                # For better readability, show last 2-3 parts depending on length
+                if len(parts) > 3 and len(abbreviated) > 30:
+                    display_name = '...' + '.'.join(parts[-2:])
+                else:
+                    display_name = abbreviated
+
+            name = indent + display_name
 
             # Format parameters
             if stats.parameter_shapes:
@@ -332,28 +422,20 @@ class HierarchicalTableFormatter:
             # Format tensor shape (after #Parameters, before MACs)
             if show_shapes:
                 shape_str = str(stats.tensor_shape) if stats.tensor_shape else ''
-                lines.append(f"| {name:<35} | {param_str:<20} | {shape_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
+                lines.append(f"| {name:<40} | {param_str:<20} | {shape_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
             else:
-                lines.append(f"| {name:<35} | {param_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
+                lines.append(f"| {name:<40} | {param_str:<20} | {macs_str:<12} | {flops_str:<12} | {memory_str:<12} |")
 
             # Add parameter shapes for leaf modules (only if show_shapes is True)
             if show_shapes and stats.parameter_shapes:
                 param_indent = ' ' * (stats.level + 1)  # One level deeper than parent
-                # Get the display name (same logic as module name)
-                if len(parts) > 1 and parts[-1].isdigit() and stats.level > 0:
-                    if len(parts) >= 2:
-                        module_display = '.'.join(parts[-2:])
-                    else:
-                        module_display = parts[-1]
-                else:
-                    module_display = parts[-1]
 
                 for param_name, shape in stats.parameter_shapes:
                     param_shape_str = str(shape)
                     # Show parameter relative to display name, not full path
-                    param_display_name = f"{param_indent}{module_display}.{param_name}"
+                    param_display_name = f"{param_indent}{display_name}.{param_name}"
                     # Parameter rows have shape in Tensor Shape column (3rd column)
-                    lines.append(f"| {param_display_name:<35} | {'':<20} | {param_shape_str:<20} | {'':<12} | {'':<12} | {'':<12} |")
+                    lines.append(f"| {param_display_name:<40} | {'':<20} | {param_shape_str:<20} | {'':<12} | {'':<12} | {'':<12} |")
 
         # Add footnote explaining compute metrics and shape distinctions
         lines.append("")

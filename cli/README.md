@@ -10,8 +10,9 @@ Comprehensive how-to guides for each tool:
 
 
 ### Discovery Tools: Profiling & Partitioning
-- **[discover_models.py](docs/discover_models.md)** - Find FX-traceable models (140+ models)
-- **[profile_graph.py](docs/profile_graph.md)** - Hardware-independent graph profiling
+- **[discover_models.py](docs/discover_models.md)** - Find FX-traceable TorchVision models (140+ models)
+- **[discover_transformers.py](#discover_transformerspy)** - Find traceable HuggingFace transformers (22+ models) ✨ NEW
+- **[profile_graph.py](docs/profile_graph.md)** - Unified profiler for vision, YOLO, and transformer models
 - **[profile_graph_with_fvcore](docs/profile_graph.md)** - PyTorch Engineering fvcore-based graph profiling
 - **[graph_explorer.py](docs/graph_explorer.md)** - Explore FX graphs interactively (discovery → summary → visualization)
 - **[partition_analyzer.py](docs/partition_analyzer.md)** - Analyze and compare partitioning strategies
@@ -1290,3 +1291,87 @@ See also:
 - `../examples/README.md` - Usage demonstrations
 - `../validation/README.md` - Validation tests
 - `../docs/` - Architecture documentation
+
+---
+
+## discover_transformers.py
+
+**Find traceable HuggingFace transformer models**
+
+Discovers which transformer models from HuggingFace can be profiled with the unified profiler.
+
+### Quick Start
+
+```bash
+# Discover all transformer models
+python cli/discover_transformers.py
+
+# Verbose output showing each test
+python cli/discover_transformers.py --verbose
+
+# Generate usage examples
+python cli/discover_transformers.py --generate-examples
+
+# Test a specific model
+python cli/discover_transformers.py --test-model bert-base-uncased
+
+# Test with longer sequence
+python cli/discover_transformers.py --seq-len 256
+```
+
+### Supported Model Families
+
+The tool tests models from these families:
+
+**BERT-style (encoder-only, with attention_mask):**
+- BERT: bert-base-uncased, bert-large-uncased
+- DistilBERT: distilbert-base-uncased
+- RoBERTa: roberta-base, roberta-large
+- ALBERT: albert-base-v2, albert-large-v2
+- ELECTRA: google/electra-small-discriminator
+- DeBERTa: microsoft/deberta-v3-small
+- XLM-RoBERTa: xlm-roberta-base
+
+**GPT-style (decoder-only, no attention_mask):**
+- GPT-2: gpt2, gpt2-medium, gpt2-large
+- DistilGPT-2: distilgpt2
+- GPT-Neo: EleutherAI/gpt-neo-125m, EleutherAI/gpt-neo-1.3B
+- OPT: facebook/opt-125m, facebook/opt-350m
+
+### Results
+
+**Success Rate: 100% (22/22 models)**
+
+All tested transformer models are traceable with PyTorch Dynamo!
+
+### Usage with profile_graph.py
+
+After discovering models, profile them with:
+
+```bash
+# BERT models
+python cli/profile_graph.py --model bert-base-uncased
+python cli/profile_graph.py --model roberta-base --seq-len 256
+
+# GPT models
+python cli/profile_graph.py --model gpt2
+python cli/profile_graph.py --model EleutherAI/gpt-neo-125m --seq-len 512
+
+# With detailed output
+python cli/profile_graph.py --model distilbert-base-uncased --showshape
+```
+
+### Requirements
+
+```bash
+pip install transformers torch
+```
+
+Models are downloaded automatically on first use (cached in `~/.cache/huggingface/`).
+
+### Notes
+
+- **Tracing method**: All transformer models use Dynamo (symbolic_trace fails for transformers)
+- **Attention mask**: BERT-style models need attention_mask, GPT-style models don't
+- **Sequence length**: Default is 128 tokens (configurable with `--seq-len`)
+- **Model size**: Testing larger models (e.g., gpt-neo-1.3B) requires more RAM
