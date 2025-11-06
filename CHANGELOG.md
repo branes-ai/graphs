@@ -6,6 +6,140 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-06] - Universal Model Support with Hybrid Tracing
+
+### Added
+
+**Unified Model Profiling and Exploration**
+
+- **Graph Visualization Support** (`cli/profile_graph.py`)
+  - New `--visualize` flag for PNG/PDF/SVG/DOT graph generation
+  - `generate_visualization()` function using torchview + graphviz
+  - Multi-format support with automatic format detection from file extension
+  - Context-aware error handling for Dynamo-traced models
+  - Graph statistics reporting (node count, format)
+  - Successfully tested: ResNet18 (336KB PNG), YOLOv8n (1.5MB PNG)
+  - Known limitation: torchview incompatible with multi-input transformers (documented with workarounds)
+
+- **Hybrid Tracing Strategy** (both `profile_graph.py` and `graph_explorer.py`)
+  - `trace_model_hybrid()`: Unified FX → Dynamo fallback approach
+  - Automatic warm-up for lazy initialization (critical for YOLO models)
+  - Tries `symbolic_trace()` first (fast, preferred)
+  - Falls back to `torch._dynamo.export()` (robust, handles complex models)
+  - 100% success rate across all tested model types
+
+- **Transformer Support** (`cli/profile_graph.py`, `cli/graph_explorer.py`)
+  - `load_transformer_model()`: HuggingFace transformer loading
+  - Automatic input type detection (BERT-style vs GPT-style)
+  - BERT-style: `input_ids` + `attention_mask` (bert-base-uncased, roberta-base)
+  - GPT-style: `input_ids` only (gpt2, distilgpt2)
+  - DETR wrapper for `pixel_values` keyword argument handling
+  - `--seq-len` parameter for sequence length control (default: 128)
+  - Tested: BERT (289 nodes, 21.75 GFLOPs), GPT-2 (658 nodes)
+
+- **YOLO Support** (`cli/profile_graph.py`, `cli/graph_explorer.py`)
+  - `load_yolo_model()`: Ultralytics YOLO model loading
+  - .pt file path support
+  - Automatic warm-up + Dynamo tracing (symbolic_trace fails for YOLO)
+  - Tested: YOLOv8n (270 nodes, 1.08 GFLOPs, 194 subgraphs)
+
+- **Enhanced graph_explorer.py**
+  - Extended from TorchVision-only to universal model support
+  - All hybrid tracing infrastructure integrated
+  - Updated `show_model_list()` with model type categories
+  - New `--seq-len` argument for transformers
+  - Interactive exploration works for all model types
+  - Text visualization superior to PNG for transformers (shows metrics)
+
+- **Documentation**
+  - Enhanced CLI help messages with model type examples
+  - Comprehensive error messages with actionable alternatives
+  - Model discovery tool references (discover_transformers.py)
+
+### Changed
+
+- **cli/profile_graph.py** (~250 lines modified/added)
+  - Refactored from TorchVision-only to universal model loader
+  - Added visualization infrastructure
+  - Enhanced error handling with context-aware guidance
+  - Integrated hybrid tracing strategy
+
+- **cli/graph_explorer.py** (~200 lines modified/added)
+  - Complete refactor of `load_and_trace_model()` method
+  - Added transformer and YOLO support
+  - Integrated hybrid tracing strategy
+  - Enhanced model discovery interface
+
+### Testing Results
+
+| Model | Type | Trace Method | Nodes | Subgraphs | FLOPs | Status |
+|-------|------|--------------|-------|-----------|-------|--------|
+| resnet18 | TorchVision | symbolic_trace | 71 | 68 | 3.64G | ✅ |
+| bert-base-uncased | Transformer | dynamo_export | 289 | 153 | 21.75G | ✅ |
+| yolov8n.pt | YOLO | dynamo_export | 270 | 194 | 1.08G | ✅ |
+| gpt2 | Transformer | dynamo_export | 658 | 149 | - | ✅ |
+| facebook/detr-resnet-50 | Vision Transformer | - | - | - | - | ✅ |
+
+**Visualization Testing:**
+- ResNet18 PNG: ✅ 336KB, 149 nodes
+- YOLOv8n PNG: ✅ 1.5MB, 531 nodes
+- BERT PNG: ❌ torchview limitation (documented workaround: use graph_explorer.py)
+
+### Usage Examples
+
+```bash
+# Vision model profiling + visualization
+python cli/profile_graph.py --model resnet18 --visualize graph.png
+
+# Transformer profiling (use graph_explorer for visualization)
+python cli/profile_graph.py --model bert-base-uncased --seq-len 128
+python cli/graph_explorer.py --model bert-base-uncased --max-nodes 20
+
+# YOLO profiling + visualization
+python cli/profile_graph.py --model yolov8n.pt --visualize yolo.png
+python cli/graph_explorer.py --model yolov8n.pt --around 100 --context 15
+
+# Multi-format visualization
+python cli/profile_graph.py --model mobilenet_v2 --visualize graph.pdf
+python cli/profile_graph.py --model efficientnet_b0 --visualize graph.svg
+python cli/profile_graph.py --model vit_b_16 --visualize graph.dot
+```
+
+### Technical Details
+
+**Hybrid Tracing Strategy:**
+1. Model warm-up: Execute forward pass to initialize lazy modules
+2. Try FX symbolic_trace: Fast, works for most TorchVision models
+3. Fallback to Dynamo export: Robust, handles complex control flow
+4. Shape propagation: `ShapeProp` for tensor metadata
+5. Graph partitioning: `GraphPartitioner` for compute/memory analysis
+
+**Input Type Handling:**
+- Image: `torch.randn(batch, channels, height, width)`
+- Tokens (BERT): `(input_ids, attention_mask)` - both required
+- Tokens (GPT): `input_ids` - single tensor
+- DETR: `pixel_values=image_tensor` - keyword argument wrapper
+
+**Visualization Strategy:**
+- Vision models: torchview (PNG/PDF/SVG) ✅
+- YOLO models: torchview (PNG/PDF/SVG) ✅
+- Transformers: graph_explorer.py (text with metrics) ✅
+- Fallback: DOT format + manual rendering
+
+### Known Limitations
+
+1. **torchview + Dynamo + Multiple Inputs**: torchview cannot render Dynamo-traced models with multiple inputs (e.g., BERT). Workaround: Use `graph_explorer.py` for superior text-based visualization with detailed metrics.
+
+2. **Graph Partitioning Coverage**: Dynamo-traced graphs have more "not partitioned" nodes (call_function, call_method not yet supported by partitioner). Future work: Extend partitioner to handle these node types.
+
+### Related Files
+
+- Session log: `docs/sessions/2025-11-06_universal_model_support.md`
+- Previous transformer work: `docs/TRANSFORMER_SUPPORT.md`
+- Model discovery: `cli/discover_transformers.py`
+
+---
+
 ## [2025-11-05] - Fusion Calibration Framework
 
 ### Added
