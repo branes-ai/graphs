@@ -118,7 +118,7 @@ def load_transformer_model(model_name: str) -> Tuple[torch.nn.Module, str]:
     Load a transformer model from Hugging Face
 
     Returns:
-        (model, input_type) where input_type is 'tokens' or 'image'
+        (model, input_type) where input_type is 'tokens', 'image', or 'detr'
     """
     try:
         from transformers import AutoModel
@@ -128,6 +128,15 @@ def load_transformer_model(model_name: str) -> Tuple[torch.nn.Module, str]:
         )
 
     print(f"Loading transformer model '{model_name}' from Hugging Face...")
+
+    # DETR and similar vision-transformer models need special handling
+    if 'detr' in model_name.lower():
+        from transformers import DetrForObjectDetection
+        model = DetrForObjectDetection.from_pretrained(model_name)
+        model.eval()
+        return model, 'detr'
+
+    # Default: text transformer
     model = AutoModel.from_pretrained(model_name)
     model.eval()
     return model, 'tokens'
@@ -282,12 +291,30 @@ def profile_model(
             attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
             example_inputs = (input_ids, attention_mask)
             print(f"Input type: Tokens (batch_size={batch_size}, seq_len={seq_len}, with attention_mask) [BERT-style]")
+    elif input_type == 'detr':
+        # DETR models need image tensors with pixel_values keyword
+        example_inputs = torch.randn(*input_shape)
+        print(f"Input type: Image tensor {input_shape} [DETR - vision transformer]")
     else:
-        # Vision models need image tensors
+        # Standard vision models need image tensors
         example_inputs = torch.randn(*input_shape)
         print(f"Input type: Image tensor {input_shape}")
 
     # Trace with hybrid strategy
+    # DETR needs special handling (uses pixel_values keyword)
+    if input_type == 'detr':
+        # Create a wrapper that converts positional arg to keyword arg
+        original_model = model_obj
+        class DetrWrapper(torch.nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+
+            def forward(self, x):
+                return self.model(pixel_values=x)
+
+        model_obj = DetrWrapper(original_model)
+
     try:
         traced_graph, method = trace_model_hybrid(model_obj, example_inputs, model_name)
     except Exception as e:
@@ -414,12 +441,43 @@ Tracing Strategy:
     args = parser.parse_args()
 
     if args.list:
-        print("Available torchvision models:")
+        print("=" * 100)
+        print("AVAILABLE MODELS")
+        print("=" * 100)
+
+        print("\n📦 TorchVision Models (Vision CNNs & Transformers)")
+        print("-" * 100)
         for name in sorted(MODEL_REGISTRY.keys()):
             print(f"  {name}")
-        print(f"\nTotal: {len(MODEL_REGISTRY)} models")
-        print("\nYou can also profile YOLO models by providing a .pt file path:")
-        print("  python cli/profile_graph_v2.py --model yolov8n.pt")
+        print(f"\nTotal: {len(MODEL_REGISTRY)} TorchVision models")
+
+        print("\n" + "=" * 100)
+        print("\n🤗 HuggingFace Transformer Models (Text & Vision)")
+        print("-" * 100)
+        print("  Discover available models:")
+        print("    python cli/discover_transformers.py")
+        print("    python cli/discover_transformers.py --generate-examples")
+        print("\n  Common examples:")
+        print("    bert-base-uncased, distilbert-base-uncased, roberta-base")
+        print("    gpt2, gpt2-medium, distilgpt2")
+        print("    EleutherAI/gpt-neo-125m, facebook/opt-125m")
+        print("    facebook/detr-resnet-50  (DETR object detection)")
+
+        print("\n" + "=" * 100)
+        print("\n🎯 YOLO Models (Object Detection)")
+        print("-" * 100)
+        print("  Provide path to .pt file:")
+        print("    yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt")
+        print("    yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt")
+        print("\n  Download from: https://github.com/ultralytics/ultralytics")
+
+        print("\n" + "=" * 100)
+        print("\n📚 Documentation")
+        print("-" * 100)
+        print("  Complete model names guide: docs/MODEL_NAMES_GUIDE.md")
+        print("  Transformer discovery: python cli/discover_transformers.py")
+        print("  Vision model discovery: python cli/discover_models.py")
+        print("\n" + "=" * 100)
         return
 
     if not args.model:
