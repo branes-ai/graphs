@@ -225,7 +225,8 @@ def profile_model(
     input_shape: Optional[Tuple[int, ...]] = None,
     seq_len: int = 128,
     show_shapes: bool = False,
-    model_name: Optional[str] = None
+    model_name: Optional[str] = None,
+    visualize: Optional[str] = None
 ) -> None:
     """
     Profile a PyTorch model with hierarchical table
@@ -236,6 +237,7 @@ def profile_model(
         seq_len: Sequence length for transformer models (default: 128)
         show_shapes: If True, show parameter and tensor shapes
         model_name: Display name (inferred if not provided)
+        visualize: Optional output path for visualization (PNG/DOT/PDF)
     """
 
     # Default input shape for vision models
@@ -382,6 +384,124 @@ def profile_model(
     print(f"  Memory-bound ops:  {memory_bound} ({memory_bound/len(report.subgraphs)*100:.1f}%)")
     print(f"  (Threshold: AI > 10 FLOPs/byte)")
 
+    # Generate visualization if requested
+    if visualize:
+        print("\n" + "=" * 100)
+        print("GENERATING VISUALIZATION")
+        print("=" * 100)
+        generate_visualization(traced_graph, example_inputs, visualize, model_name, method)
+
+
+def generate_visualization(
+    traced_graph: GraphModule,
+    example_inputs: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
+    output_path: str,
+    model_name: str,
+    trace_method: str = "symbolic_trace"
+):
+    """
+    Generate graph visualization using torchview
+
+    Args:
+        traced_graph: FX traced graph module
+        example_inputs: Example input tensor(s)
+        output_path: Output file path (PNG/DOT/PDF/SVG)
+        model_name: Model name for graph title
+        trace_method: Tracing method used ('symbolic_trace' or 'dynamo_export')
+    """
+    try:
+        from torchview import draw_graph
+        from graphviz import Source
+    except ImportError:
+        print("\n❌ Visualization requires additional dependencies:")
+        print("   pip install torchview graphviz")
+        print("\nNote: You also need graphviz system package:")
+        print("   Ubuntu/Debian: sudo apt install graphviz")
+        print("   macOS: brew install graphviz")
+        print("   Windows: choco install graphviz")
+        return
+
+    # Determine output format from extension
+    path = Path(output_path)
+    format_ext = path.suffix.lstrip('.')
+    if not format_ext:
+        format_ext = 'png'  # Default to PNG
+        output_path = str(path) + '.png'
+
+    supported_formats = ['png', 'pdf', 'svg', 'dot']
+    if format_ext not in supported_formats:
+        print(f"\n⚠️  Unknown format '{format_ext}', using PNG")
+        format_ext = 'png'
+        output_path = str(path.with_suffix('.png'))
+
+    print(f"\nGenerating {format_ext.upper()} visualization...")
+    print(f"Output: {output_path}")
+
+    # Normalize inputs to tuple
+    if not isinstance(example_inputs, tuple):
+        example_inputs_tuple = (example_inputs,)
+    else:
+        example_inputs_tuple = example_inputs
+
+    # Get input size from first tensor
+    input_size = tuple(example_inputs_tuple[0].shape)
+
+    try:
+        # Generate graph visualization
+        model_graph = draw_graph(
+            traced_graph,
+            input_size=input_size,
+            device='cpu',
+            graph_name=f'{model_name}_FX_Graph',
+            roll=True,
+            expand_nested=True,
+        )
+
+        # Extract DOT source
+        dot_source = model_graph.visual_graph.source
+
+        if format_ext == 'dot':
+            # Save DOT source directly
+            with open(output_path, 'w') as f:
+                f.write(dot_source)
+            print(f"✓ DOT source saved to {output_path}")
+        else:
+            # Render to image format
+            graph = Source(dot_source, filename=str(path.stem), format=format_ext, directory=str(path.parent or '.'))
+            output_file = graph.render(view=False, cleanup=True)
+            print(f"✓ Visualization saved to {output_file}")
+
+        # Show graph statistics
+        num_nodes = dot_source.count('->') + dot_source.count('[label=')
+        print(f"\nGraph statistics:")
+        print(f"  Nodes: ~{num_nodes}")
+        print(f"  Format: {format_ext.upper()}")
+
+    except Exception as e:
+        print(f"\n❌ Visualization failed: {e}")
+        print("\nTips:")
+        print("  - Ensure graphviz is installed: sudo apt install graphviz")
+
+        if trace_method == "dynamo_export":
+            print("\n⚠️  Note: This model was traced with Dynamo, which has known")
+            print("   compatibility issues with torchview for complex models.")
+            print("\n   Recommended alternatives:")
+            print()
+            print("   1. Use graph_explorer.py for interactive text visualization:")
+            print(f"      python cli/graph_explorer.py --model {model_name}")
+            print(f"      python cli/graph_explorer.py --model {model_name} --max-nodes 20")
+            print(f"      python cli/graph_explorer.py --model {model_name} --output graph_viz.txt")
+            print()
+            print("   2. Generate DOT file and render manually:")
+            print(f"      python cli/profile_graph.py --model {model_name} --visualize {Path(output_path).stem}.dot")
+            print(f"      dot -Tpng {Path(output_path).stem}.dot -o {output_path}")
+            print()
+            print("   3. Use torch.fx.graph.print_readable() for simple text view:")
+            print(f"      python -c \"import torch; from cli.profile_graph import *; traced, _ = trace_model_hybrid(...); print(traced.graph)\"")
+        else:
+            print("  - For large models, try reducing model complexity")
+            print("  - DOT format is always supported: --visualize graph.dot")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -438,6 +558,9 @@ Tracing Strategy:
     parser.add_argument('--list', action='store_true',
                        help='List available torchvision models and exit')
 
+    parser.add_argument('--visualize', '-v', type=str, metavar='OUTPUT',
+                       help='Generate graph visualization (PNG/PDF/SVG/DOT). Example: --visualize graph.png')
+
     args = parser.parse_args()
 
     if args.list:
@@ -489,7 +612,8 @@ Tracing Strategy:
         args.model,
         input_shape=tuple(args.input_shape),
         seq_len=args.seq_len,
-        show_shapes=args.showshape
+        show_shapes=args.showshape,
+        visualize=args.visualize
     )
 
 

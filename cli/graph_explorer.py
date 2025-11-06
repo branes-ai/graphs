@@ -6,12 +6,24 @@ Graph Explorer CLI
 Command-line tool to explore FX computational graphs interactively.
 Provides three modes: model discovery, graph summary, and detailed visualization.
 
+Supports:
+- TorchVision models (ResNet, MobileNet, EfficientNet, ViT, etc.)
+- HuggingFace transformers (BERT, GPT-2, etc.)
+- YOLO models (.pt files)
+- DETR models
+
 Usage:
     # Discover available models
     python cli/graph_explorer.py
 
-    # Get model summary statistics
+    # Get model summary statistics (vision models)
     python cli/graph_explorer.py --model resnet18
+
+    # Get model summary statistics (transformers)
+    python cli/graph_explorer.py --model bert-base-uncased --seq-len 128
+
+    # Get model summary statistics (YOLO)
+    python cli/graph_explorer.py --model yolov8n.pt
 
     # Visualize first 50 nodes
     python cli/graph_explorer.py --model resnet18 --max-nodes 50
@@ -23,26 +35,143 @@ Usage:
     python cli/graph_explorer.py --model resnet18 --around 35 --context 10
 
 Command-line Options:
-    --model:       Model name (resnet18, mobilenet_v2, etc.)
+    --model:       Model name (resnet18, bert-base-uncased, yolov8n.pt, etc.)
     --start:       Start node index (0-based)
     --end:         End node index (exclusive)
     --around:      Center node for context view
     --context:     Number of nodes before/after center (default: 10)
     --max-nodes:   Maximum nodes to display (from start)
-    --input-shape: Input tensor shape (default: 1,3,224,224)
+    --input-shape: Input tensor shape for vision models (default: 1,3,224,224)
+    --seq-len:     Sequence length for transformer models (default: 128)
     --output:      Save visualization to file
 
 """
 
 import torch
+import torch._dynamo
 import torchvision.models as models
-from torch.fx import symbolic_trace
+from torch.fx import symbolic_trace, GraphModule
 from torch.fx.passes.shape_prop import ShapeProp
 import argparse
 import sys
-from typing import Optional, Tuple
+import warnings
+from pathlib import Path
+from typing import Optional, Tuple, Union
 
 from graphs.transform.partitioning.graph_partitioner import GraphPartitioner
+
+
+def load_yolo_model(model_path: str) -> torch.nn.Module:
+    """Load a YOLO model from .pt file"""
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        raise ImportError(
+            "YOLO models require ultralytics. Install with: pip install ultralytics"
+        )
+
+    yolo = YOLO(model_path)
+    model = yolo.model.eval()
+    return model
+
+
+def load_transformer_model(model_name: str) -> Tuple[torch.nn.Module, str]:
+    """
+    Load a transformer model from Hugging Face
+
+    Returns:
+        (model, input_type) where input_type is 'tokens' or 'detr'
+    """
+    try:
+        from transformers import AutoModel
+    except ImportError:
+        raise ImportError(
+            "Transformer models require transformers. Install with: pip install transformers"
+        )
+
+    print(f"Loading transformer model '{model_name}' from Hugging Face...")
+
+    # DETR and similar vision-transformer models need special handling
+    if 'detr' in model_name.lower():
+        from transformers import DetrForObjectDetection
+        model = DetrForObjectDetection.from_pretrained(model_name)
+        model.eval()
+        return model, 'detr'
+
+    # Default: text transformer
+    model = AutoModel.from_pretrained(model_name)
+    model.eval()
+    return model, 'tokens'
+
+
+def trace_model_hybrid(
+    model: torch.nn.Module,
+    example_inputs: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
+    model_name: str = "model"
+) -> Tuple[GraphModule, str]:
+    """
+    Trace a model using hybrid strategy:
+    1. Try standard FX symbolic_trace (fast)
+    2. Fall back to Dynamo export (robust)
+
+    Args:
+        model: Model to trace
+        example_inputs: Example input(s) - single tensor or tuple of tensors
+        model_name: Name for error messages
+
+    Returns:
+        (traced_graph_module, method_used)
+    """
+
+    # Normalize inputs to tuple
+    if not isinstance(example_inputs, tuple):
+        example_inputs = (example_inputs,)
+
+    # Always warm-up first (safe for all models, critical for some)
+    print("[1/3] Warming up model (initializing any lazy modules)...")
+    with torch.no_grad():
+        try:
+            _ = model(*example_inputs)
+        except Exception as e:
+            print(f"  Note: Warm-up forward pass failed: {e}")
+            print("  Continuing with tracing anyway...")
+
+    # Try standard FX symbolic_trace first (preferred)
+    print("[2/3] Attempting standard FX symbolic_trace...")
+    try:
+        traced = symbolic_trace(model)
+        print("  ✓ Standard FX trace successful")
+        return traced, "symbolic_trace"
+    except Exception as e:
+        print(f"  ✗ Standard FX trace failed: {type(e).__name__}")
+        print("  Falling back to Dynamo export...")
+
+    # Fall back to Dynamo export
+    print("[2/3] Using PyTorch Dynamo export (more robust)...")
+    try:
+        # Create wrapper with correct signature
+        if len(example_inputs) == 1:
+            def forward_fn(x):
+                return model(x)
+        elif len(example_inputs) == 2:
+            def forward_fn(x1, x2):
+                return model(x1, x2)
+        else:
+            def forward_fn(*args):
+                return model(*args)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            traced, guards = torch._dynamo.export(forward_fn, *example_inputs)
+
+        print("  ✓ Dynamo export successful")
+        return traced, "dynamo_export"
+    except Exception as e:
+        print(f"  ✗ Dynamo export failed: {e}")
+        raise RuntimeError(
+            f"Failed to trace model '{model_name}' with both FX and Dynamo. "
+            "The model may not be compatible with graph tracing."
+        )
 
 
 class GraphExplorerCLI:
@@ -89,10 +218,12 @@ class GraphExplorerCLI:
         print("Usage: ./cli/graph_explorer.py --model MODEL_NAME [OPTIONS]")
         print()
         print("=" * 80)
-        print("SUPPORTED MODELS")
+        print("SUPPORTED MODEL TYPES")
         print("=" * 80)
         print()
 
+        print("1. TorchVision Models (built-in)")
+        print("=" * 80)
         # Organize by family
         families = {
             "ResNet": [k for k in cls.SUPPORTED_MODELS.keys() if k.startswith('resnet')],
@@ -105,17 +236,41 @@ class GraphExplorerCLI:
 
         for family, models in families.items():
             if models:
-                print(f"{family}:")
+                print(f"\n{family}:")
                 for model in sorted(models):
                     print(f"  - {model}")
-                print()
 
+        print("\n")
+        print("2. HuggingFace Transformers")
+        print("=" * 80)
+        print("\nSupports any HuggingFace transformer model:")
+        print("  - BERT family: bert-base-uncased, roberta-base, albert-base-v2")
+        print("  - GPT family: gpt2, distilgpt2, EleutherAI/gpt-neo-125m")
+        print("  - DETR: facebook/detr-resnet-50")
+        print("\nDiscovery tool:")
+        print("  python cli/discover_transformers.py")
+
+        print("\n")
+        print("3. YOLO Models")
+        print("=" * 80)
+        print("\nSupports .pt file paths:")
+        print("  - yolov8n.pt, yolov8s.pt, yolov8m.pt, etc.")
+        print("\nDiscovery tool:")
+        print("  python cli/discover_models.py")
+
+        print("\n")
         print("=" * 80)
         print("EXAMPLES")
         print("=" * 80)
         print()
-        print("# Get model summary")
+        print("# TorchVision model summary")
         print("./cli/graph_explorer.py --model resnet18")
+        print()
+        print("# Transformer model summary")
+        print("./cli/graph_explorer.py --model bert-base-uncased --seq-len 128")
+        print()
+        print("# YOLO model summary")
+        print("./cli/graph_explorer.py --model yolov8n.pt")
         print()
         print("# Visualize specific range")
         print("./cli/graph_explorer.py --model resnet18 --max-nodes 20")
@@ -204,29 +359,86 @@ class GraphExplorerCLI:
         print(f"./cli/graph_explorer.py --model {self.model_name} --output full_viz.txt")
         print()
 
-    def load_and_trace_model(self, model_name: str, input_shape=(1, 3, 224, 224)):
-        """Load model and trace with FX"""
+    def load_and_trace_model(self, model_name: str, input_shape=(1, 3, 224, 224), seq_len: int = 128):
+        """Load model and trace with hybrid FX/Dynamo approach"""
         print("=" * 80)
         print(f"LOADING MODEL: {model_name}")
         print("=" * 80)
+        print()
 
-        if model_name not in self.SUPPORTED_MODELS:
-            print(f"Error: Model '{model_name}' not supported")
-            print(f"Supported models: {', '.join(sorted(self.SUPPORTED_MODELS.keys()))}")
-            sys.exit(1)
+        # Determine model type and load
+        input_type = 'image'  # Default to image tensors
 
-        print(f"Loading {model_name}...")
-        model = self.SUPPORTED_MODELS[model_name](weights=None)
-        model.eval()
+        # Try registry first (TorchVision models)
+        if model_name in self.SUPPORTED_MODELS:
+            print(f"Loading '{model_name}' from TorchVision registry...")
+            model_obj = self.SUPPORTED_MODELS[model_name](weights=None)
+            model_obj.eval()
+            input_type = 'image'
+        else:
+            # Check if it's a file path (YOLO)
+            path = Path(model_name)
+            if path.exists():
+                print(f"Loading model from '{model_name}'...")
+                model_obj = load_yolo_model(model_name)
+                input_type = 'image'
+            else:
+                # Assume it's a HuggingFace model
+                model_obj, input_type = load_transformer_model(model_name)
+
         self.model_name = model_name
 
-        print(f"Tracing with PyTorch FX...")
-        input_tensor = torch.randn(*input_shape)
-        self.fx_graph = symbolic_trace(model)
+        # Create example inputs based on model type
+        if input_type == 'tokens':
+            # Transformer models need token IDs
+            batch_size = input_shape[0] if input_shape else 1
+            input_ids = torch.randint(0, 30000, (batch_size, seq_len))
 
-        print("Propagating shapes...")
-        shape_prop = ShapeProp(self.fx_graph)
-        shape_prop.propagate(input_tensor)
+            # Check if model is BERT-style or GPT-style
+            is_gpt_style = 'gpt' in model_name.lower()
+
+            if is_gpt_style:
+                example_inputs = input_ids
+                print(f"Input type: Tokens (batch_size={batch_size}, seq_len={seq_len}) [GPT-style]")
+            else:
+                attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
+                example_inputs = (input_ids, attention_mask)
+                print(f"Input type: Tokens (batch_size={batch_size}, seq_len={seq_len}, with attention_mask) [BERT-style]")
+        elif input_type == 'detr':
+            # DETR models need image tensors with pixel_values keyword
+            example_inputs = torch.randn(*input_shape)
+            print(f"Input type: Image tensor {input_shape} [DETR - vision transformer]")
+
+            # Wrap DETR to convert positional to keyword argument
+            original_model = model_obj
+            class DetrWrapper(torch.nn.Module):
+                def __init__(self, model):
+                    super().__init__()
+                    self.model = model
+
+                def forward(self, x):
+                    return self.model(pixel_values=x)
+
+            model_obj = DetrWrapper(original_model)
+        else:
+            # Standard vision models need image tensors
+            example_inputs = torch.randn(*input_shape)
+            print(f"Input type: Image tensor {input_shape}")
+
+        # Trace using hybrid strategy
+        try:
+            self.fx_graph, method = trace_model_hybrid(model_obj, example_inputs, model_name)
+            print(f"Tracing method: {method}")
+        except Exception as e:
+            print(f"\nFailed to trace model: {e}")
+            sys.exit(1)
+
+        # Propagate shapes
+        print("[3/3] Propagating tensor shapes through graph...")
+        if isinstance(example_inputs, tuple):
+            ShapeProp(self.fx_graph).propagate(*example_inputs)
+        else:
+            ShapeProp(self.fx_graph).propagate(example_inputs)
 
         print("Partitioning graph...")
         self.report = self.partitioner.partition(self.fx_graph)
@@ -360,7 +572,9 @@ Examples:
     parser.add_argument('--model', type=str, default=None,
                         help='Model name (required)')
     parser.add_argument('--input-shape', type=str, default='1,3,224,224',
-                        help='Input tensor shape as comma-separated values (default: 1,3,224,224)')
+                        help='Input tensor shape as comma-separated values for vision models (default: 1,3,224,224)')
+    parser.add_argument('--seq-len', type=int, default=128,
+                        help='Sequence length for transformer models (default: 128)')
 
     # Range selection (mutually exclusive groups)
     range_group = parser.add_argument_group('range selection',
@@ -419,7 +633,7 @@ def main():
 
     # Create CLI and load model
     cli = GraphExplorerCLI()
-    cli.load_and_trace_model(args.model, input_shape)
+    cli.load_and_trace_model(args.model, input_shape, seq_len=args.seq_len)
 
     # Level 2: Model only (no range) → show summary
     # Level 3: Model + range → show visualization
