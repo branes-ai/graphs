@@ -74,7 +74,7 @@ def forward_fn(x):
     return yolo_model(x)
 
 # Perform the Export
-traced_module, guards = torch._dynamo.export(forward_fn, dummy_input)
+traced_module, guards = torch._dynamo.export(forward_fn)(dummy_input)
 
 # Example Call
 print_graph_with_shapes(traced_module, dummy_input)

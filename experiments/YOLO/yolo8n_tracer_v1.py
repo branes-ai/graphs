@@ -22,8 +22,7 @@ print("Model warmed up successfully. Starting export...")
 # Note: The warning about the function call style is fine for now, 
 # but you can also define a wrapper function if you want to follow 
 # the suggested syntax.
-traced_module, guards = torch._dynamo.export(
-    yolo_model, 
+traced_module, guards = torch._dynamo.export(yolo_model)( 
     dummy_input,
 )
 
