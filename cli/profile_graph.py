@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Graph Profiler - Computational Graph Characterization
+Unified Graph Profiler - Works with any PyTorch model
 ======================================================
 
 Profiles PyTorch models by characterizing each operator in the computational graph:
@@ -9,36 +9,38 @@ Profiles PyTorch models by characterizing each operator in the computational gra
 - Memory bandwidth demands
 - Parameter counts and tensor shapes
 - Operation-level resource analysis
+
+This unified profiler uses a hybrid tracing strategy:
+1. Try standard FX symbolic_trace (fast, works for most models)
+2. Fall back to Dynamo export (slower, more robust for complex models)
+3. Always includes warm-up for models with lazy initialization
+
+Supports:
+- TorchVision models (ResNet, MobileNet, EfficientNet, ViT, etc.)
+- YOLO models (YOLOv5, YOLOv8, YOLO11)
+- Custom models from file paths
+- Any FX-traceable PyTorch model
 """
 
 import torch
+import torch._dynamo
 import torchvision.models as models
-from torch.fx import symbolic_trace
+from torch.fx import symbolic_trace, GraphModule
 from torch.fx.passes.shape_prop import ShapeProp
 import argparse
+import sys
+from pathlib import Path
+from typing import Optional, Tuple, Union
+
+# Add src to path for imports
+repo_root = Path(__file__).parent.parent
+sys.path.insert(0, str(repo_root / "src"))
 
 from graphs.transform.partitioning import GraphPartitioner
 from graphs.hardware.table_formatter import format_partition_table
 
 
-# Model registry - maps model names to constructors
-#
-# To discover new models in torchvision:
-#   python -c "import torchvision.models as m; print('\n'.join(sorted(m.list_models())))"
-#
-# To test if a model is FX-traceable:
-#   python -c "from torch.fx import symbolic_trace; import torchvision.models as m; \
-#              model = m.MODEL_NAME(weights=None); symbolic_trace(model); print('✓')"
-#
-# Note: Not all torchvision models are suitable for FX tracing:
-#   - Detection models (Faster R-CNN, RetinaNet, etc.) have complex outputs
-#   - Segmentation models (DeepLab, FCN) may need special handling
-#   - Quantized models use different ops
-#   - Some video models (R3D, etc.) need 5D inputs
-#
-# This registry is curated for classification models that work well with FX tracing.
-# For automatic discovery, see the _build_model_registry_auto() function below.
-#
+# Model registry for torchvision models
 MODEL_REGISTRY = {
     # ResNet family
     'resnet18': models.resnet18,
@@ -86,160 +88,351 @@ MODEL_REGISTRY = {
 }
 
 
-def _build_model_registry_auto():
-    """
-    Automatically discover all FX-traceable models from torchvision.
-
-    This function attempts to trace all available models and returns
-    a registry of those that successfully trace.
-
-    Note: This is slower than the manual registry (tests ~120 models)
-    but ensures you have access to all compatible models.
-
-    Usage:
-        To use automatic discovery, replace MODEL_REGISTRY with:
-        MODEL_REGISTRY = _build_model_registry_auto()
-    """
-    from torch.fx import symbolic_trace
-    import warnings
-
-    # Models to skip (known to be incompatible or not useful)
-    SKIP_PATTERNS = [
-        'rcnn',        # Detection models (complex outputs)
-        'retinanet',   # Detection models
-        'fcos',        # Detection models
-        'ssd',         # Detection models
-        'deeplabv3',   # Segmentation models
-        'fcn',         # Segmentation models
-        'lraspp',      # Segmentation models
-        'raft',        # Optical flow models
-        'r3d',         # Video models (need 5D input)
-        'r2plus1d',    # Video models
-        'mc3',         # Video models
-        's3d',         # Video models
-        'mvit',        # Video models
-        'swin3d',      # Video models
-        'quantized',   # Quantized models (different ops)
-    ]
-
-    registry = {}
-    all_models = models.list_models()
-
-    for model_name in sorted(all_models):
-        # Skip known incompatible patterns
-        if any(pattern in model_name for pattern in SKIP_PATTERNS):
-            continue
-
-        try:
-            # Try to get the model constructor
-            model_fn = getattr(models, model_name, None)
-            if model_fn is None:
-                continue
-
-            # Try to instantiate and trace
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                model = model_fn(weights=None)
-                model.eval()
-                symbolic_trace(model)
-
-            # Success! Add to registry
-            registry[model_name] = model_fn
-
-        except Exception:
-            # Skip models that fail to trace
-            pass
-
-    return registry
-
-
-def show_table(model_name: str, show_shapes: bool = False, input_shape=(1, 3, 224, 224)):
-    """Show hierarchical table for a model"""
-
-    print("=" * 100)
-    print(f"HIERARCHICAL MODULE TABLE: {model_name}")
-    print("=" * 100)
-
-    # Load model
+def load_model_from_registry(model_name: str) -> torch.nn.Module:
+    """Load a model from the torchvision registry"""
     if model_name not in MODEL_REGISTRY:
-        print(f"Unknown model: {model_name}")
-        print(f"Available models: {', '.join(sorted(MODEL_REGISTRY.keys()))}")
-        return
+        available = ', '.join(sorted(MODEL_REGISTRY.keys()))
+        raise ValueError(f"Unknown model '{model_name}'. Available: {available}")
 
     model = MODEL_REGISTRY[model_name](weights=None)
     model.eval()
-    input_tensor = torch.randn(*input_shape)
+    return model
 
-    # Trace
-    print("\n[1/3] Tracing with PyTorch FX...")
-    fx_graph = symbolic_trace(model)
-    ShapeProp(fx_graph).propagate(input_tensor)
 
-    # Partition
-    print("[2/3] Running graph partitioner...")
-    partitioner = GraphPartitioner()
-    report = partitioner.partition(fx_graph)
+def load_yolo_model(model_path: str) -> torch.nn.Module:
+    """Load a YOLO model from .pt file"""
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        raise ImportError(
+            "YOLO models require ultralytics. Install with: pip install ultralytics"
+        )
 
-    # Format table
-    print("[3/3] Formatting hierarchical table...")
-    table = format_partition_table(fx_graph, report, show_shapes=show_shapes)
+    yolo = YOLO(model_path)
+    model = yolo.model.eval()
+    return model
 
-    # Display
-    print("\n" + "=" * 100)
-    print("GRAPH PROFILE")
+
+def load_transformer_model(model_name: str) -> Tuple[torch.nn.Module, str]:
+    """
+    Load a transformer model from Hugging Face
+
+    Returns:
+        (model, input_type) where input_type is 'tokens' or 'image'
+    """
+    try:
+        from transformers import AutoModel
+    except ImportError:
+        raise ImportError(
+            "Transformer models require transformers. Install with: pip install transformers"
+        )
+
+    print(f"Loading transformer model '{model_name}' from Hugging Face...")
+    model = AutoModel.from_pretrained(model_name)
+    model.eval()
+    return model, 'tokens'
+
+
+def load_model_from_path(model_path: str) -> torch.nn.Module:
+    """Load a model from a file path (assumes it's a YOLO model or similar)"""
+    path = Path(model_path)
+
+    # Check if it's a YOLO model
+    if path.suffix == '.pt' and path.exists():
+        return load_yolo_model(model_path)
+
+    raise ValueError(f"Unsupported model file: {model_path}")
+
+
+def trace_model_hybrid(
+    model: torch.nn.Module,
+    example_inputs: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
+    model_name: str = "model"
+) -> Tuple[GraphModule, str]:
+    """
+    Trace a model using hybrid strategy:
+    1. Try standard FX symbolic_trace (fast)
+    2. Fall back to Dynamo export (robust)
+
+    Args:
+        model: Model to trace
+        example_inputs: Example input(s) - single tensor or tuple of tensors
+        model_name: Name for error messages
+
+    Returns:
+        (traced_graph_module, method_used)
+    """
+
+    # Normalize inputs to tuple
+    if not isinstance(example_inputs, tuple):
+        example_inputs = (example_inputs,)
+
+    # Always warm-up first (safe for all models, critical for some)
+    print("[1/4] Warming up model (initializing any lazy modules)...")
+    with torch.no_grad():
+        try:
+            _ = model(*example_inputs)
+        except Exception as e:
+            print(f"  Note: Warm-up forward pass failed: {e}")
+            print("  Continuing with tracing anyway...")
+
+    # Try standard FX symbolic_trace first (preferred)
+    print("[2/4] Attempting standard FX symbolic_trace...")
+    try:
+        traced = symbolic_trace(model)
+        print("  ✓ Standard FX trace successful")
+        return traced, "symbolic_trace"
+    except Exception as e:
+        print(f"  ✗ Standard FX trace failed: {type(e).__name__}")
+        print("  Falling back to Dynamo export...")
+
+    # Fall back to Dynamo export
+    print("[2/4] Using PyTorch Dynamo export (more robust)...")
+    try:
+        # Create wrapper with correct signature
+        if len(example_inputs) == 1:
+            def forward_fn(x):
+                return model(x)
+        elif len(example_inputs) == 2:
+            def forward_fn(x1, x2):
+                return model(x1, x2)
+        else:
+            def forward_fn(*args):
+                return model(*args)
+
+        traced, guards = torch._dynamo.export(forward_fn, *example_inputs)
+        print("  ✓ Dynamo export successful")
+        return traced, "dynamo_export"
+    except Exception as e:
+        print(f"  ✗ Dynamo export failed: {e}")
+        raise RuntimeError(
+            f"Failed to trace model '{model_name}' with both FX and Dynamo. "
+            "The model may not be compatible with graph tracing."
+        )
+
+
+def profile_model(
+    model: Union[str, torch.nn.Module],
+    input_shape: Optional[Tuple[int, ...]] = None,
+    seq_len: int = 128,
+    show_shapes: bool = False,
+    model_name: Optional[str] = None
+) -> None:
+    """
+    Profile a PyTorch model with hierarchical table
+
+    Args:
+        model: Model name (from registry/HuggingFace), file path (.pt), or torch.nn.Module
+        input_shape: Input tensor shape for vision models (default: (1, 3, 224, 224))
+        seq_len: Sequence length for transformer models (default: 128)
+        show_shapes: If True, show parameter and tensor shapes
+        model_name: Display name (inferred if not provided)
+    """
+
+    # Default input shape for vision models
+    if input_shape is None:
+        input_shape = (1, 3, 224, 224)
+
+    # Determine model name, load model, and detect input type
+    input_type = 'image'  # Default to image tensors
+    if isinstance(model, str):
+        model_name = model_name or model
+
+        # Try registry first
+        if model in MODEL_REGISTRY:
+            print(f"Loading '{model}' from torchvision registry...")
+            model_obj = load_model_from_registry(model)
+            input_type = 'image'
+        else:
+            # Check if it's a file path
+            path = Path(model)
+            if path.exists():
+                print(f"Loading model from '{model}'...")
+                model_obj = load_model_from_path(model)
+                input_type = 'image'
+            else:
+                # Assume it's a HuggingFace model
+                model_obj, input_type = load_transformer_model(model)
+    else:
+        model_obj = model
+        model_name = model_name or model.__class__.__name__
+
+    print("=" * 100)
+    print(f"UNIFIED GRAPH PROFILER: {model_name}")
     print("=" * 100)
     print()
+
+    # Create example inputs based on model type
+    if input_type == 'tokens':
+        # Transformer models need token IDs
+        batch_size = input_shape[0] if input_shape else 1
+        # Use safe vocab size (most models have > 30000 tokens)
+        input_ids = torch.randint(0, 30000, (batch_size, seq_len))
+
+        # Check if model is BERT-style (needs attention_mask) or GPT-style (doesn't)
+        # GPT models have 'gpt' in their name and work better without attention_mask for tracing
+        is_gpt_style = 'gpt' in model_name.lower()
+
+        if is_gpt_style:
+            # GPT-style models: just input_ids
+            example_inputs = input_ids
+            print(f"Input type: Tokens (batch_size={batch_size}, seq_len={seq_len}) [GPT-style]")
+        else:
+            # BERT-style models: input_ids + attention_mask
+            attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
+            example_inputs = (input_ids, attention_mask)
+            print(f"Input type: Tokens (batch_size={batch_size}, seq_len={seq_len}, with attention_mask) [BERT-style]")
+    else:
+        # Vision models need image tensors
+        example_inputs = torch.randn(*input_shape)
+        print(f"Input type: Image tensor {input_shape}")
+
+    # Trace with hybrid strategy
+    try:
+        traced_graph, method = trace_model_hybrid(model_obj, example_inputs, model_name)
+    except Exception as e:
+        print(f"\nFailed to trace model: {e}")
+        return
+
+    # Propagate shapes
+    print("[3/4] Propagating tensor shapes through graph...")
+    if isinstance(example_inputs, tuple):
+        ShapeProp(traced_graph).propagate(*example_inputs)
+    else:
+        ShapeProp(traced_graph).propagate(example_inputs)
+
+    # Partition
+    print("[4/4] Running graph partitioner...")
+    partitioner = GraphPartitioner()
+    report = partitioner.partition(traced_graph)
+
+    # Display table
+    print("\n" + "=" * 100)
+    print("HIERARCHICAL GRAPH PROFILE")
+    print("=" * 100)
+    print()
+
+    table = format_partition_table(traced_graph, report, show_shapes=show_shapes)
     print(table)
 
     # Summary
     print("\n" + "=" * 100)
-    print("SUMMARY")
+    print("MODEL SUMMARY")
     print("=" * 100)
 
-    total_params = sum(p.numel() for p in model.parameters())
+    total_params = sum(p.numel() for p in traced_graph.parameters())
+    print(f"\nModel: {model_name}")
+    if input_type == 'tokens':
+        print(f"Input: Tokens (batch_size={input_shape[0] if input_shape else 1}, seq_len={seq_len})")
+    else:
+        print(f"Input: Image tensor {input_shape}")
+    print(f"Tracing method: {method}")
     print(f"\nTotal parameters: {total_params / 1e6:.2f}M ({total_params:,})")
     print(f"Total FLOPs: {report.total_flops / 1e9:.3f} GFLOPs ({report.total_flops:,})")
     print(f"Total MACs: {report.total_macs / 1e9:.3f} GMACs ({report.total_macs:,})")
 
-    total_memory = sum(sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
-                      for sg in report.subgraphs)
-    print(f"Total memory: {total_memory / 1e6:.2f} MB ({total_memory:,} bytes)")
+    # Memory breakdown
+    total_input = sum(sg.total_input_bytes for sg in report.subgraphs)
+    total_output = sum(sg.total_output_bytes for sg in report.subgraphs)
+    total_weight = sum(sg.total_weight_bytes for sg in report.subgraphs)
+    total_memory = total_input + total_output + total_weight
 
-    print(f"\nSubgraphs: {len(report.subgraphs)}")
-    print(f"Average AI: {report.average_arithmetic_intensity:.2f} FLOPs/byte")
+    print(f"\nMemory breakdown:")
+    print(f"  Input tensors:  {total_input / 1e6:.2f} MB")
+    print(f"  Output tensors: {total_output / 1e6:.2f} MB")
+    print(f"  Weights:        {total_weight / 1e6:.2f} MB")
+    print(f"  Total:          {total_memory / 1e6:.2f} MB")
+
+    print(f"\nGraph structure:")
+    print(f"  Subgraphs (fused ops): {len(report.subgraphs)}")
+    print(f"  Average arithmetic intensity: {report.average_arithmetic_intensity:.2f} FLOPs/byte")
+
+    # Bottleneck analysis
+    compute_bound = sum(1 for sg in report.subgraphs if sg.arithmetic_intensity > 10)
+    memory_bound = len(report.subgraphs) - compute_bound
+    print(f"\nBottleneck analysis:")
+    print(f"  Compute-bound ops: {compute_bound} ({compute_bound/len(report.subgraphs)*100:.1f}%)")
+    print(f"  Memory-bound ops:  {memory_bound} ({memory_bound/len(report.subgraphs)*100:.1f}%)")
+    print(f"  (Threshold: AI > 10 FLOPs/byte)")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Profile computational graphs: characterize execution order, compute (MACs/FLOPs), and memory demands',
+        description='Unified graph profiler: works with TorchVision models, YOLO, and custom models',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Profile ResNet-18
+  # Profile TorchVision models
   python cli/profile_graph.py --model resnet18
+  python cli/profile_graph.py --model mobilenet_v2 --showshape
+  python cli/profile_graph.py --model vit_b_16
 
-  # Show tensor shapes and parameter details
-  python cli/profile_graph.py --model resnet18 --showshape
+  # Profile YOLO models (requires: pip install ultralytics)
+  python cli/profile_graph.py --model yolov8n.pt
+  python cli/profile_graph.py --model yolov8s.pt --showshape
+  python cli/profile_graph.py --model yolo11m.pt --input-shape 1 3 640 640
 
-  # Profile MobileNet V2
-  python cli/profile_graph.py --model mobilenet_v2
+  # Profile Transformer models (requires: pip install transformers)
+  python cli/profile_graph.py --model bert-base-uncased
+  python cli/profile_graph.py --model gpt2 --seq-len 256
+  python cli/profile_graph.py --model distilbert-base-uncased --showshape
+
+  # List available torchvision models
+  python cli/profile_graph.py --list
+
+Tracing Strategy:
+  The profiler uses a hybrid approach for maximum compatibility:
+  1. Warm-up: Run model once to initialize lazy modules (safe for all models)
+  2. Try standard FX symbolic_trace (fast, works for most models)
+  3. Fall back to Dynamo export if needed (robust for complex models like YOLO)
+
+  This makes the profiler work with:
+  - Standard CNNs (ResNet, VGG, DenseNet)
+  - Mobile networks (MobileNet, EfficientNet)
+  - Transformers (ViT, Swin)
+  - Detection models (YOLO - requires warm-up + Dynamo)
+  - Custom models with lazy initialization
         """
     )
 
-    parser.add_argument('--model', type=str, default='resnet18',
-                       choices=sorted(MODEL_REGISTRY.keys()),
-                       help='Model to analyze (40+ models available)')
+    parser.add_argument('--model', type=str,
+                       help='Model name (torchvision/HuggingFace) or path (.pt file for YOLO)')
 
     parser.add_argument('--showshape', action='store_true',
-                       help='Show parameter shapes (weight/bias dimensions)')
+                       help='Show parameter shapes (weight/bias dimensions) and tensor shapes')
 
     parser.add_argument('--input-shape', type=int, nargs=4, default=[1, 3, 224, 224],
                        metavar=('B', 'C', 'H', 'W'),
-                       help='Input tensor shape')
+                       help='Input tensor shape for vision models (default: 1 3 224 224)')
+
+    parser.add_argument('--seq-len', type=int, default=128,
+                       help='Sequence length for transformer models (default: 128)')
+
+    parser.add_argument('--list', action='store_true',
+                       help='List available torchvision models and exit')
 
     args = parser.parse_args()
 
-    show_table(args.model, show_shapes=args.showshape, input_shape=tuple(args.input_shape))
+    if args.list:
+        print("Available torchvision models:")
+        for name in sorted(MODEL_REGISTRY.keys()):
+            print(f"  {name}")
+        print(f"\nTotal: {len(MODEL_REGISTRY)} models")
+        print("\nYou can also profile YOLO models by providing a .pt file path:")
+        print("  python cli/profile_graph_v2.py --model yolov8n.pt")
+        return
+
+    if not args.model:
+        parser.print_help()
+        print("\nError: --model is required (or use --list to see available models)")
+        sys.exit(1)
+
+    profile_model(
+        args.model,
+        input_shape=tuple(args.input_shape),
+        seq_len=args.seq_len,
+        show_shapes=args.showshape
+    )
 
 
 if __name__ == "__main__":
