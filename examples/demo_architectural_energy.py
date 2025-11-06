@@ -27,6 +27,7 @@ from graphs.hardware.architectural_energy import (
     DataParallelEnergyModel,
     SystolicArrayEnergyModel,
     DomainFlowEnergyModel,
+    DataFlowMachineEnergyModel,
 )
 
 
@@ -35,7 +36,7 @@ def demonstrate_architectural_energy_comparison():
     Compare architectural energy for a typical ResNet-18 Conv layer.
 
     Workload:
-    - 1.8 GFLOPS (900M MACs × 2)
+    - 1.8 GFLOPS (900M MACs x 2)
     - 10 MB data transfer (input + weights + output)
     - Batch size: 1
     - Precision: FP32
@@ -63,8 +64,8 @@ def demonstrate_architectural_energy_comparison():
     baseline_total = baseline_compute + baseline_memory
 
     print("Baseline Energy (no architectural overhead):")
-    print(f"  Compute: {baseline_compute*1e9:.2f} nJ ({ops/1e9:.1f} GFLOPS × {baseline_energy_per_flop*1e12:.1f} pJ)")
-    print(f"  Memory:  {baseline_memory*1e9:.2f} nJ ({bytes_transferred/1e6:.1f} MB × {baseline_energy_per_byte*1e12:.1f} pJ)")
+    print(f"  Compute: {baseline_compute*1e9:.2f} nJ ({ops/1e9:.1f} GFLOPS x {baseline_energy_per_flop*1e12:.1f} pJ)")
+    print(f"  Memory:  {baseline_memory*1e9:.2f} nJ ({bytes_transferred/1e6:.1f} MB x {baseline_energy_per_byte*1e12:.1f} pJ)")
     print(f"  Total:   {baseline_total*1e9:.2f} nJ")
     print()
 
@@ -187,18 +188,18 @@ def demonstrate_architectural_energy_comparison():
     print()
 
     kpu_model = DomainFlowEnergyModel(
-        domain_tracking_per_op=1.0e-12,
-        network_overlay_update=2.0e-12,
-        wavefront_control=0.8e-12,
-        schedule_adaptation_energy=50.0e-12,
-        domain_data_injection=0.7e-12,
-        domain_data_extraction=0.7e-12,
-        compute_efficiency=0.30,  # 70% reduction
-        memory_efficiency=0.35,   # 65% reduction
+        domainflow_tracking_per_op=1.0e-12,
+
+        dataflow_adaptation_energy=50.0e-12,
+        domain_data_injection=0.5e-12,
+        domain_data_extraction=0.5e-12,
+        domain_data_overfetch_factor=1.1,
+        compute_efficiency=0.75,
+        memory_efficiency=0.75,
     )
 
     kpu_context = {
-        'schedule_changes': 10,  # Adaptive scheduling
+        'kernel_changes': 10,  # nr of subgraphs we need to program
     }
 
     kpu_breakdown = kpu_model.compute_architectural_energy(
@@ -219,6 +220,41 @@ def demonstrate_architectural_energy_comparison():
     print()
 
     # ========================================================================
+    # 5. DFM (Data Flow reference) - Data Flow Machine
+    # ========================================================================
+    print("-" * 80)
+    print("5. Data Flow - Data Flow Machine")
+    print("-" * 80)
+    print()
+
+    dfm_model = DataFlowMachineEnergyModel(
+        cam_lookup_per_cycle=5.0e-12,
+        token_matching_energy=2.0e-12,
+        token_queue_management=1.0e-12,
+        graph_traversal_per_node=3.0e-12,
+        compute_efficiency=0.75,  # DFM is very efficient
+        memory_efficiency=0.30,   # DFM memory efficiency is low
+    )
+
+    dfm_context = {}
+
+    dfm_breakdown = dfm_model.compute_architectural_energy(
+        ops=ops,
+        bytes_transferred=bytes_transferred,
+        compute_energy_baseline=baseline_compute,
+        memory_energy_baseline=baseline_memory,
+        execution_context=dfm_context
+    )
+
+    dfm_total = baseline_total + dfm_breakdown.total_overhead
+    print(dfm_breakdown.explanation)
+    print()
+    print(f"Total Energy: {dfm_total*1e9:.2f} nJ")
+    print(f"  Baseline: {baseline_total*1e9:.2f} nJ")
+    print(f"  Architectural Overhead: {dfm_breakdown.total_overhead*1e9:.2f} nJ")
+    print() 
+
+    # ========================================================================
     # Summary Comparison
     # ========================================================================
     print("=" * 80)
@@ -227,40 +263,41 @@ def demonstrate_architectural_energy_comparison():
     print()
     print(f"{'Architecture':<35} {'Energy (nJ)':<15} {'vs CPU':<12} {'vs GPU':<12} {'Progression'}")
     print("-" * 100)
-    print(f"{'Baseline (no overhead)':<35} {baseline_total*1e9:>10.2f} nJ   {'—':<12} {'—':<12} {'Pure computation'}")
-    print(f"{'1. CPU (Xeon) Sequential':<35} {cpu_total*1e9:>10.2f} nJ   {'1.00×':<12} {f'{cpu_total/gpu_total:.2f}×':<12} {'Instruction stream'}")
-    print(f"{'2. GPU (H100) Data Parallel':<35} {gpu_total*1e9:>10.2f} nJ   {f'{gpu_total/cpu_total:.2f}×':<12} {'1.00×':<12} {'+ Coherence overhead'}")
-    print(f"{'3. TPU (v4) Systolic Array':<35} {tpu_total*1e9:>10.2f} nJ   {f'{tpu_total/cpu_total:.2f}×':<12} {f'{tpu_total/gpu_total:.2f}×':<12} {'- Instruction fetch'}")
-    print(f"{'4. KPU (T256) Domain Flow':<35} {kpu_total*1e9:>10.2f} nJ   {f'{kpu_total/cpu_total:.2f}×':<12} {f'{kpu_total/gpu_total:.2f}×':<12} {'+ Programmability'}")
+    print(f"{'Baseline (no overhead)':<35} {baseline_total*1e9:>10.0f} nJ   {'—':<12} {'—':<12} {'Pure computation'}")
+    print(f"{'1. CPU (Xeon) Sequential':<35} {cpu_total*1e9:>10.0f} nJ   {'1.00×':<12} {f'{cpu_total/gpu_total:.2f}×':<12} {'Instruction stream'}")
+    print(f"{'2. GPU (H100) Data Parallel':<35} {gpu_total*1e9:>10.0f} nJ   {f'{gpu_total/cpu_total:.2f}×':<12} {'1.00×':<12} {'+ Coherence overhead'}")
+    print(f"{'3. TPU (v4) Systolic Array':<35} {tpu_total*1e9:>10.0f} nJ   {f'{tpu_total/cpu_total:.2f}×':<12} {f'{tpu_total/gpu_total:.2f}×':<12} {'- Instruction fetch'}")
+    print(f"{'4. KPU (T256) Domain Flow':<35} {kpu_total*1e9:>10.0f} nJ   {f'{kpu_total/cpu_total:.2f}×':<12} {f'{kpu_total/gpu_total:.2f}×':<12} {'+ Programmability'}")
+    print(f"{'5. DFM Data Flow Machine':<35} {dfm_total*1e9:>10.0f} nJ   {f'{dfm_total/cpu_total:.2f}×':<12} {f'{dfm_total/gpu_total:.2f}×':<12} {'Data-driven execution'}")
     print()
 
     print("Architecture Progression Insights:")
     print()
-    print(f"  CPU → GPU: {gpu_total/cpu_total:.2f}× WORSE")
+    print(f"  CPU → GPU: {gpu_total/cpu_total:.2f}x WORSE")
     print(f"    GPU adds {gpu_breakdown.total_overhead*1e9:.2f} nJ coherence machinery overhead")
     print(f"    to manage {gpu_context['concurrent_threads']:,} concurrent threads.")
     print(f"    This is only worth it at large batch sizes!")
     print()
-    print(f"  GPU → TPU: {gpu_total/tpu_total:.1f}× BETTER")
+    print(f"  GPU → TPU: {gpu_total/tpu_total:.1f}x BETTER")
     print(f"    TPU SAVES {-tpu_breakdown.total_overhead*1e9:.2f} nJ by eliminating")
     print(f"    instruction fetch and using pre-designed spatial schedule.")
     print(f"    Fixed function limits flexibility.")
     print()
-    print(f"  TPU → KPU: {kpu_total/tpu_total:.2f}× overhead")
+    print(f"  TPU → KPU: {kpu_total/tpu_total:.2f}x overhead")
     print(f"    KPU adds {(kpu_breakdown.total_overhead - tpu_breakdown.total_overhead)*1e9:.2f} nJ for domain tracking")
     print(f"    and programmable scheduling, but gains flexibility.")
-    print(f"    Still {gpu_total/kpu_total:.1f}× more energy efficient than GPU!")
+    print(f"    Still {gpu_total/kpu_total:.1f}x more energy efficient than GPU!")
     print()
     print("CONCLUSION:")
     print("  The progression shows the trade-offs in resource contention management:")
     print()
     print("  CPU (Sequential)")
     print("    ↓ Add massive SIMT parallelism")
-    print(f"  GPU (Data Parallel) - {gpu_total/cpu_total:.1f}× worse due to coherence machinery")
+    print(f"  GPU (Data Parallel) - {gpu_total/cpu_total:.1f}x worse due to coherence machinery")
     print("    ↓ Eliminate instruction fetch, use spatial schedule")
-    print(f"  TPU (Systolic Array) - {gpu_total/tpu_total:.0f}× better than GPU!")
+    print(f"  TPU (Systolic Array) - {gpu_total/tpu_total:.0f}x better than GPU!")
     print("    ↓ Add programmability")
-    print(f"  KPU (Domain Flow) - {gpu_total/kpu_total:.0f}× better than GPU, programmable")
+    print(f"  KPU (Domain Flow) - {gpu_total/kpu_total:.0f}x better than GPU, programmable")
     print()
     print(f"  Key: Systolic/domain flow architectures achieve {gpu_total/tpu_total:.0f}-{gpu_total/kpu_total:.0f}× better energy")
     print("  efficiency by eliminating the instruction fetch and memory contention")

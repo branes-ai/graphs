@@ -48,7 +48,7 @@ class ArchitectureClass(Enum):
     - Out-of-order execution for ILP
     - Complex branch prediction
 
-    Energy Characteristics: 1.0× (baseline for sequential)
+    Energy Characteristics: 1.0x (baseline for sequential)
     - Instruction fetch per operation (~2 pJ)
     - Memory request overhead (~10 pJ per load/store)
     - Pipeline control overhead
@@ -69,16 +69,16 @@ class ArchitectureClass(Enum):
     - Thread scheduling across thousands of threads
     - Memory coalescing requirements
 
-    Energy Characteristics: 2.5-3.0× stored program baseline
+    Energy Characteristics: 2.5-3.0x stored program baseline
     - All CPU overheads PLUS:
-    - Coherence machinery: ~5 pJ per memory request × thousands of concurrent requests
-    - Thread scheduling: ~1 pJ per thread × thousands of threads
+    - Coherence machinery: ~5 pJ per memory request x thousands of concurrent requests
+    - Thread scheduling: ~1 pJ per thread x thousands of threads
     - Warp divergence penalties
     - Synchronization barriers
 
     Key Difference vs CPU:
     - CPU: 8-16 cores, complex per-core control
-    - GPU: 132 SMs × 2048 threads/SM = 270K threads, simple per-thread control
+    - GPU: 132 SMs x 2048 threads/SM = 270K threads, simple per-thread control
     - GPU hides memory latency with parallelism, but burns energy on coherence
 
     Why More Energy Than CPU: Coherence machinery dominates for small batches
@@ -97,11 +97,11 @@ class ArchitectureClass(Enum):
     - No dynamic resource arbitration
     - Full concurrency with zero contention overhead
 
-    Energy Characteristics: 0.10-0.20× stored program
+    Energy Characteristics: 0.10-0.20x stored program
     - Minimal control overhead (schedule setup is amortized)
     - Low memory overhead (direct injection into array)
     - No coherence/ordering machinery needed
-    - 5-10× more efficient than stored program (Google TPU data)
+    - 5-10x more efficient than stored program (Google TPU data)
 
     Limitations: Fixed function, cannot change behavior
 
@@ -111,19 +111,20 @@ class ArchitectureClass(Enum):
     DOMAIN_FLOW = "domain_flow"
     """
     Programmable systolic processors with domain tracking (Stillwater KPU).
+    Domain Flow Architecture (DFA).
 
     Resource Contention: Domain-based spatial scheduling with adaptivity
     - SURE/SARE network overlay models variable dependencies
-    - Domains track computation through N-dimensional abstract space
+    - Domain checks track computation through N-dimensional abstract space
     - Execution wavefronts can change dynamically
     - Systolic array behavior is programmable
     - Spatial mapping with dynamic control
 
-    Energy Characteristics: 0.25-0.40× stored program
+    Energy Characteristics: 0.25-0.40x stored program
     - Domain tracking overhead (more than fixed systolic, less than stored program)
-    - Network overlay management energy
+    - Network overlay management energy (data token routing)
     - Wavefront control energy
-    - Still eliminates instruction fetch per operation
+    - No instruction fetch per operation, domain flow program loaded once
     - Programmability cost << stored program overhead
 
     Key Distinction: Systolic array is special case of DFA (all dynamic control
@@ -146,7 +147,7 @@ class ArchitectureClass(Enum):
     - Dataflow graph traversal
     - No sequential instruction stream
 
-    Energy Characteristics: 0.30-0.50× stored program (CAM-limited)
+    Energy Characteristics: 0.30-0.50x stored program (CAM-limited)
     - CAM energy (associative search per cycle)
     - Token queue management
     - Matching logic overhead
@@ -176,7 +177,7 @@ class ArchitectureClass(Enum):
     - Efficient ingress/egress flow management between partitions
     - Data locality optimization (minimize off-chip access)
 
-    Energy Characteristics: 0.15-0.30× stored program
+    Energy Characteristics: 0.15-0.30x stored program
     - Graph partitioning (compile-time, amortized)
     - Inter-partition communication (mesh links)
     - Partition-local computation (very efficient)
@@ -202,7 +203,7 @@ class ArchitectureClass(Enum):
     - High reconfiguration cost (energy + time)
     - Once configured, operates like spatial dataflow
 
-    Energy Characteristics: 0.15-0.30× runtime (+ reconfiguration penalty)
+    Energy Characteristics: 0.15-0.30x runtime (+ reconfiguration penalty)
     - Reconfiguration energy (very high, amortized over many runs)
     - Routing overhead (multiplexers, interconnect)
     - Hard macro activation (DSP blocks, BRAMs)
@@ -268,8 +269,8 @@ class ArchitecturalEnergyModel(ABC):
         Args:
             ops: Number of operations (FLOPs, MACs, etc.)
             bytes_transferred: Total bytes read/written
-            compute_energy_baseline: Baseline compute energy (ops × energy_per_op)
-            memory_energy_baseline: Baseline memory energy (bytes × energy_per_byte)
+            compute_energy_baseline: Baseline compute energy (ops x energy_per_op)
+            memory_energy_baseline: Baseline memory energy (bytes x energy_per_byte)
             execution_context: Additional context (threads, batch size, etc.)
 
         Returns:
@@ -506,7 +507,7 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
     - No ordering machinery (schedule known a priori)
     - Direct data injection into 2D array
 
-    Result: 5-10× lower energy per operation (Google TCO data validates this)
+    Result: 5-10x lower energy per operation (Google TCO data validates this)
     """
 
     # Energy coefficients (much lower than stored program)
@@ -569,7 +570,7 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
             f"({(1-self.memory_efficiency)*100:.0f}% reduction)\n"
             f"\n"
             f"KEY: Pre-designed spatial schedule eliminates instruction fetch\n"
-            f"     and contention overhead. 5-10× more energy efficient!"
+            f"     and contention overhead. 5-10x more energy efficient!"
         )
 
         return ArchitecturalEnergyBreakdown(
@@ -593,33 +594,37 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
 
     Key characteristics:
     - SURE/SARE network overlay models variable dependencies
-    - Domains track computation through N-dimensional space
-    - Execution wavefronts can change dynamically
+    - Domain checks track computation through N-dimensional space
+    - Execution wavefronts can change dynamically without energy consumption
     - Still eliminates instruction fetch per operation
     - More flexible than fixed systolic, more efficient than stored program
+    - Data is streamed through spatial domains with dynamic control
 
     Historical context: Evolved from Data Flow Machine concepts.
     Modern innovation: x86 uses DFM concepts for register renaming.
     """
 
-    # Domain management overhead
-    domain_tracking_per_op: float = 1.0e-12        # ~1 pJ per operation
-    network_overlay_update: float = 2.0e-12        # ~2 pJ per wavefront update
-    wavefront_control: float = 0.8e-12             # ~0.8 pJ per wavefront
+    # Domain flow management overhead: CAM-like tracking per operation
+    domainflow_tracking_per_op: float = 1.0e-12        # ~1 pJ per operation
+  
+    # Dataflow flexibility cost (more than fixed systolic, less than stored program)
+    dataflow_adaptation_energy: float = 50.0e-12   # ~50 pJ per schedule change
+    # if we model that, we would allocate that to the data token routing energy cost
 
-    # Schedule flexibility cost (more than fixed systolic, less than stored program)
-    schedule_adaptation_energy: float = 50.0e-12   # ~50 pJ per schedule change
-
-    # Data movement (still spatial, but with overlay)
-    domain_data_injection: float = 0.7e-12         # ~0.7 pJ per element
-    domain_data_extraction: float = 0.7e-12        # ~0.7 pJ per element
+    # Data movement of domains into the fabric
+    domain_data_injection: float = 0.5e-12         # ~0.5 pJ per element
+    domain_data_extraction: float = 0.5e-12        # ~0.5 pJ per element
+    # assume we tile which create some overfetching, typically on one domain
+    domain_data_overfetch_factor: float = 1.1      # 10% overfetching overhead: only on input domains
 
     # Efficiency vs stored program (less efficient than fixed systolic, but programmable)
-    compute_efficiency: float = 0.30               # 30% overhead (70% reduction)
-    memory_efficiency: float = 0.35                # 35% overhead (65% reduction)
+    compute_efficiency: float = 0.75               # 75% of peak
+    memory_efficiency: float = 0.75                # 75% of peak
 
-    # Wavefront frequency (adaptive based on computation structure)
-    wavefront_updates_per_1000_ops: int = 10       # 10 wavefront updates per 1000 ops
+    # Kernel update frequency (adaptive based on computation structure)
+    kernel_changes: int = 10                       # ~10 kernel changes per workload
+    # kernel programs get streamed into the array with very little energy cost
+    # so first order, we ignore the energy cost of loading new programs
 
     def compute_architectural_energy(
         self,
@@ -636,13 +641,9 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
         # Domain tracking per operation
         domain_tracking_energy = ops * self.domain_tracking_per_op
 
-        # Wavefront management
-        num_wavefronts = max(1, (ops // 1000) * self.wavefront_updates_per_1000_ops)
-        wavefront_energy = num_wavefronts * (self.network_overlay_update + self.wavefront_control)
-
-        # Schedule adaptation (when computation pattern changes)
-        num_schedule_changes = execution_context.get('schedule_changes', 1)
-        schedule_energy = num_schedule_changes * self.schedule_adaptation_energy
+        # Kernel changes (when computation pattern changes)
+        num_kernel_changes = execution_context.get('kernel_changes', 1)
+        kernel_load_energy = num_kernel_changes * self.schedule_adaptation_energy
 
         # Data movement through domains
         num_elements = max(1, bytes_transferred // 4)
@@ -661,7 +662,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
             f"  Domain Tracking:\n"
             f"    - Operations: {ops:,}\n"
             f"    - Energy: {domain_tracking_energy*1e12:.2f} pJ "
-            f"({ops:,} × {self.domain_tracking_per_op*1e12:.2f} pJ)\n"
+            f"({ops:,} x {self.domain_tracking_per_op*1e12:.2f} pJ)\n"
             f"  Wavefront Management:\n"
             f"    - Wavefronts: {num_wavefronts:,}\n"
             f"    - Energy: {wavefront_energy*1e12:.2f} pJ\n"
@@ -1050,7 +1051,7 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
             f"    - Energy per inference: {reconfig_energy*1e12:.2f} pJ\n"
             f"  Runtime Overhead:\n"
             f"    - Routing (multiplexers): {routing_energy*1e12:.2f} pJ "
-            f"({ops:,} × {self.routing_overhead_per_op*1e12:.2f} pJ)\n"
+            f"({ops:,} x {self.routing_overhead_per_op*1e12:.2f} pJ)\n"
             f"    - Hard macros: {macro_energy*1e12:.2f} pJ "
             f"({num_hard_macros:,} activations)\n"
             f"  Architectural Efficiency (runtime, vs Stored Program):\n"
