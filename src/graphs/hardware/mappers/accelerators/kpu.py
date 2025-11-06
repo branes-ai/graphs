@@ -537,10 +537,8 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
 
     # Configure architectural energy model for KPU (DOMAIN_FLOW)
     model.architecture_energy_model = DomainFlowEnergyModel(
-        domain_tracking_per_op=1.0e-12,
-        network_overlay_update=2.0e-12,
-        wavefront_control=0.8e-12,
-        schedule_adaptation_energy=50.0e-12,
+        domainflow_tracking_per_op=1.0e-12,
+        dataflow_adaptation_energy=50.0e-12,
         domain_data_injection=0.7e-12,
         domain_data_extraction=0.7e-12,
         compute_efficiency=0.30,  # 70% reduction vs CPU

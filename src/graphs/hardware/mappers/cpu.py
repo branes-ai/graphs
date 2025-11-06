@@ -71,7 +71,12 @@ class CPUMapper(HardwareMapper):
     # Modern datacenter CPUs consume ~50% TDP at idle
     IDLE_POWER_FRACTION = 0.5
 
-    def __init__(self, resource_model: HardwareResourceModel, thermal_profile: str = None):
+    def __init__(
+        self,
+        resource_model: HardwareResourceModel,
+        thermal_profile: str = None,
+        calibration = None  # Type hint: Optional[HardwareCalibration]
+    ):
         super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a CPU model
@@ -82,6 +87,10 @@ class CPUMapper(HardwareMapper):
         self.simd_width = resource_model.warp_size  # Reuse warp_size for SIMD width
         self.cores = resource_model.compute_units
         self.threads_per_core = resource_model.threads_per_unit  # SMT/HyperThreading
+
+        # Calibration data (if provided)
+        self.calibration = calibration
+        self.default_efficiency = 0.20  # Fallback if no calibration available
 
     def compute_energy_with_idle_power(
         self,
@@ -222,6 +231,85 @@ class CPUMapper(HardwareMapper):
         }
         return bytes_map.get(precision, 4)
 
+    def _classify_operation(self, subgraph: FusedSubgraph) -> Tuple[str, Dict]:
+        """
+        Classify the dominant operation type in a subgraph.
+
+        This method analyzes the operations in a subgraph and determines
+        the primary operation type for calibration lookup.
+
+        Args:
+            subgraph: Fused subgraph to classify
+
+        Returns:
+            (operation_type, extra_params) tuple for calibration lookup
+        """
+        # Extract operation types
+        ops = [op.value for op in subgraph.operation_types]
+
+        # Matrix multiplication (highest priority for compute-bound ops)
+        if any(op in ['matmul', 'linear', 'addmm', 'bmm'] for op in ops):
+            # Estimate matrix size from memory footprint
+            # For matmul: C = A @ B where A is [M, K], B is [K, N], C is [M, N]
+            # Memory = M*K + K*N + M*N elements
+            # Approximate N ≈ sqrt(memory / (3 * bytes_per_element))
+            total_elements = subgraph.total_input_bytes + subgraph.total_output_bytes
+            total_elements //= 4  # FP32
+            matrix_size = int((total_elements / 3) ** 0.5)  # Rough estimate
+
+            # Categorize by size
+            if matrix_size < 768:
+                size_category = 'small'
+            elif matrix_size < 3072:
+                size_category = 'medium'
+            else:
+                size_category = 'large'
+
+            return 'matmul', {'matrix_size': matrix_size}
+
+        # Convolution
+        if any('conv' in op for op in ops):
+            return 'conv2d', {}
+
+        # Element-wise operations (memory-bound)
+        if any(op in ['relu', 'relu6', 'gelu', 'sigmoid', 'add', 'mul', 'sub'] for op in ops):
+            # Use 'add' as proxy for memory-bound elementwise ops
+            return 'add', {}
+
+        # Pooling
+        if any('pool' in op for op in ops):
+            return 'maxpool', {}
+
+        # Default: unknown operation
+        return 'unknown', {}
+
+    def _get_calibrated_efficiency(self, subgraph: FusedSubgraph) -> float:
+        """
+        Get efficiency for this subgraph using calibration data.
+
+        Args:
+            subgraph: Fused subgraph to analyze
+
+        Returns:
+            Efficiency (0.0 to 1.0)
+        """
+        if not self.calibration:
+            # No calibration: use conservative default
+            return self.default_efficiency
+
+        # Classify operation
+        op_type, extra_params = self._classify_operation(subgraph)
+
+        # Query calibration
+        efficiency = self.calibration.get_efficiency(op_type, **extra_params)
+
+        # Sanity check
+        if efficiency <= 0 or efficiency > 1.0:
+            # Invalid efficiency, use default
+            return self.default_efficiency
+
+        return efficiency
+
     def map_subgraph(
         self,
         subgraph: FusedSubgraph,
@@ -309,6 +397,23 @@ class CPUMapper(HardwareMapper):
             occupancy=occupancy,
             precision=precision
         )
+
+        # Apply calibration correction if available
+        # Calibration provides operation-specific efficiency that overrides
+        # the generic efficiency factors from the resource model
+        if self.calibration:
+            # Compute efficiency correction
+            calibrated_efficiency = self._get_calibrated_efficiency(subgraph)
+            base_efficiency = self.default_efficiency
+            efficiency_correction = base_efficiency / calibrated_efficiency
+            compute_time *= efficiency_correction
+
+            # Memory bandwidth correction
+            # If measured bandwidth is lower than theoretical, memory ops are slower
+            theoretical_bandwidth = self.resource_model.peak_bandwidth
+            measured_bandwidth = self.calibration.measured_bandwidth_gbps * 1e9  # Convert GB/s to bytes/s
+            bandwidth_correction = theoretical_bandwidth / measured_bandwidth
+            memory_time *= bandwidth_correction
 
         # Add threading overhead (OpenMP-style parallelism has overhead)
         # More cores = more overhead for synchronization

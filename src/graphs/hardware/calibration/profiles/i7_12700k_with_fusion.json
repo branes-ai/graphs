@@ -1,0 +1,357 @@
+{
+  "metadata": {
+    "hardware_name": "i7-12700K",
+    "calibration_date": "2025-11-05T20:58:12.327496",
+    "calibration_tool_version": "1.0.0",
+    "cpu_model": "x86_64",
+    "cpu_count": 12,
+    "total_memory_gb": 31.08944320678711,
+    "python_version": "3.11.14",
+    "pytorch_version": "2.7.1+cu126",
+    "numpy_version": "2.2.6",
+    "num_warmup_runs": 2,
+    "num_measurement_runs": 5
+  },
+  "theoretical_peak_gflops": 1000.0,
+  "theoretical_bandwidth_gbps": 50.0,
+  "best_measured_gflops": 772.4121861470484,
+  "avg_measured_gflops": 758.2590898833132,
+  "worst_measured_gflops": 744.1059936195779,
+  "measured_bandwidth_gbps": 51.96124922939835,
+  "bandwidth_efficiency": 1.0392249845879669,
+  "best_efficiency": 0.7724121861470483,
+  "avg_efficiency": 0.7582590898833131,
+  "worst_efficiency": 0.744105993619578,
+  "operation_profiles": {
+    "add_operation=memory_copy_size_mb=128": {
+      "operation_type": "add",
+      "measured_gflops": 0.0,
+      "efficiency": 0.9158227676794833,
+      "achieved_bandwidth_gbps": 45.791138383974165,
+      "memory_bound": true,
+      "compute_bound": false,
+      "arithmetic_intensity": 0.0,
+      "batch_size": 1,
+      "input_shape": [
+        33554432
+      ],
+      "output_shape": [
+        33554432
+      ],
+      "mean_latency_ms": 5.862170399632305,
+      "std_latency_ms": 0.10807717485619617,
+      "min_latency_ms": 5.757152997830417,
+      "max_latency_ms": 6.029634998412803,
+      "num_trials": 5,
+      "extra_params": {
+        "size_mb": 128,
+        "operation": "memory_copy"
+      }
+    },
+    "add_operation=memory_copy_size_mb=256": {
+      "operation_type": "add",
+      "measured_gflops": 0.0,
+      "efficiency": 1.0392249845879669,
+      "achieved_bandwidth_gbps": 51.96124922939835,
+      "memory_bound": true,
+      "compute_bound": false,
+      "arithmetic_intensity": 0.0,
+      "batch_size": 1,
+      "input_shape": [
+        67108864
+      ],
+      "output_shape": [
+        67108864
+      ],
+      "mean_latency_ms": 10.332140199898276,
+      "std_latency_ms": 0.03180371140358451,
+      "min_latency_ms": 10.292011000274215,
+      "max_latency_ms": 10.389012997620739,
+      "num_trials": 5,
+      "extra_params": {
+        "size_mb": 256,
+        "operation": "memory_copy"
+      }
+    },
+    "matmul_cpp_gflops=None_implementation=numpy_blas_matrix_size=1024_medium": {
+      "operation_type": "matmul",
+      "measured_gflops": 744.1059936195779,
+      "efficiency": 0.744105993619578,
+      "achieved_bandwidth_gbps": 4.3599960563647135,
+      "memory_bound": false,
+      "compute_bound": true,
+      "arithmetic_intensity": 170.66666666666666,
+      "batch_size": 1,
+      "input_shape": [
+        1024,
+        1024
+      ],
+      "output_shape": [
+        1024,
+        1024
+      ],
+      "mean_latency_ms": 2.88599160121521,
+      "std_latency_ms": 0.009327199913583653,
+      "min_latency_ms": 2.8724920048261993,
+      "max_latency_ms": 2.8965790043002926,
+      "num_trials": 5,
+      "extra_params": {
+        "matrix_size": 1024,
+        "implementation": "numpy_blas",
+        "cpp_gflops": null
+      }
+    },
+    "matmul_cpp_gflops=None_implementation=numpy_blas_matrix_size=2048_medium": {
+      "operation_type": "matmul",
+      "measured_gflops": 772.4121861470484,
+      "efficiency": 0.7724121861470483,
+      "achieved_bandwidth_gbps": 2.2629263266026807,
+      "memory_bound": false,
+      "compute_bound": true,
+      "arithmetic_intensity": 341.3333333333333,
+      "batch_size": 1,
+      "input_shape": [
+        2048,
+        2048
+      ],
+      "output_shape": [
+        2048,
+        2048
+      ],
+      "mean_latency_ms": 22.24184119841084,
+      "std_latency_ms": 0.8693515636658138,
+      "min_latency_ms": 21.640837003360502,
+      "max_latency_ms": 23.913581993838307,
+      "num_trials": 5,
+      "extra_params": {
+        "matrix_size": 2048,
+        "implementation": "numpy_blas",
+        "cpp_gflops": null
+      }
+    }
+  },
+  "fusion_profiles": {
+    "Linear_Bias": {
+      "fusion_pattern": "Linear_Bias",
+      "operators": [
+        "Linear",
+        "Bias"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 2.311924719979288,
+      "unfused_gflops": 464.6631020103562,
+      "unfused_memory_bytes": 12587008,
+      "fused_latency_ms": 2.346226859954186,
+      "fused_gflops": 457.8696673948132,
+      "fused_memory_bytes": 8392704,
+      "speedup_factor": 0.9853798707361283,
+      "memory_reduction": 0.33322486169866583,
+      "gflops_improvement": -0.014620129263871785,
+      "input_shape": [
+        512,
+        1024,
+        1024
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Linear_Bias_ReLU": {
+      "fusion_pattern": "Linear_Bias_ReLU",
+      "operators": [
+        "Linear",
+        "Bias",
+        "ReLU"
+      ],
+      "num_operators": 3,
+      "unfused_latency_ms": 2.3550203000195324,
+      "unfused_gflops": 456.1600220563237,
+      "unfused_memory_bytes": 16781312,
+      "fused_latency_ms": 2.4013203800132032,
+      "fused_gflops": 447.36475854758424,
+      "fused_memory_bytes": 8392704,
+      "speedup_factor": 0.9807189076563718,
+      "memory_reduction": 0.4998779594825482,
+      "gflops_improvement": -0.019281092343628257,
+      "input_shape": [
+        512,
+        1024,
+        1024
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Linear_Bias_GELU": {
+      "fusion_pattern": "Linear_Bias_GELU",
+      "operators": [
+        "Linear",
+        "Bias",
+        "GELU"
+      ],
+      "num_operators": 3,
+      "unfused_latency_ms": 2.420470840006601,
+      "unfused_gflops": 445.55811132889283,
+      "unfused_memory_bytes": 16781312,
+      "fused_latency_ms": 2.42072694003582,
+      "fused_gflops": 445.5109736515932,
+      "fused_memory_bytes": 8392704,
+      "speedup_factor": 0.9998942053211443,
+      "memory_reduction": 0.4998779594825482,
+      "gflops_improvement": -0.00010579467885581799,
+      "input_shape": [
+        512,
+        1024,
+        1024
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Conv2d_ReLU": {
+      "fusion_pattern": "Conv2d_ReLU",
+      "operators": [
+        "Conv2d",
+        "ReLU"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 1.701434399971428,
+      "unfused_gflops": 543.5672583177646,
+      "unfused_memory_bytes": 7012864,
+      "fused_latency_ms": 1.7002981000890334,
+      "fused_gflops": 543.9305213312724,
+      "fused_memory_bytes": 3801600,
+      "speedup_factor": 1.0006682945080836,
+      "memory_reduction": 0.4579104913484705,
+      "gflops_improvement": 0.0006682945080835163,
+      "input_shape": [
+        4,
+        128,
+        28,
+        28
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Conv2d_BN": {
+      "fusion_pattern": "Conv2d_BN",
+      "operators": [
+        "Conv2d",
+        "BN"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 1.7191217666550074,
+      "unfused_gflops": 538.441700846522,
+      "unfused_memory_bytes": 7012352,
+      "fused_latency_ms": 1.676320233430791,
+      "fused_gflops": 552.1897484381922,
+      "fused_memory_bytes": 3801600,
+      "speedup_factor": 1.0255330290541311,
+      "memory_reduction": 0.45787091121495327,
+      "gflops_improvement": 0.02553302905413129,
+      "input_shape": [
+        4,
+        128,
+        28,
+        28
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Conv2d_BN_ReLU": {
+      "fusion_pattern": "Conv2d_BN_ReLU",
+      "operators": [
+        "Conv2d",
+        "BN",
+        "ReLU"
+      ],
+      "num_operators": 3,
+      "unfused_latency_ms": 1.7504499667362932,
+      "unfused_gflops": 528.8050876003413,
+      "unfused_memory_bytes": 10223616,
+      "fused_latency_ms": 1.7035554000661555,
+      "fused_gflops": 543.3617526991219,
+      "fused_memory_bytes": 3801600,
+      "speedup_factor": 1.0275274679463413,
+      "memory_reduction": 0.6281550480769231,
+      "gflops_improvement": 0.027527467946341356,
+      "input_shape": [
+        4,
+        128,
+        28,
+        28
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "QK_AttentionScores": {
+      "fusion_pattern": "QK_AttentionScores",
+      "operators": [
+        "QK",
+        "AttentionScores"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 0.11072359993704595,
+      "unfused_gflops": 305.41434725051454,
+      "unfused_memory_bytes": 3670016,
+      "fused_latency_ms": 0.10349990019070295,
+      "fused_gflops": 326.73051797819636,
+      "fused_memory_bytes": 1572864,
+      "speedup_factor": 1.0697942677532346,
+      "memory_reduction": 0.5714285714285714,
+      "gflops_improvement": 0.06979426775323473,
+      "input_shape": [
+        4,
+        256,
+        64
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "QK_Softmax": {
+      "fusion_pattern": "QK_Softmax",
+      "operators": [
+        "QK",
+        "Softmax"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 0.16889979985232156,
+      "unfused_gflops": 207.97713218555464,
+      "unfused_memory_bytes": 4718592,
+      "fused_latency_ms": 0.1607942666547994,
+      "fused_gflops": 218.4611225934623,
+      "fused_memory_bytes": 1572864,
+      "speedup_factor": 1.0504093421124492,
+      "memory_reduction": 0.6666666666666667,
+      "gflops_improvement": 0.05040934211244908,
+      "input_shape": [
+        4,
+        256,
+        64
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "FullAttention_SDPA": {
+      "fusion_pattern": "FullAttention_SDPA",
+      "operators": [
+        "FullAttention",
+        "SDPA"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 0.2530019667271214,
+      "unfused_gflops": 271.46717034843283,
+      "unfused_memory_bytes": 4194304,
+      "fused_latency_ms": 0.35403336660237983,
+      "fused_gflops": 193.99789533718575,
+      "fused_memory_bytes": 1048576,
+      "speedup_factor": 0.7146274633805115,
+      "memory_reduction": 0.75,
+      "gflops_improvement": -0.2853725366194885,
+      "input_shape": [
+        4,
+        256,
+        64
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    }
+  }
+}
