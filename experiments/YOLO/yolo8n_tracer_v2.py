@@ -38,8 +38,7 @@ def forward_fn(x):
 # 4. Perform the Export
 # The modern syntax calls `torch._dynamo.export` with the function and then the inputs.
 print("Starting Dynamo Export with function wrapper...")
-traced_module, guards = torch._dynamo.export(
-    forward_fn, 
+traced_module, guards = torch._dynamo.export(forward_fn)( 
     dummy_input
 )
 

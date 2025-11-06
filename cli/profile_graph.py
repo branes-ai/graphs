@@ -209,7 +209,7 @@ def trace_model_hybrid(
             def forward_fn(*args):
                 return model(*args)
 
-        traced, guards = torch._dynamo.export(forward_fn, *example_inputs)
+        traced, guards = torch._dynamo.export(forward_fn)(*example_inputs)
         print("  ✓ Dynamo export successful")
         return traced, "dynamo_export"
     except Exception as e:
