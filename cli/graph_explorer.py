@@ -392,7 +392,18 @@ class GraphExplorerCLI:
         if input_type == 'tokens':
             # Transformer models need token IDs
             batch_size = input_shape[0] if input_shape else 1
-            input_ids = torch.randint(0, 30000, (batch_size, seq_len))
+
+            # Get actual vocabulary size from model to avoid index errors
+            # Different models have different vocab sizes:
+            # - bert-base-uncased: 30,522
+            # - bert-base-cased: 28,996
+            # - gpt2: 50,257
+            # - roberta-base: 50,265
+            vocab_size = model_obj.config.vocab_size
+            print(f"Model vocabulary size: {vocab_size}")
+
+            # Generate random token IDs within valid range [0, vocab_size)
+            input_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
 
             # Check if model is BERT-style or GPT-style
             is_gpt_style = 'gpt' in model_name.lower()
