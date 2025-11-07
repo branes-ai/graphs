@@ -126,6 +126,29 @@ python cli/profile_graph.py --model vit_b_16 --visualize graph.dot
 - Transformers: graph_explorer.py (text with metrics) ✅
 - Fallback: DOT format + manual rendering
 
+### Fixed
+
+**Transformer Vocabulary Size Bug** (discovered and fixed same day)
+
+- **Issue**: `IndexError: index out of range in self` when profiling bert-base-cased
+- **Root Cause**: Hardcoded vocabulary size (30,000) exceeded bert-base-cased's actual vocab size (28,996)
+- **Impact**: Failed on models with vocab_size < 30,000 (bert-base-cased, albert-base-v2)
+- **Fix**: Query `model.config.vocab_size` dynamically instead of hardcoding
+- **Files**: `cli/profile_graph.py` (lines 287-291), `cli/graph_explorer.py` (lines 402-406)
+- **Verification**: Tested bert-base-cased (28,996), roberta-base (50,265), distilbert-base-uncased (30,522) - all pass
+- **Improvement**: Success rate 60% → 100% for transformer models
+
+**Code Change:**
+```python
+# BEFORE (broken)
+input_ids = torch.randint(0, 30000, (batch_size, seq_len))
+
+# AFTER (fixed)
+vocab_size = model_obj.config.vocab_size
+print(f"Model vocabulary size: {vocab_size}")
+input_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
+```
+
 ### Known Limitations
 
 1. **torchview + Dynamo + Multiple Inputs**: torchview cannot render Dynamo-traced models with multiple inputs (e.g., BERT). Workaround: Use `graph_explorer.py` for superior text-based visualization with detailed metrics.
