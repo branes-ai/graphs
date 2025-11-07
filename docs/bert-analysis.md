@@ -1,4 +1,12 @@
-# BERT Bidirectional Encoder Representations from Transformers.
+# Bidirectional Encoder Representations from Transformers (BERT)
+
+The BERT acronym reflects the model’s architecture and training approach:
+
+- Bidirectional: Unlike traditional language models that read text left-to-right or right-to-left, BERT reads in both directions simultaneously. This allows it to understand the full context of a word based on all surrounding words.
+
+- Encoder Representations: BERT uses only the encoder part of the Transformer architecture to generate deep contextual representations of words.
+
+- from Transformers: It’s built on the Transformer model, a neural network architecture introduced in the paper “Attention is All You Need”.
 
 It's a deep learning model developed by Google in 2018 that revolutionized natural language processing by enabling models to understand the context of a word based on both its left and right surroundings. This bidirectional approach, combined with the Transformer architecture, allows BERT to achieve state-of-the-art performance on a wide range of NLP tasks like question answering, sentiment analysis, and language inference.
 
