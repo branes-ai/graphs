@@ -1337,3 +1337,424 @@ class TPUTileEnergyModel:
             'FP16': base_int8_energy * 1.5,
             'FP32': base_int8_energy * 3.0,  # FP32 ~3× INT8 energy (often emulated)
         }.get(precision, base_int8_energy)
+
+
+@dataclass
+class KPUTileEnergyModel:
+    """
+    Tile-based energy model for KPU Domain Flow Architecture (DFA).
+
+    The KPU differs from TPU in fundamental ways:
+    1. 4-stage memory hierarchy (vs TPU's 2-stage): DRAM → L3 → L2 → L1 → Fabric
+    2. Token-based spatial dataflow with signature matching
+    3. Programmable SURE execution (supports all BLAS operators)
+    4. 3 data movement engines: DMA, BlockMover, Streamer
+    5. Distributed L3 scratchpad with variable routing distance
+    6. Automatic operator fusion in hardware
+    7. Multi-engine coordination overhead
+
+    Energy Model Comparison:
+    - TPU: Fixed systolic schedule, minimal control (~0.8 pJ/MAC)
+    - KPU: Programmable spatial dataflow, token routing (~1.1 pJ/MAC)
+    - GPU: SIMT with massive coherence (~1.5 pJ/MAC)
+    - CPU: Sequential with instruction fetch (~5 pJ/MAC)
+
+    Key Energy Events:
+    1. 4-stage memory hierarchy (DRAM → L3 → L2 → L1)
+    2. Token signature matching (distributed CAM-like operation)
+    3. SURE program loading (per-operator broadcast)
+    4. Data movement engines (DMA, BlockMover, Streamer)
+    5. PE computation (BLAS operators in spatial fabric)
+    6. Token routing through fabric (signature matching + handshake)
+    7. L3 distributed scratchpad (variable distance routing)
+    8. Operator fusion coordination
+    """
+
+    # ============================================================
+    # Architectural Parameters (product-specific)
+    # ============================================================
+
+    # Processing element configuration (NO DEFAULTS - must come first!)
+    num_tiles: int  # 64 (T64), 256 (T256), 768 (T768)
+    pes_per_tile: int  # 16 typical
+    tile_mesh_dimensions: tuple  # (8, 8) for T64, (16, 16) for T256, (24, 32) for T768
+
+    # Memory hierarchy configuration (4-stage)
+    dram_bandwidth_gb_s: float  # 25.6 (T64/DDR4), 102.4 (T256/DDR4), 204.8 (T768/HBM2)
+    l3_size_per_tile: int  # 256 KiB per tile (distributed scratchpad)
+    l2_size_per_tile: int  # 32 KiB per tile
+    l1_size_per_pe: int  # 4 KiB per PE
+
+    # Clock frequency
+    clock_frequency_hz: float  # 800 MHz (T64), 1200 MHz (T256), 1500 MHz (T768)
+
+    # ============================================================
+    # Energy Coefficients (technology-dependent)
+    # ============================================================
+
+    # Memory hierarchy energy (Joules per byte)
+    # CRITICAL: KPU has 4 stages vs TPU's 2 stages
+    dram_read_energy_per_byte: float  # 10 pJ (DDR4) or 5 pJ (HBM2)
+    dram_write_energy_per_byte: float  # 12 pJ (DDR4) or 6 pJ (HBM2)
+    l3_read_energy_per_byte: float  # 2.0 pJ (distributed SRAM)
+    l3_write_energy_per_byte: float  # 2.5 pJ (distributed SRAM)
+    l2_read_energy_per_byte: float  # 0.8 pJ (tile-local SRAM)
+    l2_write_energy_per_byte: float  # 1.0 pJ (tile-local SRAM)
+    l1_read_energy_per_byte: float  # 0.3 pJ (PE-local SRAM)
+    l1_write_energy_per_byte: float  # 0.4 pJ (PE-local SRAM)
+
+    # Computation energy (BLAS operators on PE)
+    mac_energy_int8: float  # ~0.3 pJ (slightly higher than TPU due to programmability)
+    mac_energy_bf16: float  # ~0.45 pJ (1.5× INT8)
+    mac_energy_fp32: float  # ~0.9 pJ (3× INT8)
+
+    # Token-based execution (WITH DEFAULTS - must come after!)
+    token_payload_bytes: int = 64  # Data payload size
+    token_signature_bytes: int = 16  # Signature for matching
+    max_tokens_in_flight: int = 1024  # Per tile
+
+    # SURE program configuration
+    sure_program_size_bytes: int = 4096  # Typical SURE program
+    sure_program_cache_size: int = 16  # Programs cached per tile
+
+    # Data movement engines
+    dma_engines_per_tile: int = 4  # DRAM ↔ L3
+    blockmover_engines_per_tile: int = 2  # L3 ↔ L2 (inter-tile)
+    streamer_engines_per_tile: int = 4  # L2 ↔ L1 (intra-tile)
+
+    # Data movement engine energy (UNIQUE TO KPU)
+    dma_transfer_energy_per_byte: float = 1.5e-12  # ~1.5 pJ (DRAM ↔ L3)
+    blockmover_energy_per_byte: float = 0.8e-12  # ~0.8 pJ (L3 ↔ L2 inter-tile)
+    streamer_energy_per_byte: float = 0.3e-12  # ~0.3 pJ (L2 ↔ L1 intra-tile)
+
+    # Token routing energy (UNIQUE TO KPU - THE KEY DIFFERENTIATOR)
+    token_signature_matching_energy: float = 0.6e-12  # ~0.6 pJ per match (distributed CAM-like)
+    token_handshake_energy: float = 0.2e-12  # ~0.2 pJ per token transfer
+    token_routing_per_hop: float = 0.15e-12  # ~0.15 pJ per mesh hop
+
+    # SURE program management (UNIQUE TO KPU)
+    sure_program_load_energy: float = 50e-12  # ~50 pJ per program broadcast
+    sure_program_cache_hit_energy: float = 1e-12  # ~1 pJ (cache hit, no broadcast)
+
+    # L3 distributed scratchpad routing (UNIQUE TO KPU)
+    l3_routing_distance_factor: float = 1.2  # Average routing distance multiplier
+    l3_noc_energy_per_hop: float = 0.5e-12  # ~0.5 pJ per NoC hop
+
+    # Operator fusion benefits (UNIQUE TO KPU - HARDWARE FUSION)
+    fusion_l2_traffic_reduction: float = 0.7  # 70% of intermediate data eliminated
+    fusion_coordination_overhead: float = 5e-12  # ~5 pJ per fusion boundary
+
+    def compute_gemm_energy(
+        self,
+        M: int,  # Output rows
+        N: int,  # Output cols
+        K: int,  # Inner dimension
+        batch_size: int = 1,
+        precision: str = "BF16",
+        enable_fusion: bool = False,
+        num_fused_ops: int = 1
+    ) -> Dict[str, float]:
+        """
+        Compute energy for GEMM operation on KPU.
+
+        This models the complete 8-component energy breakdown:
+        1. 4-stage memory hierarchy
+        2. 3 data movement engines
+        3. Token signature matching
+        4. SURE program loading
+        5. Distributed L3 scratchpad
+        6. Automatic operator fusion
+        7. Token routing overhead
+        8. Multi-engine coordination
+
+        Args:
+            M, N, K: GEMM dimensions (Y = X @ W, X=[M,K], W=[K,N], Y=[M,N])
+            batch_size: Batch size (weight reuse)
+            precision: Operation precision (INT8, BF16, FP32)
+            enable_fusion: Enable hardware operator fusion
+            num_fused_ops: Number of operators fused together
+
+        Returns:
+            Dictionary with 8-component energy breakdown (all in Joules)
+        """
+
+        # ============================================================
+        # Component 1: 4-Stage Memory Hierarchy
+        # ============================================================
+
+        bytes_per_element = self._get_bytes_per_element(precision)
+
+        # Input data (activations): [batch, M, K]
+        input_bytes = batch_size * M * K * bytes_per_element
+
+        # Weights: [K, N] (loaded once, reused across batch)
+        weight_bytes = K * N * bytes_per_element
+
+        # Output: [batch, M, N]
+        output_bytes = batch_size * M * N * bytes_per_element
+
+        # DRAM → L3 (via DMA engines)
+        dram_l3_bytes = weight_bytes / batch_size + input_bytes  # Weights amortized
+        dram_read_energy = dram_l3_bytes * self.dram_read_energy_per_byte
+        dram_write_energy = output_bytes * self.dram_write_energy_per_byte
+
+        # L3 → L2 (via BlockMover engines, distributed routing)
+        # L3 is distributed, so routing distance matters
+        average_l3_hops = self._estimate_l3_routing_distance()
+        l3_noc_energy = dram_l3_bytes * average_l3_hops * self.l3_noc_energy_per_hop
+        l3_read_energy = dram_l3_bytes * self.l3_read_energy_per_byte + l3_noc_energy
+        l3_write_energy = output_bytes * self.l3_write_energy_per_byte
+
+        # L2 → L1 (via Streamer engines, tile-local)
+        # Fusion reduces intermediate L2 traffic
+        l2_traffic_factor = (1.0 - self.fusion_l2_traffic_reduction) if enable_fusion else 1.0
+        l2_l1_bytes = (input_bytes + weight_bytes) * l2_traffic_factor
+        l2_read_energy = l2_l1_bytes * self.l2_read_energy_per_byte
+        l2_write_energy = output_bytes * self.l2_write_energy_per_byte * l2_traffic_factor
+
+        # L1 PE-local access
+        l1_read_energy = l2_l1_bytes * self.l1_read_energy_per_byte
+        l1_write_energy = output_bytes * self.l1_write_energy_per_byte
+
+        total_memory_hierarchy_energy = (
+            dram_read_energy + dram_write_energy +
+            l3_read_energy + l3_write_energy +
+            l2_read_energy + l2_write_energy +
+            l1_read_energy + l1_write_energy
+        )
+
+        # ============================================================
+        # Component 2: 3 Data Movement Engines
+        # ============================================================
+
+        # DMA: DRAM ↔ L3
+        dma_energy = dram_l3_bytes * self.dma_transfer_energy_per_byte
+
+        # BlockMover: L3 ↔ L2 (inter-tile)
+        blockmover_energy = dram_l3_bytes * self.blockmover_energy_per_byte
+
+        # Streamer: L2 ↔ L1 (intra-tile)
+        streamer_energy = l2_l1_bytes * self.streamer_energy_per_byte
+
+        total_dme_energy = dma_energy + blockmover_energy + streamer_energy
+
+        # ============================================================
+        # Component 3: Token Signature Matching (UNIQUE TO KPU!)
+        # ============================================================
+
+        # Each data transfer is a token with (payload, signature)
+        # Signature matching happens at EVERY handshake point
+        num_tokens = (input_bytes + weight_bytes + output_bytes) // self.token_payload_bytes
+
+        # Distributed CAM-like matching at each routing point
+        # GEMM typically routes through 2-4 matching points
+        average_matching_points = 3
+        signature_matching_energy = (
+            num_tokens * average_matching_points * self.token_signature_matching_energy
+        )
+
+        # Handshake energy (token acceptance/forwarding)
+        handshake_energy = num_tokens * self.token_handshake_energy
+
+        total_token_matching_energy = signature_matching_energy + handshake_energy
+
+        # ============================================================
+        # Component 4: SURE Program Loading (UNIQUE TO KPU!)
+        # ============================================================
+
+        # GEMM requires SURE program broadcast to all participating PEs
+        # Check if program is cached
+        cache_hit_rate = 0.8 if num_fused_ops == 1 else 0.5  # Fusion reduces cache hits
+
+        num_program_loads = 1  # GEMM is one operator
+        if enable_fusion:
+            num_program_loads = num_fused_ops  # Each fused op needs program
+
+        program_load_energy = (
+            num_program_loads * (1 - cache_hit_rate) * self.sure_program_load_energy +
+            num_program_loads * cache_hit_rate * self.sure_program_cache_hit_energy
+        )
+
+        # ============================================================
+        # Component 5: Distributed L3 Scratchpad Routing
+        # ============================================================
+
+        # L3 is distributed across tiles, routing distance varies
+        # Already captured in l3_noc_energy above, but track separately for reporting
+        distributed_l3_routing_energy = l3_noc_energy
+
+        # ============================================================
+        # Component 6: Automatic Operator Fusion
+        # ============================================================
+
+        fusion_energy = 0.0
+        fusion_savings = 0.0
+
+        if enable_fusion and num_fused_ops > 1:
+            # Fusion coordination overhead (synchronization between fused ops)
+            fusion_energy = (num_fused_ops - 1) * self.fusion_coordination_overhead
+
+            # Fusion savings (reduced L2 traffic)
+            # Intermediate results stay in L1/L2, not written back to L3
+            intermediate_bytes = output_bytes * (num_fused_ops - 1)
+            fusion_savings = (
+                intermediate_bytes * self.fusion_l2_traffic_reduction *
+                (self.l2_write_energy_per_byte + self.l2_read_energy_per_byte)
+            )
+
+        total_fusion_net_energy = fusion_energy - fusion_savings
+
+        # ============================================================
+        # Component 7: Token Routing Overhead
+        # ============================================================
+
+        # Tokens route through 2D mesh, distance depends on tile allocation
+        average_routing_distance = self._estimate_token_routing_distance()
+
+        token_routing_energy = (
+            num_tokens * average_routing_distance * self.token_routing_per_hop
+        )
+
+        # ============================================================
+        # Component 8: Computation (PE BLAS Operators)
+        # ============================================================
+
+        total_ops = 2 * batch_size * M * N * K  # 2× for MAC (multiply + add)
+        mac_energy = self._get_mac_energy(precision)
+        compute_energy = total_ops * mac_energy
+
+        # ============================================================
+        # Total Energy Breakdown
+        # ============================================================
+
+        total_energy = (
+            total_memory_hierarchy_energy +
+            total_dme_energy +
+            total_token_matching_energy +
+            program_load_energy +
+            distributed_l3_routing_energy +  # Already in memory hierarchy
+            total_fusion_net_energy +
+            token_routing_energy +
+            compute_energy
+        )
+
+        # Adjust for double-counting L3 routing (included in both hierarchy and component 5)
+        total_energy -= distributed_l3_routing_energy
+
+        # Calculate metrics
+        total_bytes_transferred = input_bytes + weight_bytes + output_bytes
+        arithmetic_intensity = total_ops / total_bytes_transferred if total_bytes_transferred > 0 else 0
+        energy_per_mac = total_energy / (total_ops / 2) if total_ops > 0 else 0
+
+        # Compute vs Memory bound analysis
+        compute_percentage = (compute_energy / total_energy * 100) if total_energy > 0 else 0
+
+        return {
+            # Component 1: 4-Stage Memory Hierarchy
+            'dram_read_energy_j': dram_read_energy,
+            'dram_write_energy_j': dram_write_energy,
+            'l3_read_energy_j': l3_read_energy,
+            'l3_write_energy_j': l3_write_energy,
+            'l2_read_energy_j': l2_read_energy,
+            'l2_write_energy_j': l2_write_energy,
+            'l1_read_energy_j': l1_read_energy,
+            'l1_write_energy_j': l1_write_energy,
+            'total_memory_hierarchy_energy_j': total_memory_hierarchy_energy,
+
+            # Component 2: Data Movement Engines
+            'dma_energy_j': dma_energy,
+            'blockmover_energy_j': blockmover_energy,
+            'streamer_energy_j': streamer_energy,
+            'total_dme_energy_j': total_dme_energy,
+
+            # Component 3: Token Signature Matching (UNIQUE!)
+            'signature_matching_energy_j': signature_matching_energy,
+            'handshake_energy_j': handshake_energy,
+            'total_token_matching_energy_j': total_token_matching_energy,
+
+            # Component 4: SURE Program Loading (UNIQUE!)
+            'program_load_energy_j': program_load_energy,
+            'cache_hit_rate': cache_hit_rate,
+
+            # Component 5: Distributed L3 Scratchpad
+            'distributed_l3_routing_energy_j': distributed_l3_routing_energy,
+            'average_l3_hops': average_l3_hops,
+
+            # Component 6: Operator Fusion (UNIQUE!)
+            'fusion_overhead_energy_j': fusion_energy,
+            'fusion_savings_energy_j': fusion_savings,
+            'fusion_net_energy_j': total_fusion_net_energy,
+
+            # Component 7: Token Routing
+            'token_routing_energy_j': token_routing_energy,
+            'average_routing_distance': average_routing_distance,
+            'num_tokens': num_tokens,
+
+            # Component 8: Computation
+            'compute_energy_j': compute_energy,
+
+            # Total
+            'total_energy_j': total_energy,
+
+            # Metrics
+            'total_ops': total_ops,
+            'total_bytes': total_bytes_transferred,
+            'arithmetic_intensity': arithmetic_intensity,
+            'energy_per_mac_j': energy_per_mac,
+            'energy_per_mac_pj': energy_per_mac * 1e12,
+            'compute_percentage': compute_percentage,
+            'batch_size': batch_size,
+            'fusion_enabled': enable_fusion,
+            'num_fused_ops': num_fused_ops,
+        }
+
+    def _get_bytes_per_element(self, precision: str) -> int:
+        """Get bytes per element for precision"""
+        return {
+            'FP32': 4,
+            'BF16': 2,
+            'FP16': 2,
+            'INT8': 1,
+            'FP8': 1,
+            'FP8_E4M3': 1,
+            'FP8_E5M2': 1,
+        }.get(precision.upper(), 4)
+
+    def _get_mac_energy(self, precision: str) -> float:
+        """Get MAC energy for precision"""
+        return {
+            'INT8': self.mac_energy_int8,
+            'FP8': self.mac_energy_int8,
+            'FP8_E4M3': self.mac_energy_int8,
+            'FP8_E5M2': self.mac_energy_int8,
+            'BF16': self.mac_energy_bf16,
+            'FP16': self.mac_energy_bf16,
+            'FP32': self.mac_energy_fp32,
+        }.get(precision.upper(), self.mac_energy_bf16)
+
+    def _estimate_l3_routing_distance(self) -> float:
+        """
+        Estimate average L3 routing distance (mesh hops).
+
+        L3 is distributed across tiles, so data must route through NoC.
+        Average distance depends on mesh dimensions.
+
+        For 2D mesh: average distance ≈ (width + height) / 3
+        """
+        width, height = self.tile_mesh_dimensions
+        return (width + height) / 3.0 * self.l3_routing_distance_factor
+
+    def _estimate_token_routing_distance(self) -> float:
+        """
+        Estimate average token routing distance (mesh hops).
+
+        Tokens route through 2D mesh from producer to consumer.
+        For GEMM, tokens typically route from:
+        - Input tiles → Compute tiles
+        - Weight tiles → Compute tiles
+        - Compute tiles → Output tiles
+
+        Average distance ≈ mesh diameter / 2
+        """
+        width, height = self.tile_mesh_dimensions
+        return (width + height) / 4.0  # Conservative estimate
