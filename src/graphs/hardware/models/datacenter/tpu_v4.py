@@ -16,6 +16,7 @@ from ...resource_model import (
     PerformanceCharacteristics,
     ThermalOperatingPoint,
 )
+from ...architectural_energy import TPUTileEnergyModel
 
 
 def tpu_v4_resource_model() -> HardwareResourceModel:
@@ -40,7 +41,41 @@ def tpu_v4_resource_model() -> HardwareResourceModel:
         performance_specs={}  # Uses precision_profiles for performance
     )
 
-    return HardwareResourceModel(
+    # TPU v4 tile energy model
+    tile_energy_model = TPUTileEnergyModel(
+        # Array configuration (v4 uses 128×128 arrays × 2 MXUs)
+        array_width=128,
+        array_height=128,
+        num_arrays=2,  # 2 MXUs per chip
+
+        # Tile configuration (smaller than v1's 64 KiB)
+        weight_tile_size=32 * 1024,  # 32 KiB per tile
+        weight_fifo_depth=2,  # 2 tiles buffered (estimated)
+
+        # Pipeline (shorter than v1's 256 cycles)
+        pipeline_fill_cycles=128,  # 128 cycles to fill pipeline
+        clock_frequency_hz=1050e6,  # 1.05 GHz (estimated from 275 TFLOPS)
+
+        # Accumulator (2 MiB per MXU, sized for roofline knee)
+        accumulator_size=2 * 1024 * 1024,  # 2 MiB per MXU
+        accumulator_width=128,  # 128 elements wide
+
+        # Unified Buffer (estimated 32 MiB for v4)
+        unified_buffer_size=32 * 1024 * 1024,  # 32 MiB
+
+        # Energy coefficients (HBM2e, advanced process node)
+        weight_memory_energy_per_byte=10.0e-12,  # 10 pJ/byte (HBM2e)
+        weight_fifo_energy_per_byte=0.5e-12,  # 0.5 pJ/byte (on-chip SRAM)
+        unified_buffer_read_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
+        unified_buffer_write_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
+        accumulator_write_energy_per_element=0.4e-12,  # 0.4 pJ (32-bit write)
+        accumulator_read_energy_per_element=0.3e-12,  # 0.3 pJ (32-bit read)
+        weight_shift_in_energy_per_element=0.3e-12,  # 0.3 pJ (shift register)
+        activation_stream_energy_per_element=0.2e-12,  # 0.2 pJ (stream)
+        mac_energy=0.25e-12,  # 0.25 pJ per BF16 MAC (slightly higher than INT8)
+    )
+
+    model = HardwareResourceModel(
         name="TPU-v4",
         hardware_type=HardwareType.TPU,
         compute_units=2,  # 2 MXUs (Matrix Multiplier Units)
@@ -90,5 +125,10 @@ def tpu_v4_resource_model() -> HardwareResourceModel:
         },
         default_thermal_profile="default",
     )
+
+    # Attach tile energy model to the resource model
+    model.tile_energy_model = tile_energy_model
+
+    return model
 
 
