@@ -30,13 +30,74 @@ pip install alma-torch optimum-quanto onnx onnxruntime
 
 ## Files
 
-| File | Purpose |
-|------|---------|
-| `alma_integration.py` | Main integration script with three-tier validation |
-| `ALMA_ANALYSIS.md` | Detailed analysis of Alma vs inductor_validation |
-| `README.md` | This file |
+| File | Purpose | Status |
+|------|---------|--------|
+| `cpu_minimal_example.py` | **START HERE** - Minimal CPU-only working example | ✅ Ready |
+| `alma_integration.py` | Advanced multi-tier validation (may OOM on large models) | ⚠️ Use with caution |
+| `ALMA_ANALYSIS.md` | Detailed analysis of Alma vs inductor_validation | 📖 Reference |
+| `README.md` | This file | 📖 Documentation |
 
-## Three-Tier Validation Strategy
+## Quick Start (CPU-Only)
+
+### Minimal Working Example - START HERE
+
+The fastest way to get started on a CPU-only server:
+
+```bash
+# SimpleCNN (default, fast)
+python3 experiments/alma/cpu_minimal_example.py
+
+# ResNet models
+python3 experiments/alma/cpu_minimal_example.py --model resnet50
+
+# Vision Transformer
+python3 experiments/alma/cpu_minimal_example.py --model vit-b-16
+
+# Custom configuration
+python3 experiments/alma/cpu_minimal_example.py --model mobilenet-v2 --batch-size 4 --samples 64
+
+# Show all options
+python3 experiments/alma/cpu_minimal_example.py --help
+```
+
+**What it does:**
+1. ✅ Configures CPU environment (thread count, validates platform)
+2. ✅ Runs baseline PyTorch benchmarking (~2ms latency)
+3. ✅ Runs Alma multi-backend comparison (EAGER, COMPILE_INDUCTOR)
+4. ✅ Shows performance comparison and deployment recommendations
+5. ✅ Takes ~10 seconds total
+
+**Key Configuration Points:**
+- **CPU Thread Setup** (Lines 25-65): Automatically detects and configures optimal thread count
+- **Alma CPU Config** (Lines 225-234): Forces CPU-only execution with `allow_cuda=False`
+- **DataLoader Setup** (Lines 244-253): Uses small batch size (1) and sample count (128) to avoid OOM
+
+**Expected Output:**
+```
+CPU threads: 12
+Baseline latency: 2.0 ms (~500 inf/sec)
+EAGER: 2.1 ms
+COMPILE_INDUCTOR_DEFAULT: 0.5 ms (4.3x speedup)
+ONNX_CPU: 0.5 ms (4.4x speedup)
+COMPILE_OPENVINO: 0.5 ms (4.3x speedup)
+```
+
+**⚠️ Important**: Use correct conversion names:
+- `COMPILE_INDUCTOR_DEFAULT` (not `COMPILE_INDUCTOR`)
+- `COMPILE_OPENVINO` (not `OPENVINO`)
+
+See `RCA_CONVERSION_NAMES.md` for details.
+
+**To test with different models:**
+```python
+# Edit cpu_minimal_example.py, replace SimpleCNN with:
+from torchvision.models import resnet18
+model = resnet18(weights=None)
+```
+
+---
+
+## Advanced: Three-Tier Validation Strategy
 
 ### Tier 1: Quick (Inductor Only)
 **Time**: ~10 seconds
@@ -50,6 +111,8 @@ python experiments/alma/alma_integration.py --model simple --tier 1
 - Eager baseline: 2.40 ms
 - Inductor: 0.48 ms (5x speedup)
 - Prediction error vs inductor
+
+**Note**: The minimal example (`cpu_minimal_example.py`) is preferred for CPU-only environments.
 
 ### Tier 2: Core Deployment Options
 **Time**: ~5 minutes
@@ -332,6 +395,93 @@ Running all 90 conversions (Tier 3) can be memory-intensive.
 - Use Tier 2 instead (7-10 options)
 - Run on machine with more memory
 - Use smaller batch size: `--batch-size 1`
+
+## Platform Configuration Details (CPU-Only Servers)
+
+### How Alma Detects and Configures Platform
+
+Alma normally auto-detects your hardware (CPU/GPU/MPS) and selects appropriate backends. On CPU-only servers, we must **explicitly override** this behavior to prevent GPU-related errors.
+
+### Critical Configuration Points in `cpu_minimal_example.py`
+
+#### 1. CPU Thread Configuration (Lines 25-65)
+```python
+def configure_cpu_environment():
+    """Configure PyTorch for optimal CPU performance."""
+    # Get physical core count (not hyperthreads)
+    num_threads = 12  # For i7-12700K
+
+    # Set PyTorch threads - THIS CONTROLS CPU PARALLELISM
+    torch.set_num_threads(num_threads)
+
+    # Set environment variables for underlying libraries
+    os.environ['OMP_NUM_THREADS'] = str(num_threads)
+    os.environ['MKL_NUM_THREADS'] = str(num_threads)
+```
+
+**Why This Matters:**
+- PyTorch defaults to using all logical threads (20 on i7-12700K)
+- Using physical cores only avoids oversubscription
+- MKL (Math Kernel Library) respects these environment variables
+
+#### 2. Alma CPU Configuration (Lines 225-234)
+```python
+config = BenchmarkConfig(
+    device=torch.device('cpu'),     # ← FORCE CPU (critical!)
+    allow_cuda=False,                # ← DISABLE GPU DETECTION
+    allow_mps=False,                 # ← DISABLE macOS GPU
+    multiprocessing=False,           # ← AVOID HANGS
+    fail_on_error=False,             # ← CONTINUE ON ERROR
+    allow_device_override=False      # ← PREVENT AUTO-OVERRIDE
+)
+```
+
+**What Each Parameter Does:**
+- `device='cpu'`: Explicitly set execution device
+- `allow_cuda=False`: **Critical!** Prevents Alma from trying to use CUDA
+- `allow_mps=False`: Disables macOS Metal Performance Shaders
+- `multiprocessing=False`: Avoids process hangs on some systems
+- `fail_on_error=False`: Continues if one backend fails (graceful degradation)
+- `allow_device_override=False`: **Critical!** Prevents Alma from overriding our CPU choice
+
+#### 3. Runtime Validation (Runs Automatically)
+```python
+# The script validates configuration at startup
+print(f"PyTorch threads: {torch.get_num_threads()}")  # Should be 12
+print(f"CUDA available: {torch.cuda.is_available()}")  # Should be False
+print(f"Device: {config.device}")                     # Should be 'cpu'
+```
+
+**Expected Output:**
+```
+PyTorch threads: 12
+CUDA available: False
+Device: cpu
+```
+
+### Why alma_integration.py Fails on CPU-Only
+
+The original `alma_integration.py` has these issues:
+1. **High sample count** (2048) → Out of memory
+2. **Multiprocessing enabled** → Process hangs
+3. **Auto device selection** → May try to use GPU
+4. **Raw tensor input** → Shape mismatch errors
+
+The minimal example fixes all of these.
+
+### Testing Platform Configuration
+
+```bash
+# Verify CPU configuration
+python3 -c "import torch; print(f'Threads: {torch.get_num_threads()}, CUDA: {torch.cuda.is_available()}')"
+
+# Check environment variables
+echo "OMP_NUM_THREADS: $OMP_NUM_THREADS"
+echo "MKL_NUM_THREADS: $MKL_NUM_THREADS"
+
+# Run minimal example (validates everything)
+python3 experiments/alma/cpu_minimal_example.py | grep "CPU ENVIRONMENT"
+```
 
 ## Comparison: inductor_validation vs Alma
 

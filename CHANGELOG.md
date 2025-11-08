@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-07] - Alma Benchmarking Integration & Dynamo Experiments
+
+### Added
+
+**Alma Multi-Backend Benchmarking** (`experiments/alma/`)
+
+- **CPU-Optimized Alma Example** (`cpu_minimal_example.py`)
+  - Minimal working example for CPU-only servers (i7-12700K validated)
+  - Explicit CPU configuration: thread control, CUDA disable, device forcing
+  - CLI support: `--model`, `--batch-size`, `--samples`, `--baseline-runs`
+  - 20+ supported models: ResNet, MobileNet, EfficientNet, ViT, ConvNeXt families
+  - Model name flexibility: accepts hyphens or underscores (e.g., `resnet-50` or `resnet_50`)
+  - 4 CPU conversions: EAGER, COMPILE_INDUCTOR_DEFAULT, ONNX_CPU, COMPILE_OPENVINO
+  - Baseline benchmarking (PyTorch eager mode) + Alma multi-backend comparison
+  - Performance results: 2-4x speedup on CPU (SimpleCNN: 4.4x, ResNet-50: 3.2x, ViT-B/16: 2.4x)
+  - Configurable sample count (default: 128) and batch size (default: 1)
+  - Memory-efficient: small batch sizes, no multiprocessing, graceful error handling
+  - Runtime validation: prints all configuration settings for verification
+
+- **Comprehensive Documentation Suite**
+  - `CLI_USAGE.md`: Complete command-line usage guide with examples
+  - `QUICKREF.md`: Quick reference card for common tasks
+  - `CPU_SETUP_SUMMARY.md`: Detailed CPU configuration guide (where/why/how)
+  - `RCA_CONVERSION_NAMES.md`: Root cause analysis of Alma conversion naming
+  - `RESOLUTION_SUMMARY.md`: Complete RCA of missing conversions issue
+  - `INDEX.md`: Navigation guide for all documentation
+  - Updated `README.md`: Added CPU-only quick start section
+
+- **Alma Integration** (`alma_integration.py`)
+  - Three-tier validation strategy (Tier 1: inductor, Tier 2: core backends, Tier 3: all 90+)
+  - Integration with graphs.analysis predictions
+  - Deployment recommendations based on backend performance
+  - JSON output support for automation
+
+**PyTorch Dynamo Experiments** (`experiments/dynamo/`)
+
+- **Inductor Validation** (`inductor_validation.py`)
+  - `validate_model_with_inductor()`: Eager vs torch.compile comparison
+  - Automatic FX tracing with shape propagation
+  - Performance metrics: latency, speedup, accuracy comparison
+  - `compare_with_graphs_analysis()`: Prediction vs actual validation
+  - Tested: SimpleCNN (5x speedup), ResNet18 (3.8x speedup)
+
+- **Dynamo Exploration Tools**
+  - `dynamo_export_demo.py`: torch._dynamo.export() examples
+  - `inductor_simple_demo.py`: Basic torch.compile demonstrations
+  - FX tracing experiments with shape propagation
+
+### Fixed
+
+**Alma Conversion Name Issues** (RCA documented in `RCA_CONVERSION_NAMES.md`)
+
+- **Root Cause**: Alma requires exact string matches from `MODEL_CONVERSION_OPTIONS` (72 valid names)
+  - `COMPILE_INDUCTOR` → Must be `COMPILE_INDUCTOR_DEFAULT`
+  - `OPENVINO` → Must be `COMPILE_OPENVINO`
+- **Impact**: Invalid names silently filtered without errors (only 2/4 conversions ran)
+- **Fix**: Updated all conversion names to use exact Alma naming
+- **Prevention**: Added validation function and documentation of all 72 valid names
+- **Result**: All 4 conversions now run successfully (EAGER, COMPILE_INDUCTOR_DEFAULT, ONNX_CPU, COMPILE_OPENVINO)
+
+**CPU Environment Configuration** (Platform-specific setup documented)
+
+- Explicit CPU thread configuration (physical cores, not hyperthreads)
+- Environment variable setup: OMP_NUM_THREADS, MKL_NUM_THREADS, OPENBLAS_NUM_THREADS
+- Alma config: `allow_cuda=False`, `allow_device_override=False`, `multiprocessing=False`
+- DataLoader usage (not raw tensors) to avoid shape mismatch errors
+- Small sample counts (128 default) to avoid OOM on CPU-only servers
+
+### Documentation
+
+- `docs/sessions/2025-11-07_alma_benchmarking_and_dynamo.md`: Complete session log
+- Alma documentation suite (8 files): CLI usage, quick ref, setup guide, RCA analyses
+- Updated main README with Alma experiments section
+
+### Testing
+
+**Validated Configurations:**
+- Hardware: Intel i7-12700K (12 cores, 20 threads with HT)
+- PyTorch: 2.7.1+cu126 (CPU-only mode)
+- Alma: 0.3.7
+- Models: SimpleCNN, ResNet-50, ViT-B/16, MobileNet-V2
+- All 4 CPU conversions running successfully
+- Performance: 2-4x speedup across all tested models
+
+**Known Limitations:**
+- Large models (>100M params) may be slow on CPU
+- COMPILE_INDUCTOR_DEFAULT may fail on some model architectures
+- COMPILE_OPENVINO requires OpenVINO installation (Intel CPUs only)
+- ONNX_CPU requires onnxruntime package
+
+---
+
 ## [2025-11-06] - Universal Model Support with Hybrid Tracing
 
 ### Added
