@@ -16,6 +16,7 @@ from ...resource_model import (
     PerformanceCharacteristics,
     ThermalOperatingPoint,
 )
+from ...architectural_energy import TPUTileEnergyModel
 
 
 def coral_edge_tpu_resource_model() -> HardwareResourceModel:
@@ -90,7 +91,41 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         ),
     }
 
-    return HardwareResourceModel(
+    # Coral Edge TPU tile energy model (scaled down from v1)
+    tile_energy_model = TPUTileEnergyModel(
+        # Array configuration (estimated smaller array)
+        array_width=64,  # Estimated (not published)
+        array_height=64,
+        num_arrays=1,  # Single small systolic array
+
+        # Tile configuration (very small tiles for edge)
+        weight_tile_size=4 * 1024,  # 4 KiB (tiny tiles)
+        weight_fifo_depth=1,  # Minimal buffering
+
+        # Pipeline (short pipeline)
+        pipeline_fill_cycles=64,  # 64 cycles (estimated)
+        clock_frequency_hz=500e6,  # 500 MHz
+
+        # Accumulator (minimal for edge)
+        accumulator_size=512 * 1024,  # 512 KB (estimated)
+        accumulator_width=64,  # 64 elements wide
+
+        # Unified Buffer (uses host memory, minimal on-chip)
+        unified_buffer_size=512 * 1024,  # 512 KB on-chip
+
+        # Energy coefficients (ultra-low power for edge)
+        weight_memory_energy_per_byte=20.0e-12,  # 20 pJ/byte (USB 3.0, off-chip)
+        weight_fifo_energy_per_byte=0.5e-12,  # 0.5 pJ/byte (on-chip SRAM)
+        unified_buffer_read_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
+        unified_buffer_write_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
+        accumulator_write_energy_per_element=0.4e-12,  # 0.4 pJ (32-bit write)
+        accumulator_read_energy_per_element=0.3e-12,  # 0.3 pJ (32-bit read)
+        weight_shift_in_energy_per_element=0.3e-12,  # 0.3 pJ (shift register)
+        activation_stream_energy_per_element=0.2e-12,  # 0.2 pJ (stream)
+        mac_energy=0.15e-12,  # 0.15 pJ per INT8 MAC (very efficient)
+    )
+
+    model = HardwareResourceModel(
         name="Coral-Edge-TPU",
         hardware_type=HardwareType.TPU,
         compute_units=1,  # Single systolic array
@@ -126,5 +161,10 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         thermal_operating_points=thermal_operating_points,
         default_thermal_profile="2W",
     )
+
+    # Attach tile energy model
+    model.tile_energy_model = tile_energy_model
+
+    return model
 
 

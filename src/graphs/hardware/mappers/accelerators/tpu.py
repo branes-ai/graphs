@@ -811,9 +811,63 @@ class TPUMapper(HardwareMapper):
         )
 
 
+def create_tpu_v1_mapper(thermal_profile: str = None) -> TPUMapper:
+    """
+    Create TPU mapper for Google TPU v1 (ISCA 2017 paper architecture).
+
+    The original TPU designed for inference-only workloads.
+
+    Key characteristics:
+    - 256×256 systolic array (65,536 MACs)
+    - 700 MHz clock, 92 TOPS INT8
+    - 8 GiB DDR3 Weight Memory (off-chip)
+    - INT8 only (no floating point)
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
+
+    Returns:
+        TPUMapper configured for TPU v1
+    """
+    from ...models.datacenter.tpu_v1 import tpu_v1_resource_model
+
+    model = tpu_v1_resource_model()
+    return TPUMapper(model, thermal_profile=thermal_profile)
+
+
+def create_tpu_v3_mapper(thermal_profile: str = None) -> TPUMapper:
+    """
+    Create TPU mapper for Google TPU v3.
+
+    First TPU generation with HBM and BF16 support.
+
+    Key characteristics:
+    - 2× 128×128 systolic arrays (2 MXUs)
+    - 940 MHz clock, 123 TFLOPS BF16
+    - 16 GB HBM (on-chip)
+    - BF16 and INT8 support
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
+
+    Returns:
+        TPUMapper configured for TPU v3
+    """
+    from ...models.datacenter.tpu_v3 import tpu_v3_resource_model
+
+    model = tpu_v3_resource_model()
+    return TPUMapper(model, thermal_profile=thermal_profile)
+
+
 def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
     """
-    Create TPU mapper for Google TPU v4.
+    Create TPU mapper for Google TPU v4 (current datacenter standard).
+
+    Key characteristics:
+    - 2× 128×128 systolic arrays (2 MXUs)
+    - 1050 MHz clock, 275 TFLOPS BF16
+    - 32 GB HBM2e
+    - BF16 native, INT8 2× speedup
 
     Args:
         thermal_profile: Thermal profile name (if applicable)
@@ -826,15 +880,42 @@ def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
 
     model = tpu_v4_resource_model()
 
-    # Configure architectural energy model for TPU (SYSTOLIC_ARRAY)
-    model.architecture_energy_model = SystolicArrayEnergyModel(
-        schedule_setup_energy=100.0e-12,
-        data_injection_per_element=0.5e-12,
-        data_extraction_per_element=0.5e-12,
-        compute_efficiency=0.15,  # 85% reduction vs CPU
-        memory_efficiency=0.20,   # 80% reduction vs CPU
-    )
+    # Note: TPU v4 uses tile energy model (attached in resource model)
+    # Legacy SystolicArrayEnergyModel kept for backward compatibility
+    if not hasattr(model, 'tile_energy_model'):
+        model.architecture_energy_model = SystolicArrayEnergyModel(
+            schedule_setup_energy=100.0e-12,
+            data_injection_per_element=0.5e-12,
+            data_extraction_per_element=0.5e-12,
+            compute_efficiency=0.15,  # 85% reduction vs CPU
+            memory_efficiency=0.20,   # 80% reduction vs CPU
+        )
 
+    return TPUMapper(model, thermal_profile=thermal_profile)
+
+
+def create_tpu_v5p_mapper(thermal_profile: str = None) -> TPUMapper:
+    """
+    Create TPU mapper for Google TPU v5p (performance-optimized, latest).
+
+    Latest generation TPU with FP8 and sparsity support.
+
+    Key characteristics:
+    - Enhanced 128×128 systolic arrays
+    - 1100 MHz clock, 459 TFLOPS BF16
+    - HBM3 memory
+    - FP8 support (~2× BF16 throughput)
+    - Hardware sparsity acceleration
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
+
+    Returns:
+        TPUMapper configured for TPU v5p
+    """
+    from ...models.datacenter.tpu_v5p import tpu_v5p_resource_model
+
+    model = tpu_v5p_resource_model()
     return TPUMapper(model, thermal_profile=thermal_profile)
 
 
