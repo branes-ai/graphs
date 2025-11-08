@@ -6,6 +6,118 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-08] - KPU Domain Flow Architecture Energy Modeling
+
+### Added
+
+**KPU Tile Energy Model** (`src/graphs/hardware/architectural_energy.py`)
+
+- **KPUTileEnergyModel Class** - Complete 8-component energy model for Domain Flow Architecture
+  - Component 1: 4-stage memory hierarchy (DRAM → L3 → L2 → L1) vs TPU's 2-stage
+  - Component 2: 3 data movement engines (DMA, BlockMover, Streamer)
+  - Component 3: Token signature matching (distributed CAM-like operation) - UNIQUE to KPU
+  - Component 4: SURE program loading (programmable operator execution) - UNIQUE to KPU
+  - Component 5: Distributed L3 scratchpad with variable routing distance
+  - Component 6: Automatic hardware-driven operator fusion (70% L2 traffic reduction) - UNIQUE to KPU
+  - Component 7: Token routing through 2D mesh (spatial dataflow overhead)
+  - Component 8: Programmable PE computation (all BLAS operators)
+  - `compute_gemm_energy()`: Detailed GEMM energy breakdown with fusion support
+  - Batch size scaling with weight amortization
+  - Precision support: INT8, BF16, FP32
+
+**KPU Product Resource Models**
+
+- **KPU-T64** (`src/graphs/hardware/models/edge/kpu_t64.py`) - Edge AI accelerator
+  - 64 tiles (8×8 mesh), 1,024 PEs, 5-15W TDP
+  - 22nm process, DDR4 memory (25.6 GB/s)
+  - 1,638 GOPS (INT8), ~0.9-1.2 pJ/MAC
+  - Target: Edge AI / IoT applications
+
+- **KPU-T256** (`src/graphs/hardware/models/mobile/kpu_t256.py`) - Mobile/Robotics accelerator
+  - 256 tiles (16×16 mesh), 4,096 PEs, 25-75W TDP
+  - 16nm/7nm process, LPDDR5 memory (102.4 GB/s)
+  - 9,830 GOPS (INT8), ~0.8-1.1 pJ/MAC
+  - Target: Mobile / Robotics / Autonomous systems
+
+- **KPU-T768** (`src/graphs/hardware/models/automotive/kpu_t768.py`) - Automotive/Datacenter accelerator
+  - 768 tiles (24×32 mesh), 12,288 PEs, 75-250W TDP
+  - 7nm/4nm process, HBM2 memory (204.8 GB/s)
+  - 36,864 GOPS (INT8), ~0.8-0.9 pJ/MAC
+  - Target: Autonomous vehicles / Edge datacenter
+
+**Validation & Testing**
+
+- **KPU Energy Model Tests** (`tests/hardware/test_kpu_tile_energy.py`)
+  - 6 comprehensive test functions validating all 8 energy components
+  - Test 1: T64 small GEMM (edge workload)
+  - Test 2: T256 medium GEMM (mobile workload)
+  - Test 3: T768 large GEMM (datacenter workload)
+  - Test 4: Operator fusion benefits (2.1% energy savings for 3-op fusion)
+  - Test 5: Batch size scaling (7.2% reduction at batch=64)
+  - Test 6: Product comparison (T768 most efficient: 0.927 pJ/MAC)
+  - All tests passing with detailed energy breakdowns
+
+- **TPU vs KPU Energy Comparison** (`tests/hardware/test_tpu_vs_kpu_energy_breakdown.py`)
+  - Detailed apples-to-apples comparison for same workload (1024×1024 @ 1024 MatMul, BF16)
+  - Comprehensive energy event tracking for both architectures
+  - TPU: 9 energy events across 2-stage hierarchy
+  - KPU: 16 energy events across 4-stage hierarchy + token routing
+  - Side-by-side component breakdown and comparison tables
+
+**Key Results** (1024×1024 @ 1024 MatMul, batch=1, BF16):
+- **KPU-T768**: 0.906 mJ total, **0.843 pJ/MAC**, 90.1% compute-bound
+- **TPU v4**: 1.008 mJ total, **0.939 pJ/MAC**, 79.9% compute-bound
+- **KPU is 10% MORE energy efficient than TPU** despite programmability!
+- **KPU uses 5× less off-chip bandwidth** (33.55 µJ vs 167.77 µJ)
+- **KPU achieves 8× better arithmetic intensity** (341.3 vs 42.7 ops/byte)
+- **Token routing overhead is negligible** (0.27 µJ, 0.03% of total)
+
+### Fixed
+
+- **TPU Tile Energy Calculation Bug** (`tests/hardware/test_tpu_vs_kpu_energy_breakdown.py`)
+  - Root cause: Incorrect 2D tiling instead of proper 3D tiling
+  - Original: Only 64 tiles, 0.268 GFLOPs (12.5% of workload)
+  - Fixed: Proper 3D tiling (M_tiles × N_tiles × K_tiles = 8×8×8 = 512 tiles)
+  - Result: Correct 2.147 GFLOPs (100% of workload)
+  - Impact: Enables fair apples-to-apples TPU vs KPU comparison
+
+- **KPUTileEnergyModel Dataclass Field Ordering**
+  - Fixed: Non-default arguments after default arguments error
+  - Solution: Reordered fields to put all required parameters first
+  - Impact: Model now instantiates correctly
+
+### Documentation
+
+- **KPU Energy Modeling Plan** (`docs/analysis/kpu_energy_modeling_plan.md`)
+  - Comprehensive 4-week implementation plan (created in previous session)
+  - Detailed energy event catalog from KPU operations manual
+  - Implementation templates and validation strategy
+  - Phase 1 (Week 1-2): Core model implementation ✅ COMPLETED
+  - Phase 2 (Week 3): Validation testing ✅ COMPLETED
+
+- **Session Log** (`docs/sessions/2025-11-08_kpu_energy_model_implementation.md`)
+  - Complete chronological record of implementation
+  - Detailed RCA of TPU tiling bug
+  - Energy comparison analysis and key findings
+  - Next steps and future work
+
+### Performance
+
+**Energy Efficiency Hierarchy** (pJ/MAC, lower is better):
+1. **KPU-T768**: 0.843 pJ/MAC (90.1% compute, programmable) 🏆
+2. **TPU v4**: 0.939 pJ/MAC (79.9% compute, fixed GEMM only)
+3. **GPU H100**: ~1.5 pJ/MAC (estimated, 75% compute)
+4. **CPU**: ~5 pJ/MAC (estimated, 50% compute)
+
+**KPU Architecture Advantages**:
+- 4-stage hierarchy provides better data locality than TPU's 2-stage
+- Token-based spatial dataflow adds negligible overhead (<0.1%)
+- Hardware operator fusion reduces L2 traffic by 70%
+- Programmable SURE execution supports all BLAS operators (vs TPU's GEMM only)
+- Superior arithmetic intensity through explicit memory management
+
+---
+
 ## [2025-11-07] - Alma Benchmarking Integration & Dynamo Experiments
 
 ### Added
