@@ -1079,3 +1079,261 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
             },
             explanation=explanation
         )
+
+
+@dataclass
+class TPUTileEnergyModel:
+    """
+    Tile-based energy model for TPU systolic array architectures.
+
+    Captures the tile-based data movement through TPU memory hierarchy:
+    Weight Memory → Weight FIFO → Matrix Unit → Accumulators → Unified Buffer
+
+    This model is based on the TPU v1 architecture (ISCA 2017 paper) and
+    generalizes to v3/v4/v5 with generation-specific parameters.
+
+    Key energy events per tile:
+    1. Weight tile loading (DRAM/HBM → Weight FIFO → Matrix Unit)
+    2. Input activation streaming (Unified Buffer → Matrix Unit)
+    3. Systolic array computation (MACs)
+    4. Accumulator management (partial sum staging)
+    5. Output write (Accumulators → Unified Buffer)
+    6. Pipeline fill/drain overhead
+
+    Energy is amortized by batch size (weights loaded once, reused across batch).
+    """
+
+    # ============================================================
+    # Architectural Parameters (generation-specific)
+    # ============================================================
+
+    # Systolic array configuration
+    array_width: int  # 256 (v1) or 128 (v3/v4/v5)
+    array_height: int  # 256 (v1) or 128 (v3/v4/v5)
+    num_arrays: int  # 1 (v1, Coral) or 2 (v3/v4/v5)
+
+    # Weight tile configuration
+    weight_tile_size: int  # 64 KiB (v1) or 32 KiB (v3+)
+    weight_fifo_depth: int  # 4 tiles (v1) or 2 tiles (v3+, estimated)
+
+    # Pipeline depth
+    pipeline_fill_cycles: int  # 256 (v1) or 128 (v3+)
+    clock_frequency_hz: float  # 700 MHz (v1), 1050 MHz (v4), etc.
+
+    # Accumulator configuration
+    accumulator_size: int  # 4 MiB (v1), 2 MiB per MXU (v3+)
+    accumulator_width: int  # 256 (v1) or 128 (v3+)
+
+    # Unified Buffer size
+    unified_buffer_size: int  # 24 MiB (v1), 32 MiB (v4, estimated)
+
+    # ============================================================
+    # Energy Coefficients (technology-dependent)
+    # ============================================================
+
+    # Memory energy (varies by generation)
+    weight_memory_energy_per_byte: float  # 10 pJ (DDR3), 5-10 pJ (HBM), 20 pJ (USB)
+    weight_fifo_energy_per_byte: float  # 0.5 pJ (on-chip SRAM buffering)
+    unified_buffer_read_energy_per_byte: float  # 0.5 pJ (on-chip SRAM)
+    unified_buffer_write_energy_per_byte: float  # 0.5 pJ (on-chip SRAM)
+
+    # Accumulator energy (on-chip SRAM, 32-bit wide)
+    accumulator_write_energy_per_element: float  # 0.4 pJ (32-bit write)
+    accumulator_read_energy_per_element: float  # 0.3 pJ (32-bit read)
+
+    # Matrix unit data movement
+    weight_shift_in_energy_per_element: float  # 0.3 pJ (shift register energy)
+    activation_stream_energy_per_element: float  # 0.2 pJ (stream into array)
+
+    # Computation energy
+    mac_energy: float  # 0.2 pJ (8-bit MAC), 0.25 pJ (BF16 MAC), 0.6 pJ (FP32)
+
+    def compute_tile_energy(
+        self,
+        num_weight_tiles: int,
+        ops_per_tile: int,
+        input_elements_per_tile: int,
+        output_elements_per_tile: int,
+        batch_size: int = 1,
+        precision: str = "INT8"
+    ) -> Dict[str, float]:
+        """
+        Compute energy for tile-based matrix operation.
+
+        This models the complete data flow through the TPU memory hierarchy
+        for a tiled matrix operation (Conv2D, Linear, MatMul).
+
+        Args:
+            num_weight_tiles: Number of weight tiles to load
+            ops_per_tile: MACs per weight tile
+            input_elements_per_tile: Input activation elements per tile
+            output_elements_per_tile: Output elements per tile (accumulator outputs)
+            batch_size: Batch size (weight reuse factor)
+            precision: Operation precision (INT8, BF16, FP32, FP8)
+
+        Returns:
+            Dictionary with detailed energy breakdown (all in Joules)
+        """
+
+        # ============================================================
+        # 1. Weight Tile Loading (amortized by batch size)
+        # ============================================================
+
+        # Weight Memory → Weight FIFO (off-chip DDR3/HBM or USB for Coral)
+        # This is the MOST EXPENSIVE operation for small batch sizes
+        weight_dram_energy = (
+            num_weight_tiles * self.weight_tile_size *
+            self.weight_memory_energy_per_byte
+        ) / max(1, batch_size)  # Amortized: weights loaded once, reused for batch
+
+        # Weight FIFO buffering (on-chip staging, 256 KiB buffer)
+        weight_fifo_energy = (
+            num_weight_tiles * self.weight_tile_size *
+            self.weight_fifo_energy_per_byte
+        )
+
+        # Weight shift-in to Matrix Unit (shift register energy, 256 or 128 cycles)
+        bytes_per_element = self._get_bytes_per_element(precision)
+        elements_per_tile = self.weight_tile_size // bytes_per_element
+        weight_shift_energy = (
+            num_weight_tiles * elements_per_tile *
+            self.weight_shift_in_energy_per_element
+        )
+
+        total_weight_energy = weight_dram_energy + weight_fifo_energy + weight_shift_energy
+
+        # ============================================================
+        # 2. Input Activation Loading (Unified Buffer → Matrix Unit)
+        # ============================================================
+
+        # Unified Buffer read (activations staged in 24 MiB UB)
+        input_bytes = (
+            input_elements_per_tile * num_weight_tiles * batch_size * bytes_per_element
+        )
+        input_read_energy = input_bytes * self.unified_buffer_read_energy_per_byte
+
+        # Stream into Matrix Unit (spatial data flow through systolic array)
+        total_input_elements = input_elements_per_tile * num_weight_tiles * batch_size
+        activation_stream_energy = (
+            total_input_elements * self.activation_stream_energy_per_element
+        )
+
+        total_input_energy = input_read_energy + activation_stream_energy
+
+        # ============================================================
+        # 3. Computation (Systolic Array MACs)
+        # ============================================================
+
+        # Adjust MAC energy for precision (INT8 most efficient, FP32 least)
+        mac_energy = self._get_mac_energy(precision)
+        total_ops = ops_per_tile * num_weight_tiles * batch_size
+        compute_energy = total_ops * mac_energy
+
+        # ============================================================
+        # 4. Accumulator Management
+        # ============================================================
+
+        # Partial sums written to accumulators during computation
+        # Accumulators sized to reach roofline knee (~1350 ops/byte for v1)
+        total_output_elements = output_elements_per_tile * num_weight_tiles * batch_size
+
+        # Write partial sums (during computation, 256 elements/cycle)
+        accumulator_write_energy = (
+            total_output_elements * self.accumulator_write_energy_per_element
+        )
+
+        # Read completed results (after tile finishes, DMA to Unified Buffer)
+        accumulator_read_energy = (
+            total_output_elements * self.accumulator_read_energy_per_element
+        )
+
+        total_accumulator_energy = accumulator_write_energy + accumulator_read_energy
+
+        # ============================================================
+        # 5. Output Write (Accumulators → Unified Buffer)
+        # ============================================================
+
+        output_bytes = total_output_elements * bytes_per_element
+        output_write_energy = output_bytes * self.unified_buffer_write_energy_per_byte
+
+        # ============================================================
+        # Energy Breakdown
+        # ============================================================
+        # Note: Pipeline fill/drain overhead (128-256 cycles) is a LATENCY concern,
+        # not an energy concern. The energy cost is already captured in weight_shift_in_energy.
+        # The latency impact should be modeled in the TPUMapper's latency calculations.
+
+        total_energy = (
+            total_weight_energy + total_input_energy + compute_energy +
+            total_accumulator_energy + output_write_energy
+        )
+
+        # Calculate arithmetic intensity (ops per byte transferred)
+        total_bytes_transferred = input_bytes + output_bytes + (num_weight_tiles * self.weight_tile_size)
+        arithmetic_intensity = total_ops / total_bytes_transferred if total_bytes_transferred > 0 else 0
+
+        return {
+            # Weight loading (off-chip → on-chip, THE MOST EXPENSIVE)
+            'weight_dram_energy_j': weight_dram_energy,
+            'weight_fifo_energy_j': weight_fifo_energy,
+            'weight_shift_energy_j': weight_shift_energy,
+            'total_weight_energy_j': total_weight_energy,
+
+            # Input activation loading
+            'input_read_energy_j': input_read_energy,
+            'activation_stream_energy_j': activation_stream_energy,
+            'total_input_energy_j': total_input_energy,
+
+            # Computation
+            'compute_energy_j': compute_energy,
+
+            # Accumulator management
+            'accumulator_write_energy_j': accumulator_write_energy,
+            'accumulator_read_energy_j': accumulator_read_energy,
+            'total_accumulator_energy_j': total_accumulator_energy,
+
+            # Output staging
+            'output_write_energy_j': output_write_energy,
+
+            # Total
+            'total_energy_j': total_energy,
+
+            # Metrics
+            'num_tiles': num_weight_tiles,
+            'batch_size': batch_size,
+            'weight_reuse_factor': batch_size,
+            'arithmetic_intensity': arithmetic_intensity,
+            'total_ops': total_ops,
+            'total_bytes': total_bytes_transferred,
+        }
+
+    def _get_bytes_per_element(self, precision: str) -> int:
+        """Get bytes per element for precision"""
+        return {
+            'FP32': 4,
+            'BF16': 2,
+            'FP16': 2,
+            'INT8': 1,
+            'FP8': 1,
+            'FP8_E4M3': 1,
+            'FP8_E5M2': 1,
+        }.get(precision, 4)
+
+    def _get_mac_energy(self, precision: str) -> float:
+        """
+        Get MAC energy for precision.
+
+        INT8 is most efficient (systolic array optimized for it).
+        BF16 is ~1.5× INT8 (wider datapath, more switching).
+        FP32 is ~3× INT8 (much wider, not native on most TPUs).
+        """
+        base_int8_energy = self.mac_energy
+        return {
+            'INT8': base_int8_energy,
+            'FP8': base_int8_energy,
+            'FP8_E4M3': base_int8_energy,
+            'FP8_E5M2': base_int8_energy,
+            'BF16': base_int8_energy * 1.5,  # BF16 ~1.5× INT8 energy
+            'FP16': base_int8_energy * 1.5,
+            'FP32': base_int8_energy * 3.0,  # FP32 ~3× INT8 energy (often emulated)
+        }.get(precision, base_int8_energy)

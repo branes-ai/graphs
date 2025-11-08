@@ -109,6 +109,80 @@ class TPUMapper(HardwareMapper):
         self.systolic_array_size = resource_model.warp_size  # 128 (128×128 array per MXU)
         self.threads_per_mxu = resource_model.threads_per_unit  # 16,384 (128×128)
 
+        # Get tile energy model if available
+        self.tile_energy_model = getattr(resource_model, 'tile_energy_model', None)
+
+    def _calculate_energy(
+        self,
+        ops: int,
+        bytes_transferred: int,
+        precision: Precision
+    ) -> Tuple[float, float]:
+        """
+        Calculate energy using TPU tile-aware model.
+
+        If tile_energy_model is configured, uses detailed tile-based energy calculation
+        that captures:
+        - Weight tile loading (amortized by batch size)
+        - Input activation streaming
+        - Accumulator management
+        - Pipeline fill overhead
+        - Unified Buffer staging
+
+        Otherwise, falls back to base implementation.
+
+        Args:
+            ops: Number of operations (MACs)
+            bytes_transferred: Total bytes read/written
+            precision: Numerical precision
+
+        Returns:
+            (compute_energy, memory_energy) in Joules
+        """
+        if self.tile_energy_model is None:
+            # Fallback to base implementation
+            return super()._calculate_energy(ops, bytes_transferred, precision)
+
+        # Default batch size of 1 (will be extracted from context in future)
+        batch_size = 1
+
+        # Estimate weight tile count from bytes transferred
+        # Rough heuristic: 50% weights, 30% input activations, 20% output activations
+        weight_bytes = bytes_transferred * 0.5
+        num_weight_tiles = max(1, int(weight_bytes / self.tile_energy_model.weight_tile_size))
+
+        # Estimate ops per tile
+        ops_per_tile = int(ops / num_weight_tiles)
+
+        # Estimate elements per tile (for input/output)
+        bytes_per_element = self.tile_energy_model._get_bytes_per_element(precision.name)
+        input_bytes = bytes_transferred * 0.3
+        output_bytes = bytes_transferred * 0.2
+
+        input_elements_per_tile = int(input_bytes / bytes_per_element / num_weight_tiles)
+        output_elements_per_tile = int(output_bytes / bytes_per_element / num_weight_tiles)
+
+        # Compute tile energy using detailed model
+        energy_breakdown = self.tile_energy_model.compute_tile_energy(
+            num_weight_tiles=num_weight_tiles,
+            ops_per_tile=ops_per_tile,
+            input_elements_per_tile=input_elements_per_tile,
+            output_elements_per_tile=output_elements_per_tile,
+            batch_size=batch_size,
+            precision=precision.name,
+        )
+
+        # Split into compute and memory energy for compatibility with base interface
+        compute_energy = energy_breakdown['compute_energy_j']
+        memory_energy = (
+            energy_breakdown['total_weight_energy_j'] +
+            energy_breakdown['total_input_energy_j'] +
+            energy_breakdown['total_accumulator_energy_j'] +
+            energy_breakdown['output_write_energy_j']
+        )
+
+        return compute_energy, memory_energy
+
     def compute_energy_with_idle_power(
         self,
         latency: float,
