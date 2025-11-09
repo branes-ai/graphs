@@ -91,9 +91,18 @@ from graphs.hardware.mappers.cpu import (
 from graphs.hardware.mappers.dsp import (
     create_qrb5165_mapper,
     create_ti_tda4vm_mapper,
+    create_qualcomm_snapdragon_ride_mapper,
+    create_qualcomm_sa8775p_mapper,
+    create_ti_tda4vh_mapper,
+    create_ti_tda4vl_mapper,
+    create_ti_tda4al_mapper,
 )
 from graphs.hardware.mappers.accelerators.dpu import create_dpu_vitis_ai_mapper
 from graphs.hardware.mappers.accelerators.cgra import create_plasticine_v2_mapper
+from graphs.hardware.mappers.accelerators.hailo import (
+    create_hailo10h_mapper,
+    create_hailo8_mapper,
+)
 
 
 # =============================================================================
@@ -287,6 +296,28 @@ class UnifiedAnalysisResult:
                     f"expected {expected_count}"
                 )
 
+        # Check memory constraints for hardware without external DRAM (e.g., Hailo-8)
+        if self.hardware.main_memory == 0 and self.fx_graph is not None:
+            available_memory_mb = self.hardware.l2_cache_total / (1024 ** 2)  # Bytes to MB
+            # Calculate model size based on precision
+            model_params = sum(p.numel() for p in self.fx_graph.parameters())
+            bytes_per_param = {
+                Precision.FP32: 4,
+                Precision.FP16: 2,
+                Precision.BF16: 2,
+                Precision.INT8: 1,
+                Precision.INT4: 0.5,
+            }.get(self.precision, 4)
+            model_size_mb = (model_params * bytes_per_param) / (1024 ** 2)
+
+            if model_size_mb > available_memory_mb:
+                warnings.append(
+                    f"MEMORY CONSTRAINT VIOLATION: Model size ({model_size_mb:.1f} MB) "
+                    f"exceeds available on-chip memory ({available_memory_mb:.1f} MB). "
+                    f"Hardware {self.hardware_name} requires full model to fit on-chip for "
+                    f"standalone automotive deployment (no external DRAM available)."
+                )
+
         return warnings
 
 
@@ -437,7 +468,7 @@ class UnifiedAnalyzer:
             if self.verbose:
                 print("Running hardware mapping...")
             result.hardware_allocation = self._run_hardware_mapping(
-                partition_report, hardware_mapper, batch_size, precision
+                partition_report, hardware_mapper, batch_size, precision, fx_graph
             )
             if self.verbose:
                 print(f"  Peak units allocated: {result.hardware_allocation.peak_compute_units_used}/{hardware.compute_units}")
@@ -523,6 +554,10 @@ class UnifiedAnalyzer:
         if self.verbose:
             print("  Tracing model with PyTorch Dynamo export...")
 
+        # Set model to evaluation mode (CRITICAL for BatchNorm with batch=1)
+        # This prevents "Expected more than 1 value per channel" errors in models like DeepLabV3
+        model.eval()
+
         # Warm-up model (important for lazy initialization)
         with torch.no_grad():
             try:
@@ -565,7 +600,8 @@ class UnifiedAnalyzer:
         partition_report: PartitionReport,
         hardware_mapper: 'HardwareMapper',
         batch_size: int,
-        precision: Precision
+        precision: Precision,
+        fx_graph: 'GraphModule' = None
     ) -> GraphHardwareAllocation:
         """
         Map subgraphs to hardware resources (NEW - Phase 1).
@@ -579,10 +615,53 @@ class UnifiedAnalyzer:
             hardware_mapper: Hardware mapper (GPU, CPU, TPU, etc.)
             batch_size: Batch size for scaling
             precision: Numerical precision
+            fx_graph: FX graph module (optional, for model size calculation)
 
         Returns:
             GraphHardwareAllocation with per-subgraph allocations
         """
+        # Check if mapper has map_graph() method (for cross-subgraph analysis like PCIe streaming)
+        if hasattr(hardware_mapper, 'map_graph') and callable(getattr(hardware_mapper, 'map_graph')):
+            # Use mapper's map_graph() which can handle cross-subgraph optimizations
+            # partition_report is already a FusionReport (they have the same structure)
+
+            # Create execution stages (all sequential for now)
+            execution_stages = [[i] for i in range(len(partition_report.subgraphs))]
+
+            # Calculate model size (for PCIe streaming overhead in Hailo-8)
+            model_size_bytes = 0
+            if fx_graph is not None:
+                model_params = sum(p.numel() for p in fx_graph.parameters())
+                bytes_per_param = {
+                    Precision.FP32: 4,
+                    Precision.FP16: 2,
+                    Precision.BF16: 2,
+                    Precision.INT8: 1,
+                    Precision.INT4: 0.5,
+                }.get(precision, 4)
+                model_size_bytes = int(model_params * bytes_per_param)
+
+            # Call mapper's map_graph()
+            # Note: Not all mappers accept model_size_bytes, so check signature
+            import inspect
+            sig = inspect.signature(hardware_mapper.map_graph)
+            if 'model_size_bytes' in sig.parameters:
+                return hardware_mapper.map_graph(
+                    fusion_report=partition_report,
+                    execution_stages=execution_stages,
+                    batch_size=batch_size,
+                    precision=precision,
+                    model_size_bytes=model_size_bytes
+                )
+            else:
+                return hardware_mapper.map_graph(
+                    fusion_report=partition_report,
+                    execution_stages=execution_stages,
+                    batch_size=batch_size,
+                    precision=precision
+                )
+
+        # Fallback: Use per-subgraph mapping (original implementation)
         hardware = hardware_mapper.resource_model
         allocations = []
 
@@ -769,9 +848,63 @@ class UnifiedAnalyzer:
             ) * 1000  # J to mJ
             result.energy_per_inference_mj = result.total_energy_mj / result.batch_size
 
+        # Add PCIe streaming overhead for Hailo-8 (no external DRAM)
+        if result.hardware.main_memory == 0 and result.fx_graph is not None:
+            # Calculate model size
+            model_params = sum(p.numel() for p in result.fx_graph.parameters())
+            bytes_per_param = {
+                Precision.FP32: 4,
+                Precision.FP16: 2,
+                Precision.BF16: 2,
+                Precision.INT8: 1,
+                Precision.INT4: 0.5,
+            }.get(result.precision, 4)
+            model_size_bytes = model_params * bytes_per_param
+            on_chip_memory_bytes = result.hardware.l2_cache_total
+
+            # Check if PCIe streaming is required
+            if model_size_bytes > on_chip_memory_bytes:
+                # PCIe Gen3 x4 parameters
+                pcie_bandwidth_bytes_per_sec = 4e9  # 4 GB/s
+                pcie_energy_per_byte = 25e-12  # 25 pJ/byte
+
+                # Calculate overhead
+                pcie_transfer_time_s = model_size_bytes / pcie_bandwidth_bytes_per_sec
+                pcie_transfer_energy_j = model_size_bytes * pcie_energy_per_byte
+
+                # Add to totals
+                result.total_latency_ms += pcie_transfer_time_s * 1000
+                result.total_energy_mj += pcie_transfer_energy_j * 1000
+                result.energy_per_inference_mj = result.total_energy_mj / result.batch_size
+                result.throughput_fps = (result.batch_size / result.total_latency_ms) * 1000 if result.total_latency_ms > 0 else 0
+
         # Memory
         if result.memory_report:
             result.peak_memory_mb = result.memory_report.peak_memory_mb
+
+            # Check memory constraints for hardware without external DRAM
+            # Hailo-8 has only on-chip SRAM (main_memory=0), so model must fit in L2 cache
+            if result.hardware.main_memory == 0:  # No external DRAM
+                available_memory_mb = result.hardware.l2_cache_total / (1024 ** 2)  # Bytes to MB
+                # Calculate model size based on precision
+                model_params = sum(p.numel() for p in result.fx_graph.parameters())
+                bytes_per_param = {
+                    Precision.FP32: 4,
+                    Precision.FP16: 2,
+                    Precision.BF16: 2,
+                    Precision.INT8: 1,
+                    Precision.INT4: 0.5,
+                }.get(result.precision, 4)
+                model_size_mb = (model_params * bytes_per_param) / (1024 ** 2)
+
+                if model_size_mb > available_memory_mb:
+                    warning_msg = (
+                        f"MEMORY CONSTRAINT VIOLATION: Model size ({model_size_mb:.1f} MB) "
+                        f"exceeds available on-chip memory ({available_memory_mb:.1f} MB). "
+                        f"Hardware {result.hardware_name} requires full model to fit on-chip for "
+                        f"standalone automotive deployment (no external DRAM available)."
+                    )
+                    result.validation_warnings.append(warning_msg)
 
     def _validate_result(self, result: UnifiedAnalysisResult) -> List[str]:
         """Validate consistency between reports"""
@@ -834,10 +967,17 @@ class UnifiedAnalyzer:
         elif model_name_lower in ['vit', 'vit_b_16']:
             return models.vit_b_16(weights=None), torch.randn(batch_size, 3, 224, 224), "ViT-B/16"
 
+        # Segmentation models
+        elif model_name_lower in ['deeplabv3', 'deeplabv3_resnet50']:
+            return models.segmentation.deeplabv3_resnet50(weights=None), torch.randn(batch_size, 3, 224, 224), "DeepLabV3-ResNet50"
+        elif model_name_lower in ['fcn', 'fcn_resnet50']:
+            return models.segmentation.fcn_resnet50(weights=None), torch.randn(batch_size, 3, 224, 224), "FCN-ResNet50"
+
         else:
             raise ValueError(
                 f"Unknown model: {model_name}. Supported: resnet18/34/50/101/152, "
-                f"mobilenet_v2/v3_small/v3_large, efficientnet_b0/b1/b2, vgg11/16/19, vit_b_16"
+                f"mobilenet_v2/v3_small/v3_large, efficientnet_b0/b1/b2, vgg11/16/19, vit_b_16, "
+                f"deeplabv3_resnet50, fcn_resnet50"
             )
 
     def _create_hardware_mapper(self, hardware_name: str) -> Any:
@@ -890,8 +1030,26 @@ class UnifiedAnalyzer:
             # DSPs
             'qrb5165': create_qrb5165_mapper,
             'qualcomm-qrb5165': create_qrb5165_mapper,
+
+            # Automotive DSPs (Qualcomm)
+            'snapdragon-ride': create_qualcomm_snapdragon_ride_mapper,
+            'qualcomm-snapdragon-ride': create_qualcomm_snapdragon_ride_mapper,
+            'sa8775p': create_qualcomm_sa8775p_mapper,
+            'qualcomm-sa8775p': create_qualcomm_sa8775p_mapper,
+
+            # Automotive DSPs (TI)
             'ti-tda4vm': create_ti_tda4vm_mapper,
             'tda4vm': create_ti_tda4vm_mapper,
+            'ti-tda4vh': create_ti_tda4vh_mapper,
+            'tda4vh': create_ti_tda4vh_mapper,
+            'ti-tda4vl': create_ti_tda4vl_mapper,
+            'tda4vl': create_ti_tda4vl_mapper,
+            'ti-tda4al': create_ti_tda4al_mapper,
+            'tda4al': create_ti_tda4al_mapper,
+
+            # Automotive Accelerators (Hailo)
+            'hailo-10h': create_hailo10h_mapper,
+            'hailo-8': create_hailo8_mapper,
 
             # Accelerators
             'dpu': create_dpu_vitis_ai_mapper,

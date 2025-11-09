@@ -163,16 +163,22 @@ class HailoMapper(HardwareMapper):
         fusion_report: FusionReport,
         execution_stages: List[List[int]],
         batch_size: int = 1,
-        precision: Precision = Precision.INT8
+        precision: Precision = Precision.INT8,
+        model_size_bytes: int = 0
     ) -> GraphHardwareAllocation:
         """
         Map entire computation graph to Hailo dataflow architecture.
+
+        NOTE: For Hailo-8, if model weights don't fit in on-chip SRAM (8 MB),
+        we must stream weights layer-by-layer from host DRAM via PCIe.
+        This adds significant latency and energy overhead.
 
         Args:
             fusion_report: Output from Phase 1 fusion partitioner
             execution_stages: Execution stages with subgraph indices
             batch_size: Batch size (scales parallelism)
             precision: Numerical precision
+            model_size_bytes: Total model weight size in bytes (for PCIe overhead calculation)
 
         Returns:
             Complete hardware allocation
@@ -184,6 +190,27 @@ class HailoMapper(HardwareMapper):
         total_units_used = 0
         total_units_samples = 0
 
+        # Calculate total weight size for PCIe streaming overhead check
+        # Use provided model_size_bytes if available, otherwise try to get from subgraphs
+        # fusion_report can have either .fused_subgraphs or .subgraphs
+        subgraphs = getattr(fusion_report, 'fused_subgraphs', None) or getattr(fusion_report, 'subgraphs', [])
+        if model_size_bytes > 0:
+            total_weight_bytes = model_size_bytes
+        else:
+            total_weight_bytes = sum(
+                sg.total_weight_bytes
+                for sg in subgraphs
+            )
+
+        # Check if model fits on-chip (Hailo-8 specific constraint)
+        on_chip_memory_bytes = self.resource_model.l2_cache_total if self.resource_model.main_memory == 0 else float('inf')
+        requires_pcie_streaming = total_weight_bytes > on_chip_memory_bytes
+
+
+        # PCIe Gen3 x4 parameters (typical for Hailo-8 M.2 module)
+        pcie_bandwidth_bytes_per_sec = 4e9  # 4 GB/s (PCIe Gen3 x4)
+        pcie_energy_per_byte = 25e-12  # 25 pJ/byte (PCIe transfer energy)
+
         # Process each execution stage
         for stage_id, subgraph_indices in enumerate(execution_stages):
             stage_allocations = []
@@ -191,10 +218,10 @@ class HailoMapper(HardwareMapper):
 
             # Map each subgraph in this stage
             for subgraph_idx in subgraph_indices:
-                if subgraph_idx >= len(fusion_report.fused_subgraphs):
+                if subgraph_idx >= len(subgraphs):
                     continue
 
-                subgraph = fusion_report.fused_subgraphs[subgraph_idx]
+                subgraph = subgraphs[subgraph_idx]
 
                 # Scale parallelism by batch size
                 if subgraph.parallelism and batch_size > 1:
@@ -210,6 +237,22 @@ class HailoMapper(HardwareMapper):
                     concurrent_subgraphs=concurrent_subgraphs,
                     precision=precision
                 )
+
+                # Add PCIe streaming overhead if model doesn't fit on-chip
+                if requires_pcie_streaming:
+                    # Transfer time for this layer's weights from host DRAM via PCIe
+                    # For now, distribute total weight transfer evenly across all subgraphs
+                    # (In reality, weight transfer happens layer-by-layer)
+                    weight_bytes_per_subgraph = total_weight_bytes / len(subgraphs)
+                    pcie_transfer_time = weight_bytes_per_subgraph / pcie_bandwidth_bytes_per_sec
+                    pcie_transfer_energy = weight_bytes_per_subgraph * pcie_energy_per_byte
+
+                    # Add overhead to allocation (modifying the object)
+                    allocation.estimated_latency += pcie_transfer_time
+                    allocation.memory_time += pcie_transfer_time
+                    allocation.memory_energy += pcie_transfer_energy
+                    allocation.total_energy += pcie_transfer_energy
+
                 stage_allocations.append(allocation)
                 subgraph_allocations.append(allocation)
 

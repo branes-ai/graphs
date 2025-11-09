@@ -251,7 +251,7 @@ def qualcomm_sa8775p_resource_model() -> HardwareResourceModel:
     # Hardware Resource Model
     # ========================================================================
     return HardwareResourceModel(
-        name="Qualcomm-SA8775P-Snapdragon-Ride",
+        name="SA8775P-Snapdragon-Ride",
         hardware_type=HardwareType.DSP,
         compute_units=num_processing_units,
         threads_per_unit=128,  # Matrix accelerator threads

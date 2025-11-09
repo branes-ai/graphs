@@ -251,7 +251,7 @@ def qualcomm_snapdragon_ride_resource_model() -> HardwareResourceModel:
     # Hardware Resource Model
     # ========================================================================
     return HardwareResourceModel(
-        name="Qualcomm-Snapdragon-Ride-700TOPS",
+        name="Snapdragon-Ride-700TOPS",
         hardware_type=HardwareType.DSP,  # Heterogeneous platform (DSP + accelerators)
         compute_units=num_processing_units,
         threads_per_unit=256,  # AI accelerator threads
