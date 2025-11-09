@@ -99,8 +99,20 @@ def load_model_from_registry(model_name: str) -> torch.nn.Module:
     return model
 
 
-def load_yolo_model(model_path: str) -> torch.nn.Module:
-    """Load a YOLO model from .pt file"""
+def load_yolo_model(model_spec: str) -> torch.nn.Module:
+    """
+    Load a YOLO model from Ultralytics.
+
+    Args:
+        model_spec: Either a model name (e.g., 'yolov8n', 'yolo11m') or a path to .pt file
+
+    Returns:
+        PyTorch model in eval mode
+
+    Note:
+        If model_spec is a name like 'yolov8n', Ultralytics will automatically download
+        the model weights on first use and cache them.
+    """
     try:
         from ultralytics import YOLO
     except ImportError:
@@ -108,7 +120,10 @@ def load_yolo_model(model_path: str) -> torch.nn.Module:
             "YOLO models require ultralytics. Install with: pip install ultralytics"
         )
 
-    yolo = YOLO(model_path)
+    # Ultralytics YOLO() handles both:
+    # - Model names: 'yolov8n', 'yolov8s', 'yolo11m', etc. (downloads if needed)
+    # - File paths: 'path/to/model.pt' (loads from disk)
+    yolo = YOLO(model_spec)
     model = yolo.model.eval()
     return model
 
@@ -143,14 +158,21 @@ def load_transformer_model(model_name: str) -> Tuple[torch.nn.Module, str]:
 
 
 def load_model_from_path(model_path: str) -> torch.nn.Module:
-    """Load a model from a file path (assumes it's a YOLO model or similar)"""
+    """
+    Load a model from a file path.
+
+    Currently supports:
+    - .pt files (assumed to be YOLO models)
+
+    For other model formats, extend this function.
+    """
     path = Path(model_path)
 
-    # Check if it's a YOLO model
-    if path.suffix == '.pt' and path.exists():
+    if path.suffix == '.pt':
         return load_yolo_model(model_path)
 
-    raise ValueError(f"Unsupported model file: {model_path}")
+    # Add support for other formats here (e.g., .pth, .onnx, etc.)
+    raise ValueError(f"Unsupported model file format: {model_path}")
 
 
 def trace_model_hybrid(
@@ -258,12 +280,26 @@ def profile_model(
             # Check if it's a file path
             path = Path(model)
             if path.exists():
-                print(f"Loading model from '{model}'...")
-                model_obj = load_model_from_path(model)
+                # Local file - check if it's a YOLO model
+                if path.suffix == '.pt':
+                    print(f"Loading YOLO model from '{model}'...")
+                    model_obj = load_yolo_model(model)
+                else:
+                    print(f"Loading model from '{model}'...")
+                    model_obj = load_model_from_path(model)
                 input_type = 'image'
             else:
-                # Assume it's a HuggingFace model
-                model_obj, input_type = load_transformer_model(model)
+                # Not a local file - check if it's a YOLO model name
+                # YOLO model names: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+                #                   yolo11n, yolo11s, yolo11m, yolo11l, yolo11x
+                #                   yolov5nu, yolov5su, yolov5mu, yolov5lu, yolov5xu
+                if model.lower().startswith(('yolov', 'yolo')):
+                    print(f"Loading YOLO model '{model}' from Ultralytics...")
+                    model_obj = load_yolo_model(model)
+                    input_type = 'image'
+                else:
+                    # Assume it's a HuggingFace model
+                    model_obj, input_type = load_transformer_model(model)
     else:
         model_obj = model
         model_name = model_name or model.__class__.__name__

@@ -67,14 +67,14 @@ HARDWARE_CONFIGS = {
 EMBODIED_AI_WORKLOADS = {
     "yolov8n": {
         "description": "YOLOv8 Nano - Object Detection",
-        "model": "yolov8n.pt",
+        "model": "yolov8n",  # Ultralytics will download if needed
         "input_shape": (1, 3, 640, 640),
         "params_m": 3.2,
         "gflops": 8.7,
     },
     "yolov8m": {
         "description": "YOLOv8 Medium - Object Detection",
-        "model": "yolov8m.pt",
+        "model": "yolov8m",  # Ultralytics will download if needed
         "input_shape": (1, 3, 640, 640),
         "params_m": 25.9,
         "gflops": 78.9,
@@ -112,8 +112,11 @@ def load_and_trace_model(workload_info: Dict) -> Tuple[torch.nn.Module, torch.fx
     example_input = torch.randn(*input_shape)
 
     # Load model
-    if model_spec.endswith(".pt"):
-        # YOLO model
+    if model_spec.endswith(".pt") or model_spec.lower().startswith(('yolov', 'yolo')):
+        # YOLO model - can be a file path or model name
+        # Ultralytics YOLO() handles both:
+        # - Model names like 'yolov8n' (downloads if needed)
+        # - File paths like 'yolov8n.pt' (loads from disk)
         try:
             from ultralytics import YOLO
         except ImportError:
@@ -144,8 +147,8 @@ def load_and_trace_model(workload_info: Dict) -> Tuple[torch.nn.Module, torch.fx
         traced = torch.fx.symbolic_trace(model)
     except Exception:
         # Fallback to Dynamo export
-        import torch._dynamo
-        torch._dynamo.config.suppress_errors = True
+        import torch._dynamo as torch_dynamo
+        torch_dynamo.config.suppress_errors = True
         exported_program = torch.export.export(model, (example_input,))
         traced = exported_program.module()
 
@@ -170,22 +173,34 @@ def get_hardware_mapper(hardware_name: str):
         create_kpu_t256_mapper,
         create_kpu_t768_mapper,
     )
+    from graphs.hardware.mappers.accelerators.hailo import (
+        create_hailo8_mapper,
+        create_hailo10h_mapper,
+    )
     from graphs.hardware.mappers.dsp import (
         create_qrb5165_mapper,
+        create_qualcomm_sa8775p_mapper,
+        create_qualcomm_snapdragon_ride_mapper,
     )
 
-    # Note: Some hardware doesn't have mappers yet
-    # We'll need to create them or use closest equivalents
-
     mapper_funcs = {
+        # Entry-level
         "KPU-T64": create_kpu_t64_mapper,
-        "KPU-T256": create_kpu_t256_mapper,
-        "KPU-T768": create_kpu_t768_mapper,
-        "Jetson-Orin-Nano": create_jetson_orin_nano_mapper,
-        "Jetson-Orin-AGX": create_jetson_orin_agx_mapper,
-        "Jetson-Thor": create_jetson_thor_mapper,
+        "Hailo-8": create_hailo8_mapper,
+        "Hailo-10H": create_hailo10h_mapper,
         "Coral-Edge-TPU": create_coral_edge_tpu_mapper,
         "Qualcomm-QCS6490": create_qrb5165_mapper,  # Use QRB5165 as proxy
+        "Jetson-Orin-Nano": create_jetson_orin_nano_mapper,
+
+        # Mid-range
+        "KPU-T256": create_kpu_t256_mapper,
+        "Qualcomm-SA8775P": create_qualcomm_sa8775p_mapper,
+        "Jetson-Orin-AGX": create_jetson_orin_agx_mapper,
+
+        # High-end
+        "KPU-T768": create_kpu_t768_mapper,
+        "Qualcomm-Snapdragon-Ride": create_qualcomm_snapdragon_ride_mapper,
+        "Jetson-Thor": create_jetson_thor_mapper,
     }
 
     if hardware_name not in mapper_funcs:
