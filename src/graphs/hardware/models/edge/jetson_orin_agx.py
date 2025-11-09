@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 
 
@@ -223,6 +224,25 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
+    # BOM Cost Profile
+    # ========================================================================
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=380.0,
+        package_cost=60.0,
+        memory_cost=160.0,
+        pcb_assembly_cost=35.0,
+        thermal_solution_cost=15.0,
+        other_costs=20.0,
+        total_bom_cost=670.0,
+        margin_multiplier=1.34,
+        retail_price=899.0,
+        volume_tier="10K+",
+        process_node="8nm",
+        year=2025,
+        notes="High-end edge AI module. 64GB LPDDR5. NVIDIA pricing: competitive margin for robotics/automotive. Competes with datacenter inference cards.",
+    )
+
+    # ========================================================================
     # Hardware Resource Model (uses NEW thermal operating points)
     # ========================================================================
     return HardwareResourceModel(
@@ -268,6 +288,7 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
         min_occupancy=0.3,
         max_concurrent_kernels=8,
         wave_quantization=4,
+        bom_cost_profile=bom_cost,
     )
 
 

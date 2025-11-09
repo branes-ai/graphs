@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 from ...architectural_energy import TPUTileEnergyModel
 
@@ -125,6 +126,23 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         mac_energy=0.15e-12,  # 0.15 pJ per INT8 MAC (very efficient)
     )
 
+    # BOM Cost Profile
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=12.0,
+        package_cost=5.0,
+        memory_cost=0.0,  # Uses host memory
+        pcb_assembly_cost=3.0,
+        thermal_solution_cost=1.0,
+        other_costs=4.0,
+        total_bom_cost=25.0,
+        margin_multiplier=3.0,
+        retail_price=75.0,
+        volume_tier="10K+",
+        process_node="14nm",
+        year=2025,
+        notes="Ultra-low-cost edge TPU. Minimal on-chip memory, uses host CPU memory. USB/M.2/PCIe variants. Target: IoT cameras, embedded vision, battery devices.",
+    )
+
     model = HardwareResourceModel(
         name="Coral-Edge-TPU",
         hardware_type=HardwareType.TPU,
@@ -160,6 +178,7 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         wave_quantization=1,
         thermal_operating_points=thermal_operating_points,
         default_thermal_profile="2W",
+        bom_cost_profile=bom_cost,
     )
 
     # Attach tile energy model

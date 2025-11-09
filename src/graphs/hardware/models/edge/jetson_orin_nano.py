@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 
 
@@ -164,6 +165,25 @@ def jetson_orin_nano_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
+    # BOM Cost Profile
+    # ========================================================================
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=120.0,
+        package_cost=25.0,
+        memory_cost=40.0,
+        pcb_assembly_cost=10.0,
+        thermal_solution_cost=3.0,
+        other_costs=7.0,
+        total_bom_cost=205.0,
+        margin_multiplier=1.46,
+        retail_price=299.0,
+        volume_tier="10K+",
+        process_node="12nm",
+        year=2025,
+        notes="Entry-level edge AI module. 8GB LPDDR5. NVIDIA pricing strategy: lower margins for market penetration. Competes with embedded GPUs and TPUs.",
+    )
+
+    # ========================================================================
     # Hardware Resource Model
     # ========================================================================
     return HardwareResourceModel(
@@ -201,6 +221,7 @@ def jetson_orin_nano_resource_model() -> HardwareResourceModel:
         min_occupancy=0.3,
         max_concurrent_kernels=4,  # Fewer than AGX
         wave_quantization=2,  # Smaller wave size
+        bom_cost_profile=bom_cost,
     )
 
 
