@@ -33,105 +33,14 @@ from ..visualization import (
 )
 
 
-@dataclass
-class FusedSubgraph:
-    """A fused subgraph containing multiple operators"""
-    subgraph_id: int
-    node_ids: List[str]  # List of FX node IDs in this subgraph
-    node_names: List[str]  # Human-readable names
-    operation_types: List[OperationType]  # Operation types in order
-
-    # Computed properties
-    total_flops: int
-    total_macs: int
-    total_input_bytes: int  # Only external inputs (not intermediate)
-    total_output_bytes: int  # Only external outputs
-    internal_bytes: int  # Intermediate tensors that don't leave subgraph
-    total_weight_bytes: int
-
-    # Parallelism (of dominant operation or merged)
-    parallelism: Optional[ParallelismDescriptor]
-
-    # Fusion info
-    fusion_pattern: str  # e.g., "Conv_BN_ReLU", "Conv_BN", "Add_ReLU"
-    num_operators: int  # Number of operators fused
-
-    # Dependencies
-    depends_on: List[int]  # Other subgraph IDs this depends on
-
-    # Characterization
-    arithmetic_intensity: float  # FLOPs / external_bytes_transferred
-    recommended_bottleneck: BottleneckType
-
-    def data_movement_reduction(self) -> float:
-        """
-        Calculate reduction in data movement vs unfused
-
-        Unfused: Each intermediate tensor written/read from global memory
-        Fused: Intermediate tensors stay in cache/registers
-        """
-        if self.num_operators <= 1:
-            return 0.0
-
-        # Savings = internal bytes that don't touch global memory
-        external_bytes = self.total_input_bytes + self.total_output_bytes + self.total_weight_bytes
-        total_without_fusion = external_bytes + self.internal_bytes
-
-        if total_without_fusion == 0:
-            return 0.0
-
-        return self.internal_bytes / total_without_fusion
-
-
-@dataclass
-class FusionReport:
-    """Report of fusion-based partitioning"""
-    fused_subgraphs: List[FusedSubgraph]
-    total_subgraphs: int
-    original_operators: int
-
-    # Aggregated stats
-    total_flops: int
-    total_memory_traffic_fused: int  # With fusion
-    total_memory_traffic_unfused: int  # Without fusion
-    data_movement_reduction: float  # Fraction of memory traffic eliminated
-
-    # Fusion stats
-    fusion_patterns: Dict[str, int]  # Pattern → count
-    avg_fusion_size: float  # Average ops per subgraph
-    max_fusion_size: int
-
-    def summary_stats(self) -> str:
-        """Generate summary statistics"""
-
-        lines = [
-            "Fusion-Based Partition Summary",
-            "=" * 50,
-            f"Original operators: {self.original_operators}",
-            f"Fused subgraphs: {self.total_subgraphs}",
-            f"Reduction: {self.original_operators / max(1, self.total_subgraphs):.1f}× fewer execution units",
-            f"",
-            f"Fusion Statistics:",
-            f"  Average operators per subgraph: {self.avg_fusion_size:.1f}",
-            f"  Largest fused subgraph: {self.max_fusion_size} operators",
-            f"",
-            f"Compute:",
-            f"  Total FLOPs: {self.total_flops / 1e9:.2f} G",
-            f"",
-            f"Memory Traffic:",
-            f"  With fusion: {self.total_memory_traffic_fused / 1e6:.2f} MB",
-            f"  Without fusion: {self.total_memory_traffic_unfused / 1e6:.2f} MB",
-            f"  Reduction: {self.data_movement_reduction * 100:.1f}%",
-            f"  Savings: {(self.total_memory_traffic_unfused - self.total_memory_traffic_fused) / 1e6:.2f} MB",
-            f"",
-            f"Fusion Patterns:",
-        ]
-
-        for pattern, count in sorted(self.fusion_patterns.items(), key=lambda x: x[1], reverse=True):
-            pct = count / self.total_subgraphs * 100
-            lines.append(f"  {pattern}: {count} ({pct:.1f}%)")
-
-        return "\n".join(lines)
+# ==============================================================================
+# DEPRECATED: FusedSubgraph and FusionReport dataclasses removed
+# ==============================================================================
+#
+# These have been unified into SubgraphDescriptor and PartitionReport
+# from graphs.ir.structures. See deprecated aliases at end of file.
+#
+# ==============================================================================
 
 
 class FusionBasedPartitioner:
@@ -147,10 +56,10 @@ class FusionBasedPartitioner:
 
     def __init__(self):
         self.next_subgraph_id = 0
-        self.fused_subgraphs: List[FusedSubgraph] = []  # Store for visualization
+        self.fused_subgraphs: List[SubgraphDescriptor] = []  # Store for visualization (unified)
         self.fx_graph_cached: Optional[GraphModule] = None  # Store FX graph for visualization
 
-    def partition(self, fx_graph: GraphModule) -> FusionReport:
+    def partition(self, fx_graph: GraphModule):
         """
         Partition FX graph into fused subgraphs
 
@@ -158,7 +67,7 @@ class FusionBasedPartitioner:
             fx_graph: Traced PyTorch FX graph with shape propagation
 
         Returns:
-            FusionReport with fused subgraphs and statistics
+            PartitionReport with fused subgraphs and statistics (using unified SubgraphDescriptor)
         """
 
         # Step 1: Extract nodes and build dependency graph
@@ -209,7 +118,7 @@ class FusionBasedPartitioner:
         return producers
 
     def _fuse_operators(self, fx_graph: GraphModule, nodes: List,
-                       consumers: Dict, producers: Dict) -> List[FusedSubgraph]:
+                       consumers: Dict, producers: Dict) -> List[SubgraphDescriptor]:
         """
         Greedy fusion algorithm
 
@@ -380,11 +289,14 @@ class FusionBasedPartitioner:
             return node.op
 
     def _create_fused_subgraph(self, fx_graph: GraphModule, nodes: List,
-                               consumers: Dict, producers: Dict) -> FusedSubgraph:
+                               consumers: Dict, producers: Dict) -> SubgraphDescriptor:
         """
-        Create a FusedSubgraph descriptor from a list of nodes
+        Create a SubgraphDescriptor from a list of nodes (unified representation).
 
-        Computes FLOPs, memory traffic, and fusion statistics
+        Computes FLOPs, memory traffic, and fusion statistics.
+
+        Returns:
+            SubgraphDescriptor (supports both single-op and multi-op fused subgraphs)
         """
 
         subgraph_id = self.next_subgraph_id
@@ -467,26 +379,35 @@ class FusionBasedPartitioner:
         parallelism = self._compute_parallelism(fx_graph, nodes[0])
 
         # Dependencies (subgraphs that must execute before this one)
-        # For now, we'll compute this later
+        # For now, we'll compute this later (will be updated to subgraph IDs)
         depends_on = []
 
-        return FusedSubgraph(
+        # Create unified SubgraphDescriptor (supports both single and multi-op)
+        return SubgraphDescriptor(
             subgraph_id=subgraph_id,
             node_ids=node_ids,
             node_names=node_names,
             operation_types=operation_types,
+            fusion_pattern=fusion_pattern,
             total_flops=total_flops,
             total_macs=total_macs,
             total_input_bytes=total_input_bytes,
             total_output_bytes=total_output_bytes,
-            internal_bytes=internal_bytes,
             total_weight_bytes=total_weight_bytes,
-            parallelism=parallelism,
-            fusion_pattern=fusion_pattern,
-            num_operators=len(nodes),
-            depends_on=depends_on,
+            internal_bytes=internal_bytes,
             arithmetic_intensity=arithmetic_intensity,
-            recommended_bottleneck=bottleneck
+            num_operators=len(nodes),
+            parallelism=parallelism,
+            depends_on=depends_on,
+            recommended_bottleneck=bottleneck,
+            # Optional fields (not populated for fused subgraphs)
+            input_tensors=[],
+            output_tensors=[],
+            weight_tensors=[],
+            partition_reason=None,
+            partition_criteria={},
+            fusion_candidates=[],
+            dependency_type="sequential"
         )
 
     def _identify_fusion_pattern(self, nodes: List) -> str:
@@ -647,13 +568,23 @@ class FusionBasedPartitioner:
 
         return None
 
-    def _generate_report(self, fused_subgraphs: List[FusedSubgraph],
-                        original_operators: int) -> FusionReport:
-        """Generate fusion report with statistics"""
+    def _generate_report(self, fused_subgraphs: List[SubgraphDescriptor],
+                        original_operators: int):
+        """
+        Generate unified PartitionReport with fusion statistics.
+
+        Args:
+            fused_subgraphs: List of SubgraphDescriptor (unified representation)
+            original_operators: Number of operators before fusion
+
+        Returns:
+            PartitionReport with complete fusion statistics
+        """
 
         total_flops = sum(sg.total_flops for sg in fused_subgraphs)
+        total_macs = sum(sg.total_macs for sg in fused_subgraphs)
 
-        # Memory traffic with fusion
+        # Memory traffic with fusion (external only)
         total_memory_fused = sum(
             sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
             for sg in fused_subgraphs
@@ -675,22 +606,56 @@ class FusionBasedPartitioner:
         for sg in fused_subgraphs:
             fusion_patterns[sg.fusion_pattern] = fusion_patterns.get(sg.fusion_pattern, 0) + 1
 
+        # Operation type counts (from first operation in each fused subgraph)
+        operation_type_counts = {}
+        for sg in fused_subgraphs:
+            if sg.operation_types:
+                op_type = sg.operation_types[0].value
+                operation_type_counts[op_type] = operation_type_counts.get(op_type, 0) + 1
+
+        # Bottleneck distribution
+        bottleneck_distribution = {}
+        for sg in fused_subgraphs:
+            bottleneck = sg.recommended_bottleneck.value
+            bottleneck_distribution[bottleneck] = bottleneck_distribution.get(bottleneck, 0) + 1
+
+        # Arithmetic intensity stats
+        ais = [sg.arithmetic_intensity for sg in fused_subgraphs if sg.arithmetic_intensity > 0]
+        average_ai = sum(ais) / len(ais) if ais else 0.0
+        min_ai = min(ais) if ais else 0.0
+        max_ai = max(ais) if ais else 0.0
+
         # Fusion size stats
         fusion_sizes = [sg.num_operators for sg in fused_subgraphs]
-        avg_fusion_size = sum(fusion_sizes) / len(fusion_sizes) if fusion_sizes else 1
+        avg_fusion_size = sum(fusion_sizes) / len(fusion_sizes) if fusion_sizes else 1.0
         max_fusion_size = max(fusion_sizes) if fusion_sizes else 1
 
-        return FusionReport(
-            fused_subgraphs=fused_subgraphs,
+        # Create unified PartitionReport
+        from graphs.ir.structures import PartitionReport
+        return PartitionReport(
+            subgraphs=fused_subgraphs,  # Use standard name (not fused_subgraphs)
             total_subgraphs=len(fused_subgraphs),
-            original_operators=original_operators,
             total_flops=total_flops,
-            total_memory_traffic_fused=total_memory_fused,
+            total_macs=total_macs,
+            total_memory_traffic=total_memory_fused,
+            # Fusion metrics
+            original_operators=original_operators,
             total_memory_traffic_unfused=total_memory_unfused,
             data_movement_reduction=data_movement_reduction,
-            fusion_patterns=fusion_patterns,
             avg_fusion_size=avg_fusion_size,
-            max_fusion_size=max_fusion_size
+            max_fusion_size=max_fusion_size,
+            # Statistics
+            average_arithmetic_intensity=average_ai,
+            min_arithmetic_intensity=min_ai,
+            max_arithmetic_intensity=max_ai,
+            operation_type_counts=operation_type_counts,
+            fusion_pattern_counts=fusion_patterns,
+            bottleneck_distribution=bottleneck_distribution,
+            # Optional fields (not computed for fusion)
+            parallelism_distribution={},
+            partition_reason_distribution={},
+            concurrency=None,
+            critical_path_subgraphs=[]
         )
 
     def visualize_partitioning(self, fx_graph: GraphModule,
@@ -877,7 +842,7 @@ class FusionBasedPartitioner:
 
         return lines
 
-    def _format_fused_subgraph_header(self, fused_sg: FusedSubgraph, counter: int) -> List[str]:
+    def _format_fused_subgraph_header(self, fused_sg: SubgraphDescriptor, counter: int) -> List[str]:
         """Format header for a fused subgraph"""
         lines = []
 
@@ -913,7 +878,7 @@ class FusionBasedPartitioner:
 
         return lines
 
-    def _format_fused_subgraph_footer(self, fused_sg: FusedSubgraph) -> List[str]:
+    def _format_fused_subgraph_footer(self, fused_sg: SubgraphDescriptor) -> List[str]:
         """Format footer with metrics for a fused subgraph"""
         lines = []
 
@@ -1697,7 +1662,7 @@ class FusionBasedPartitioner:
 
         return lines
 
-    def _format_fused_subgraph_header_colored(self, fused_sg: FusedSubgraph, counter: int,
+    def _format_fused_subgraph_header_colored(self, fused_sg: SubgraphDescriptor, counter: int,
                                              capability: TerminalCapability, box: dict) -> List[str]:
         """Format fused subgraph header with color coding"""
         lines = []
@@ -1744,7 +1709,7 @@ class FusionBasedPartitioner:
 
         return lines
 
-    def _format_fused_subgraph_footer_colored(self, fused_sg: FusedSubgraph,
+    def _format_fused_subgraph_footer_colored(self, fused_sg: SubgraphDescriptor,
                                              capability: TerminalCapability, box: dict) -> List[str]:
         """Format subgraph footer with metrics"""
         lines = []
@@ -1810,3 +1775,23 @@ class FusionBasedPartitioner:
             # Then generate PNG: dot -Tpng resnet_fusion.dot -o resnet_fusion.png
         """
         export_to_dot(self.fused_subgraphs, fx_graph, output_file)
+
+
+# ==============================================================================
+# DEPRECATED ALIASES (for backward compatibility)
+# ==============================================================================
+#
+# FusedSubgraph and FusionReport are deprecated in favor of the unified
+# SubgraphDescriptor and PartitionReport from graphs.ir.structures.
+#
+# These aliases are provided for backward compatibility only.
+# ==============================================================================
+
+# Deprecated: Use SubgraphDescriptor from graphs.ir.structures instead
+FusedSubgraph = SubgraphDescriptor
+
+# Deprecated: Use PartitionReport from graphs.ir.structures instead  
+from graphs.ir.structures import PartitionReport as FusionReport
+
+# Note: The old @dataclass definitions have been removed. If you need them
+# for reference, see git history before the unification (2025-11-09).
