@@ -709,7 +709,7 @@ def analyze_graph_mapping(
 
     print(f"      ✓ Graph partitioned into {fusion_report.total_subgraphs} subgraphs")
     print(f"      ✓ Total FLOPs: {fusion_report.total_flops / 1e9:.2f} GFLOPs")
-    print(f"      ✓ Total memory: {fusion_report.total_memory_traffic_fused / 1e6:.2f} MB")
+    print(f"      ✓ Total memory: {fusion_report.total_memory_traffic / 1e6:.2f} MB")
 
     # 3. Create hardware mapper
     print(f"[3/5] Creating hardware mapper: {hardware_name}...")
@@ -800,7 +800,7 @@ def analyze_graph_mapping(
         model_name=display_name,
         total_operations=len(fusion_report.fused_subgraphs),
         total_flops=fusion_report.total_flops,
-        total_memory_traffic=fusion_report.total_memory_traffic_fused,
+        total_memory_traffic=fusion_report.total_memory_traffic,
         hardware_name=hw_display_name,
         hardware_type=hw_type,
         peak_flops=peak_ops,

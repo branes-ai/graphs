@@ -192,7 +192,7 @@ class PartitionAnalyzerCLI:
                 'report': report,
                 'num_subgraphs': report.total_subgraphs,
                 'total_flops': report.total_flops,
-                'total_memory': report.total_memory_traffic_fused,
+                'total_memory': report.total_memory_traffic,
                 'avg_ai': avg_ai,
                 'avg_fusion_size': report.avg_fusion_size,
                 'data_movement_reduction': report.data_movement_reduction,

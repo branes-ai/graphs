@@ -71,12 +71,12 @@ def analyze_with_mapper(model, input_tensor, mapper_name, mapper):
 
     # Calculate arithmetic intensity
     ai = 0.0
-    if fusion_report.total_memory_traffic_fused > 0:
-        ai = fusion_report.total_flops / fusion_report.total_memory_traffic_fused
+    if fusion_report.total_memory_traffic > 0:
+        ai = fusion_report.total_flops / fusion_report.total_memory_traffic
 
     print(f"\nFusion Report:")
     print(f"  Total FLOPs: {fusion_report.total_flops / 1e9:.6f} GFLOPs ({fusion_report.total_flops:,} ops)")
-    print(f"  Total Memory Traffic (fused): {fusion_report.total_memory_traffic_fused / 1e6:.2f} MB")
+    print(f"  Total Memory Traffic (fused): {fusion_report.total_memory_traffic / 1e6:.2f} MB")
     print(f"  Arithmetic Intensity: {ai:.2f} FLOPs/Byte")
     print(f"  Fused Subgraphs: {len(fusion_report.fused_subgraphs)}")
 
