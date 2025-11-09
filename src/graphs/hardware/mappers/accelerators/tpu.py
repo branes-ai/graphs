@@ -262,8 +262,7 @@ class TPUMapper(HardwareMapper):
             TPUAllocation with routing analysis
         """
         # Check if this is a matrix operation
-        is_matrix_op = any(op.value in ['conv2d', 'linear', 'matmul', 'mm', 'bmm']
-                          for op in subgraph.operation_types)
+        is_matrix_op = subgraph.operation_type.value in ['conv2d', 'linear', 'matmul', 'mm', 'bmm']
 
         # Systolic array is for matrix ops
         uses_systolic_array = is_matrix_op

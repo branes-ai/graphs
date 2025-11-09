@@ -32,7 +32,7 @@ def hailo8_resource_model() -> HardwareResourceModel:
     Hailo-8 Computer Vision AI Accelerator.
 
     ARCHITECTURE:
-    - Structure-driven dataflow architecture (similar to KPU concept)
+    - Structure-driven graph mapping architecture 
     - Distributed on-chip memory fabric (no Von Neumann bottleneck)
     - Network-specific compilation (custom dataflow per model)
     - All computations on-chip (minimizes external memory access)
