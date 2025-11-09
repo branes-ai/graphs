@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 
 
@@ -264,6 +265,23 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         }
     )
 
+    # BOM Cost Profile
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=280.0,
+        package_cost=45.0,
+        memory_cost=90.0,
+        pcb_assembly_cost=20.0,
+        thermal_solution_cost=8.0,
+        other_costs=12.0,
+        total_bom_cost=455.0,
+        margin_multiplier=2.4,
+        retail_price=1092.0,
+        volume_tier="10K+",
+        process_node="16nm",
+        year=2025,
+        notes="Mid-range edge AI accelerator. 256 tiles, advanced flip-chip packaging. Competitive with high-end edge GPUs but better efficiency and predictability.",
+    )
+
     return HardwareResourceModel(
         name="Stillwater KPU-T256",
         hardware_type=HardwareType.KPU,
@@ -317,6 +335,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         min_occupancy=0.3,
         max_concurrent_kernels=4,
         wave_quantization=2,
+        bom_cost_profile=bom_cost,
     )
 
 

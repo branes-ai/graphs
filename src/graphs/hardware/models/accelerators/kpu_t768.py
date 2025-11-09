@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 
 
@@ -238,6 +239,23 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         }
     )
 
+    # BOM Cost Profile
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=680.0,
+        package_cost=120.0,
+        memory_cost=280.0,
+        pcb_assembly_cost=65.0,
+        thermal_solution_cost=45.0,
+        other_costs=35.0,
+        total_bom_cost=1225.0,
+        margin_multiplier=2.4,
+        retail_price=2940.0,
+        volume_tier="10K+",
+        process_node="7nm",
+        year=2025,
+        notes="High-end datacenter AI accelerator. 768 tiles, 7nm process, multi-chip or interposer packaging. HBM2e/LPDDR5X memory. Liquid cooling capable.",
+    )
+
     # Build resource model
     return HardwareResourceModel(
         name="Stillwater KPU-T768",
@@ -290,6 +308,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         min_occupancy=0.3,
         max_concurrent_kernels=8,
         wave_quantization=2,
+        bom_cost_profile=bom_cost,
     )
 
 

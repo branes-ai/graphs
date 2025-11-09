@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 
 
@@ -205,6 +206,23 @@ def jetson_thor_resource_model() -> HardwareResourceModel:
         }
     )
 
+    # BOM Cost Profile
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=850.0,
+        package_cost=180.0,
+        memory_cost=350.0,
+        pcb_assembly_cost=90.0,
+        thermal_solution_cost=80.0,
+        other_costs=50.0,
+        total_bom_cost=1600.0,
+        margin_multiplier=1.56,
+        retail_price=2500.0,
+        volume_tier="10K+",
+        process_node="4nm",
+        year=2025,
+        notes="Next-gen automotive AI platform. 128GB HBM3, Blackwell architecture, 4nm process. Advanced CoWoS-like packaging. Liquid cooling capable. Target: autonomous vehicles, humanoid robots.",
+    )
+
     return HardwareResourceModel(
         name="Jetson-Thor",
         hardware_type=HardwareType.GPU,
@@ -241,6 +259,7 @@ def jetson_thor_resource_model() -> HardwareResourceModel:
         min_occupancy=0.3,
         max_concurrent_kernels=16,
         wave_quantization=4,
+        bom_cost_profile=bom_cost,
     )
 
 

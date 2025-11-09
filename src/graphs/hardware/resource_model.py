@@ -58,6 +58,78 @@ class Precision(Enum):
 
 
 # ============================================================================
+# BOM Cost Modeling for Market Analysis
+# ============================================================================
+
+@dataclass
+class BOMCostProfile:
+    """
+    Bill of Materials (BOM) cost breakdown for hardware accelerators.
+
+    Used for market positioning analysis and TCO (Total Cost of Ownership) studies.
+    All costs in USD.
+
+    Example:
+        KPU-T64 @ 10K units:
+        - Silicon die: $75 (16nm TSMC)
+        - Package: $15 (flip-chip BGA)
+        - Memory: $20 (2GB LPDDR4X on-package)
+        - PCB assembly: $8
+        - Thermal: $2 (small heatsink)
+        → Total BOM: $120
+        → Retail (2.5× margin): $299
+    """
+    # Component costs
+    silicon_die_cost: float          # Die fabrication cost (process node dependent)
+    package_cost: float               # Package cost (flip-chip BGA, etc.)
+    memory_cost: float                # On-package/on-module DRAM cost
+    pcb_assembly_cost: float          # PCB, passives, assembly labor
+    thermal_solution_cost: float      # Heatsink, thermal interface materials
+    other_costs: float = 0.0          # Connectors, housing, testing, etc.
+
+    # Totals and pricing
+    total_bom_cost: float             # Sum of all component costs
+    margin_multiplier: float = 2.5    # Typical margin: retail = BOM × margin
+    retail_price: float = 0.0         # Customer-facing price (if known)
+
+    # Context
+    volume_tier: str = "10K+"         # Volume pricing tier ("1K+", "10K+", "100K+", "1M+")
+    process_node: str = "16nm"        # Fabrication process (affects die cost)
+    year: int = 2025                  # Year of pricing (inflation adjustments)
+
+    # Notes
+    notes: str = ""                   # Additional context or assumptions
+
+    def __post_init__(self):
+        """Calculate total BOM if not provided"""
+        if self.total_bom_cost == 0:
+            self.total_bom_cost = (
+                self.silicon_die_cost +
+                self.package_cost +
+                self.memory_cost +
+                self.pcb_assembly_cost +
+                self.thermal_solution_cost +
+                self.other_costs
+            )
+
+        # Estimate retail if not provided
+        if self.retail_price == 0:
+            self.retail_price = self.total_bom_cost * self.margin_multiplier
+
+    def cost_per_tops(self, tops: float) -> float:
+        """Calculate BOM cost per TOPS (INT8)"""
+        if tops > 0:
+            return self.total_bom_cost / tops
+        return 0.0
+
+    def cost_per_watt(self, tdp_watts: float) -> float:
+        """Calculate BOM cost per Watt of TDP"""
+        if tdp_watts > 0:
+            return self.total_bom_cost / tdp_watts
+        return 0.0
+
+
+# ============================================================================
 # NEW: DVFS-Aware Performance Modeling with Heterogeneous Compute Resources
 # ============================================================================
 
@@ -418,6 +490,9 @@ class HardwareResourceModel:
     # Tensor Core microarchitecture (for matrix operations)
     tensor_cores_per_sm: Optional[int] = None         # 4 (Volta/Turing/Ampere/Hopper)
     tensor_core_ops_per_clock: Optional[float] = None # Varies by precision and generation
+
+    # NEW: BOM cost modeling for market analysis
+    bom_cost_profile: Optional[BOMCostProfile] = None
 
     def get_peak_ops(self, precision: Precision) -> float:
         """
