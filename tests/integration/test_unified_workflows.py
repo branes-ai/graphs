@@ -218,13 +218,6 @@ class TestUnifiedWorkflows(unittest.TestCase):
 
     def test_cross_precision_consistency(self):
         """Test that different precisions produce consistent relative results"""
-        # KNOWN LIMITATION: FusionBasedPartitioner currently doesn't calculate FLOPs
-        # for Dynamo-exported graphs (which use call_function with ATen ops instead
-        # of call_module). This causes precision-independent performance estimates.
-        # TODO: Fix FusionBasedPartitioner._compute_flops() to handle ATen operations
-
-        self.skipTest("FusionBasedPartitioner FLOP calculation needs ATen support for Dynamo graphs")
-
         fp32_result = self.analyzer.analyze_model(
             model_name='resnet18',
             hardware_name='H100',
@@ -239,11 +232,21 @@ class TestUnifiedWorkflows(unittest.TestCase):
             precision=Precision.FP16
         )
 
-        # FP16 should be faster (but not always exactly 2x due to overhead)
-        self.assertLess(fp16_result.total_latency_ms, fp32_result.total_latency_ms)
+        # FP16 should be faster than FP32
+        # Note: Speedup is modest (~1.1×) for batch=1 due to many bandwidth-bound subgraphs
+        # Larger batches show greater speedup as they become more compute-bound
+        self.assertLess(fp16_result.total_latency_ms, fp32_result.total_latency_ms,
+                       "FP16 should be faster than FP32")
 
         # FP16 should use less energy
-        self.assertLess(fp16_result.total_energy_mj, fp32_result.total_energy_mj)
+        self.assertLess(fp16_result.total_energy_mj, fp32_result.total_energy_mj,
+                       "FP16 should use less energy than FP32")
+
+        # Verify non-zero values
+        self.assertGreater(fp32_result.total_latency_ms, 0)
+        self.assertGreater(fp16_result.total_latency_ms, 0)
+        self.assertGreater(fp32_result.total_energy_mj, 0)
+        self.assertGreater(fp16_result.total_energy_mj, 0)
 
         # Note: Memory estimator currently doesn't differentiate by precision
         # (it estimates based on tensor shapes, not runtime precision)
