@@ -113,47 +113,64 @@ class ParallelismDescriptor:
 
 @dataclass
 class SubgraphDescriptor:
-    """Complete description of a computational subgraph (kernel/operation)"""
+    """
+    Unified description of a computational subgraph (single or fused operators).
 
-    # Identity
-    node_id: str
-    node_name: str
-    operation_type: OperationType
-    fusion_pattern: str  # 'conv_bn_relu', 'conv_relu6', 'linear', etc.
+    This class supports both:
+    - Single-operator subgraphs (from GraphPartitioner or unfused operations)
+    - Multi-operator fused subgraphs (from FusionBasedPartitioner)
 
-    # Computation
-    flops: int
-    macs: int  # multiply-accumulate operations
+    For single-op subgraphs: node_ids/node_names/operation_types have single element, num_operators=1
+    For fused subgraphs: node_ids/node_names/operation_types have multiple elements, num_operators>1
+    """
 
-    # Memory
-    input_tensors: List[TensorDescriptor] = field(default_factory=list)
-    output_tensors: List[TensorDescriptor] = field(default_factory=list)
-    weight_tensors: List[TensorDescriptor] = field(default_factory=list)
-    total_input_bytes: int = 0
-    total_output_bytes: int = 0
-    total_weight_bytes: int = 0
-    arithmetic_intensity: float = 0.0  # FLOPs / total_bytes
+    # Identity (unified for single and multi-op)
+    subgraph_id: int  # Numeric ID (required for all subgraphs)
+    node_ids: List[str]  # List of FX node IDs (single-element for unfused)
+    node_names: List[str]  # Human-readable names (single-element for unfused)
+    operation_types: List[OperationType]  # Operation types in order (single-element for unfused)
+    fusion_pattern: str  # 'Conv_BN_ReLU', 'Linear', 'Unfused', etc.
 
-    # Parallelism
+    # Computation (unified naming - total_* for consistency)
+    total_flops: int
+    total_macs: int  # multiply-accumulate operations
+
+    # Memory (external vs internal distinction)
+    total_input_bytes: int  # External inputs (cross subgraph boundary)
+    total_output_bytes: int  # External outputs (cross subgraph boundary)
+    total_weight_bytes: int  # Weights/parameters
+    internal_bytes: int = 0  # Intermediate tensors (saved by fusion, 0 for unfused)
+    arithmetic_intensity: float = 0.0  # FLOPs / external_bytes
+
+    # Fusion metadata
+    num_operators: int = 1  # Number of operators fused (1 for unfused)
+
+    # Parallelism (merged for fused ops)
     parallelism: Optional[ParallelismDescriptor] = None
 
-    # Dependencies
-    depends_on: List[str] = field(default_factory=list)  # node_ids
+    # Dependencies (numeric IDs for subgraph dependencies)
+    depends_on: List[int] = field(default_factory=list)  # Other subgraph IDs
     dependency_type: str = "sequential"  # 'sequential', 'independent', 'partial'
 
     # Hardware hints
     recommended_bottleneck: BottleneckType = BottleneckType.BALANCED
 
-    # Partition reasoning
-    partition_reason: PartitionReason = PartitionReason.OPERATION_BOUNDARY
-    partition_criteria: Dict[str, any] = field(default_factory=dict)  # Supporting data for the decision
+    # Optional: Detailed tensor info (primarily for single-op analysis)
+    input_tensors: List[TensorDescriptor] = field(default_factory=list)
+    output_tensors: List[TensorDescriptor] = field(default_factory=list)
+    weight_tensors: List[TensorDescriptor] = field(default_factory=list)
+
+    # Optional: Partition metadata (primarily for unfused/single-op)
+    partition_reason: Optional[PartitionReason] = None
+    partition_criteria: Dict[str, any] = field(default_factory=dict)
     fusion_candidates: List[str] = field(default_factory=list)  # Node IDs that could have been fused
 
     def __post_init__(self):
         """Compute derived fields"""
-        if self.flops > 0 and (self.total_input_bytes + self.total_output_bytes + self.total_weight_bytes) > 0:
-            total_bytes = self.total_input_bytes + self.total_output_bytes + self.total_weight_bytes
-            self.arithmetic_intensity = self.flops / total_bytes
+        # Calculate arithmetic intensity based on external bytes only
+        external_bytes = self.total_input_bytes + self.total_output_bytes + self.total_weight_bytes
+        if self.total_flops > 0 and external_bytes > 0:
+            self.arithmetic_intensity = self.total_flops / external_bytes
 
             # Classify bottleneck based on arithmetic intensity
             if self.arithmetic_intensity > 50:
@@ -165,8 +182,30 @@ class SubgraphDescriptor:
             else:
                 self.recommended_bottleneck = BottleneckType.BANDWIDTH_BOUND
 
+    def data_movement_reduction(self) -> float:
+        """
+        Calculate reduction in data movement due to fusion.
+
+        Returns:
+            Fraction of memory traffic eliminated (0.0 for unfused, >0.0 for fused)
+        """
+        if self.num_operators <= 1:
+            return 0.0
+
+        # Savings = internal bytes that don't touch global memory due to fusion
+        external_bytes = self.total_input_bytes + self.total_output_bytes + self.total_weight_bytes
+        total_without_fusion = external_bytes + self.internal_bytes
+
+        if total_without_fusion == 0:
+            return 0.0
+
+        return self.internal_bytes / total_without_fusion
+
     def partition_reasoning_summary(self) -> str:
         """Generate human-readable explanation of partition reasoning"""
+        if self.partition_reason is None:
+            return "Partition Reason: Not specified (fused subgraph)\n"
+
         summary = f"Partition Reason: {self.partition_reason.value}\n"
 
         if self.partition_reason == PartitionReason.OPERATION_BOUNDARY:
@@ -197,27 +236,31 @@ class SubgraphDescriptor:
 
         return summary
 
-    # Compatibility properties for hardware mapper integration
+    # Backward compatibility properties for legacy code expecting single-op interface
     @property
-    def total_flops(self) -> int:
-        """Alias for flops to match FusedSubgraph interface"""
-        return self.flops
+    def node_id(self) -> str:
+        """Legacy: First node ID (for single-op compatibility)"""
+        return self.node_ids[0] if self.node_ids else ""
 
     @property
-    def total_macs(self) -> int:
-        """Alias for macs to match FusedSubgraph interface"""
-        return self.macs
+    def node_name(self) -> str:
+        """Legacy: First node name (for single-op compatibility)"""
+        return self.node_names[0] if self.node_names else ""
 
     @property
-    def subgraph_id(self) -> int:
-        """Provide integer ID for mapper compatibility"""
-        # Use hash of node_id for deterministic integer ID
-        return abs(hash(self.node_id)) % (2**31)
+    def operation_type(self) -> OperationType:
+        """Legacy: First operation type (for single-op compatibility)"""
+        return self.operation_types[0] if self.operation_types else OperationType.UNKNOWN
 
     @property
-    def node_names(self) -> List[str]:
-        """Return list of node names for mapper compatibility"""
-        return [self.node_name]
+    def flops(self) -> int:
+        """Legacy: Alias for total_flops"""
+        return self.total_flops
+
+    @property
+    def macs(self) -> int:
+        """Legacy: Alias for total_macs"""
+        return self.total_macs
 
 
 @dataclass
@@ -283,21 +326,34 @@ class ConcurrencyDescriptor:
 
 @dataclass
 class PartitionReport:
-    """Complete statistics from graph partitioning"""
+    """
+    Unified statistics from graph partitioning (single-op or fused).
 
-    # Subgraphs
+    Supports both:
+    - GraphPartitioner output (unfused single-op subgraphs)
+    - FusionBasedPartitioner output (multi-op fused subgraphs)
+    """
+
+    # Subgraphs (unified list of SubgraphDescriptor)
     subgraphs: List[SubgraphDescriptor]
     total_subgraphs: int
 
     # Computation totals
     total_flops: int
     total_macs: int
-    total_memory_traffic: int  # input + output + weights
+    total_memory_traffic: int  # External memory traffic (with fusion)
+
+    # Fusion metrics (NEW - for measuring fusion benefit)
+    original_operators: int = 0  # Number of operators before fusion
+    total_memory_traffic_unfused: int = 0  # What memory traffic would be without fusion
+    data_movement_reduction: float = 0.0  # Fraction of memory traffic saved by fusion
+    avg_fusion_size: float = 1.0  # Average operators per subgraph
+    max_fusion_size: int = 1  # Largest fused subgraph
 
     # Arithmetic intensity distribution
-    average_arithmetic_intensity: float
-    min_arithmetic_intensity: float
-    max_arithmetic_intensity: float
+    average_arithmetic_intensity: float = 0.0
+    min_arithmetic_intensity: float = 0.0
+    max_arithmetic_intensity: float = 0.0
 
     # Subgraph type distribution
     operation_type_counts: Dict[str, int] = field(default_factory=dict)
@@ -309,17 +365,37 @@ class PartitionReport:
     # Bottleneck analysis
     bottleneck_distribution: Dict[str, int] = field(default_factory=dict)
 
-    # Partition reasoning
+    # Partition reasoning (optional - primarily for unfused)
     partition_reason_distribution: Dict[str, int] = field(default_factory=dict)
 
-    # Concurrency analysis
+    # Concurrency analysis (optional)
     concurrency: Optional[ConcurrencyDescriptor] = None
 
-    # Critical path
+    # Critical path (optional)
     critical_path_subgraphs: List[str] = field(default_factory=list)
+
+    # Backward compatibility alias for hardware mappers
+    @property
+    def fused_subgraphs(self) -> List[SubgraphDescriptor]:
+        """Alias for backward compatibility with code expecting FusionReport"""
+        return self.subgraphs
 
     def summary_stats(self) -> str:
         """Generate human-readable summary"""
+        fusion_stats = ""
+        if self.original_operators > self.total_subgraphs:
+            # Fusion occurred
+            fusion_stats = f"""
+Fusion Statistics:
+  Original operators: {self.original_operators}
+  Fused subgraphs: {self.total_subgraphs}
+  Reduction: {self.original_operators / max(1, self.total_subgraphs):.1f}× fewer execution units
+  Average fusion size: {self.avg_fusion_size:.1f} ops/subgraph
+  Max fusion size: {self.max_fusion_size} ops
+  Data movement reduction: {self.data_movement_reduction * 100:.1f}%
+  Memory saved: {(self.total_memory_traffic_unfused - self.total_memory_traffic) / 1e6:.2f} MB
+"""
+
         return f"""
 Graph Partition Summary
 =======================
@@ -327,7 +403,7 @@ Total subgraphs: {self.total_subgraphs}
 Total FLOPs: {self.total_flops / 1e9:.2f} G
 Total memory traffic: {self.total_memory_traffic / 1e6:.2f} MB
 Average arithmetic intensity: {self.average_arithmetic_intensity:.2f} FLOPs/byte
-
+{fusion_stats}
 Operation types:
 {self._format_dict(self.operation_type_counts)}
 

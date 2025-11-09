@@ -142,15 +142,19 @@ def load_and_trace_model(workload_info: Dict) -> Tuple[torch.nn.Module, torch.fx
         except Exception:
             pass
 
-    # Trace with FX
+    # Trace with Dynamo export (state-of-the-art, more reliable than symbolic_trace)
+    # Warm-up first (important for lazy initialization like YOLO)
+    with torch.no_grad():
+        try:
+            _ = model(example_input)
+        except Exception:
+            pass  # Some models fail warm-up, continue anyway
+
     try:
-        traced = torch.fx.symbolic_trace(model)
-    except Exception:
-        # Fallback to Dynamo export
-        import torch._dynamo as torch_dynamo
-        torch_dynamo.config.suppress_errors = True
         exported_program = torch.export.export(model, (example_input,))
         traced = exported_program.module()
+    except Exception as e:
+        raise RuntimeError(f"Failed to trace model with Dynamo: {e}")
 
     # Run shape propagation
     ShapeProp(traced).propagate(example_input)

@@ -33,7 +33,7 @@ import warnings
 
 import torch
 import torch.nn as nn
-from torch.fx import symbolic_trace, GraphModule
+from torch.fx import GraphModule
 from torch.fx.passes.shape_prop import ShapeProp
 from torchvision import models
 
@@ -515,27 +515,50 @@ class UnifiedAnalyzer:
         input_tensor: torch.Tensor,
         config: AnalysisConfig
     ) -> Tuple[GraphModule, PartitionReport]:
-        """Trace model and partition into subgraphs"""
-        # FX trace
-        fx_graph = symbolic_trace(model)
+        """
+        Trace model using PyTorch Dynamo export (state-of-the-art) and partition into subgraphs.
+
+        Dynamo is more reliable than symbolic_trace for complex models like YOLO, transformers, etc.
+        """
+        if self.verbose:
+            print("  Tracing model with PyTorch Dynamo export...")
+
+        # Warm-up model (important for lazy initialization)
+        with torch.no_grad():
+            try:
+                _ = model(input_tensor)
+            except Exception as e:
+                if self.verbose:
+                    print(f"    Note: Warm-up failed ({e}), continuing anyway...")
+
+        # Export with Dynamo (state-of-the-art tracing)
+        try:
+            exported_program = torch.export.export(model, (input_tensor,))
+            fx_graph = exported_program.module()
+            if self.verbose:
+                print("    ✓ Dynamo export successful")
+        except Exception as e:
+            if self.verbose:
+                print(f"    ✗ Dynamo export failed: {e}")
+            raise RuntimeError(f"Failed to trace model with Dynamo: {e}")
 
         # Shape propagation
         shape_prop = ShapeProp(fx_graph)
         shape_prop.propagate(input_tensor)
 
-        # Partition - always use GraphPartitioner for now
-        # FusionBasedPartitioner returns FusionReport which has different structure
-        if config.use_fusion_partitioning:
-            warnings.warn(
-                "Fusion partitioning not yet supported in UnifiedAnalyzer. "
-                "Using GraphPartitioner instead.",
-                UserWarning
-            )
+        # Partition - use FusionBasedPartitioner (required for Dynamo export)
+        # FusionBasedPartitioner works better with Dynamo's flattened graph structure
+        if self.verbose:
+            print("  Running fusion-based partitioning...")
 
-        partitioner = GraphPartitioner()
-        partition_report = partitioner.partition(fx_graph)
+        partitioner = FusionBasedPartitioner()
+        fusion_report = partitioner.partition(fx_graph)
 
-        return fx_graph, partition_report
+        if self.verbose:
+            print(f"    Partitioned into {len(fusion_report.fused_subgraphs)} fused subgraphs")
+            print(f"    Total FLOPs: {fusion_report.total_flops / 1e9:.2f} GFLOPs")
+
+        return fx_graph, fusion_report
 
     def _run_hardware_mapping(
         self,

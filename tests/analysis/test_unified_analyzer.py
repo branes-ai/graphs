@@ -208,33 +208,31 @@ class TestUnifiedAnalyzer(unittest.TestCase):
         self.assertGreater(result.total_latency_ms, 0)
 
     def test_fusion_partitioning(self):
-        """Test with fusion-based partitioning (currently disabled)"""
-        config_no_fusion = AnalysisConfig(use_fusion_partitioning=False)
-        config_fusion = AnalysisConfig(use_fusion_partitioning=True)
+        """Test fusion-based partitioning (now always uses Dynamo + FusionBasedPartitioner)"""
+        # NOTE: With Dynamo-first architecture, we always use FusionBasedPartitioner
+        # The use_fusion_partitioning flag is deprecated but kept for backward compatibility
 
-        result_no_fusion = self.analyzer.analyze_model(
+        result = self.analyzer.analyze_model(
             model_name='resnet18',
             hardware_name='H100',
             batch_size=1,
-            precision=Precision.FP32,
-            config=config_no_fusion
+            precision=Precision.FP32
         )
 
-        # Fusion partitioning currently falls back to GraphPartitioner
-        with self.assertWarns(UserWarning):
-            result_fusion = self.analyzer.analyze_model(
-                model_name='resnet18',
-                hardware_name='H100',
-                batch_size=1,
-                precision=Precision.FP32,
-                config=config_fusion
-            )
+        # Verify we got valid partition results
+        self.assertIsNotNone(result.partition_report)
+        self.assertGreater(len(result.partition_report.subgraphs), 0)
 
-        # Both should use GraphPartitioner, so same number of subgraphs
-        self.assertEqual(
-            len(result_fusion.partition_report.subgraphs),
-            len(result_no_fusion.partition_report.subgraphs)
-        )
+        # Fusion report should have fusion metrics
+        self.assertGreater(result.partition_report.original_operators, 0,
+                          "Should track original operator count")
+        self.assertGreaterEqual(result.partition_report.data_movement_reduction, 0.0,
+                               "Should have data movement reduction metric")
+
+        # With fusion, average fusion size should typically be > 1
+        # (though for some models it might be 1.0 if no fusion opportunities)
+        self.assertGreaterEqual(result.partition_report.avg_fusion_size, 1.0,
+                               "Average fusion size should be >= 1.0")
 
     def test_selective_analysis(self):
         """Test running only specific analyses"""

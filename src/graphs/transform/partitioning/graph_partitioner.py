@@ -178,19 +178,25 @@ class GraphPartitioner:
                 node, graph, flops, input_bytes + output_bytes + weight_bytes
             )
 
-            # Create descriptor
+            # Create descriptor (unified interface - single-op subgraph)
             subgraph = SubgraphDescriptor(
-                node_id=str(id(node)),
-                node_name=node.name,
-                operation_type=op_type,
+                subgraph_id=abs(hash(str(id(node)))) % (2**31),  # Deterministic numeric ID
+                node_ids=[str(id(node))],  # List with single element
+                node_names=[node.name],  # List with single element
+                operation_types=[op_type],  # List with single element
                 fusion_pattern=self._infer_fusion_pattern(node, graph),
-                flops=flops,
-                macs=macs,
+                total_flops=flops,  # Use unified name
+                total_macs=macs,  # Use unified name
                 total_input_bytes=input_bytes,
                 total_output_bytes=output_bytes,
                 total_weight_bytes=weight_bytes,
+                internal_bytes=0,  # No fusion, so no internal bytes
+                num_operators=1,  # Single operator (unfused)
                 parallelism=parallelism,
-                depends_on=depends_on,
+                depends_on=[],  # Will be filled in later with numeric IDs
+                input_tensors=[],  # Could populate with TensorDescriptor but optional for now
+                output_tensors=[],
+                weight_tensors=[],
                 partition_reason=partition_reason,
                 partition_criteria=partition_criteria,
                 fusion_candidates=fusion_candidates
@@ -270,19 +276,22 @@ class GraphPartitioner:
                 node, graph, flops, input_bytes + output_bytes + weight_bytes
             )
 
-            # Create descriptor
+            # Create descriptor (unified interface - single-op subgraph)
             subgraph = SubgraphDescriptor(
-                node_id=str(id(node)),
-                node_name=node.name,
-                operation_type=op_type,
+                subgraph_id=abs(hash(str(id(node)))) % (2**31),
+                node_ids=[str(id(node))],
+                node_names=[node.name],
+                operation_types=[op_type],
                 fusion_pattern=node.name,
-                flops=flops,
-                macs=macs,
+                total_flops=flops,
+                total_macs=macs,
                 total_input_bytes=input_bytes,
                 total_output_bytes=output_bytes,
                 total_weight_bytes=weight_bytes,
+                internal_bytes=0,
+                num_operators=1,
                 parallelism=parallelism,
-                depends_on=depends_on,
+                depends_on=[],
                 partition_reason=partition_reason,
                 partition_criteria=partition_criteria,
                 fusion_candidates=fusion_candidates
