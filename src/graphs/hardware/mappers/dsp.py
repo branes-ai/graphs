@@ -819,3 +819,90 @@ def create_synopsys_arc_ev7x_mapper() -> DSPMapper:
     """
     model = synopsys_arc_ev7x_resource_model()
     return DSPMapper(model)
+
+
+def create_qualcomm_sa8775p_mapper(thermal_profile: str = "30W") -> DSPMapper:
+    """
+    Create hardware mapper for Qualcomm SA8775P Snapdragon Ride.
+
+    ARCHITECTURE:
+    - Hexagon DSP with dual HMX (Hexagon Matrix eXtensions)
+    - Quad HVX vector processors
+    - 5nm TSMC automotive-grade (ASIL D certified)
+    - Mixed precision: INT4/INT8/INT16/FP16
+
+    PERFORMANCE:
+    - 32 TOPS mixed precision (estimated)
+    - 16-20 TOPS INT8 sustained (~50-60% efficiency)
+    - Better efficiency than Jetson Orin AGX (2-6%)
+    - 20-45W TDP range (automotive active cooling)
+
+    PRECISION SUPPORT:
+    - INT8: Primary for CNN inference
+    - INT4: Supported for quantized models
+    - INT16/FP16: Mixed precision workflows
+
+    MEMORY:
+    - LPDDR5 system memory (automotive-grade)
+    - Large L2 cache for Hexagon DSP
+    - TCM (Tightly-Coupled Memory) for low-latency access
+
+    USE CASE:
+    - Automotive ADAS Level 2+/3 (highway pilot, parking)
+    - Multi-camera vision processing
+    - Cockpit compute (HMI, voice, driver monitoring)
+    - Robotics (AMR, inspection robots)
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Limited public benchmarks
+    - TOPS estimate based on automotive SoC market positioning
+    - Hexagon efficiency: 50-60% (better than GPU, worse than dedicated accelerators)
+    """
+    from ..models.automotive.qualcomm_sa8775p import qualcomm_sa8775p_resource_model
+    model = qualcomm_sa8775p_resource_model()
+    return DSPMapper(model, thermal_profile=thermal_profile)
+
+
+def create_qualcomm_snapdragon_ride_mapper(thermal_profile: str = "100W") -> DSPMapper:
+    """
+    Create hardware mapper for Qualcomm Snapdragon Ride Flex.
+
+    ARCHITECTURE:
+    - Multi-chip automotive SoC (ASIL D certified)
+    - Hexagon AI accelerators with HMX/HVX
+    - Dedicated computer vision accelerator
+    - ISP and video codec engines
+    - 4nm TSMC process
+
+    PERFORMANCE:
+    - 700 TOPS mixed precision (peak advertised)
+    - ~350-420 TOPS INT8 sustained (~50-60% efficiency)
+    - Scalable architecture (Ride-1 to Ride-6+ configurations)
+    - 65-130W TDP range (automotive liquid cooling)
+
+    PRECISION SUPPORT:
+    - INT4: Optimal for quantized models
+    - INT8: High performance CNN inference
+    - INT16/FP16: Mixed precision support
+    - BF16: Supported for training/fine-tuning
+
+    MEMORY:
+    - 32-64GB LPDDR5 (automotive-grade)
+    - Large cache hierarchy
+    - High bandwidth for multi-sensor fusion
+
+    USE CASE:
+    - Level 4/5 autonomous driving
+    - Multi-camera sensor fusion (up to 12 cameras)
+    - Radar/Lidar processing
+    - End-to-end neural planning
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Pre-production platform
+    - TOPS based on Qualcomm marketing materials
+    - Efficiency estimates based on Hexagon architecture analysis
+    - First vehicles with Snapdragon Ride expected 2025-2026
+    """
+    from ..models.automotive.qualcomm_snapdragon_ride import qualcomm_snapdragon_ride_resource_model
+    model = qualcomm_snapdragon_ride_resource_model()
+    return DSPMapper(model, thermal_profile=thermal_profile)

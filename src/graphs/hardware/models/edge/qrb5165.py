@@ -15,6 +15,7 @@ from ...resource_model import (
     KPUComputeResource,
     PerformanceCharacteristics,
     ThermalOperatingPoint,
+    BOMCostProfile,
 )
 
 
@@ -166,6 +167,30 @@ def qrb5165_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
+    # BOM COST PROFILE (Estimated @ 10K units)
+    # ========================================================================
+    # QRB5165 is based on Snapdragon 865 (7nm, 2020 platform)
+    # More expensive than QCS6490 (6nm, 2022) due to older process node
+    bom_cost = BOMCostProfile(
+        silicon_die_cost=55.0,        # 7nm die (larger than 6nm)
+        package_cost=14.0,             # Advanced flip-chip package
+        memory_cost=18.0,              # 4GB LPDDR5 on-package (higher than LPDDR4X)
+        pcb_assembly_cost=7.0,         # SMT assembly
+        thermal_solution_cost=3.0,     # Heatsink for 7W
+        other_costs=6.0,               # Testing, connectors, robotics certification
+        total_bom_cost=0,              # Auto-calculated
+        margin_multiplier=2.7,         # Qualcomm robotics platform margin
+        retail_price=0,                # Auto-calculated
+        volume_tier="10K+",
+        process_node="7nm",
+        year=2021,  # Platform introduction year
+        notes="Robotics platform based on Snapdragon 865. Higher BOM than QCS6490 due to 7nm vs 6nm process."
+    )
+
+    # BOM: $55 + $14 + $18 + $7 + $3 + $6 = $103
+    # Retail: $103 × 2.7 = $278 (Qualcomm Robotics RB5 development kit ~$449)
+
+    # ========================================================================
     # HARDWARE RESOURCE MODEL
     # ========================================================================
     return HardwareResourceModel(
@@ -175,6 +200,9 @@ def qrb5165_resource_model() -> HardwareResourceModel:
         threads_per_unit=4,  # HVX units per "processing element"
         warps_per_unit=1,
         warp_size=32,  # Vector lane width (approximation)
+
+        # BOM cost profile
+        bom_cost_profile=bom_cost,
 
         # Thermal operating points
         thermal_operating_points={

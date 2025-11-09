@@ -88,7 +88,7 @@ class BOMCostProfile:
     other_costs: float = 0.0          # Connectors, housing, testing, etc.
 
     # Totals and pricing
-    total_bom_cost: float             # Sum of all component costs
+    total_bom_cost: float = 0.0       # Sum of all component costs (auto-calculated if 0)
     margin_multiplier: float = 2.5    # Typical margin: retail = BOM × margin
     retail_price: float = 0.0         # Customer-facing price (if known)
 
