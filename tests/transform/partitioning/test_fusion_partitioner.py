@@ -189,12 +189,12 @@ def test_metrics_calculations(results: ResultsTracker):
         results.fail_test("FLOPs calculation",
                          f"{actual_flops / 1e9:.2f}G vs expected ~3.64G (error {error * 100:.1f}%)")
 
-    # Test memory calculations
-    print(f"\nMemory Traffic (fused): {report.total_memory_traffic_fused / 1e6:.2f} MB")
+    # Test memory calculations (unified PartitionReport naming)
+    print(f"\nMemory Traffic (fused): {report.total_memory_traffic / 1e6:.2f} MB")
     print(f"Memory Traffic (unfused): {report.total_memory_traffic_unfused / 1e6:.2f} MB")
 
-    if report.total_memory_traffic_fused < report.total_memory_traffic_unfused:
-        reduction = (report.total_memory_traffic_unfused - report.total_memory_traffic_fused) / report.total_memory_traffic_unfused * 100
+    if report.total_memory_traffic < report.total_memory_traffic_unfused:
+        reduction = (report.total_memory_traffic_unfused - report.total_memory_traffic) / report.total_memory_traffic_unfused * 100
         results.pass_test("Memory reduction",
                          f"{reduction:.1f}% reduction from fusion")
     else:
@@ -502,7 +502,7 @@ def test_diverse_architectures(results: ResultsTracker):
                 'operators': total_ops,
                 'efficiency': fusion_efficiency,
                 'flops_g': report.total_flops / 1e9,
-                'memory_mb': report.total_memory_traffic_fused / 1e6,
+                'memory_mb': report.total_memory_traffic / 1e6,
                 'reduction': report.data_movement_reduction * 100
             })
 
