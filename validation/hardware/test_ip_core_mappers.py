@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 """
-Test script for DSP-based AI accelerators:
-- Qualcomm Hexagon DSPs (QRB5165, QCS6490, SA8775P, Snapdragon Ride)
-- TI C7x DSPs (TDA4VM, TDA4VL, TDA4AL, TDA4VH)
+Test script for IP core mappers:
+- CEVA NeuPro-M NPM11
+- Cadence Tensilica Vision Q8
+- Synopsys ARC EV7x
 
-These are integrated DSP processors in complete SoC platforms,
-NOT licensable IP cores.
+These are licensable IP cores for SoC integration, targeting
+semiconductor vendors who integrate them into custom chips.
 
-Tests basic functionality with ResNet-50 model.
+Tests basic functionality with ResNet-50 model @ INT8 precision.
 """
 
 import torch
@@ -23,13 +24,9 @@ sys.path.insert(0, str(repo_root / "src"))
 
 from graphs.transform.partitioning import FusionBasedPartitioner
 from graphs.hardware.mappers.dsp import (
-    create_qrb5165_mapper,
-    create_qualcomm_sa8775p_mapper,
-    create_qualcomm_snapdragon_ride_mapper,
-    create_ti_tda4vm_mapper,
-    create_ti_tda4vl_mapper,
-    create_ti_tda4al_mapper,
-    create_ti_tda4vh_mapper,
+    create_ceva_neupro_npm11_mapper,
+    create_cadence_vision_q8_mapper,
+    create_synopsys_arc_ev7x_mapper,
 )
 from graphs.hardware.resource_model import Precision
 
@@ -106,127 +103,76 @@ def test_mapper(mapper_name, mapper_factory, precision='int8'):
     print(f"  Bandwidth Bound: {hw_report.bandwidth_bound_count}")
     print(f"  Balanced: {hw_report.balanced_count}")
 
+    # BOM cost if available
+    if mapper.resource_model.bom_cost_profile:
+        bom = mapper.resource_model.bom_cost_profile
+        print(f"\nBOM Cost Profile:")
+        print(f"  Total BOM Cost: ${bom.total_bom_cost:.2f}")
+        print(f"  Silicon Die: ${bom.silicon_die_cost:.2f}")
+        print(f"  Package: ${bom.package_cost:.2f}")
+        print(f"  Process Node: {bom.process_node}")
+        print(f"  Volume Tier: {bom.volume_tier}")
+
     return hw_report, mapper
 
 
 def main():
-    """Run tests for all DSP-based AI accelerator mappers"""
+    """Run tests for all IP core mappers"""
     print("="*80)
-    print("Testing DSP-Based AI Accelerators")
+    print("Testing IP Core Mappers")
     print("="*80)
-    print("\nThese are integrated DSP processors in complete SoC platforms.")
-    print("Target customers: OEMs building edge/automotive AI systems")
+    print("\nThese are licensable IP cores for SoC integration.")
+    print("Target customers: Semiconductor vendors, chip designers")
     print("Testing with ResNet-50 model @ INT8 precision\n")
 
     reports = {}
     mappers = {}
 
-    # Test Qualcomm Hexagon DSPs
-    print("\n" + "="*80)
-    print("QUALCOMM HEXAGON DSPs")
-    print("="*80)
-
+    # Test CEVA NeuPro-M NPM11
     try:
-        qrb5165_report, qrb5165_mapper = test_mapper(
-            "Qualcomm QRB5165 (Hexagon 698)",
-            create_qrb5165_mapper,
+        ceva_report, ceva_mapper = test_mapper(
+            "CEVA NeuPro-M NPM11",
+            create_ceva_neupro_npm11_mapper,
             precision='int8'
         )
-        reports['QRB5165'] = qrb5165_report
-        mappers['QRB5165'] = qrb5165_mapper
-        print(f"\n✓ QRB5165 mapper: SUCCESS")
+        reports['CEVA NeuPro-M NPM11'] = ceva_report
+        mappers['CEVA NeuPro-M NPM11'] = ceva_mapper
+        print(f"\n✓ CEVA NeuPro-M NPM11 mapper: SUCCESS")
     except Exception as e:
-        print(f"\n✗ QRB5165 mapper: FAILED - {e}")
+        print(f"\n✗ CEVA NeuPro-M NPM11 mapper: FAILED")
+        print(f"  Error: {e}")
         import traceback
         traceback.print_exc()
 
-
+    # Test Cadence Tensilica Vision Q8
     try:
-        sa8775p_report, sa8775p_mapper = test_mapper(
-            "Qualcomm SA8775P (Automotive)",
-            create_qualcomm_sa8775p_mapper,
+        cadence_report, cadence_mapper = test_mapper(
+            "Cadence Tensilica Vision Q8",
+            create_cadence_vision_q8_mapper,
             precision='int8'
         )
-        reports['SA8775P'] = sa8775p_report
-        mappers['SA8775P'] = sa8775p_mapper
-        print(f"\n✓ SA8775P mapper: SUCCESS")
+        reports['Cadence Tensilica Vision Q8'] = cadence_report
+        mappers['Cadence Tensilica Vision Q8'] = cadence_mapper
+        print(f"\n✓ Cadence Tensilica Vision Q8 mapper: SUCCESS")
     except Exception as e:
-        print(f"\n✗ SA8775P mapper: FAILED - {e}")
+        print(f"\n✗ Cadence Tensilica Vision Q8 mapper: FAILED")
+        print(f"  Error: {e}")
         import traceback
         traceback.print_exc()
 
+    # Test Synopsys ARC EV7x
     try:
-        ride_report, ride_mapper = test_mapper(
-            "Qualcomm Snapdragon Ride (L4/L5)",
-            create_qualcomm_snapdragon_ride_mapper,
+        synopsys_report, synopsys_mapper = test_mapper(
+            "Synopsys ARC EV7x",
+            create_synopsys_arc_ev7x_mapper,
             precision='int8'
         )
-        reports['Snapdragon Ride'] = ride_report
-        mappers['Snapdragon Ride'] = ride_mapper
-        print(f"\n✓ Snapdragon Ride mapper: SUCCESS")
+        reports['Synopsys ARC EV7x'] = synopsys_report
+        mappers['Synopsys ARC EV7x'] = synopsys_mapper
+        print(f"\n✓ Synopsys ARC EV7x mapper: SUCCESS")
     except Exception as e:
-        print(f"\n✗ Snapdragon Ride mapper: FAILED - {e}")
-        import traceback
-        traceback.print_exc()
-
-    # Test TI C7x DSPs
-    print("\n" + "="*80)
-    print("TEXAS INSTRUMENTS C7x DSPs")
-    print("="*80)
-
-    try:
-        tda4vm_report, tda4vm_mapper = test_mapper(
-            "TI TDA4VM (8 TOPS)",
-            create_ti_tda4vm_mapper,
-            precision='int8'
-        )
-        reports['TDA4VM'] = tda4vm_report
-        mappers['TDA4VM'] = tda4vm_mapper
-        print(f"\n✓ TDA4VM mapper: SUCCESS")
-    except Exception as e:
-        print(f"\n✗ TDA4VM mapper: FAILED - {e}")
-        import traceback
-        traceback.print_exc()
-
-    try:
-        tda4vl_report, tda4vl_mapper = test_mapper(
-            "TI TDA4VL (4 TOPS)",
-            create_ti_tda4vl_mapper,
-            precision='int8'
-        )
-        reports['TDA4VL'] = tda4vl_report
-        mappers['TDA4VL'] = tda4vl_mapper
-        print(f"\n✓ TDA4VL mapper: SUCCESS")
-    except Exception as e:
-        print(f"\n✗ TDA4VL mapper: FAILED - {e}")
-        import traceback
-        traceback.print_exc()
-
-    try:
-        tda4al_report, tda4al_mapper = test_mapper(
-            "TI TDA4AL (2 TOPS)",
-            create_ti_tda4al_mapper,
-            precision='int8'
-        )
-        reports['TDA4AL'] = tda4al_report
-        mappers['TDA4AL'] = tda4al_mapper
-        print(f"\n✓ TDA4AL mapper: SUCCESS")
-    except Exception as e:
-        print(f"\n✗ TDA4AL mapper: FAILED - {e}")
-        import traceback
-        traceback.print_exc()
-
-    try:
-        tda4vh_report, tda4vh_mapper = test_mapper(
-            "TI TDA4VH (4 TOPS)",
-            create_ti_tda4vh_mapper,
-            precision='int8'
-        )
-        reports['TDA4VH'] = tda4vh_report
-        mappers['TDA4VH'] = tda4vh_mapper
-        print(f"\n✓ TDA4VH mapper: SUCCESS")
-    except Exception as e:
-        print(f"\n✗ TDA4VH mapper: FAILED - {e}")
+        print(f"\n✗ Synopsys ARC EV7x mapper: FAILED")
+        print(f"  Error: {e}")
         import traceback
         traceback.print_exc()
 
@@ -234,7 +180,7 @@ def main():
     print("\n" + "="*80)
     print("SUMMARY COMPARISON (ResNet-50 @ INT8)")
     print("="*80)
-    print(f"\n{'Platform':<30} {'Latency (ms)':<15} {'FPS':<10} {'Energy (mJ)':<12} {'Util %':<10}")
+    print(f"\n{'IP Core':<30} {'Latency (ms)':<15} {'FPS':<10} {'Energy (mJ)':<12} {'Util %':<10}")
     print("-"*80)
 
     for name, report in reports.items():
@@ -251,18 +197,17 @@ def main():
     print("\n" + "="*80)
     print("BOM COST COMPARISON")
     print("="*80)
-    print(f"\n{'Platform':<30} {'Total BOM':<15} {'Process':<12} {'Market':<15}")
+    print(f"\n{'IP Core':<30} {'Total BOM':<15} {'Die Cost':<12} {'Process':<10}")
     print("-"*80)
 
     for name, mapper in mappers.items():
         try:
             if mapper.resource_model.bom_cost_profile:
                 bom = mapper.resource_model.bom_cost_profile
-                market = "Automotive" if "TDA4" in name or "SA8775P" in name or "Ride" in name else "Robotics/Edge"
                 print(f"{name:<30} "
                       f"${bom.total_bom_cost:<14.2f} "
-                      f"{bom.process_node:<12} "
-                      f"{market:<15}")
+                      f"${bom.silicon_die_cost:<11.2f} "
+                      f"{bom.process_node:<10}")
         except:
             pass
 

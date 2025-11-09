@@ -8,6 +8,7 @@ Models are now organized into subdirectories by category:
 - automotive/: Automotive-grade SoCs
 - mobile/: Mobile GPUs and SoCs
 - accelerators/: Fixed-function and reconfigurable accelerators
+- ip_cores/: Licensable IP cores for SoC integration
 
 Usage:
     from graphs.hardware.models import jetson_thor_resource_model
@@ -43,9 +44,9 @@ from .accelerators.kpu_t256 import kpu_t256_resource_model
 from .accelerators.kpu_t768 import kpu_t768_resource_model
 from .accelerators.xilinx_vitis_ai_dpu import xilinx_vitis_ai_dpu_resource_model
 from .accelerators.stanford_plasticine_cgra import stanford_plasticine_cgra_resource_model
-from .accelerators.ceva_neupro_npm11 import ceva_neupro_npm11_resource_model
-from .accelerators.cadence_vision_q8 import cadence_vision_q8_resource_model
-from .accelerators.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
+from .ip_cores.ceva_neupro_npm11 import ceva_neupro_npm11_resource_model
+from .ip_cores.cadence_vision_q8 import cadence_vision_q8_resource_model
+from .ip_cores.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
 
 __all__ = [
     'h100_pcie_resource_model',

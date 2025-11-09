@@ -38,7 +38,7 @@ Use Cases:
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from ..resource_model import (
     HardwareMapper,
@@ -59,9 +59,9 @@ from ..models.automotive.ti_tda4vm import ti_tda4vm_resource_model
 from ..models.automotive.ti_tda4vl import ti_tda4vl_resource_model
 from ..models.automotive.ti_tda4al import ti_tda4al_resource_model
 from ..models.automotive.ti_tda4vh import ti_tda4vh_resource_model
-from ..models.accelerators.ceva_neupro_npm11 import ceva_neupro_npm11_resource_model
-from ..models.accelerators.cadence_vision_q8 import cadence_vision_q8_resource_model
-from ..models.accelerators.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
+from ..models.ip_cores.ceva_neupro_npm11 import ceva_neupro_npm11_resource_model
+from ..models.ip_cores.cadence_vision_q8 import cadence_vision_q8_resource_model
+from ..models.ip_cores.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
 from graphs.ir.structures import SubgraphDescriptor, ParallelismDescriptor
 
@@ -81,8 +81,8 @@ class DSPMapper(HardwareMapper):
     # Idle power modeling (nanoscale leakage)
     IDLE_POWER_FRACTION = 0.5  # 50% of TDP consumed at idle due to leakage
 
-    def __init__(self, resource_model: HardwareResourceModel):
-        super().__init__(resource_model)
+    def __init__(self, resource_model: HardwareResourceModel, thermal_profile: Optional[str] = None):
+        super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a DSP model
         if resource_model.hardware_type != HardwareType.DSP:
