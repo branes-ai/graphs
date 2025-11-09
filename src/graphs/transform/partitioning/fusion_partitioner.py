@@ -471,12 +471,25 @@ class FusionBasedPartitioner:
         return OperationType.UNKNOWN
 
     def _compute_flops(self, fx_graph: GraphModule, node) -> Tuple[int, int]:
-        """Compute FLOPs and MACs for a node (simplified)"""
-        # This is a simplified version - reuse GraphPartitioner logic for full version
+        """
+        Compute FLOPs and MACs for a node.
 
-        if node.op != 'call_module':
-            return 0, 0
+        Supports both:
+        - call_module (symbolic_trace graphs)
+        - call_function with ATen operations (Dynamo export graphs)
+        """
+        # Handle call_module (backward compatibility with symbolic_trace)
+        if node.op == 'call_module':
+            return self._compute_flops_module(fx_graph, node)
 
+        # Handle call_function (Dynamo export with ATen operations)
+        elif node.op == 'call_function':
+            return self._compute_flops_aten(node)
+
+        return 0, 0
+
+    def _compute_flops_module(self, fx_graph: GraphModule, node) -> Tuple[int, int]:
+        """Compute FLOPs for call_module nodes (symbolic_trace)"""
         module = fx_graph.get_submodule(node.target)
 
         if not hasattr(node, 'meta') or 'tensor_meta' not in node.meta:
@@ -511,6 +524,327 @@ class FusionBasedPartitioner:
             return flops, macs
 
         return 0, 0
+
+    def _compute_flops_aten(self, node) -> Tuple[int, int]:
+        """
+        Compute FLOPs for call_function nodes with ATen operations (Dynamo export).
+
+        Handles common operations:
+        - aten.conv2d.default
+        - aten.linear.default / aten.matmul / aten.addmm
+        - aten.batch_norm.default / aten._native_batch_norm_legit
+        - aten.layer_norm.default
+        """
+        target_str = str(node.target)
+
+        # Conv2d operations
+        if 'conv2d' in target_str:
+            return self._flops_conv2d_aten(node)
+
+        # Linear/matmul operations
+        elif 'linear' in target_str or 'matmul' in target_str or 'addmm' in target_str:
+            return self._flops_linear_aten(node)
+
+        # Batch normalization
+        elif 'batch_norm' in target_str or '_native_batch_norm' in target_str:
+            return self._flops_batchnorm_aten(node)
+
+        # Layer normalization
+        elif 'layer_norm' in target_str:
+            return self._flops_layernorm_aten(node)
+
+        # Pooling (negligible FLOPs, but included for completeness)
+        elif 'pool' in target_str:
+            return self._flops_pool_aten(node)
+
+        # Attention operations (critical for transformers)
+        elif 'scaled_dot_product_attention' in target_str:
+            return self._flops_sdpa_aten(node)
+
+        # Element-wise operations (add, mul, relu, etc.) - minimal FLOPs
+        elif any(op in target_str for op in ['add', 'mul', 'div', 'sub', 'relu', 'sigmoid', 'tanh', 'gelu', 'silu', 'hardtanh']):
+            return self._flops_elementwise_aten(node)
+
+        return 0, 0
+
+    def _flops_conv2d_aten(self, node) -> Tuple[int, int]:
+        """Calculate FLOPs for aten.conv2d.default"""
+        try:
+            # Get output shape from node metadata
+            if 'tensor_meta' not in node.meta:
+                return 0, 0
+
+            output_shape = node.meta['tensor_meta'].shape
+            batch, out_channels, out_h, out_w = output_shape
+
+            # Get weight tensor (second argument in conv2d)
+            # aten.conv2d(input, weight, bias, stride, padding, dilation, groups)
+            if len(node.args) < 2:
+                return 0, 0
+
+            weight_node = node.args[1]
+            if not hasattr(weight_node, 'meta') or 'val' not in weight_node.meta:
+                return 0, 0
+
+            weight_shape = weight_node.meta['val'].shape
+            # Weight shape: [out_channels, in_channels/groups, kH, kW]
+            _, in_channels_per_group, kh, kw = weight_shape
+
+            # Get groups (7th argument, default=1)
+            groups = 1
+            if len(node.args) > 6:
+                groups = node.args[6] if isinstance(node.args[6], int) else 1
+
+            in_channels = in_channels_per_group * groups
+
+            # Calculate MACs
+            if groups == in_channels and groups > 1:
+                # Depthwise convolution
+                macs = batch * in_channels * out_h * out_w * kh * kw
+            else:
+                # Standard or grouped convolution
+                macs = batch * out_channels * out_h * out_w * in_channels_per_group * kh * kw
+
+            flops = 2 * macs  # Each MAC = 1 multiply + 1 add
+            return flops, macs
+
+        except Exception as e:
+            # Graceful degradation - return 0 if we can't parse the node
+            return 0, 0
+
+    def _flops_linear_aten(self, node) -> Tuple[int, int]:
+        """Calculate FLOPs for aten.linear.default, aten.matmul, aten.addmm"""
+        try:
+            # Get output shape
+            if 'tensor_meta' not in node.meta:
+                return 0, 0
+
+            output_shape = node.meta['tensor_meta'].shape
+
+            target_str = str(node.target)
+
+            if 'linear' in target_str:
+                # aten.linear(input, weight, bias)
+                # Output shape: [..., out_features]
+                # Weight shape: [out_features, in_features]
+
+                if len(node.args) < 2:
+                    return 0, 0
+
+                weight_node = node.args[1]
+                if not hasattr(weight_node, 'meta') or 'val' not in weight_node.meta:
+                    return 0, 0
+
+                weight_shape = weight_node.meta['val'].shape
+                out_features, in_features = weight_shape
+
+                # Calculate batch size from output shape
+                batch = 1
+                for dim in output_shape[:-1]:  # All dimensions except last
+                    batch *= dim
+
+                macs = batch * out_features * in_features
+                flops = 2 * macs
+                return flops, macs
+
+            elif 'matmul' in target_str:
+                # aten.matmul(a, b)
+                # Shape: [*, M, K] @ [*, K, N] -> [*, M, N]
+
+                if len(output_shape) < 2:
+                    return 0, 0
+
+                # Get input shapes
+                input_a = node.args[0]
+                input_b = node.args[1]
+
+                if not (hasattr(input_a, 'meta') and 'val' in input_a.meta):
+                    return 0, 0
+                if not (hasattr(input_b, 'meta') and 'val' in input_b.meta):
+                    return 0, 0
+
+                shape_a = input_a.meta['val'].shape
+                shape_b = input_b.meta['val'].shape
+
+                # Simple case: 2D x 2D
+                if len(shape_a) == 2 and len(shape_b) == 2:
+                    M, K = shape_a
+                    K2, N = shape_b
+                    macs = M * N * K
+                    flops = 2 * macs
+                    return flops, macs
+
+                # Batched matmul
+                else:
+                    # Output shape gives us batch * M * N
+                    total_elements = 1
+                    for dim in output_shape:
+                        total_elements *= dim
+
+                    # K dimension is the reduction dimension
+                    K = shape_a[-1] if len(shape_a) > 0 else 1
+
+                    macs = total_elements * K
+                    flops = 2 * macs
+                    return flops, macs
+
+            elif 'addmm' in target_str:
+                # aten.addmm(bias, input, weight)
+                # Same as linear without explicit bias handling
+                if len(node.args) < 3:
+                    return 0, 0
+
+                input_node = node.args[1]
+                weight_node = node.args[2]
+
+                if not (hasattr(input_node, 'meta') and 'val' in input_node.meta):
+                    return 0, 0
+                if not (hasattr(weight_node, 'meta') and 'val' in weight_node.meta):
+                    return 0, 0
+
+                input_shape = input_node.meta['val'].shape
+                weight_shape = weight_node.meta['val'].shape
+
+                # input: [batch, in_features], weight: [in_features, out_features]
+                if len(input_shape) >= 2 and len(weight_shape) >= 2:
+                    batch = input_shape[0]
+                    in_features = input_shape[1]
+                    out_features = weight_shape[1]
+
+                    macs = batch * out_features * in_features
+                    flops = 2 * macs
+                    return flops, macs
+
+            return 0, 0
+
+        except Exception as e:
+            return 0, 0
+
+    def _flops_batchnorm_aten(self, node) -> Tuple[int, int]:
+        """Calculate FLOPs for batch normalization"""
+        try:
+            # BatchNorm: 2 ops per element (subtract mean, divide by std)
+            # Plus scale and shift: 2 more ops
+            # Total: ~4 ops per element
+
+            if 'tensor_meta' not in node.meta:
+                return 0, 0
+
+            output_shape = node.meta['tensor_meta'].shape
+            num_elements = 1
+            for dim in output_shape:
+                num_elements *= dim
+
+            # 4 operations per element (normalize + scale + shift)
+            flops = 4 * num_elements
+            macs = 0  # Not really MACs, just element-wise ops
+
+            return flops, macs
+
+        except Exception as e:
+            return 0, 0
+
+    def _flops_layernorm_aten(self, node) -> Tuple[int, int]:
+        """Calculate FLOPs for layer normalization"""
+        try:
+            # Similar to batch norm: 4 ops per element
+            if 'tensor_meta' not in node.meta:
+                return 0, 0
+
+            output_shape = node.meta['tensor_meta'].shape
+            num_elements = 1
+            for dim in output_shape:
+                num_elements *= dim
+
+            flops = 4 * num_elements
+            macs = 0
+
+            return flops, macs
+
+        except Exception as e:
+            return 0, 0
+
+    def _flops_pool_aten(self, node) -> Tuple[int, int]:
+        """Calculate FLOPs for pooling operations (negligible)"""
+        # Pooling has minimal FLOPs (just comparisons/averages)
+        # For simplicity, we return 0
+        return 0, 0
+
+    def _flops_elementwise_aten(self, node) -> Tuple[int, int]:
+        """Calculate FLOPs for element-wise operations"""
+        try:
+            if 'tensor_meta' not in node.meta:
+                return 0, 0
+
+            output_shape = node.meta['tensor_meta'].shape
+            num_elements = 1
+            for dim in output_shape:
+                num_elements *= dim
+
+            # 1 op per element for most element-wise operations
+            flops = num_elements
+            macs = 0
+
+            return flops, macs
+
+        except Exception as e:
+            return 0, 0
+
+    def _flops_sdpa_aten(self, node) -> Tuple[int, int]:
+        """
+        Calculate FLOPs for aten.scaled_dot_product_attention
+
+        SDPA computes: softmax(Q @ K^T / sqrt(d)) @ V
+
+        Operations:
+        1. Q @ K^T: matmul [batch, num_heads, seq_len, head_dim] @ [batch, num_heads, head_dim, seq_len]
+           → [batch, num_heads, seq_len, seq_len]
+           FLOPs = batch * num_heads * seq_len * seq_len * head_dim * 2
+
+        2. Scale (/ sqrt(d)): element-wise division
+           FLOPs = batch * num_heads * seq_len * seq_len
+
+        3. Softmax: exp + sum + div ≈ 5 ops per element
+           FLOPs = batch * num_heads * seq_len * seq_len * 5
+
+        4. Attention @ V: matmul [batch, num_heads, seq_len, seq_len] @ [batch, num_heads, seq_len, head_dim]
+           → [batch, num_heads, seq_len, head_dim]
+           FLOPs = batch * num_heads * seq_len * seq_len * head_dim * 2
+
+        Total ≈ 2 * (batch * num_heads * seq_len * seq_len * head_dim * 2) + softmax overhead
+        """
+        try:
+            # Get output shape
+            if 'tensor_meta' not in node.meta:
+                return 0, 0
+
+            output_shape = node.meta['tensor_meta'].shape
+            # Output: [batch, num_heads, seq_len, head_dim]
+
+            if len(output_shape) != 4:
+                return 0, 0
+
+            batch, num_heads, seq_len, head_dim = output_shape
+
+            # Q @ K^T
+            qkt_macs = batch * num_heads * seq_len * seq_len * head_dim
+            qkt_flops = 2 * qkt_macs
+
+            # Softmax overhead (exp, sum, div, etc.)
+            softmax_flops = batch * num_heads * seq_len * seq_len * 5
+
+            # Attention @ V
+            attn_v_macs = batch * num_heads * seq_len * seq_len * head_dim
+            attn_v_flops = 2 * attn_v_macs
+
+            # Total
+            total_macs = qkt_macs + attn_v_macs
+            total_flops = qkt_flops + softmax_flops + attn_v_flops
+
+            return total_flops, total_macs
+
+        except Exception as e:
+            return 0, 0
 
     def _compute_memory(self, fx_graph: GraphModule, node) -> Dict[str, int]:
         """Compute memory usage for a node"""
