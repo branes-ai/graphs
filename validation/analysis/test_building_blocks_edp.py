@@ -22,7 +22,7 @@ import torch.nn as nn
 
 from graphs.analysis.architecture_comparator import ArchitectureComparator
 from graphs.hardware.mappers.cpu import create_intel_cpu_mapper
-from graphs.hardware.mappers.gpu import create_h100_mapper
+from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
 from graphs.hardware.resource_model import Precision
@@ -225,7 +225,7 @@ def main():
 
     # Setup architectures (use 2 for faster testing)
     architectures = {
-        'GPU': create_h100_mapper(),
+        'GPU': create_h100_pcie_80gb_mapper(),
         'KPU': create_kpu_t256_mapper(),
     }
 

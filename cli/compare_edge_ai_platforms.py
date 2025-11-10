@@ -39,7 +39,7 @@ from dataclasses import dataclass
 
 from graphs.transform.partitioning import FusionBasedPartitioner
 from graphs.hardware.mappers.accelerators.hailo import create_hailo8_mapper, create_hailo10h_mapper
-from graphs.hardware.mappers.gpu import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
+from graphs.hardware.mappers.gpu import create_jetson_orin_nano_8gb_mapper, create_jetson_orin_agx_64gb_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper, create_kpu_t256_mapper
 from graphs.hardware.mappers.dsp import create_qrb5165_mapper, create_ti_tda4vm_mapper
 from graphs.hardware.resource_model import Precision
@@ -203,7 +203,7 @@ def run_category_1_comparison():
     # Hardware configurations
     hardware_configs = [
         ("Hailo-8", create_hailo8_mapper(), "Standard", 2.5, "int8"),
-        ("Jetson-Orin-Nano", create_jetson_orin_nano_mapper(thermal_profile="7W"), "7W", 7.0, "int8"),
+        ("Jetson-Orin-Nano", create_jetson_orin_nano_8gb_mapper(thermal_profile="7W"), "7W", 7.0, "int8"),
         ("KPU-T64", create_kpu_t64_mapper(thermal_profile="6W"), "6W", 6.0, "int8"),
         ("QRB5165-Hexagon698", create_qrb5165_mapper(), "7W", 7.0, "int8"),
         ("TI-TDA4VM-C7x", create_ti_tda4vm_mapper(thermal_profile="10W"), "10W", 10.0, "int8"),
@@ -247,7 +247,7 @@ def run_category_2_comparison():
     # Hardware configurations
     hardware_configs = [
         ("Hailo-10H", create_hailo10h_mapper(), "Standard", 2.5, "int8"),
-        ("Jetson-Orin-AGX", create_jetson_orin_agx_mapper(thermal_profile="15W"), "15W", 15.0, "int8"),
+        ("Jetson-Orin-AGX", create_jetson_orin_agx_64gb_mapper(thermal_profile="15W"), "15W", 15.0, "int8"),
         ("KPU-T256", create_kpu_t256_mapper(thermal_profile="30W"), "30W", 30.0, "int8"),
     ]
 

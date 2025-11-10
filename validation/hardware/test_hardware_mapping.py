@@ -25,7 +25,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
-from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from src.graphs.hardware.resource_model import Precision
 
 
@@ -111,7 +111,7 @@ def test_resnet18_mapping():
 
     # Phase 2: Hardware mapping
     print("[5/5] Mapping to H100 GPU (Phase 2)...")
-    gpu_mapper = create_h100_mapper()
+    gpu_mapper = create_h100_pcie_80gb_mapper()
 
     # Test different precisions
     precisions = [

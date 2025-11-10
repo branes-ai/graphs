@@ -24,7 +24,7 @@ if __name__ == '__main__':
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
-from graphs.hardware.mappers.gpu import create_h100_mapper
+from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from graphs.hardware.resource_model import Precision
 
 

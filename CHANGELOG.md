@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-10] - GPU Naming Standardization
+
+### Changed
+
+**BREAKING (Deprecated): GPU Mapper Naming Convention Standardization**
+
+All NVIDIA GPU hardware mappers have been renamed to follow a consistent `{Architecture}-{FormFactor}-{Memory}` naming convention for improved clarity and consistency.
+
+**Deprecation Period**: 6 months (until 2026-05-10)
+
+**Datacenter GPUs:**
+- `create_h100_mapper()` → `create_h100_pcie_80gb_mapper()` (model: `H100-PCIe-80GB`)
+- `create_a100_mapper()` → `create_a100_sxm4_80gb_mapper()` (model: `A100-SXM4-80GB`)
+- `create_v100_mapper()` → `create_v100_sxm2_32gb_mapper()` (model: `V100-SXM2-32GB`)
+- `create_t4_mapper()` → `create_t4_pcie_16gb_mapper()` (model: `T4-PCIe-16GB`)
+
+**Jetson Edge Platforms:**
+- `create_jetson_orin_agx_mapper()` → `create_jetson_orin_agx_64gb_mapper()` (model: `Jetson-Orin-AGX-64GB`)
+- `create_jetson_orin_nano_mapper()` → `create_jetson_orin_nano_8gb_mapper()` (model: `Jetson-Orin-Nano-8GB`)
+- `create_jetson_thor_mapper()` → `create_jetson_thor_128gb_mapper()` (model: `Jetson-Thor-128GB`)
+
+**Migration:**
+- Old names still work with `DeprecationWarning`
+- Update imports from `create_h100_mapper` to `create_h100_pcie_80gb_mapper`
+- See `docs/GPU_NAMING_MIGRATION_GUIDE.md` for complete migration instructions
+- UnifiedAnalyzer supports both old and new hardware string names
+
+**Files Modified:**
+- 7 model files renamed (datacenter: 3, edge: 2, automotive: 1)
+- 6 package `__init__.py` files updated
+- 1 core mapper file (`gpu.py`) - added 7 new functions + 7 deprecation wrappers
+- 35 files updated across CLI tools, tests, and validation
+- Total: 42 files modified
+
+**Rationale:**
+- Eliminates ambiguity (e.g., which H100 variant? 80GB or other?)
+- Consistent with industry standards (explicit specifications)
+- Future-proof for multiple variants of same architecture
+- Better hardware discovery and selection
+
+**Backward Compatibility:** ✅ Full (6-month deprecation period)
+
+### Added
+
+**New Documentation:**
+- `docs/GPU_NAMING_MIGRATION_GUIDE.md` - Complete migration guide with examples and FAQ
+- `docs/GPU_NAMING_REFACTORING_COMPLETE.md` - Technical implementation summary
+
+**Updated Documentation:**
+- `docs/B100_INTEGRATION_AND_EMBODIED_AI_FOCUS.md` - Updated B100 references
+- `CLAUDE.md` - Added GPU naming convention note
+
+---
+
 ## [2025-11-09] - Automotive Hardware Analysis - All Critical Fixes
 
 ### Changed

@@ -1,5 +1,8 @@
 """
-T4 Resource Model hardware resource model.
+NVIDIA T4 PCIe 16GB Resource Model
+
+FORM FACTOR: PCIe (add-in card, inference-optimized)
+MEMORY: 16 GB GDDR6
 
 Extracted from resource_model.py during refactoring.
 """
@@ -18,9 +21,12 @@ from ...resource_model import (
 )
 
 
-def t4_resource_model() -> HardwareResourceModel:
+def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA T4 resource model - Turing generation (2018).
+    NVIDIA T4 PCIe 16GB resource model - Turing generation (2018).
+
+    FORM FACTOR: PCIe (add-in card, inference-optimized)
+    MEMORY: 16 GB GDDR6
 
     ARCHITECTURE:
     - Inference-optimized GPU (low power, high INT8 throughput)
@@ -48,7 +54,7 @@ def t4_resource_model() -> HardwareResourceModel:
     - Edge servers
     """
     return HardwareResourceModel(
-        name="T4",
+        name="T4-PCIe-16GB",
         hardware_type=HardwareType.GPU,
         compute_units=40,  # SMs
         threads_per_unit=1024,  # Reduced from V100

@@ -14,8 +14,8 @@ import sys
 sys.path.insert(0, 'src')
 
 from graphs.hardware.mappers.gpu import (
-    create_h100_mapper,
-    create_jetson_thor_mapper,
+    create_h100_pcie_80gb_mapper,
+    create_jetson_thor_128gb_mapper,
 )
 from graphs.hardware.mappers.cpu import (
     create_intel_xeon_platinum_8490h_mapper,
@@ -41,7 +41,7 @@ class TestIdlePowerConstant:
 
     def test_gpu_mapper_has_idle_power_constant(self):
         """GPU mappers should have IDLE_POWER_FRACTION = 0.5"""
-        mapper = create_h100_mapper()
+        mapper = create_h100_pcie_80gb_mapper()
         assert hasattr(mapper, 'IDLE_POWER_FRACTION'), \
             "GPUMapper missing IDLE_POWER_FRACTION constant"
         assert mapper.IDLE_POWER_FRACTION == 0.5, \
@@ -93,7 +93,7 @@ class TestIdlePowerMethod:
 
     def test_gpu_mapper_has_idle_power_method(self):
         """GPU mappers should have compute_energy_with_idle_power() method"""
-        mapper = create_h100_mapper()
+        mapper = create_h100_pcie_80gb_mapper()
         assert hasattr(mapper, 'compute_energy_with_idle_power'), \
             "GPUMapper missing compute_energy_with_idle_power() method"
         assert callable(mapper.compute_energy_with_idle_power), \

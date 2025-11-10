@@ -61,7 +61,7 @@ from dataclasses import dataclass, field
 
 from graphs.transform.partitioning import FusionBasedPartitioner
 from graphs.hardware.mappers.dsp import create_ti_tda4vm_mapper
-from graphs.hardware.mappers.gpu import create_jetson_orin_nano_mapper, create_jetson_orin_agx_mapper
+from graphs.hardware.mappers.gpu import create_jetson_orin_nano_8gb_mapper, create_jetson_orin_agx_64gb_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
 from graphs.hardware.resource_model import Precision
 
@@ -312,7 +312,7 @@ def run_front_camera_adas_comparison():
     # Hardware configurations
     hardware_configs = [
         ("TI-TDA4VM-C7x", create_ti_tda4vm_mapper(thermal_profile="10W"), "10W", 10.0, "int8", True, "automotive"),
-        ("Jetson-Orin-Nano", create_jetson_orin_nano_mapper(thermal_profile="15W"), "15W", 15.0, "int8", False, "consumer"),
+        ("Jetson-Orin-Nano", create_jetson_orin_nano_8gb_mapper(thermal_profile="15W"), "15W", 15.0, "int8", False, "consumer"),
     ]
 
     # Automotive models
@@ -367,7 +367,7 @@ def run_multi_camera_adas_comparison():
     # Hardware configurations
     hardware_configs = [
         ("TI-TDA4VM-C7x", create_ti_tda4vm_mapper(thermal_profile="20W"), "20W", 20.0, "int8", True, "automotive"),
-        ("Jetson-Orin-AGX", create_jetson_orin_agx_mapper(thermal_profile="15W"), "15W", 15.0, "int8", False, "consumer"),
+        ("Jetson-Orin-AGX", create_jetson_orin_agx_64gb_mapper(thermal_profile="15W"), "15W", 15.0, "int8", False, "consumer"),
         ("KPU-T256", create_kpu_t256_mapper(thermal_profile="30W"), "25W", 25.0, "int8", False, "consumer"),
     ]
 

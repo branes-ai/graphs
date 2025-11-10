@@ -165,9 +165,9 @@ def load_and_trace_model(workload_info: Dict) -> Tuple[torch.nn.Module, torch.fx
 def get_hardware_mapper(hardware_name: str):
     """Create hardware mapper for the specified platform"""
     from graphs.hardware.mappers.gpu import (
-        create_jetson_orin_nano_mapper,
-        create_jetson_orin_agx_mapper,
-        create_jetson_thor_mapper,
+        create_jetson_orin_nano_8gb_mapper,
+        create_jetson_orin_agx_64gb_mapper,
+        create_jetson_thor_128gb_mapper,
     )
     from graphs.hardware.mappers.accelerators.tpu import (
         create_coral_edge_tpu_mapper,
@@ -194,17 +194,17 @@ def get_hardware_mapper(hardware_name: str):
         "Hailo-10H": create_hailo10h_mapper,
         "Coral-Edge-TPU": create_coral_edge_tpu_mapper,
         "Qualcomm-QCS6490": create_qrb5165_mapper,  # Use QRB5165 as proxy
-        "Jetson-Orin-Nano": create_jetson_orin_nano_mapper,
+        "Jetson-Orin-Nano": create_jetson_orin_nano_8gb_mapper,
 
         # Mid-range
         "KPU-T256": create_kpu_t256_mapper,
         "Qualcomm-SA8775P": create_qualcomm_sa8775p_mapper,
-        "Jetson-Orin-AGX": create_jetson_orin_agx_mapper,
+        "Jetson-Orin-AGX": create_jetson_orin_agx_64gb_mapper,
 
         # High-end
         "KPU-T768": create_kpu_t768_mapper,
         "Qualcomm-Snapdragon-Ride": create_qualcomm_snapdragon_ride_mapper,
-        "Jetson-Thor": create_jetson_thor_mapper,
+        "Jetson-Thor": create_jetson_thor_128gb_mapper,
     }
 
     if hardware_name not in mapper_funcs:

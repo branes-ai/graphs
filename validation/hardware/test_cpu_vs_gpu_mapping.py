@@ -25,7 +25,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
-from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
 from src.graphs.hardware.resource_model import Precision
 
@@ -78,7 +78,7 @@ def test_cpu_vs_gpu():
     # Hardware mappers
     print("[4/4] Creating hardware mappers...")
     mappers = {
-        "H100 GPU": create_h100_mapper(),
+        "H100 GPU": create_h100_pcie_80gb_mapper(),
         "Intel CPU (AVX-512)": create_intel_cpu_mapper("avx512"),
         "Intel CPU (AVX-2)": create_intel_cpu_mapper("avx2"),
         "AMD CPU (AVX-2)": create_amd_cpu_mapper(),

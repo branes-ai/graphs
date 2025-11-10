@@ -37,9 +37,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.transform.partitioning import FusionBasedPartitioner, FusionReport
 from src.graphs.hardware.mappers.gpu import (
-    create_h100_mapper,
-    create_jetson_orin_agx_mapper,
-    create_jetson_thor_mapper
+    create_h100_pcie_80gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_thor_128gb_mapper
 )
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
 from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper, create_kpu_t256_mapper
@@ -107,8 +107,8 @@ def test_all_hardware():
     print("[4/4] Creating hardware mappers with REALISTIC THERMAL PROFILES...")
     mappers = {
         # Edge AI - Jetson family
-        "Jetson-Orin-AGX @ 15W": create_jetson_orin_agx_mapper(thermal_profile="15W"),
-        "Jetson-Thor @ 30W": create_jetson_thor_mapper(thermal_profile="30W"),
+        "Jetson-Orin-AGX @ 15W": create_jetson_orin_agx_64gb_mapper(thermal_profile="15W"),
+        "Jetson-Thor @ 30W": create_jetson_thor_128gb_mapper(thermal_profile="30W"),
 
         # KPU T100 - Embodied AI SKUs (70 INT8, 20 BF16, 10 Matrix tiles)
         "Stillwater KPU-T64 @ 6W (70/20/10)": create_kpu_t64_mapper(thermal_profile="6W"),
@@ -122,7 +122,7 @@ def test_all_hardware():
 
         # Cloud/Datacenter
         "TPU v4": create_tpu_v4_mapper(),
-        "H100 GPU": create_h100_mapper(),
+        "H100 GPU": create_h100_pcie_80gb_mapper(),
 
         # Edge accelerators
         "Coral-Edge-TPU": create_coral_edge_tpu_mapper(),

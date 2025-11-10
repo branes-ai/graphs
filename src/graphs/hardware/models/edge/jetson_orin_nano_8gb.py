@@ -1,5 +1,7 @@
 """
-Jetson Orin Nano Resource Model hardware resource model.
+Jetson Orin Nano 8GB Resource Model hardware resource model.
+
+MEMORY: 8 GB LPDDR5
 
 Extracted from resource_model.py during refactoring.
 """
@@ -19,9 +21,11 @@ from ...resource_model import (
 )
 
 
-def jetson_orin_nano_resource_model() -> HardwareResourceModel:
+def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA Jetson Orin Nano (8GB variant) with realistic DVFS-aware power modeling.
+    NVIDIA Jetson Orin Nano 8GB with realistic DVFS-aware power modeling.
+
+    MEMORY: 8 GB LPDDR5
 
     Configuration: Nano variant (1024 CUDA cores, 16 Ampere SMs, 32 Tensor Cores)
 
@@ -187,7 +191,7 @@ def jetson_orin_nano_resource_model() -> HardwareResourceModel:
     # Hardware Resource Model
     # ========================================================================
     return HardwareResourceModel(
-        name="Jetson-Orin-Nano",
+        name="Jetson-Orin-Nano-8GB",
         hardware_type=HardwareType.GPU,
         compute_units=num_sms,
         threads_per_unit=64,

@@ -57,12 +57,12 @@ from graphs.hardware.resource_model import Precision, HardwareResourceModel
 
 # Hardware mappers
 from graphs.hardware.mappers.gpu import (
-    create_h100_mapper,
-    create_a100_mapper,
-    create_v100_mapper,
-    create_jetson_orin_agx_mapper,
-    create_jetson_orin_nano_mapper,
-    create_jetson_thor_mapper,
+    create_h100_pcie_80gb_mapper,
+    create_a100_sxm4_80gb_mapper,
+    create_v100_sxm2_32gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
+    create_jetson_thor_128gb_mapper,
 )
 from graphs.hardware.mappers.accelerators.tpu import (
     create_tpu_v4_mapper,
@@ -156,17 +156,17 @@ def create_hardware_mapper(hardware_name: str, precision: Precision = Precision.
 
     hardware_map = {
         # GPUs - Datacenter
-        'h100': create_h100_mapper,
-        'h100-pcie': create_h100_mapper,
-        'a100': create_a100_mapper,
-        'v100': create_v100_mapper,
+        'h100': create_h100_pcie_80gb_mapper,
+        'h100-pcie': create_h100_pcie_80gb_mapper,
+        'a100': create_a100_sxm4_80gb_mapper,
+        'v100': create_v100_sxm2_32gb_mapper,
 
         # GPUs - Edge
-        'jetson-orin-agx': create_jetson_orin_agx_mapper,
-        'jetson-orin': create_jetson_orin_agx_mapper,
-        'jetson-orin-nano': create_jetson_orin_nano_mapper,
-        'jetson-nano': create_jetson_orin_nano_mapper,
-        'jetson-thor': create_jetson_thor_mapper,
+        'jetson-orin-agx': create_jetson_orin_agx_64gb_mapper,
+        'jetson-orin': create_jetson_orin_agx_64gb_mapper,
+        'jetson-orin-nano': create_jetson_orin_nano_8gb_mapper,
+        'jetson-nano': create_jetson_orin_nano_8gb_mapper,
+        'jetson-thor': create_jetson_thor_128gb_mapper,
 
         # TPUs
         'tpu-v4': create_tpu_v4_mapper,

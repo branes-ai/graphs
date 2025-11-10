@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer
-from graphs.hardware.mappers.gpu import create_h100_mapper
+from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
 from graphs.hardware.resource_model import Precision
 
