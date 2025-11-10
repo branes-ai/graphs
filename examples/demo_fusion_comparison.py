@@ -72,7 +72,7 @@ def test_fusion(model_name='resnet18', input_shape=(1, 3, 224, 224)):
 
     print(f"\nMemory Traffic:")
     unfused_memory = unfused_report.total_memory_traffic / 1e6
-    fused_memory = fusion_report.total_memory_traffic_fused / 1e6
+    fused_memory = fusion_report.total_memory_traffic / 1e6
     unfused_estimate = fusion_report.total_memory_traffic_unfused / 1e6
 
     print(f"  Unfused traffic: {unfused_estimate:.2f} MB (estimated from fusion analysis)")
@@ -155,7 +155,7 @@ def test_fusion(model_name='resnet18', input_shape=(1, 3, 224, 224)):
     print(f"   - Fused: {fusion_report.total_subgraphs} coarse kernels → better SM occupancy")
 
     print(f"\n4. Most Common Fusion Pattern:")
-    top_pattern = max(fusion_report.fusion_patterns.items(), key=lambda x: x[1])
+    top_pattern = max(fusion_report.fusion_pattern_counts.items(), key=lambda x: x[1])
     print(f"   - {top_pattern[0]}: {top_pattern[1]} occurrences")
 
 

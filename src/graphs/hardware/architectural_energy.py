@@ -639,11 +639,11 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
             execution_context = {}
 
         # Domain tracking per operation
-        domain_tracking_energy = ops * self.domain_tracking_per_op
+        domain_tracking_energy = ops * self.domainflow_tracking_per_op
 
         # Kernel changes (when computation pattern changes)
         num_kernel_changes = execution_context.get('kernel_changes', 1)
-        kernel_load_energy = num_kernel_changes * self.schedule_adaptation_energy
+        kernel_load_energy = num_kernel_changes * self.dataflow_adaptation_energy
 
         # Data movement through domains
         num_elements = max(1, bytes_transferred // 4)
@@ -654,7 +654,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
         memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
-        total_domain_overhead = domain_tracking_energy + wavefront_energy + schedule_energy
+        total_domain_overhead = domain_tracking_energy + kernel_load_energy
         total_data_movement = injection_energy + extraction_energy
 
         explanation = (
@@ -662,13 +662,10 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
             f"  Domain Tracking:\n"
             f"    - Operations: {ops:,}\n"
             f"    - Energy: {domain_tracking_energy*1e12:.2f} pJ "
-            f"({ops:,} x {self.domain_tracking_per_op*1e12:.2f} pJ)\n"
-            f"  Wavefront Management:\n"
-            f"    - Wavefronts: {num_wavefronts:,}\n"
-            f"    - Energy: {wavefront_energy*1e12:.2f} pJ\n"
+            f"({ops:,} x {self.domainflow_tracking_per_op*1e12:.2f} pJ)\n"
             f"  Schedule Adaptation:\n"
-            f"    - Schedule changes: {num_schedule_changes}\n"
-            f"    - Energy: {schedule_energy*1e12:.2f} pJ\n"
+            f"    - Schedule changes: {num_kernel_changes}\n"
+            f"    - Energy: {kernel_load_energy*1e12:.2f} pJ\n"
             f"  Domain Data Movement:\n"
             f"    - Elements: {num_elements:,}\n"
             f"    - Injection: {injection_energy*1e12:.2f} pJ\n"
@@ -693,8 +690,9 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
             control_overhead=total_domain_overhead,
             extra_details={
                 'domain_tracking_energy': domain_tracking_energy,
-                'wavefront_energy': wavefront_energy,
-                'schedule_energy': schedule_energy,
+                'kernel_load_energy': kernel_load_energy,
+                'injection_energy': injection_energy,
+                'extraction_energy': extraction_energy,
             },
             explanation=explanation
         )
