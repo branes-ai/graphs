@@ -222,19 +222,38 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
 def discover_gpu_mappers() -> List[HardwareMapperInfo]:
     """Discover all GPU mappers"""
     from graphs.hardware.mappers.gpu import (
-        create_h100_mapper,
-        create_jetson_orin_agx_mapper,
-        create_jetson_orin_nano_mapper,
-        create_jetson_thor_mapper,
+        create_h100_pcie_80gb_mapper,
+        create_b100_smx_mapper,
+        create_jetson_orin_agx_64gb_mapper,
+        create_jetson_orin_nano_8gb_mapper,
+        create_jetson_thor_128gb_mapper,
         create_arm_mali_g78_mp20_mapper,
     )
 
     mappers = []
 
-    # NVIDIA H100
-    mapper = create_h100_mapper()
+    # NVIDIA B100 SXM 192GB
+    mapper = create_b100_smx_mapper()
     mappers.append(HardwareMapperInfo(
-        name="NVIDIA H100 PCIe",
+        name="NVIDIA B100 SXM 192GB",
+        category="GPU",
+        deployment="Datacenter",
+        manufacturer="NVIDIA",
+        compute_units=mapper.resource_model.compute_units,
+        peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
+        peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
+        memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
+        power_tdp=700.0,
+        thermal_profiles=[],
+        use_cases=["LLM training", "FP4/FP6 inference", "MoE models"],
+        factory_function="create_b100_smx_mapper",
+        hardware_type="programmable_isa"
+    ))
+
+    # NVIDIA H100 PCIe 80GB
+    mapper = create_h100_pcie_80gb_mapper()
+    mappers.append(HardwareMapperInfo(
+        name="NVIDIA H100 PCIe 80GB",
         category="GPU",
         deployment="Datacenter",
         manufacturer="NVIDIA",
@@ -245,14 +264,14 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         power_tdp=350.0,
         thermal_profiles=[],
         use_cases=["LLM inference", "Cloud AI"],
-        factory_function="create_h100_mapper",
+        factory_function="create_h100_pcie_80gb_mapper",
         hardware_type="programmable_isa"
     ))
 
-    # Jetson Orin AGX
-    mapper = create_jetson_orin_agx_mapper()
+    # Jetson Orin AGX 64GB
+    mapper = create_jetson_orin_agx_64gb_mapper()
     mappers.append(HardwareMapperInfo(
-        name="NVIDIA Jetson Orin AGX",
+        name="NVIDIA Jetson Orin AGX 64GB",
         category="GPU",
         deployment="Edge",
         manufacturer="NVIDIA",
@@ -263,14 +282,14 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         power_tdp=60.0,
         thermal_profiles=["15W", "30W", "60W"],
         use_cases=["Autonomous robots", "Edge AI"],
-        factory_function="create_jetson_orin_agx_mapper",
+        factory_function="create_jetson_orin_agx_64gb_mapper",
         hardware_type="programmable_isa"
     ))
 
-    # Jetson Orin Nano
-    mapper = create_jetson_orin_nano_mapper()
+    # Jetson Orin Nano 8GB
+    mapper = create_jetson_orin_nano_8gb_mapper()
     mappers.append(HardwareMapperInfo(
-        name="NVIDIA Jetson Orin Nano",
+        name="NVIDIA Jetson Orin Nano 8GB",
         category="GPU",
         deployment="Edge",
         manufacturer="NVIDIA",
@@ -281,14 +300,14 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         power_tdp=15.0,
         thermal_profiles=["7W", "15W"],
         use_cases=["Edge inference", "IoT"],
-        factory_function="create_jetson_orin_nano_mapper",
+        factory_function="create_jetson_orin_nano_8gb_mapper",
         hardware_type="programmable_isa"
     ))
 
-    # Jetson Thor
-    mapper = create_jetson_thor_mapper()
+    # Jetson Thor 128GB
+    mapper = create_jetson_thor_128gb_mapper()
     mappers.append(HardwareMapperInfo(
-        name="NVIDIA Jetson Thor",
+        name="NVIDIA Jetson Thor 128GB",
         category="GPU",
         deployment="Automotive",
         manufacturer="NVIDIA",
@@ -299,7 +318,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         power_tdp=100.0,
         thermal_profiles=["30W", "60W", "100W"],
         use_cases=["Autonomous vehicles", "Next-gen ADAS"],
-        factory_function="create_jetson_thor_mapper",
+        factory_function="create_jetson_thor_128gb_mapper",
         hardware_type="programmable_isa"
     ))
 

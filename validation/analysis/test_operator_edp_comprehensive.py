@@ -22,7 +22,7 @@ if __name__ == '__main__':
 
 from graphs.analysis.architecture_comparator import ArchitectureComparator
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
-from graphs.hardware.mappers.gpu import create_h100_mapper
+from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
 from graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
 from graphs.hardware.resource_model import Precision
@@ -273,7 +273,7 @@ def test_cross_architecture_consistency():
 
     # Test on multiple architectures (GPU and KPU for now)
     architectures = {
-        'GPU': create_h100_mapper(),
+        'GPU': create_h100_pcie_80gb_mapper(),
         'KPU': create_kpu_t256_mapper(),
     }
 

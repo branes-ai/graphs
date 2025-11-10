@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.transform.partitioning import FusionBasedPartitioner
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_i7_12700k_mapper
-from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from src.graphs.hardware.resource_model import Precision
 
 # Import existing MLP models
@@ -344,7 +344,7 @@ def run_analytical_estimate(
         else:
             mapper = create_intel_cpu_mapper()
     elif device == 'cuda':
-        mapper = create_h100_mapper()
+        mapper = create_h100_pcie_80gb_mapper()
     else:
         raise ValueError(f"Unsupported device: {device}")
 

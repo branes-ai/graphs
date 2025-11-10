@@ -168,8 +168,8 @@ class TestUnifiedWorkflows(unittest.TestCase):
         partitioner = FusionBasedPartitioner()
         partition_report = partitioner.partition(fx_graph)
 
-        from graphs.hardware.mappers.gpu import create_h100_mapper
-        hardware_mapper = create_h100_mapper()
+        from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
+        hardware_mapper = create_h100_pcie_80gb_mapper()
         hardware = hardware_mapper.resource_model
 
         roofline_analyzer = RooflineAnalyzer(hardware, precision=Precision.FP32)

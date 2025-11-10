@@ -1,5 +1,7 @@
 """
-Jetson Thor Resource Model hardware resource model.
+Jetson Thor 128GB Resource Model hardware resource model.
+
+MEMORY: 128 GB LPDDR5X
 
 Extracted from resource_model.py during refactoring.
 """
@@ -19,9 +21,11 @@ from ...resource_model import (
 )
 
 
-def jetson_thor_resource_model() -> HardwareResourceModel:
+def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA Jetson Thor with realistic DVFS modeling (Next-gen edge AI, 2025+).
+    NVIDIA Jetson Thor 128GB with realistic DVFS modeling (Next-gen edge AI, 2025+).
+
+    MEMORY: 128 GB LPDDR5X
 
     Configuration: Blackwell-based GPU, 64 SMs, 1000 TOPS INT8 peak (actual datapath)
 
@@ -224,7 +228,7 @@ def jetson_thor_resource_model() -> HardwareResourceModel:
     )
 
     return HardwareResourceModel(
-        name="Jetson-Thor",
+        name="Jetson-Thor-128GB",
         hardware_type=HardwareType.GPU,
         compute_units=num_sms,
         threads_per_unit=128,

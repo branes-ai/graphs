@@ -44,9 +44,9 @@ from graphs.ir.structures import BottleneckType
 
 # Import hardware mappers
 from graphs.hardware.mappers.gpu import (
-    create_h100_mapper,
-    create_jetson_orin_agx_mapper,
-    create_jetson_orin_nano_mapper,
+    create_h100_pcie_80gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
 )
 from graphs.hardware.mappers.accelerators.tpu import (
     create_tpu_v4_mapper,
@@ -154,9 +154,9 @@ def create_model(model_name: str, batch_size: int) -> Tuple[nn.Module, torch.Ten
 # Supported hardware configurations (exact names only)
 SUPPORTED_HARDWARE = {
     # GPUs
-    'H100': (create_h100_mapper, "GPU", "NVIDIA H100 PCIe"),
-    'Jetson-Orin-AGX': (create_jetson_orin_agx_mapper, "GPU", "NVIDIA Jetson Orin AGX"),
-    'Jetson-Orin-Nano': (create_jetson_orin_nano_mapper, "GPU", "NVIDIA Jetson Orin Nano"),
+    'H100': (create_h100_pcie_80gb_mapper, "GPU", "NVIDIA H100 PCIe"),
+    'Jetson-Orin-AGX': (create_jetson_orin_agx_64gb_mapper, "GPU", "NVIDIA Jetson Orin AGX"),
+    'Jetson-Orin-Nano': (create_jetson_orin_nano_8gb_mapper, "GPU", "NVIDIA Jetson Orin Nano"),
 
     # TPUs
     'TPU-v4': (create_tpu_v4_mapper, "TPU", "Google TPU v4"),

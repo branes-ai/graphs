@@ -11,10 +11,10 @@ import sys
 sys.path.insert(0, 'src')
 
 from graphs.hardware.mappers.gpu import (
-    create_h100_mapper,
-    create_jetson_orin_agx_mapper,
-    create_jetson_orin_nano_mapper,
-    create_jetson_thor_mapper,
+    create_h100_pcie_80gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
+    create_jetson_thor_128gb_mapper,
 )
 from graphs.hardware.mappers.cpu import (
     create_intel_xeon_platinum_8490h_mapper,
@@ -42,10 +42,10 @@ class TestThermalOperatingPoints:
     def test_gpu_models_have_thermal_points(self):
         """All GPU models should have thermal_operating_points"""
         mappers = [
-            ("H100", create_h100_mapper()),
-            ("Jetson Orin AGX", create_jetson_orin_agx_mapper()),
-            ("Jetson Orin Nano", create_jetson_orin_nano_mapper()),
-            ("Jetson Thor", create_jetson_thor_mapper()),
+            ("H100", create_h100_pcie_80gb_mapper()),
+            ("Jetson Orin AGX", create_jetson_orin_agx_64gb_mapper()),
+            ("Jetson Orin Nano", create_jetson_orin_nano_8gb_mapper()),
+            ("Jetson Thor", create_jetson_thor_128gb_mapper()),
         ]
 
         for name, mapper in mappers:
@@ -121,7 +121,7 @@ class TestTDPValues:
 
     def test_datacenter_gpu_tdp_range(self):
         """Datacenter GPUs should have TDP in reasonable range (300-700W)"""
-        mapper = create_h100_mapper()
+        mapper = create_h100_pcie_80gb_mapper()
         thermal_points = mapper.resource_model.thermal_operating_points
 
         # Get first (or default) thermal profile
@@ -134,9 +134,9 @@ class TestTDPValues:
     def test_edge_gpu_tdp_range(self):
         """Edge GPUs should have TDP in reasonable range (15-100W)"""
         mappers = [
-            create_jetson_orin_nano_mapper(),
-            create_jetson_orin_agx_mapper(),
-            create_jetson_thor_mapper(),
+            create_jetson_orin_nano_8gb_mapper(),
+            create_jetson_orin_agx_64gb_mapper(),
+            create_jetson_thor_128gb_mapper(),
         ]
 
         for mapper in mappers:
@@ -209,7 +209,7 @@ class TestMultiPowerProfiles:
 
     def test_jetson_orin_agx_has_multiple_profiles(self):
         """Jetson Orin AGX should have 3 power profiles (15W, 30W, 60W)"""
-        mapper = create_jetson_orin_agx_mapper()
+        mapper = create_jetson_orin_agx_64gb_mapper()
         thermal_points = mapper.resource_model.thermal_operating_points
 
         assert len(thermal_points) >= 3, \
@@ -222,7 +222,7 @@ class TestMultiPowerProfiles:
 
     def test_jetson_thor_has_multiple_profiles(self):
         """Jetson Thor should have multiple power profiles"""
-        mapper = create_jetson_thor_mapper()
+        mapper = create_jetson_thor_128gb_mapper()
         thermal_points = mapper.resource_model.thermal_operating_points
 
         assert len(thermal_points) >= 2, \
@@ -273,7 +273,7 @@ class TestThermalProfileStructure:
     def test_tdp_is_positive(self):
         """TDP should always be a positive number"""
         mappers = [
-            create_h100_mapper(),
+            create_h100_pcie_80gb_mapper(),
             create_tpu_v4_mapper(),
             create_intel_xeon_platinum_8490h_mapper(),
             create_qrb5165_mapper(),
@@ -289,7 +289,7 @@ class TestThermalProfileStructure:
 
     def test_cooling_solution_is_specified(self):
         """All thermal profiles should specify a cooling solution"""
-        mapper = create_h100_mapper()
+        mapper = create_h100_pcie_80gb_mapper()
         thermal_points = mapper.resource_model.thermal_operating_points
 
         for profile_name, profile in thermal_points.items():

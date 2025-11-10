@@ -16,7 +16,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.hardware.resource_model import Precision
 from graphs.hardware.mappers.gpu import (
-    create_jetson_orin_nano_mapper,
+    create_jetson_orin_nano_8gb_mapper,
 )
 from graphs.hardware.mappers.accelerators.tpu import (
     create_coral_edge_tpu_mapper,
@@ -119,7 +119,7 @@ def main():
         ("Hailo-10H", create_hailo10h_mapper),
         ("Coral Edge TPU", create_coral_edge_tpu_mapper),
         ("Qualcomm QRB5165", create_qrb5165_mapper),
-        ("Jetson Orin Nano", create_jetson_orin_nano_mapper),
+        ("Jetson Orin Nano", create_jetson_orin_nano_8gb_mapper),
     ]
 
     results = []

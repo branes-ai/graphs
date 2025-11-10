@@ -1,5 +1,8 @@
 """
-H100 Pcie Resource Model hardware resource model.
+NVIDIA H100 PCIe 80GB Resource Model
+
+FORM FACTOR: PCIe (add-in card)
+MEMORY: 80 GB HBM2e
 
 Extracted from resource_model.py during refactoring.
 """
@@ -18,9 +21,12 @@ from ...resource_model import (
 )
 
 
-def h100_pcie_resource_model() -> HardwareResourceModel:
+def h100_pcie_80gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA H100 PCIe (80GB) resource model.
+    NVIDIA H100 PCIe 80GB resource model.
+
+    FORM FACTOR: PCIe (add-in card)
+    MEMORY: 80 GB HBM2e
 
     Key characteristics:
     - 132 SMs with 4th gen Tensor Cores

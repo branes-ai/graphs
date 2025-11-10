@@ -192,8 +192,8 @@ class TestUnifiedAnalyzer(unittest.TestCase):
         input_tensor = torch.randn(1, 3, 224, 224)
 
         # Create hardware mapper
-        from graphs.hardware.mappers.gpu import create_h100_mapper
-        hardware_mapper = create_h100_mapper()
+        from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
+        hardware_mapper = create_h100_pcie_80gb_mapper()
 
         result = self.analyzer.analyze_model_with_custom_hardware(
             model=model,

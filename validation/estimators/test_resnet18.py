@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.transform.partitioning import FusionBasedPartitioner
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_amd_cpu_mapper
-from src.graphs.hardware.mappers.gpu import create_h100_mapper
+from src.graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from src.graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper
 from src.graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
 from src.graphs.hardware.resource_model import Precision
@@ -131,7 +131,7 @@ def main():
     mappers = {
         "CPU (Intel)": create_intel_cpu_mapper("avx512"),
         "CPU (AMD)": create_amd_cpu_mapper(),
-        "GPU (H100)": create_h100_mapper(),
+        "GPU (H100)": create_h100_pcie_80gb_mapper(),
         "TPU (v4)": create_tpu_v4_mapper(),
         "Stillwater KPU-T64": create_kpu_t64_mapper(),
     }

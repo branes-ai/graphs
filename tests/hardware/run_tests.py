@@ -10,7 +10,7 @@ import traceback
 sys.path.insert(0, 'src')
 
 # Import test modules
-from graphs.hardware.mappers.gpu import create_h100_mapper, create_jetson_thor_mapper
+from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper, create_jetson_thor_128gb_mapper
 from graphs.hardware.mappers.cpu import create_intel_xeon_platinum_8490h_mapper, create_amd_epyc_9654_mapper
 from graphs.hardware.mappers.accelerators.tpu import create_tpu_v4_mapper, create_coral_edge_tpu_mapper
 from graphs.hardware.mappers.dsp import create_qrb5165_mapper, create_ti_tda4vm_mapper
@@ -64,7 +64,7 @@ def test_idle_power_constants(runner):
     print("\n[1/5] Testing IDLE_POWER_FRACTION constants...")
 
     mappers = [
-        ("GPU", create_h100_mapper()),
+        ("GPU", create_h100_pcie_80gb_mapper()),
         ("TPU", create_tpu_v4_mapper()),
         ("CPU", create_intel_xeon_platinum_8490h_mapper()),
         ("DSP", create_qrb5165_mapper()),
@@ -87,7 +87,7 @@ def test_idle_power_methods(runner):
     print("\n[2/5] Testing compute_energy_with_idle_power() methods...")
 
     mappers = [
-        ("GPU", create_h100_mapper()),
+        ("GPU", create_h100_pcie_80gb_mapper()),
         ("TPU", create_tpu_v4_mapper()),
         ("CPU", create_intel_xeon_platinum_8490h_mapper()),
         ("DSP", create_qrb5165_mapper()),
@@ -151,8 +151,8 @@ def test_thermal_profiles(runner):
     print("\n[4/5] Testing thermal operating points...")
 
     mappers = [
-        ("H100", create_h100_mapper()),
-        ("Jetson Thor", create_jetson_thor_mapper()),
+        ("H100", create_h100_pcie_80gb_mapper()),
+        ("Jetson Thor", create_jetson_thor_128gb_mapper()),
         ("TPU v4", create_tpu_v4_mapper()),
         ("Intel Xeon", create_intel_xeon_platinum_8490h_mapper()),
         ("QRB5165", create_qrb5165_mapper()),
@@ -173,8 +173,8 @@ def test_tdp_ranges(runner):
     print("\n[5/5] Testing TDP value ranges...")
 
     tests = [
-        ("Datacenter GPU (H100)", create_h100_mapper(), 300, 700),
-        ("Edge GPU (Jetson Thor)", create_jetson_thor_mapper(), 5, 150),
+        ("Datacenter GPU (H100)", create_h100_pcie_80gb_mapper(), 300, 700),
+        ("Edge GPU (Jetson Thor)", create_jetson_thor_128gb_mapper(), 5, 150),
         ("Datacenter TPU", create_tpu_v4_mapper(), 200, 400),
         ("Datacenter CPU (Intel)", create_intel_xeon_platinum_8490h_mapper(), 200, 600),
         ("DSP (QRB5165)", create_qrb5165_mapper(), 3, 30),

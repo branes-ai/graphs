@@ -24,7 +24,7 @@ if __name__ == '__main__':
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from graphs.analysis.architecture_comparator import ArchitectureComparator
-from graphs.hardware.mappers.gpu import create_h100_mapper
+from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
 from graphs.hardware.resource_model import Precision
 
@@ -39,7 +39,7 @@ def test_operator_edp_resnet18():
 
     # Setup architectures
     architectures = {
-        'GPU': create_h100_mapper(),
+        'GPU': create_h100_pcie_80gb_mapper(),
         'KPU': create_kpu_t256_mapper(),
     }
 

@@ -1,5 +1,7 @@
 """
-Jetson Orin Agx Resource Model hardware resource model.
+Jetson Orin AGX 64GB Resource Model hardware resource model.
+
+MEMORY: 64 GB LPDDR5
 
 Extracted from resource_model.py during refactoring.
 """
@@ -19,9 +21,11 @@ from ...resource_model import (
 )
 
 
-def jetson_orin_agx_resource_model() -> HardwareResourceModel:
+def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA Jetson Orin AGX with realistic DVFS-aware multi-power-profile modeling.
+    NVIDIA Jetson Orin AGX 64GB with realistic DVFS-aware multi-power-profile modeling.
+
+    MEMORY: 64 GB LPDDR5
 
     Configuration: AGX variant (2048 CUDA cores, 16 Ampere SMs, 64 Tensor Cores)
 
@@ -246,7 +250,7 @@ def jetson_orin_agx_resource_model() -> HardwareResourceModel:
     # Hardware Resource Model (uses NEW thermal operating points)
     # ========================================================================
     return HardwareResourceModel(
-        name="Jetson-Orin-AGX",
+        name="Jetson-Orin-AGX-64GB",
         hardware_type=HardwareType.GPU,
         compute_units=num_sms,
         threads_per_unit=64,
