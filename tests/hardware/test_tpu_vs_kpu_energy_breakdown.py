@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from graphs.hardware.models.datacenter.tpu_v4 import tpu_v4_resource_model
-from graphs.hardware.models.automotive.kpu_t768 import kpu_t768_resource_model
+from graphs.hardware.models.accelerators.kpu_t768 import kpu_t768_resource_model
 
 
 def analyze_tpu_energy_events():
