@@ -40,10 +40,10 @@ graph TD
 
     style SG3 fill:#228B22,stroke:#000000,stroke-width:2px
     style SG3_spacer fill:none,stroke:none
-    subgraph SG4["Subgraph 4<br/>add → layer1_0_relu_1<br/>Memory-bound"]
+    subgraph SG4["Subgraph 4<br/>add → layer1_0_relu_1<br/>200.7K FLOPs, Memory-bound"]
         SG4_spacer[ ]
         SG4_spacer --> SG4_exec
-        SG4_exec[2.4 MB]
+        SG4_exec[200.7K FLOPs<br/>2.4 MB]
     end
 
     style SG4 fill:#DC143C,stroke:#000000,stroke-width:2px
@@ -64,10 +64,10 @@ graph TD
 
     style SG6 fill:#228B22,stroke:#000000,stroke-width:2px
     style SG6_spacer fill:none,stroke:none
-    subgraph SG7["Subgraph 7<br/>add_1 → layer1_1_relu_1<br/>Memory-bound"]
+    subgraph SG7["Subgraph 7<br/>add_1 → layer1_1_relu_1<br/>200.7K FLOPs, Memory-bound"]
         SG7_spacer[ ]
         SG7_spacer --> SG7_exec
-        SG7_exec[2.4 MB]
+        SG7_exec[200.7K FLOPs<br/>2.4 MB]
     end
 
     style SG7 fill:#DC143C,stroke:#000000,stroke-width:2px
@@ -96,10 +96,10 @@ graph TD
 
     style SG10 fill:#DC143C,stroke:#000000,stroke-width:2px
     style SG10_spacer fill:none,stroke:none
-    subgraph SG11["Subgraph 11<br/>add_2 → layer2_0_relu_1<br/>Balanced"]
+    subgraph SG11["Subgraph 11<br/>add_2 → layer2_0_relu_1<br/>100.4K FLOPs, Balanced"]
         SG11_spacer[ ]
         SG11_spacer --> SG11_exec
-        SG11_exec[1.2 MB]
+        SG11_exec[100.4K FLOPs<br/>1.2 MB]
     end
 
     style SG11 fill:#FF8C00,stroke:#000000,stroke-width:2px
@@ -120,10 +120,10 @@ graph TD
 
     style SG13 fill:#DC143C,stroke:#000000,stroke-width:2px
     style SG13_spacer fill:none,stroke:none
-    subgraph SG14["Subgraph 14<br/>add_3 → layer2_1_relu_1<br/>Balanced"]
+    subgraph SG14["Subgraph 14<br/>add_3 → layer2_1_relu_1<br/>100.4K FLOPs, Balanced"]
         SG14_spacer[ ]
         SG14_spacer --> SG14_exec
-        SG14_exec[1.2 MB]
+        SG14_exec[100.4K FLOPs<br/>1.2 MB]
     end
 
     style SG14 fill:#FF8C00,stroke:#000000,stroke-width:2px

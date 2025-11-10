@@ -225,7 +225,7 @@ class PartitionAnalyzerCLI:
             print(f"  Avg ops per subgraph: {result['avg_fusion_size']:.1f}")
             print(f"  Data movement reduction: {result['data_movement_reduction'] * 100:.1f}%")
             print(f"\nTop fusion patterns:")
-            for pattern, count in sorted(report.fusion_patterns.items(),
+            for pattern, count in sorted(report.fusion_pattern_counts.items(),
                                         key=lambda x: x[1], reverse=True)[:5]:
                 print(f"  {pattern}: {count}")
 
