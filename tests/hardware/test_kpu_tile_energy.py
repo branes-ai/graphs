@@ -18,9 +18,9 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from graphs.hardware.models.edge.kpu_t64 import kpu_t64_resource_model
-from graphs.hardware.models.mobile.kpu_t256 import kpu_t256_resource_model
-from graphs.hardware.models.automotive.kpu_t768 import kpu_t768_resource_model
+from graphs.hardware.models.accelerators.kpu_t64 import kpu_t64_resource_model
+from graphs.hardware.models.accelerators.kpu_t256 import kpu_t256_resource_model
+from graphs.hardware.models.accelerators.kpu_t768 import kpu_t768_resource_model
 
 
 def print_energy_breakdown(name: str, result: dict, show_details: bool = True):

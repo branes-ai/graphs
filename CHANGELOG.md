@@ -58,6 +58,27 @@ All NVIDIA GPU hardware mappers have been renamed to follow a consistent `{Archi
 - `docs/B100_INTEGRATION_AND_EMBODIED_AI_FOCUS.md` - Updated B100 references
 - `CLAUDE.md` - Added GPU naming convention note
 
+### Removed
+
+**KPU Model Duplication Cleanup**
+
+Removed duplicate KPU model files that existed across deployment directories:
+- Deleted `automotive/kpu_t768.py` (old 207-line version)
+- Deleted `mobile/kpu_t256.py` (old 206-line version)
+- Deleted `edge/kpu_t64.py` (old 204-line version)
+
+**Rationale:**
+- Canonical versions in `accelerators/` are more complete (314-341 lines)
+- Include thermal profiles, BOM costs, and detailed documentation
+- Eliminates confusion and establishes single source of truth
+- Aligns with October 2024 package reorganization
+
+**Files Updated:**
+- `tests/hardware/test_kpu_tile_energy.py` - Updated imports to use `accelerators/` versions
+- `tests/hardware/test_tpu_vs_kpu_energy_breakdown.py` - Updated imports
+
+**Impact:** Zero breaking changes (main package already used `accelerators/` versions)
+
 ---
 
 ## [2025-11-09] - Automotive Hardware Analysis - All Critical Fixes
