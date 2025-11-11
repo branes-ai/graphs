@@ -125,6 +125,16 @@ ATEN_OP_CATALOG: Dict[str, AtenOpInfo] = {
         flop_formula='num_elements * 8',
         description='GELU activation (~8 FLOPs per element)'
     ),
+    'aten.hardtanh': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 2',
+        description='Hard tanh activation (2 comparisons per element)'
+    ),
+    'aten.hardtanh_': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 2',
+        description='In-place hard tanh activation'
+    ),
     'aten.silu': AtenOpInfo(
         op_type='flop',
         flop_formula='num_elements * 5',
@@ -191,6 +201,16 @@ ATEN_OP_CATALOG: Dict[str, AtenOpInfo] = {
         op_type='flop',
         flop_formula='num_elements * 1',
         description='Element-wise addition'
+    ),
+    'aten.add_': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 1',
+        description='In-place element-wise addition'
+    ),
+    'aten.iadd': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 1',
+        description='In-place addition (iadd)'
     ),
     'aten.sub': AtenOpInfo(
         op_type='flop',
@@ -546,10 +566,104 @@ class DynamoWorkloadCharacterizer:
         node: torch.fx.Node,
         op_info: AtenOpInfo
     ) -> Tuple[int, int, int]:
-        """Count convolution operations"""
-        # Simplified: assume standard conv2d
-        # TODO: Extract actual conv parameters from node
-        return (0, 0, 0)  # Placeholder
+        """
+        Count convolution operations.
+
+        Conv2D MAC formula:
+        MACs = B × C_out × H_out × W_out × (C_in × K_h × K_w) / groups
+
+        Where:
+        - Output dims: H_out = (H_in + 2*P - K_h) / stride + 1
+        - Input shape: [B, C_in, H_in, W_in]
+        - Weight shape: [C_out, C_in/groups, K_h, K_w]
+        """
+        args = node.args
+
+        # Extract shapes
+        input_shape = self._get_shape(args[0])
+        weight_shape = self._get_shape(args[1])
+
+        if not input_shape or not weight_shape:
+            return (0, 0, 0)
+
+        # Extract convolution parameters
+        # Input: [B, C_in, H_in, W_in]
+        B = int(input_shape[0])
+        C_in = int(input_shape[1])
+        H_in = int(input_shape[2])
+        W_in = int(input_shape[3])
+
+        # Weight: [C_out, C_in/groups, K_h, K_w]
+        C_out = int(weight_shape[0])
+        K_h = int(weight_shape[2])
+        K_w = int(weight_shape[3])
+
+        # Get stride, padding, dilation, groups
+        # torch.conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1)
+        # They can be in args (positional) or kwargs (keyword)
+        kwargs = node.kwargs
+
+        # Try to get from args first (positions 3, 4, 5, 6)
+        stride = [1, 1]
+        padding = [0, 0]
+        dilation = [1, 1]
+        groups = 1
+
+        if len(args) > 3:  # stride is args[3]
+            stride = args[3]
+        elif 'stride' in kwargs:
+            stride = kwargs['stride']
+
+        if len(args) > 4:  # padding is args[4]
+            padding = args[4]
+        elif 'padding' in kwargs:
+            padding = kwargs['padding']
+
+        if len(args) > 5:  # dilation is args[5]
+            dilation = args[5]
+        elif 'dilation' in kwargs:
+            dilation = kwargs['dilation']
+
+        if len(args) > 6:  # groups is args[6]
+            groups = args[6]
+        elif 'groups' in kwargs:
+            groups = kwargs['groups']
+
+        # Handle scalar stride/padding (convert to list)
+        if isinstance(stride, int):
+            stride = [stride, stride]
+        if isinstance(padding, int):
+            padding = [padding, padding]
+        if isinstance(dilation, int):
+            dilation = [dilation, dilation]
+
+        stride_h, stride_w = int(stride[0]), int(stride[1])
+        padding_h, padding_w = int(padding[0]), int(padding[1])
+        dilation_h, dilation_w = int(dilation[0]), int(dilation[1])
+        groups = int(groups)
+
+        # Calculate output spatial dimensions
+        # H_out = (H_in + 2*P - D*(K-1) - 1) / S + 1
+        K_h_dilated = dilation_h * (K_h - 1) + 1
+        K_w_dilated = dilation_w * (K_w - 1) + 1
+
+        H_out = (H_in + 2*padding_h - K_h_dilated) // stride_h + 1
+        W_out = (W_in + 2*padding_w - K_w_dilated) // stride_w + 1
+
+        # Calculate MACs
+        # Each output element requires (C_in/groups × K_h × K_w) MACs
+        macs_per_output = (C_in // groups) * K_h * K_w
+        total_outputs = B * C_out * H_out * W_out
+        mac_count = int(total_outputs * macs_per_output)
+
+        # Check for bias
+        flop_count = 0
+        has_bias = len(args) >= 3 and args[2] is not None
+        if has_bias:
+            # Bias addition: one add per output element
+            flop_count = int(total_outputs)
+
+        return (mac_count, flop_count, 0)
 
     def _count_elementwise(
         self,
@@ -590,6 +704,8 @@ class DynamoWorkloadCharacterizer:
             'aten.silu': 5,
             'aten.sigmoid': 4,
             'aten.tanh': 4,
+            'aten.hardtanh': 2,
+            'aten.hardtanh_': 2,
         }.get(target_name, 1)
 
         return (0, num_elements * flops_per_element, 0)
@@ -726,7 +842,9 @@ class DynamoWorkloadCharacterizer:
             breakdown.silu_flops += flop_count
         elif 'sigmoid' in target_name:
             breakdown.sigmoid_flops += flop_count
-        elif 'tanh' in target_name:
+        elif 'hardtanh' in target_name:
+            breakdown.hardtanh_flops += flop_count
+        elif 'tanh' in target_name and 'hardtanh' not in target_name:
             breakdown.tanh_flops += flop_count
         elif 'batch_norm' in target_name:
             breakdown.batchnorm_flops += flop_count
@@ -734,7 +852,7 @@ class DynamoWorkloadCharacterizer:
             breakdown.layernorm_flops += flop_count
         elif 'softmax' in target_name:
             breakdown.softmax_flops += flop_count
-        elif target_name == 'aten.add':
+        elif target_name in ['aten.add', 'aten.add_', 'aten.iadd']:
             breakdown.elementwise_add_flops += flop_count
         elif target_name == 'aten.sub':
             breakdown.elementwise_sub_flops += flop_count
@@ -742,6 +860,14 @@ class DynamoWorkloadCharacterizer:
             breakdown.elementwise_mul_flops += flop_count
         elif target_name == 'aten.div':
             breakdown.elementwise_div_flops += flop_count
+        else:
+            # Catch any uncategorized operations
+            if mac_count > 0:
+                breakdown.other_macs += mac_count
+            if flop_count > 0:
+                breakdown.other_flops += flop_count
+            if intop_count > 0:
+                breakdown.other_intops += intop_count
 
 
 def characterize_with_dynamo(
