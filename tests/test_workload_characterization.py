@@ -5,7 +5,7 @@ Tests the core MAC/FLOP/IntOp separation design.
 """
 
 import pytest
-from src.graphs.analysis.workload_characterization import (
+from graphs.analysis.workload_characterization import (
     WorkloadCharacterization,
     OperationBreakdown,
     Precision,
