@@ -1528,3 +1528,98 @@ def create_amd_epyc_turin_mapper() -> CPUMapper:
 
     model = amd_epyc_turin_resource_model()
     return CPUMapper(model)
+
+
+def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
+    """
+    Create CPU mapper for ARM Cortex-A78AE in Jetson Orin AGX (12-core).
+
+    ARCHITECTURE:
+    - 12× ARM Cortex-A78AE cores @ 2.2 GHz sustained
+    - ARMv8.2-A with NEON Advanced SIMD
+    - NEON dotprod extension for INT8 acceleration
+    - Out-of-order execution, branch prediction
+
+    SIMD CAPABILITIES:
+    - INT8: 32 ops/cycle/core (NEON dotprod)
+    - FP16: 8 ops/cycle/core (NEON FP16)
+    - FP32: 8 ops/cycle/core (NEON FMA)
+
+    MEMORY:
+    - 64 GB LPDDR5 (shared with GPU)
+    - 51.2 GB/s bandwidth (CPU allocation)
+    - 64 KB L1, 512 KB L2 per core, 2 MB L3 shared
+
+    POWER: 30W TDP (CPU-only mode for fair comparison)
+
+    PERFORMANCE @ 30W:
+    - INT8 peak: 844.8 GOPS (12 × 32 × 2.2 GHz)
+    - INT8 effective: ~506 GOPS (60% efficiency)
+    - FP32 peak: 211.2 GFLOPS (12 × 8 × 2.2 GHz)
+    - FP32 effective: ~105 GFLOPS (50% efficiency)
+
+    USE CASE:
+    - Host CPU for robotics and edge AI
+    - Lightweight inference (batch=1)
+    - Control loops and real-time tasks
+    - Architecture comparison studies (Stored-Program vs Data-Parallel vs Domain-Flow)
+
+    KEY CHARACTERISTICS:
+    - Stored Program Architecture (instruction fetch overhead)
+    - MIMD execution (12-way parallelism)
+    - Less efficient than spatial architectures (GPU/KPU) for AI workloads
+    - But: lowest idle power, best for irregular control tasks
+
+    CALIBRATION STATUS:
+    ⚠ ESTIMATED - Based on ARM Cortex-A78 specs and Jetson docs
+
+    REFERENCES:
+    - ARM Cortex-A78 Technical Reference Manual (ARM DDI 0593)
+    - NVIDIA Jetson Orin Series Datasheet (DA-10676-001)
+    - ARM NEON Programmer's Guide
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "30W")
+                        If None, uses default ("30W")
+
+    Returns:
+        CPUMapper configured for Jetson Orin AGX CPU
+    """
+    from ..models.edge.jetson_orin_agx_cpu import jetson_orin_agx_cpu_resource_model
+    from ..architectural_energy import StoredProgramEnergyModel
+
+    model = jetson_orin_agx_cpu_resource_model()
+
+    # Configure enhanced Stored Program Architecture energy model for ARM CPU
+    # HIGH FREQUENCY (2.2 GHz) = MUCH HIGHER ENERGY than low-freq accelerators!
+    model.architecture_energy_model = StoredProgramEnergyModel(
+        # Instruction Pipeline (high-freq CPUs need more energy)
+        instruction_fetch_energy=1.5e-12,       # ~1.5 pJ per instruction (I-cache read)
+        instruction_decode_energy=0.8e-12,      # ~0.8 pJ per instruction
+        instruction_execute_energy=0.5e-12,     # ~0.5 pJ per instruction
+
+        # Register File (CRITICAL: high-freq = 3-4× more energy!)
+        register_file_read_energy=2.5e-12,      # ~2.5 pJ per read (2.2 GHz operation)
+        register_file_write_energy=3.0e-12,     # ~3.0 pJ per write (write is more expensive)
+
+        # 4-Stage Memory Hierarchy (high-freq = higher energy per access)
+        l1_cache_energy_per_byte=1.0e-12,       # ~1.0 pJ (64 KB per core, high freq)
+        l2_cache_energy_per_byte=2.5e-12,       # ~2.5 pJ (512 KB per core)
+        l3_cache_energy_per_byte=5.0e-12,       # ~5.0 pJ (2 MB shared LLC)
+        dram_energy_per_byte=20.0e-12,          # ~20 pJ (LPDDR5)
+
+        # Cache hit rates (conservative for AI workloads)
+        l1_hit_rate=0.85,                       # 85% L1 hits
+        l2_hit_rate=0.90,                       # 90% L2 hits (of L1 misses)
+        l3_hit_rate=0.95,                       # 95% L3 hits (of L2 misses)
+
+        # ALU Energy (HIGH FREQUENCY = 3-5× GPU/KPU!)
+        alu_energy_per_op=4.0e-12,              # ~4.0 pJ per FP op (2.2 GHz, complex OOO)
+
+        # Instruction Mix (NEON SIMD-optimized)
+        instructions_per_op=2.0,                # ~2 instructions per FLOP (load, compute, store)
+        branches_per_1000_ops=50,               # ~50 branches per 1000 ops
+        branch_prediction_overhead=0.4e-12,     # ~0.4 pJ per branch
+    )
+
+    return CPUMapper(model, thermal_profile=thermal_profile)
