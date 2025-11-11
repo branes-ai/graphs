@@ -568,9 +568,14 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
 
     # NEW: Compute unit breakdown (CUDA cores vs Tensor Cores)
     cuda_core_mac_energy: float = 0.8e-12          # ~0.8 pJ per MAC (FP32 on CUDA cores)
+    cuda_core_flop_energy: float = 0.8e-12         # ~0.8 pJ per FLOP (FP32 on CUDA cores)
+    int_alu_energy: float = 0.1e-12                # ~0.1 pJ per IntOp (integer operations)
     tensor_core_mac_energy: float = 0.3e-12        # ~0.3 pJ per MAC (FP16/BF16/INT8 on Tensor Cores)
-    tensor_core_utilization: float = 0.80          # 80% of ops can use tensor cores (GEMM-like)
+    tensor_core_utilization: float = 0.80          # 80% of MACs can use tensor cores (GEMM-like)
     register_file_energy_per_access: float = 0.6e-12  # ~0.6 pJ per register access (similar to ALU energy)
+
+    # Tensor Core characteristics
+    TENSOR_CORE_MACS_PER_OP: int = 64              # 4×4×4 FP16 matmul per Tensor Core operation
 
     # NEW: Memory hierarchy breakdown (NVIDIA Ampere nomenclature)
     # Level 1: Register File (64K regs/SM, separate from cache)
@@ -592,36 +597,81 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
 
     def compute_architectural_energy(
         self,
-        ops: int,
-        bytes_transferred: int,
-        compute_energy_baseline: float,
-        memory_energy_baseline: float,
-        execution_context: Optional[Dict] = None
+        ops: Optional[int] = None,
+        bytes_transferred: int = 0,
+        compute_energy_baseline: float = 0.0,
+        memory_energy_baseline: float = 0.0,
+        execution_context: Optional[Dict] = None,
+        workload: Optional['WorkloadCharacterization'] = None  # NEW: Phase 3
     ) -> ArchitecturalEnergyBreakdown:
+        """
+        Compute architectural energy with MAC/FLOP/IntOp separation.
 
+        Args:
+            ops: (DEPRECATED) Total operations. Use workload parameter instead.
+            bytes_transferred: Total bytes read/written
+            compute_energy_baseline: Baseline compute energy
+            memory_energy_baseline: Baseline memory energy
+            execution_context: Additional context (threads, batch size, etc.)
+            workload: (NEW) WorkloadCharacterization with MAC/FLOP/IntOp breakdown
+
+        Returns:
+            ArchitecturalEnergyBreakdown with MAC/FLOP/IntOp separation
+        """
         if execution_context is None:
             execution_context = {}
+
+        # ============================================================
+        # Extract MAC/FLOP/IntOp counts (Phase 3)
+        # ============================================================
+        if workload is not None:
+            # NEW path: use WorkloadCharacterization
+            macs = workload.macs
+            flops = workload.flops
+            intops = workload.intops
+            total_ops = workload.total_ops()
+        else:
+            # LEGACY path: assume all ops are MACs for backward compatibility
+            macs = ops or 0
+            flops = 0
+            intops = 0
+            total_ops = ops or 0
 
         # ============================================================
         # 1. COMPUTE UNIT BREAKDOWN (CUDA cores vs Tensor Cores)
         # ============================================================
 
-        # Assume tensor cores are used for GEMM-like operations (80% utilization)
-        tensor_core_ops = int(ops * self.tensor_core_utilization)
-        cuda_core_ops = ops - tensor_core_ops
+        # MACs → Tensor Cores (80% utilization for GEMM-like operations)
+        tensor_core_macs = int(macs * self.tensor_core_utilization)
+        cuda_core_macs = macs - tensor_core_macs
 
-        tensor_core_energy = tensor_core_ops * self.tensor_core_mac_energy
-        cuda_core_energy = cuda_core_ops * self.cuda_core_mac_energy
+        # Calculate actual Tensor Core operations (each does 64 MACs: 4×4×4)
+        tensor_core_ops = tensor_core_macs // self.TENSOR_CORE_MACS_PER_OP
+
+        # MAC energy
+        tensor_core_mac_energy = tensor_core_macs * self.tensor_core_mac_energy
+        cuda_core_mac_energy = cuda_core_macs * self.cuda_core_mac_energy
+
+        # FLOP energy (bias, activation, elementwise → CUDA cores)
+        cuda_core_flop_energy = flops * self.cuda_core_flop_energy
+
+        # IntOp energy (quantization, indexing → Integer ALUs)
+        int_alu_energy = intops * self.int_alu_energy
+
+        # Total compute energy by type
+        total_mac_energy = tensor_core_mac_energy + cuda_core_mac_energy
+        total_flop_energy = cuda_core_flop_energy
+        total_intop_energy = int_alu_energy
 
         # Register file accesses (2 per op: read operands + write result)
-        num_register_accesses = ops * 2
+        num_register_accesses = total_ops * 2
         register_file_energy = num_register_accesses * self.register_file_energy_per_access
 
         # ============================================================
         # 2. INSTRUCTION PIPELINE (fetch, decode, execute)
         # ============================================================
 
-        num_instructions = int(ops * self.instructions_per_op)
+        num_instructions = int(total_ops * self.instructions_per_op)
         instruction_fetch_energy_total = num_instructions * self.instruction_fetch_energy
         instruction_decode_energy_total = num_instructions * self.instruction_decode_energy
         instruction_execute_energy_total = num_instructions * self.instruction_execute_energy
@@ -665,7 +715,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         scheduling_energy = concurrent_threads * self.thread_scheduling_overhead
 
         # Warp divergence penalties
-        num_divergent_ops = int(ops * self.warp_divergence_rate)
+        num_divergent_ops = int(total_ops * self.warp_divergence_rate)
         divergence_energy = num_divergent_ops * self.warp_divergence_penalty
 
         # Memory coalescing overhead
@@ -673,7 +723,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         coalescing_energy = num_uncoalesced * self.memory_coalescing_overhead
 
         # Synchronization barriers
-        num_barriers = (ops // 1000) * self.barriers_per_1000_ops
+        num_barriers = (total_ops // 1000) * self.barriers_per_1000_ops
         barrier_energy = num_barriers * self.barrier_sync_energy
 
         # ============================================================
@@ -697,10 +747,12 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         explanation = (
             f"Data Parallel (GPU SIMT) Architecture Energy Events:\n"
             f"\n"
-            f"1. COMPUTE UNITS:\n"
-            f"   Tensor Cores: {tensor_core_energy*1e12:.2f} pJ ({tensor_core_ops:,} ops @ {self.tensor_core_mac_energy*1e12:.2f} pJ/op)\n"
-            f"   CUDA Cores:   {cuda_core_energy*1e12:.2f} pJ ({cuda_core_ops:,} ops @ {self.cuda_core_mac_energy*1e12:.2f} pJ/op)\n"
-            f"   Register File: {register_file_energy*1e12:.2f} pJ ({num_register_accesses:,} accesses)\n"
+            f"1. COMPUTE UNITS (MAC/FLOP/IntOp Separation):\n"
+            f"   Tensor Cores:       {tensor_core_mac_energy*1e12:.2f} pJ ({tensor_core_ops:,} TC ops, {tensor_core_macs:,} MACs @ {self.tensor_core_mac_energy*1e12:.2f} pJ/MAC)\n"
+            f"   CUDA Cores (MACs):  {cuda_core_mac_energy*1e12:.2f} pJ ({cuda_core_macs:,} MACs @ {self.cuda_core_mac_energy*1e12:.2f} pJ/MAC)\n"
+            f"   CUDA Cores (FLOPs): {cuda_core_flop_energy*1e12:.2f} pJ ({flops:,} FLOPs @ {self.cuda_core_flop_energy*1e12:.2f} pJ/FLOP)\n"
+            f"   Integer ALUs:       {int_alu_energy*1e12:.2f} pJ ({intops:,} IntOps @ {self.int_alu_energy*1e12:.2f} pJ/IntOp)\n"
+            f"   Register File:      {register_file_energy*1e12:.2f} pJ ({num_register_accesses:,} accesses)\n"
             f"\n"
             f"2. INSTRUCTION PIPELINE:\n"
             f"   Fetch:  {instruction_fetch_energy_total*1e12:.2f} pJ ({num_instructions:,} instructions)\n"
@@ -731,18 +783,36 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             compute_overhead=compute_overhead_total,
             memory_overhead=memory_overhead_total,
             control_overhead=control_overhead,
+
+            # NEW: MAC/FLOP/IntOp energy breakdown (Phase 3)
+            mac_energy=total_mac_energy,
+            flop_energy=total_flop_energy,
+            intop_energy=total_intop_energy,
+
+            # NEW: Operation counts (Phase 3)
+            mac_ops_executed=macs,
+            flop_ops_executed=flops,
+            intop_ops_executed=intops,
+
             extra_details={
-                # Compute units
-                'tensor_core_energy': tensor_core_energy,
+                # Compute units (detailed breakdown)
+                'tensor_core_mac_energy': tensor_core_mac_energy,
+                'tensor_core_macs': tensor_core_macs,
                 'tensor_core_ops': tensor_core_ops,
-                'cuda_core_energy': cuda_core_energy,
-                'cuda_core_ops': cuda_core_ops,
+                'cuda_core_mac_energy': cuda_core_mac_energy,
+                'cuda_core_macs': cuda_core_macs,
+                'cuda_core_flop_energy': cuda_core_flop_energy,
+                'cuda_core_flops': flops,
+                'int_alu_energy': int_alu_energy,
+                'int_alu_intops': intops,
                 'register_file_energy': register_file_energy,
                 'num_register_accesses': num_register_accesses,
 
                 # Energy model parameters (for hardware config display)
-                'cuda_core_mac_energy': self.cuda_core_mac_energy,
-                'tensor_core_mac_energy': self.tensor_core_mac_energy,
+                'cuda_core_mac_energy_per_op': self.cuda_core_mac_energy,
+                'cuda_core_flop_energy_per_op': self.cuda_core_flop_energy,
+                'int_alu_energy_per_op': self.int_alu_energy,
+                'tensor_core_mac_energy_per_op': self.tensor_core_mac_energy,
                 'register_file_energy_per_access': self.register_file_energy_per_access,
 
                 # Instruction pipeline

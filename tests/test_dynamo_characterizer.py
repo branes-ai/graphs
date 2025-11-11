@@ -8,7 +8,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from src.graphs.analysis.dynamo_characterizer import (
+from graphs.analysis.dynamo_characterizer import (
     characterize_with_dynamo,
     DynamoWorkloadCharacterizer,
     ATEN_OP_CATALOG
