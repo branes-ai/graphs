@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-10] - Energy Breakdown Display Improvements
+
+### Added
+
+**Energy Comparison Tool Enhancements**
+
+1. **Operation Count Annotations**
+   - Added operation/event count displays to KPU and CPU energy breakdowns
+   - KPU now shows: total data transferred `[KB]`, token counts `[tokens]`, and MAC operations `[ops]`
+   - CPU now shows: ALU operation counts `[ops]` (already had instruction, register, branch counts)
+   - Consistent with existing GPU breakdown format showing `[1,638 ops]` style annotations
+   - Improves visibility into what operations are consuming energy
+
+2. **Idle/Leakage Energy Display**
+   - Added explicit idle/leakage energy breakdown to all three architectures (GPU, KPU, CPU)
+   - Shows "SUBTOTAL DYNAMIC ENERGY" (sum of all breakdown components) with percentage
+   - Shows "Idle/Leakage Energy (15W × latency)" with percentage
+   - Resolves confusion where total energy appeared much higher than sum of breakdown components
+   - Makes it clear that idle/leakage power (50% TDP) dominates for small, fast workloads
+
+**Example Output:**
+```
+TOTAL CPU ARCHITECTURAL OVERHEAD:     3.695 μJ
+Base Compute Energy (from mapper):    0.655 μJ
+Base Memory Energy (from mapper):     5.304 μJ
+────────────────────────────────────────────────────────────────────────────────
+SUBTOTAL DYNAMIC ENERGY:              9.654 μJ  (11.5%)   ← NEW
+Idle/Leakage Energy (15W × latency):  74.005 μJ  (88.5%)  ← NEW
+────────────────────────────────────────────────────────────────────────────────
+TOTAL CPU ENERGY:                    83.660 μJ
+```
+
+**Key Insight Revealed:**
+- For small workloads, idle/leakage energy dominates total energy consumption
+- KPU wins (18.5 μJ) because it executes fastest (1.04 μs), minimizing time-based leakage
+- GPU has highest energy (309.5 μJ) due to slow execution (20.36 μs) → 97.9% idle energy
+- CPU is middle (83.7 μJ) with 88.5% idle energy
+
+**Files Modified:**
+- `cli/compare_architectures_energy.py`: Added operation counts (4 sections) and idle energy display (3 architectures)
+- Total: ~24 lines changed
+
+**Documentation:**
+- Session log: `docs/sessions/2025-11-10_energy_breakdown_improvements.md`
+- See session log for detailed energy calculation methodology
+
+---
+
 ## [2025-11-10] - GPU Naming Standardization
 
 ### Changed
