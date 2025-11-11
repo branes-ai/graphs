@@ -225,14 +225,52 @@ class ArchitectureClass(Enum):
 @dataclass
 class ArchitecturalEnergyBreakdown:
     """
-    Result of architectural energy calculation.
+    Result of architectural energy calculation with MAC/FLOP/IntOp separation.
 
     Contains energy overheads (positive = cost, negative = savings)
     and human-readable explanation.
+
+    New Design (Phase 1):
+    - Separates MAC/FLOP/IntOp energy for accurate hardware mapping
+    - MACs → Tensor Cores, Systolic Arrays, AMX
+    - FLOPs → CUDA cores, SIMD units
+    - IntOps → Integer ALUs, SFUs
     """
     compute_overhead: float  # Additional compute energy (Joules)
     memory_overhead: float   # Additional memory energy (Joules)
     control_overhead: float  # Control/coordination energy (Joules)
+
+    # ============================================================
+    # MAC/FLOP/INTOP ENERGY BREAKDOWN (NEW - Phase 1)
+    # ============================================================
+
+    # MAC energy (matrix/convolution operations)
+    mac_energy: float = 0.0
+    """Energy from MAC operations (matmul, conv) in Joules"""
+
+    # FLOP energy (non-MAC floating-point operations)
+    flop_energy: float = 0.0
+    """Energy from FLOP operations (bias, activation, elementwise) in Joules"""
+
+    # IntOp energy (integer operations)
+    intop_energy: float = 0.0
+    """Energy from integer operations (quantization, indexing) in Joules"""
+
+    # ============================================================
+    # OPERATION COUNTS (NEW - Phase 1)
+    # ============================================================
+
+    # MAC operation counts
+    mac_ops_executed: int = 0
+    """Number of MACs executed"""
+
+    # FLOP operation counts
+    flop_ops_executed: int = 0
+    """Number of FLOPs executed"""
+
+    # IntOp operation counts
+    intop_ops_executed: int = 0
+    """Number of integer ops executed"""
 
     # Additional details for specific architectures
     extra_details: Dict[str, float] = field(default_factory=dict)
@@ -244,6 +282,16 @@ class ArchitecturalEnergyBreakdown:
     def total_overhead(self) -> float:
         """Total architectural overhead"""
         return self.compute_overhead + self.memory_overhead + self.control_overhead
+
+    @property
+    def total_compute_energy(self) -> float:
+        """Total compute energy (MAC + FLOP + IntOp)"""
+        return self.mac_energy + self.flop_energy + self.intop_energy
+
+    @property
+    def total_ops_executed(self) -> int:
+        """Total operations executed (MAC + FLOP + IntOp)"""
+        return self.mac_ops_executed + self.flop_ops_executed + self.intop_ops_executed
 
 
 class ArchitecturalEnergyModel(ABC):
@@ -282,27 +330,60 @@ class ArchitecturalEnergyModel(ABC):
 @dataclass
 class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     """
-    Energy model for stored program architectures (CPU, DSP) - Sequential/Modest Parallelism.
+    Enhanced energy model for stored program architectures (CPU, DSP).
 
     Key energy events:
-    - Instruction fetch: Energy to request/receive each instruction from memory
-    - Operand fetch: Explicit load/store overhead (request/reply cycles)
-    - Pipeline control: Decode, dispatch, ordering, writeback machinery
-    - Out-of-order execution overhead
-    - Branch prediction
+    1. Instruction Pipeline (Fetch → Decode → Execute)
+    2. Register File Operations (2 reads + 1 write per instruction)
+    3. 4-Stage Memory Hierarchy (L1 → L2 → L3 → DRAM)
+    4. ALU Operations
+    5. Branch Prediction
 
     The memory wall: Request/reply latency is significant AND energy intensive.
+    Register file energy is comparable to ALU energy (~same for read/write as for compute).
     """
 
-    # Energy coefficients (Joules per event)
-    instruction_fetch_energy: float = 2.0e-12      # ~2 pJ per instruction
-    operand_fetch_overhead: float = 10.0e-12       # ~10 pJ per memory operation
-    pipeline_control_per_cycle: float = 0.5e-12    # ~0.5 pJ per cycle
-    branch_prediction_overhead: float = 0.3e-12    # ~0.3 pJ per branch
+    # ============================================================
+    # Instruction Pipeline Energy
+    # ============================================================
+    instruction_fetch_energy: float = 1.5e-12      # ~1.5 pJ per instruction (I-cache read)
+    instruction_decode_energy: float = 0.8e-12     # ~0.8 pJ per instruction (decode logic)
+    instruction_execute_energy: float = 0.5e-12    # ~0.5 pJ per instruction (control signals)
 
-    # Instructions per operation (typical for AI workloads)
-    instructions_per_op: float = 0.1               # ~1 instruction per 10 ops
+    # ============================================================
+    # Register File Energy (CRITICAL: ~same as ALU energy!)
+    # HIGH FREQUENCY CPUs (2-4 GHz) need much more energy than low-freq accelerators
+    # ============================================================
+    register_file_read_energy: float = 2.5e-12     # ~2.5 pJ per read (high-freq, complex CPU)
+    register_file_write_energy: float = 3.0e-12    # ~3.0 pJ per write (write is more expensive)
+    register_ops_per_instruction: int = 3          # 2 reads + 1 write per instruction
+
+    # ============================================================
+    # 4-Stage Memory Hierarchy Energy
+    # HIGH FREQUENCY = higher energy per access
+    # ============================================================
+    l1_cache_energy_per_byte: float = 1.0e-12      # ~1.0 pJ (32 KB, per-core, high freq)
+    l2_cache_energy_per_byte: float = 2.5e-12      # ~2.5 pJ (256 KB-1 MB, per-core or shared)
+    l3_cache_energy_per_byte: float = 5.0e-12      # ~5.0 pJ (8-64 MB, shared LLC)
+    dram_energy_per_byte: float = 20.0e-12         # ~20 pJ (DDR4/DDR5, off-chip)
+
+    # Cache hit rates (conservative for AI workloads with streaming data)
+    l1_hit_rate: float = 0.85                      # 85% L1 hits
+    l2_hit_rate: float = 0.90                      # 90% L2 hits (of L1 misses)
+    l3_hit_rate: float = 0.95                      # 95% L3 hits (of L2 misses)
+    # DRAM gets remaining misses
+
+    # ============================================================
+    # ALU Energy (HIGH FREQUENCY = 3-5× more than low-freq accelerators!)
+    # ============================================================
+    alu_energy_per_op: float = 4.0e-12             # ~4.0 pJ per FP operation (2.2 GHz, complex OOO design)
+
+    # ============================================================
+    # Instruction Mix (for AI workloads)
+    # ============================================================
+    instructions_per_op: float = 2.0               # ~2 instructions per FLOP (load, compute, store, etc.)
     branches_per_1000_ops: int = 50                # ~50 branches per 1000 ops
+    branch_prediction_overhead: float = 0.4e-12    # ~0.4 pJ per branch
 
     def compute_architectural_energy(
         self,
@@ -316,53 +397,135 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         if execution_context is None:
             execution_context = {}
 
-        # Estimate instruction count
+        # ============================================================
+        # 1. Instruction Pipeline (Fetch → Decode → Execute)
+        # ============================================================
         num_instructions = int(ops * self.instructions_per_op)
 
-        # Estimate memory operations (cache line granularity)
-        cache_line_size = execution_context.get('cache_line_size', 64)
-        num_memory_ops = max(1, int(bytes_transferred / cache_line_size))
+        instruction_fetch_energy_total = num_instructions * self.instruction_fetch_energy
+        instruction_decode_energy_total = num_instructions * self.instruction_decode_energy
+        instruction_execute_energy_total = num_instructions * self.instruction_execute_energy
 
-        # Instruction fetch overhead
-        instruction_energy = num_instructions * self.instruction_fetch_energy
+        pipeline_energy_total = (
+            instruction_fetch_energy_total +
+            instruction_decode_energy_total +
+            instruction_execute_energy_total
+        )
 
-        # Memory request overhead (beyond data transfer)
-        memory_overhead = num_memory_ops * self.operand_fetch_overhead
+        # ============================================================
+        # 2. Register File Operations (2 reads + 1 write per instruction)
+        # ============================================================
+        num_register_reads = num_instructions * 2   # 2 source operands
+        num_register_writes = num_instructions * 1  # 1 destination operand
 
-        # Branch prediction
+        register_read_energy = num_register_reads * self.register_file_read_energy
+        register_write_energy = num_register_writes * self.register_file_write_energy
+        register_file_energy_total = register_read_energy + register_write_energy
+
+        # ============================================================
+        # 3. 4-Stage Memory Hierarchy (L1 → L2 → L3 → DRAM)
+        # ============================================================
+        # All data accesses go through the hierarchy
+        total_bytes = bytes_transferred
+
+        # L1 cache: l1_hit_rate of accesses hit
+        l1_bytes = total_bytes * self.l1_hit_rate
+        l1_energy = l1_bytes * self.l1_cache_energy_per_byte
+
+        # L2 cache: (1 - l1_hit_rate) * l2_hit_rate hit L2
+        l1_miss_bytes = total_bytes * (1 - self.l1_hit_rate)
+        l2_bytes = l1_miss_bytes * self.l2_hit_rate
+        l2_energy = l2_bytes * self.l2_cache_energy_per_byte
+
+        # L3 cache: L2 misses * l3_hit_rate hit L3
+        l2_miss_bytes = l1_miss_bytes * (1 - self.l2_hit_rate)
+        l3_bytes = l2_miss_bytes * self.l3_hit_rate
+        l3_energy = l3_bytes * self.l3_cache_energy_per_byte
+
+        # DRAM: L3 misses go to DRAM
+        l3_miss_bytes = l2_miss_bytes * (1 - self.l3_hit_rate)
+        dram_bytes = l3_miss_bytes
+        dram_energy = dram_bytes * self.dram_energy_per_byte
+
+        memory_hierarchy_energy_total = l1_energy + l2_energy + l3_energy + dram_energy
+
+        # ============================================================
+        # 4. ALU Operations
+        # ============================================================
+        alu_energy_total = ops * self.alu_energy_per_op
+
+        # ============================================================
+        # 5. Branch Prediction
+        # ============================================================
         num_branches = (ops // 1000) * self.branches_per_1000_ops
         branch_energy = num_branches * self.branch_prediction_overhead
 
-        # Total control overhead
-        control_overhead = instruction_energy + branch_energy
+        # ============================================================
+        # Categorize into overhead components
+        # ============================================================
+        # Control overhead: instruction pipeline + branch prediction
+        control_overhead = pipeline_energy_total + branch_energy
+
+        # Compute overhead: register file + ALU
+        compute_overhead = register_file_energy_total + alu_energy_total
+
+        # Memory overhead: cache hierarchy
+        memory_overhead = memory_hierarchy_energy_total
+
+        # ============================================================
+        # Create detailed breakdown
+        # ============================================================
+        extra_details = {
+            # Instruction Pipeline
+            'instruction_fetch_energy': instruction_fetch_energy_total,
+            'instruction_decode_energy': instruction_decode_energy_total,
+            'instruction_execute_energy': instruction_execute_energy_total,
+            'num_instructions': num_instructions,
+
+            # Register File
+            'register_read_energy': register_read_energy,
+            'register_write_energy': register_write_energy,
+            'num_register_reads': num_register_reads,
+            'num_register_writes': num_register_writes,
+
+            # Memory Hierarchy
+            'l1_cache_energy': l1_energy,
+            'l2_cache_energy': l2_energy,
+            'l3_cache_energy': l3_energy,
+            'dram_energy': dram_energy,
+            'l1_bytes': l1_bytes,
+            'l2_bytes': l2_bytes,
+            'l3_bytes': l3_bytes,
+            'dram_bytes': dram_bytes,
+
+            # ALU
+            'alu_energy': alu_energy_total,
+
+            # Branch Prediction
+            'branch_energy': branch_energy,
+            'num_branches': num_branches,
+        }
 
         explanation = (
-            f"Stored Program Architecture (CPU/DSP) Energy Events:\n"
-            f"  Instruction Fetch:\n"
-            f"    - Instructions: {num_instructions:,} ({self.instructions_per_op} per op)\n"
-            f"    - Energy: {instruction_energy*1e12:.2f} pJ "
-            f"({num_instructions:,} × {self.instruction_fetch_energy*1e12:.2f} pJ)\n"
-            f"  Memory Request Overhead:\n"
-            f"    - Memory ops: {num_memory_ops:,} ({cache_line_size}-byte cache lines)\n"
-            f"    - Energy: {memory_overhead*1e12:.2f} pJ "
-            f"({num_memory_ops:,} × {self.operand_fetch_overhead*1e12:.2f} pJ)\n"
-            f"  Branch Prediction:\n"
-            f"    - Branches: {num_branches:,}\n"
-            f"    - Energy: {branch_energy*1e12:.2f} pJ\n"
-            f"  Total Architectural Overhead: {(control_overhead + memory_overhead)*1e12:.2f} pJ\n"
-            f"\n"
-            f"KEY: Sequential execution with modest parallelism (8-16 cores).\n"
-            f"     Memory wall creates request/reply energy overhead."
+            f"Stored Program Architecture (CPU) Energy Events:\n"
+            f"  1. Instruction Pipeline: {pipeline_energy_total*1e6:.3f} μJ "
+            f"({num_instructions:,} instructions)\n"
+            f"  2. Register File: {register_file_energy_total*1e6:.3f} μJ "
+            f"({num_register_reads:,} reads + {num_register_writes:,} writes)\n"
+            f"  3. Memory Hierarchy: {memory_hierarchy_energy_total*1e6:.3f} μJ\n"
+            f"     - L1: {l1_energy*1e6:.3f} μJ ({l1_bytes/1024:.1f} KB)\n"
+            f"     - L2: {l2_energy*1e6:.3f} μJ ({l2_bytes/1024:.1f} KB)\n"
+            f"     - L3: {l3_energy*1e6:.3f} μJ ({l3_bytes/1024:.1f} KB)\n"
+            f"     - DRAM: {dram_energy*1e6:.3f} μJ ({dram_bytes/1024:.1f} KB)\n"
+            f"  4. ALU Operations: {alu_energy_total*1e6:.3f} μJ ({ops:,} ops)\n"
+            f"  5. Branch Prediction: {branch_energy*1e6:.3f} μJ ({num_branches:,} branches)\n"
         )
 
         return ArchitecturalEnergyBreakdown(
-            compute_overhead=0.0,
+            compute_overhead=compute_overhead,
             memory_overhead=memory_overhead,
             control_overhead=control_overhead,
-            extra_details={
-                'instruction_energy': instruction_energy,
-                'branch_energy': branch_energy,
-            },
+            extra_details=extra_details,
             explanation=explanation
         )
 
@@ -403,6 +566,30 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     uncoalesced_access_rate: float = 0.10          # 10% of memory accesses uncoalesced
     barriers_per_1000_ops: int = 5                 # ~5 barriers per 1000 ops
 
+    # NEW: Compute unit breakdown (CUDA cores vs Tensor Cores)
+    cuda_core_mac_energy: float = 0.8e-12          # ~0.8 pJ per MAC (FP32 on CUDA cores)
+    tensor_core_mac_energy: float = 0.3e-12        # ~0.3 pJ per MAC (FP16/BF16/INT8 on Tensor Cores)
+    tensor_core_utilization: float = 0.80          # 80% of ops can use tensor cores (GEMM-like)
+    register_file_energy_per_access: float = 0.6e-12  # ~0.6 pJ per register access (similar to ALU energy)
+
+    # NEW: Memory hierarchy breakdown (NVIDIA Ampere nomenclature)
+    # Level 1: Register File (64K regs/SM, separate from cache)
+    # Level 2: Shared Memory / L1 Data Cache (UNIFIED, 128-192 KB configurable)
+    # Level 3: L2 Cache (shared across all SMs)
+    # Level 4: DRAM
+    shared_memory_l1_unified_energy_per_byte: float = 0.25e-12  # ~0.25 pJ (Shared Mem/L1 unified, on-chip)
+    l2_cache_energy_per_byte: float = 0.8e-12                   # ~0.8 pJ (shared L2, 4-40 MB)
+    dram_energy_per_byte: float = 10.0e-12                      # ~10 pJ (HBM2e or LPDDR5)
+
+    # NEW: Memory access patterns (conservative estimates)
+    shared_mem_l1_hit_rate: float = 0.95                        # 95% hit in Shared Mem/L1
+    l2_hit_rate: float = 0.90                                   # 90% L2 hits (of Shared/L1 misses)
+    shared_mem_explicit_usage: float = 0.40                     # 40% explicitly use shared memory in kernel code
+
+    # NEW: Instruction pipeline stages
+    instruction_decode_energy: float = 0.5e-12         # ~0.5 pJ per instruction decode
+    instruction_execute_energy: float = 0.3e-12        # ~0.3 pJ per instruction execute
+
     def compute_architectural_energy(
         self,
         ops: int,
@@ -415,30 +602,73 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         if execution_context is None:
             execution_context = {}
 
-        # CPU-like overheads (instruction fetch, operand fetch)
+        # ============================================================
+        # 1. COMPUTE UNIT BREAKDOWN (CUDA cores vs Tensor Cores)
+        # ============================================================
+
+        # Assume tensor cores are used for GEMM-like operations (80% utilization)
+        tensor_core_ops = int(ops * self.tensor_core_utilization)
+        cuda_core_ops = ops - tensor_core_ops
+
+        tensor_core_energy = tensor_core_ops * self.tensor_core_mac_energy
+        cuda_core_energy = cuda_core_ops * self.cuda_core_mac_energy
+
+        # Register file accesses (2 per op: read operands + write result)
+        num_register_accesses = ops * 2
+        register_file_energy = num_register_accesses * self.register_file_energy_per_access
+
+        # ============================================================
+        # 2. INSTRUCTION PIPELINE (fetch, decode, execute)
+        # ============================================================
+
         num_instructions = int(ops * self.instructions_per_op)
-        instruction_energy = num_instructions * self.instruction_fetch_energy
+        instruction_fetch_energy_total = num_instructions * self.instruction_fetch_energy
+        instruction_decode_energy_total = num_instructions * self.instruction_decode_energy
+        instruction_execute_energy_total = num_instructions * self.instruction_execute_energy
+
+        # ============================================================
+        # 3. MEMORY HIERARCHY BREAKDOWN (NVIDIA Ampere Nomenclature)
+        # Register File → Shared Memory/L1 (unified) → L2 → DRAM
+        # ============================================================
 
         cache_line_size = execution_context.get('cache_line_size', 128)  # H100 uses 128B
-        num_memory_ops = max(1, int(bytes_transferred / cache_line_size))
-        memory_overhead = num_memory_ops * self.operand_fetch_overhead
+        num_memory_accesses = max(1, int(bytes_transferred / 4))  # Assume 4-byte elements
 
-        # GPU-specific: Coherence machinery (THE CRITICAL ENERGY COMPONENT)
+        # Shared Memory / L1 unified (95% hit rate)
+        # This is a single hardware structure with configurable carveout
+        shared_mem_l1_accesses = int(num_memory_accesses * self.shared_mem_l1_hit_rate)
+        shared_mem_l1_energy = shared_mem_l1_accesses * self.shared_memory_l1_unified_energy_per_byte * 4
+
+        # L2 cache hits (90% of Shared/L1 misses)
+        shared_l1_misses = num_memory_accesses - shared_mem_l1_accesses
+        l2_accesses = int(shared_l1_misses * self.l2_hit_rate)
+        l2_energy = l2_accesses * self.l2_cache_energy_per_byte * 4
+
+        # DRAM accesses (remaining L2 misses)
+        l2_misses = shared_l1_misses - l2_accesses
+        dram_accesses = l2_misses
+        dram_energy = dram_accesses * self.dram_energy_per_byte * 4
+
+        # ============================================================
+        # 4. GPU-SPECIFIC SIMT OVERHEADS
+        # ============================================================
+
+        # Coherence machinery (THE CRITICAL ENERGY COMPONENT)
         concurrent_threads = execution_context.get('concurrent_threads', 200_000)
         warp_size = execution_context.get('warp_size', 32)
         num_concurrent_warps = max(1, concurrent_threads // warp_size)
 
-        # Coherence energy scales with concurrent warps × memory operations
+        num_memory_ops = max(1, int(bytes_transferred / cache_line_size))
         coherence_energy = num_concurrent_warps * self.coherence_energy_per_request * num_memory_ops
 
         # Thread scheduling overhead
         scheduling_energy = concurrent_threads * self.thread_scheduling_overhead
 
-        # Warp divergence penalties (control flow causes some warps to diverge)
+        # Warp divergence penalties
         num_divergent_ops = int(ops * self.warp_divergence_rate)
         divergence_energy = num_divergent_ops * self.warp_divergence_penalty
 
-        # Memory coalescing overhead (uncoalesced accesses are expensive)
+        # Memory coalescing overhead
         num_uncoalesced = int(num_memory_ops * self.uncoalesced_access_rate)
         coalescing_energy = num_uncoalesced * self.memory_coalescing_overhead
 
@@ -446,51 +676,101 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         num_barriers = (ops // 1000) * self.barriers_per_1000_ops
         barrier_energy = num_barriers * self.barrier_sync_energy
 
-        # Total control overhead
-        control_overhead = (instruction_energy + coherence_energy + scheduling_energy +
-                           divergence_energy + barrier_energy)
+        # ============================================================
+        # 5. AGGREGATE OVERHEAD CATEGORIES
+        # ============================================================
 
-        # Memory overhead includes coalescing
-        total_memory_overhead = memory_overhead + coalescing_energy
+        # Compute overhead: instruction pipeline + register file
+        compute_overhead_total = (instruction_fetch_energy_total +
+                                 instruction_decode_energy_total +
+                                 instruction_execute_energy_total +
+                                 register_file_energy)
+
+        # Memory overhead: hierarchy + coalescing
+        memory_overhead_total = (shared_mem_l1_energy + l2_energy + dram_energy +
+                                coalescing_energy)
+
+        # Control overhead: coherence + scheduling + divergence + barriers
+        control_overhead = (coherence_energy + scheduling_energy +
+                           divergence_energy + barrier_energy)
 
         explanation = (
             f"Data Parallel (GPU SIMT) Architecture Energy Events:\n"
-            f"  CPU-Like Overheads:\n"
-            f"    - Instruction fetch: {instruction_energy*1e12:.2f} pJ "
-            f"({num_instructions:,} instructions)\n"
-            f"    - Memory requests: {memory_overhead*1e12:.2f} pJ "
-            f"({num_memory_ops:,} ops)\n"
-            f"  GPU-Specific SIMT Overheads:\n"
-            f"    - Coherence machinery: {coherence_energy*1e12:.2f} pJ "
-            f"({num_concurrent_warps:,} warps × {num_memory_ops:,} mem ops)\n"
-            f"      THIS IS THE DOMINANT ENERGY COMPONENT!\n"
-            f"    - Thread scheduling: {scheduling_energy*1e12:.2f} pJ "
-            f"({concurrent_threads:,} threads)\n"
-            f"    - Warp divergence: {divergence_energy*1e12:.2f} pJ "
-            f"({num_divergent_ops:,} divergent ops)\n"
-            f"    - Memory coalescing: {coalescing_energy*1e12:.2f} pJ "
-            f"({num_uncoalesced:,} uncoalesced)\n"
-            f"    - Synchronization barriers: {barrier_energy*1e12:.2f} pJ "
-            f"({num_barriers:,} barriers)\n"
-            f"  Total Architectural Overhead: {(control_overhead + total_memory_overhead)*1e12:.2f} pJ\n"
             f"\n"
-            f"KEY INSIGHT: Coherence machinery dominates! GPU burns energy to manage\n"
-            f"             thousands of concurrent memory requests. This is only worth\n"
-            f"             it at large batch sizes where latency hiding pays off.\n"
-            f"             At small batches, coherence overhead >> computation benefit."
+            f"1. COMPUTE UNITS:\n"
+            f"   Tensor Cores: {tensor_core_energy*1e12:.2f} pJ ({tensor_core_ops:,} ops @ {self.tensor_core_mac_energy*1e12:.2f} pJ/op)\n"
+            f"   CUDA Cores:   {cuda_core_energy*1e12:.2f} pJ ({cuda_core_ops:,} ops @ {self.cuda_core_mac_energy*1e12:.2f} pJ/op)\n"
+            f"   Register File: {register_file_energy*1e12:.2f} pJ ({num_register_accesses:,} accesses)\n"
+            f"\n"
+            f"2. INSTRUCTION PIPELINE:\n"
+            f"   Fetch:  {instruction_fetch_energy_total*1e12:.2f} pJ ({num_instructions:,} instructions)\n"
+            f"   Decode: {instruction_decode_energy_total*1e12:.2f} pJ\n"
+            f"   Execute: {instruction_execute_energy_total*1e12:.2f} pJ\n"
+            f"\n"
+            f"3. MEMORY HIERARCHY (NVIDIA Ampere Nomenclature):\n"
+            f"   Shared Memory/L1 (unified): {shared_mem_l1_energy*1e12:.2f} pJ ({shared_mem_l1_accesses:,} accesses, {self.shared_mem_l1_hit_rate*100:.0f}% hit rate)\n"
+            f"   L2 Cache:                   {l2_energy*1e12:.2f} pJ ({l2_accesses:,} hits, {self.l2_hit_rate*100:.0f}% of Shared/L1 misses)\n"
+            f"   DRAM:                       {dram_energy*1e12:.2f} pJ ({dram_accesses:,} accesses)\n"
+            f"\n"
+            f"4. SIMT CONTROL OVERHEADS:\n"
+            f"   Coherence Machinery:   {coherence_energy*1e12:.2f} pJ ← DOMINANT!\n"
+            f"                          ({num_concurrent_warps:,} warps × {num_memory_ops:,} mem ops)\n"
+            f"   Thread Scheduling:     {scheduling_energy*1e12:.2f} pJ ({concurrent_threads:,} threads)\n"
+            f"   Warp Divergence:       {divergence_energy*1e12:.2f} pJ ({num_divergent_ops:,} divergent ops)\n"
+            f"   Memory Coalescing:     {coalescing_energy*1e12:.2f} pJ ({num_uncoalesced:,} uncoalesced)\n"
+            f"   Synchronization Barriers: {barrier_energy*1e12:.2f} pJ ({num_barriers:,} barriers)\n"
+            f"\n"
+            f"TOTAL OVERHEAD: {(compute_overhead_total + memory_overhead_total + control_overhead)*1e12:.2f} pJ\n"
+            f"\n"
+            f"KEY INSIGHT: Coherence machinery dominates at small batch sizes!\n"
+            f"             GPU burns massive energy managing thousands of concurrent memory requests.\n"
+            f"             Tensor Cores are 2.7× more efficient than CUDA cores (0.3 vs 0.8 pJ/MAC)."
         )
 
         return ArchitecturalEnergyBreakdown(
-            compute_overhead=0.0,
-            memory_overhead=total_memory_overhead,
+            compute_overhead=compute_overhead_total,
+            memory_overhead=memory_overhead_total,
             control_overhead=control_overhead,
             extra_details={
-                'instruction_energy': instruction_energy,
+                # Compute units
+                'tensor_core_energy': tensor_core_energy,
+                'tensor_core_ops': tensor_core_ops,
+                'cuda_core_energy': cuda_core_energy,
+                'cuda_core_ops': cuda_core_ops,
+                'register_file_energy': register_file_energy,
+                'num_register_accesses': num_register_accesses,
+
+                # Energy model parameters (for hardware config display)
+                'cuda_core_mac_energy': self.cuda_core_mac_energy,
+                'tensor_core_mac_energy': self.tensor_core_mac_energy,
+                'register_file_energy_per_access': self.register_file_energy_per_access,
+
+                # Instruction pipeline
+                'instruction_fetch_energy': instruction_fetch_energy_total,
+                'instruction_decode_energy': instruction_decode_energy_total,
+                'instruction_execute_energy': instruction_execute_energy_total,
+                'num_instructions': num_instructions,
+
+                # Memory hierarchy (NVIDIA Ampere nomenclature)
+                'shared_mem_l1_unified_energy': shared_mem_l1_energy,
+                'shared_mem_l1_accesses': shared_mem_l1_accesses,
+                'l2_cache_energy': l2_energy,
+                'l2_accesses': l2_accesses,
+                'dram_energy': dram_energy,
+                'dram_accesses': dram_accesses,
+
+                # SIMT control overheads
                 'coherence_energy': coherence_energy,
+                'num_concurrent_warps': num_concurrent_warps,
+                'num_memory_ops': num_memory_ops,
                 'scheduling_energy': scheduling_energy,
+                'concurrent_threads': concurrent_threads,
                 'divergence_energy': divergence_energy,
+                'num_divergent_ops': num_divergent_ops,
                 'coalescing_energy': coalescing_energy,
+                'num_uncoalesced': num_uncoalesced,
                 'barrier_energy': barrier_energy,
+                'num_barriers': num_barriers,
             },
             explanation=explanation
         )
@@ -1756,3 +2036,181 @@ class KPUTileEnergyModel:
         """
         width, height = self.tile_mesh_dimensions
         return (width + height) / 4.0  # Conservative estimate
+
+
+# ============================================================================
+# KPU Tile Energy Model Adapter
+# ============================================================================
+
+
+class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
+    """
+    Adapter to use KPUTileEnergyModel within the ArchitecturalEnergyModel interface.
+
+    This wraps the detailed KPUTileEnergyModel and exposes it via the standard
+    compute_architectural_energy() interface expected by the comparison tool.
+    """
+
+    def __init__(self, tile_model: KPUTileEnergyModel):
+        """
+        Initialize adapter with a configured KPUTileEnergyModel instance.
+
+        Args:
+            tile_model: Configured KPUTileEnergyModel with product-specific parameters
+        """
+        self.tile_model = tile_model
+
+    def compute_architectural_energy(
+        self,
+        ops: int,
+        bytes_transferred: int,
+        compute_energy_baseline: float,
+        memory_energy_baseline: float,
+        execution_context: Optional[Dict] = None
+    ) -> ArchitecturalEnergyBreakdown:
+        """
+        Compute architectural energy using the detailed KPU tile model.
+
+        This adapter extracts GEMM dimensions from execution_context and delegates
+        to KPUTileEnergyModel.compute_gemm_energy(), then maps the 8-component
+        breakdown to the ArchEnergyBreakdown format.
+        """
+        if execution_context is None:
+            execution_context = {}
+
+        # Extract GEMM dimensions from context (comparison tool should provide these)
+        # For MLP: M=batch_size, N=out_features, K=in_features
+        batch_size = execution_context.get('batch_size', 1)
+        mlp_input_dim = execution_context.get('mlp_input_dim', 256)
+        mlp_output_dim = execution_context.get('mlp_output_dim', 256)
+
+        # Call the detailed tile model
+        breakdown = self.tile_model.compute_gemm_energy(
+            M=batch_size,
+            N=mlp_output_dim,
+            K=mlp_input_dim,
+            batch_size=1,  # Already included in M
+            precision='FP32',
+            enable_fusion=False,
+            num_fused_ops=1
+        )
+
+        # Map 8-component breakdown to ArchEnergyBreakdown
+        # Component 1: 4-Stage Memory Hierarchy
+        dram_energy = breakdown['dram_read_energy_j'] + breakdown['dram_write_energy_j']
+        l3_energy = breakdown['l3_read_energy_j'] + breakdown['l3_write_energy_j']
+        l2_energy = breakdown['l2_read_energy_j'] + breakdown['l2_write_energy_j']
+        l1_energy = breakdown['l1_read_energy_j'] + breakdown['l1_write_energy_j']
+
+        # Component 2: Data Movement Engines
+        dma_energy = breakdown['dma_energy_j']
+        blockmover_energy = breakdown['blockmover_energy_j']
+        streamer_energy = breakdown['streamer_energy_j']
+
+        # Component 3: Token Signature Matching
+        token_matching_energy = breakdown['total_token_matching_energy_j']
+
+        # Component 4: SURE Program Loading
+        program_load_energy = breakdown['program_load_energy_j']
+
+        # Component 5: Distributed L3 Scratchpad
+        l3_routing_energy = breakdown['distributed_l3_routing_energy_j']
+
+        # Component 6: Operator Fusion
+        fusion_energy = breakdown['fusion_net_energy_j']
+
+        # Component 7: Token Routing
+        token_routing_energy = breakdown['token_routing_energy_j']
+
+        # Component 8: Computation
+        compute_energy = breakdown['compute_energy_j']
+
+        # Calculate total overhead (everything except base compute)
+        total_overhead = (
+            dram_energy + l3_energy + l2_energy + l1_energy +
+            dma_energy + blockmover_energy + streamer_energy +
+            token_matching_energy + program_load_energy +
+            l3_routing_energy + fusion_energy + token_routing_energy
+        )
+
+        # Categorize into compute/memory/control overhead
+        # Memory overhead: memory hierarchy + data movement engines
+        memory_overhead = (
+            dram_energy + l3_energy + l2_energy + l1_energy +
+            dma_energy + blockmover_energy + streamer_energy
+        )
+
+        # Control overhead: token matching + program loading + token routing
+        control_overhead = (
+            token_matching_energy + program_load_energy + token_routing_energy
+        )
+
+        # Compute overhead: fusion coordination + L3 routing
+        compute_overhead = l3_routing_energy + fusion_energy
+
+        # Create extra_details dictionary with all 8 components
+        extra_details = {
+            # Component 1: 4-Stage Memory Hierarchy
+            'dram_energy': dram_energy,
+            'l3_energy': l3_energy,
+            'l2_energy': l2_energy,
+            'l1_energy': l1_energy,
+
+            # Component 2: Data Movement Engines
+            'dma_energy': dma_energy,
+            'blockmover_energy': blockmover_energy,
+            'streamer_energy': streamer_energy,
+
+            # Component 3: Token Signature Matching
+            'token_matching_energy': token_matching_energy,
+            'signature_matching_energy': breakdown['signature_matching_energy_j'],
+            'handshake_energy': breakdown['handshake_energy_j'],
+
+            # Component 4: SURE Program Loading
+            'program_load_energy': program_load_energy,
+            'cache_hit_rate': breakdown['cache_hit_rate'],
+
+            # Component 5: Distributed L3 Scratchpad
+            'l3_routing_energy': l3_routing_energy,
+            'average_l3_hops': breakdown['average_l3_hops'],
+
+            # Component 6: Operator Fusion
+            'fusion_overhead_energy': breakdown['fusion_overhead_energy_j'],
+            'fusion_savings_energy': breakdown['fusion_savings_energy_j'],
+            'fusion_net_energy': fusion_energy,
+
+            # Component 7: Token Routing
+            'token_routing_energy': token_routing_energy,
+            'average_routing_distance': breakdown['average_routing_distance'],
+            'num_tokens': breakdown['num_tokens'],
+
+            # Component 8: Computation
+            'compute_energy': compute_energy,
+
+            # Metrics
+            'total_ops': breakdown['total_ops'],
+            'total_bytes': breakdown['total_bytes'],
+            'arithmetic_intensity': breakdown['arithmetic_intensity'],
+            'energy_per_mac_pj': breakdown['energy_per_mac_pj'],
+            'compute_percentage': breakdown['compute_percentage'],
+        }
+
+        return ArchitecturalEnergyBreakdown(
+            compute_overhead=compute_overhead,
+            memory_overhead=memory_overhead,
+            control_overhead=control_overhead,
+            extra_details=extra_details,
+            explanation=(
+                f"KPU Domain-Flow 8-component breakdown:\n"
+                f"  1. Memory Hierarchy: DRAM={dram_energy*1e6:.3f} μJ, L3={l3_energy*1e6:.3f} μJ, "
+                f"L2={l2_energy*1e6:.3f} μJ, L1={l1_energy*1e6:.3f} μJ\n"
+                f"  2. Data Movement: DMA={dma_energy*1e6:.3f} μJ, BlockMover={blockmover_energy*1e6:.3f} μJ, "
+                f"Streamer={streamer_energy*1e6:.3f} μJ\n"
+                f"  3. Token Matching: {token_matching_energy*1e6:.3f} μJ\n"
+                f"  4. Program Loading: {program_load_energy*1e6:.3f} μJ\n"
+                f"  5. L3 Routing: {l3_routing_energy*1e6:.3f} μJ\n"
+                f"  6. Fusion: {fusion_energy*1e6:.3f} μJ\n"
+                f"  7. Token Routing: {token_routing_energy*1e6:.3f} μJ\n"
+                f"  8. Compute: {compute_energy*1e6:.3f} μJ"
+            )
+        )

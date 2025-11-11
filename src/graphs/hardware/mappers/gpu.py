@@ -820,7 +820,45 @@ def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None) -> GPUMapper
         GPUMapper configured for Jetson Orin AGX 64GB
     """
     from ..models.edge.jetson_orin_agx_64gb import jetson_orin_agx_64gb_resource_model
-    return GPUMapper(jetson_orin_agx_64gb_resource_model(), thermal_profile=thermal_profile)
+    from ..architectural_energy import DataParallelEnergyModel
+
+    # Create resource model
+    resource_model = jetson_orin_agx_64gb_resource_model()
+
+    # Configure architectural energy model for GPU (DATA_PARALLEL)
+    # Jetson Orin AGX: Edge GPU with lower power than datacenter
+    resource_model.architecture_energy_model = DataParallelEnergyModel(
+        # Compute unit breakdown
+        cuda_core_mac_energy=0.8e-12,           # ~0.8 pJ per MAC (FP32)
+        tensor_core_mac_energy=0.3e-12,         # ~0.3 pJ per MAC (INT8/FP16)
+        tensor_core_utilization=0.80,           # 80% ops use Tensor Cores
+        register_file_energy_per_access=0.6e-12,  # ~0.6 pJ (similar to ALU energy)
+
+        # Memory hierarchy (NVIDIA Ampere nomenclature)
+        # Register File → Shared Memory/L1 (unified) → L2 → DRAM
+        shared_memory_l1_unified_energy_per_byte=0.25e-12,  # Unified Shared Mem/L1
+        l2_cache_energy_per_byte=0.8e-12,
+        dram_energy_per_byte=10.0e-12,
+
+        # Memory access patterns
+        shared_mem_l1_hit_rate=0.95,           # Unified Shared Mem/L1 hit rate
+        l2_hit_rate=0.90,
+
+        # Instruction pipeline stages
+        instruction_fetch_energy=1.5e-12,      # Edge: lower than datacenter
+        instruction_decode_energy=0.4e-12,
+        instruction_execute_energy=0.25e-12,
+
+        # SIMT control overheads (DATA_PARALLEL architecture)
+        operand_fetch_overhead=8.0e-12,        # Edge: lower than datacenter
+        coherence_energy_per_request=4.0e-12,  # GPU coherence machinery
+        thread_scheduling_overhead=0.8e-12,
+        warp_divergence_penalty=2.5e-12,
+        memory_coalescing_overhead=1.8e-12,
+        barrier_sync_energy=2.0e-12,
+    )
+
+    return GPUMapper(resource_model, thermal_profile=thermal_profile)
 
 
 def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None) -> GPUMapper:
