@@ -414,12 +414,8 @@ class WorkloadCharacterization:
                     f"Breakdown MACs ({breakdown_macs}) doesn't match total MACs ({self.macs})"
                 )
             if breakdown_flops != self.flops:
-                # Temporarily warn instead of error while we're adding operations
-                import warnings
-                warnings.warn(
-                    f"Breakdown FLOPs ({breakdown_flops}) doesn't match total FLOPs ({self.flops}). "
-                    f"Difference: {self.flops - breakdown_flops} FLOPs. "
-                    "Some operations may not be categorized in breakdown yet."
+                raise ValueError(
+                    f"Breakdown FLOPs ({breakdown_flops}) doesn't match total FLOPs ({self.flops})"
                 )
             if breakdown_intops != self.intops:
                 raise ValueError(

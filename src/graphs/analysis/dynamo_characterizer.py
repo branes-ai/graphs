@@ -140,10 +140,20 @@ ATEN_OP_CATALOG: Dict[str, AtenOpInfo] = {
         flop_formula='num_elements * 5',
         description='SiLU/Swish activation (~5 FLOPs per element)'
     ),
+    'aten.silu_': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 5',
+        description='In-place SiLU/Swish activation'
+    ),
     'aten.sigmoid': AtenOpInfo(
         op_type='flop',
         flop_formula='num_elements * 4',
         description='Sigmoid activation (~4 FLOPs per element)'
+    ),
+    'aten.sigmoid_': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 4',
+        description='In-place sigmoid activation'
     ),
     'aten.tanh': AtenOpInfo(
         op_type='flop',
@@ -221,6 +231,11 @@ ATEN_OP_CATALOG: Dict[str, AtenOpInfo] = {
         op_type='flop',
         flop_formula='num_elements * 1',
         description='Element-wise multiplication'
+    ),
+    'aten.mul_': AtenOpInfo(
+        op_type='flop',
+        flop_formula='num_elements * 1',
+        description='In-place element-wise multiplication'
     ),
     'aten.div': AtenOpInfo(
         op_type='flop',
@@ -702,7 +717,9 @@ class DynamoWorkloadCharacterizer:
             'aten.relu_': 1,
             'aten.gelu': 8,
             'aten.silu': 5,
+            'aten.silu_': 5,
             'aten.sigmoid': 4,
+            'aten.sigmoid_': 4,
             'aten.tanh': 4,
             'aten.hardtanh': 2,
             'aten.hardtanh_': 2,
@@ -831,6 +848,8 @@ class DynamoWorkloadCharacterizer:
             breakdown.bmm_macs += mac_count
         elif 'conv2d' in target_name:
             breakdown.conv2d_macs += mac_count
+            if flop_count > 0:
+                breakdown.bias_flops += flop_count
         elif 'addmm' in target_name:
             breakdown.matmul_macs += mac_count
             breakdown.bias_flops += flop_count
@@ -856,7 +875,7 @@ class DynamoWorkloadCharacterizer:
             breakdown.elementwise_add_flops += flop_count
         elif target_name == 'aten.sub':
             breakdown.elementwise_sub_flops += flop_count
-        elif target_name == 'aten.mul':
+        elif target_name in ['aten.mul', 'aten.mul_']:
             breakdown.elementwise_mul_flops += flop_count
         elif target_name == 'aten.div':
             breakdown.elementwise_div_flops += flop_count

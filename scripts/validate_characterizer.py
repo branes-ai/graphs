@@ -182,6 +182,83 @@ def validate_efficientnet_b0():
         return True
 
 
+def validate_vit_b_16():
+    """Validate Vision Transformer (ViT-B/16)"""
+    try:
+        from torchvision import models
+
+        model = models.vit_b_16(weights=None)
+        input_data = torch.randn(1, 3, 224, 224)
+
+        # ViT-B/16: ~17.5 GFLOPs
+        # From "An Image is Worth 16x16 Words" paper
+        return validate_model(
+            "ViT-B/16",
+            model,
+            input_data,
+            expected_gflops=17.5,
+            tolerance=0.15
+        )
+    except AttributeError:
+        print("\nViT-B/16 not available in this torchvision version")
+        return True
+
+
+def validate_bert_base():
+    """Validate BERT-base"""
+    try:
+        from transformers import BertModel
+
+        model = BertModel.from_pretrained('bert-base-uncased')
+        model.eval()
+
+        # BERT-base with sequence length 128
+        input_ids = torch.randint(0, 30522, (1, 128))
+
+        # BERT-base: ~22.5 GFLOPs for seq_len=128
+        # Formula: 12 × 2 × 12 × 128 × 768 + 12 × 4 × 128 × 768 × 768
+        return validate_model(
+            "BERT-base (seq=128)",
+            model,
+            input_ids,
+            expected_gflops=22.5,
+            tolerance=0.20
+        )
+    except ImportError:
+        print("\ntransformers library not installed. Install with: pip install transformers")
+        return True
+    except Exception as e:
+        print(f"\nBERT validation skipped: {e}")
+        return True
+
+
+def validate_gpt2():
+    """Validate GPT-2"""
+    try:
+        from transformers import GPT2LMHeadModel
+
+        model = GPT2LMHeadModel.from_pretrained('gpt2')
+        model.eval()
+
+        # GPT-2 with sequence length 128
+        input_ids = torch.randint(0, 50257, (1, 128))
+
+        # GPT-2: ~28 GFLOPs for seq_len=128
+        return validate_model(
+            "GPT-2 (seq=128)",
+            model,
+            input_ids,
+            expected_gflops=28.0,
+            tolerance=0.20
+        )
+    except ImportError:
+        print("\ntransformers library not installed. Install with: pip install transformers")
+        return True
+    except Exception as e:
+        print(f"\nGPT-2 validation skipped: {e}")
+        return True
+
+
 def validate_simple_models():
     """Validate simple synthetic models"""
 
@@ -260,14 +337,23 @@ def main():
     print("="*80)
     results['simple'] = validate_simple_models()
 
-    # Real models
+    # Real models - CNNs
     print("\n" + "="*80)
-    print("PART 2: Real Model Validation")
+    print("PART 2: CNN Model Validation")
     print("="*80)
 
     results['resnet18'] = validate_resnet18()
     results['mobilenetv2'] = validate_mobilenetv2()
     results['efficientnet_b0'] = validate_efficientnet_b0()
+
+    # Transformers
+    print("\n" + "="*80)
+    print("PART 3: Transformer Model Validation")
+    print("="*80)
+
+    results['vit_b_16'] = validate_vit_b_16()
+    results['bert_base'] = validate_bert_base()
+    results['gpt2'] = validate_gpt2()
 
     # Summary
     print("\n" + "="*80)

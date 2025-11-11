@@ -439,11 +439,17 @@ class ArchitectureEnergyComparator:
         """Extract architecture-specific energy events from breakdown"""
         if arch_type == 'gpu':
             return {
-                # Compute units
-                'Tensor Core Operations': arch_breakdown.extra_details.get('tensor_core_energy', 0),
+                # Compute units (Phase 3: separate MAC/FLOP energy)
+                'Tensor Core Operations': arch_breakdown.extra_details.get('tensor_core_mac_energy', 0),
                 'tensor_core_ops': arch_breakdown.extra_details.get('tensor_core_ops', 0),
-                'CUDA Core Operations': arch_breakdown.extra_details.get('cuda_core_energy', 0),
-                'cuda_core_ops': arch_breakdown.extra_details.get('cuda_core_ops', 0),
+                'CUDA Core Operations': (
+                    arch_breakdown.extra_details.get('cuda_core_mac_energy', 0) +
+                    arch_breakdown.extra_details.get('cuda_core_flop_energy', 0)
+                ),
+                'cuda_core_ops': (
+                    arch_breakdown.extra_details.get('cuda_core_macs', 0) +
+                    arch_breakdown.extra_details.get('cuda_core_flops', 0)
+                ),
                 'Register File Access': arch_breakdown.extra_details.get('register_file_energy', 0),
                 'num_register_accesses': arch_breakdown.extra_details.get('num_register_accesses', 0),
 
@@ -892,9 +898,15 @@ def _print_gpu_hierarchical_breakdown(gpu_result):
 
     # Total architectural overhead
     arch_total = compute_total + pipeline_total + memory_total + simt_total
+    dynamic_energy_total = arch_total + gpu_result.compute_energy_j*1e6 + gpu_result.memory_energy_j*1e6
+    idle_leakage_energy = gpu_result.total_energy_j*1e6 - dynamic_energy_total
+
     print(f"\n  TOTAL GPU ARCHITECTURAL OVERHEAD:  {arch_total:8.3f} μJ")
     print(f"  Base Compute Energy:               {gpu_result.compute_energy_j*1e6:8.3f} μJ")
     print(f"  Base Memory Energy:                {gpu_result.memory_energy_j*1e6:8.3f} μJ")
+    print(f"  {'─'*80}")
+    print(f"  SUBTOTAL DYNAMIC ENERGY:           {dynamic_energy_total:8.3f} μJ  ({dynamic_energy_total/gpu_result.total_energy_j/1e6*100:.1f}%)")
+    print(f"  Idle/Leakage Energy (15W × latency): {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/gpu_result.total_energy_j/1e6*100:.1f}%)")
     print(f"  {'─'*80}")
     print(f"  TOTAL GPU ENERGY:                  {gpu_result.total_energy_j*1e6:8.3f} μJ")
 
@@ -916,12 +928,14 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         l3 = events.get('l3_energy', 0) * 1e6
         l2 = events.get('l2_energy', 0) * 1e6
         l1 = events.get('l1_energy', 0) * 1e6
+        total_bytes = events.get('total_bytes', 0)
         mem_total = dram + l3 + l2 + l1
 
         print(f"     • DRAM (off-chip):                  {dram:8.3f} μJ  ({dram/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
         print(f"     • L3 Cache (distributed scratchpad):{l3:8.3f} μJ  ({l3/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
         print(f"     • L2 Cache (tile-local):            {l2:8.3f} μJ  ({l2/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
         print(f"     • L1 Cache (PE-local):              {l1:8.3f} μJ  ({l1/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
+        print(f"     • Total Data Transferred:           [{total_bytes/1024:.1f} KB]")
         print(f"     └─ Subtotal:                        {mem_total:8.3f} μJ")
 
         # Component 2: Data Movement Engines
@@ -941,9 +955,10 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         token_match = events.get('token_matching_energy', 0) * 1e6
         signature = events.get('signature_matching_energy', 0) * 1e6
         handshake = events.get('handshake_energy', 0) * 1e6
+        num_tokens = events.get('num_tokens', 0)
 
         print(f"     • Signature Matching:               {signature:8.3f} μJ")
-        print(f"     • Token Handshake:                  {handshake:8.3f} μJ")
+        print(f"     • Token Handshake:                  {handshake:8.3f} μJ  [{num_tokens:,} tokens]")
         print(f"     └─ Subtotal:                        {token_match:8.3f} μJ")
 
         # Component 4: SURE Program Loading
@@ -983,14 +998,21 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         # Component 8: Computation
         print(f"\n  8. COMPUTATION (PE BLAS operators)")
         compute = events.get('compute_energy', 0) * 1e6
+        total_ops = events.get('total_ops', 0)
 
-        print(f"     • MAC Operations:                   {compute:8.3f} μJ")
+        print(f"     • MAC Operations:                   {compute:8.3f} μJ  [{total_ops:,} ops]")
         print(f"     └─ Subtotal:                        {compute:8.3f} μJ")
 
         # Total
         arch_overhead = mem_total + dme_total + token_match + program_load + l3_routing + fusion_net + token_routing
+        dynamic_energy_total = arch_overhead + compute
+        idle_leakage_energy = kpu_result.total_energy_j*1e6 - dynamic_energy_total
+
         print(f"\n  TOTAL KPU ARCHITECTURAL OVERHEAD:     {arch_overhead:8.3f} μJ")
         print(f"  Base Compute Energy (from above):     {compute:8.3f} μJ")
+        print(f"  {'─'*80}")
+        print(f"  SUBTOTAL DYNAMIC ENERGY:              {dynamic_energy_total:8.3f} μJ  ({dynamic_energy_total/kpu_result.total_energy_j/1e6*100:.1f}%)")
+        print(f"  Idle/Leakage Energy (15W × latency):  {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/kpu_result.total_energy_j/1e6*100:.1f}%)")
         print(f"  {'─'*80}")
         print(f"  TOTAL KPU ENERGY:                     {kpu_result.total_energy_j*1e6:8.3f} μJ")
 
@@ -1088,8 +1110,9 @@ def _print_cpu_hierarchical_breakdown(cpu_result):
     # Component 4: ALU Operations
     print(f"\n  4. ALU OPERATIONS (Floating-point arithmetic)")
     alu = events.get('alu_energy', 0) * 1e6
+    num_instructions = events.get('num_instructions', 0)
 
-    print(f"     • ALU Energy:                       {alu:8.3f} μJ")
+    print(f"     • ALU Energy:                       {alu:8.3f} μJ  [{num_instructions:,} ops]")
     print(f"     └─ Subtotal:                        {alu:8.3f} μJ")
 
     # Component 5: Branch Prediction
@@ -1102,9 +1125,15 @@ def _print_cpu_hierarchical_breakdown(cpu_result):
 
     # Total
     arch_overhead = pipeline_total + regfile_total + mem_total + alu + branch
+    dynamic_energy_total = arch_overhead + cpu_result.compute_energy_j*1e6 + cpu_result.memory_energy_j*1e6
+    idle_leakage_energy = cpu_result.total_energy_j*1e6 - dynamic_energy_total
+
     print(f"\n  TOTAL CPU ARCHITECTURAL OVERHEAD:     {arch_overhead:8.3f} μJ")
     print(f"  Base Compute Energy (from mapper):    {cpu_result.compute_energy_j*1e6:8.3f} μJ")
     print(f"  Base Memory Energy (from mapper):     {cpu_result.memory_energy_j*1e6:8.3f} μJ")
+    print(f"  {'─'*80}")
+    print(f"  SUBTOTAL DYNAMIC ENERGY:              {dynamic_energy_total:8.3f} μJ  ({dynamic_energy_total/cpu_result.total_energy_j/1e6*100:.1f}%)")
+    print(f"  Idle/Leakage Energy (15W × latency):  {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/cpu_result.total_energy_j/1e6*100:.1f}%)")
     print(f"  {'─'*80}")
     print(f"  TOTAL CPU ENERGY:                     {cpu_result.total_energy_j*1e6:8.3f} μJ")
 
