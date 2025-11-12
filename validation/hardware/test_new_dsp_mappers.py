@@ -40,8 +40,8 @@ def extract_execution_stages(fusion_report):
     return stages
 
 
-def test_mapper(mapper_name, mapper_factory, precision='int8'):
-    """Test a single mapper with ResNet-50"""
+def _test_mapper_helper(mapper_name, mapper_factory, precision='int8'):
+    """Helper function to test a single mapper with ResNet-50"""
     print(f"\n{'='*80}")
     print(f"Testing: {mapper_name}")
     print(f"{'='*80}")
@@ -127,7 +127,7 @@ def main():
     print("="*80)
 
     try:
-        qrb5165_report, qrb5165_mapper = test_mapper(
+        qrb5165_report, qrb5165_mapper = _test_mapper_helper(
             "Qualcomm QRB5165 (Hexagon 698)",
             create_qrb5165_mapper,
             precision='int8'
@@ -142,7 +142,7 @@ def main():
 
 
     try:
-        sa8775p_report, sa8775p_mapper = test_mapper(
+        sa8775p_report, sa8775p_mapper = _test_mapper_helper(
             "Qualcomm SA8775P (Automotive)",
             create_qualcomm_sa8775p_mapper,
             precision='int8'
@@ -156,7 +156,7 @@ def main():
         traceback.print_exc()
 
     try:
-        ride_report, ride_mapper = test_mapper(
+        ride_report, ride_mapper = _test_mapper_helper(
             "Qualcomm Snapdragon Ride (L4/L5)",
             create_qualcomm_snapdragon_ride_mapper,
             precision='int8'
@@ -175,7 +175,7 @@ def main():
     print("="*80)
 
     try:
-        tda4vm_report, tda4vm_mapper = test_mapper(
+        tda4vm_report, tda4vm_mapper = _test_mapper_helper(
             "TI TDA4VM (8 TOPS)",
             create_ti_tda4vm_mapper,
             precision='int8'
@@ -189,7 +189,7 @@ def main():
         traceback.print_exc()
 
     try:
-        tda4vl_report, tda4vl_mapper = test_mapper(
+        tda4vl_report, tda4vl_mapper = _test_mapper_helper(
             "TI TDA4VL (4 TOPS)",
             create_ti_tda4vl_mapper,
             precision='int8'
@@ -203,7 +203,7 @@ def main():
         traceback.print_exc()
 
     try:
-        tda4al_report, tda4al_mapper = test_mapper(
+        tda4al_report, tda4al_mapper = _test_mapper_helper(
             "TI TDA4AL (2 TOPS)",
             create_ti_tda4al_mapper,
             precision='int8'
@@ -217,7 +217,7 @@ def main():
         traceback.print_exc()
 
     try:
-        tda4vh_report, tda4vh_mapper = test_mapper(
+        tda4vh_report, tda4vh_mapper = _test_mapper_helper(
             "TI TDA4VH (4 TOPS)",
             create_ti_tda4vh_mapper,
             precision='int8'

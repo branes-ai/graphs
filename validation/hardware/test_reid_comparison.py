@@ -32,8 +32,8 @@ from graphs.hardware.mappers.dsp import (
     create_qrb5165_mapper,
 )
 
-def test_hardware(hardware_name, mapper_func):
-    """Test Re-ID on a single hardware platform"""
+def _test_hardware_helper(hardware_name, mapper_func):
+    """Helper function to test Re-ID on a single hardware platform"""
     print(f"  Testing {hardware_name}...", end=" ", flush=True)
 
     try:
@@ -124,7 +124,7 @@ def main():
 
     results = []
     for hw_name, mapper_func in hardware_configs:
-        result = test_hardware(hw_name, mapper_func)
+        result = _test_hardware_helper(hw_name, mapper_func)
         if result:
             results.append(result)
         print()

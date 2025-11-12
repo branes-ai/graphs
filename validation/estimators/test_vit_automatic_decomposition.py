@@ -138,8 +138,8 @@ def analyze_traced_model(traced, input_tensor, hardware, model_name):
         return None
 
 
-def test_vit_model(model_factory, model_name, input_shape):
-    """Test automatic decomposition on a ViT model variant"""
+def _test_vit_model_helper(model_factory, model_name, input_shape):
+    """Helper function to test automatic decomposition on a ViT model variant"""
     print(f"\n{'='*80}")
     print(f"TEST: {model_name}")
     print(f"{'='*80}")
@@ -341,7 +341,7 @@ def main():
         print(f"{'#'*80}")
 
         try:
-            passed = test_vit_model(
+            passed = _test_vit_model_helper(
                 test_config['factory'],
                 test_config['name'],
                 test_config['input_shape']

@@ -264,9 +264,9 @@ def compare_baseline_vs_enhanced(baseline_results, enhanced_results):
     }
 
 
-def test_model(model, input_data, model_name):
+def _test_model_helper(model, input_data, model_name):
     """
-    Test a model with both baseline and enhanced fusion.
+    Helper function to test a model with both baseline and enhanced fusion.
 
     Args:
         model: PyTorch model
@@ -355,7 +355,7 @@ def main():
                 raise ValueError(f"Unknown input type: {config['input_type']}")
 
             # Run test
-            comparison = test_model(model, input_data, config['name'])
+            comparison = _test_model_helper(model, input_data, config['name'])
             if comparison:
                 results.append(comparison)
 
