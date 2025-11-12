@@ -1,7 +1,7 @@
 """
-NVIDIA V100 SXM2 32GB Resource Model
+NVIDIA V100 SXM3 32GB Resource Model
 
-FORM FACTOR: SXM2 (Server Module)
+FORM FACTOR: SXM3 (Server Module)
 MEMORY: 32 GB HBM2
 
 Extracted from resource_model.py during refactoring.
@@ -21,11 +21,11 @@ from ...resource_model import (
 )
 
 
-def v100_sxm2_32gb_resource_model() -> HardwareResourceModel:
+def v100_sxm3_32gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA V100 SXM2 32GB resource model - Volta generation (2017).
+    NVIDIA V100 SXM3 32GB resource model - Volta generation (2017).
 
-    FORM FACTOR: SXM2 (Server Module)
+    FORM FACTOR: SXM3 (Server Module)
     MEMORY: 32 GB HBM2
 
     ARCHITECTURE:
@@ -36,8 +36,8 @@ def v100_sxm2_32gb_resource_model() -> HardwareResourceModel:
 
     PERFORMANCE:
     - FP32: 15.7 TFLOPS (CUDA cores)
-    - FP16: 31.4 TFLOPS (CUDA cores, 2× FP32)
-    - FP16 (Tensor Cores): 125 TFLOPS (8× CUDA cores)
+    - FP16: 31.4 TFLOPS (CUDA cores, 2x FP32)
+    - FP16 (Tensor Cores): 125 TFLOPS (8x CUDA cores)
     - Boost clock: 1530 MHz
 
     MEMORY:
@@ -52,7 +52,7 @@ def v100_sxm2_32gb_resource_model() -> HardwareResourceModel:
     - DGX-1 V100, Cloud instances (AWS P3, GCP)
     """
     return HardwareResourceModel(
-        name="V100-SXM2-32GB",
+        name="V100-SXM3-32GB",
         hardware_type=HardwareType.GPU,
         compute_units=80,  # SMs
         threads_per_unit=2048,
