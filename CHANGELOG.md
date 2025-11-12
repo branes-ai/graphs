@@ -6,6 +6,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-12] - Validation Test Fixes & KPU Energy Model Integration
+
+### Fixed
+
+**Operator Type Detection in Architecture Comparator**
+- **Issue**: All operators showing as type 'Unknown' instead of 'Conv2d', 'BatchNorm2d', etc.
+- **Root Cause**: SubgraphDescriptor.operation_type returning `OperationType.UNKNOWN` for all FX nodes
+- **Fix**: Added `_infer_op_type_from_node_name()` helper method to map FX node names to operator types
+- **Impact**: Operator EDP breakdown now correctly identifies operation types for architectural modifiers
+- **Files Modified**:
+  - `src/graphs/analysis/architecture_comparator.py` (lines 1209, 1314-1337)
+- **Test**: `validation/analysis/test_operator_edp_comprehensive.py::test_architectural_modifiers` ✅ PASSED
+
+**KPU Thermal Profile Names**
+- **Issue**: Test failing with `ValueError: Thermal profile '12W' not found`
+- **Root Cause**: Test using outdated thermal profile names after KPU model updates
+- **Fix**: Updated thermal profile names to match resource models:
+  - T64: 3W/6W/10W (was 6W/12W/24W)
+  - T256: 15W/30W/50W (was 12.5W/25W/50W)
+- **Files Modified**:
+  - `validation/hardware/test_all_hardware.py` (lines 105-121)
+- **Test**: `validation/hardware/test_all_hardware.py::test_all_hardware` ✅ PASSED
+
+**Building Block EDP Test Parametrization**
+- **Issue**: `fixture 'model' not found` - pytest collecting helper functions as tests
+- **Root Cause**: Functions named `test_building_block()` triggered pytest collection incorrectly
+- **Fix**: Renamed helper functions with underscore prefix to prevent pytest collection
+  - `test_building_block()` → `_test_building_block_helper()`
+  - Added `model` and `input_tensor` parameters to ArchitectureComparator
+- **Files Modified**:
+  - `validation/analysis/test_building_blocks_edp.py` (lines 132, 158-165, 248, 264, 280, 297)
+  - `validation/analysis/test_building_blocks_simple.py` (lines 170, 275, 288, 301, 314)
+- **Tests**: Both scripts ✅ PASSED (all 4 building blocks validated)
+
+**Standalone Validation Scripts Pytest Collection**
+- **Issue**: 6 standalone scripts causing pytest ERRORs due to helper function names
+- **Root Cause**: Functions starting with `test_` triggered pytest collection, but these are standalone scripts
+- **Fix**: Renamed helper functions with underscore prefix in all 6 scripts:
+  - `test_model()` → `_test_model_helper()`
+  - `test_vit_model()` → `_test_vit_model_helper()`
+  - `test_hardware_on_workload()` → `_test_hardware_on_workload_helper()`
+  - `test_mapper()` → `_test_mapper_helper()` (2 files)
+  - `test_hardware()` → `_test_hardware_helper()`
+- **Impact**: Scripts still work perfectly when run directly, pytest now correctly ignores them
+- **Files Modified**:
+  - `validation/estimators/test_enhanced_attention_fusion_complete.py` (lines 267, 358)
+  - `validation/estimators/test_vit_automatic_decomposition.py` (lines 141, 344-348)
+  - `validation/hardware/test_embodied_ai_comparison.py` (lines 216-221, 358-360)
+  - `validation/hardware/test_ip_core_mappers.py` (lines 40, 133, 149, 165)
+  - `validation/hardware/test_new_dsp_mappers.py` (lines 43, 130-220)
+  - `validation/hardware/test_reid_comparison.py` (lines 35, 127)
+
+### Added
+
+**TOPS/W Metrics in KPU Tile Energy Tests**
+- Added execution time, average power, peak throughput, and TOPS/W calculations to test output
+- Enhanced `KPUTileEnergyModel.compute_gemm_energy()` to return hardware configuration fields
+- Added `_get_ops_per_cycle()` helper method for precision-specific throughput
+- **Results**: T64: 2.55 TOPS/W, T256: 1.68 TOPS/W, T768: 2.37 TOPS/W @ default power profiles
+- **Files Modified**:
+  - `tests/hardware/test_kpu_tile_energy.py` (lines ~170-195)
+  - `src/graphs/hardware/architectural_energy.py` (lines ~2409, 2439-2450)
+
+**KPU Tile Energy Model Integration**
+- Unified all three KPU mappers (T64, T256, T768) to use tile_energy_model from resource models
+- Removed duplicate KPUTileEnergyModel creation in T256 mapper (35 lines eliminated)
+- Added KPUTileEnergyAdapter wrapping for T64 and T768 mappers
+- **Impact**: Consistent architectural energy modeling across all KPU variants
+- **Files Modified**:
+  - `src/graphs/hardware/mappers/accelerators/kpu.py` (lines 505-565)
+
+### Validation Results
+
+**Test Suite Status**: ✅ **22 passed, 0 failed, 0 errors**
+- All validation tests passing in 13.18s
+- Fixed 2 FAILURE tests, 8 ERROR tests
+- Standalone scripts correctly excluded from pytest collection
+
+---
+
 ## [2025-11-11] - GPU Performance Model Corrections & Validation
 
 ### Fixed
