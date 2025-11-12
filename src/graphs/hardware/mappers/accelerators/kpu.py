@@ -16,9 +16,9 @@ Key differences from GPU:
 - Optimized for quantized inference (INT8/INT4)
 
 Example:
-  ResNet-18 Conv layer with 3×3 kernel, 64 channels:
-  - Input: 1×64×56×56 (802KB) - doesn't fit in 256KB!
-  - Need tiling: Process 16×56 strips at a time
+  ResNet-18 Conv layer with 3x3 kernel, 64 channels:
+  - Input: 1x64x56x56 (802KB) - doesn't fit in 256KB!
+  - Need tiling: Process 16x56 strips at a time
   - 64/16 = 4 iterations required
   - Each iteration: load input (50KB), weights (36KB), compute, store (50KB)
 """

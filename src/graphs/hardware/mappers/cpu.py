@@ -1535,7 +1535,7 @@ def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
     Create CPU mapper for ARM Cortex-A78AE in Jetson Orin AGX (12-core).
 
     ARCHITECTURE:
-    - 12× ARM Cortex-A78AE cores @ 2.2 GHz sustained
+    - 12x ARM Cortex-A78AE cores @ 2.2 GHz sustained
     - ARMv8.2-A with NEON Advanced SIMD
     - NEON dotprod extension for INT8 acceleration
     - Out-of-order execution, branch prediction
@@ -1553,9 +1553,9 @@ def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
     POWER: 30W TDP (CPU-only mode for fair comparison)
 
     PERFORMANCE @ 30W:
-    - INT8 peak: 844.8 GOPS (12 × 32 × 2.2 GHz)
+    - INT8 peak: 844.8 GOPS (12 x 32 x 2.2 GHz)
     - INT8 effective: ~506 GOPS (60% efficiency)
-    - FP32 peak: 211.2 GFLOPS (12 × 8 × 2.2 GHz)
+    - FP32 peak: 211.2 GFLOPS (12 x 8 x 2.2 GHz)
     - FP32 effective: ~105 GFLOPS (50% efficiency)
 
     USE CASE:
@@ -1593,10 +1593,10 @@ def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
     # Configure enhanced Stored Program Architecture energy model for ARM CPU
     # HIGH FREQUENCY (2.2 GHz) = MUCH HIGHER ENERGY than low-freq accelerators!
     model.architecture_energy_model = StoredProgramEnergyModel(
-        # Instruction Pipeline (high-freq CPUs need more energy)
+        # Instruction Pipeline (Fetch → Decode → Dispatch)
         instruction_fetch_energy=1.5e-12,       # ~1.5 pJ per instruction (I-cache read)
-        instruction_decode_energy=0.8e-12,      # ~0.8 pJ per instruction
-        instruction_execute_energy=0.5e-12,     # ~0.5 pJ per instruction
+        instruction_decode_energy=0.8e-12,      # ~0.8 pJ per instruction (decode logic)
+        instruction_dispatch_energy=0.5e-12,    # ~0.5 pJ per instruction (control signals)
 
         # Register File (CRITICAL: high-freq = 3-4× more energy!)
         register_file_read_energy=2.5e-12,      # ~2.5 pJ per read (2.2 GHz operation)

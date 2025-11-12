@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 """
-Architecture Energy Comparison: GPU vs KPU vs CPU
+Architecture Energy Comparison: CPU vs GPU vs TPU vs KPU
 
 Compares energy consumption and architectural overhead for batched MLP inference
-across three fundamental architecture classes:
-- Data-Parallel (GPU): SIMT with massive coherence machinery
-- Domain-Flow (KPU): Programmable spatial dataflow with token routing
+across four fundamental architecture classes:
 - Stored-Program (CPU): Sequential MIMD with instruction fetch
+- Data-Parallel (GPU): SIMT with massive coherence machinery
+- Systolic-Array (TPU): Systolic array with weight-stationary dataflow
+- Domain-Flow (KPU): Programmable spatial dataflow with token routing
 
 Focus: Understanding WHY energy differs through architectural energy events.
 
 This tool performs apples-to-apples comparison at the same power budget (30W)
-using clean MLP dimensions (256×256, 512×512, 1024×1024) that map efficiently
+using clean MLP dimensions (256x256, 512x512, 1024x1024) that map efficiently
 to hardware resources.
 
 Usage:
@@ -43,12 +44,14 @@ repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
 from graphs.hardware.resource_model import Precision
-from graphs.hardware.mappers.gpu import create_jetson_orin_agx_64gb_mapper
-from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
 from graphs.hardware.mappers.cpu import create_jetson_orin_agx_cpu_mapper
+from graphs.hardware.mappers.gpu import create_jetson_orin_agx_64gb_mapper
+from graphs.hardware.mappers.accelerators.tpu import create_tpu_edge_pro_mapper
+from graphs.hardware.mappers.accelerators.kpu import create_kpu_t256_mapper
+
 from graphs.transform.partitioning import FusionBasedPartitioner
 from graphs.hardware.architectural_energy import (
-    ArchitecturalEnergyBreakdown as ArchEnergyBreakdown
+    ArchitecturalEnergyBreakdown as ArchEnergyBreakdown  # Aliased
 )
 
 # Try importing matplotlib for plotting (optional)
@@ -75,8 +78,8 @@ class MLPConfig:
     @classmethod
     def from_dim(cls, dim: int, precision: Precision = Precision.FP32):
         """Create config from dimension"""
-        macs = dim * dim
-        flops = 2 * macs  # MAC = 2 FLOPs (multiply + add)
+        macs = dim * dim  # Matrix multiplication: dim×dim
+        flops = 2 * dim  # Bias addition (dim) + activation (dim)
         params = dim * dim + dim  # Weights + bias
 
         bytes_per_element = {
@@ -110,8 +113,8 @@ class ArchitecturalEnergyBreakdown:
     """
     Detailed architectural energy event breakdown for a single architecture.
     """
-    architecture: str  # "GPU", "KPU", "CPU"
-    architecture_class: str  # "Data-Parallel", "Domain-Flow", "Stored-Program"
+    architecture: str  # "CPU", "GPU", "TPU", "KPU"
+    architecture_class: str  # "Stored-Program", "Data-Parallel", "Systolic-Array", "Domain-Flow" 
     hardware_name: str  # "Jetson-Orin-AGX-64GB", "KPU-T256", etc.
     batch_size: int
     mlp_config: MLPConfig
@@ -160,7 +163,7 @@ class ArchitecturalEnergyBreakdown:
 
 class ArchitectureEnergyComparator:
     """
-    Compare energy across GPU/KPU/CPU for batched MLP workloads.
+    Compare energy across CPU/GPU/TPU/KPU for batched MLP workloads.
 
     This class orchestrates the complete comparison:
     1. Create simple MLP models with specified dimensions
@@ -193,9 +196,16 @@ class ArchitectureEnergyComparator:
 
         # Create hardware mappers
         print(f"Initializing hardware mappers @ {thermal_profile}...")
-        self.gpu_mapper = create_jetson_orin_agx_64gb_mapper(thermal_profile)
-        self.kpu_mapper = create_kpu_t256_mapper(thermal_profile)
         self.cpu_mapper = create_jetson_orin_agx_cpu_mapper(thermal_profile)
+        self.gpu_mapper = create_jetson_orin_agx_64gb_mapper(thermal_profile)
+        self.tpu_mapper = create_tpu_edge_pro_mapper(thermal_profile)  # TPU Edge Pro @ 30W
+        self.kpu_mapper = create_kpu_t256_mapper(thermal_profile)
+
+        # For micro-benchmarks: disable kernel/program launch overhead
+        # This gives a pure compute comparison without one-time setup costs
+        self.gpu_mapper.disable_launch_overhead = True
+        # TPU and KPU use execution_context, which we'll pass through _extract_architectural_energy
+
 
     def compare_all(self) -> Dict[str, List[ArchitecturalEnergyBreakdown]]:
         """
@@ -203,14 +213,15 @@ class ArchitectureEnergyComparator:
 
         Returns:
             {
-                'gpu': [breakdown1, breakdown2, ...],
-                'kpu': [breakdown1, breakdown2, ...],
                 'cpu': [breakdown1, breakdown2, ...],
+                'gpu': [breakdown1, breakdown2, ...],
+                'tpu': [breakdown1, breakdown2, ...],
+                'kpu': [breakdown1, breakdown2, ...],
             }
         """
-        results = {'gpu': [], 'kpu': [], 'cpu': []}
+        results = {'cpu': [], 'gpu': [], 'tpu': [], 'kpu': []}
 
-        total_runs = len(self.mlp_configs) * len(self.batch_sizes) * 3
+        total_runs = len(self.mlp_configs) * len(self.batch_sizes) * 4  # 4 architectures
         current_run = 0
 
         for mlp_config in self.mlp_configs:
@@ -218,6 +229,14 @@ class ArchitectureEnergyComparator:
                 print(f"\n{'='*80}")
                 print(f"Analyzing {mlp_config.name} MLP @ batch={batch_size}")
                 print(f"{'='*80}")
+
+                # CPU
+                current_run += 1
+                print(f"[{current_run}/{total_runs}] CPU (Stored-Program)...")
+                cpu_breakdown = self._analyze_architecture(
+                    'cpu', mlp_config, batch_size, self.cpu_mapper
+                )
+                results['cpu'].append(cpu_breakdown)
 
                 # GPU
                 current_run += 1
@@ -227,6 +246,14 @@ class ArchitectureEnergyComparator:
                 )
                 results['gpu'].append(gpu_breakdown)
 
+                # TPU
+                current_run += 1
+                print(f"[{current_run}/{total_runs}] TPU (Systolic-Array)...")
+                tpu_breakdown = self._analyze_architecture(
+                    'tpu', mlp_config, batch_size, self.tpu_mapper
+                )
+                results['tpu'].append(tpu_breakdown)
+
                 # KPU
                 current_run += 1
                 print(f"[{current_run}/{total_runs}] KPU (Domain-Flow)...")
@@ -234,14 +261,6 @@ class ArchitectureEnergyComparator:
                     'kpu', mlp_config, batch_size, self.kpu_mapper
                 )
                 results['kpu'].append(kpu_breakdown)
-
-                # CPU
-                current_run += 1
-                print(f"[{current_run}/{total_runs}] CPU (Stored-Program)...")
-                cpu_breakdown = self._analyze_architecture(
-                    'cpu', mlp_config, batch_size, self.cpu_mapper
-                )
-                results['cpu'].append(cpu_breakdown)
 
         return results
 
@@ -256,7 +275,7 @@ class ArchitectureEnergyComparator:
         Analyze single architecture for given MLP config and batch size.
 
         Args:
-            arch_type: 'gpu', 'kpu', or 'cpu'
+            arch_type: 'cpu', 'gpu', 'tpu', or 'kpu'
             mlp_config: MLP configuration
             batch_size: Batch size
             mapper: Hardware mapper instance
@@ -335,7 +354,7 @@ class ArchitectureEnergyComparator:
         arch_energy_model = mapper.resource_model.architecture_energy_model
 
         # Total ops and bytes
-        total_ops = mlp_config.total_flops * batch_size
+        total_ops = (mlp_config.total_macs + mlp_config.total_flops) * batch_size
         total_bytes = (mlp_config.input_size * batch_size +
                       mlp_config.weight_size +
                       mlp_config.output_size * batch_size)
@@ -348,6 +367,7 @@ class ArchitectureEnergyComparator:
         execution_context = {
             'batch_size': batch_size,
             'cache_line_size': 64,  # Typical cache line
+            'disable_launch_overhead': True,  # For micro-benchmarks: pure compute comparison
         }
 
         if arch_type == 'gpu':
@@ -355,6 +375,13 @@ class ArchitectureEnergyComparator:
             execution_context.update({
                 'concurrent_threads': hw_allocation.peak_compute_units_used * 2048,  # SMs × threads/SM
                 'warp_size': 32,
+            })
+        elif arch_type == 'tpu':
+            # TPU-specific context
+            execution_context.update({
+                'kernel_changes': 1,  # Single linear layer
+                'mlp_input_dim': mlp_config.dim,
+                'mlp_output_dim': mlp_config.dim,
             })
         elif arch_type == 'kpu':
             # KPU-specific context
@@ -402,9 +429,10 @@ class ArchitectureEnergyComparator:
 
         # Get architecture class name
         arch_class_name = {
-            'gpu': 'Data-Parallel',
-            'kpu': 'Domain-Flow',
             'cpu': 'Stored-Program',
+            'gpu': 'Data-Parallel',
+            'tpu': 'Systolic-Array',
+            'kpu': 'Domain-Flow',
         }[arch_type]
 
         return ArchitecturalEnergyBreakdown(
@@ -492,10 +520,24 @@ class ArchitectureEnergyComparator:
             else:
                 # Fallback: simple domain-flow model
                 return {
-                    'Domain Tracking': arch_breakdown.extra_details.get('domain_tracking_energy', 0),
-                    'Dataflow Adaptation': arch_breakdown.extra_details.get('kernel_load_energy', 0),
+                    'Domain Flow': arch_breakdown.extra_details.get('domain_tracking_energy', 0),
+                    'Kernel Load': arch_breakdown.extra_details.get('kernel_load_energy', 0),
                     'Domain Injection': arch_breakdown.extra_details.get('injection_energy', 0),
                     'Domain Extraction': arch_breakdown.extra_details.get('extraction_energy', 0),
+                }
+        elif arch_type == 'tpu':
+            # Check if we have detailed systolic array energy model (SystolicArrayEnergyModel)
+            if 'instruction_decode' in arch_breakdown.extra_details:
+                return arch_breakdown.extra_details  # Return all detailed components directly
+            else:
+                # Fallback: simple systolic array model
+                return {
+                    'Systolic Array Operations': arch_breakdown.extra_details.get('systolic_array_mac_energy', 0),
+                    'systolic_array_ops': arch_breakdown.extra_details.get('systolic_array_ops', 0),
+                    'On-Chip Buffer Access': arch_breakdown.extra_details.get('on_chip_buffer_energy', 0),
+                    'on_chip_buffer_accesses': arch_breakdown.extra_details.get('on_chip_buffer_accesses', 0),
+                    'Off-Chip DRAM Access': arch_breakdown.extra_details.get('dram_energy', 0),
+                    'dram_accesses': arch_breakdown.extra_details.get('dram_accesses', 0),
                 }
         else:  # cpu
             # Return all CPU components directly
@@ -505,11 +547,11 @@ class ArchitectureEnergyComparator:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description='Compare energy consumption across GPU/KPU/CPU architectures',
+        description='Compare energy consumption across CPU/GPU/TPU/KPU architectures',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic comparison (default: 256×256, 512×512, 1024×1024 @ batch 1,8,16)
+  # Basic comparison (default: 256x256, 512x512, 1024x1024 @ batch 1,8,16)
   %(prog)s
 
   # Custom MLP dimensions
@@ -532,9 +574,11 @@ Examples:
 
 Power Budget:
   All architectures compared at 30W TDP for fairness:
-  - GPU: Jetson Orin AGX @ 30W (active cooling)
-  - KPU: Stillwater KPU-T256 @ 30W (balanced mode)
   - CPU: ARM Cortex-A78AE @ 30W (all-core sustained)
+  - GPU: Jetson Orin AGX @ 30W (active cooling)
+  - TPU: Google Edge TPU @ 2W (limited by thermal constraints)
+  - KPU: Stillwater KPU-T256 @ 30W (balanced mode)
+
         """
     )
 
@@ -579,7 +623,7 @@ Power Budget:
     mlp_configs = [MLPConfig.from_dim(dim, precision) for dim in args.mlp_dims]
 
     print(f"\n{'='*80}")
-    print(f"ARCHITECTURE ENERGY COMPARISON: GPU vs KPU vs CPU")
+    print(f"ARCHITECTURE ENERGY COMPARISON: CPU vs GPU vs TPU vs KPU")
     print(f"{'='*80}")
     print(f"Power Budget: {args.thermal_profile} (all architectures)")
     print(f"Precision: {args.precision.upper()}")
@@ -600,7 +644,7 @@ Power Budget:
     # Generate report
     # TODO: Implement EnergyComparisonReporter
     # For now, just print summary
-    _print_summary(results, mlp_configs, args.batch_sizes)
+    _print_summary(results, mlp_configs, args.batch_sizes, comparator)
 
     # Save output
     if args.output:
@@ -629,23 +673,29 @@ def _generate_plots(results, mlp_configs, batch_sizes, plot_dir):
     for mlp_config in mlp_configs:
         for batch_size in batch_sizes:
             # Find results for this config
-            gpu_result = None
-            kpu_result = None
             cpu_result = None
+            gpu_result = None
+            tpu_result = None
+            kpu_result = None
+
+            for r in results['cpu']:
+                if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
+                    cpu_result = r
+                    break
 
             for r in results['gpu']:
                 if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
                     gpu_result = r
                     break
 
+            for r in results['tpu']:
+                if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
+                    tpu_result = r
+                    break
+
             for r in results['kpu']:
                 if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
                     kpu_result = r
-                    break
-
-            for r in results['cpu']:
-                if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
-                    cpu_result = r
                     break
 
             if not (gpu_result and kpu_result and cpu_result):
@@ -661,14 +711,14 @@ def _plot_energy_breakdown(gpu_result, kpu_result, cpu_result, output_path):
     Create stacked bar chart showing energy breakdown by architecture.
 
     Chart structure:
-    - X-axis: GPU, KPU, CPU
+    - X-axis: CPU, GPU, TPU, KPU
     - Y-axis: Energy (μJ)
     - Stacked bars: Compute, Memory, Static, Architectural Overhead
     """
     fig, ax = plt.subplots(figsize=(14, 10))
 
-    architectures = ['GPU\n(Data-Parallel)', 'KPU\n(Domain-Flow)', 'CPU\n(Stored-Program)']
-    data = [gpu_result, kpu_result, cpu_result]
+    architectures = ['CPU\n(Stored-Program)', 'GPU\n(Data-Parallel)', 'TPU\n(Systolic-Array)', 'KPU\n(Domain-Flow)']
+    data = [cpu_result, gpu_result, tpu_result, kpu_result]
 
     # Energy components (convert to μJ)
     compute_energy = [d.compute_energy_j * 1e6 for d in data]
@@ -718,12 +768,12 @@ def _plot_energy_breakdown(gpu_result, kpu_result, cpu_result, output_path):
     # Add efficiency comparison annotation
     min_energy = min(d.total_energy_j for d in data)
     winner_idx = [d.total_energy_j for d in data].index(min_energy)
-    winner_name = ['GPU', 'KPU', 'CPU'][winner_idx]
+    winner_name = ['CPU', 'GPU', 'TPU', 'KPU'][winner_idx]
 
     efficiency_text = f'Energy Efficiency (vs best):\n'
     for i, d in enumerate(data):
         ratio = d.total_energy_j / min_energy
-        arch_name = ['GPU', 'KPU', 'CPU'][i]
+        arch_name = ['CPU', 'GPU', 'TPU', 'KPU'][i]
         efficiency_text += f'{arch_name}: {ratio:.2f}×\n'
 
     ax.text(0.02, 0.98, efficiency_text.strip(),
@@ -734,7 +784,7 @@ def _plot_energy_breakdown(gpu_result, kpu_result, cpu_result, output_path):
     # Add throughput annotation
     throughput_text = f'Throughput:\n'
     for i, d in enumerate(data):
-        arch_name = ['GPU', 'KPU', 'CPU'][i]
+        arch_name = ['CPU', 'GPU', 'TPU', 'KPU'][i]
         throughput_text += f'{arch_name}: {d.throughput_inferences_per_sec:,.0f} infer/s\n'
 
     ax.text(0.98, 0.98, throughput_text.strip(),
@@ -753,29 +803,34 @@ def _plot_energy_breakdown(gpu_result, kpu_result, cpu_result, output_path):
     plt.close()
 
 
-def _format_overhead_details(gpu_result, kpu_result, cpu_result):
+def _format_overhead_details(cpu_result, gpu_result, tpu_result, kpu_result):
     """Format architectural overhead details for plot annotation"""
     details = "Architectural Overhead Breakdown:\n"
-
-    # GPU events
-    gpu_events = [f"{k}: {v*1e6:.2f} μJ" for k, v in gpu_result.arch_specific_events.items() if v > 0]
-    if gpu_events:
-        details += f"GPU: {', '.join(gpu_events[:3])}  "  # Show first 3
-
-    # KPU events
-    kpu_events = [f"{k}: {v*1e6:.2f} μJ" for k, v in kpu_result.arch_specific_events.items() if v > 0]
-    if kpu_events:
-        details += f"| KPU: {', '.join(kpu_events[:3])}  "
 
     # CPU events
     cpu_events = [f"{k}: {v*1e6:.2f} μJ" for k, v in cpu_result.arch_specific_events.items() if v > 0]
     if cpu_events:
         details += f"| CPU: {', '.join(cpu_events[:3])}"
 
+    # GPU events
+    gpu_events = [f"{k}: {v*1e6:.2f} μJ" for k, v in gpu_result.arch_specific_events.items() if v > 0]
+    if gpu_events:
+        details += f"GPU: {', '.join(gpu_events[:3])}  "  # Show first 3
+
+    # TPU events
+    tpu_events = [f"{k}: {v*1e6:.2f} μJ" for k, v in tpu_result.arch_specific_events.items() if v > 0]
+    if tpu_events:
+        details += f"| TPU: {', '.join(tpu_events[:3])}"
+
+    # KPU events
+    kpu_events = [f"{k}: {v*1e6:.2f} μJ" for k, v in kpu_result.arch_specific_events.items() if v > 0]
+    if kpu_events:
+        details += f"| KPU: {', '.join(kpu_events[:3])}  "
+
     return details
 
 
-def _print_summary(results, mlp_configs, batch_sizes):
+def _print_summary(results, mlp_configs, batch_sizes, comparator):
     """Print detailed text summary with formatted tables"""
 
     print("\n" + "="*80)
@@ -786,13 +841,24 @@ def _print_summary(results, mlp_configs, batch_sizes):
     for mlp_config in mlp_configs:
         for batch_size in batch_sizes:
             # Find results for this config
-            gpu_result = None
-            kpu_result = None
             cpu_result = None
+            gpu_result = None
+            tpu_result = None
+            kpu_result = None
+
+            for r in results['cpu']:
+                if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
+                    cpu_result = r
+                    break
 
             for r in results['gpu']:
                 if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
                     gpu_result = r
+                    break
+
+            for r in results['tpu']:
+                if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
+                    tpu_result = r
                     break
 
             for r in results['kpu']:
@@ -800,15 +866,10 @@ def _print_summary(results, mlp_configs, batch_sizes):
                     kpu_result = r
                     break
 
-            for r in results['cpu']:
-                if r.mlp_config.name == mlp_config.name and r.batch_size == batch_size:
-                    cpu_result = r
-                    break
-
-            if not (gpu_result and kpu_result and cpu_result):
+            if not (cpu_result and gpu_result and tpu_result and kpu_result):
                 continue
 
-            _print_config_comparison(mlp_config, batch_size, gpu_result, kpu_result, cpu_result)
+            _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu_result, kpu_result, comparator)
 
     # Print overall summary
     print("\n" + "="*80)
@@ -817,9 +878,10 @@ def _print_summary(results, mlp_configs, batch_sizes):
     print(f"Total configurations tested: {len(mlp_configs)} MLPs × {len(batch_sizes)} batches = {len(mlp_configs) * len(batch_sizes)}")
     print(f"Total runs: {len(results['gpu']) + len(results['kpu']) + len(results['cpu'])}")
     print(f"\nArchitectures compared:")
-    print(f"  • GPU (Data-Parallel): NVIDIA Jetson Orin AGX @ 30W")
-    print(f"  • KPU (Domain-Flow): Stillwater KPU-T256 @ 30W")
     print(f"  • CPU (Stored-Program): ARM Cortex-A78AE 12-core @ 30W")
+    print(f"  • GPU (Data-Parallel): NVIDIA Jetson Orin AGX @ 30W")
+    print(f"  • TPU (Systolic-Array): Google Edge TPU @ 2W")
+    print(f"  • KPU (Domain-Flow): Stillwater KPU-T256 @ 30W")
 
 
 def _print_gpu_hierarchical_breakdown(gpu_result):
@@ -901,6 +963,9 @@ def _print_gpu_hierarchical_breakdown(gpu_result):
     dynamic_energy_total = arch_total + gpu_result.compute_energy_j*1e6 + gpu_result.memory_energy_j*1e6
     idle_leakage_energy = gpu_result.total_energy_j*1e6 - dynamic_energy_total
 
+    # Store idle energy back in result for summary table
+    gpu_result.static_energy_j = idle_leakage_energy * 1e-6
+
     print(f"\n  TOTAL GPU ARCHITECTURAL OVERHEAD:  {arch_total:8.3f} μJ")
     print(f"  Base Compute Energy:               {gpu_result.compute_energy_j*1e6:8.3f} μJ")
     print(f"  Base Memory Energy:                {gpu_result.memory_energy_j*1e6:8.3f} μJ")
@@ -911,12 +976,123 @@ def _print_gpu_hierarchical_breakdown(gpu_result):
     print(f"  TOTAL GPU ENERGY:                  {gpu_result.total_energy_j*1e6:8.3f} μJ")
 
 
+def _print_tpu_hierarchical_breakdown(tpu_result):
+    """Print hierarchical energy breakdown for TPU (Systolic-Array)"""
+    events = tpu_result.arch_specific_events
+
+    print(f"\n{'─'*80}")
+    print(f"TPU (SYSTOLIC-ARRAY) ENERGY BREAKDOWN")
+    print(f"{'─'*80}")
+
+    # Check if we have detailed systolic array energy model data
+    if 'instruction_decode' in events:
+        # Component 1: Instruction Decode (per matrix operation, not per MAC!)
+        print(f"\n  1. INSTRUCTION DECODE (Per matrix operation)")
+        inst_decode = events.get('instruction_decode', 0) * 1e6
+        num_matrix_ops = events.get('num_matrix_ops', 0)
+
+        print(f"     • Matrix Operation Decode:          {inst_decode:8.3f} μJ  [{num_matrix_ops:,} matrix ops]")
+        print(f"     └─ Subtotal:                        {inst_decode:8.3f} μJ")
+
+        # Component 2: DMA Controller
+        print(f"\n  2. DMA CONTROLLER (Off-chip data transfers)")
+        dma_setup = events.get('dma_setup', 0) * 1e6
+        dma_addr_gen = events.get('dma_address_gen', 0) * 1e6
+        num_dma_transfers = events.get('num_dma_transfers', 0)
+        num_cache_lines = events.get('num_cache_lines', 0)
+        dma_total = dma_setup + dma_addr_gen
+
+        print(f"     • Descriptor Setup:                 {dma_setup:8.3f} μJ  ({dma_setup/dma_total*100 if dma_total > 0 else 0:5.1f}%)  [{num_dma_transfers:,} transfers]")
+        print(f"     • Address Generation:               {dma_addr_gen:8.3f} μJ  ({dma_addr_gen/dma_total*100 if dma_total > 0 else 0:5.1f}%)  [{num_cache_lines:,} cache lines]")
+        print(f"     └─ Subtotal:                        {dma_total:8.3f} μJ")
+
+        # Component 3: Weight Loading Sequencer
+        print(f"\n  3. WEIGHT LOADING SEQUENCER (Shift into systolic array)")
+        weight_shift = events.get('weight_shift_control', 0) * 1e6
+        weight_column = events.get('weight_column_select', 0) * 1e6
+        num_cycles = events.get('num_systolic_cycles', 0)
+        num_weight_elements = events.get('num_weight_elements', 0)
+        weight_total = weight_shift + weight_column
+
+        print(f"     • Weight Shift Control:             {weight_shift:8.3f} μJ  ({weight_shift/weight_total*100 if weight_total > 0 else 0:5.1f}%)  [{num_weight_elements:,} elements]")
+        print(f"     • Column Select:                    {weight_column:8.3f} μJ  ({weight_column/weight_total*100 if weight_total > 0 else 0:5.1f}%)  [{num_cycles:,} cycles]")
+        print(f"     └─ Subtotal:                        {weight_total:8.3f} μJ")
+
+        # Component 4: Unified Buffer Controller
+        print(f"\n  4. UNIFIED BUFFER CONTROLLER (Activation scratchpad)")
+        ub_addr_gen = events.get('ub_address_gen', 0) * 1e6
+        ub_arbitration = events.get('ub_arbitration', 0) * 1e6
+        num_ub_accesses = events.get('num_ub_accesses', 0)
+        ub_total = ub_addr_gen + ub_arbitration
+
+        print(f"     • Address Generation:               {ub_addr_gen:8.3f} μJ  ({ub_addr_gen/ub_total*100 if ub_total > 0 else 0:5.1f}%)  [{num_ub_accesses:,} accesses]")
+        print(f"     • Arbitration:                      {ub_arbitration:8.3f} μJ  ({ub_arbitration/ub_total*100 if ub_total > 0 else 0:5.1f}%)  [{num_ub_accesses:,} requests]")
+        print(f"     └─ Subtotal:                        {ub_total:8.3f} μJ")
+
+        # Component 5: Accumulator Controller
+        print(f"\n  5. ACCUMULATOR CONTROLLER (Partial sum staging)")
+        acc_read = events.get('accumulator_read', 0) * 1e6
+        acc_write = events.get('accumulator_write', 0) * 1e6
+        acc_addr = events.get('accumulator_address', 0) * 1e6
+        num_accumulator_ops = events.get('num_accumulator_ops', 0)
+        acc_total = acc_read + acc_write + acc_addr
+
+        print(f"     • Read Control:                     {acc_read:8.3f} μJ  ({acc_read/acc_total*100 if acc_total > 0 else 0:5.1f}%)  [{num_accumulator_ops:,} reads]")
+        print(f"     • Write Control:                    {acc_write:8.3f} μJ  ({acc_write/acc_total*100 if acc_total > 0 else 0:5.1f}%)  [{num_accumulator_ops:,} writes]")
+        print(f"     • Address Generation:               {acc_addr:8.3f} μJ  ({acc_addr/acc_total*100 if acc_total > 0 else 0:5.1f}%)  [{num_accumulator_ops:,} addresses]")
+        print(f"     └─ Subtotal:                        {acc_total:8.3f} μJ")
+
+        # Component 6: Tile Loop Control
+        print(f"\n  6. TILE LOOP CONTROL (Tiled matrix operations)")
+        tile_loop = events.get('tile_loop_control', 0) * 1e6
+        num_tiles = events.get('num_tiles', 0)
+
+        print(f"     • Tile Iteration:                   {tile_loop:8.3f} μJ  [{num_tiles:,} tiles]")
+        print(f"     └─ Subtotal:                        {tile_loop:8.3f} μJ")
+
+        # Component 7: Data Injection/Extraction
+        print(f"\n  7. DATA INJECTION/EXTRACTION (Spatial array interface)")
+        injection = events.get('injection_energy', 0) * 1e6
+        extraction = events.get('extraction_energy', 0) * 1e6
+        num_elements = events.get('num_elements', 0)
+        data_move_total = injection + extraction
+
+        print(f"     • Data Injection:                   {injection:8.3f} μJ  ({injection/data_move_total*100 if data_move_total > 0 else 0:5.1f}%)  [{num_elements:,} elements]")
+        print(f"     • Data Extraction:                  {extraction:8.3f} μJ  ({extraction/data_move_total*100 if data_move_total > 0 else 0:5.1f}%)  [{num_elements:,} elements]")
+        print(f"     └─ Subtotal:                        {data_move_total:8.3f} μJ")
+
+        # Total Control Overhead
+        total_control = inst_decode + dma_total + weight_total + ub_total + acc_total + tile_loop + data_move_total
+        control_per_mac = events.get('control_overhead_per_mac_pj', 0)
+        array_dim = events.get('array_dimension', 128)
+
+        print(f"\n  TOTAL TPU CONTROL OVERHEAD:        {total_control:8.3f} μJ")
+        print(f"  Control per MAC:                     {control_per_mac:.4f} pJ")
+        print(f"  {'─'*80}")
+        print(f"  Why TPU is efficient:")
+        print(f"  • 1 instruction per {array_dim*array_dim:,} MACs (vs CPU: 1 per ~2 MACs)")
+        print(f"  • Weight-stationary dataflow (load weights once, reuse)")
+        print(f"  • Systolic array: no instruction fetch/decode per MAC")
+        print(f"  {'─'*80}")
+    else:
+        # Fallback: simple systolic array model
+        print(f"\n  (Simplified systolic array model - no detailed breakdown available)")
+        systolic_mac = events.get('systolic_array_mac_energy', 0) * 1e6
+        on_chip = events.get('on_chip_buffer_energy', 0) * 1e6
+        dram = events.get('dram_energy', 0) * 1e6
+
+        if systolic_mac > 0 or on_chip > 0 or dram > 0:
+            print(f"  • Systolic Array Operations:        {systolic_mac:8.3f} μJ")
+            print(f"  • On-Chip Buffer Access:            {on_chip:8.3f} μJ")
+            print(f"  • Off-Chip DRAM Access:             {dram:8.3f} μJ")
+
+
 def _print_kpu_hierarchical_breakdown(kpu_result):
     """Print hierarchical energy breakdown for KPU (Domain-Flow)"""
     events = kpu_result.arch_specific_events
 
     print(f"\n{'─'*80}")
-    print(f"KPU (DOMAIN-FLOW SPATIAL DATAFLOW) ENERGY BREAKDOWN")
+    print(f"KPU (DOMAIN-FLOW) ENERGY BREAKDOWN")
     print(f"{'─'*80}")
 
     # Extract 8-component breakdown from KPUTileEnergyAdapter
@@ -928,13 +1104,17 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         l3 = events.get('l3_energy', 0) * 1e6
         l2 = events.get('l2_energy', 0) * 1e6
         l1 = events.get('l1_energy', 0) * 1e6
+        dram_accesses = events.get('dram_accesses', 0)
+        l3_accesses = events.get('l3_accesses', 0)
+        l2_accesses = events.get('l2_accesses', 0)
+        l1_accesses = events.get('l1_accesses', 0)
         total_bytes = events.get('total_bytes', 0)
         mem_total = dram + l3 + l2 + l1
 
-        print(f"     • DRAM (off-chip):                  {dram:8.3f} μJ  ({dram/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
-        print(f"     • L3 Cache (distributed scratchpad):{l3:8.3f} μJ  ({l3/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
-        print(f"     • L2 Cache (tile-local):            {l2:8.3f} μJ  ({l2/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
-        print(f"     • L1 Cache (PE-local):              {l1:8.3f} μJ  ({l1/mem_total*100 if mem_total > 0 else 0:5.1f}%)")
+        print(f"     • DRAM (off-chip):                  {dram:8.3f} μJ  ({dram/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{dram_accesses:,} accesses]")
+        print(f"     • L3 Cache (distributed scratchpad):{l3:8.3f} μJ  ({l3/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{l3_accesses:,} accesses]")
+        print(f"     • L2 Cache (tile-local):            {l2:8.3f} μJ  ({l2/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{l2_accesses:,} accesses]")
+        print(f"     • L1 Cache (PE-local):              {l1:8.3f} μJ  ({l1/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{l1_accesses:,} accesses]")
         print(f"     • Total Data Transferred:           [{total_bytes/1024:.1f} KB]")
         print(f"     └─ Subtotal:                        {mem_total:8.3f} μJ")
 
@@ -943,22 +1123,26 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         dma = events.get('dma_energy', 0) * 1e6
         blockmover = events.get('blockmover_energy', 0) * 1e6
         streamer = events.get('streamer_energy', 0) * 1e6
+        dma_bytes = events.get('dma_bytes', 0)
+        blockmover_bytes = events.get('blockmover_bytes', 0)
+        streamer_bytes = events.get('streamer_bytes', 0)
         dme_total = dma + blockmover + streamer
 
-        print(f"     • DMA Engine (DRAM ↔ L3):           {dma:8.3f} μJ  ({dma/dme_total*100 if dme_total > 0 else 0:5.1f}%)")
-        print(f"     • BlockMover (L3 ↔ L2, inter-tile): {blockmover:8.3f} μJ  ({blockmover/dme_total*100 if dme_total > 0 else 0:5.1f}%)")
-        print(f"     • Streamer (L2 ↔ L1, intra-tile):   {streamer:8.3f} μJ  ({streamer/dme_total*100 if dme_total > 0 else 0:5.1f}%)")
+        print(f"     • DMA Engine (DRAM ↔ L3):           {dma:8.3f} μJ  ({dma/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{dma_bytes/1024:.1f} KB]")
+        print(f"     • BlockMover (L3 ↔ L2, inter-tile): {blockmover:8.3f} μJ  ({blockmover/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{blockmover_bytes/1024:.1f} KB]")
+        print(f"     • Streamer (L2 ↔ L1, intra-tile):   {streamer:8.3f} μJ  ({streamer/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{streamer_bytes/1024:.1f} KB]")
         print(f"     └─ Subtotal:                        {dme_total:8.3f} μJ")
 
-        # Component 3: Token Signature Matching
-        print(f"\n  3. TOKEN SIGNATURE MATCHING (CAM-like distributed matching)")
+        # Component 3: Token Signature Matching & Dispatch
+        print(f"\n  3. TOKEN SIGNATURE MATCHING & DISPATCH (Dataflow execution)")
         token_match = events.get('token_matching_energy', 0) * 1e6
         signature = events.get('signature_matching_energy', 0) * 1e6
-        handshake = events.get('handshake_energy', 0) * 1e6
+        dispatch = events.get('dispatch_energy', 0) * 1e6
+        num_signature_matches = events.get('num_signature_matches', 0)
         num_tokens = events.get('num_tokens', 0)
 
-        print(f"     • Signature Matching:               {signature:8.3f} μJ")
-        print(f"     • Token Handshake:                  {handshake:8.3f} μJ  [{num_tokens:,} tokens]")
+        print(f"     • Signature Matching:               {signature:8.3f} μJ  [{num_signature_matches:,} matches]")
+        print(f"     • Instruction Token Dispatch:       {dispatch:8.3f} μJ  [{num_tokens:,} tokens fired]")
         print(f"     └─ Subtotal:                        {token_match:8.3f} μJ")
 
         # Component 4: SURE Program Loading
@@ -974,8 +1158,9 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         print(f"\n  5. DISTRIBUTED L3 SCRATCHPAD (NoC routing)")
         l3_routing = events.get('l3_routing_energy', 0) * 1e6
         avg_hops = events.get('average_l3_hops', 0)
+        l3_routing_accesses = events.get('l3_routing_accesses', 0)
 
-        print(f"     • NoC Routing Energy:               {l3_routing:8.3f} μJ")
+        print(f"     • NoC Routing Energy:               {l3_routing:8.3f} μJ  [{l3_routing_accesses:,} accesses]")
         print(f"     • Average Hops:                     {avg_hops:5.1f}")
         print(f"     └─ Subtotal:                        {l3_routing:8.3f} μJ")
 
@@ -990,8 +1175,9 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         print(f"\n  7. TOKEN ROUTING (Mesh routing)")
         token_routing = events.get('token_routing_energy', 0) * 1e6
         routing_dist = events.get('average_routing_distance', 0)
+        num_tokens = events.get('num_tokens', 0)
 
-        print(f"     • Token Routing Hops:               {token_routing:8.3f} μJ")
+        print(f"     • Token Routing Hops:               {token_routing:8.3f} μJ  [{num_tokens:,} tokens]")
         print(f"     • Average Distance:                 {routing_dist:5.1f} hops")
         print(f"     └─ Subtotal:                        {token_routing:8.3f} μJ")
 
@@ -1007,6 +1193,9 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         arch_overhead = mem_total + dme_total + token_match + program_load + l3_routing + fusion_net + token_routing
         dynamic_energy_total = arch_overhead + compute
         idle_leakage_energy = kpu_result.total_energy_j*1e6 - dynamic_energy_total
+
+        # Store idle energy back in result for summary table
+        kpu_result.static_energy_j = idle_leakage_energy * 1e-6
 
         print(f"\n  TOTAL KPU ARCHITECTURAL OVERHEAD:     {arch_overhead:8.3f} μJ")
         print(f"  Base Compute Energy (from above):     {compute:8.3f} μJ")
@@ -1063,18 +1252,18 @@ def _print_cpu_hierarchical_breakdown(cpu_result):
     print(f"{'─'*80}")
 
     # Component 1: Instruction Pipeline
-    print(f"\n  1. INSTRUCTION PIPELINE (Fetch → Decode → Execute)")
+    print(f"\n  1. INSTRUCTION PIPELINE (Fetch → Decode → Dispatch)")
     inst_fetch = events.get('instruction_fetch_energy', 0) * 1e6
     inst_decode = events.get('instruction_decode_energy', 0) * 1e6
-    inst_execute = events.get('instruction_execute_energy', 0) * 1e6
+    inst_dispatch = events.get('instruction_dispatch_energy', 0) * 1e6
     num_instructions = events.get('num_instructions', 0)
-    pipeline_total = inst_fetch + inst_decode + inst_execute
+    pipeline_total = inst_fetch + inst_decode + inst_dispatch
 
-    print(f"     • Instruction Fetch (I-cache):      {inst_fetch:8.3f} μJ  ({inst_fetch/pipeline_total*100 if pipeline_total > 0 else 0:5.1f}%)")
+    print(f"     • Instruction Fetch (I-cache):      {inst_fetch:8.3f} μJ  ({inst_fetch/pipeline_total*100 if pipeline_total > 0 else 0:5.1f}%)  [{num_instructions:,} instructions]")
     print(f"     • Instruction Decode:               {inst_decode:8.3f} μJ  ({inst_decode/pipeline_total*100 if pipeline_total > 0 else 0:5.1f}%)")
-    print(f"     • Instruction Execute:              {inst_execute:8.3f} μJ  ({inst_execute/pipeline_total*100 if pipeline_total > 0 else 0:5.1f}%)")
-    print(f"     • Instruction Count:                {num_instructions:,}")
+    print(f"     • Instruction Dispatch:             {inst_dispatch:8.3f} μJ  ({inst_dispatch/pipeline_total*100 if pipeline_total > 0 else 0:5.1f}%)")
     print(f"     └─ Subtotal:                        {pipeline_total:8.3f} μJ")
+    print(f"        NOTE: Dispatch writes control signals; actual ALU execution tracked separately")
 
     # Component 2: Register File Operations
     print(f"\n  2. REGISTER FILE OPERATIONS (2 reads + 1 write per instruction)")
@@ -1095,16 +1284,16 @@ def _print_cpu_hierarchical_breakdown(cpu_result):
     l2 = events.get('l2_cache_energy', 0) * 1e6
     l3 = events.get('l3_cache_energy', 0) * 1e6
     dram = events.get('dram_energy', 0) * 1e6
-    l1_bytes = events.get('l1_bytes', 0)
-    l2_bytes = events.get('l2_bytes', 0)
-    l3_bytes = events.get('l3_bytes', 0)
-    dram_bytes = events.get('dram_bytes', 0)
+    l1_accesses = events.get('l1_accesses', 0)
+    l2_accesses = events.get('l2_accesses', 0)
+    l3_accesses = events.get('l3_accesses', 0)
+    dram_accesses = events.get('dram_accesses', 0)
     mem_total = l1 + l2 + l3 + dram
 
-    print(f"     • L1 Cache (per-core, 32 KB):      {l1:8.3f} μJ  ({l1/mem_total*100 if mem_total > 0 else 0:5.1f}%) [{l1_bytes/1024:.1f} KB]")
-    print(f"     • L2 Cache (per-core, 256 KB):     {l2:8.3f} μJ  ({l2/mem_total*100 if mem_total > 0 else 0:5.1f}%) [{l2_bytes/1024:.1f} KB]")
-    print(f"     • L3 Cache (shared LLC, 8 MB):     {l3:8.3f} μJ  ({l3/mem_total*100 if mem_total > 0 else 0:5.1f}%) [{l3_bytes/1024:.1f} KB]")
-    print(f"     • DRAM (off-chip DDR4):            {dram:8.3f} μJ  ({dram/mem_total*100 if mem_total > 0 else 0:5.1f}%) [{dram_bytes/1024:.1f} KB]")
+    print(f"     • L1 Cache (per-core, 32 KB):      {l1:8.3f} μJ  ({l1/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{l1_accesses:,} accesses]")
+    print(f"     • L2 Cache (per-core, 256 KB):     {l2:8.3f} μJ  ({l2/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{l2_accesses:,} accesses]")
+    print(f"     • L3 Cache (shared LLC, 8 MB):     {l3:8.3f} μJ  ({l3/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{l3_accesses:,} accesses]")
+    print(f"     • DRAM (off-chip DDR4):            {dram:8.3f} μJ  ({dram/mem_total*100 if mem_total > 0 else 0:5.1f}%)  [{dram_accesses:,} accesses]")
     print(f"     └─ Subtotal:                        {mem_total:8.3f} μJ")
 
     # Component 4: ALU Operations
@@ -1119,14 +1308,19 @@ def _print_cpu_hierarchical_breakdown(cpu_result):
     print(f"\n  5. BRANCH PREDICTION (Control flow)")
     branch = events.get('branch_energy', 0) * 1e6
     num_branches = events.get('num_branches', 0)
+    num_mispredicted = events.get('num_mispredicted_branches', 0)
+    prediction_rate = events.get('branch_prediction_success_rate', 0.95) * 100
 
-    print(f"     • Branch Prediction:                {branch:8.3f} μJ  [{num_branches:,} branches]")
+    print(f"     • Branch Prediction:                {branch:8.3f} μJ  [{num_branches:,} branches, {num_mispredicted:,} mispredicted @ {prediction_rate:.0f}% success]")
     print(f"     └─ Subtotal:                        {branch:8.3f} μJ")
 
     # Total
     arch_overhead = pipeline_total + regfile_total + mem_total + alu + branch
     dynamic_energy_total = arch_overhead + cpu_result.compute_energy_j*1e6 + cpu_result.memory_energy_j*1e6
     idle_leakage_energy = cpu_result.total_energy_j*1e6 - dynamic_energy_total
+
+    # Store idle energy back in result for summary table
+    cpu_result.static_energy_j = idle_leakage_energy * 1e-6
 
     print(f"\n  TOTAL CPU ARCHITECTURAL OVERHEAD:     {arch_overhead:8.3f} μJ")
     print(f"  Base Compute Energy (from mapper):    {cpu_result.compute_energy_j*1e6:8.3f} μJ")
@@ -1152,13 +1346,15 @@ def _print_workload_characteristics(mlp_config, batch_size):
     print(f"{'─'*80}")
 
     # Compute requirements
-    total_ops = mlp_config.total_flops * batch_size
     total_macs = mlp_config.total_macs * batch_size
+    total_flops = mlp_config.total_flops * batch_size
+    total_ops = total_macs + total_flops
 
     print(f"\nCompute Requirements:")
-    print(f"  • Total FLOPs:                   {total_ops:,} operations")
     print(f"  • Total MACs:                    {total_macs:,} multiply-accumulates")
-    print(f"  • Per inference:                 {mlp_config.total_flops:,} FLOPs")
+    print(f"  • Total FLOPs:                   {total_flops:,} floating-point operations")
+    print(f"  • Total operations:              {total_ops:,} (MACs + FLOPs)")
+    print(f"  • Per inference:                 {mlp_config.total_macs:,} MACs, {mlp_config.total_flops:,} FLOPs")
 
     # Memory requirements
     input_bytes = mlp_config.input_size * batch_size
@@ -1184,57 +1380,110 @@ def _print_workload_characteristics(mlp_config, batch_size):
         print(f"  • Classification:                COMPUTE-BOUND (AI ≥ 10)")
 
 
-def _print_hardware_energy_config(gpu_result, kpu_result, cpu_result):
+def _print_hardware_energy_config(gpu_result, kpu_result, cpu_result, comparator):
     """Print hardware energy configuration for all architectures"""
     print(f"\n{'─'*80}")
     print(f"HARDWARE ENERGY CONFIGURATION")
     print(f"{'─'*80}")
 
-    print(f"\nGPU (Jetson Orin AGX @ 30W, Ampere SMs @ 650 MHz):")
-    # Get energy model parameters (added to arch_specific_events from extra_details)
-    cuda_mac = gpu_result.arch_specific_events.get('cuda_core_mac_energy', 0.8e-12)
-    tensor_mac = gpu_result.arch_specific_events.get('tensor_core_mac_energy', 0.3e-12)
-    register_per_access = gpu_result.arch_specific_events.get('register_file_energy_per_access', 0.6e-12)
+    # Extract base ALU energy from resource models
+    cpu_base_alu = comparator.cpu_mapper.resource_model.energy_per_flop_fp32 * 1e12  # pJ    
+    gpu_base_alu = comparator.gpu_mapper.resource_model.energy_per_flop_fp32 * 1e12  # pJ
+    tpu_base_alu = comparator.tpu_mapper.resource_model.energy_per_flop_fp32 * 1e12  # pJ    
+    kpu_base_alu = comparator.kpu_mapper.resource_model.energy_per_flop_fp32 * 1e12  # pJ
 
-    print(f"  • Energy per FLOP (FP32):        {cuda_mac*1e12*2:.2f} pJ")
-    print(f"  • Tensor Core energy:            {tensor_mac*1e12*2:.2f} pJ per FLOP")
-    print(f"  • CUDA Core energy:              {cuda_mac*1e12*2:.2f} pJ per FLOP")
-    print(f"  • Register file access:          {register_per_access*1e12:.2f} pJ")
-    print(f"  • Coherence per request:         {gpu_result.arch_specific_events.get('coherence_energy', 5.0e-12)*1e12:.2f} pJ (DOMINANT!)")
+    # Get architectural energy model for CPU overhead
+    print(f"\nCPU (ARM Cortex-A78AE @ 30W, 12 cores @ 2.2 GHz):")
+    print(f"  • Base ALU energy (FP32):        {cpu_base_alu:.2f} pJ")
+
+    # Calculate MAC energies from energy_scaling
+    cpu_model = comparator.cpu_mapper.resource_model
+    if hasattr(cpu_model, 'energy_scaling'):
+        int8_energy = cpu_model.energy_per_flop_fp32 * cpu_model.energy_scaling.get(Precision.INT8, 0.25) * 1e12
+        fp16_energy = cpu_model.energy_per_flop_fp32 * cpu_model.energy_scaling.get(Precision.FP16, 0.5) * 1e12
+        fp32_energy = cpu_model.energy_per_flop_fp32 * cpu_model.energy_scaling.get(Precision.FP32, 1.0) * 1e12
+        print(f"  • MAC operation:                 INT8: {int8_energy:.2f} pJ, FP16: {fp16_energy:.2f} pJ, FP32: {fp32_energy:.2f} pJ")
+
+    if hasattr(comparator.cpu_mapper.resource_model, 'architecture_energy_model'):
+        arch_model = comparator.cpu_mapper.resource_model.architecture_energy_model
+        if arch_model:
+            inst_fetch = arch_model.instruction_fetch_energy * 1e12  # pJ
+            reg_read = arch_model.register_file_read_energy * 1e12  # pJ
+            reg_write = arch_model.register_file_write_energy * 1e12  # pJ
+
+            print(f"  • Instruction fetch:             {inst_fetch:.2f} pJ per instruction")
+            print(f"  • Register read:                 {reg_read:.2f} pJ per read")
+            print(f"  • Register write:                {reg_write:.2f} pJ per write")
+    print(f"  • Memory hierarchy:              4-stage (L1 → L2 → L3 → DRAM)")
+
+    # GPU architectural energy model
+    print(f"\nGPU (Jetson Orin AGX @ 30W, Ampere SMs @ 650 MHz):")
+    print(f"  • Base ALU energy (FP32):        {gpu_base_alu:.2f} pJ")
+
+    # Calculate MAC energies from energy_scaling (CUDA cores)
+    gpu_model = comparator.gpu_mapper.resource_model
+    if hasattr(gpu_model, 'energy_scaling'):
+        int8_energy = gpu_model.energy_per_flop_fp32 * gpu_model.energy_scaling.get(Precision.INT8, 0.125) * 1e12
+        bf16_energy = gpu_model.energy_per_flop_fp32 * gpu_model.energy_scaling.get(Precision.BF16, 0.5) * 1e12
+        fp32_energy = gpu_model.energy_per_flop_fp32 * gpu_model.energy_scaling.get(Precision.FP32, 1.0) * 1e12
+        print(f"  • MAC operation (CUDA Core):     INT8: {int8_energy:.2f} pJ, BF16: {bf16_energy:.2f} pJ, FP32: {fp32_energy:.2f} pJ")
+
+    # Get architectural energy model for specialized units
+    if hasattr(comparator.gpu_mapper.resource_model, 'architecture_energy_model'):
+        arch_model = comparator.gpu_mapper.resource_model.architecture_energy_model
+        if arch_model:
+            cuda_core_mac = arch_model.cuda_core_mac_energy * 1e12  # pJ per MAC
+            tensor_core_mac = arch_model.tensor_core_mac_energy * 1e12  # pJ per MAC
+            register_access = arch_model.register_file_energy_per_access * 1e12  # pJ
+
+            print(f"  • Tensor Core MAC:               {tensor_core_mac:.2f} pJ (64 MACs per clock)")
+            print(f"  • Register file access:          {register_access:.2f} pJ")
+            print(f"  • Coherence per request:         {arch_model.coherence_energy_per_request * 1e12:.2f} pJ")
     print(f"  • Memory hierarchy:              Register File → Shared Mem/L1 (unified) → L2 → DRAM")
 
+    # TPU architectural energy model
+    print(f"\nTPU (TPU Edge Pro @ 30W, 128×128 systolic @ 850 MHz):")
+    print(f"  • Base ALU energy (FP32):        {tpu_base_alu:.2f} pJ")
+    print(f"  • MAC operation:                 INT8: 0.4 pJ, BF16: 0.6 pJ, FP32: 1.2 pJ")
+    print(f"  • Systolic array:                128 × 128 PEs (16,384 MACs)")
+    print(f"  • Memory hierarchy:              4-stage (DRAM → L2 SRAM → Scratchpad → Accumulator)")
+    print(f"  • Data movement engines:         Static systolic dataflow")
+    
+    # KPU architectural energy model
     print(f"\nKPU (Stillwater T256 @ 30W, 256 tiles @ 1.2 GHz):")
-    events = kpu_result.arch_specific_events
-    if 'energy_per_mac_pj' in events:
-        print(f"  • Energy per FLOP (FP32):        {events['energy_per_mac_pj']*2:.2f} pJ")
-    print(f"  • MAC energy:                    ~0.9 pJ (FP32)")
+    print(f"  • Base ALU energy (FP32):        {kpu_base_alu:.2f} pJ")
+
+    # Calculate MAC energies from energy_scaling
+    kpu_model = comparator.kpu_mapper.resource_model
+    if hasattr(kpu_model, 'energy_scaling'):
+        int8_energy = kpu_model.energy_per_flop_fp32 * kpu_model.energy_scaling.get(Precision.INT8, 0.125) * 1e12
+        bf16_energy = kpu_model.energy_per_flop_fp32 * kpu_model.energy_scaling.get(Precision.BF16, 0.5) * 1e12
+        fp32_energy = kpu_model.energy_per_flop_fp32 * kpu_model.energy_scaling.get(Precision.FP32, 1.0) * 1e12
+        print(f"  • MAC operation:                 INT8: {int8_energy:.2f} pJ, BF16: {bf16_energy:.2f} pJ, FP32: {fp32_energy:.2f} pJ")
+
     print(f"  • Token matching:                ~0.6 pJ per token")
     print(f"  • Memory hierarchy:              4-stage (DRAM → L3 → L2 → L1)")
     print(f"  • Data movement engines:         3 specialized (DMA, BlockMover, Streamer)")
 
-    print(f"\nCPU (ARM Cortex-A78AE @ 30W, 12 cores @ 2.2 GHz):")
-    events = cpu_result.arch_specific_events
-    num_instructions = events.get('num_instructions', 0)
-    total_ops = 131072  # From MLP config
-    instructions_per_op = num_instructions / total_ops if total_ops > 0 else 0
-    alu_energy = events.get('alu_energy', 0)
-    alu_energy_per_op = (alu_energy / total_ops) * 1e12 if total_ops > 0 else 0
 
-    print(f"  • Energy per FLOP (FP32):        {alu_energy_per_op:.2f} pJ (ALU only)")
-    print(f"  • Instruction fetch:             {events.get('instruction_fetch_energy', 0) / num_instructions * 1e12 if num_instructions > 0 else 0:.2f} pJ per instruction")
-    print(f"  • Register read:                 {events.get('register_read_energy', 0) / events.get('num_register_reads', 1) * 1e12:.2f} pJ per read")
-    print(f"  • Register write:                {events.get('register_write_energy', 0) / events.get('num_register_writes', 1) * 1e12:.2f} pJ per write")
-    print(f"  • Instructions per FLOP:         {instructions_per_op:.2f}")
-    print(f"  • Total overhead per FLOP:       {(events.get('instruction_fetch_energy', 0) + events.get('register_read_energy', 0) + events.get('register_write_energy', 0)) / total_ops * 1e12:.2f} pJ")
-    print(f"  • Memory hierarchy:              4-stage (L1 → L2 → L3 → DRAM)")
+    print(f"\n⚠️  BASE ALU ENERGY COMPARISON (FP32, unencumbered):")
+    print(f"  • CPU:  {cpu_base_alu:.2f} pJ (HIGHEST - high frequency + complex pipeline)")
+    print(f"  • GPU:  {gpu_base_alu:.2f} pJ (CUDA core, no coherence/scheduling)")
+    print(f"  • TPU:  {tpu_base_alu:.2f} pJ (LOWEST - static dataflow, no instruction fetch)")
+    print(f"  • KPU:  {kpu_base_alu:.2f} pJ (PROGRAMMABLE - domainflow, no instruction fetch)")
 
-    print(f"\n⚠️  ENERGY COMPARISON (per FLOP):")
-    print(f"  • GPU Tensor Core:               ~0.3 pJ (LOWEST - optimized for throughput)")
-    print(f"  • KPU MAC:                       ~0.9 pJ (spatial dataflow)")
-    print(f"  • CPU ALU:                       {alu_energy_per_op:.2f} pJ (SHOULD BE HIGHEST - high freq + complex)")
+    # Add specialized unit comparison
+    if hasattr(comparator.gpu_mapper.resource_model, 'architecture_energy_model'):
+        arch_model = comparator.gpu_mapper.resource_model.architecture_energy_model
+        if arch_model:
+            tensor_core_mac = arch_model.tensor_core_mac_energy * 1e12
+            print(f"\n⚠️  SPECIALIZED UNITS:")
+            print(f"  • GPU Tensor Core: {tensor_core_mac:.2f} pJ per MAC (64 MACs/cycle, {tensor_core_mac*64:.1f} pJ per clock)")
+            print(f"    └─ 64 FP16 MACs + 12 FP32 accumulates = massive functional unit")
+            print(f"  • Future: Intel AMX (16×16 systolic array) will be added")
 
 
-def _print_config_comparison(mlp_config, batch_size, gpu_result, kpu_result, cpu_result):
+def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu_result, kpu_result, comparator):
     """Print detailed comparison for a single configuration"""
 
     print(f"\n{'='*80}")
@@ -1247,70 +1496,149 @@ def _print_config_comparison(mlp_config, batch_size, gpu_result, kpu_result, cpu
     _print_workload_characteristics(mlp_config, batch_size)
 
     # Add hardware energy configuration
-    _print_hardware_energy_config(gpu_result, kpu_result, cpu_result)
+    _print_hardware_energy_config(gpu_result, kpu_result, cpu_result, comparator)
 
     # Energy breakdown table
-    print(f"\n{'─'*80}")
+    print(f"\n{'─'*100}")
     print(f"ENERGY BREAKDOWN")
-    print(f"{'─'*80}")
+    print(f"{'─'*100}")
 
     # Header
-    print(f"{'Component':<35} {'GPU (μJ)':<15} {'KPU (μJ)':<15} {'CPU (μJ)':<15}")
-    print(f"{'-'*80}")
+    print(f"{'Component':<35} {'CPU (μJ)':<15} {'GPU (μJ)':<15} {'TPU (μJ)':<15} {'KPU (μJ)':<15}")
+    print(f"{'-'*100}")
 
-    # Convert to μJ for readability
-    gpu_compute = gpu_result.compute_energy_j * 1e6
-    kpu_compute = kpu_result.compute_energy_j * 1e6
-    cpu_compute = cpu_result.compute_energy_j * 1e6
+    # Base Compute Energy (unencumbered ALU operations from hardware mapper)
+    cpu_base_compute = cpu_result.compute_energy_j * 1e6
+    gpu_base_compute = gpu_result.compute_energy_j * 1e6
+    tpu_base_compute = tpu_result.compute_energy_j * 1e6
+    kpu_base_compute = kpu_result.compute_energy_j * 1e6
 
-    gpu_memory = gpu_result.memory_energy_j * 1e6
-    kpu_memory = kpu_result.memory_energy_j * 1e6
+    # Control Overhead (resource contention management: instruction fetch, coherence, token routing, etc.)
+    # For CPU/GPU/KPU: includes both compute overhead (register file, etc.) AND control overhead
+    # For TPU: only control overhead (since compute_overhead is negative efficiency savings)
+    cpu_control = (cpu_result.architectural_compute_overhead_j + cpu_result.architectural_control_overhead_j) * 1e6
+    gpu_control = (gpu_result.architectural_compute_overhead_j + gpu_result.architectural_control_overhead_j) * 1e6
+    tpu_control = tpu_result.architectural_control_overhead_j * 1e6  # TPU control overhead only (positive)
+    kpu_control = (kpu_result.architectural_compute_overhead_j + kpu_result.architectural_control_overhead_j) * 1e6
+
+    # Memory Energy (data movement)
     cpu_memory = cpu_result.memory_energy_j * 1e6
+    gpu_memory = gpu_result.memory_energy_j * 1e6
+    tpu_memory = tpu_result.memory_energy_j * 1e6
+    kpu_memory = kpu_result.memory_energy_j * 1e6
 
-    gpu_static = gpu_result.static_energy_j * 1e6
-    kpu_static = kpu_result.static_energy_j * 1e6
+    # Calculate and store idle/leakage energy BEFORE printing the table
+    # (This is also done in the hierarchical breakdown functions, but we need it here too)
+
+    # CPU idle energy
+    cpu_dynamic_total = cpu_base_compute + cpu_control + cpu_memory
+    cpu_idle = cpu_result.total_energy_j * 1e6 - cpu_dynamic_total
+    cpu_result.static_energy_j = cpu_idle * 1e-6
+
+    # GPU idle energy
+    gpu_dynamic_total = gpu_base_compute + gpu_control + gpu_memory
+    gpu_idle = gpu_result.total_energy_j * 1e6 - gpu_dynamic_total
+    gpu_result.static_energy_j = gpu_idle * 1e-6
+
+    # TPU idle energy
+    tpu_dynamic_total = tpu_base_compute + tpu_control + tpu_memory
+    tpu_idle = tpu_result.total_energy_j * 1e6 - tpu_dynamic_total
+    tpu_result.static_energy_j = tpu_idle * 1e-6
+
+    # KPU idle energy
+    kpu_dynamic_total = kpu_base_compute + kpu_control + kpu_memory
+    kpu_idle = kpu_result.total_energy_j * 1e6 - kpu_dynamic_total
+    kpu_result.static_energy_j = kpu_idle * 1e-6
+
+    # Static/Idle Energy (leakage) - now properly calculated above
     cpu_static = cpu_result.static_energy_j * 1e6
+    gpu_static = gpu_result.static_energy_j * 1e6
+    tpu_static = tpu_result.static_energy_j * 1e6
+    kpu_static = kpu_result.static_energy_j * 1e6
 
-    print(f"{'Compute Energy':<35} {gpu_compute:<15.3f} {kpu_compute:<15.3f} {cpu_compute:<15.3f}")
-    print(f"{'Memory Energy':<35} {gpu_memory:<15.3f} {kpu_memory:<15.3f} {cpu_memory:<15.3f}")
-    print(f"{'Static/Idle Energy':<35} {gpu_static:<15.3f} {kpu_static:<15.3f} {cpu_static:<15.3f}")
+    print(f"{'Base Compute Energy':<35} {cpu_base_compute:<15.3f} {gpu_base_compute:<15.3f} {tpu_base_compute:<15.3f} {kpu_base_compute:<15.3f}")
+    print(f"{'Control Overhead':<35} {cpu_control:<15.3f} {gpu_control:<15.3f} {tpu_control:<15.3f} {kpu_control:<15.3f}")
+    print(f"{'Memory Energy':<35} {cpu_memory:<15.3f} {gpu_memory:<15.3f} {tpu_memory:<15.3f} {kpu_memory:<15.3f}")
+    print(f"{'Static/Idle Energy':<35} {cpu_static:<15.3f} {gpu_static:<15.3f} {tpu_static:<15.3f} {kpu_static:<15.3f}")
 
     # Totals
-    print(f"{'-'*80}")
-    gpu_total = gpu_result.total_energy_j * 1e6
-    kpu_total = kpu_result.total_energy_j * 1e6
+    print(f"{'-'*100}")
     cpu_total = cpu_result.total_energy_j * 1e6
+    gpu_total = gpu_result.total_energy_j * 1e6
+    tpu_total = tpu_result.total_energy_j * 1e6
+    kpu_total = kpu_result.total_energy_j * 1e6
 
-    print(f"{'TOTAL ENERGY per inference':<35} {gpu_total:<15.3f} {kpu_total:<15.3f} {cpu_total:<15.3f}")
+
+    print(f"{'TOTAL ENERGY per inference':<35}  {cpu_total:<15.3f} {gpu_total:<15.3f} {tpu_total:<15.3f} {kpu_total:<15.3f}")
+
+    # Latency and throughput
+    cpu_latency_us = cpu_result.latency_s * 1e6
+    gpu_latency_us = gpu_result.latency_s * 1e6
+    tpu_latency_us = tpu_result.latency_s * 1e6
+    kpu_latency_us = kpu_result.latency_s * 1e6
+
+    print(f"{'Latency per inference (μs)':<35} {cpu_latency_us:<15.2f} {gpu_latency_us:<15.2f} {tpu_latency_us:<15.2f} {kpu_latency_us:<15.2f}")
+
+    # Energy efficiency (inferences per Joule)
+    # inferences/J = 1 / (energy_per_inference in J) = 1e6 / (energy_per_inference in μJ)
+    cpu_infer_per_joule = 1e6 / cpu_total if cpu_total > 0 else 0
+    gpu_infer_per_joule = 1e6 / gpu_total if gpu_total > 0 else 0
+    tpu_infer_per_joule = 1e6 / tpu_total if tpu_total > 0 else 0
+    kpu_infer_per_joule = 1e6 / kpu_total if kpu_total > 0 else 0
+
+    print(f"{'Energy Efficiency (infer/J)':<35} {cpu_infer_per_joule:<15,.0f} {gpu_infer_per_joule:<15,.0f} {tpu_infer_per_joule:<15,.0f} {kpu_infer_per_joule:<15,.0f}")
 
     # Energy per MAC
-    print(f"{'Energy per MAC (pJ)':<35} {gpu_result.energy_per_mac_pj:<15.2f} {kpu_result.energy_per_mac_pj:<15.2f} {cpu_result.energy_per_mac_pj:<15.2f}")
+    print(f"{'Energy per MAC (pJ)':<35} {cpu_result.energy_per_mac_pj:<15.2f} {gpu_result.energy_per_mac_pj:<15.2f} {tpu_result.energy_per_mac_pj:<15.2f} {kpu_result.energy_per_mac_pj:<15.2f}")
+
+    # Efficiency metrics
+    print(f"\n{'─'*100}")
+    print(f"EFFICIENCY METRICS (Control Overhead as % of Dynamic Energy)")
+    print(f"{'─'*100}")
+
+    # Calculate dynamic energy (excluding static/idle)
+    cpu_dynamic = cpu_base_compute + cpu_control + cpu_memory
+    gpu_dynamic = gpu_base_compute + gpu_control + gpu_memory
+    tpu_dynamic = tpu_base_compute + tpu_control + tpu_memory
+    kpu_dynamic = kpu_base_compute + kpu_control + kpu_memory
+
+    cpu_control_pct = (cpu_control / cpu_dynamic * 100) if cpu_dynamic > 0 else 0
+    gpu_control_pct = (gpu_control / gpu_dynamic * 100) if gpu_dynamic > 0 else 0
+    tpu_control_pct = (tpu_control / tpu_dynamic * 100) if tpu_dynamic > 0 else 0
+    kpu_control_pct = (kpu_control / kpu_dynamic * 100) if kpu_dynamic > 0 else 0
+
+    print(f"{'Metric':<35} {'CPU':<15} {'GPU':<15} {'TPU':<15} {'KPU':<15}")
+    print(f"{'-'*100}")
+    print(f"{'Control Overhead (%)':<35} {cpu_control_pct:<15.1f} {gpu_control_pct:<15.1f} {tpu_control_pct:<15.1f} {kpu_control_pct:<15.1f}")
+    print(f"{'Compute Efficiency (%)':<35} {(cpu_base_compute/cpu_dynamic*100):<15.1f} {(gpu_base_compute/gpu_dynamic*100):<15.1f} {(tpu_base_compute/tpu_dynamic*100):<15.1f} {(kpu_base_compute/kpu_dynamic*100):<15.1f}")
+    print(f"{'Memory Overhead (%)':<35} {(cpu_memory/cpu_dynamic*100):<15.1f} {(gpu_memory/gpu_dynamic*100):<15.1f} {(tpu_memory/tpu_dynamic*100):<15.1f} {(kpu_memory/kpu_dynamic*100):<15.1f}")
 
     # Architecture-specific hierarchical breakdowns
-    _print_gpu_hierarchical_breakdown(gpu_result)
-    _print_kpu_hierarchical_breakdown(kpu_result)
     _print_cpu_hierarchical_breakdown(cpu_result)
+    _print_gpu_hierarchical_breakdown(gpu_result)
+    _print_tpu_hierarchical_breakdown(tpu_result)
+    _print_kpu_hierarchical_breakdown(kpu_result)
 
     # Performance metrics
-    print(f"\n{'─'*80}")
+    print(f"\n{'─'*100}")
     print(f"PERFORMANCE METRICS")
-    print(f"{'─'*80}")
+    print(f"{'─'*100}")
 
-    print(f"{'Metric':<35} {'GPU':<15} {'KPU':<15} {'CPU':<15}")
-    print(f"{'-'*80}")
+    print(f"{'Metric':<35} {'CPU':<15} {'GPU':<15} {'TPU':<15} {'KPU':<15}")
+    print(f"{'-'*100}")
 
-    print(f"{'Latency per inference (μs)':<35} {gpu_result.latency_s*1e6:<15.2f} {kpu_result.latency_s*1e6:<15.2f} {cpu_result.latency_s*1e6:<15.2f}")
-    print(f"{'Throughput (infer/sec)':<35} {gpu_result.throughput_inferences_per_sec:<15,.0f} {kpu_result.throughput_inferences_per_sec:<15,.0f} {cpu_result.throughput_inferences_per_sec:<15,.0f}")
-    print(f"{'Average Power (W)':<35} {gpu_result.power_w:<15.2f} {kpu_result.power_w:<15.2f} {cpu_result.power_w:<15.2f}")
+    print(f"{'Latency per inference (μs)':<35} {cpu_result.latency_s*1e6:<15.2f} {gpu_result.latency_s*1e6:<15.2f} {tpu_result.latency_s*1e6:<15.2f} {kpu_result.latency_s*1e6:<15.2f}")
+    print(f"{'Throughput (infer/sec)':<35} {cpu_result.throughput_inferences_per_sec:<15,.0f} {gpu_result.throughput_inferences_per_sec:<15,.0f} {tpu_result.throughput_inferences_per_sec:<15,.0f} {kpu_result.throughput_inferences_per_sec:<15,.0f}")
+    print(f"{'Average Power (W)':<35} {cpu_result.power_w:<15.2f} {gpu_result.power_w:<15.2f} {tpu_result.power_w:<15.2f} {kpu_result.power_w:<15.2f}")
 
     # Hardware utilization
-    print(f"\n{'─'*80}")
+    print(f"\n{'─'*100}")
     print(f"HARDWARE UTILIZATION")
-    print(f"{'─'*80}")
+    print(f"{'─'*100}")
 
-    print(f"{'Compute Units (total)':<35} {gpu_result.compute_units_total:<15} {kpu_result.compute_units_total:<15} {cpu_result.compute_units_total:<15}")
-    print(f"{'Compute Units (allocated)':<35} {gpu_result.compute_units_allocated:<15} {kpu_result.compute_units_allocated:<15} {cpu_result.compute_units_allocated:<15}")
-    print(f"{'Peak Utilization (%)':<35} {gpu_result.peak_utilization*100:<15.1f} {kpu_result.peak_utilization*100:<15.1f} {cpu_result.peak_utilization*100:<15.1f}")
+    print(f"{'Compute Units (total)':<35} {cpu_result.compute_units_total:<15} {gpu_result.compute_units_total:<15} {tpu_result.compute_units_total:<15} {kpu_result.compute_units_total:<15}")
+    print(f"{'Compute Units (allocated)':<35} {cpu_result.compute_units_allocated:<15} {gpu_result.compute_units_allocated:<15} {tpu_result.compute_units_allocated:<15} {kpu_result.compute_units_allocated:<15}")
+    print(f"{'Peak Utilization (%)':<35} {cpu_result.peak_utilization*100:<15.1f} {gpu_result.peak_utilization*100:<15.1f} {tpu_result.peak_utilization*100:<15.1f} {kpu_result.peak_utilization*100:<15.1f}")
 
     # Winner analysis
     print(f"\n{'─'*80}")
@@ -1318,7 +1646,7 @@ def _print_config_comparison(mlp_config, batch_size, gpu_result, kpu_result, cpu
     print(f"{'─'*80}")
 
     # Find most efficient
-    min_energy = min(gpu_total, kpu_total, cpu_total)
+    min_energy = min(cpu_total, gpu_total, tpu_total, kpu_total)
 
     if kpu_total == min_energy:
         winner = "KPU"
@@ -1331,6 +1659,17 @@ def _print_config_comparison(mlp_config, batch_size, gpu_result, kpu_result, cpu
         print(f"   • GPU coherence machinery overhead ({sum(gpu_result.arch_specific_events.values())*1e6:.1f} μJ)")
         print(f"   • CPU instruction fetch overhead ({sum(cpu_result.arch_specific_events.values())*1e6:.1f} μJ)")
         print(f"   • Token-based execution requires only {sum(kpu_result.arch_specific_events.values())*1e6:.1f} μJ overhead")
+    elif tpu_total == min_energy:
+        winner = "TPU"
+        gpu_ratio = gpu_total / tpu_total
+        cpu_ratio = cpu_total / tpu_total
+        print(f"🏆 WINNER: TPU (Systolic Array)")
+        print(f"   TPU is {gpu_ratio:.2f}× more energy efficient than GPU")
+        print(f"   TPU is {cpu_ratio:.2f}× more energy efficient than CPU")
+        print(f"\n   WHY? Systolic array dataflow with minimal overhead:")
+        print(f"   • No instruction fetch/decode (dataflow, not stored-program)")
+        print(f"   • No coherence machinery (static dataflow, no cache coherence)")
+        print(f"   • Extremely high PE utilization for MLPs")
     elif gpu_total == min_energy:
         winner = "GPU"
         kpu_ratio = kpu_total / gpu_total
@@ -1350,12 +1689,15 @@ def _print_config_comparison(mlp_config, batch_size, gpu_result, kpu_result, cpu
         print(f"   CPU is {kpu_ratio:.2f}× more energy efficient than KPU")
 
     # Throughput analysis
-    max_throughput = max(gpu_result.throughput_inferences_per_sec,
-                        kpu_result.throughput_inferences_per_sec,
-                        cpu_result.throughput_inferences_per_sec)
+    max_throughput = max(cpu_result.throughput_inferences_per_sec,
+                        gpu_result.throughput_inferences_per_sec,
+                        tpu_result.throughput_inferences_per_sec,
+                        kpu_result.throughput_inferences_per_sec)
 
     if gpu_result.throughput_inferences_per_sec == max_throughput:
         throughput_winner = "GPU"
+    elif tpu_result.throughput_inferences_per_sec == max_throughput:
+        throughput_winner = "TPU"        
     elif kpu_result.throughput_inferences_per_sec == max_throughput:
         throughput_winner = "KPU"
     else:
@@ -1375,9 +1717,10 @@ def _save_results(results: Dict[str, List[ArchitecturalEnergyBreakdown]], output
     if ext == '.json':
         # Convert to JSON-serializable format
         json_data = {
-            'gpu': [b.to_dict() for b in results['gpu']],
-            'kpu': [b.to_dict() for b in results['kpu']],
             'cpu': [b.to_dict() for b in results['cpu']],
+            'gpu': [b.to_dict() for b in results['gpu']],
+            'tpu': [b.to_dict() for b in results['tpu']],
+            'kpu': [b.to_dict() for b in results['kpu']],
         }
 
         with open(output_path, 'w') as f:

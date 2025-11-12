@@ -339,16 +339,26 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     4. ALU Operations
     5. Branch Prediction
 
+    Classic Pipeline Stages:
+
+    Fetch → Decode → Dispatch → Execute → Writeback
+        ↑       ↑         ↑          ↑         ↑
+    I-cache  Logic   Control    ALU ops   Register
+    read             signals   (sep.)     writeback
+    1.5 pJ   0.8 pJ   0.5 pJ    4.0 pJ    3.0 pJ
+
     The memory wall: Request/reply latency is significant AND energy intensive.
     Register file energy is comparable to ALU energy (~same for read/write as for compute).
     """
 
     # ============================================================
-    # Instruction Pipeline Energy
+    # Instruction Pipeline Energy (Fetch → Decode → Dispatch)
     # ============================================================
+    # Note: Dispatch writes control signals to datapath registers.
+    # Actual execution (ALU ops) is tracked separately in alu_energy_per_op.
     instruction_fetch_energy: float = 1.5e-12      # ~1.5 pJ per instruction (I-cache read)
     instruction_decode_energy: float = 0.8e-12     # ~0.8 pJ per instruction (decode logic)
-    instruction_execute_energy: float = 0.5e-12    # ~0.5 pJ per instruction (control signals)
+    instruction_dispatch_energy: float = 0.5e-12   # ~0.5 pJ per instruction (control signal dispatch)
 
     # ============================================================
     # Register File Energy (CRITICAL: ~same as ALU energy!)
@@ -398,18 +408,20 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
             execution_context = {}
 
         # ============================================================
-        # 1. Instruction Pipeline (Fetch → Decode → Execute)
+        # 1. Instruction Pipeline (Fetch → Decode → Dispatch)
         # ============================================================
+        # Note: This models the instruction pipeline up to dispatch.
+        # Actual execution (ALU operations) is modeled separately below.
         num_instructions = int(ops * self.instructions_per_op)
 
         instruction_fetch_energy_total = num_instructions * self.instruction_fetch_energy
         instruction_decode_energy_total = num_instructions * self.instruction_decode_energy
-        instruction_execute_energy_total = num_instructions * self.instruction_execute_energy
+        instruction_dispatch_energy_total = num_instructions * self.instruction_dispatch_energy
 
         pipeline_energy_total = (
             instruction_fetch_energy_total +
             instruction_decode_energy_total +
-            instruction_execute_energy_total
+            instruction_dispatch_energy_total
         )
 
         # ============================================================
@@ -425,27 +437,86 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         # ============================================================
         # 3. 4-Stage Memory Hierarchy (L1 → L2 → L3 → DRAM)
         # ============================================================
-        # All data accesses go through the hierarchy
+        # MEMORY MODEL: Option 1 - Pure Cold Start (Fair Comparison)
+        #
+        # For single-inference analysis, we model cold start where every cache line
+        # must traverse the entire hierarchy on first access. This matches the
+        # GPU/TPU/KPU models which account for all data movement.
+        #
+        # Example for 16×16 MLP (batch=1):
+        # - Weights: 1,024 bytes = 16 cache lines
+        # - Input:   64 bytes = 1 cache line
+        # - Output:  64 bytes = 1 cache line
+        #
+        # Data movement for weights (16 lines):
+        # - DRAM → L3: 16 reads from DRAM, 16 writes to L3
+        # - L3 → L2:   16 reads from L3, 16 writes to L2
+        # - L2 → L1:   16 reads from L2, 16 writes to L1
+        # - L1 → PE:   16 reads from L1 (for computation)
+        #
+        # FUTURE: Option 3 hooks allow execution_context to specify cache_state
+        # FUTURE: Option 2 (3C Model) for actual DNN graphs:
+        #   - Compulsory misses: First touch of each cache line (modeled here)
+        #   - Capacity misses: Working set > cache capacity
+        #   - Conflict misses: Mapping conflicts in set-associative caches
+        #   The 3C model will be essential for analyzing large DNN graphs where
+        #   working sets exceed cache capacities and temporal reuse patterns matter.
+
+        cache_line_size = 64  # bytes (typical for modern CPUs)
         total_bytes = bytes_transferred
 
-        # L1 cache: l1_hit_rate of accesses hit
-        l1_bytes = total_bytes * self.l1_hit_rate
-        l1_energy = l1_bytes * self.l1_cache_energy_per_byte
+        # Check for cache_state in execution context (Option 3 hook)
+        cache_state = 'cold'  # Default to cold start for fair comparison
+        if execution_context:
+            cache_state = execution_context.get('cache_state', 'cold')
 
-        # L2 cache: (1 - l1_hit_rate) * l2_hit_rate hit L2
-        l1_miss_bytes = total_bytes * (1 - self.l1_hit_rate)
-        l2_bytes = l1_miss_bytes * self.l2_hit_rate
-        l2_energy = l2_bytes * self.l2_cache_energy_per_byte
+        if cache_state == 'cold':
+            # ========================================================
+            # COLD START MODEL (Option 1)
+            # ========================================================
+            # Every cache line must traverse the complete hierarchy.
+            # Calculate total cache lines needed
+            total_cache_lines = int((total_bytes + cache_line_size - 1) // cache_line_size)
 
-        # L3 cache: L2 misses * l3_hit_rate hit L3
-        l2_miss_bytes = l1_miss_bytes * (1 - self.l2_hit_rate)
-        l3_bytes = l2_miss_bytes * self.l3_hit_rate
-        l3_energy = l3_bytes * self.l3_cache_energy_per_byte
+            # DRAM → L3 transfer
+            # Every line starts in DRAM and must be fetched
+            dram_reads = total_cache_lines
+            dram_bytes = dram_reads * cache_line_size
+            dram_energy = dram_bytes * self.dram_energy_per_byte
 
-        # DRAM: L3 misses go to DRAM
-        l3_miss_bytes = l2_miss_bytes * (1 - self.l3_hit_rate)
-        dram_bytes = l3_miss_bytes
-        dram_energy = dram_bytes * self.dram_energy_per_byte
+            # L3 operations: write from DRAM, then read for L2
+            l3_writes = dram_reads
+            l3_reads = dram_reads
+            l3_bytes = (l3_writes + l3_reads) * cache_line_size
+            l3_energy = l3_bytes * self.l3_cache_energy_per_byte
+
+            # L2 operations: write from L3, then read for L1
+            l2_writes = l3_reads
+            l2_reads = l3_reads
+            l2_bytes = (l2_writes + l2_reads) * cache_line_size
+            l2_energy = l2_bytes * self.l2_cache_energy_per_byte
+
+            # L1 operations: write from L2, then read for computation
+            # Note: For matmul, weights may be read multiple times from L1,
+            # but we only count the fetch cost here (not reuse)
+            l1_writes = l2_reads
+            l1_reads = l2_reads  # Simplified: one read per line fetch
+            l1_bytes = (l1_writes + l1_reads) * cache_line_size
+            l1_energy = l1_bytes * self.l1_cache_energy_per_byte
+
+            # Access counts for reporting
+            dram_accesses = dram_reads
+            l3_accesses = l3_reads + l3_writes
+            l2_accesses = l2_reads + l2_writes
+            l1_accesses = l1_reads + l1_writes
+
+        else:
+            # ========================================================
+            # WARM CACHE MODEL (Option 3 - Future)
+            # ========================================================
+            # Use hit rate model for steady-state after warmup
+            # TODO: Implement when needed for batch analysis
+            raise NotImplementedError(f"cache_state='{cache_state}' not yet implemented. Only 'cold' is supported.")
 
         memory_hierarchy_energy_total = l1_energy + l2_energy + l3_energy + dram_energy
 
@@ -457,8 +528,23 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         # ============================================================
         # 5. Branch Prediction
         # ============================================================
-        num_branches = (ops // 1000) * self.branches_per_1000_ops
-        branch_energy = num_branches * self.branch_prediction_overhead
+        # More accurate branch estimation based on loop structure
+        # For dense linear algebra (matmul, vector ops):
+        # - Assume 3-nested loops for matmul (M, N, K) + bias loop + activation loop
+        # - Branch frequency ≈ ops^(1/3) for outer loop, ops^(2/3) for middle loop, ops for inner
+        # Simplified: branches ≈ 3 * sqrt(ops) for typical loop nests
+
+        # Use a more realistic model: ~1 branch per 10 operations for dense compute
+        # This accounts for loop iterations, conditions, and function calls
+        num_branches = max(1, int(ops / 10))
+
+        # Branch prediction success rate (95% for predictable loops)
+        branch_prediction_success = 0.95
+        num_mispredicted_branches = int(num_branches * (1 - branch_prediction_success))
+
+        # Only mispredicted branches pay the full overhead
+        # Correctly predicted branches have minimal cost (already in instruction fetch)
+        branch_energy = num_mispredicted_branches * self.branch_prediction_overhead
 
         # ============================================================
         # Categorize into overhead components
@@ -476,10 +562,10 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         # Create detailed breakdown
         # ============================================================
         extra_details = {
-            # Instruction Pipeline
+            # Instruction Pipeline (Fetch → Decode → Dispatch)
             'instruction_fetch_energy': instruction_fetch_energy_total,
             'instruction_decode_energy': instruction_decode_energy_total,
-            'instruction_execute_energy': instruction_execute_energy_total,
+            'instruction_dispatch_energy': instruction_dispatch_energy_total,
             'num_instructions': num_instructions,
 
             # Register File
@@ -497,6 +583,10 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
             'l2_bytes': l2_bytes,
             'l3_bytes': l3_bytes,
             'dram_bytes': dram_bytes,
+            'l1_accesses': l1_accesses,
+            'l2_accesses': l2_accesses,
+            'l3_accesses': l3_accesses,
+            'dram_accesses': dram_accesses,
 
             # ALU
             'alu_energy': alu_energy_total,
@@ -504,6 +594,8 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
             # Branch Prediction
             'branch_energy': branch_energy,
             'num_branches': num_branches,
+            'num_mispredicted_branches': num_mispredicted_branches,
+            'branch_prediction_success_rate': branch_prediction_success,
         }
 
         explanation = (
@@ -851,24 +943,62 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
     """
     Energy model for systolic array architectures (Google TPU).
 
-    Key advantages over stored program:
-    - No instruction fetch during execution (schedule is predetermined)
-    - No contention (spatial separation of data flows)
-    - No ordering machinery (schedule known a priori)
-    - Direct data injection into 2D array
+    First-Principles Control Overhead Model:
+    TPU control orchestrates complex dataflow through memory hierarchy and systolic array.
+    Control unit is ~2% of die area (TPU v1 paper) running at peak core clock.
 
-    Result: 5-10x lower energy per operation (Google TCO data validates this)
+    Control Operations (per matrix operation):
+    1. DMA Setup: Configure transfers from DRAM → Weight Memory (SRAM)
+    2. Weight Loader: Shift weights into systolic array columns
+    3. Unified Buffer Controller: Manage activation scratchpad
+    4. Systolic Array Sequencer: Control weight-stationary dataflow
+    5. Accumulator Controller: Manage partial sum staging
+    6. Address Generators: Compute tiled matrix addresses
+    7. Instruction Decoder: Decode matrix multiply instruction
+
+    Why TPU control is efficient vs CPU/GPU:
+    - CPU: 1 instruction per ~2 operations → high control:compute ratio
+    - GPU: Cache coherence per memory access → high control per byte
+    - TPU: 1 instruction per 16K MACs (systolic array) → low control:compute ratio
+
+    But: Control sequencers run at peak clock and consume real energy!
     """
 
-    # Energy coefficients (much lower than stored program)
-    schedule_setup_energy: float = 100.0e-12       # ~100 pJ per kernel (one-time)
-    data_injection_per_element: float = 0.5e-12    # ~0.5 pJ per element
-    data_extraction_per_element: float = 0.5e-12   # ~0.5 pJ per element
+    # ============================================================
+    # CONTROL ENERGY (First-Principles, per operation)
+    # ============================================================
+
+    # Instruction-level control (per matrix operation, not per MAC!)
+    instruction_decode_energy: float = 5.0e-12        # ~5 pJ per matrix op (not per MAC!)
+
+    # DMA Controller (setup per transfer, amortized over transfer size)
+    dma_descriptor_setup: float = 10.0e-9             # ~10 nJ per DMA transfer
+    dma_address_gen_per_cacheline: float = 0.1e-12    # ~0.1 pJ per cache line address
+
+    # Weight Loading Sequencer (shift weights into systolic array)
+    weight_shift_control_per_element: float = 0.05e-12  # ~0.05 pJ per weight element
+    weight_column_select_per_cycle: float = 0.1e-12     # ~0.1 pJ per column per cycle
+
+    # Unified Buffer Controller (activation scratchpad management)
+    unified_buffer_address_gen: float = 0.1e-12      # ~0.1 pJ per address
+    unified_buffer_arbitration: float = 0.2e-12      # ~0.2 pJ per request
+
+    # Accumulator Controller (partial sum management)
+    accumulator_read_control: float = 0.2e-12        # ~0.2 pJ per read
+    accumulator_write_control: float = 0.2e-12       # ~0.2 pJ per write
+    accumulator_address_gen: float = 0.1e-12         # ~0.1 pJ per address
+
+    # Tile Iteration Control (for tiled matrix operations)
+    tile_loop_control_per_tile: float = 1.0e-12      # ~1 pJ per tile iteration
+
+    # Data injection/extraction (spatial array interface)
+    data_injection_per_element: float = 0.5e-12      # ~0.5 pJ per element
+    data_extraction_per_element: float = 0.5e-12     # ~0.5 pJ per element
 
     # Architectural efficiency multiplier (vs stored program baseline)
     # These represent the SAVINGS from eliminating instruction fetch, contention, etc.
-    compute_efficiency: float = 0.15               # 15% overhead (85% reduction!)
-    memory_efficiency: float = 0.20                # 20% overhead (80% reduction!)
+    compute_efficiency: float = 0.15                 # 15% overhead (85% reduction!)
+    memory_efficiency: float = 0.20                  # 20% overhead (80% reduction!)
 
     def compute_architectural_energy(
         self,
@@ -882,54 +1012,199 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
         if execution_context is None:
             execution_context = {}
 
-        # One-time schedule setup (amortized over all operations)
-        schedule_energy = self.schedule_setup_energy
+        # ========================================================================
+        # FIRST-PRINCIPLES TPU CONTROL OVERHEAD MODEL
+        # ========================================================================
 
-        # Data injection/extraction (much more efficient than load/store)
+        # Get systolic array dimension (from execution context or default)
+        array_dimension = execution_context.get('array_dimension', 128)  # Default: 128×128
+        macs_per_cycle = array_dimension * array_dimension
+        num_systolic_cycles = max(1, int((ops + macs_per_cycle - 1) // macs_per_cycle))
+
+        # Calculate number of matrix operations (one per MLP layer, not per MAC!)
+        # For small workloads, we might have just 1 matrix operation
+        num_matrix_ops = max(1, execution_context.get('num_matrix_ops', 1))
+
+        # 1. INSTRUCTION DECODE (per matrix operation, not per MAC!)
+        instruction_decode = num_matrix_ops * self.instruction_decode_energy
+
+        # 2. DMA CONTROLLER
+        # Calculate cache lines transferred (64-byte cache lines)
+        cache_line_size = execution_context.get('cache_line_size', 64)
+        num_cache_lines = max(1, (bytes_transferred + cache_line_size - 1) // cache_line_size)
+
+        # DMA descriptor setup (one per transfer from DRAM → Weight Memory)
+        num_dma_transfers = max(1, num_matrix_ops)  # One transfer per matrix op
+        dma_setup = num_dma_transfers * self.dma_descriptor_setup
+
+        # DMA address generation (per cache line)
+        dma_address_gen = num_cache_lines * self.dma_address_gen_per_cacheline
+
+        # 3. WEIGHT LOADING SEQUENCER
+        # Shift weights into systolic array columns (weight-stationary dataflow)
+        num_weight_elements = max(1, bytes_transferred // 4)  # Assume 4-byte elements
+        weight_shift_control = num_weight_elements * self.weight_shift_control_per_element
+
+        # Column select per cycle (control which columns receive weights)
+        weight_column_select = num_systolic_cycles * array_dimension * self.weight_column_select_per_cycle
+
+        # 4. UNIFIED BUFFER CONTROLLER
+        # Activation scratchpad management (address generation + arbitration)
+        num_ub_accesses = num_weight_elements  # Read activations from unified buffer
+        ub_address_gen = num_ub_accesses * self.unified_buffer_address_gen
+        ub_arbitration = num_ub_accesses * self.unified_buffer_arbitration
+
+        # 5. ACCUMULATOR CONTROLLER
+        # Partial sum staging (read + write + address generation)
+        num_accumulator_ops = num_systolic_cycles * array_dimension  # One accumulator per row
+        accumulator_read = num_accumulator_ops * self.accumulator_read_control
+        accumulator_write = num_accumulator_ops * self.accumulator_write_control
+        accumulator_address = num_accumulator_ops * self.accumulator_address_gen
+
+        # 6. TILE ITERATION CONTROL
+        # For tiled matrix operations (large matrices don't fit in array)
+        # Estimate number of tiles: ops / (array_dimension^2) gives approximate tile count
+        num_tiles = max(1, int((ops + macs_per_cycle - 1) // macs_per_cycle))
+        tile_loop_control = num_tiles * self.tile_loop_control_per_tile
+
+        # 7. DATA INJECTION/EXTRACTION (spatial array interface)
         num_elements = max(1, bytes_transferred // 4)  # Assume 4-byte elements
         injection_energy = num_elements * self.data_injection_per_element
         extraction_energy = num_elements * self.data_extraction_per_element
 
+        # 8. REGISTER-TO-REGISTER FORWARDING THROUGH SYSTOLIC ARRAY
+        # This is the energy to shift data through the array (PE-to-PE register writes)
+        # TPU shifts 3 matrices: weights (loaded once), inputs (streamed), outputs (accumulated)
+        #
+        # For weight-stationary dataflow:
+        # - Weights: loaded into PE registers (one-time setup)
+        # - Inputs: shift horizontally through array
+        # - Outputs: shift vertically through array (partial sums)
+        #
+        # Number of register writes ≈ elements × (array_dimension / elements_per_pass)
+        # For simplicity: assume each element is written to ~array_dimension PEs
+        #
+        # Energy per register write: 0.3 pJ (typical register file write energy)
+        register_write_energy = 0.3e-12  # 0.3 pJ per register write
+
+        # Weight matrix forwarding (load weights into array registers)
+        weight_bytes = int(bytes_transferred * 0.5)  # Assume 50% weights
+        weight_elements = weight_bytes // 4
+        weight_forwarding = weight_elements * register_write_energy
+
+        # Input matrix forwarding (stream through array horizontally)
+        input_bytes = int(bytes_transferred * 0.3)  # Assume 30% inputs
+        input_elements = input_bytes // 4
+        input_forwarding = input_elements * array_dimension * register_write_energy
+
+        # Output matrix forwarding (accumulate and shift vertically)
+        output_bytes = int(bytes_transferred * 0.2)  # Assume 20% outputs
+        output_elements = output_bytes // 4
+        output_forwarding = output_elements * array_dimension * register_write_energy
+
+        systolic_forwarding_energy = weight_forwarding + input_forwarding + output_forwarding
+
+        # ========================================================================
+        # TOTAL CONTROL OVERHEAD
+        # ========================================================================
+
+        control_overhead_total = (
+            instruction_decode +
+            dma_setup +
+            dma_address_gen +
+            weight_shift_control +
+            weight_column_select +
+            ub_address_gen +
+            ub_arbitration +
+            accumulator_read +
+            accumulator_write +
+            accumulator_address +
+            tile_loop_control +
+            systolic_forwarding_energy  # PE-to-PE register writes through array
+        )
+
+        # ========================================================================
+        # ARCHITECTURAL EFFICIENCY (vs Stored Program)
+        # ========================================================================
+
         # Architectural benefit: Reduce compute overhead dramatically
-        # Because no instruction fetch, decode, dispatch per operation
+        # Because no instruction fetch, decode, dispatch PER OPERATION
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
 
         # Memory benefit: Spatial data flows eliminate contention overhead
         memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
-        total_injection = injection_energy + extraction_energy + schedule_energy
+        total_data_movement = injection_energy + extraction_energy
+
+        # ========================================================================
+        # EXPLANATION
+        # ========================================================================
 
         explanation = (
-            f"Systolic Array Architecture Energy Events:\n"
-            f"  Schedule Setup (one-time, amortized):\n"
-            f"    - Energy: {schedule_energy*1e12:.2f} pJ\n"
-            f"  Data Injection/Extraction:\n"
-            f"    - Elements: {num_elements:,}\n"
-            f"    - Injection: {injection_energy*1e12:.2f} pJ "
-            f"({num_elements:,} × {self.data_injection_per_element*1e12:.2f} pJ)\n"
-            f"    - Extraction: {extraction_energy*1e12:.2f} pJ\n"
+            f"Systolic Array (TPU) First-Principles Control Overhead:\n"
+            f"  1. Instruction Decode: {instruction_decode*1e12:.2f} pJ "
+            f"({num_matrix_ops} matrix ops × {self.instruction_decode_energy*1e12:.1f} pJ)\n"
+            f"  2. DMA Controller:\n"
+            f"     - Descriptor Setup: {dma_setup*1e12:.2f} pJ ({num_dma_transfers} transfers)\n"
+            f"     - Address Generation: {dma_address_gen*1e12:.2f} pJ ({num_cache_lines} cache lines)\n"
+            f"  3. Weight Loading Sequencer:\n"
+            f"     - Weight Shift Control: {weight_shift_control*1e12:.2f} pJ ({num_weight_elements} elements)\n"
+            f"     - Column Select: {weight_column_select*1e12:.2f} pJ ({num_systolic_cycles} cycles)\n"
+            f"  4. Unified Buffer Controller:\n"
+            f"     - Address Generation: {ub_address_gen*1e12:.2f} pJ\n"
+            f"     - Arbitration: {ub_arbitration*1e12:.2f} pJ\n"
+            f"  5. Accumulator Controller:\n"
+            f"     - Read Control: {accumulator_read*1e12:.2f} pJ\n"
+            f"     - Write Control: {accumulator_write*1e12:.2f} pJ\n"
+            f"     - Address Generation: {accumulator_address*1e12:.2f} pJ\n"
+            f"  6. Tile Loop Control: {tile_loop_control*1e12:.2f} pJ ({num_tiles} tiles)\n"
+            f"  7. Data Injection/Extraction:\n"
+            f"     - Injection: {injection_energy*1e12:.2f} pJ\n"
+            f"     - Extraction: {extraction_energy*1e12:.2f} pJ\n"
+            f"\n"
+            f"  TOTAL CONTROL OVERHEAD: {control_overhead_total*1e12:.2f} pJ\n"
+            f"  Control Overhead per MAC: {(control_overhead_total/ops*1e12) if ops > 0 else 0:.4f} pJ\n"
+            f"\n"
+            f"  Why TPU control is efficient:\n"
+            f"  - CPU: ~1 instruction per 2 MACs → {5.0/2:.2f} pJ control per MAC\n"
+            f"  - GPU: Coherence per memory op → ~0.5 pJ control per byte\n"
+            f"  - TPU: 1 instruction per {macs_per_cycle:,} MACs → {(control_overhead_total/ops*1e12) if ops > 0 else 0:.4f} pJ control per MAC\n"
+            f"\n"
             f"  Architectural Efficiency (vs Stored Program):\n"
             f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"      (No instruction fetch, decode, dispatch per op)\n"
             f"    - Memory contention eliminated: {-memory_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"      (Spatial data flows, no request/reply overhead)\n"
-            f"  Efficiency vs Stored Program:\n"
-            f"    - Compute: {self.compute_efficiency*100:.0f}% overhead "
-            f"({(1-self.compute_efficiency)*100:.0f}% reduction)\n"
-            f"    - Memory: {self.memory_efficiency*100:.0f}% overhead "
-            f"({(1-self.memory_efficiency)*100:.0f}% reduction)\n"
-            f"\n"
-            f"KEY: Pre-designed spatial schedule eliminates instruction fetch\n"
-            f"     and contention overhead. 5-10x more energy efficient!"
         )
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
-            memory_overhead=memory_overhead_reduction + total_injection,
-            control_overhead=schedule_energy,
+            memory_overhead=memory_overhead_reduction + total_data_movement,
+            control_overhead=control_overhead_total,
             extra_details={
+                'instruction_decode': instruction_decode,
+                'dma_setup': dma_setup,
+                'dma_address_gen': dma_address_gen,
+                'weight_shift_control': weight_shift_control,
+                'weight_column_select': weight_column_select,
+                'ub_address_gen': ub_address_gen,
+                'ub_arbitration': ub_arbitration,
+                'accumulator_read': accumulator_read,
+                'accumulator_write': accumulator_write,
+                'accumulator_address': accumulator_address,
+                'tile_loop_control': tile_loop_control,
                 'injection_energy': injection_energy,
                 'extraction_energy': extraction_energy,
+                'num_systolic_cycles': num_systolic_cycles,
+                'array_dimension': array_dimension,
+                'num_tiles': num_tiles,
+                'num_matrix_ops': num_matrix_ops,
+                'control_overhead_per_mac_pj': (control_overhead_total/ops*1e12) if ops > 0 else 0,
+                # Occurrence counts
+                'num_dma_transfers': num_dma_transfers,
+                'num_cache_lines': num_cache_lines,
+                'num_weight_elements': num_weight_elements,
+                'num_ub_accesses': num_ub_accesses,
+                'num_accumulator_ops': num_accumulator_ops,
+                'num_elements': num_elements,
             },
             explanation=explanation
         )
@@ -1551,13 +1826,27 @@ class TPUTileEnergyModel:
         total_weight_energy = weight_dram_energy + weight_fifo_energy + weight_shift_energy
 
         # ============================================================
-        # 2. Input Activation Loading (Unified Buffer → Matrix Unit)
+        # 2. Input Activation Loading (DRAM → Unified Buffer → Matrix Unit)
         # ============================================================
 
-        # Unified Buffer read (activations staged in 24 MiB UB)
         input_bytes = (
             input_elements_per_tile * num_weight_tiles * batch_size * bytes_per_element
         )
+
+        # IMPORTANT: Activations must come from DRAM → Unified Buffer first!
+        # The Unified Buffer is only 2-32 MiB, so for large activations we need
+        # to stage them from DRAM (just like weights).
+        #
+        # Energy breakdown:
+        # 1. DRAM → Unified Buffer (12 pJ/byte for LPDDR5, same as weights)
+        # 2. Unified Buffer → Matrix Unit (0.5 pJ/byte read + 0.2 pJ/byte stream)
+        #
+        # This was MISSING and caused TPU memory energy to be 38% too low!
+
+        # DRAM → Unified Buffer (activations staged from main memory)
+        input_dram_energy = input_bytes * self.weight_memory_energy_per_byte
+
+        # Unified Buffer read (activations staged in 2-32 MiB UB)
         input_read_energy = input_bytes * self.unified_buffer_read_energy_per_byte
 
         # Stream into Matrix Unit (spatial data flow through systolic array)
@@ -1566,7 +1855,7 @@ class TPUTileEnergyModel:
             total_input_elements * self.activation_stream_energy_per_element
         )
 
-        total_input_energy = input_read_energy + activation_stream_energy
+        total_input_energy = input_dram_energy + input_read_energy + activation_stream_energy
 
         # ============================================================
         # 3. Computation (Systolic Array MACs)
@@ -1598,11 +1887,19 @@ class TPUTileEnergyModel:
         total_accumulator_energy = accumulator_write_energy + accumulator_read_energy
 
         # ============================================================
-        # 5. Output Write (Accumulators → Unified Buffer)
+        # 5. Output Write (Accumulators → Unified Buffer → DRAM)
         # ============================================================
 
         output_bytes = total_output_elements * bytes_per_element
+
+        # Accumulator → Unified Buffer (0.5 pJ/byte write)
         output_write_energy = output_bytes * self.unified_buffer_write_energy_per_byte
+
+        # Unified Buffer → DRAM (12 pJ/byte for LPDDR5)
+        # Outputs must be written back to main memory for next layer!
+        output_dram_energy = output_bytes * self.weight_memory_energy_per_byte
+
+        total_output_energy = output_write_energy + output_dram_energy
 
         # ============================================================
         # Energy Breakdown
@@ -1613,7 +1910,7 @@ class TPUTileEnergyModel:
 
         total_energy = (
             total_weight_energy + total_input_energy + compute_energy +
-            total_accumulator_energy + output_write_energy
+            total_accumulator_energy + total_output_energy
         )
 
         # Calculate arithmetic intensity (ops per byte transferred)
@@ -1627,7 +1924,8 @@ class TPUTileEnergyModel:
             'weight_shift_energy_j': weight_shift_energy,
             'total_weight_energy_j': total_weight_energy,
 
-            # Input activation loading
+            # Input activation loading (DRAM → Unified Buffer → Matrix Unit)
+            'input_dram_energy_j': input_dram_energy,
             'input_read_energy_j': input_read_energy,
             'activation_stream_energy_j': activation_stream_energy,
             'total_input_energy_j': total_input_energy,
@@ -1640,8 +1938,10 @@ class TPUTileEnergyModel:
             'accumulator_read_energy_j': accumulator_read_energy,
             'total_accumulator_energy_j': total_accumulator_energy,
 
-            # Output staging
+            # Output staging (Accumulator → Unified Buffer → DRAM)
             'output_write_energy_j': output_write_energy,
+            'output_dram_energy_j': output_dram_energy,
+            'total_output_energy_j': total_output_energy,
 
             # Total
             'total_energy_j': total_energy,
@@ -1777,7 +2077,7 @@ class KPUTileEnergyModel:
 
     # Token routing energy (UNIQUE TO KPU - THE KEY DIFFERENTIATOR)
     token_signature_matching_energy: float = 0.6e-12  # ~0.6 pJ per match (distributed CAM-like)
-    token_handshake_energy: float = 0.2e-12  # ~0.2 pJ per token transfer
+    token_dispatch_energy: float = 0.2e-12  # ~0.2 pJ per instruction token dispatch (firing ready tokens)
     token_routing_per_hop: float = 0.15e-12  # ~0.15 pJ per mesh hop
 
     # SURE program management (UNIQUE TO KPU)
@@ -1901,10 +2201,10 @@ class KPUTileEnergyModel:
             num_tokens * average_matching_points * self.token_signature_matching_energy
         )
 
-        # Handshake energy (token acceptance/forwarding)
-        handshake_energy = num_tokens * self.token_handshake_energy
+        # Instruction token dispatch (firing ready tokens in dataflow execution)
+        dispatch_energy = num_tokens * self.token_dispatch_energy
 
-        total_token_matching_energy = signature_matching_energy + handshake_energy
+        total_token_matching_energy = signature_matching_energy + dispatch_energy
 
         # ============================================================
         # Component 4: SURE Program Loading (UNIQUE TO KPU!)
@@ -1964,7 +2264,25 @@ class KPUTileEnergyModel:
         )
 
         # ============================================================
-        # Component 8: Computation (PE BLAS Operators)
+        # Component 8: PE-to-PE Streaming Forwarding (MISSING!)
+        # ============================================================
+
+        # KPU streams weights and inputs through the PE array (16×8 PEs per tile)
+        # Each PE forwards data to the next PE with token control overhead
+        # Token control adds ~1.5× energy vs simple register write (0.3 pJ → 0.45 pJ)
+        #
+        # KPU streams 2 matrices (weights + inputs), outputs stay local
+        # Number of PE hops ≈ tile dimension (16 PEs wide)
+
+        pe_forwarding_energy_per_byte = 0.45e-12  # 0.45 pJ (0.3 pJ + 50% token overhead)
+        tile_dimension = 16  # 16×8 PEs per tile
+
+        # Weight + Input bytes need to be streamed through PEs
+        weight_input_bytes = weight_bytes + input_bytes
+        pe_streaming_energy = weight_input_bytes * tile_dimension * pe_forwarding_energy_per_byte
+
+        # ============================================================
+        # Component 9: Computation (PE BLAS Operators)
         # ============================================================
 
         total_ops = 2 * batch_size * M * N * K  # 2× for MAC (multiply + add)
@@ -1983,6 +2301,7 @@ class KPUTileEnergyModel:
             distributed_l3_routing_energy +  # Already in memory hierarchy
             total_fusion_net_energy +
             token_routing_energy +
+            pe_streaming_energy +  # PE-to-PE forwarding through tile
             compute_energy
         )
 
@@ -1996,6 +2315,18 @@ class KPUTileEnergyModel:
 
         # Compute vs Memory bound analysis
         compute_percentage = (compute_energy / total_energy * 100) if total_energy > 0 else 0
+
+        # Calculate memory access counts (different cache line sizes per level)
+        l1_line_size = 32    # bytes (PE-local, smaller lines)
+        l2_line_size = 64    # bytes (tile-local)
+        l3_line_size = 128   # bytes (distributed scratchpad, larger lines)
+        dram_line_size = 256 # bytes (burst transfers for efficiency)
+
+        # Calculate accesses based on bytes transferred at each level
+        dram_accesses = int((dram_l3_bytes + dram_line_size - 1) // dram_line_size) if dram_l3_bytes > 0 else 0
+        l3_accesses = int((dram_l3_bytes + l3_line_size - 1) // l3_line_size) if dram_l3_bytes > 0 else 0
+        l2_accesses = int((l2_l1_bytes + l2_line_size - 1) // l2_line_size) if l2_l1_bytes > 0 else 0
+        l1_accesses = int((l2_l1_bytes + l1_line_size - 1) // l1_line_size) if l2_l1_bytes > 0 else 0
 
         return {
             # Component 1: 4-Stage Memory Hierarchy
@@ -2014,11 +2345,16 @@ class KPUTileEnergyModel:
             'blockmover_energy_j': blockmover_energy,
             'streamer_energy_j': streamer_energy,
             'total_dme_energy_j': total_dme_energy,
+            'dma_bytes': dram_l3_bytes,
+            'blockmover_bytes': dram_l3_bytes,
+            'streamer_bytes': l2_l1_bytes,
 
             # Component 3: Token Signature Matching (UNIQUE!)
             'signature_matching_energy_j': signature_matching_energy,
-            'handshake_energy_j': handshake_energy,
+            'dispatch_energy_j': dispatch_energy,
             'total_token_matching_energy_j': total_token_matching_energy,
+            'num_signature_matches': num_tokens * average_matching_points,
+            'num_tokens': num_tokens,
 
             # Component 4: SURE Program Loading (UNIQUE!)
             'program_load_energy_j': program_load_energy,
@@ -2027,6 +2363,7 @@ class KPUTileEnergyModel:
             # Component 5: Distributed L3 Scratchpad
             'distributed_l3_routing_energy_j': distributed_l3_routing_energy,
             'average_l3_hops': average_l3_hops,
+            'l3_routing_accesses': l3_accesses,  # Same as L3 cache accesses
 
             # Component 6: Operator Fusion (UNIQUE!)
             'fusion_overhead_energy_j': fusion_energy,
@@ -2038,7 +2375,11 @@ class KPUTileEnergyModel:
             'average_routing_distance': average_routing_distance,
             'num_tokens': num_tokens,
 
-            # Component 8: Computation
+            # Component 8: PE-to-PE Streaming Forwarding
+            'pe_streaming_energy_j': pe_streaming_energy,
+            'tile_dimension': tile_dimension,
+
+            # Component 9: Computation
             'compute_energy_j': compute_energy,
 
             # Total
@@ -2054,6 +2395,16 @@ class KPUTileEnergyModel:
             'batch_size': batch_size,
             'fusion_enabled': enable_fusion,
             'num_fused_ops': num_fused_ops,
+
+            # Memory access counts and bytes
+            'dram_bytes': dram_l3_bytes,
+            'l3_bytes': dram_l3_bytes,
+            'l2_bytes': l2_l1_bytes,
+            'l1_bytes': l2_l1_bytes,
+            'dram_accesses': dram_accesses,
+            'l3_accesses': l3_accesses,
+            'l2_accesses': l2_accesses,
+            'l1_accesses': l1_accesses,
         }
 
     def _get_bytes_per_element(self, precision: str) -> int:
@@ -2094,18 +2445,20 @@ class KPUTileEnergyModel:
 
     def _estimate_token_routing_distance(self) -> float:
         """
-        Estimate average token routing distance (mesh hops).
+        Estimate average token routing distance (PE-to-PE hops).
 
-        Tokens route through 2D mesh from producer to consumer.
-        For GEMM, tokens typically route from:
-        - Input tiles → Compute tiles
-        - Weight tiles → Compute tiles
-        - Compute tiles → Output tiles
+        Token routing implements SURE recurrence dependencies between PEs.
+        For GEMM (matmul), SURE dataflow has nearest-neighbor dependencies:
+        - Each PE receives data from adjacent PE (1 hop)
+        - Each PE forwards results to adjacent PE (1 hop)
+        - Systolic-like wave propagation through PE array
 
-        Average distance ≈ mesh diameter / 2
+        For matmul, all dependencies are nearest-neighbor (1 hop).
+        For complex multi-op graphs with non-local dependencies,
+        routing distance would be higher.
         """
-        width, height = self.tile_mesh_dimensions
-        return (width + height) / 4.0  # Conservative estimate
+        # For matmul: nearest-neighbor SURE dependencies (1 hop between PEs)
+        return 1.0
 
 
 # ============================================================================
@@ -2165,6 +2518,11 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
             num_fused_ops=1
         )
 
+        # For micro-benchmarks, disable program load overhead to get pure compute
+        disable_overhead = execution_context.get('disable_launch_overhead', False)
+        if disable_overhead:
+            breakdown['program_load_energy_j'] = 0.0
+
         # Map 8-component breakdown to ArchEnergyBreakdown
         # Component 1: 4-Stage Memory Hierarchy
         dram_energy = breakdown['dram_read_energy_j'] + breakdown['dram_write_energy_j']
@@ -2192,7 +2550,10 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
         # Component 7: Token Routing
         token_routing_energy = breakdown['token_routing_energy_j']
 
-        # Component 8: Computation
+        # Component 8: PE-to-PE Streaming Forwarding
+        pe_streaming_energy = breakdown['pe_streaming_energy_j']
+
+        # Component 9: Computation
         compute_energy = breakdown['compute_energy_j']
 
         # Calculate total overhead (everything except base compute)
@@ -2200,23 +2561,29 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
             dram_energy + l3_energy + l2_energy + l1_energy +
             dma_energy + blockmover_energy + streamer_energy +
             token_matching_energy + program_load_energy +
-            l3_routing_energy + fusion_energy + token_routing_energy
+            l3_routing_energy + fusion_energy + token_routing_energy +
+            pe_streaming_energy
         )
 
         # Categorize into compute/memory/control overhead
-        # Memory overhead: memory hierarchy + data movement engines
+        # Memory overhead: memory hierarchy + data movement engines + L3 NoC routing
+        # L3 routing is energy to route data through distributed L3 scratchpad (NoC hops)
         memory_overhead = (
             dram_energy + l3_energy + l2_energy + l1_energy +
-            dma_energy + blockmover_energy + streamer_energy
+            dma_energy + blockmover_energy + streamer_energy +
+            l3_routing_energy  # Moved from compute_overhead (data movement, not computation)
         )
 
-        # Control overhead: token matching + program loading + token routing
+        # Control overhead: token matching + program loading + token routing + PE streaming
+        # PE streaming is the energy to forward data between PEs within a tile
         control_overhead = (
-            token_matching_energy + program_load_energy + token_routing_energy
+            token_matching_energy + program_load_energy + token_routing_energy +
+            pe_streaming_energy  # PE-to-PE forwarding through array
         )
 
-        # Compute overhead: fusion coordination + L3 routing
-        compute_overhead = l3_routing_energy + fusion_energy
+        # Compute overhead: fusion coordination only
+        # (L3 routing moved to memory_overhead since it's data movement)
+        compute_overhead = fusion_energy
 
         # Create extra_details dictionary with all 8 components
         extra_details = {
@@ -2225,16 +2592,29 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
             'l3_energy': l3_energy,
             'l2_energy': l2_energy,
             'l1_energy': l1_energy,
+            'dram_bytes': breakdown['dram_bytes'],
+            'l3_bytes': breakdown['l3_bytes'],
+            'l2_bytes': breakdown['l2_bytes'],
+            'l1_bytes': breakdown['l1_bytes'],
+            'dram_accesses': breakdown['dram_accesses'],
+            'l3_accesses': breakdown['l3_accesses'],
+            'l2_accesses': breakdown['l2_accesses'],
+            'l1_accesses': breakdown['l1_accesses'],
 
             # Component 2: Data Movement Engines
             'dma_energy': dma_energy,
             'blockmover_energy': blockmover_energy,
             'streamer_energy': streamer_energy,
+            'dma_bytes': breakdown['dma_bytes'],
+            'blockmover_bytes': breakdown['blockmover_bytes'],
+            'streamer_bytes': breakdown['streamer_bytes'],
 
             # Component 3: Token Signature Matching
             'token_matching_energy': token_matching_energy,
             'signature_matching_energy': breakdown['signature_matching_energy_j'],
-            'handshake_energy': breakdown['handshake_energy_j'],
+            'dispatch_energy': breakdown['dispatch_energy_j'],
+            'num_signature_matches': breakdown['num_signature_matches'],
+            'num_tokens': breakdown['num_tokens'],
 
             # Component 4: SURE Program Loading
             'program_load_energy': program_load_energy,
@@ -2243,6 +2623,7 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
             # Component 5: Distributed L3 Scratchpad
             'l3_routing_energy': l3_routing_energy,
             'average_l3_hops': breakdown['average_l3_hops'],
+            'l3_routing_accesses': breakdown['l3_routing_accesses'],
 
             # Component 6: Operator Fusion
             'fusion_overhead_energy': breakdown['fusion_overhead_energy_j'],

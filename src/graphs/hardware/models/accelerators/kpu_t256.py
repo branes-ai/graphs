@@ -38,8 +38,8 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     - 51 BF16 tiles (20%): Multi-modal fusion, transformers
     - 26 Matrix tiles (10%): Large-scale embeddings, LLM inference
 
-    Architecture: 16×16 Checkerboard
-    - 256 compute tiles arranged in 16×16 grid
+    Architecture: 16x16 Checkerboard
+    - 256 compute tiles arranged in 16x16 grid
     - 256 L3 memory tiles (256KB each) for distributed memory
     - High-bandwidth interconnect (2D torus)
     - Power profiles: 15W, 30W, 50W
@@ -54,7 +54,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     - KPU T256 model: 256 tiles, 16x16 = 256 cores each, 512 ops/clock at 1.5 GHz = 256 * 768GOPS peak = 196 TOPS
 
     Key Advantages vs Jetson Orin AGX:
-    ✓ 65× more raw performance than Jetson Orin AGX (196 TOPS vs 3.0 TOPS)
+    ✓ 65x more raw performance than Jetson Orin AGX (196 TOPS vs 3.0 TOPS)
     ✓ Higher efficiency_factor (70-80% vs 5-12%)
     ✓ Better memory hierarchy (distributed L3)
     ✓ Predictable performance (no DVFS throttling)
@@ -330,7 +330,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=16 * 1024 * 1024,  # 16 MB shared L2
         main_memory=32 * 1024**3,  # 32 GB
-        energy_per_flop_fp32=0.09e-12,
+        energy_per_flop_fp32=0.9e-12,  # Fixed: was 0.09e-12, now matches mac_energy_fp32 in tile model
         energy_per_byte=11e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=4,

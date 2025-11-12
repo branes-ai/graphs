@@ -178,7 +178,7 @@ class TPUMapper(HardwareMapper):
             energy_breakdown['total_weight_energy_j'] +
             energy_breakdown['total_input_energy_j'] +
             energy_breakdown['total_accumulator_energy_j'] +
-            energy_breakdown['output_write_energy_j']
+            energy_breakdown['total_output_energy_j']  # Now includes both UB write and DRAM write
         )
 
         return compute_energy, memory_energy
@@ -931,4 +931,31 @@ def create_coral_edge_tpu_mapper(thermal_profile: str = None) -> TPUMapper:
     from ...models.edge.coral_edge_tpu import coral_edge_tpu_resource_model
 
     model = coral_edge_tpu_resource_model()
+    return TPUMapper(model, thermal_profile=thermal_profile)
+
+
+def create_tpu_edge_pro_mapper(thermal_profile: str = None) -> TPUMapper:
+    """
+    Create TPU mapper for Google TPU Edge Pro @ 30W (hypothetical).
+
+    This is a realistic "what if Google made a 30W edge TPU with FP32 support"
+    model for fair comparison with KPU T256, Jetson Orin AGX, and ARM Cortex CPUs.
+
+    Key characteristics:
+    - 30W thermal envelope (15W/30W/45W profiles)
+    - 128×128 systolic array (16,384 PEs)
+    - FP32/BF16/INT8 support (following TPU v4 ISA)
+    - Static dataflow (minimal control overhead)
+    - 4-stage memory hierarchy (DRAM → L2 → Scratchpad → Accumulator)
+
+    Args:
+        thermal_profile: Thermal profile name ("15W", "30W", "45W")
+                        If None, uses default ("30W")
+
+    Returns:
+        TPUMapper configured for TPU Edge Pro @ 30W
+    """
+    from ...models.edge.tpu_edge_pro import tpu_edge_pro_resource_model
+
+    model = tpu_edge_pro_resource_model()
     return TPUMapper(model, thermal_profile=thermal_profile)

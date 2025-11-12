@@ -33,8 +33,8 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     - 13 BF16 tiles (20%): Sensor fusion, lightweight transformers
     - 7 Matrix tiles (11%): Classification heads, embeddings
 
-    Architecture: 8×8 Checkerboard
-    - 64 compute tiles arranged in 8×8 grid
+    Architecture: 8x8 Checkerboard
+    - 64 compute tiles arranged in 8x8 grid
     - 64 L3 memory tiles (256KB each) for distributed memory
     - Low-latency interconnect for tile-to-tile communication
     - Power-optimized for 3-6W operation
@@ -304,7 +304,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=4 * 1024 * 1024,  # 4 MB shared L2
         main_memory=8 * 1024**3,  # 8 GB LPDDR5
-        energy_per_flop_fp32=0.10e-12,
+        energy_per_flop_fp32=1.0e-12,  # Fixed: was 0.10e-12, now 1.0 pJ (16nm edge device, conservative design)
         energy_per_byte=12e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=2,

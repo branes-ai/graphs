@@ -15,10 +15,10 @@ Key Results:
 """
 from graphs.hardware.resource_model import Precision
 from graphs.hardware.models import (
-    jetson_orin_agx_resource_model,   # Jetson Orin AGX model: 16 SMs, 128 CUDA cores each, 1.5 GHz base clock = 16 * 192GOPS peak = 3.072 TOPS
-    jetson_thor_resource_model,
-    kpu_t256_resource_model,          # KPU T256 model: 256 tiles, 16x16 = 256 cores each, 512 ops/clock at 1.5 GHz = 256 * 768GOPS peak = 196 TOPS
-    kpu_t64_resource_model,           # KPU T64 model: 64 tiles, low-power edge deployment
+    jetson_orin_agx_64gb_resource_model,   # Jetson Orin AGX 64GB model: 16 SMs, 64 Tensor Cores, 650 MHz @ 30W
+    jetson_thor_128gb_resource_model,      # Jetson Thor 128GB model: next-gen automotive AI
+    kpu_t256_resource_model,               # KPU T256 model: 256 tiles, 16x16 = 256 cores each, 512 ops/clock at 1.5 GHz = 256 * 768GOPS peak = 196 TOPS
+    kpu_t64_resource_model,                # KPU T64 model: 64 tiles, low-power edge deployment
 )
 
 
@@ -33,7 +33,7 @@ def demo_dvfs_throttling():
     """Demonstrate DVFS thermal throttling on Jetson Orin"""
     print_separator("DEMO 1: DVFS Thermal Throttling (Jetson Orin AGX)")
 
-    orin = jetson_orin_agx_resource_model()
+    orin = jetson_orin_agx_64gb_resource_model()
 
     print("NVIDIA Jetson Orin AGX - The Reality Behind the Marketing")
     print("-" * 60)
@@ -133,8 +133,8 @@ def demo_head_to_head():
     """Head-to-head comparison: 2 KPUs vs 2 Nvidia Jetsons"""
     print_separator("DEMO 3: 2×2 Comparison - KPU T64/T256 vs Jetson Orin/Thor")
 
-    orin = jetson_orin_agx_resource_model()
-    thor = jetson_thor_resource_model()
+    orin = jetson_orin_agx_64gb_resource_model()
+    thor = jetson_thor_128gb_resource_model()
     kpu64 = kpu_t64_resource_model()
     kpu256 = kpu_t256_resource_model()
 
