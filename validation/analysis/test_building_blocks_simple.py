@@ -167,7 +167,7 @@ def calculate_subgraph_edps(result):
     return subgraph_edps, total_edp
 
 
-def test_building_block(name: str, model: nn.Module, input_tensor: torch.Tensor):
+def _test_building_block_helper(name: str, model: nn.Module, input_tensor: torch.Tensor):
     """Test subgraph-level EDP on a building block"""
 
     print("=" * 100)
@@ -272,7 +272,7 @@ def main():
     mlp_model.eval()
     mlp_input = torch.randn(1, 128)
 
-    results['MLP'] = test_building_block('MLP', mlp_model, mlp_input)
+    results['MLP'] = _test_building_block_helper('MLP', mlp_model, mlp_input)
 
     # ==============================================================================
     # Test 2: Conv2D
@@ -285,7 +285,7 @@ def main():
     conv_model.eval()
     conv_input = torch.randn(1, 3, 32, 32)
 
-    results['Conv2D'] = test_building_block('Conv2D', conv_model, conv_input)
+    results['Conv2D'] = _test_building_block_helper('Conv2D', conv_model, conv_input)
 
     # ==============================================================================
     # Test 3: ResNet Block
@@ -298,7 +298,7 @@ def main():
     resnet_model.eval()
     resnet_input = torch.randn(1, 64, 32, 32)
 
-    results['ResNet'] = test_building_block('ResNet Block', resnet_model, resnet_input)
+    results['ResNet'] = _test_building_block_helper('ResNet Block', resnet_model, resnet_input)
 
     # ==============================================================================
     # Test 4: Attention Head
@@ -311,7 +311,7 @@ def main():
     attn_model.eval()
     attn_input = torch.randn(1, 16, 128)  # (batch, seq_len, embed_dim)
 
-    results['Attention'] = test_building_block('Attention Head', attn_model, attn_input)
+    results['Attention'] = _test_building_block_helper('Attention Head', attn_model, attn_input)
 
     # ==============================================================================
     # Summary

@@ -37,8 +37,8 @@ def extract_execution_stages(fusion_report):
     return stages
 
 
-def test_mapper(mapper_name, mapper_factory, precision='int8'):
-    """Test a single mapper with ResNet-50"""
+def _test_mapper_helper(mapper_name, mapper_factory, precision='int8'):
+    """Helper function to test a single mapper with ResNet-50"""
     print(f"\n{'='*80}")
     print(f"Testing: {mapper_name}")
     print(f"{'='*80}")
@@ -130,7 +130,7 @@ def main():
 
     # Test CEVA NeuPro-M NPM11
     try:
-        ceva_report, ceva_mapper = test_mapper(
+        ceva_report, ceva_mapper = _test_mapper_helper(
             "CEVA NeuPro-M NPM11",
             create_ceva_neupro_npm11_mapper,
             precision='int8'
@@ -146,7 +146,7 @@ def main():
 
     # Test Cadence Tensilica Vision Q8
     try:
-        cadence_report, cadence_mapper = test_mapper(
+        cadence_report, cadence_mapper = _test_mapper_helper(
             "Cadence Tensilica Vision Q8",
             create_cadence_vision_q8_mapper,
             precision='int8'
@@ -162,7 +162,7 @@ def main():
 
     # Test Synopsys ARC EV7x
     try:
-        synopsys_report, synopsys_mapper = test_mapper(
+        synopsys_report, synopsys_mapper = _test_mapper_helper(
             "Synopsys ARC EV7x",
             create_synopsys_arc_ev7x_mapper,
             precision='int8'

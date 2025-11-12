@@ -102,23 +102,23 @@ def test_all_hardware():
     # CRITICAL: Using realistic thermal profiles for edge devices!
     # - Jetson Orin @ 15W: realistic deployment (vs 60W peak)
     # - Jetson Thor @ 30W: realistic edge deployment
-    # - KPU T100: Embodied AI SKUs @ 6W/12W/24W (70/20/10 tiles)
-    # - KPU T300: Automotive SKUs @ 12.5W/25W/50W (210/60/30 tiles)
+    # - KPU T64: Embodied AI SKUs @ 3W/6W/10W (44/13/7 tiles)
+    # - KPU T256: Mobile/Edge SKUs @ 15W/30W/50W (179/51/26 tiles)
     print("[4/4] Creating hardware mappers with REALISTIC THERMAL PROFILES...")
     mappers = {
         # Edge AI - Jetson family
         "Jetson-Orin-AGX @ 15W": create_jetson_orin_agx_64gb_mapper(thermal_profile="15W"),
         "Jetson-Thor @ 30W": create_jetson_thor_128gb_mapper(thermal_profile="30W"),
 
-        # KPU T100 - Embodied AI SKUs (70 INT8, 20 BF16, 10 Matrix tiles)
-        "Stillwater KPU-T64 @ 6W (70/20/10)": create_kpu_t64_mapper(thermal_profile="6W"),
-        "Stillwater KPU-T64 @ 12W (70/20/10)": create_kpu_t64_mapper(thermal_profile="12W"),
-        "Stillwater KPU-T64 @ 24W (70/20/10)": create_kpu_t64_mapper(thermal_profile="24W"),
+        # KPU T64 - Embodied AI SKUs (44 INT8, 13 BF16, 7 Matrix tiles)
+        "Stillwater KPU-T64 @ 3W (44/13/7)": create_kpu_t64_mapper(thermal_profile="3W"),
+        "Stillwater KPU-T64 @ 6W (44/13/7)": create_kpu_t64_mapper(thermal_profile="6W"),
+        "Stillwater KPU-T64 @ 10W (44/13/7)": create_kpu_t64_mapper(thermal_profile="10W"),
 
-        # KPU T300 - Automotive SKUs (210 INT8, 60 BF16, 30 Matrix tiles)
-        "Stillwater KPU-T256 @ 12.5W (210/60/30)": create_kpu_t256_mapper(thermal_profile="12.5W"),
-        "Stillwater KPU-T256 @ 25W (210/60/30)": create_kpu_t256_mapper(thermal_profile="25W"),
-        "Stillwater KPU-T256 @ 50W (210/60/30)": create_kpu_t256_mapper(thermal_profile="50W"),
+        # KPU T256 - Mobile/Edge SKUs (179 INT8, 51 BF16, 26 Matrix tiles)
+        "Stillwater KPU-T256 @ 15W (179/51/26)": create_kpu_t256_mapper(thermal_profile="15W"),
+        "Stillwater KPU-T256 @ 30W (179/51/26)": create_kpu_t256_mapper(thermal_profile="30W"),
+        "Stillwater KPU-T256 @ 50W (179/51/26)": create_kpu_t256_mapper(thermal_profile="50W"),
 
         # Cloud/Datacenter
         "TPU v4": create_tpu_v4_mapper(),

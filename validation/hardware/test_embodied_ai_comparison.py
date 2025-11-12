@@ -213,14 +213,14 @@ def get_hardware_mapper(hardware_name: str):
     return mapper_funcs[hardware_name]()
 
 
-def test_hardware_on_workload(
+def _test_hardware_on_workload_helper(
     hardware_name: str,
     thermal_profile: str,
     workload_name: str,
     workload_info: Dict
 ) -> Dict:
     """
-    Test a single hardware configuration on a workload.
+    Helper function to test a single hardware configuration on a workload.
 
     Returns:
         Dictionary with latency, energy, FPS, cost metrics
@@ -355,7 +355,7 @@ def run_comparison(tier: str = "all") -> Dict[str, List[Dict]]:
 
         results = []
         for hardware_name, thermal_profile in hardware_list:
-            result = test_hardware_on_workload(
+            result = _test_hardware_on_workload_helper(
                 hardware_name, thermal_profile, workload_name, workload_info
             )
             results.append(result)

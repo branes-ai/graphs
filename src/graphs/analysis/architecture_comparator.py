@@ -1205,6 +1205,11 @@ class ArchitectureComparator:
             else:
                 # Single operation subgraph - use operation_type directly
                 op_type_str = self._operation_type_to_string(sg_desc.operation_type)
+
+                # Fallback: If operation_type is UNKNOWN, try to infer from node_name
+                if op_type_str == 'Unknown' and sg_desc.node_name:
+                    op_type_str = self._infer_op_type_from_node_name(sg_desc.node_name)
+
                 operators = [{
                     'type': op_type_str,
                     'flops': sg_desc.flops,
@@ -1305,6 +1310,51 @@ class ArchitectureComparator:
         all_operator_edps.sort(key=lambda x: x.architectural_edp, reverse=True)
 
         return all_operator_edps
+
+    def _infer_op_type_from_node_name(self, node_name: str) -> str:
+        """
+        Infer operator type from FX node name.
+
+        Args:
+            node_name: FX node name (e.g., 'conv2d', 'batch_norm', 'relu_')
+
+        Returns:
+            Human-readable operator type (e.g., 'Conv2d', 'BatchNorm2d', 'ReLU')
+        """
+        # Normalize node name (lowercase, remove trailing underscores)
+        name_lower = node_name.lower().rstrip('_').rstrip('0123456789')
+
+        # Common PyTorch operation name mappings
+        name_mapping = {
+            'conv2d': 'Conv2d',
+            'conv': 'Conv2d',
+            'linear': 'Linear',
+            'matmul': 'MatMul',
+            'batch_norm': 'BatchNorm2d',
+            'batchnorm': 'BatchNorm2d',
+            'layer_norm': 'LayerNorm',
+            'layernorm': 'LayerNorm',
+            'relu': 'ReLU',
+            'relu6': 'ReLU6',
+            'silu': 'SiLU',
+            'swish': 'Swish',
+            'gelu': 'GELU',
+            'hardswish': 'Hardswish',
+            'sigmoid': 'Sigmoid',
+            'tanh': 'Tanh',
+            'max_pool2d': 'MaxPool2d',
+            'maxpool': 'MaxPool2d',
+            'avg_pool2d': 'AvgPool2d',
+            'avgpool': 'AvgPool2d',
+            'adaptive_avg_pool2d': 'AdaptiveAvgPool2d',
+            'adaptiveavgpool': 'AdaptiveAvgPool2d',
+            'add': 'Add',
+            'mul': 'Mul',
+            'cat': 'Concat',
+            'dropout': 'Dropout',
+        }
+
+        return name_mapping.get(name_lower, node_name)
 
     def _operation_type_to_string(self, op_type) -> str:
         """

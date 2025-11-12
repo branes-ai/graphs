@@ -129,7 +129,7 @@ class SimpleAttentionHead(nn.Module):
 # Test Functions
 # ==============================================================================
 
-def test_building_block(
+def _test_building_block_helper(
     name: str,
     model: nn.Module,
     input_tensor: torch.Tensor,
@@ -137,7 +137,7 @@ def test_building_block(
     test_arch: str = 'KPU'
 ):
     """
-    Test subgraph-level EDP breakdown on a building block.
+    Helper function to test subgraph-level EDP breakdown on a building block.
 
     Args:
         name: Building block name (e.g., "MLP", "Conv2D")
@@ -159,7 +159,9 @@ def test_building_block(
         model_name=name,
         architectures=architectures,
         batch_size=input_tensor.shape[0],
-        precision=Precision.FP32
+        precision=Precision.FP32,
+        model=model,
+        input_tensor=input_tensor
     )
 
     # Run analysis
@@ -245,7 +247,7 @@ def main():
     mlp_model.eval()
     mlp_input = torch.randn(1, 128)
 
-    results['MLP'] = test_building_block('MLP', mlp_model, mlp_input, architectures)
+    results['MLP'] = _test_building_block_helper('MLP', mlp_model, mlp_input, architectures)
 
     # ==============================================================================
     # Test 2: Conv2D (Conv → BN → ReLU)
@@ -261,7 +263,7 @@ def main():
     conv_model.eval()
     conv_input = torch.randn(1, 3, 32, 32)
 
-    results['Conv2D'] = test_building_block('Conv2D', conv_model, conv_input, architectures)
+    results['Conv2D'] = _test_building_block_helper('Conv2D', conv_model, conv_input, architectures)
 
     # ==============================================================================
     # Test 3: ResNet Block (Conv → BN → ReLU → Conv → BN + residual → ReLU)
@@ -277,7 +279,7 @@ def main():
     resnet_model.eval()
     resnet_input = torch.randn(1, 64, 32, 32)
 
-    results['ResNet'] = test_building_block('ResNet', resnet_model, resnet_input, architectures)
+    results['ResNet'] = _test_building_block_helper('ResNet', resnet_model, resnet_input, architectures)
 
     # ==============================================================================
     # Test 4: Attention Head (Q, K, V + matmul + softmax)
@@ -294,7 +296,7 @@ def main():
     attn_model.eval()
     attn_input = torch.randn(1, 16, 128)  # (batch, seq_len, embed_dim)
 
-    results['Attention'] = test_building_block('Attention', attn_model, attn_input, architectures)
+    results['Attention'] = _test_building_block_helper('Attention', attn_model, attn_input, architectures)
 
     # ==============================================================================
     # Summary
