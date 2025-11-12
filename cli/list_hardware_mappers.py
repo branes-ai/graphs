@@ -50,6 +50,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         create_intel_granite_rapids_mapper,
         create_amd_epyc_turin_mapper,
         create_i7_12700k_mapper,
+        create_jetson_orin_agx_cpu_mapper,
     )
 
     mappers = []
@@ -216,14 +217,36 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         hardware_type="programmable_isa"
     ))
 
+    # NVIDIA Jetson Orin AGX CPU
+    mapper = create_jetson_orin_agx_cpu_mapper()
+    mappers.append(HardwareMapperInfo(
+        name="NVIDIA Jetson Orin AGX CPU",
+        category="CPU",
+        deployment="Edge",
+        manufacturer="NVIDIA",
+        compute_units=mapper.resource_model.compute_units,
+        peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
+        peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
+        memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
+        power_tdp=15.0,
+        thermal_profiles=["7W", "15W"],
+        use_cases=["Edge computing", "Robotics"],
+        factory_function="create_jetson_orin_agx_cpu_mapper",
+        hardware_type="programmable_isa"
+    ))
+    
     return mappers
 
 
 def discover_gpu_mappers() -> List[HardwareMapperInfo]:
     """Discover all GPU mappers"""
     from graphs.hardware.mappers.gpu import (
+        create_t4_pcie_16gb_mapper,
+        create_v100_sxm3_32gb_mapper,
+        create_a100_sxm4_80gb_mapper,
         create_h100_pcie_80gb_mapper,
-        create_b100_smx_mapper,
+        create_h100_sxm5_80gb_mapper,
+        create_b100_sxm6_192gb_mapper,
         create_jetson_orin_agx_64gb_mapper,
         create_jetson_orin_nano_8gb_mapper,
         create_jetson_thor_128gb_mapper,
@@ -232,10 +255,10 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
 
     mappers = []
 
-    # NVIDIA B100 SXM 192GB
-    mapper = create_b100_smx_mapper()
+    # NVIDIA Turing T4 PCIe 16GB
+    mapper = create_t4_pcie_16gb_mapper()
     mappers.append(HardwareMapperInfo(
-        name="NVIDIA B100 SXM 192GB",
+        name="NVIDIA T4 PCIe 16GB",
         category="GPU",
         deployment="Datacenter",
         manufacturer="NVIDIA",
@@ -243,14 +266,50 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=700.0,
+        power_tdp=70.0,
         thermal_profiles=[],
-        use_cases=["LLM training", "FP4/FP6 inference", "MoE models"],
-        factory_function="create_b100_smx_mapper",
+        use_cases=["Inference", "Cloud AI"],
+        factory_function="create_t4_pcie_16gb_mapper",
         hardware_type="programmable_isa"
     ))
 
-    # NVIDIA H100 PCIe 80GB
+    # NVIDIA Volta V100 SXM3 32GB
+    mapper = create_v100_sxm3_32gb_mapper()
+    mappers.append(HardwareMapperInfo(
+        name="NVIDIA V100 SXM2 32GB",
+        category="GPU",
+        deployment="Datacenter",
+        manufacturer="NVIDIA",
+        compute_units=mapper.resource_model.compute_units,
+        peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
+        peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
+        memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
+        power_tdp=350.0,
+        thermal_profiles=[],
+        use_cases=["LLM inference", "Cloud AI"],
+        factory_function="create_v100_sxm2_32gb_mapper",
+        hardware_type="programmable_isa"
+    ))
+
+    # NVIDIA Ampere A100 SXM4 80GB
+    mapper = create_a100_sxm4_80gb_mapper()
+    mappers.append(HardwareMapperInfo(
+        name="NVIDIA A100 SXM4 80GB",
+        category="GPU",
+        deployment="Datacenter",
+        manufacturer="NVIDIA",
+        compute_units=mapper.resource_model.compute_units,
+        peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
+        peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
+        memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
+        power_tdp=400.0,
+        thermal_profiles=[],
+        use_cases=["LLM training", "FP16/TF32 inference"],
+        factory_function="create_a100_sxm4_80gb_mapper",
+        hardware_type="programmable_isa"
+    ))
+
+    # NVIDIA Hopper H100 PCIe 80GB
     mapper = create_h100_pcie_80gb_mapper()
     mappers.append(HardwareMapperInfo(
         name="NVIDIA H100 PCIe 80GB",
@@ -265,6 +324,42 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         thermal_profiles=[],
         use_cases=["LLM inference", "Cloud AI"],
         factory_function="create_h100_pcie_80gb_mapper",
+        hardware_type="programmable_isa"
+    ))
+
+    # NVIDIA Hopper H100 SXM5 80GB
+    mapper = create_h100_sxm5_80gb_mapper()
+    mappers.append(HardwareMapperInfo(
+        name="NVIDIA H100 SXM5 80GB",
+        category="GPU",
+        deployment="Datacenter",
+        manufacturer="NVIDIA",
+        compute_units=mapper.resource_model.compute_units,
+        peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
+        peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
+        memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
+        power_tdp=700.0,
+        thermal_profiles=[],
+        use_cases=["LLM training", "FP8 inference"],
+        factory_function="create_h100_sxm5_80gb_mapper",
+        hardware_type="programmable_isa"
+    ))
+
+    # NVIDIA Blackwell B100 SXM6 192GB
+    mapper = create_b100_sxm6_192gb_mapper()
+    mappers.append(HardwareMapperInfo(
+        name="NVIDIA B100 SXM6 192GB",
+        category="GPU",
+        deployment="Datacenter",
+        manufacturer="NVIDIA",
+        compute_units=mapper.resource_model.compute_units,
+        peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
+        peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
+        memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
+        power_tdp=700.0,
+        thermal_profiles=[],
+        use_cases=["LLM training", "FP4/FP6 inference", "MoE models"],
+        factory_function="create_b100_smx6_192gb_mapper",
         hardware_type="programmable_isa"
     ))
 
@@ -641,13 +736,13 @@ def generate_text_report(all_mappers: List[HardwareMapperInfo], category_filter:
     print("PERFORMANCE COMPARISON (sorted by INT8 TOPS)")
     print("=" * 100)
     print()
-    print(f"{'Hardware':<35} {'Category':<8} {'Deployment':<12} {'INT8 TOPS':<12} {'Power (W)':<10} {'Efficiency (TOPS/W)':<15}")
+    print(f"{'Hardware':<35} {'Category':<8} {'Deployment':<15} {'INT8 TOPS':<12} {'Power (W)':<10} {'Efficiency (TOPS/W)':<15}")
     print("-" * 100)
 
     for mapper in sorted(all_mappers, key=lambda x: x.peak_flops_int8, reverse=True):
         int8_tops = mapper.peak_flops_int8 / 1000
         efficiency = int8_tops / mapper.power_tdp if mapper.power_tdp > 0 else 0
-        print(f"{mapper.name:<35} {mapper.category:<8} {mapper.deployment:<12} {int8_tops:<12.1f} {mapper.power_tdp:<10.1f} {efficiency:<15.2f}")
+        print(f"{mapper.name:<35} {mapper.category:<8} {mapper.deployment:<15} {int8_tops:<12.1f} {mapper.power_tdp:<10.1f} {efficiency:<15.2f}")
 
     print()
     print("=" * 100)

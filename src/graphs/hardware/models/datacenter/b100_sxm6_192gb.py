@@ -1,5 +1,5 @@
 """
-NVIDIA B100 SXM 192GB Resource Model
+NVIDIA B100 SXM6 192GB Resource Model
 
 FORM FACTOR: SXM (Server Module with high-bandwidth interconnect)
 MEMORY: 192 GB HBM3e
@@ -15,20 +15,20 @@ KEY INNOVATIONS:
 - FP4 precision for extreme AI inference efficiency (14 PFLOPS sparse)
 - FP6 precision for improved accuracy vs FP4
 - Dual-die design with ultra-fast interconnect
-- 8 TB/s HBM3e memory bandwidth (4× H100)
+- 8 TB/s HBM3e memory bandwidth (4x H100)
 - Blackwell MoE architecture optimizations
 
 COMPUTE PERFORMANCE:
-- FP4: 7 PFLOPS (dense), 14 PFLOPS (sparse) - 9.3× vs H100 FP8
+- FP4: 7 PFLOPS (dense), 14 PFLOPS (sparse) - 9.3x vs H100 FP8
 - FP6: 3.5 PFLOPS (dense), 7 PFLOPS (sparse)
-- FP8: 3.5 PFLOPS (dense), 7 PFLOPS (sparse) - 2.3× vs H100
+- FP8: 3.5 PFLOPS (dense), 7 PFLOPS (sparse) - 2.3x vs H100
 - FP16/BF16: 1.8 PFLOPS (dense), 3.5 PFLOPS (sparse)
 - TF32: 0.9 PFLOPS (dense), 1.8 PFLOPS (sparse)
 - INT8: 3.5 POPS (dense), 7 POPS (sparse)
 
 MEMORY:
-- 192 GB HBM3e (2.4× H100 PCIe 80GB)
-- 8 TB/s memory bandwidth (4× H100's 2 TB/s)
+- 192 GB HBM3e (2.4x H100 PCIe 80GB)
+- 8 TB/s memory bandwidth (4x H100's 2 TB/s)
 - Dual 4096-bit memory bus
 - 1.8 TB/s NVLink bandwidth (9th gen NVLink)
 
@@ -36,7 +36,7 @@ POWER: 700W TDP (SXM allows higher power than PCIe variants)
 
 ARCHITECTURE DETAILS:
 - 528 Tensor Cores (5th generation)
-- Supports sparsity acceleration (2× speedup for sparse models)
+- Supports sparsity acceleration (2x speedup for sparse models)
 - Optimized for LLMs, MoE models, and massive AI training
 - Transformer Engine with FP8 and FP4 training
 
@@ -70,9 +70,9 @@ from ...resource_model import (
 )
 
 
-def b100_smx_192gb_resource_model() -> HardwareResourceModel:
+def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
     """
-    NVIDIA B100 SXM 192GB (Blackwell) resource model.
+    NVIDIA B100 SXM6 192GB (Blackwell) resource model.
 
     FORM FACTOR: SXM (Server Module, high-bandwidth interconnect)
     MEMORY: 192 GB HBM3e
@@ -80,21 +80,21 @@ def b100_smx_192gb_resource_model() -> HardwareResourceModel:
     Key characteristics:
     - 528 Tensor Cores with 5th gen architecture
     - FP4/FP6 support for extreme efficiency
-    - 8 TB/s HBM3e bandwidth (4× H100)
-    - 192 GB memory (2.4× H100)
+    - 8 TB/s HBM3e bandwidth (4x H100)
+    - 192 GB memory (2.4x H100)
     - Dual-die design with 10 TB/s inter-die bandwidth
     - 700W TDP (SXM allows higher power delivery than PCIe)
     """
     # Thermal operating point (datacenter SXM)
     thermal_default = ThermalOperatingPoint(
         name="default",
-        tdp_watts=700.0,  # B100 SXM TDP (2× H100 PCIe, ~1.4× A100 SXM4)
+        tdp_watts=700.0,  # B100 SXM6 TDP (2× H100 PCIe, ~1.4× A100 SXM4)
         cooling_solution="active-air",  # Datacenter air cooling (or liquid)
         performance_specs={}  # Uses precision_profiles for performance
     )
 
     return HardwareResourceModel(
-        name="B100-SXM-192GB",
+        name="B100-SXM6-192GB",
         hardware_type=HardwareType.GPU,
 
         # SM count not officially disclosed, but estimated from Tensor Core count

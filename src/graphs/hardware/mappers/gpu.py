@@ -644,9 +644,41 @@ def create_h100_pcie_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     return GPUMapper(resource_model, thermal_profile=thermal_profile)
 
 
-def create_b100_smx_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
+def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
-    Create GPU mapper for NVIDIA B100 SXM 192GB (Blackwell - 2024).
+    Create GPU mapper for NVIDIA H100 SXM5 80GB.
+
+    FORM FACTOR: SXM (Server Module with high-bandwidth interconnect)
+    MEMORY: 80 GB HBM2e
+
+    Args:
+        thermal_profile: Thermal profile name (if applicable)
+
+    Returns:
+        GPUMapper configured for H100 SXM5 80GB
+    """
+    from ..models.datacenter.h100_sxm5_80gb import h100_sxm5_80gb_resource_model
+    from ..architectural_energy import DataParallelEnergyModel
+
+    # Create resource model
+    resource_model = h100_sxm5_80gb_resource_model()
+
+    # Configure architectural energy model for GPU (DATA_PARALLEL)
+    resource_model.architecture_energy_model = DataParallelEnergyModel(
+        instruction_fetch_energy=2.0e-12,
+        operand_fetch_overhead=10.0e-12,
+        coherence_energy_per_request=5.0e-12,  # GPU-specific coherence machinery
+        thread_scheduling_overhead=1.0e-12,
+        warp_divergence_penalty=3.0e-12,
+        memory_coalescing_overhead=2.0e-12,
+    )
+
+    return GPUMapper(resource_model, thermal_profile=thermal_profile)
+
+
+def create_b100_sxm6_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for NVIDIA B100 SXM6 192GB (Blackwell - 2024).
 
     FORM FACTOR: SXM (Server Module with high-bandwidth interconnect)
     MEMORY: 192 GB HBM3e
@@ -687,13 +719,13 @@ def create_b100_smx_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
         thermal_profile: Thermal profile name (if applicable)
 
     Returns:
-        GPUMapper configured for B100 SXM 192GB
+        GPUMapper configured for B100 SXM6 192GB
     """
-    from ..models.datacenter.b100_smx_192gb import b100_smx_192gb_resource_model
+    from ..models.datacenter.b100_sxm6_192gb import b100_sxm6_192gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
 
     # Create resource model
-    resource_model = b100_smx_192gb_resource_model()
+    resource_model = b100_sxm6_192gb_resource_model()
 
     # Configure architectural energy model for GPU (DATA_PARALLEL)
     # Blackwell improvements: 20% better energy efficiency from 4nm process
@@ -747,16 +779,16 @@ def create_a100_sxm4_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     return GPUMapper(a100_sxm4_80gb_resource_model(), thermal_profile=thermal_profile)
 
 
-def create_v100_sxm2_32gb_mapper(thermal_profile: str = None) -> GPUMapper:
+def create_v100_sxm3_32gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
-    Create GPU mapper for NVIDIA V100 SXM2 32GB (Volta - 2017).
+    Create GPU mapper for NVIDIA V100 SXM3 32GB (Volta - 2017).
 
-    FORM FACTOR: SXM2 (Server Module)
+    FORM FACTOR: SXM3 (Server Module)
     MEMORY: 32 GB HBM2
 
     ARCHITECTURE:
     - 1st generation Tensor Cores (FP16 matrix multiply)
-    - 80 SMs × 64 CUDA cores = 5,120 CUDA cores
+    - 80 SMs x 64 CUDA cores = 5,120 CUDA cores
     - SM sustained clock: 1400 MHz (boost: 1530 MHz)
     - 900 GB/s HBM2 bandwidth
 
@@ -781,8 +813,8 @@ def create_v100_sxm2_32gb_mapper(thermal_profile: str = None) -> GPUMapper:
     Returns:
         GPUMapper configured for V100 SXM2 32GB
     """
-    from ..models.datacenter.v100_sxm2_32gb import v100_sxm2_32gb_resource_model
-    return GPUMapper(v100_sxm2_32gb_resource_model(), thermal_profile=thermal_profile)
+    from ..models.datacenter.v100_sxm3_32gb import v100_sxm3_32gb_resource_model
+    return GPUMapper(v100_sxm3_32gb_resource_model(), thermal_profile=thermal_profile)
 
 
 def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:

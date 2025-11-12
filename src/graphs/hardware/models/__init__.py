@@ -15,10 +15,12 @@ Usage:
     model = jetson_thor_resource_model()
 """
 
-from .datacenter.h100_pcie_80gb import h100_pcie_80gb_resource_model
-from .datacenter.v100_sxm2_32gb import v100_sxm2_32gb_resource_model
-from .datacenter.a100_sxm4_80gb import a100_sxm4_80gb_resource_model
 from .datacenter.t4_pcie_16gb import t4_pcie_16gb_resource_model
+from .datacenter.v100_sxm3_32gb import v100_sxm3_32gb_resource_model
+from .datacenter.a100_sxm4_80gb import a100_sxm4_80gb_resource_model
+from .datacenter.h100_pcie_80gb import h100_pcie_80gb_resource_model
+from .datacenter.h100_sxm5_80gb import h100_sxm5_80gb_resource_model
+from .datacenter.b100_sxm6_192gb import b100_sxm6_192gb_resource_model
 from .datacenter.tpu_v4 import tpu_v4_resource_model
 from .datacenter.cpu_x86 import cpu_x86_resource_model
 from .datacenter.ampere_ampereone_192 import ampere_ampereone_192_resource_model
@@ -31,6 +33,7 @@ from .datacenter.amd_epyc_9754 import amd_epyc_9754_resource_model
 from .datacenter.amd_epyc_turin import amd_epyc_turin_resource_model
 from .edge.jetson_orin_agx_64gb import jetson_orin_agx_64gb_resource_model
 from .edge.jetson_orin_nano_8gb import jetson_orin_nano_8gb_resource_model
+from .edge.jetson_orin_agx_cpu import jetson_orin_agx_cpu_resource_model
 from .edge.coral_edge_tpu import coral_edge_tpu_resource_model
 from .edge.qrb5165 import qrb5165_resource_model
 from .automotive.jetson_thor_128gb import jetson_thor_128gb_resource_model
@@ -49,10 +52,12 @@ from .ip_cores.cadence_vision_q8 import cadence_vision_q8_resource_model
 from .ip_cores.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
 
 __all__ = [
-    'h100_pcie_80gb_resource_model',
-    'v100_sxm2_32gb_resource_model',
-    'a100_sxm4_80gb_resource_model',
     't4_pcie_16gb_resource_model',
+    'v100_sxm3_32gb_resource_model',
+    'a100_sxm4_80gb_resource_model',    
+    'h100_pcie_80gb_resource_model',    
+    'h100_sxm5_80gb_resource_model',
+    'b100_sxm6_192gb_resource_model',
     'tpu_v4_resource_model',
     'cpu_x86_resource_model',
     'ampere_ampereone_192_resource_model',
@@ -65,6 +70,7 @@ __all__ = [
     'amd_epyc_turin_resource_model',
     'jetson_orin_agx_64gb_resource_model',
     'jetson_orin_nano_8gb_resource_model',
+    'jetson_orin_agx_cpu_resource_model',
     'coral_edge_tpu_resource_model',
     'qrb5165_resource_model',
     'jetson_thor_128gb_resource_model',
