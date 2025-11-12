@@ -64,9 +64,9 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     t64_int8_tiles = TileSpecialization(
         tile_type="INT8-primary",
         num_tiles=44,  # 69% of 64
-        array_dimensions=(16, 8),
+        array_dimensions=(16, 16),
         pe_configuration="INT8-MAC",
-        ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+        ops_per_tile_per_clock={Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
         optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
         clock_domain=t64_clock,
     )
@@ -74,9 +74,9 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     t64_bf16_tiles = TileSpecialization(
         tile_type="BF16-primary",
         num_tiles=13,  # 20% of 64
-        array_dimensions=(16, 8),
+        array_dimensions=(16, 16),
         pe_configuration="BF16-FMA",
-        ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+        ops_per_tile_per_clock={Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
         optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
         clock_domain=t64_clock,
     )
@@ -86,7 +86,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         num_tiles=7,  # 11% of 64
         array_dimensions=(8, 8),
         pe_configuration="Mixed-INT8-BF16-Matrix",
-        ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+        ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
         optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
         clock_domain=t64_clock,
     )
@@ -141,23 +141,23 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         total_tiles=64,
         tile_specializations=[
             TileSpecialization(
-                tile_type="INT8-primary", num_tiles=44, array_dimensions=(16, 8),
+                tile_type="INT8-primary", num_tiles=44, array_dimensions=(16, 16),
                 pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                ops_per_tile_per_clock={Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
                 optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
                 clock_domain=t64_clock_6w,
             ),
             TileSpecialization(
-                tile_type="BF16-primary", num_tiles=13, array_dimensions=(16, 8),
+                tile_type="BF16-primary", num_tiles=13, array_dimensions=(16, 16),
                 pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                ops_per_tile_per_clock={Precision.BF16: 512, Precision.FP32: 128, Precision.INT8: 512},
                 optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
                 clock_domain=t64_clock_6w,
             ),
             TileSpecialization(
                 tile_type="Matrix-8x8", num_tiles=7, array_dimensions=(8, 8),
                 pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+                ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
                 optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
                 clock_domain=t64_clock_6w,
             ),
@@ -204,23 +204,23 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         total_tiles=64,
         tile_specializations=[
             TileSpecialization(
-                tile_type="INT8-primary", num_tiles=44, array_dimensions=(16, 8),
+                tile_type="INT8-primary", num_tiles=44, array_dimensions=(16, 16),
                 pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                ops_per_tile_per_clock={Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
                 optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
                 clock_domain=t64_clock_10w,
             ),
             TileSpecialization(
-                tile_type="BF16-primary", num_tiles=13, array_dimensions=(16, 8),
+                tile_type="BF16-primary", num_tiles=13, array_dimensions=(16, 16),
                 pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                ops_per_tile_per_clock={Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
                 optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
                 clock_domain=t64_clock_10w,
             ),
             TileSpecialization(
                 tile_type="Matrix-8x8", num_tiles=7, array_dimensions=(8, 8),
                 pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+                ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
                 optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
                 clock_domain=t64_clock_10w,
             ),
@@ -256,7 +256,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         }
     )
 
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name="Stillwater KPU-T64",
         hardware_type=HardwareType.KPU,
         compute_units=64,
@@ -328,5 +328,43 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
                   "but higher BOM due to integrated memory. Superior to Jetson Orin Nano ($200 BOM)."
         ),
     )
+
+    # Add tile energy model for detailed energy analysis
+    from ...architectural_energy import KPUTileEnergyModel
+
+    tile_energy_model = KPUTileEnergyModel(
+        # Product configuration (T64-specific)
+        num_tiles=64,
+        pes_per_tile=256,
+        tile_mesh_dimensions=(8, 8),  # 8×8 checkerboard
+
+        # Memory hierarchy (4-stage, edge AI optimized)
+        dram_bandwidth_gb_s=64.0,     # LPDDR5 (64 GB/s)
+        l3_size_per_tile=256 * 1024,  # 256 KiB per tile
+        l2_size_per_tile=32 * 1024,   # 32 KiB per tile
+        l1_size_per_pe=4 * 1024,      # 4 KiB per PE
+
+        # Clock frequency (6W profile default)
+        clock_frequency_hz=900e6,  # 900 MHz
+
+        # Memory hierarchy energy (LPDDR5-based, lower than DDR4)
+        dram_read_energy_per_byte=12e-12,   # 12 pJ (LPDDR5, more efficient)
+        dram_write_energy_per_byte=15e-12,  # 15 pJ (LPDDR5)
+        l3_read_energy_per_byte=1.5e-12,    # 1.5 pJ (distributed SRAM)
+        l3_write_energy_per_byte=1.8e-12,   # 1.8 pJ
+        l2_read_energy_per_byte=0.6e-12,    # 0.6 pJ (tile-local SRAM)
+        l2_write_energy_per_byte=0.8e-12,   # 0.8 pJ
+        l1_read_energy_per_byte=0.2e-12,    # 0.2 pJ (PE-local SRAM)
+        l1_write_energy_per_byte=0.3e-12,   # 0.3 pJ
+
+        # Computation energy (BLAS operators, edge-optimized)
+        mac_energy_int8=0.25e-12,  # 0.25 pJ (INT8, power-optimized)
+        mac_energy_bf16=0.40e-12,  # 0.40 pJ (BF16)
+        mac_energy_fp32=0.80e-12,  # 0.80 pJ (FP32)
+    )
+
+    model.tile_energy_model = tile_energy_model
+
+    return model
 
 

@@ -31,13 +31,58 @@ def print_energy_breakdown(name: str, result: dict, show_details: bool = True):
 
     # Summary
     total_energy_mj = result['total_energy_j'] * 1000
+    total_energy_j = result['total_energy_j']
     energy_per_mac_pj = result['energy_per_mac_pj']
     compute_pct = result['compute_percentage']
     ai = result['arithmetic_intensity']
+    total_ops = result['total_ops']
+
+    # Calculate TOPS/W efficiency metric
+    # Assume execution at sustained clock frequency
+    # Latency estimation: Use energy and assume typical power envelope
+    # For more accurate calculation, we'd need the actual latency from the mapper
+    # Here we estimate: assume peak throughput for the given ops
+
+    # Get clock frequency from result if available, otherwise use typical values
+    clock_hz = result.get('clock_frequency_hz', 1.0e9)  # Default 1 GHz if not provided
+
+    # Estimate latency based on ops and peak throughput
+    # Peak throughput varies by precision (from tile energy model)
+    # For now, use a simplified approach: energy / typical_power_watts
+    # Typical power: 3-6W for T64, 15-30W for T256, 30-60W for T768
+    typical_power_w = result.get('typical_power_w', 10.0)  # Default fallback
+
+    # Better approach: Calculate from energy and estimated execution time
+    # Execution time = ops / (clock_hz * ops_per_cycle * num_tiles * efficiency)
+    # For GEMM, roughly 0.5-0.7 utilization
+    num_tiles = result.get('num_tiles', 256)
+    ops_per_cycle_per_tile = result.get('ops_per_cycle_per_tile', 128)  # Typical for INT8/BF16
+    utilization = result.get('utilization', 0.6)  # Conservative estimate
+
+    peak_throughput = clock_hz * ops_per_cycle_per_tile * num_tiles * utilization
+    execution_time_s = total_ops / peak_throughput
+
+    # Power = Energy / Time
+    average_power_w = total_energy_j / execution_time_s if execution_time_s > 0 else 0
+
+    # TOPS/W = (TOPS) / (Watts)
+    # Alternative: Use peak throughput and average power
+    # Peak TOPS = peak_throughput / 1e12
+    # TOPS/W at this operating point
+    peak_tops = peak_throughput / 1e12
+    tops_per_watt = peak_tops / average_power_w if average_power_w > 0 else 0
+
+    # Also calculate based on actual ops (for this specific operation)
+    actual_tops = total_ops / 1e12
+    actual_tops_per_watt = actual_tops / average_power_w if average_power_w > 0 else 0
 
     print(f"\nSummary:")
     print(f"  Total Energy:         {total_energy_mj:8.3f} mJ")
     print(f"  Energy/MAC:           {energy_per_mac_pj:8.3f} pJ")
+    print(f"  Execution Time:       {execution_time_s*1e6:8.2f} µs")
+    print(f"  Average Power:        {average_power_w:8.2f} W")
+    print(f"  Peak Throughput:      {peak_tops:8.3f} TOPS")
+    print(f"  Efficiency (TOPS/W):  {tops_per_watt:8.2f} TOPS/W")
     print(f"  Compute %:            {compute_pct:8.1f}%")
     print(f"  Arithmetic Intensity: {ai:8.1f} ops/byte")
     print(f"  Total Ops:            {result['total_ops']/1e9:8.2f} GOps")
@@ -75,7 +120,7 @@ def print_energy_breakdown(name: str, result: dict, show_details: bool = True):
     token_match_pct = (result['total_token_matching_energy_j'] / result['total_energy_j']) * 100
     print(f"\n  3. Token Signature Matching (UNIQUE): {token_match_uj:8.2f} µJ ({token_match_pct:5.1f}%)")
     print(f"     - Signature matching: {result['signature_matching_energy_j']*1e6:7.2f} µJ")
-    print(f"     - Handshake:          {result['handshake_energy_j']*1e6:7.2f} µJ")
+    print(f"     - Dispatch:           {result['dispatch_energy_j']*1e6:7.2f} µJ")
     print(f"     - Tokens routed:      {result['num_tokens']:,}")
 
     # 4. SURE program loading (UNIQUE!)

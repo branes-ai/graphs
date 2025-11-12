@@ -87,7 +87,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         num_tiles=77,  # 10% of 768
         array_dimensions=(8, 8),
         pe_configuration="Mixed-INT8-BF16-Matrix",
-        ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+        ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
         optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
         clock_domain=t768_clock,
     )
@@ -141,16 +141,16 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     t768_compute_60w = KPUComputeResource(
         total_tiles=768,
         tile_specializations=[
-            TileSpecialization("INT8-primary", 537, (16, 8), "INT8-MAC",
-                             {Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+            TileSpecialization("INT8-primary", 537, (16, 16), "INT8-MAC",
+                             {Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
                              {Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
                              t768_clock_60w),
-            TileSpecialization("BF16-primary", 154, (16, 8), "BF16-FMA",
-                             {Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+            TileSpecialization("BF16-primary", 154, (16, 16), "BF16-FMA",
+                             {Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
                              {Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
                              t768_clock_60w),
             TileSpecialization("Matrix-8x8", 77, (8, 8), "Mixed-INT8-BF16-Matrix",
-                             {Precision.INT8: 512, Precision.BF16: 256},
+                             {Precision.INT8: 8192, Precision.BF16: 4096},
                              {Precision.INT8: 1.0, Precision.BF16: 1.0},
                              t768_clock_60w),
         ],
@@ -196,15 +196,15 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         total_tiles=768,
         tile_specializations=[
             TileSpecialization("INT8-primary", 537, (16, 8), "INT8-MAC",
-                             {Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                             {Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
                              {Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
                              t768_clock_100w),
             TileSpecialization("BF16-primary", 154, (16, 8), "BF16-FMA",
-                             {Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                             {Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
                              {Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
                              t768_clock_100w),
             TileSpecialization("Matrix-8x8", 77, (8, 8), "Mixed-INT8-BF16-Matrix",
-                             {Precision.INT8: 512, Precision.BF16: 256},
+                             {Precision.INT8: 8192, Precision.BF16: 4096},
                              {Precision.INT8: 1.0, Precision.BF16: 1.0},
                              t768_clock_100w),
         ],
@@ -253,11 +253,11 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         volume_tier="10K+",
         process_node="7nm",
         year=2025,
-        notes="High-end datacenter AI accelerator. 768 tiles, 7nm process, multi-chip or interposer packaging. HBM2e/LPDDR5X memory. Liquid cooling capable.",
+        notes="High-end Autonomous Driving AI accelerator. 768 tiles, 7nm process, multi-chip or interposer packaging. HBM2e/LPDDR5X memory. Liquid cooling capable.",
     )
 
     # Build resource model
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name="Stillwater KPU-T768",
         hardware_type=HardwareType.KPU,
         compute_units=768,
@@ -299,7 +299,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         },
         default_precision=Precision.INT8,
 
-        peak_bandwidth=512e9,  # 512 GB/s (8×DDR5 or HBM3)
+        peak_bandwidth=1638e9,  # 2x819GB/s (HBM)
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=32 * 1024 * 1024,  # 32 MB shared L2
         main_memory=64 * 1024**3,  # 64 GB
@@ -310,5 +310,43 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         wave_quantization=2,
         bom_cost_profile=bom_cost,
     )
+
+    # Add tile energy model for detailed energy analysis
+    from ...architectural_energy import KPUTileEnergyModel
+
+    tile_energy_model = KPUTileEnergyModel(
+        # Product configuration (T768-specific)
+        num_tiles=768,
+        pes_per_tile=256,
+        tile_mesh_dimensions=(32, 24),  # 32×24 rectangular grid (768 tiles)
+
+        # Memory hierarchy (4-stage, datacenter optimized)
+        dram_bandwidth_gb_s=1638.0,   # HBM3
+        l3_size_per_tile=256 * 1024,  # 256 KiB per tile
+        l2_size_per_tile=32 * 1024,   # 32 KiB per tile
+        l1_size_per_pe=4 * 1024,      # 4 KiB per PE
+
+        # Clock frequency (60W profile default)
+        clock_frequency_hz=1.3e9,  # 1.3 GHz
+
+        # Memory hierarchy energy (HBM3-based, datacenter-optimized)
+        dram_read_energy_per_byte=8.0e-12,   # 8.0 pJ (HBM3, more efficient than DDR4)
+        dram_write_energy_per_byte=10.0e-12,  # 10 pJ (HBM3)
+        l3_read_energy_per_byte=1.2e-12,    # 1.2 pJ (distributed SRAM, 7nm)
+        l3_write_energy_per_byte=1.5e-12,   # 1.5 pJ
+        l2_read_energy_per_byte=0.5e-12,    # 0.5 pJ (tile-local SRAM, 7nm)
+        l2_write_energy_per_byte=0.6e-12,   # 0.6 pJ
+        l1_read_energy_per_byte=0.15e-12,   # 0.15 pJ (PE-local SRAM, 7nm)
+        l1_write_energy_per_byte=0.2e-12,   # 0.2 pJ
+
+        # Computation energy (BLAS operators, 7nm datacenter)
+        mac_energy_int8=0.2e-12,   # 0.2 pJ (INT8, 7nm optimized)
+        mac_energy_bf16=0.35e-12,  # 0.35 pJ (BF16)
+        mac_energy_fp32=0.5e-12,   # 0.5 pJ (FP32)
+    )
+
+    model.tile_energy_model = tile_energy_model
+
+    return model
 
 

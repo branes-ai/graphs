@@ -1140,11 +1140,31 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     model = intel_xeon_platinum_8490h_resource_model()
 
     # Configure architectural energy model for CPU (STORED_PROGRAM)
+    # High-performance datacenter CPU (2.0-3.5 GHz, 60 cores)
     model.architecture_energy_model = StoredProgramEnergyModel(
-        instruction_fetch_energy=2.0e-12,
-        operand_fetch_overhead=10.0e-12,
-        pipeline_control_per_cycle=0.5e-12,
-        branch_prediction_overhead=0.3e-12,
+        # Instruction Pipeline (Fetch → Decode → Dispatch)
+        instruction_fetch_energy=2.0e-12,       # ~2.0 pJ per instruction (I-cache read)
+        instruction_decode_energy=0.9e-12,      # ~0.9 pJ per instruction (complex decode)
+        instruction_dispatch_energy=0.5e-12,    # ~0.5 pJ per instruction (control signals)
+
+        # Register File (high-frequency datacenter CPU)
+        register_file_read_energy=2.8e-12,      # ~2.8 pJ per read (high-freq)
+        register_file_write_energy=3.2e-12,     # ~3.2 pJ per write
+
+        # 3-Stage Memory Hierarchy (no L3 LLC on some configs, uses shared L2)
+        l1_cache_energy_per_byte=1.2e-12,       # ~1.2 pJ (48 KB per core)
+        l2_cache_energy_per_byte=2.8e-12,       # ~2.8 pJ (2 MB per core)
+        l3_cache_energy_per_byte=6.0e-12,       # ~6.0 pJ (105 MB shared LLC)
+        dram_energy_per_byte=22.0e-12,          # ~22 pJ (DDR5-4800, 8-channel)
+
+        # Cache hit rates (AI workloads)
+        l1_hit_rate=0.82,                       # 82% L1 hits
+        l2_hit_rate=0.88,                       # 88% L2 hits (of L1 misses)
+        l3_hit_rate=0.94,                       # 94% L3 hits (of L2 misses)
+
+        # ALU and branch prediction
+        alu_energy_per_op=4.5e-12,              # ~4.5 pJ per FLOP (high-freq)
+        branch_prediction_overhead=0.3e-12,     # ~0.3 pJ per branch
     )
 
     return CPUMapper(model)
