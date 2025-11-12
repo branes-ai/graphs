@@ -421,7 +421,7 @@ iree-import-tflite model.tflite -o model_tosa.mlir
 - **Fusion Partitioning**: The partitioner fuses operations to minimize data movement and maximize compute efficiency
 - **Hardware Resource Models**: Add new hardware targets by creating resource models in `hardware/resource_model.py` and mappers in `hardware/mappers/`
 - **GPU Naming Convention** (Updated 2025-11-10): All NVIDIA GPU mappers now follow `{Architecture}-{FormFactor}-{Memory}` pattern:
-  - Datacenter: `create_h100_pcie_80gb_mapper()`, `create_a100_sxm4_80gb_mapper()`, `create_v100_sxm2_32gb_mapper()`, `create_t4_pcie_16gb_mapper()`
+  - Datacenter: `create_b100_sxm6_192gb_mapper`, `create_h100_sxm5_80gb_mapper()`, `create_a100_sxm4_80gb_mapper()`, `create_v100_sxm3_32gb_mapper()`, `create_t4_pcie_16gb_mapper()`
   - Edge: `create_jetson_orin_agx_64gb_mapper()`, `create_jetson_orin_nano_8gb_mapper()`, `create_jetson_thor_128gb_mapper()`
   - Old names deprecated but still work (see `docs/GPU_NAMING_MIGRATION_GUIDE.md`)
 - **Hardware Architecture Taxonomy**: See `docs/hardware/architecture_taxonomy.md` for comprehensive guide to execution models:

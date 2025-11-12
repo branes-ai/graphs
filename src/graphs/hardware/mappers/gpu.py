@@ -1068,13 +1068,13 @@ def create_a100_mapper(thermal_profile: str = None) -> GPUMapper:
 
 def create_v100_mapper(thermal_profile: str = None) -> GPUMapper:
     """
-    DEPRECATED: Use create_v100_sxm2_32gb_mapper() instead.
+    DEPRECATED: Use create_v100_sxm3_32gb_mapper() instead.
 
     This function is deprecated and will be removed in a future version.
     Please update your code to use the new naming convention that includes
     form factor and memory size for clarity:
 
-        create_v100_sxm2_32gb_mapper()
+        create_v100_sxm3_32gb_mapper()
 
     Args:
         thermal_profile: Thermal profile name
@@ -1085,11 +1085,11 @@ def create_v100_mapper(thermal_profile: str = None) -> GPUMapper:
     import warnings
     warnings.warn(
         "create_v100_mapper() is deprecated and will be removed in a future version. "
-        "Use create_v100_sxm2_32gb_mapper() instead for explicit form factor and memory size.",
+        "Use create_v100_sxm3_32gb_mapper() instead for explicit form factor and memory size.",
         DeprecationWarning,
         stacklevel=2
     )
-    return create_v100_sxm2_32gb_mapper(thermal_profile)
+    return create_v100_sxm3_32gb_mapper(thermal_profile)
 
 
 def create_t4_mapper(thermal_profile: str = None) -> GPUMapper:
