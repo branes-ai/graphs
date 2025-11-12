@@ -33,7 +33,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     - 154 BF16 tiles (20%): Transformer layers, multi-modal fusion
     - 77 Matrix tiles (10%): Large matmuls, LLM token generation
 
-    Architecture: 32×24 Grid (768 tiles)
+    Architecture: 32x24 Grid (768 tiles)
     - 768 compute tiles arranged in optimized grid
     - 768 L3 memory tiles (256KB each) for distributed memory
     - Ultra-high-bandwidth interconnect (2D torus + express channels)
@@ -45,7 +45,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     - 100W: Performance mode (max throughput)
 
     Key Advantages:
-    ✓ 3× more tiles than T256
+    ✓ 3x more tiles than T256
     ✓ Datacenter-class throughput (100+ TOPS effective)
     ✓ Excellent efficiency_factor (75-85%)
     ✓ Distributed memory architecture
@@ -303,7 +303,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=32 * 1024 * 1024,  # 32 MB shared L2
         main_memory=64 * 1024**3,  # 64 GB
-        energy_per_flop_fp32=0.08e-12,
+        energy_per_flop_fp32=0.5e-12,  # Fixed: was 0.08e-12, now 0.5 pJ (7nm datacenter, ~45% reduction from T256's 0.9 pJ)
         energy_per_byte=10e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=8,

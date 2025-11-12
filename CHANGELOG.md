@@ -6,6 +6,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-11] - GPU Performance Model Corrections & Validation
+
+### Fixed
+
+**Critical GPU Tensor Core Calculation Error**
+- **BEFORE**: Jetson Orin GPU incorrectly configured at 85 TOPS INT8 (16× too high)
+- **AFTER**: Corrected to 5.3 TOPS INT8 @ 1.3 GHz (2.66 TOPS @ 30W/650 MHz)
+- **Root Cause**: Incorrect calculation multiplying 512 ops/SM by tensor cores again
+- **Correct Calculation**: 64 Tensor Cores × 64 MACs/TC/clock × 1.3 GHz = 5.3 TOPS
+- **Impact**: All GPU performance estimates were 16× too optimistic
+- **Files Modified**:
+  - `src/graphs/hardware/models/edge/jetson_orin_agx_64gb.py` (lines 72-79, 284-285)
+
+**GPU Utilization vs Efficiency Confusion**
+- **BEFORE**: GPU utilization calculated from FLOP-based heuristic (25-50% for typical workloads)
+- **AFTER**: GPU utilization correctly calculated from output elements → threads → SMs (100% for large workloads)
+- **Key Insight**: Utilization ≠ Efficiency
+  - **Utilization**: Fraction of compute units with active threads (should be ~100%)
+  - **Efficiency**: Fraction of time threads are computing vs stalled (40% for memory-bound)
+- **Root Cause**: `determine_sm_allocation()` used FLOP count instead of parallelism (output elements)
+- **Impact**: GPU models now correctly show 100% utilization with realistic efficiency
+- **Files Modified**:
+  - `src/graphs/hardware/mappers/gpu.py` (lines 204-254: rewrote SM allocation logic)
+
+**TPU Bandwidth Bottleneck**
+- **BEFORE**: TPU Edge Pro @ 32 GB/s bandwidth (slower than 12-core CPU!)
+- **AFTER**: TPU Edge Pro @ 128 GB/s bandwidth (16× LPDDR5 channels)
+- **Root Cause**: Insufficient bandwidth for 30W TDP with 16,384 ALUs (128×128 systolic array)
+- **Impact**: TPU now correctly 2.5× faster than CPU (67.8 μs vs 169.1 μs)
+- **Validation**: Latency ordering now correct: KPU < TPU < GPU < CPU
+- **Files Modified**:
+  - `src/graphs/hardware/models/edge/tpu_edge_pro.py` (line 160: 32e9 → 128e9)
+  - Documentation: `docs/hardware/tpu_bandwidth_fix.md`
+
+### Added
+
+**Latency Validation Test Suite**
+- New validation script: `validation/test_latency_sanity.py`
+- Validates that accelerators are faster than CPU for deep learning workloads
+- Tests 1024×1024 MLP @ batch=16 across CPU/GPU/TPU/KPU @ 30W
+- Includes TOPS, TOPS/W, efficiency, and utilization analysis
+- Reports memory bandwidth bottlenecks via roofline model
+- **Key Metrics**:
+  ```
+  Architecture   Peak TOPS   Latency    Utilization   Efficiency
+  -------------------------------------------------------------
+  KPU T256       33.80       33.8 μs    100%          5.9%
+  GPU (Jetson)    2.66       62.3 μs    100%         40.5%
+  TPU Edge Pro   27.85       67.8 μs    100%          3.6%
+  CPU             0.84      169.1 μs    100%         47.0%
+  ```
+
+**Performance Summary Diagnostics**
+- Added "THROUGHPUT & EFFICIENCY ANALYSIS" section to validation
+- Shows Peak TOPS, Peak TOPS/W, Achieved TOPS, Efficiency (%)
+- Added "Efficiency Analysis" explaining memory slowdown impact
+- Replaced incorrect diagnostic messages (H100 → Jetson, removed obsolete warnings)
+
+### Changed
+
+**Validation Script Output Improvements**
+- Updated expected latency ordering: `KPU < GPU < TPU < CPU` (memory-bound workloads)
+- Removed incorrect diagnostic about "CPU peak TOPS too high" (now correct at 0.84 TOPS)
+- Removed "H100 Utilization" references (replaced with Jetson Orin AGX)
+- Added clear explanation of utilization vs efficiency distinction
+
+**Example Script Fixes**
+- Fixed `examples/demo_new_performance_model.py` import errors
+- Updated to use `jetson_orin_agx_64gb_resource_model()` (from deprecated `jetson_orin_agx_resource_model()`)
+- Updated to use `jetson_thor_128gb_resource_model()` (from deprecated `jetson_thor_resource_model()`)
+
+### Removed
+
+**Debug Scripts Cleanup**
+- Deleted `debug_tpu_memory.py` (one-off debugging script, issue resolved)
+- TPU bandwidth fix now documented in `docs/hardware/tpu_bandwidth_fix.md`
+
+---
+
 ## [2025-11-10] - Energy Breakdown Display Improvements
 
 ### Added

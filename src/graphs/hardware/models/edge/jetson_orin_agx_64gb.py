@@ -32,9 +32,10 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     CRITICAL REALITY CHECK - Performance Specifications:
     - Marketing claim: 275 TOPS INT8 (sparse networks, all engines: GPU+DLA+PVA)
     - Dense networks total: 138 TOPS INT8 (GPU + 2×DLA)
-      - GPU only (dense): 85 TOPS INT8 ← Relevant for PyTorch workloads
+      - GPU only (dense): 5.3 TOPS INT8 @ 1.3 GHz ← Relevant for PyTorch workloads
+        (64 Tensor Cores × 64 MACs/TC/clock × 1.3 GHz = 5.3 TOPS)
       - 2×DLA (dense): 52.5 TOPS INT8
-    - GPU sparse: 170 TOPS INT8 (requires specially-prepared sparse networks)
+    - GPU sparse: 10.6 TOPS INT8 (2:4 structured sparsity gives 2× speedup)
     - Customer empirical data: 2-4% of peak at typical power budgets
     - Root cause: Severe DVFS thermal throttling + memory bottlenecks
 
@@ -46,17 +47,20 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     - Boost clock: 1.02 GHz (datasheet spec, rarely sustained)
     - Sustained clock: 400 MHz (empirical under thermal load)
     - Thermal throttle factor: 39% (severe throttling!)
-    - Effective INT8: ~5 TOPS (6% of 85 TOPS GPU dense peak)
+    - Peak INT8: 1.6 TOPS (4,096 MACs/clock × 400 MHz)
+    - Effective INT8: ~0.3 TOPS (20% of peak due to memory bottlenecks)
     - Use case: Battery-powered robots, drones (must avoid thermal shutdown)
 
     30W Mode (Active Cooling - Better but Still Throttles):
     - Sustained clock: 650 MHz (64% of boost)
-    - Effective INT8: ~17 TOPS (20% of 85 TOPS GPU dense peak)
+    - Peak INT8: 2.7 TOPS (4,096 MACs/clock × 650 MHz)
+    - Effective INT8: ~1.1 TOPS (40% of peak)
     - Use case: Tethered robots with active cooling
 
     60W Mode (Max Performance - Unrealistic for Embodied AI):
     - Sustained clock: 1.0 GHz (98% of boost)
-    - Effective INT8: ~51 TOPS (60% of 85 TOPS GPU dense peak)
+    - Peak INT8: 4.1 TOPS (4,096 MACs/clock × 1.0 GHz)
+    - Effective INT8: ~2.5 TOPS (60% of peak)
     - Use case: Benchtop testing only (too hot for deployment!)
 
     References:
@@ -68,10 +72,15 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     # Official specs: 2048 CUDA cores total, Ampere architecture
     num_sms = 16                     # 2048 CUDA cores ÷ 128 cores/SM = 16 SMs
     cuda_cores_per_sm = 128          # Ampere architecture standard
-    tensor_cores_per_sm = 4          # 64 Tensor cores ÷ 16 SMs = 4 per SM
-    int8_ops_per_sm_per_clock = 512  # Tensor Core capability: 128 × 4
+    tensor_cores_per_sm = 4          # 64 Tensor cores total ÷ 16 SMs = 4 per SM
+    total_tensor_cores = 64          # Total tensor cores across all SMs
+
+    # Tensor Core INT8: 4×4×4 matmul = 64 MACs/clock per Tensor Core
+    # Total: 64 TCs × 64 MACs/TC/clock = 4,096 MACs/clock
+    # At 1.3 GHz: 4,096 × 1.3e9 = 5.3 TOPS INT8
+    int8_ops_per_sm_per_clock = 256  # 4 TCs/SM × 64 MACs/TC = 256 MACs/SM/clock
     fp32_ops_per_sm_per_clock = 256  # CUDA core capability: 128 cores × 2 ops (FMA)
-    fp16_ops_per_sm_per_clock = 512  # Tensor Core FP16
+    fp16_ops_per_sm_per_clock = 256  # Tensor Core FP16: 4 TCs/SM × 64 MACs/TC
 
     # ========================================================================
     # 15W MODE: Realistic deployment configuration (passive cooling)
@@ -94,10 +103,9 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         clock_domain=clock_15w,
     )
 
-    # Peak INT8: 16 SMs × 512 ops/SM/clock × 1.02 GHz = 8.4 TOPS (simplified model)
-    # NOTE: Actual GPU dense peak is 85 TOPS at 1.3 GHz (using all 64 Tensor Cores)
-    # Sustained INT8: 16 × 512 × 400 MHz = 3.3 TOPS
-    # Effective INT8: 3.3 TOPS × 0.47 empirical derate = 1.5 TOPS (1.8% of 85 TOPS GPU dense)
+    # Peak INT8: 64 TCs × 64 MACs/TC/clock × 1.02 GHz = 4.2 TOPS (boost clock)
+    # Sustained INT8: 64 TCs × 64 MACs/TC × 400 MHz = 1.6 TOPS (throttled)
+    # Effective INT8: 1.6 TOPS × 0.20 empirical derate = 0.3 TOPS (memory-bound)
 
     thermal_15w = ThermalOperatingPoint(
         name="15W-passive",
@@ -148,8 +156,8 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         clock_domain=clock_30w,
     )
 
-    # Sustained INT8: 16 × 512 × 650 MHz = 5.3 TOPS
-    # Effective: 5.3 × 0.60 = 3.2 TOPS (3.8% of 85 TOPS GPU dense peak)
+    # Sustained INT8: 64 TCs × 64 MACs/TC × 650 MHz = 2.7 TOPS
+    # Effective: 2.7 × 0.40 = 1.1 TOPS (40% efficiency, memory-bound)
 
     thermal_30w = ThermalOperatingPoint(
         name="30W-active",
@@ -276,7 +284,8 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         precision_profiles={
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=85e12,  # GPU dense (PyTorch workloads; 170 TOPS sparse)
+                # 64 Tensor Cores × 64 MACs/TC/clock × 1.3 GHz = 5.3 TOPS INT8 (dense)
+                peak_ops_per_sec=5.3e12,
                 tensor_core_supported=True,
                 bytes_per_element=1,
             ),

@@ -208,32 +208,47 @@ class GPUMapper(HardwareMapper):
         """
         Determine how many SMs to allocate for a subgraph in sequential mode.
 
-        SM allocation based on kernel size (empirically calibrated):
-        - < 10M FLOPs: 2 SMs (very small kernels)
-        - 10M-50M FLOPs: 8 SMs (small kernels)
-        - 50M-200M FLOPs: 24 SMs (medium kernels - ResNet-50 layers)
-        - > 200M FLOPs: 48 SMs (large kernels)
+        SM allocation based on PARALLELISM (output elements), not FLOPs.
+        Utilization is about hardware occupancy, not efficiency.
 
-        This models realistic kernel scheduling where larger kernels use
-        more SMs, but still not all 132 SMs due to launch overhead and
-        limited parallelism at batch=1.
+        Key insight: GPU kernels launch enough threads to saturate hardware.
+        - 1 thread per output element (for matmul, conv, elementwise ops)
+        - Threads distributed across SMs via warp scheduler
+        - Utilization should be ~100% for any workload with >10K outputs
+
+        Thread allocation:
+        - Output elements → threads (1:1 mapping)
+        - Threads → warps (/ 32)
+        - Warps → SMs (/ warps_per_SM, typically 48 for Ampere)
+        - SM count capped at total available SMs
 
         Args:
             subgraph: Fused subgraph to analyze
 
         Returns:
-            Number of SMs to allocate (2-48)
+            Number of SMs to allocate (1 to total_sms)
         """
-        flops = subgraph.total_flops
+        # Calculate output elements (determines thread count)
+        # Each output element gets 1 thread (for matmul, conv, elementwise)
+        # For now, estimate from total_output_bytes (assumes 4 bytes/element for FP32)
+        # TODO: Use actual element count from output_tensors when available
+        bytes_per_element = 4  # FP32 default (conservative estimate)
+        output_elements = max(1, subgraph.total_output_bytes // bytes_per_element)
 
-        if flops < 10e6:
-            return 2  # Very small kernel
-        elif flops < 50e6:
-            return 8  # Small kernel
-        elif flops < 200e6:
-            return 24  # Medium kernel (ResNet-50 range)
-        else:
-            return 48  # Large kernel
+        # Convert to warps (32 threads/warp)
+        warp_size = 32
+        warps_required = math.ceil(output_elements / warp_size)
+
+        # Convert to SMs (assume 48 warps/SM for Ampere)
+        warps_per_sm = getattr(self.resource_model, 'warps_per_unit', 48)
+        sms_needed = math.ceil(warps_required / warps_per_sm)
+
+        # Cap at total available SMs
+        total_sms = self.resource_model.compute_units
+        sms_allocated = min(sms_needed, total_sms)
+
+        # Ensure at least 1 SM (even for tiny kernels)
+        return max(1, sms_allocated)
 
     def compute_sequential_latency(
         self,
@@ -299,8 +314,13 @@ class GPUMapper(HardwareMapper):
             bottleneck = (BottleneckType.COMPUTE_BOUND if compute_time > memory_time
                          else BottleneckType.BANDWIDTH_BOUND)
 
-            # Add kernel launch overhead
-            kernel_latency = kernel_time + self.KERNEL_LAUNCH_OVERHEAD
+            # Add kernel launch overhead (unless disabled for micro-benchmarks)
+            # Check execution_context for disable_launch_overhead flag
+            disable_overhead = getattr(self, 'disable_launch_overhead', False)
+            if disable_overhead:
+                kernel_latency = kernel_time  # Pure compute time only
+            else:
+                kernel_latency = kernel_time + self.KERNEL_LAUNCH_OVERHEAD
 
             # Calculate energy for this kernel
             compute_energy, memory_energy = self._calculate_energy(
@@ -624,7 +644,7 @@ def create_h100_pcie_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     return GPUMapper(resource_model, thermal_profile=thermal_profile)
 
 
-def create_b100_smx_mapper(thermal_profile: str = None) -> GPUMapper:
+def create_b100_smx_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA B100 SXM 192GB (Blackwell - 2024).
 
