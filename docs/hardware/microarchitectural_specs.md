@@ -484,9 +484,9 @@ This document provides detailed micro-architecture specifications for all SoCs a
 
 ---
 
-### NVIDIA V100 SXM2 (32GB)
+### NVIDIA V100 SXM3 (32GB)
 
-**File:** `src/graphs/hardware/models/datacenter/v100_sxm2.py`
+**File:** `src/graphs/hardware/models/datacenter/v100_sxm3.py`
 **Architecture:** Volta (1st gen Tensor Cores, 2017)
 
 #### SM Configuration

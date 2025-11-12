@@ -85,7 +85,7 @@ src/graphs/hardware/models/automotive/jetson_thor.py → jetson_thor_128gb.py
 
 **Resource Model Functions (7)**:
 - `h100_pcie_resource_model()` → `h100_pcie_80gb_resource_model()`
-- `v100_sxm2_resource_model()` → `v100_sxm2_32gb_resource_model()`
+- `v100_sxm3_resource_model()` → `v100_sxm3_32gb_resource_model()`
 - `t4_resource_model()` → `t4_pcie_16gb_resource_model()`
 - `jetson_orin_nano_resource_model()` → `jetson_orin_nano_8gb_resource_model()`
 - `jetson_orin_agx_resource_model()` → `jetson_orin_agx_64gb_resource_model()`
@@ -95,7 +95,7 @@ src/graphs/hardware/models/automotive/jetson_thor.py → jetson_thor_128gb.py
 **Mapper Factory Functions (7 new)**:
 - `create_h100_pcie_80gb_mapper()`
 - `create_a100_sxm4_80gb_mapper()`
-- `create_v100_sxm2_32gb_mapper()`
+- `create_v100_sxm3_32gb_mapper()`
 - `create_t4_pcie_16gb_mapper()`
 - `create_jetson_orin_agx_64gb_mapper()`
 - `create_jetson_orin_nano_8gb_mapper()`

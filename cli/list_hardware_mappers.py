@@ -276,7 +276,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
     # NVIDIA Volta V100 SXM3 32GB
     mapper = create_v100_sxm3_32gb_mapper()
     mappers.append(HardwareMapperInfo(
-        name="NVIDIA V100 SXM2 32GB",
+        name="NVIDIA V100 SXM3 32GB",
         category="GPU",
         deployment="Datacenter",
         manufacturer="NVIDIA",
@@ -287,7 +287,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         power_tdp=350.0,
         thermal_profiles=[],
         use_cases=["LLM inference", "Cloud AI"],
-        factory_function="create_v100_sxm2_32gb_mapper",
+        factory_function="create_v100_sxm3_32gb_mapper",
         hardware_type="programmable_isa"
     ))
 

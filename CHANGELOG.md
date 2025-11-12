@@ -146,7 +146,7 @@ All NVIDIA GPU hardware mappers have been renamed to follow a consistent `{Archi
 **Datacenter GPUs:**
 - `create_h100_mapper()` → `create_h100_pcie_80gb_mapper()` (model: `H100-PCIe-80GB`)
 - `create_a100_mapper()` → `create_a100_sxm4_80gb_mapper()` (model: `A100-SXM4-80GB`)
-- `create_v100_mapper()` → `create_v100_sxm2_32gb_mapper()` (model: `V100-SXM2-32GB`)
+- `create_v100_mapper()` → `create_v100_sxm3_32gb_mapper()` (model: `V100-SXM3-32GB`)
 - `create_t4_mapper()` → `create_t4_pcie_16gb_mapper()` (model: `T4-PCIe-16GB`)
 
 **Jetson Edge Platforms:**
@@ -2492,7 +2492,7 @@ python tests/hardware/run_tests.py
 **Core Hardware Models** (1 file):
 - `src/graphs/hardware/resource_model.py` (+570 lines)
   - Added microarchitecture fields to `HardwareResourceModel` dataclass
-  - Added `v100_sxm2_resource_model()` (90 lines)
+  - Added `v100_sxm3_resource_model()` (90 lines)
   - Added `t4_resource_model()` (93 lines)
   - Added `a100_sxm4_80gb_resource_model()` (102 lines)
   - Updated `h100_pcie_resource_model()` with microarch params

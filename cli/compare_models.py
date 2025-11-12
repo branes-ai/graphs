@@ -31,9 +31,10 @@ from graphs.hardware.mappers.cpu import (
     create_amd_epyc_9654_mapper,
 )
 from graphs.hardware.mappers.gpu import (
-    create_h100_pcie_80gb_mapper,
+    create_b100_sxm6_192gb_mapper,
+    create_h100_sxm5_80gb_mapper,
     create_a100_sxm4_80gb_mapper,
-    create_v100_sxm2_32gb_mapper,
+    create_v100_sxm3_32gb_mapper,
     create_t4_pcie_16gb_mapper,
     create_jetson_orin_nano_8gb_mapper,
 )
@@ -85,10 +86,10 @@ HARDWARE_CONFIGS = {
     'datacenter': [
         ('Intel Xeon 8490H', create_intel_xeon_platinum_8490h_mapper, 'CPU'),
         ('AMD EPYC 9654', create_amd_epyc_9654_mapper, 'CPU'),
-        ('NVIDIA V100', create_v100_sxm2_32gb_mapper, 'GPU'),
+        ('NVIDIA V100', create_v100_sxm3_32gb_mapper, 'GPU'),
         ('NVIDIA T4', create_t4_pcie_16gb_mapper, 'GPU'),
         ('NVIDIA A100', create_a100_sxm4_80gb_mapper, 'GPU'),
-        ('NVIDIA H100', create_h100_pcie_80gb_mapper, 'GPU'),
+        ('NVIDIA H100', create_h100_sxm5_80gb_mapper, 'GPU'),
         ('Google TPU v4', create_tpu_v4_mapper, 'TPU'),
     ],
     'edge': [
