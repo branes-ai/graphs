@@ -748,7 +748,7 @@ class ArchitectureComparator:
                 if metrics.architectural_breakdown:
                     b = metrics.architectural_breakdown
                     compute_str = self._format_energy(b.compute_overhead) if abs(b.compute_overhead) > 1e-15 else "—"
-                    memory_str = self._format_energy(b.memory_overhead) if abs(b.memory_overhead) > 1e-15 else "—"
+                    memory_str = self._format_energy(b.data_movement_overhead) if abs(b.data_movement_overhead) > 1e-15 else "—"
                     control_str = self._format_energy(b.control_overhead) if abs(b.control_overhead) > 1e-15 else "—"
                     total_str = self._format_energy(b.total_overhead)
 
@@ -816,9 +816,9 @@ class ArchitectureComparator:
                 sign = "+" if breakdown.compute_overhead > 0 else ""
                 lines.append(f"  Compute Overhead:      {sign}{self._format_energy(breakdown.compute_overhead)}")
 
-            if abs(breakdown.memory_overhead) > 1e-15:
-                sign = "+" if breakdown.memory_overhead > 0 else ""
-                lines.append(f"  Memory Overhead:       {sign}{self._format_energy(breakdown.memory_overhead)}")
+            if abs(breakdown.data_movement_overhead) > 1e-15:
+                sign = "+" if breakdown.data_movement_overhead > 0 else ""
+                lines.append(f"  Memory Overhead:       {sign}{self._format_energy(breakdown.data_movement_overhead)}")
 
             if abs(breakdown.control_overhead) > 1e-15:
                 sign = "+" if breakdown.control_overhead > 0 else ""
@@ -1808,8 +1808,8 @@ class ArchitectureComparator:
                         lines.append(f"      ({arch2} eliminates instruction fetch and scheduling)")
 
                 # Memory overhead comparison
-                if abs(b1.memory_overhead - b2.memory_overhead) > 1e-12:
-                    diff = b1.memory_overhead - b2.memory_overhead
+                if abs(b1.data_movement_overhead - b2.data_movement_overhead) > 1e-12:
+                    diff = b1.data_movement_overhead - b2.data_movement_overhead
                     if diff > 0:
                         lines.append(f"    • {self._format_energy(abs(diff))} saved in memory overhead")
                         lines.append(f"      ({arch2} uses more efficient memory access patterns)")
@@ -2017,7 +2017,7 @@ class ArchitectureComparator:
                 b = metrics.architectural_breakdown
                 arch_data['architectural_energy'] = {
                     'compute_overhead_j': b.compute_overhead,
-                    'memory_overhead_j': b.memory_overhead,
+                    'data_movement_overhead_j': b.data_movement_overhead,
                     'control_overhead_j': b.control_overhead,
                     'total_overhead_j': b.total_overhead,
                     'extra_details': b.extra_details if b.extra_details else {},
@@ -2121,7 +2121,7 @@ class ArchitectureComparator:
                     writer.writerow([
                         name,
                         f"{b.compute_overhead:.9f}",
-                        f"{b.memory_overhead:.9f}",
+                        f"{b.data_movement_overhead:.9f}",
                         f"{b.control_overhead:.9f}",
                         f"{b.total_overhead:.9f}",
                     ])

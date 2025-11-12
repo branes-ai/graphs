@@ -514,8 +514,13 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
         KPUMapper configured for KPU-T64 with heterogeneous tiles (44/13/7)
     """
     from ...models.accelerators.kpu_t64 import kpu_t64_resource_model
+    from ...architectural_energy import KPUTileEnergyAdapter
 
     model = kpu_t64_resource_model()
+
+    # Wrap tile energy model with adapter to conform to ArchitecturalEnergyModel interface
+    model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
+
     return KPUMapper(model, thermal_profile=thermal_profile)
 
 
@@ -531,44 +536,12 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
         KPUMapper configured for KPU-T256 with heterogeneous tiles (179/51/26)
     """
     from ...models.accelerators.kpu_t256 import kpu_t256_resource_model
-    from ...architectural_energy import KPUTileEnergyModel, KPUTileEnergyAdapter
+    from ...architectural_energy import KPUTileEnergyAdapter
 
     model = kpu_t256_resource_model()
 
-    # Create detailed KPU tile energy model for T256
-    tile_energy_model = KPUTileEnergyModel(
-        # Product configuration (T256-specific)
-        num_tiles=256,
-        pes_per_tile=16,
-        tile_mesh_dimensions=(16, 16),  # 16×16 checkerboard
-
-        # Memory hierarchy (4-stage)
-        dram_bandwidth_gb_s=102.4,  # DDR4-3200 (4× channels)
-        l3_size_per_tile=256 * 1024,  # 256 KiB per tile
-        l2_size_per_tile=32 * 1024,   # 32 KiB per tile
-        l1_size_per_pe=4 * 1024,      # 4 KiB per PE
-
-        # Clock frequency
-        clock_frequency_hz=1.2e9,  # 1.2 GHz
-
-        # Memory hierarchy energy (DDR4-based)
-        dram_read_energy_per_byte=10e-12,   # 10 pJ (DDR4)
-        dram_write_energy_per_byte=12e-12,  # 12 pJ (DDR4)
-        l3_read_energy_per_byte=2.0e-12,    # 2.0 pJ (distributed SRAM)
-        l3_write_energy_per_byte=2.5e-12,   # 2.5 pJ
-        l2_read_energy_per_byte=0.8e-12,    # 0.8 pJ (tile-local SRAM)
-        l2_write_energy_per_byte=1.0e-12,   # 1.0 pJ
-        l1_read_energy_per_byte=0.3e-12,    # 0.3 pJ (PE-local SRAM)
-        l1_write_energy_per_byte=0.4e-12,   # 0.4 pJ
-
-        # Computation energy (BLAS operators)
-        mac_energy_int8=0.3e-12,   # 0.3 pJ (INT8)
-        mac_energy_bf16=0.45e-12,  # 0.45 pJ (BF16)
-        mac_energy_fp32=0.9e-12,   # 0.9 pJ (FP32)
-    )
-
-    # Wrap with adapter to conform to ArchitecturalEnergyModel interface
-    model.architecture_energy_model = KPUTileEnergyAdapter(tile_energy_model)
+    # Wrap tile energy model with adapter to conform to ArchitecturalEnergyModel interface
+    model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
 
     return KPUMapper(model, thermal_profile=thermal_profile)
 
@@ -585,6 +558,11 @@ def create_kpu_t768_mapper(thermal_profile: str = None) -> KPUMapper:
         KPUMapper configured for KPU-T768 with heterogeneous tiles (537/154/77)
     """
     from ...models.accelerators.kpu_t768 import kpu_t768_resource_model
+    from ...architectural_energy import KPUTileEnergyAdapter
 
     model = kpu_t768_resource_model()
+
+    # Wrap tile energy model with adapter to conform to ArchitecturalEnergyModel interface
+    model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
+
     return KPUMapper(model, thermal_profile=thermal_profile)

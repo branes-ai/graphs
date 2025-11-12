@@ -50,7 +50,8 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     - 50W: Performance mode (max throughput)
      
     Competition: 
-    - Jetson Orin AGX model: 16 SMs, 128 CUDA cores each, 1.5 GHz base clock = 16 * 192GOPS peak = 3.072 TOPS 
+    - Jetson Orin AGX model: 16 SMs, 128 CUDA cores each, 1.3 GHz base clock = 16 * 192GOPS peak = 3.072 TOPS 
+                             64 TensorCores, 1 4x4x4 matmul per clock, 1.3 GHz base clock = 64 * 64 * 1.3Ghz peak = 5.3248 TOPS
     - KPU T256 model: 256 tiles, 16x16 = 256 cores each, 512 ops/clock at 1.5 GHz = 256 * 768GOPS peak = 196 TOPS
 
     Key Advantages vs Jetson Orin AGX:
@@ -73,9 +74,9 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     t256_int8_tiles = TileSpecialization(
         tile_type="INT8-primary",
         num_tiles=179,  # 70% of 256
-        array_dimensions=(16, 8),
+        array_dimensions=(16, 16),
         pe_configuration="INT8-MAC",
-        ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+        ops_per_tile_per_clock={Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
         optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
         clock_domain=t256_clock,
     )
@@ -83,9 +84,9 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     t256_bf16_tiles = TileSpecialization(
         tile_type="BF16-primary",
         num_tiles=51,  # 20% of 256
-        array_dimensions=(16, 8),
+        array_dimensions=(16, 16),
         pe_configuration="BF16-FMA",
-        ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+        ops_per_tile_per_clock={Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
         optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
         clock_domain=t256_clock,
     )
@@ -95,7 +96,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         num_tiles=26,  # 10% of 256
         array_dimensions=(8, 8),
         pe_configuration="Mixed-INT8-BF16-Matrix",
-        ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+        ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
         optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
         clock_domain=t256_clock,
     )
@@ -150,23 +151,23 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         total_tiles=256,
         tile_specializations=[
             TileSpecialization(
-                tile_type="INT8-primary", num_tiles=179, array_dimensions=(16, 8),
+                tile_type="INT8-primary", num_tiles=179, array_dimensions=(16, 16),
                 pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                ops_per_tile_per_clock={Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
                 optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
                 clock_domain=t256_clock_30w,
             ),
             TileSpecialization(
-                tile_type="BF16-primary", num_tiles=51, array_dimensions=(16, 8),
+                tile_type="BF16-primary", num_tiles=51, array_dimensions=(16, 16),
                 pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                ops_per_tile_per_clock={Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
                 optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
                 clock_domain=t256_clock_30w,
             ),
             TileSpecialization(
                 tile_type="Matrix-8x8", num_tiles=26, array_dimensions=(8, 8),
                 pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+                ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
                 optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
                 clock_domain=t256_clock_30w,
             ),
@@ -213,23 +214,23 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         total_tiles=256,
         tile_specializations=[
             TileSpecialization(
-                tile_type="INT8-primary", num_tiles=179, array_dimensions=(16, 8),
+                tile_type="INT8-primary", num_tiles=179, array_dimensions=(16, 16),
                 pe_configuration="INT8-MAC",
-                ops_per_tile_per_clock={Precision.INT8: 128, Precision.INT4: 256, Precision.BF16: 32},
+                ops_per_tile_per_clock={Precision.INT8: 512, Precision.INT4: 1024, Precision.BF16: 256},
                 optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
                 clock_domain=t256_clock_50w,
             ),
             TileSpecialization(
-                tile_type="BF16-primary", num_tiles=51, array_dimensions=(16, 8),
+                tile_type="BF16-primary", num_tiles=51, array_dimensions=(16, 16),
                 pe_configuration="BF16-FMA",
-                ops_per_tile_per_clock={Precision.BF16: 128, Precision.FP32: 64, Precision.INT8: 64},
+                ops_per_tile_per_clock={Precision.BF16: 256, Precision.FP32: 128, Precision.INT8: 512},
                 optimization_level={Precision.BF16: 1.0, Precision.FP32: 0.5, Precision.INT8: 0.5},
                 clock_domain=t256_clock_50w,
             ),
             TileSpecialization(
                 tile_type="Matrix-8x8", num_tiles=26, array_dimensions=(8, 8),
                 pe_configuration="Mixed-INT8-BF16-Matrix",
-                ops_per_tile_per_clock={Precision.INT8: 512, Precision.BF16: 256},
+                ops_per_tile_per_clock={Precision.INT8: 8192, Precision.BF16: 4096},
                 optimization_level={Precision.INT8: 1.0, Precision.BF16: 1.0},
                 clock_domain=t256_clock_50w,
             ),
@@ -282,7 +283,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         notes="Mid-range edge AI accelerator. 256 tiles, advanced flip-chip packaging. Competitive with high-end edge GPUs but better efficiency and predictability.",
     )
 
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name="Stillwater KPU-T256",
         hardware_type=HardwareType.KPU,
         compute_units=256,
@@ -337,5 +338,43 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         wave_quantization=2,
         bom_cost_profile=bom_cost,
     )
+
+    # Add tile energy model for detailed energy analysis
+    from ...architectural_energy import KPUTileEnergyModel
+
+    tile_energy_model = KPUTileEnergyModel(
+        # Product configuration (T256-specific)
+        num_tiles=256,
+        pes_per_tile=256,
+        tile_mesh_dimensions=(16, 16),  # 16×16 checkerboard
+
+        # Memory hierarchy (4-stage)
+        dram_bandwidth_gb_s=204.8,    # LPDDR5-6400 (16× channels)
+        l3_size_per_tile=256 * 1024,  # 256 KiB per tile
+        l2_size_per_tile=32 * 1024,   # 32 KiB per tile
+        l1_size_per_pe=4 * 1024,      # 4 KiB per PE
+
+        # Clock frequency (30W profile default)
+        clock_frequency_hz=1.05e9,  # 1.05 GHz
+
+        # Memory hierarchy energy (DDR4-based)
+        dram_read_energy_per_byte=10e-12,   # 10 pJ (DDR4)
+        dram_write_energy_per_byte=12e-12,  # 12 pJ (DDR4)
+        l3_read_energy_per_byte=2.0e-12,    # 2.0 pJ (distributed SRAM)
+        l3_write_energy_per_byte=2.5e-12,   # 2.5 pJ
+        l2_read_energy_per_byte=0.8e-12,    # 0.8 pJ (tile-local SRAM)
+        l2_write_energy_per_byte=1.0e-12,   # 1.0 pJ
+        l1_read_energy_per_byte=0.3e-12,    # 0.3 pJ (PE-local SRAM)
+        l1_write_energy_per_byte=0.4e-12,   # 0.4 pJ
+
+        # Computation energy (BLAS operators)
+        mac_energy_int8=0.3e-12,   # 0.3 pJ (INT8)
+        mac_energy_bf16=0.45e-12,  # 0.45 pJ (BF16)
+        mac_energy_fp32=0.9e-12,   # 0.9 pJ (FP32)
+    )
+
+    model.tile_energy_model = tile_energy_model
+
+    return model
 
 

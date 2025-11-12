@@ -237,7 +237,7 @@ class ArchitecturalEnergyBreakdown:
     - IntOps → Integer ALUs, SFUs
     """
     compute_overhead: float  # Additional compute energy (Joules)
-    memory_overhead: float   # Additional memory energy (Joules)
+    data_movement_overhead: float   # Energy cost of moving data through memory hierarchy (Joules)
     control_overhead: float  # Control/coordination energy (Joules)
 
     # ============================================================
@@ -281,7 +281,7 @@ class ArchitecturalEnergyBreakdown:
     @property
     def total_overhead(self) -> float:
         """Total architectural overhead"""
-        return self.compute_overhead + self.memory_overhead + self.control_overhead
+        return self.compute_overhead + self.data_movement_overhead + self.control_overhead
 
     @property
     def total_compute_energy(self) -> float:
@@ -555,8 +555,8 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         # Compute overhead: register file + ALU
         compute_overhead = register_file_energy_total + alu_energy_total
 
-        # Memory overhead: cache hierarchy
-        memory_overhead = memory_hierarchy_energy_total
+        # Data movement overhead: cache hierarchy
+        data_movement_overhead = memory_hierarchy_energy_total
 
         # ============================================================
         # Create detailed breakdown
@@ -615,7 +615,7 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead,
-            memory_overhead=memory_overhead,
+            data_movement_overhead=data_movement_overhead,
             control_overhead=control_overhead,
             extra_details=extra_details,
             explanation=explanation
@@ -828,8 +828,8 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
                                  instruction_execute_energy_total +
                                  register_file_energy)
 
-        # Memory overhead: hierarchy + coalescing
-        memory_overhead_total = (shared_mem_l1_energy + l2_energy + dram_energy +
+        # Data movement overhead: hierarchy + coalescing
+        data_movement_overhead_total = (shared_mem_l1_energy + l2_energy + dram_energy +
                                 coalescing_energy)
 
         # Control overhead: coherence + scheduling + divergence + barriers
@@ -864,7 +864,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             f"   Memory Coalescing:     {coalescing_energy*1e12:.2f} pJ ({num_uncoalesced:,} uncoalesced)\n"
             f"   Synchronization Barriers: {barrier_energy*1e12:.2f} pJ ({num_barriers:,} barriers)\n"
             f"\n"
-            f"TOTAL OVERHEAD: {(compute_overhead_total + memory_overhead_total + control_overhead)*1e12:.2f} pJ\n"
+            f"TOTAL OVERHEAD: {(compute_overhead_total + data_movement_overhead_total + control_overhead)*1e12:.2f} pJ\n"
             f"\n"
             f"KEY INSIGHT: Coherence machinery dominates at small batch sizes!\n"
             f"             GPU burns massive energy managing thousands of concurrent memory requests.\n"
@@ -873,7 +873,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_total,
-            memory_overhead=memory_overhead_total,
+            data_movement_overhead=data_movement_overhead_total,
             control_overhead=control_overhead,
 
             # NEW: MAC/FLOP/IntOp energy breakdown (Phase 3)
@@ -1132,7 +1132,7 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
 
         # Memory benefit: Spatial data flows eliminate contention overhead
-        memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_data_movement = injection_energy + extraction_energy
 
@@ -1172,12 +1172,12 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
             f"\n"
             f"  Architectural Efficiency (vs Stored Program):\n"
             f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"    - Memory contention eliminated: {-memory_overhead_reduction*1e12:.2f} pJ saved\n"
+            f"    - Memory contention eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
         )
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
-            memory_overhead=memory_overhead_reduction + total_data_movement,
+            data_movement_overhead=data_movement_overhead_reduction + total_data_movement,
             control_overhead=control_overhead_total,
             extra_details={
                 'instruction_decode': instruction_decode,
@@ -1277,7 +1277,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit: Still eliminates instruction fetch
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_domain_overhead = domain_tracking_energy + kernel_load_energy
         total_data_movement = injection_energy + extraction_energy
@@ -1297,7 +1297,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
             f"    - Extraction: {extraction_energy*1e12:.2f} pJ\n"
             f"  Architectural Efficiency (vs Stored Program):\n"
             f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"    - Memory overhead eliminated: {-memory_overhead_reduction*1e12:.2f} pJ saved\n"
+            f"    - Memory overhead eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
             f"  Efficiency vs Stored Program:\n"
             f"    - Compute: {self.compute_efficiency*100:.0f}% overhead "
             f"({(1-self.compute_efficiency)*100:.0f}% reduction)\n"
@@ -1311,7 +1311,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
-            memory_overhead=memory_overhead_reduction + total_data_movement,
+            data_movement_overhead=data_movement_overhead_reduction + total_data_movement,
             control_overhead=total_domain_overhead,
             extra_details={
                 'domain_tracking_energy': domain_tracking_energy,
@@ -1385,7 +1385,7 @@ class DataFlowMachineEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit: No instruction fetch, but CAM limits savings
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_dfm_overhead = cam_energy + matching_energy + queue_energy + traversal_energy
 
@@ -1407,7 +1407,7 @@ class DataFlowMachineEnergyModel(ArchitecturalEnergyModel):
             f"    - Energy: {traversal_energy*1e12:.2f} pJ\n"
             f"  Architectural Efficiency (vs Stored Program):\n"
             f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"    - Memory overhead eliminated: {-memory_overhead_reduction*1e12:.2f} pJ saved\n"
+            f"    - Memory overhead eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
             f"  Efficiency vs Stored Program:\n"
             f"    - Compute: {self.compute_efficiency*100:.0f}% overhead "
             f"({(1-self.compute_efficiency)*100:.0f}% reduction)\n"
@@ -1421,7 +1421,7 @@ class DataFlowMachineEnergyModel(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
-            memory_overhead=memory_overhead_reduction,
+            data_movement_overhead=data_movement_overhead_reduction,
             control_overhead=total_dfm_overhead,
             extra_details={
                 'cam_energy': cam_energy,
@@ -1520,7 +1520,7 @@ class SpatialPartitionEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_compute = local_compute_energy
         total_memory = inter_partition_energy + local_memory_energy
@@ -1549,7 +1549,7 @@ class SpatialPartitionEnergyModel(ArchitecturalEnergyModel):
             f"    - Energy: {sync_energy*1e12:.2f} pJ\n"
             f"  Architectural Efficiency (vs Stored Program):\n"
             f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"    - Memory overhead eliminated: {-memory_overhead_reduction*1e12:.2f} pJ saved\n"
+            f"    - Memory overhead eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
             f"  Efficiency vs Stored Program:\n"
             f"    - Compute: {self.compute_efficiency*100:.0f}% overhead "
             f"({(1-self.compute_efficiency)*100:.0f}% reduction)\n"
@@ -1563,7 +1563,7 @@ class SpatialPartitionEnergyModel(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction + total_compute,
-            memory_overhead=memory_overhead_reduction + total_memory,
+            data_movement_overhead=data_movement_overhead_reduction + total_memory,
             control_overhead=total_control,
             extra_details={
                 'inter_partition_energy': inter_partition_energy,
@@ -1657,7 +1657,7 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit (runtime efficiency)
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        memory_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_runtime_overhead = routing_energy + macro_energy
 
@@ -1679,7 +1679,7 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
             f"({num_hard_macros:,} activations)\n"
             f"  Architectural Efficiency (runtime, vs Stored Program):\n"
             f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"    - Memory overhead eliminated: {-memory_overhead_reduction*1e12:.2f} pJ saved\n"
+            f"    - Memory overhead eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
             f"  Efficiency vs Stored Program:\n"
             f"    - Compute: {self.compute_efficiency*100:.0f}% overhead "
             f"({(1-self.compute_efficiency)*100:.0f}% reduction)\n"
@@ -1693,7 +1693,7 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
-            memory_overhead=memory_overhead_reduction + total_runtime_overhead,
+            data_movement_overhead=data_movement_overhead_reduction + total_runtime_overhead,
             control_overhead=reconfig_energy,
             extra_details={
                 'reconfiguration_energy': reconfig_energy,
@@ -2024,11 +2024,11 @@ class KPUTileEnergyModel:
 
     # Processing element configuration (NO DEFAULTS - must come first!)
     num_tiles: int  # 64 (T64), 256 (T256), 768 (T768)
-    pes_per_tile: int  # 16 typical
+    pes_per_tile: int  # an array of 16x16 PEs = 256 typical
     tile_mesh_dimensions: tuple  # (8, 8) for T64, (16, 16) for T256, (24, 32) for T768
 
     # Memory hierarchy configuration (4-stage)
-    dram_bandwidth_gb_s: float  # 25.6 (T64/DDR4), 102.4 (T256/DDR4), 204.8 (T768/HBM2)
+    dram_bandwidth_gb_s: float  # 25.6 (T64/DDR4), 204.8 (T256/LPDDR5), 1638.4 (T768/HBM2)
     l3_size_per_tile: int  # 256 KiB per tile (distributed scratchpad)
     l2_size_per_tile: int  # 32 KiB per tile
     l1_size_per_pe: int  # 4 KiB per PE
@@ -2057,13 +2057,13 @@ class KPUTileEnergyModel:
     mac_energy_fp32: float  # ~0.9 pJ (3× INT8)
 
     # Token-based execution (WITH DEFAULTS - must come after!)
-    token_payload_bytes: int = 64  # Data payload size
-    token_signature_bytes: int = 16  # Signature for matching
-    max_tokens_in_flight: int = 1024  # Per tile
+    token_payload_bytes: int = 4  # Data payload size
+    token_signature_bytes: int = 4  # Signature for matching
+    max_tokens_in_flight: int = 8192  # 32 entry CAM * 256 PEs =  Per tile
 
     # SURE program configuration
-    sure_program_size_bytes: int = 4096  # Typical SURE program
-    sure_program_cache_size: int = 16  # Programs cached per tile
+    sure_program_size_bytes: int = 256 # Typical SURE program
+    sure_program_cache_size: int = 4  # Programs cached per tile
 
     # Data movement engines
     dma_engines_per_tile: int = 4  # DRAM ↔ L3
@@ -2405,6 +2405,11 @@ class KPUTileEnergyModel:
             'l3_accesses': l3_accesses,
             'l2_accesses': l2_accesses,
             'l1_accesses': l1_accesses,
+
+            # Hardware configuration (for TOPS/W calculation)
+            'clock_frequency_hz': self.clock_frequency_hz,
+            'num_tiles': self.num_tiles,
+            'ops_per_cycle_per_tile': self._get_ops_per_cycle(precision),
         }
 
     def _get_bytes_per_element(self, precision: str) -> int:
@@ -2430,6 +2435,28 @@ class KPUTileEnergyModel:
             'FP16': self.mac_energy_bf16,
             'FP32': self.mac_energy_fp32,
         }.get(precision.upper(), self.mac_energy_bf16)
+
+    def _get_ops_per_cycle(self, precision: str) -> float:
+        """
+        Get ops per cycle per tile for a given precision.
+
+        KPU tiles have an array of 16x16 PEs, each can do 1 MAC per cycle.
+        INT8 can be packed 2x (dual MAC units).
+        FP32 runs at half rate.
+
+        Returns:
+            Ops per cycle per tile
+        """
+        # Base: pes_per_tile MACs per cycle (16x16 = 256 typical)
+        base_ops = self.pes_per_tile * 2  # 2 ops per MAC (multiply + accumulate)
+
+        return {
+            'INT8': base_ops * 2,    # 2× throughput (dual INT8 units)
+            'FP8': base_ops * 2,
+            'BF16': base_ops,        # 1× throughput (base)
+            'FP16': base_ops,
+            'FP32': base_ops * 0.5,  # 0.5× throughput (half rate)
+        }.get(precision.upper(), base_ops)
 
     def _estimate_l3_routing_distance(self) -> float:
         """
@@ -2565,10 +2592,10 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
             pe_streaming_energy
         )
 
-        # Categorize into compute/memory/control overhead
-        # Memory overhead: memory hierarchy + data movement engines + L3 NoC routing
+        # Categorize into compute/data_movement/control overhead
+        # Data movement overhead: memory hierarchy + data movement engines + L3 NoC routing
         # L3 routing is energy to route data through distributed L3 scratchpad (NoC hops)
-        memory_overhead = (
+        data_movement_overhead = (
             dram_energy + l3_energy + l2_energy + l1_energy +
             dma_energy + blockmover_energy + streamer_energy +
             l3_routing_energy  # Moved from compute_overhead (data movement, not computation)
@@ -2582,7 +2609,7 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
         )
 
         # Compute overhead: fusion coordination only
-        # (L3 routing moved to memory_overhead since it's data movement)
+        # (L3 routing moved to data_movement_overhead since it's data movement)
         compute_overhead = fusion_energy
 
         # Create extra_details dictionary with all 8 components
@@ -2648,7 +2675,7 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead,
-            memory_overhead=memory_overhead,
+            data_movement_overhead=data_movement_overhead,
             control_overhead=control_overhead,
             extra_details=extra_details,
             explanation=(

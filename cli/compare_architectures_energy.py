@@ -132,7 +132,7 @@ class ArchitecturalEnergyBreakdown:
 
     # Architectural overhead breakdown (from architectural_energy.py)
     architectural_compute_overhead_j: float
-    architectural_memory_overhead_j: float
+    architectural_data_movement_overhead_j: float
     architectural_control_overhead_j: float
 
     # Architecture-specific energy events (dict for flexibility)
@@ -150,7 +150,7 @@ class ArchitecturalEnergyBreakdown:
     def get_total_architectural_overhead(self) -> float:
         """Sum of all architectural overhead"""
         return (self.architectural_compute_overhead_j +
-                self.architectural_memory_overhead_j +
+                self.architectural_data_movement_overhead_j +
                 self.architectural_control_overhead_j)
 
     def to_dict(self) -> dict:
@@ -404,7 +404,7 @@ class ArchitectureEnergyComparator:
             # Fallback if no architectural model
             arch_breakdown_raw = ArchEnergyBreakdown(
                 compute_overhead=0.0,
-                memory_overhead=0.0,
+                data_movement_overhead=0.0,
                 control_overhead=0.0,
                 extra_details={},
                 explanation="No architectural energy model available"
@@ -449,7 +449,7 @@ class ArchitectureEnergyComparator:
             memory_energy_j=sum(a.memory_energy for a in hw_allocation.subgraph_allocations),
             static_energy_j=0.0,  # Will be calculated from idle power
             architectural_compute_overhead_j=arch_breakdown_raw.compute_overhead,
-            architectural_memory_overhead_j=arch_breakdown_raw.memory_overhead,
+            architectural_data_movement_overhead_j=arch_breakdown_raw.data_movement_overhead,
             architectural_control_overhead_j=arch_breakdown_raw.control_overhead,
             arch_specific_events=arch_specific,
             energy_per_inference_j=energy_per_inference,

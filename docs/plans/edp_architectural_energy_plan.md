@@ -339,7 +339,7 @@ def explain_edp_difference(self, arch1: str, arch2: str) -> str:
             lines.append(f"  • {winner} saves {control_diff*1e9:.2f} nJ in control overhead")
             lines.append(f"    (eliminates instruction fetch, scheduling machinery)")
 
-        memory_diff = b_loser.memory_overhead - b_winner.memory_overhead
+        memory_diff = b_loser.data_movement_overhead - b_winner.data_movement_overhead
         if memory_diff > 0:
             lines.append(f"  • {winner} saves {memory_diff*1e9:.2f} nJ in memory overhead")
             lines.append(f"    (more efficient memory access patterns)")
@@ -1028,7 +1028,7 @@ class ArchitecturalEnergyBreakdown:
     and human-readable explanation.
     """
     compute_overhead: float  # Additional compute energy (Joules)
-    memory_overhead: float   # Additional memory energy (Joules)
+    data_movement_overhead: float   # Additional memory energy (Joules)
     control_overhead: float  # Control/coordination energy (Joules)
 
     # Additional details for specific architectures
@@ -1043,7 +1043,7 @@ class ArchitecturalEnergyBreakdown:
     @property
     def total_overhead(self) -> float:
         """Total architectural overhead"""
-        return self.compute_overhead + self.memory_overhead + self.control_overhead
+        return self.compute_overhead + self.data_movement_overhead + self.control_overhead
 
     @property
     def edp_contribution(self) -> float:
@@ -1068,7 +1068,7 @@ class ArchitecturalEnergyBreakdown:
     def memory_edp(self) -> float:
         """Memory overhead EDP component"""
         if self.latency_s is not None:
-            return self.memory_overhead * self.latency_s
+            return self.data_movement_overhead * self.latency_s
         return 0.0
 
     @property
@@ -1095,12 +1095,12 @@ explanation = (
 # NEW: Add EDP context if latency provided
 if execution_context.get('latency_s'):
     latency_s = execution_context['latency_s']
-    edp_contribution = (control_overhead + total_memory_overhead) * latency_s
+    edp_contribution = (control_overhead + total_data_movement_overhead) * latency_s
 
     explanation += f"\n"
     explanation += f"EDP IMPACT (Energy × Latency):\n"
     explanation += f"  Latency: {latency_s*1e3:.2f} ms\n"
-    explanation += f"  Energy overhead: {(control_overhead + total_memory_overhead)*1e9:.2f} nJ\n"
+    explanation += f"  Energy overhead: {(control_overhead + total_data_movement_overhead)*1e9:.2f} nJ\n"
     explanation += f"  EDP contribution: {edp_contribution*1e9:.2f} nJ·s\n"
     explanation += f"\n"
     explanation += f"  This architecture's energy events contribute {edp_contribution*1e9:.2f} nJ·s to EDP.\n"

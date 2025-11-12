@@ -294,9 +294,9 @@ class GPUMapper(HardwareMapper):
                 peak_flops = self.resource_model.get_peak_ops(precision)
                 sm_flops = peak_flops / self.resource_model.compute_units
 
-            # Bandwidth scales linearly with SM count
+            # Memory bandwidth is SHARED across all SMs (not per-SM!)
+            # Unlike compute which scales linearly, bandwidth is a global resource
             peak_bandwidth = self.resource_model.peak_bandwidth
-            sm_bandwidth = peak_bandwidth / self.resource_model.compute_units
 
             # Roofline model on allocated SMs
             ops = sg.total_flops if sg.total_flops > 0 else sg.total_macs * 2
@@ -307,7 +307,7 @@ class GPUMapper(HardwareMapper):
             )
 
             compute_time = ops / (sm_flops * sms_allocated)
-            memory_time = bytes_transferred / (sm_bandwidth * sms_allocated)
+            memory_time = bytes_transferred / peak_bandwidth  # Bandwidth is shared, not per-SM!
 
             # Bottleneck is the limiting factor
             kernel_time = max(compute_time, memory_time)

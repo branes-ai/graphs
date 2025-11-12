@@ -168,10 +168,10 @@ class ComputeResource:
     Physical compute units and their capabilities (for homogeneous architectures).
 
     Calculates peak/sustained performance from first principles:
-        peak_ops = num_units × ops_per_unit_per_clock × max_boost_clock_hz
+        peak_ops = num_units x ops_per_unit_per_clock x max_boost_clock_hz
 
     Example:
-        16 ALUs × 4 INT8 ops/ALU/clock × 1.5 GHz = 96 GOPS INT8
+        16 ALUs x 4 INT8 ops/ALU/clock x 1.5 GHz = 96 GOPS INT8
     """
     resource_type: str            # "Ampere-SM", "Systolic-Array", "AVX512-Core"
     num_units: int                # Count of compute units (SMs, cores, tiles)
@@ -205,7 +205,7 @@ class TileSpecialization:
     silicon budget across specialized tile types:
     - 70 tiles: INT8-optimized (vision, detection)
     - 20 tiles: BF16-optimized (normalization, attention)
-    - 10 tiles: Matrix units (large matmuls)
+    - 10 tiles: TC32 units (large matmuls)
 
     All precisions are native (no emulation) - just on different tile types.
     """
@@ -232,12 +232,12 @@ class KPUComputeResource:
     """
     KPU-specific compute model with heterogeneous tile allocation.
 
-    Goal: Characterize workload → recommend tile allocation → build optimal KPU.
+    Goal: Characterize workload -> recommend tile allocation -> build optimal KPU.
 
     Example silicon allocation for embodied AI:
         - 70% INT8 tiles (Conv, detection)
         - 20% BF16 tiles (normalization, attention)
-        - 10% Matrix tiles (large matmuls)
+        - 10% TC32 tiles (large matmuls)  tensorcore processing elements
     """
     total_tiles: int
     tile_specializations: List[TileSpecialization]
@@ -252,9 +252,9 @@ class KPUComputeResource:
         Calculate peak performance across all tiles supporting this precision.
 
         Example: INT8 performance =
-            70 INT8-tiles × 128 ops/tile/clock × 1 GHz +
-            20 BF16-tiles × 64 ops/tile/clock × 1 GHz +
-            10 Matrix-tiles × 512 ops/tile/clock × 1 GHz
+            70 INT8-tiles x 512 ops/tile/clock x 1 GHz +
+            20 BF16-tiles x 256 ops/tile/clock x 1 GHz +
+            10 TC32-tiles x 4096 ops/tile/clock x 1 GHz
         """
         total_ops = 0.0
         for ts in self.get_tiles_for_precision(precision):
@@ -859,7 +859,7 @@ class HardwareMapper(ABC):
 
             # Apply architectural overheads
             compute_energy += arch_breakdown.compute_overhead
-            memory_energy += arch_breakdown.memory_overhead
+            memory_energy += arch_breakdown.data_movement_overhead
 
             return compute_energy, memory_energy, arch_breakdown
         else:
