@@ -6,6 +6,152 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-13] - Architecture-Specific Energy Analysis CLI Tools (Phase 1A)
+
+### Added
+
+**CPU Energy Analysis Tool with Hierarchical Breakdown**
+- Created `cli/analyze_cpu_energy.py` (363 lines) - comprehensive CPU energy analysis tool
+  - Analyzes DNN models on 9 CPU configurations: Jetson Orin AGX, Intel Xeon (Emerald Rapids, Sapphire Rapids, Granite Rapids), AMD EPYC (Genoa, Bergamo, Turin), Ampere (One M192, Altra Max M128)
+  - Command-line interface: `--cpu`, `--model`, `--batch-size`, `--precision`, `--thermal-profile`
+  - Complete analysis pipeline: model loading → FX tracing → shape propagation → fusion partitioning → hardware mapping → energy breakdown
+  - **Hierarchical energy breakdown** (5 architectural categories):
+    1. **Instruction Pipeline**: Fetch (I-cache), decode, dispatch with instruction counts
+    2. **Register File Operations**: Register reads/writes with access counts
+    3. **Memory Hierarchy**: L1, L2, L3 cache + DRAM with access counts and energy percentages
+    4. **ALU Operations**: Floating-point arithmetic energy
+    5. **Branch Prediction**: Branch energy with misprediction tracking and success rate
+  - Shows architectural overhead vs baseline compute/memory energy
+  - Calculates dynamic vs idle/leakage energy split
+  - Graceful fallback for CPUs without StoredProgramEnergyModel (shows basic metrics with explanation)
+  - Example: `python cli/analyze_cpu_energy.py --cpu jetson_orin_agx_cpu --model mobilenet_v2`
+
+**Shared Model Factory for Architecture Tools**
+- Created `cli/model_factory.py` (322 lines) - unified model loading infrastructure
+  - Supports 30+ built-in torchvision models:
+    - ResNet: 18, 34, 50, 101, 152
+    - MobileNet: v2, v3 small/large
+    - EfficientNet: b0-b5
+    - Vision Transformer: ViT-B/L 16/32
+    - ConvNeXt: tiny, small, base, large
+    - Other CNNs: VGG, DenseNet, ShuffleNet, SqueezeNet
+  - Custom PyTorch model support via `--model-path` and `--model-class`
+  - Automatic Dynamo tracing and shape propagation with error handling
+  - Fusion-based partitioning integration (FusionBasedPartitioner)
+  - Model-specific input shapes (e.g., EfficientNet-B4: 380×380)
+  - Reusable across all 4 architecture-specific tools (CPU/GPU/TPU/KPU)
+  - Functions: `load_and_prepare_model()`, `load_builtin_model()`, `load_custom_model()`, `trace_and_partition()`, `list_available_models()`
+
+**Energy Breakdown Utilities Module**
+- Created `cli/energy_breakdown_utils.py` (178 lines) - reusable breakdown printing
+  - `print_cpu_hierarchical_breakdown()`: Detailed 5-category CPU energy breakdown with:
+    - Per-component energy in microjoules
+    - Percentage breakdowns within each category
+    - Operation/access counts for context
+    - Architectural overhead vs baseline energy
+    - Dynamic vs idle/leakage energy split
+    - CPU architectural characteristics summary
+  - `aggregate_subgraph_events()`: Event aggregation across multiple subgraphs (for future per-subgraph analysis)
+  - Clean separation of printing logic from analysis logic
+  - Foundation for GPU/TPU/KPU breakdown functions (Phases 2-4)
+
+### Changed
+
+**StoredProgramEnergyModel Integration in CPU Tool**
+- CPU analysis tool now calls `architecture_energy_model.compute_architectural_energy()` after mapping completes
+- Aggregates total ops and bytes transferred across all subgraphs for model-level breakdown
+- Extracts architectural events from `extra_details` dict returned by energy model
+- Passes events to `print_cpu_hierarchical_breakdown()` for formatted output
+- Currently supported CPUs with StoredProgramEnergyModel:
+  - ✅ Jetson Orin AGX CPU (ARM Cortex-A78AE, 12 cores, 8nm)
+  - ✅ Intel Xeon Platinum 8490H (Emerald Rapids, 60 cores, 7nm Intel 4)
+  - ❌ AMD EPYC (Genoa, Bergamo, Turin) - models can be added in Phase 1C
+  - ❌ Ampere (One, Altra) - models can be added in Phase 1C
+- Remaining CPUs without models show basic metrics with helpful message explaining architectural breakdown is unavailable
+
+### Technical Details
+
+**Implementation Approach**
+- Chose "Aggregate events" approach (Option C from design exploration)
+  - Doesn't modify core data structures (`GraphHardwareAllocation`, `HardwareAllocation`)
+  - Manual call to architectural energy model after mapping completes
+  - Provides complete model-level breakdown (not per-subgraph granularity)
+  - Simpler implementation, sufficient for most use cases
+  - Pattern easily replicable for GPU/TPU/KPU tools in Phases 2-4
+
+**Test Results**
+- **Jetson Orin AGX CPU + MobileNetV2 (batch 1)**:
+  - Total energy: 36.4 mJ
+  - Architectural overhead: 6.8 mJ (18.7% of total)
+  - Breakdown: Pipeline 0.9 mJ, Register File 2.6 mJ, Memory 2.6 mJ, ALU 0.7 mJ, Branch 0.003 mJ
+  - Dynamic vs idle: 20.8 mJ (57.2%) vs 15.6 mJ (42.8%)
+- **Intel Xeon Emerald Rapids + ResNet18 (batch 4)**:
+  - Total energy: 351.7 mJ
+  - Architectural overhead: 138.3 mJ (39.3% of total)
+  - Scaled correctly with larger model and batch size
+  - Dynamic vs idle: 171.0 mJ (48.6%) vs 180.7 mJ (51.4%)
+- **AMD EPYC Genoa + MobileNetV2 (batch 1)**:
+  - Total energy: 456.0 mJ
+  - Graceful fallback verified (no architectural model configured)
+
+**Key Insights from Testing**
+- Register file energy ≈ ALU energy (both ~0.6-0.8 pJ per operation)
+- Memory hierarchy dominates: DRAM accounts for 50%+ of memory energy
+- Architectural overhead varies significantly: 18.7% (Jetson, edge) to 39.3% (Xeon, datacenter)
+- Idle/leakage energy significant: 42-51% of total energy at 15W idle power
+- Instruction fetch overhead scales with workload: 493 μJ (MobileNetV2) to 18133 μJ (ResNet18 batch 4)
+
+### Documentation
+
+- `docs/sessions/2025-11-13_architecture_energy_cli_tools.md`: Complete session log with:
+  - Initial problem analysis and architecture discovery
+  - Phase 1 (model factory + basic CPU tool) progress
+  - Phase 1A (hierarchical breakdown integration) complete
+  - Integration challenges and solutions
+  - Decision rationale for aggregate events approach
+- `docs/sessions/2025-11-13_phase1a_completion.md`: Phase 1A completion summary with:
+  - What was built (3 files, 800+ lines)
+  - Test results with all 3 CPU configurations
+  - Example output showing hierarchical breakdown
+  - Known limitations and future work
+  - Usage guide and quick start for tomorrow
+
+### Roadmap
+
+**Phase 1B** (Optional, ~1-2 hours): JSON/CSV export for CPU tool
+- Add output formatters in `energy_breakdown_utils.py`
+- Support `--output file.json` and `--output file.csv` flags
+- Include all hierarchical events in exported data
+
+**Phase 1C** (Optional, ~2-3 hours): Add missing CPU architectural models
+- Create StoredProgramEnergyModel instances for AMD EPYC (Genoa, Bergamo, Turin) and Ampere (One, Altra)
+- Configure energy parameters based on process node (5nm for EPYC Genoa/Bergamo, 4nm for Turin, 5nm/7nm for Ampere)
+- Attach to resource models in mapper factory functions
+- Test hierarchical breakdown with each CPU
+
+**Phase 2** (~2-3 hours): GPU energy analysis tool
+- Create `cli/analyze_gpu_energy.py` following same pattern as CPU tool
+- Extract GPU hierarchical breakdown function from `compare_architectures_energy.py` to `energy_breakdown_utils.py`
+- Integrate DataParallelEnergyModel (already exists)
+- GPU-specific events: Tensor/CUDA Cores, register file, shared memory/L1 unified, L2 cache, DRAM, SIMT control (warp divergence, coalescing, barriers, coherence)
+- Test with H100, Jetson Orin AGX, A100
+
+**Phase 3** (~2-3 hours): TPU energy analysis tool
+- Create `cli/analyze_tpu_energy.py`
+- Extract TPU hierarchical breakdown function
+- Integrate SystolicArrayEnergyModel
+- TPU-specific events: systolic array operations, vector/scalar units, weight FIFO, unified buffer, control unit
+- Test with TPU v4 configurations
+
+**Phase 4** (~2-3 hours): KPU energy analysis tool
+- Create `cli/analyze_kpu_energy.py`
+- Extract KPU hierarchical breakdown function
+- Integrate DomainFlowEnergyModel
+- KPU-specific events: tile compute, tile memory (SRAM), shared memory, NoC, control/synchronization
+- Test with KPU-T256 and other variants
+
+---
+
 ## [2025-11-12] - Validation Test Fixes & KPU Energy Model Integration
 
 ### Fixed
