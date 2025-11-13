@@ -2,7 +2,81 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-11-03
+**Last Updated**: 2025-11-13
+
+---
+
+## [2025-11-13] - Architecture-Specific Energy Analysis CLI Tools (Phase 1A Complete)
+
+### Added
+
+- **CPU Energy Analysis Tool** (`cli/analyze_cpu_energy.py`, 363 lines):
+  - Analyzes DNN models on 9 CPU configurations (Jetson Orin, Intel Xeon, AMD EPYC, Ampere)
+  - Command-line interface: `--cpu`, `--model`, `--batch-size`, `--precision`, `--list-cpus`, `--list-models`
+  - Complete pipeline: model loading → tracing → partitioning → mapping → energy analysis
+  - **Hierarchical energy breakdown** showing 5 architectural categories:
+    1. Instruction Pipeline (fetch, decode, dispatch)
+    2. Register File Operations (reads, writes)
+    3. Memory Hierarchy (L1, L2, L3, DRAM)
+    4. ALU Operations
+    5. Branch Prediction (misprediction tracking)
+  - Graceful fallback for CPUs without architectural energy models
+  - Example: `python cli/analyze_cpu_energy.py --cpu jetson_orin_agx_cpu --model mobilenet_v2`
+
+- **Shared Model Factory** (`cli/model_factory.py`, 322 lines):
+  - Unified model loading for all architecture-specific tools
+  - Supports 30+ built-in torchvision models (ResNet, MobileNet, EfficientNet, ViT, ConvNeXt, etc.)
+  - Custom PyTorch model support from file paths
+  - Automatic Dynamo tracing and shape propagation
+  - Fusion-based partitioning integration
+  - Reusable across CPU/GPU/TPU/KPU analysis tools
+
+- **Energy Breakdown Utilities** (`cli/energy_breakdown_utils.py`, 178 lines):
+  - Reusable hierarchical breakdown printing functions
+  - `print_cpu_hierarchical_breakdown()`: Detailed 5-category CPU energy breakdown
+  - `aggregate_subgraph_events()`: Event aggregation across subgraphs
+  - Clean separation of printing logic from analysis logic
+  - Foundation for GPU/TPU/KPU breakdown functions (Phases 2-4)
+
+### Changed
+
+- **StoredProgramEnergyModel integration**:
+  - CPU analysis tool now calls `architecture_energy_model.compute_architectural_energy()` after mapping
+  - Aggregates ops and bytes across all subgraphs for model-level breakdown
+  - Extracts architectural events from `extra_details` dict
+  - Currently supported: Jetson Orin AGX CPU, Intel Xeon Platinum 8490H (Emerald Rapids)
+  - Remaining CPUs (AMD EPYC, Ampere) show basic metrics with helpful message
+
+### Technical Details
+
+- **Implementation approach**: Aggregate events (Option C)
+  - Manual call to architectural energy model after mapping completes
+  - Doesn't modify core data structures (`GraphHardwareAllocation`)
+  - Pattern replicable for GPU/TPU/KPU tools in Phases 2-4
+
+- **Test results**:
+  - Jetson Orin AGX + MobileNetV2: 36.4 mJ total, 6.8 mJ architectural overhead (18.7%)
+  - Intel Xeon + ResNet18 (batch 4): 351.7 mJ total, 138.3 mJ overhead (39.3%)
+  - AMD EPYC (no model): Graceful fallback verified
+
+- **Key insights**:
+  - Register file energy ≈ ALU energy (both ~0.6-0.8 pJ per op)
+  - Memory hierarchy dominates: DRAM accounts for 50%+ of memory energy
+  - Architectural overhead varies: 18.7% (Jetson) to 39.3% (Xeon)
+  - Idle/leakage energy significant: 42-51% of total at 15W idle power
+
+### Documentation
+
+- `docs/sessions/2025-11-13_architecture_energy_cli_tools.md`: Complete session log with architecture analysis
+- `docs/sessions/2025-11-13_phase1a_completion.md`: Phase 1A completion summary with test results
+
+### Roadmap
+
+- **Phase 1B** (Optional): JSON/CSV export for CPU tool (~1-2 hours)
+- **Phase 1C** (Optional): Add StoredProgramEnergyModel to AMD EPYC and Ampere CPUs (~2-3 hours)
+- **Phase 2**: GPU energy analysis tool (`cli/analyze_gpu_energy.py`) with DataParallelEnergyModel integration (~2-3 hours)
+- **Phase 3**: TPU energy analysis tool with SystolicArrayEnergyModel (~2-3 hours)
+- **Phase 4**: KPU energy analysis tool with DomainFlowEnergyModel (~2-3 hours)
 
 ---
 
