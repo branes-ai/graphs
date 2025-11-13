@@ -113,6 +113,47 @@ python examples/visualize_partitioning.py --model resnet18 --output graph.pdf
 
 ---
 
+### 6. Multi-Fabric Architecture Demos
+
+Demonstrate the **physics-based energy model** and **multi-fabric architecture** across different hardware types.
+
+#### Jetson Orin AGX (`demo_jetson_fabric.py`)
+```bash
+python examples/demo_jetson_fabric.py
+```
+
+**What it shows:**
+- GPU multi-fabric (CUDA cores + Tensor Cores)
+- 15% Tensor Core efficiency gain at 8nm
+- Physics-based energy: 1.90 pJ (CUDA), 1.62 pJ (Tensor)
+- Process node scaling comparison with H100
+
+#### KPU-T256 Heterogeneous Tiles (`demo_kpu_fabric.py`)
+```bash
+python examples/demo_kpu_fabric.py
+```
+
+**What it shows:**
+- Heterogeneous tile architecture (70% INT8, 20% BF16, 10% Matrix)
+- Matrix tile efficiency gain (15% better than standard)
+- Physics-based energy at 16nm: 2.70 pJ (standard), 2.30 pJ (matrix)
+- Tile specialization for different workloads
+
+#### TPU Edge Pro Systolic Array (`demo_tpu_fabric.py`)
+```bash
+python examples/demo_tpu_fabric.py
+```
+
+**What it shows:**
+- Single systolic array fabric (128×128 PEs)
+- Weight-stationary dataflow architecture
+- Physics-based energy at 7nm: 1.80 pJ
+- Process node comparison across GPU/KPU/TPU architectures
+
+**Best for:** Understanding physics-based energy modeling and multi-fabric architectures
+
+---
+
 ## Quick Start
 
 ### First Time User

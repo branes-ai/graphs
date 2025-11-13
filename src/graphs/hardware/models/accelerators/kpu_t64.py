@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -50,6 +52,82 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     ✓ No DVFS throttling (well-designed thermal)
     ✓ Distributed on-chip memory (lower latency)
     """
+    sustained_clock_hz = 900e6  # 900 MHz sustained @ 6W
+
+    # ========================================================================
+    # Multi-Fabric Architecture (KPU Tile-Based Accelerator)
+    # ========================================================================
+    # INT8 Tile Fabric (Primary for computer vision)
+    # ========================================================================
+    int8_tile_fabric = ComputeFabric(
+        fabric_type="kpu_int8_tile",
+        circuit_type="standard_cell",   # Tile-based dataflow accelerator
+        num_units=44,                    # 44 INT8 tiles (69% of 64)
+        ops_per_unit_per_clock={
+            Precision.INT8: 512,         # 512 INT8 ops/tile/cycle
+            Precision.INT4: 1024,        # 1024 INT4 ops/tile/cycle
+            Precision.BF16: 256,         # 256 BF16 ops/tile/cycle (fallback)
+        },
+        core_frequency_hz=sustained_clock_hz,  # 900 MHz
+        process_node_nm=16,              # 16nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ
+        energy_scaling={
+            Precision.INT8: 0.15,        # INT8 is very efficient
+            Precision.INT4: 0.08,        # INT4 even more efficient
+            Precision.BF16: 0.50,        # BF16 less efficient on INT8 tiles
+        }
+    )
+
+    # ========================================================================
+    # BF16 Tile Fabric (Sensor fusion, lightweight transformers)
+    # ========================================================================
+    bf16_tile_fabric = ComputeFabric(
+        fabric_type="kpu_bf16_tile",
+        circuit_type="standard_cell",
+        num_units=13,                    # 13 BF16 tiles (20% of 64)
+        ops_per_unit_per_clock={
+            Precision.BF16: 512,         # 512 BF16 ops/tile/cycle (optimized)
+            Precision.FP32: 128,         # 128 FP32 ops/tile/cycle
+            Precision.INT8: 512,         # 512 INT8 ops/tile/cycle (fallback)
+        },
+        core_frequency_hz=sustained_clock_hz,
+        process_node_nm=16,
+        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ
+        energy_scaling={
+            Precision.BF16: 0.50,        # BF16 baseline
+            Precision.FP32: 1.0,         # FP32 full energy
+            Precision.INT8: 0.15,        # INT8 efficient
+        }
+    )
+
+    # ========================================================================
+    # Matrix Tile Fabric (Classification heads, embeddings)
+    # ========================================================================
+    matrix_tile_fabric = ComputeFabric(
+        fabric_type="kpu_matrix_tile",
+        circuit_type="tensor_core",      # Matrix tiles are tensor-optimized
+        num_units=7,                     # 7 matrix tiles (11% of 64)
+        ops_per_unit_per_clock={
+            Precision.INT8: 8192,        # 8192 INT8 ops/tile/cycle (matrix multiply)
+            Precision.BF16: 4096,        # 4096 BF16 ops/tile/cycle
+        },
+        core_frequency_hz=sustained_clock_hz,
+        process_node_nm=16,
+        energy_per_flop_fp32=get_base_alu_energy(16, 'tensor_core'),  # 2.3 pJ (15% better)
+        energy_scaling={
+            Precision.INT8: 0.15,
+            Precision.BF16: 0.50,
+        }
+    )
+
+    # INT8 tiles: 44 × 512 × 900 MHz = 20.4 TOPS INT8
+    # BF16 tiles: 13 × 512 × 900 MHz = 6.0 TFLOPS BF16
+    # Matrix tiles: 7 × 8192 × 900 MHz = 51.6 TOPS INT8
+    # Total INT8 peak: 20.4 + 51.6 = 72 TOPS INT8 (theoretical max, mixed workload)
+
+    # ========================================================================
+    # Clock Domains and Tile Specializations (Legacy for KPUComputeResource)
+    # ========================================================================
     # Clock domain for T64 (power-optimized)
     t64_clock = ClockDomain(
         base_clock_hz=800e6,
@@ -259,6 +337,10 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     model = HardwareResourceModel(
         name="Stillwater KPU-T64",
         hardware_type=HardwareType.KPU,
+
+        # NEW: Multi-fabric architecture (INT8 + BF16 + Matrix tiles)
+        compute_fabrics=[int8_tile_fabric, bf16_tile_fabric, matrix_tile_fabric],
+
         compute_units=64,
         threads_per_unit=256,
         warps_per_unit=0,  # KPU uses tiles, not warps
@@ -304,7 +386,8 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=4 * 1024 * 1024,  # 4 MB shared L2
         main_memory=8 * 1024**3,  # 8 GB LPDDR5
-        energy_per_flop_fp32=1.0e-12,  # Fixed: was 0.10e-12, now 1.0 pJ (16nm edge device, conservative design)
+        # Energy (use BF16 tile fabric as baseline for general-purpose FP32 operations)
+        energy_per_flop_fp32=bf16_tile_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
         energy_per_byte=12e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=2,

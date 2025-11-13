@@ -19,6 +19,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     PerformanceCharacteristics,
@@ -68,6 +70,30 @@ def hailo10h_resource_model() -> HardwareResourceModel:
     num_dataflow_units = 40  # More units than Hailo-8 for transformer workloads
     int4_ops_per_unit_per_clock = 1000  # Optimized for INT4
     int8_ops_per_unit_per_clock = 500   # Same as Hailo-8 for compatibility
+    sustained_clock_hz = 1.0e9  # 1.0 GHz sustained (no throttling)
+
+    # ========================================================================
+    # Transformer-Optimized Dataflow Fabric (KV cache support)
+    # ========================================================================
+    dataflow_fabric = ComputeFabric(
+        fabric_type="transformer_dataflow",
+        circuit_type="standard_cell",   # Custom ASIC with standard cells
+        num_units=num_dataflow_units,   # 40 dataflow processing elements
+        ops_per_unit_per_clock={
+            Precision.INT4: 1000,        # 1000 INT4 ops/cycle per unit
+            Precision.INT8: 500,         # 500 INT8 ops/cycle per unit
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz sustained
+        process_node_nm=16,              # 16nm TSMC (same as Hailo-8)
+        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ
+        energy_scaling={
+            Precision.INT4: 0.0625,      # INT4 is very efficient
+            Precision.INT8: 0.125,       # INT8 efficient
+        }
+    )
+
+    # Total INT4: 40 units × 1000 ops/cycle × 1.0 GHz = 40 TOPS ✓
+    # Total INT8: 40 units × 500 ops/cycle × 1.0 GHz = 20 TOPS ✓
 
     # ========================================================================
     # 2.5W MODE: Single operating point (no DVFS, optimized thermal)
@@ -143,6 +169,10 @@ def hailo10h_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Hailo-10H",
         hardware_type=HardwareType.KPU,  # Enhanced dataflow for transformers
+
+        # NEW: Compute fabric (single transformer-optimized dataflow fabric)
+        compute_fabrics=[dataflow_fabric],
+
         compute_units=num_dataflow_units,
         threads_per_unit=128,
         warps_per_unit=1,
@@ -179,8 +209,8 @@ def hailo10h_resource_model() -> HardwareResourceModel:
         l2_cache_total=12 * 1024 * 1024,  # 12 MB on-chip (larger for KV cache)
         main_memory=8 * 1024**3,  # 8 GB LPDDR4X (for model weights + KV cache)
 
-        # Energy (16nm, transformer-optimized)
-        energy_per_flop_fp32=0.55e-12,  # 0.55 pJ/FLOP (slightly higher than Hailo-8)
+        # Energy (use dataflow fabric energy)
+        energy_per_flop_fp32=dataflow_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
         energy_per_byte=15e-12,          # 15 pJ/byte (LPDDR4X, not on-chip)
 
         # Scheduling

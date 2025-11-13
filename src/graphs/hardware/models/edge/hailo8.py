@@ -19,6 +19,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     PerformanceCharacteristics,
@@ -63,6 +65,29 @@ def hailo8_resource_model() -> HardwareResourceModel:
     # Physical hardware
     num_dataflow_units = 32  # Estimated dataflow processing elements
     int8_ops_per_unit_per_clock = 500  # High ops/clock for dataflow
+    sustained_clock_hz = 1.6e9  # 1.6 GHz sustained (no throttling)
+
+    # ========================================================================
+    # Dataflow Fabric Architecture (All-on-chip spatial dataflow)
+    # ========================================================================
+    dataflow_fabric = ComputeFabric(
+        fabric_type="dataflow_architecture",
+        circuit_type="standard_cell",   # Custom ASIC with standard cells
+        num_units=num_dataflow_units,   # 32 dataflow processing elements
+        ops_per_unit_per_clock={
+            Precision.INT8: 500,         # 500 INT8 ops/cycle per unit
+            Precision.INT4: 1000,        # 2× for INT4
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.6 GHz sustained
+        process_node_nm=16,              # 16nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ
+        energy_scaling={
+            Precision.INT8: 0.125,       # INT8 is very efficient
+            Precision.INT4: 0.0625,      # INT4 even more efficient
+        }
+    )
+
+    # Total INT8: 32 units × 500 ops/cycle × 1.6 GHz = 25.6 TOPS ≈ 26 TOPS ✓
 
     # ========================================================================
     # 2.5W MODE: Single operating point (no DVFS, well-designed thermal)
@@ -138,6 +163,10 @@ def hailo8_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Hailo-8",
         hardware_type=HardwareType.KPU,  # Dataflow architecture (similar to KPU)
+
+        # NEW: Compute fabric (single dataflow fabric)
+        compute_fabrics=[dataflow_fabric],
+
         compute_units=num_dataflow_units,
         threads_per_unit=128,  # Dataflow "threads" per unit
         warps_per_unit=1,
@@ -174,8 +203,8 @@ def hailo8_resource_model() -> HardwareResourceModel:
         l2_cache_total=8 * 1024 * 1024,  # 8 MB total on-chip (estimated)
         main_memory=0,  # No external DRAM (uses host memory for I/O only)
 
-        # Energy (16nm, highly optimized dataflow)
-        energy_per_flop_fp32=0.5e-12,  # 0.5 pJ/FLOP (very efficient)
+        # Energy (use dataflow fabric energy)
+        energy_per_flop_fp32=dataflow_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
         energy_per_byte=2e-12,          # 2 pJ/byte (on-chip SRAM)
 
         # Scheduling

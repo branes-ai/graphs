@@ -72,7 +72,7 @@ def cpu_x86_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=32 * 1024,  # 32 KB per core
         l2_cache_total=16 * 1024 * 1024,  # 16 MB total L2
         main_memory=64 * 1024**3,  # 64 GB DDR5
-        energy_per_flop_fp32=1.004e-12,  # Less efficient
+        energy_per_flop_fp32=1.24e-10,  # ~123.7 pJ/FLOP (10nm Intel, 3.5 GHz, x86 with AVX-512)
         energy_per_byte=20e-12,
         min_occupancy=0.5,
         max_concurrent_kernels=16,  # One per core

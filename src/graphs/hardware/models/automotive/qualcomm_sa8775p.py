@@ -18,6 +18,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     PerformanceCharacteristics,
@@ -61,11 +63,69 @@ def qualcomm_sa8775p_resource_model() -> HardwareResourceModel:
     # Dual HMX (Matrix) + Quad HVX (Vector)
     # Estimate: 32 processing units total
     num_processing_units = 32  # HMX + HVX combined
+    num_hvx_units = 4  # Quad HVX vector units
     int8_ops_per_unit_per_clock = 256  # Matrix accelerator capabilities
 
     # 32 TOPS INT8 @ 2.0 GHz sustained
     # → 32e12 / (32 units × 2.0e9) = 500 ops/unit/clock
     # Using 256 ops/unit/clock requires higher count or clock
+
+    peak_clock_hz = 2.4e9       # 2.4 GHz peak
+    sustained_clock_hz = 2.0e9  # 2.0 GHz sustained @ 30W
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Qualcomm Hexagon automotive)
+    # ========================================================================
+    # HVX Vector Fabric (SIMD operations: conv, pool, activations)
+    # ========================================================================
+    hvx_fabric = ComputeFabric(
+        fabric_type="hvx_vector",
+        circuit_type="simd_packed",    # SIMD vector operations
+        num_units=num_hvx_units,       # 4× HVX units
+        ops_per_unit_per_clock={
+            Precision.INT8: 256,        # 1024-bit / 4-bit = 256 INT8 ops/cycle
+            Precision.INT16: 128,       # 1024-bit / 8-bit = 128 INT16 ops/cycle
+            Precision.FP16: 64,         # Emulated, slower
+            Precision.INT4: 512,        # 1024-bit / 2-bit = 512 INT4 ops/cycle
+        },
+        core_frequency_hz=sustained_clock_hz,  # 2.0 GHz sustained
+        process_node_nm=5,              # 5nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(5, 'simd_packed'),  # 1.35 pJ
+        energy_scaling={
+            Precision.INT8: 0.15,       # INT8 is very efficient
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # ========================================================================
+    # HMX Tensor Fabric (Matrix operations: dense layers, attention)
+    # ========================================================================
+    hmx_fabric = ComputeFabric(
+        fabric_type="hmx_tensor",
+        circuit_type="tensor_core",     # Tensor accelerator (like GPU Tensor Cores)
+        num_units=2,                    # Dual HMX units (automotive version)
+        ops_per_unit_per_clock={
+            Precision.INT8: 7500,       # HMX dominates INT8: ~50% of 32 TOPS / 2.0 GHz / 2 units
+            Precision.INT16: 3750,      # Half of INT8
+            Precision.FP16: 1875,       # Slower
+            Precision.INT4: 15000,      # 2× INT8
+        },
+        core_frequency_hz=sustained_clock_hz,  # 2.0 GHz sustained
+        process_node_nm=5,
+        energy_per_flop_fp32=get_base_alu_energy(5, 'tensor_core'),  # 1.27 pJ (15% better)
+        energy_scaling={
+            Precision.INT8: 0.15,
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # HVX INT8: 4 units × 256 ops/cycle × 2.0 GHz = 2.0 TOPS
+    # HMX INT8: 2 units × 7500 ops/cycle × 2.0 GHz = 30.0 TOPS
+    # Total sustained: 2.0 + 30.0 = 32.0 TOPS ✓
 
     # ========================================================================
     # 20W MODE: Passive cooling (cockpit compute)
@@ -253,6 +313,10 @@ def qualcomm_sa8775p_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="SA8775P-Snapdragon-Ride",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (HVX vector + HMX tensor)
+        compute_fabrics=[hvx_fabric, hmx_fabric],
+
         compute_units=num_processing_units,
         threads_per_unit=128,  # Matrix accelerator threads
         warps_per_unit=4,
@@ -291,8 +355,8 @@ def qualcomm_sa8775p_resource_model() -> HardwareResourceModel:
         l2_cache_total=8 * 1024 * 1024,  # 8 MB L2 (estimated)
         main_memory=16 * 1024**3,  # 16 GB LPDDR5 (typical automotive)
 
-        # Energy (5nm automotive process)
-        energy_per_flop_fp32=0.7e-12,  # 0.7 pJ/FLOP (5nm efficient)
+        # Energy (use HVX fabric as baseline for general-purpose DSP operations)
+        energy_per_flop_fp32=hvx_fabric.energy_per_flop_fp32,  # 1.35 pJ (5nm, SIMD packed)
         energy_per_byte=10e-12,         # 10 pJ/byte (LPDDR5)
 
         # Scheduling

@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -69,6 +71,52 @@ def synopsys_arc_ev7x_resource_model() -> HardwareResourceModel:
     # 35 TOPS @ 1.0 GHz → 35e12 ops/sec → 35,000 ops/cycle
     # Model as 128 equivalent processing elements: 35,000 / 128 = 273 ops/cycle/unit
     num_ev_units = 128
+    sustained_clock_hz = 1.0e9  # 1.0 GHz sustained
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Synopsys ARC EV7x - Heterogeneous Vision IP)
+    # ========================================================================
+    # VPU Fabric (4× Vector Processing Units - 512-bit wide vector DSP)
+    # ========================================================================
+    vpu_fabric = ComputeFabric(
+        fabric_type="ev7x_vpu",
+        circuit_type="simd_packed",     # Vector DSP operations
+        num_units=4,                     # 4 VPUs
+        ops_per_unit_per_clock={
+            Precision.FP32: 2200,        # 2.2 GFLOPS per VPU @ 1 GHz → 2.2 ops/cycle/VPU
+            Precision.INT16: 4400,       # INT16 vector operations
+            Precision.INT32: 2200,       # INT32 vector operations
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz
+        process_node_nm=16,              # 16nm FinFET
+        energy_per_flop_fp32=get_base_alu_energy(16, 'simd_packed'),  # 2.43 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,         # Baseline
+            Precision.INT16: 0.40,       # INT16
+            Precision.INT32: 0.50,       # INT32
+        }
+    )
+
+    # ========================================================================
+    # DNN Accelerator Fabric (INT8 tensor operations)
+    # ========================================================================
+    dnn_fabric = ComputeFabric(
+        fabric_type="ev7x_dnn_accelerator",
+        circuit_type="tensor_core",      # Tensor operations
+        num_units=128,                   # Model as 128 tensor units
+        ops_per_unit_per_clock={
+            Precision.INT8: 273,         # 273 INT8 MACs/cycle/unit
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz
+        process_node_nm=16,              # 16nm FinFET
+        energy_per_flop_fp32=get_base_alu_energy(16, 'tensor_core'),  # 2.295 pJ
+        energy_scaling={
+            Precision.INT8: 0.14,        # INT8 is very efficient
+        }
+    )
+
+    # VPU FP32: 4 VPUs × 2.2 ops/cycle × 1.0 GHz = 8.8 GFLOPS ✓
+    # DNN INT8: 128 units × 273 ops/cycle × 1.0 GHz = 34.94 TOPS ≈ 35 TOPS ✓
 
     clock = ClockDomain(
         base_clock_hz=600e6,      # 600 MHz minimum
@@ -129,6 +177,10 @@ def synopsys_arc_ev7x_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Synopsys-ARC-EV7x-4core",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (VPUs + DNN accelerator)
+        compute_fabrics=[vpu_fabric, dnn_fabric],
+
         compute_units=num_ev_units,
         threads_per_unit=4,
         warps_per_unit=1,
@@ -171,7 +223,7 @@ def synopsys_arc_ev7x_resource_model() -> HardwareResourceModel:
         main_memory=8 * 1024**3,  # Up to 8 GB
 
         # Energy (automotive-optimized)
-        energy_per_flop_fp32=1.4e-12,  # 1.4 pJ/FLOP
+        energy_per_flop_fp32=dnn_fabric.energy_per_flop_fp32,  # 2.295 pJ (16nm, tensor_core)
         energy_per_byte=14e-12,  # 14 pJ/byte
         energy_scaling={
             Precision.INT8: 0.14,

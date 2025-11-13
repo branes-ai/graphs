@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -48,26 +50,88 @@ def a100_sxm4_80gb_resource_model() -> HardwareResourceModel:
     - First with TF32 and BF16 support
     - Strong balance of training and inference
     """
+    # ========================================================================
+    # CUDA Core Fabric (Standard Cell FP32 ALUs)
+    # ========================================================================
+    cuda_fabric = ComputeFabric(
+        fabric_type="cuda_core",
+        circuit_type="standard_cell",
+        num_units=108 * 128,          # 108 SMs × 128 CUDA cores/SM = 13,824 cores
+        ops_per_unit_per_clock={
+            Precision.FP64: 2,         # FMA: 2 ops/clock
+            Precision.FP32: 2,         # FMA: 2 ops/clock
+        },
+        core_frequency_hz=1.41e9,     # 1.41 GHz boost
+        process_node_nm=7,             # TSMC 7nm
+        energy_per_flop_fp32=get_base_alu_energy(7, 'standard_cell'),  # 1.8 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,       # Double precision = 2× energy
+            Precision.FP32: 1.0,       # Baseline
+            Precision.FP16: 0.5,       # Half precision (emulated on CUDA cores)
+            Precision.INT8: 0.125,     # INT8 (emulated on CUDA cores)
+        }
+    )
+
+    # ========================================================================
+    # Tensor Core Fabric (15% more efficient for fused MAC+accumulate)
+    # ========================================================================
+    # 3rd generation Tensor Cores with TF32/BF16/FP64 support
+    tensor_fabric = ComputeFabric(
+        fabric_type="tensor_core",
+        circuit_type="tensor_core",
+        num_units=108 * 4,            # 432 Tensor Cores (108 SMs × 4 TCs/SM)
+        ops_per_unit_per_clock={
+            Precision.FP64: 256,       # 256 FP64 ops/clock/TC (new in Ampere)
+            Precision.BF16: 512,       # 512 BF16 ops/clock/TC (3rd gen)
+            Precision.FP16: 512,       # 512 FP16 ops/clock/TC
+            Precision.INT8: 1024,      # 1024 INT8 ops/clock/TC
+        },
+        core_frequency_hz=1.41e9,
+        process_node_nm=7,
+        energy_per_flop_fp32=get_base_alu_energy(7, 'tensor_core'),  # 1.53 pJ (15% better)
+        energy_scaling={
+            Precision.FP64: 2.0,       # Double precision
+            Precision.BF16: 0.5,       # Half precision
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,     # INT8
+        }
+    )
+
+    # ========================================================================
+    # Legacy Precision Profiles (for backward compatibility)
+    # ========================================================================
+    cuda_fp64_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP64)
+    cuda_fp32_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP32)
+    tensor_fp64_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP64)
+    tensor_bf16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.BF16)
+    tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
+    tensor_int8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT8)
+
     return HardwareResourceModel(
         name="A100-SXM4-80GB",
         hardware_type=HardwareType.GPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[cuda_fabric, tensor_fabric],
+
+        # Legacy fields (for backward compatibility)
         compute_units=108,  # SMs
         threads_per_unit=2048,
         warps_per_unit=64,
         warp_size=32,
 
-        # Precision profiles
+        # Legacy precision profiles (calculated from fabrics)
         precision_profiles={
             Precision.FP64: PrecisionProfile(
                 precision=Precision.FP64,
-                peak_ops_per_sec=9.7e12,  # 9.7 TFLOPS
+                peak_ops_per_sec=tensor_fp64_peak,  # ~156 TFLOPS (Tensor Cores, new in Ampere!)
                 tensor_core_supported=True,  # New in Ampere!
-                relative_speedup=0.5,
+                relative_speedup=8.0,
                 bytes_per_element=8,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=19.5e12,  # 19.5 TFLOPS (CUDA cores)
+                peak_ops_per_sec=cuda_fp32_peak,  # ~39 TFLOPS (CUDA cores)
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
@@ -75,25 +139,25 @@ def a100_sxm4_80gb_resource_model() -> HardwareResourceModel:
             # TF32: New in Ampere (FP32 range, FP16 precision)
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=312e12,  # 312 TFLOPS (Tensor Cores)
+                peak_ops_per_sec=tensor_bf16_peak,  # ~312 TFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=16.0,
+                relative_speedup=8.0,
                 bytes_per_element=2,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=312e12,  # 312 TFLOPS (Tensor Cores)
+                peak_ops_per_sec=tensor_fp16_peak,  # ~312 TFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=16.0,
+                relative_speedup=8.0,
                 bytes_per_element=2,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=624e12,  # 624 TOPS (2× FP16)
+                peak_ops_per_sec=tensor_int8_peak,  # ~624 TOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=32.0,
+                relative_speedup=16.0,
                 bytes_per_element=1,
                 accumulator_precision=Precision.INT32,
             ),
@@ -104,8 +168,17 @@ def a100_sxm4_80gb_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=192 * 1024,  # 192 KB per SM
         l2_cache_total=40 * 1024 * 1024,  # 40 MB
         main_memory=80 * 1024**3,  # 80 GB HBM2e
-        energy_per_flop_fp32=0.69e-12,  # ~0.69 pJ/FLOP (400W / 19.5 TFLOPS / efficiency)
-        energy_per_byte=14e-12,  # ~14 pJ/byte
+
+        # Legacy energy (use CUDA fabric as baseline)
+        energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.8 pJ
+        energy_per_byte=14e-12,  # ~14 pJ/byte (HBM2e)
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.BF16: 0.5,
+            Precision.INT8: 0.125,
+        },
         min_occupancy=0.25,
         max_concurrent_kernels=128,
         wave_quantization=4,

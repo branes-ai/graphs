@@ -12,6 +12,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -53,26 +55,80 @@ def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
     - Cloud inference (AWS G4, GCP T4)
     - Edge servers
     """
+    # ========================================================================
+    # CUDA Core Fabric (Standard Cell FP32 ALUs)
+    # ========================================================================
+    cuda_fabric = ComputeFabric(
+        fabric_type="cuda_core",
+        circuit_type="standard_cell",
+        num_units=40 * 64,            # 40 SMs × 64 CUDA cores/SM = 2,560 cores
+        ops_per_unit_per_clock={
+            Precision.FP32: 2,         # FMA: 2 ops/clock
+        },
+        core_frequency_hz=1.59e9,     # 1.59 GHz boost
+        process_node_nm=12,            # TSMC 12nm FFN
+        energy_per_flop_fp32=get_base_alu_energy(12, 'standard_cell'),  # 2.5 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+            Precision.INT4: 0.0625,
+        }
+    )
+
+    # ========================================================================
+    # Tensor Core Fabric (15% more efficient, 2nd generation)
+    # ========================================================================
+    tensor_fabric = ComputeFabric(
+        fabric_type="tensor_core",
+        circuit_type="tensor_core",
+        num_units=40 * 8,             # 320 Tensor Cores (40 SMs × 8 TCs/SM)
+        ops_per_unit_per_clock={
+            Precision.FP16: 256,       # 256 FP16 ops/clock/TC (2nd gen)
+            Precision.INT8: 512,       # 512 INT8 ops/clock/TC (2× FP16, 2nd gen improvement)
+            Precision.INT4: 1024,      # 1024 INT4 ops/clock/TC (2× INT8)
+        },
+        core_frequency_hz=1.59e9,
+        process_node_nm=12,
+        energy_per_flop_fp32=get_base_alu_energy(12, 'tensor_core'),  # 2.125 pJ (15% better)
+        energy_scaling={
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+            Precision.INT4: 0.0625,
+        }
+    )
+
+    # Calculate peak ops from fabrics
+    cuda_fp32_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP32)
+    tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
+    tensor_int8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT8)
+    tensor_int4_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT4)
+
     return HardwareResourceModel(
         name="T4-PCIe-16GB",
         hardware_type=HardwareType.GPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[cuda_fabric, tensor_fabric],
+
+        # Legacy fields
         compute_units=40,  # SMs
         threads_per_unit=1024,  # Reduced from V100
         warps_per_unit=32,
         warp_size=32,
 
-        # Precision profiles (inference-optimized)
+        # Legacy precision profiles (calculated from fabrics)
         precision_profiles={
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=8.1e12,  # 8.1 TFLOPS (CUDA cores)
+                peak_ops_per_sec=cuda_fp32_peak,  # ~8.1 TFLOPS (CUDA cores)
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=65e12,  # 65 TFLOPS (Tensor Cores)
+                peak_ops_per_sec=tensor_fp16_peak,  # ~65 TFLOPS (Tensor Cores)
                 tensor_core_supported=True,
                 relative_speedup=8.0,
                 bytes_per_element=2,
@@ -80,7 +136,7 @@ def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=130e12,  # 130 TOPS (2× FP16)
+                peak_ops_per_sec=tensor_int8_peak,  # ~130 TOPS (2× FP16)
                 tensor_core_supported=True,
                 relative_speedup=16.0,
                 bytes_per_element=1,
@@ -88,7 +144,7 @@ def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
             ),
             Precision.INT4: PrecisionProfile(
                 precision=Precision.INT4,
-                peak_ops_per_sec=260e12,  # 260 TOPS (2× INT8)
+                peak_ops_per_sec=tensor_int4_peak,  # ~260 TOPS (2× INT8)
                 tensor_core_supported=True,
                 relative_speedup=32.0,
                 bytes_per_element=0.5,
@@ -101,8 +157,16 @@ def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=96 * 1024,  # 96 KB per SM
         l2_cache_total=4 * 1024 * 1024,  # 4 MB
         main_memory=16 * 1024**3,  # 16 GB GDDR6
-        energy_per_flop_fp32=0.29e-12,  # ~0.29 pJ/FLOP (70W / 8.1 TFLOPS / efficiency)
-        energy_per_byte=8e-12,  # ~8 pJ/byte
+
+        # Legacy energy (use CUDA fabric as baseline)
+        energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 2.5 pJ
+        energy_per_byte=8e-12,  # ~8 pJ/byte (GDDR6)
+        energy_scaling={
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+            Precision.INT4: 0.0625,
+        },
         min_occupancy=0.25,
         max_concurrent_kernels=32,
         wave_quantization=4,

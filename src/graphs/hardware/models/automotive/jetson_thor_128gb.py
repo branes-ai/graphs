@@ -11,6 +11,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -56,9 +58,61 @@ def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
     """
     # Physical hardware (constant across power modes)
     num_sms = 64  # Estimated for 1000 TOPS actual datapath
+    cuda_cores_per_sm = 128
+    tensor_cores_per_sm = 4  # Estimated (similar to Ampere/Blackwell)
     int8_ops_per_sm_per_clock = 256  # Actual datapath (not sparsity-inflated)
     fp32_ops_per_sm_per_clock = 128  # Wider SMs
     fp16_ops_per_sm_per_clock = 256  # Match INT8 without sparsity
+    baseline_freq_hz = 1.1e9  # 1.1 GHz sustained @ 60W
+
+    # ========================================================================
+    # Multi-Fabric Architecture (NVIDIA Blackwell GPU)
+    # ========================================================================
+    # CUDA Core Fabric (standard ALU operations)
+    # ========================================================================
+    cuda_fabric = ComputeFabric(
+        fabric_type="cuda_core",
+        circuit_type="standard_cell",
+        num_units=num_sms * cuda_cores_per_sm,  # 64 SMs × 128 cores/SM = 8,192 cores
+        ops_per_unit_per_clock={
+            Precision.FP64: 0.03125,  # 1/32 rate (emulated)
+            Precision.FP32: 2,         # FMA = 2 ops/clock (mul + add)
+            Precision.FP16: 2,         # FP16 emulated on CUDA cores
+            Precision.INT8: 2,         # INT8 emulated on CUDA cores
+        },
+        core_frequency_hz=baseline_freq_hz,  # 1.1 GHz sustained (60W)
+        process_node_nm=4,              # 4nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(4, 'standard_cell'),  # 1.3 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,       # Double precision = 2× energy
+            Precision.FP32: 1.0,       # Baseline
+            Precision.FP16: 0.5,       # Half precision (emulated on CUDA cores)
+            Precision.INT8: 0.125,     # INT8 (emulated on CUDA cores)
+        }
+    )
+
+    # ========================================================================
+    # Tensor Core Fabric (15% more efficient for fused MAC+accumulate)
+    # ========================================================================
+    tensor_fabric = ComputeFabric(
+        fabric_type="tensor_core",
+        circuit_type="tensor_core",
+        num_units=num_sms * tensor_cores_per_sm,  # 64 SMs × 4 TCs/SM = 256 TCs
+        ops_per_unit_per_clock={
+            Precision.FP16: 64,        # 64 FP16 ops/clock/TC (Blackwell 3rd gen)
+            Precision.INT8: 64,        # 64 INT8 ops/clock/TC
+        },
+        core_frequency_hz=baseline_freq_hz,  # 1.1 GHz sustained (60W)
+        process_node_nm=4,
+        energy_per_flop_fp32=get_base_alu_energy(4, 'tensor_core'),  # 1.11 pJ (15% better)
+        energy_scaling={
+            Precision.FP16: 0.5,       # Half precision
+            Precision.INT8: 0.125,     # INT8
+        }
+    )
+
+    # Tensor Core INT8: 256 TCs × 64 MACs/TC/clock × 1.3 GHz boost = 21.2 TOPS INT8 (peak)
+    # At 1.1 GHz sustained: 256 × 64 × 1.1e9 = 18.0 TOPS INT8 (sustained)
 
     # ========================================================================
     # 30W MODE: Typical deployment (autonomous vehicles)
@@ -230,6 +284,10 @@ def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Jetson-Thor-128GB",
         hardware_type=HardwareType.GPU,
+
+        # NEW: Multi-fabric architecture
+        compute_fabrics=[cuda_fabric, tensor_fabric],
+
         compute_units=num_sms,
         threads_per_unit=128,
         warps_per_unit=4,
@@ -258,7 +316,7 @@ def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,
         l2_cache_total=8 * 1024 * 1024,
         main_memory=128 * 1024**3,
-        energy_per_flop_fp32=0.8e-12,
+        energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.3 pJ (4nm TSMC, CUDA cores)
         energy_per_byte=12e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=16,

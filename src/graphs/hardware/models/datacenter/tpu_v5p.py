@@ -24,6 +24,8 @@ from ...resource_model import (
     Precision,
     PrecisionProfile,
     ThermalOperatingPoint,
+    ComputeFabric,
+    get_base_alu_energy,
 )
 from ...architectural_energy import TPUTileEnergyModel
 
@@ -52,7 +54,35 @@ def tpu_v5p_resource_model() -> HardwareResourceModel:
         performance_specs={}  # Uses precision_profiles for performance
     )
 
-    # TPU v5p tile energy model
+    # ========================================================================
+    # Systolic Array Fabric (4nm Standard Cell)
+    # ========================================================================
+    # TPU v5p has enhanced MXUs (exact count not public, conservative: 2)
+    # Process: 4nm (5th-gen TPU, latest)
+    # Clock: 1100 MHz (estimated)
+    # Peak BF16: 459 TFLOPS
+    # Peak FP8: 918 TOPS (2× BF16)
+    systolic_fabric = ComputeFabric(
+        fabric_type="systolic_array",
+        circuit_type="standard_cell",
+        num_units=2 * 128 * 128,  # Conservative: 2 MXUs × 16,384 MACs = 32,768 total MACs
+        ops_per_unit_per_clock={
+            Precision.BF16: 2,  # MAC = 2 ops
+            Precision.FP8_E4M3: 2,  # MAC = 2 ops (FP8 support)
+            Precision.INT8: 2,  # MAC = 2 ops
+        },
+        core_frequency_hz=1100e6,  # 1.1 GHz (estimated)
+        process_node_nm=4,  # 4nm process
+        energy_per_flop_fp32=get_base_alu_energy(4, 'standard_cell'),  # 1.3 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,
+            Precision.BF16: 0.5,  # BF16 is 2× more efficient
+            Precision.FP8_E4M3: 0.25,  # FP8 is 4× more efficient
+            Precision.INT8: 0.125,  # INT8 is 8× more efficient
+        }
+    )
+
+    # TPU v5p tile energy model (for architectural analysis)
     tile_energy_model = TPUTileEnergyModel(
         # Array configuration (similar to v4 but more MXUs)
         array_width=128,
@@ -86,9 +116,19 @@ def tpu_v5p_resource_model() -> HardwareResourceModel:
         mac_energy=0.25e-12,  # 0.25 pJ per BF16 MAC
     )
 
+    # Calculate peak performance
+    bf16_peak = systolic_fabric.get_peak_ops_per_sec(Precision.BF16)
+    fp8_peak = systolic_fabric.get_peak_ops_per_sec(Precision.FP8_E4M3)
+    int8_peak = systolic_fabric.get_peak_ops_per_sec(Precision.INT8)
+
     model = HardwareResourceModel(
         name="TPU-v5p",
         hardware_type=HardwareType.TPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[systolic_fabric],
+
+        # Legacy fields
         compute_units=2,  # Conservative estimate (likely more)
         threads_per_unit=128 * 128,  # 128×128 systolic array per MXU
         warps_per_unit=128,  # rows in systolic array
@@ -97,21 +137,21 @@ def tpu_v5p_resource_model() -> HardwareResourceModel:
         precision_profiles={
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=229.5e12,  # Half of BF16 (not native)
+                peak_ops_per_sec=bf16_peak / 2,  # Half of BF16 (not native)
                 tensor_core_supported=True,
                 relative_speedup=0.5,
                 bytes_per_element=4,
             ),
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=459e12,  # 459 TFLOPS
+                peak_ops_per_sec=bf16_peak,  # 459 TFLOPS
                 tensor_core_supported=True,
                 relative_speedup=1.0,
                 bytes_per_element=2,
             ),
             Precision.FP8_E4M3: PrecisionProfile(
                 precision=Precision.FP8_E4M3,
-                peak_ops_per_sec=918e12,  # ~2× BF16 (FP8 support)
+                peak_ops_per_sec=fp8_peak,  # ~2× BF16 (FP8 support)
                 tensor_core_supported=True,
                 relative_speedup=2.0,
                 bytes_per_element=1,
@@ -119,7 +159,7 @@ def tpu_v5p_resource_model() -> HardwareResourceModel:
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=918e12,  # ~2× BF16
+                peak_ops_per_sec=int8_peak,  # ~2× BF16
                 tensor_core_supported=True,
                 relative_speedup=2.0,
                 bytes_per_element=1,
@@ -132,8 +172,14 @@ def tpu_v5p_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=16 * 1024 * 1024,  # 16 MB per MXU
         l2_cache_total=32 * 1024 * 1024,  # 32 MB shared
         main_memory=32 * 1024**3,  # 32 GB HBM3 (estimated)
-        energy_per_flop_fp32=0.35e-12,  # Improved efficiency vs v4
+        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 1.3 pJ (4nm standard_cell)
         energy_per_byte=8e-12,  # HBM3 energy
+        energy_scaling={
+            Precision.FP32: 1.0,
+            Precision.BF16: 0.5,
+            Precision.FP8_E4M3: 0.25,
+            Precision.INT8: 0.125,
+        },
         min_occupancy=0.5,
         max_concurrent_kernels=1,
         wave_quantization=1,

@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -89,6 +91,61 @@ def qrb5165_resource_model() -> HardwareResourceModel:
     # → 10,000 / 32 = 312.5 ops/cycle/unit
 
     num_dsp_units = 32  # Equivalent processing elements (HVX + HTA combined)
+    num_hvx_units = 4   # Actual HVX SIMD units
+    peak_clock_hz = 1.5e9  # 1.5 GHz peak
+    sustained_clock_hz = 900e6  # 900 MHz sustained @ 7W
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Qualcomm Hexagon DSP)
+    # ========================================================================
+    # HVX Vector Fabric (SIMD operations: conv, pool, activations)
+    # ========================================================================
+    hvx_fabric = ComputeFabric(
+        fabric_type="hvx_vector",
+        circuit_type="simd_packed",    # SIMD vector operations
+        num_units=num_hvx_units,       # 4× HVX units
+        ops_per_unit_per_clock={
+            Precision.INT8: 256,        # 1024-bit / 4-bit = 256 INT8 ops/cycle
+            Precision.INT16: 128,       # 1024-bit / 8-bit = 128 INT16 ops/cycle
+            Precision.FP16: 64,         # Emulated, slower
+            Precision.INT4: 512,        # 1024-bit / 2-bit = 512 INT4 ops/cycle
+        },
+        core_frequency_hz=sustained_clock_hz,  # 900 MHz sustained
+        process_node_nm=7,              # 7nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(7, 'simd_packed'),  # 1.62 pJ
+        energy_scaling={
+            Precision.INT8: 0.15,       # INT8 is very efficient
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # ========================================================================
+    # HTA Tensor Fabric (Matrix operations: dense layers, attention)
+    # ========================================================================
+    hta_fabric = ComputeFabric(
+        fabric_type="hta_tensor",
+        circuit_type="tensor_core",     # Tensor accelerator (like GPU Tensor Cores)
+        num_units=1,                    # Single HTA unit
+        ops_per_unit_per_clock={
+            Precision.INT8: 9024,       # HTA dominates INT8: ~60% of 15 TOPS / 1.5 GHz
+            Precision.INT16: 4512,      # Half of INT8
+            Precision.FP16: 2256,       # Slower
+        },
+        core_frequency_hz=sustained_clock_hz,  # 900 MHz sustained
+        process_node_nm=7,
+        energy_per_flop_fp32=get_base_alu_energy(7, 'tensor_core'),  # 1.53 pJ (15% better)
+        energy_scaling={
+            Precision.INT8: 0.15,
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+        }
+    )
+
+    # HVX INT8: 4 units × 256 ops/cycle × 900 MHz = 0.92 TOPS
+    # HTA INT8: 1 unit × 9024 ops/cycle × 900 MHz = 8.12 TOPS
+    # Total sustained: 0.92 + 8.12 = 9.04 TOPS (60% of 15 TOPS peak) ✓
 
     # ========================================================================
     # CLOCK DOMAIN - 7W Thermal Envelope
@@ -196,6 +253,10 @@ def qrb5165_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Qualcomm-QRB5165-Hexagon698",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (HVX vector + HTA tensor)
+        compute_fabrics=[hvx_fabric, hta_fabric],
+
         compute_units=num_dsp_units,
         threads_per_unit=4,  # HVX units per "processing element"
         warps_per_unit=1,
@@ -248,8 +309,8 @@ def qrb5165_resource_model() -> HardwareResourceModel:
         l2_cache_total=4 * 1024 * 1024,  # 4 MB shared L2 (estimated)
         main_memory=16 * 1024**3,  # Up to 16 GB LPDDR5
 
-        # Energy (edge-optimized)
-        energy_per_flop_fp32=1.5e-12,  # 1.5 pJ/FLOP (FP32 baseline)
+        # Energy (use HVX fabric as baseline for general-purpose DSP operations)
+        energy_per_flop_fp32=hvx_fabric.energy_per_flop_fp32,  # 1.62 pJ (7nm, SIMD packed)
         energy_per_byte=15e-12,  # 15 pJ/byte (LPDDR5)
         energy_scaling={
             Precision.INT8: 0.15,   # 15% of FP32 energy

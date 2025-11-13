@@ -35,6 +35,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     PerformanceCharacteristics,
@@ -101,10 +103,39 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
     """
 
     # ========================================================================
-    # COMPUTE CONFIGURATION
+    # COMPUTE FABRIC (Single 128×128 Systolic Array)
     # ========================================================================
 
+    # Systolic array configuration
+    array_width = 128
+    array_height = 128
+    num_pes = array_width * array_height  # 16,384 PEs
+
     # Clock domain (850 MHz, modest boost from Coral's 500 MHz)
+    clock_hz = 850e6  # 850 MHz sustained @ 30W
+
+    # Systolic Array Fabric (Standard Cell - no tensor core efficiency)
+    # TPU uses weight-stationary dataflow with standard FP32 ALU circuits
+    systolic_fabric = ComputeFabric(
+        fabric_type="systolic_array",
+        circuit_type="standard_cell",  # Standard cell FP32 ALUs
+        num_units=num_pes,  # 16,384 PEs (128×128 array)
+        ops_per_unit_per_clock={
+            Precision.INT8: 2,    # 2 INT8 MACs per PE per cycle (weight stationary + double buffering)
+            Precision.BF16: 1,    # 1 BF16 MAC per PE per cycle (base precision)
+            Precision.FP32: 0.5,  # 0.5 FP32 MACs per PE per cycle (requires 2 cycles per MAC)
+        },
+        core_frequency_hz=clock_hz,   # 850 MHz
+        process_node_nm=7,            # TSMC 7nm
+        energy_per_flop_fp32=get_base_alu_energy(7, 'standard_cell'),  # 1.8 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,      # Baseline
+            Precision.BF16: 0.5,      # Half precision
+            Precision.INT8: 0.125,    # INT8
+        }
+    )
+
+    # Legacy clock domain for thermal profiles
     clock_domain = ClockDomain(
         base_clock_hz=850e6,       # 850 MHz
         max_boost_clock_hz=900e6,  # 900 MHz max
@@ -112,23 +143,13 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
         dvfs_enabled=True,         # Can scale down to 15W
     )
 
-    # Systolic array configuration
-    array_width = 128
-    array_height = 128
-    num_pes = array_width * array_height  # 16,384 PEs
-
     # Performance calculations
-    clock_hz = clock_domain.base_clock_hz
-
-    # INT8: 2 MACs per PE per cycle (weight stationary + double buffering)
     int8_ops_per_clock = num_pes * 2
     int8_tops = int8_ops_per_clock * clock_hz  # 55.5 TOPS peak
 
-    # BF16: 1 MAC per PE per cycle (base precision)
     bf16_ops_per_clock = num_pes * 1
     bf16_tflops = bf16_ops_per_clock * clock_hz  # 27.7 TFLOPS peak
 
-    # FP32: 0.5 MACs per PE per cycle (requires 2 cycles per MAC)
     fp32_ops_per_clock = num_pes * 0.5
     fp32_tflops = fp32_ops_per_clock * clock_hz  # 13.9 TFLOPS peak
 
@@ -136,14 +157,9 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
     efficiency = 0.85
 
     # ========================================================================
-    # ENERGY MODEL (Systolic Array with FP32 Support)
+    # LEGACY ENERGY MODEL (for architectural energy model)
     # ========================================================================
-
-    # Base ALU energy (FP32, unencumbered MAC without accumulator)
-    # This is for fair comparison with CPU/GPU/KPU base ALU energy
-    energy_per_flop_fp32 = 0.6e-12  # 0.6 pJ (static dataflow, minimal control)
-
-    # Full MAC energies (MAC + accumulator + rounding)
+    # Full MAC energies (MAC + accumulator + rounding) - kept for tile_energy_model
     mac_energy_int8 = 0.4e-12   # 0.4 pJ (same as Coral Edge TPU)
     mac_energy_bf16 = 0.6e-12   # 0.6 pJ (1.5× INT8, add BF16 accumulator)
     mac_energy_fp32 = 1.2e-12   # 1.2 pJ (2× BF16, add FP32 accumulator + rounding)
@@ -305,21 +321,34 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
+    # LEGACY PRECISION PROFILES (calculated from fabric for backward compatibility)
+    # ========================================================================
+    fp32_peak = systolic_fabric.get_peak_ops_per_sec(Precision.FP32)
+    bf16_peak = systolic_fabric.get_peak_ops_per_sec(Precision.BF16)
+    int8_peak = systolic_fabric.get_peak_ops_per_sec(Precision.INT8)
+
+    # ========================================================================
     # HARDWARE RESOURCE MODEL
     # ========================================================================
 
     model = HardwareResourceModel(
         name="TPU-Edge-Pro",
         hardware_type=HardwareType.TPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[systolic_fabric],
+
+        # Legacy fields (for backward compatibility)
         compute_units=1,  # Single systolic array (128×128)
         threads_per_unit=num_pes,  # 16,384 PEs
         warps_per_unit=1,
         warp_size=1,
 
+        # Legacy precision profiles (calculated from fabric)
         precision_profiles={
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=fp32_tflops,
+                peak_ops_per_sec=fp32_peak,  # 6.96 TFLOPS
                 tensor_core_supported=True,  # Systolic array acts like tensor cores
                 relative_speedup=0.5,        # 0.5× BF16
                 bytes_per_element=4,
@@ -327,7 +356,7 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
             ),
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=bf16_tflops,
+                peak_ops_per_sec=bf16_peak,  # 13.9 TFLOPS
                 tensor_core_supported=True,
                 relative_speedup=1.0,  # Base precision
                 bytes_per_element=2,
@@ -335,7 +364,7 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=int8_tops,
+                peak_ops_per_sec=int8_peak,  # 27.9 TOPS
                 tensor_core_supported=True,
                 relative_speedup=2.0,  # 2× BF16
                 bytes_per_element=1,
@@ -348,13 +377,16 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=l1_cache_per_unit,
         l2_cache_total=l2_cache_total,
         main_memory=main_memory,
-        energy_per_flop_fp32=energy_per_flop_fp32,
-        energy_per_byte=energy_per_byte,
+
+        # Legacy energy (use systolic fabric)
+        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 1.8 pJ
+        energy_per_byte=energy_per_byte,  # 12 pJ/byte (LPDDR5)
         energy_scaling={
-            Precision.INT8: mac_energy_int8 / energy_per_flop_fp32,  # 0.67× base
-            Precision.BF16: mac_energy_bf16 / energy_per_flop_fp32,  # 1.0× base
-            Precision.FP32: mac_energy_fp32 / energy_per_flop_fp32,  # 2.0× base
+            Precision.FP32: 1.0,
+            Precision.BF16: 0.5,
+            Precision.INT8: 0.125,
         },
+
         min_occupancy=0.7,  # Systolic arrays need high utilization
         max_concurrent_kernels=1,  # Single model at a time
         wave_quantization=1,

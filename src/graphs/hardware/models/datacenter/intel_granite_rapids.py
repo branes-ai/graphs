@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -103,17 +105,52 @@ def intel_granite_rapids_resource_model() -> HardwareResourceModel:
     peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 358.4 GB/s
 
     # Power and energy
-    tdp = 500.0  # Watts (higher due to 128 cores)
+    tdp = 400.0  # Watts (estimated)
     idle_power = 100.0  # Estimated
-    dynamic_power = tdp - idle_power  # 400W
+    dynamic_power = tdp - idle_power
+    energy_per_byte = 30e-12  # pJ/byte
 
-    # Energy per operation (at peak)
-    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~61 pJ/FLOP
-    energy_per_byte = 28e-12  # 28 pJ/byte (improved process)
+    # Scalar Fabric
+    scalar_fabric = ComputeFabric(
+        fabric_type="scalar_alu", circuit_type="custom_datacenter",
+        num_units=num_cores * 2, ops_per_unit_per_clock={Precision.FP64: 2, Precision.FP32: 2},
+        core_frequency_hz=base_clock_hz, process_node_nm=3,
+        energy_per_flop_fp32=get_base_alu_energy(3, 'custom_datacenter'),
+        energy_scaling={Precision.FP64: 2.0, Precision.FP32: 1.0}
+    )
+
+    # AVX-512 Fabric
+    avx512_fabric = ComputeFabric(
+        fabric_type="avx512", circuit_type="simd_packed",
+        num_units=num_cores, ops_per_unit_per_clock={Precision.FP64: 8, Precision.FP32: 16, Precision.FP16: 32},
+        core_frequency_hz=all_core_boost_hz, process_node_nm=3,
+        energy_per_flop_fp32=get_base_alu_energy(3, 'simd_packed'),
+        energy_scaling={Precision.FP64: 2.0, Precision.FP32: 1.0, Precision.FP16: 0.5, Precision.INT8: 0.125}
+    )
+
+    # AMX Fabric
+    amx_fabric = ComputeFabric(
+        fabric_type="amx_tile", circuit_type="tensor_core",
+        num_units=num_cores * amx_tiles_per_core, ops_per_unit_per_clock={Precision.BF16: 128, Precision.INT8: 256},
+        core_frequency_hz=all_core_boost_hz, process_node_nm=3,
+        energy_per_flop_fp32=get_base_alu_energy(3, 'tensor_core'),
+        energy_scaling={Precision.BF16: 0.5, Precision.INT8: 0.125}
+    )
+
+    scalar_fp64_peak = scalar_fabric.get_peak_ops_per_sec(Precision.FP64)
+    avx512_fp32_peak = avx512_fabric.get_peak_ops_per_sec(Precision.FP32)
+    avx512_fp16_peak = avx512_fabric.get_peak_ops_per_sec(Precision.FP16)
+    amx_bf16_peak = amx_fabric.get_peak_ops_per_sec(Precision.BF16)
+    amx_int8_peak = amx_fabric.get_peak_ops_per_sec(Precision.INT8)
 
     return HardwareResourceModel(
         name="Intel-Xeon-Granite-Rapids",
         hardware_type=HardwareType.CPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[scalar_fabric, avx512_fabric, amx_fabric],
+
+        # Legacy fields
         compute_units=num_cores,  # 128 cores
         threads_per_unit=2,  # HyperThreading (SMT)
         warps_per_unit=1,  # No warp concept in CPUs
@@ -122,35 +159,35 @@ def intel_granite_rapids_resource_model() -> HardwareResourceModel:
         precision_profiles={
             Precision.FP64: PrecisionProfile(
                 precision=Precision.FP64,
-                peak_ops_per_sec=peak_fp32 / 2,  # 3.28 TFLOPS (half of FP32)
+                peak_ops_per_sec=scalar_fp64_peak,  # 3.28 TFLOPS (half of FP32)
                 tensor_core_supported=False,
                 relative_speedup=0.5,
                 bytes_per_element=8,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=peak_fp32,  # 6.55 TFLOPS
+                peak_ops_per_sec=avx512_fp32_peak,  # 6.55 TFLOPS
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
             ),
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=peak_int8_amx / 2,  # 104.9 TFLOPS (Enhanced AMX BF16)
+                peak_ops_per_sec=amx_bf16_peak,  # 104.9 TFLOPS (Enhanced AMX BF16)
                 tensor_core_supported=True,  # Enhanced AMX
                 relative_speedup=16.0,  # AMX is much faster than SIMD
                 bytes_per_element=2,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=peak_fp16,  # 13.11 TFLOPS (AVX-512 FP16)
+                peak_ops_per_sec=avx512_fp16_peak,  # 13.11 TFLOPS (AVX-512 FP16)
                 tensor_core_supported=False,
                 relative_speedup=2.0,
                 bytes_per_element=2,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=peak_int8_amx,  # 209.7 TOPS (Enhanced AMX INT8)
+                peak_ops_per_sec=amx_int8_peak,  # 209.7 TOPS (Enhanced AMX INT8)
                 tensor_core_supported=True,  # Enhanced AMX
                 relative_speedup=32.0,  # AMX is very fast for INT8
                 bytes_per_element=1,
@@ -171,8 +208,9 @@ def intel_granite_rapids_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=48 * 1024,  # 48 KB L1D per core
         l2_cache_total=256 * 1024 * 1024,  # 256 MB total L2 (2 MB × 128 cores)
         main_memory=512 * 1024**3,  # 512 GB (typical server config)
-        energy_per_flop_fp32=energy_per_flop_fp32,  # ~61 pJ/FLOP
-        energy_per_byte=energy_per_byte,  # 28 pJ/byte
+        energy_per_flop_fp32=avx512_fabric.energy_per_flop_fp32,
+        energy_per_byte=energy_per_byte,
+        energy_scaling={Precision.FP64: 2.0, Precision.FP32: 1.0, Precision.BF16: 0.5, Precision.FP16: 0.5, Precision.INT8: 0.125},  # 28 pJ/byte
         min_occupancy=0.5,
         max_concurrent_kernels=num_cores,  # One kernel per core
         wave_quantization=1,

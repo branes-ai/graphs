@@ -576,7 +576,7 @@ Power Budget:
   All architectures compared at 30W TDP for fairness:
   - CPU: ARM Cortex-A78AE @ 30W (all-core sustained)
   - GPU: Jetson Orin AGX @ 30W (active cooling)
-  - TPU: Google Edge TPU @ 2W (limited by thermal constraints)
+  - TPU: Hypothetical TPU Pro @ 30W (Scaled up from Edge TPU)
   - KPU: Stillwater KPU-T256 @ 30W (balanced mode)
 
         """
@@ -591,7 +591,7 @@ Power Budget:
         help='Batch sizes to test (default: 1 8 16)'
     )
     parser.add_argument(
-        '--precision', type=str, default='fp32', choices=['fp32', 'fp16', 'int8'],
+        '--precision', type=str, default='fp32', choices=['int4', 'int8', 'int16', 'bf16', 'fp4', 'fp8', 'fp16', 'fp32', 'fp64'],
         help='Numerical precision (default: fp32)'
     )
     parser.add_argument(
@@ -605,6 +605,11 @@ Power Budget:
         help='Directory for plots (default: ./energy_plots)'
     )
     parser.add_argument(
+        '--print-arch', nargs='+', type=str, default=['cpu', 'gpu', 'tpu', 'kpu'],
+        choices=['cpu', 'gpu', 'tpu', 'kpu'],
+        help='Architectures to print detailed breakdowns for (default: all)'
+    )
+    parser.add_argument(
         '--thermal-profile', type=str, default='30W',
         help='Power budget for all architectures (default: 30W)'
     )
@@ -613,9 +618,15 @@ Power Budget:
 
     # Map precision string to enum
     precision_map = {
-        'fp32': Precision.FP32,
-        'fp16': Precision.FP16,
+        'int4': Precision.INT4,
         'int8': Precision.INT8,
+        'int16': Precision.INT16,
+        'bf16': Precision.BF16,
+        'fp4': Precision.FP4,
+        'fp8': Precision.FP8,
+        'fp16': Precision.FP16,
+        'fp32': Precision.FP32,
+        'fp64': Precision.FP64,
     }
     precision = precision_map[args.precision.lower()]
 
@@ -644,7 +655,7 @@ Power Budget:
     # Generate report
     # TODO: Implement EnergyComparisonReporter
     # For now, just print summary
-    _print_summary(results, mlp_configs, args.batch_sizes, comparator)
+    _print_summary(results, mlp_configs, args.batch_sizes, comparator, args.print_arch)
 
     # Save output
     if args.output:
@@ -830,7 +841,7 @@ def _format_overhead_details(cpu_result, gpu_result, tpu_result, kpu_result):
     return details
 
 
-def _print_summary(results, mlp_configs, batch_sizes, comparator):
+def _print_summary(results, mlp_configs, batch_sizes, comparator, print_arch_selection: List[str]):
     """Print detailed text summary with formatted tables"""
 
     print("\n" + "="*80)
@@ -869,18 +880,18 @@ def _print_summary(results, mlp_configs, batch_sizes, comparator):
             if not (cpu_result and gpu_result and tpu_result and kpu_result):
                 continue
 
-            _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu_result, kpu_result, comparator)
+            _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu_result, kpu_result, comparator, print_arch_selection)
 
     # Print overall summary
     print("\n" + "="*80)
     print("SUMMARY")
     print("="*80)
     print(f"Total configurations tested: {len(mlp_configs)} MLPs × {len(batch_sizes)} batches = {len(mlp_configs) * len(batch_sizes)}")
-    print(f"Total runs: {len(results['gpu']) + len(results['kpu']) + len(results['cpu'])}")
+    print(f"Total runs: {len(results['cpu']) + len(results['gpu']) + len(results['tpu']) + len(results['kpu'])}")
     print(f"\nArchitectures compared:")
     print(f"  • CPU (Stored-Program): ARM Cortex-A78AE 12-core @ 30W")
     print(f"  • GPU (Data-Parallel): NVIDIA Jetson Orin AGX @ 30W")
-    print(f"  • TPU (Systolic-Array): Google Edge TPU @ 2W")
+    print(f"  • TPU (Systolic-Array): Google Edge TPU Pro @ 30W")
     print(f"  • KPU (Domain-Flow): Stillwater KPU-T256 @ 30W")
 
 
@@ -1068,12 +1079,24 @@ def _print_tpu_hierarchical_breakdown(tpu_result):
 
         print(f"\n  TOTAL TPU CONTROL OVERHEAD:        {total_control:8.3f} μJ")
         print(f"  Control per MAC:                     {control_per_mac:.4f} pJ")
+        print(f"  Systolic Array Dimension:            {array_dim} × {array_dim} MACs")
+
+        # Summary
+        arch_total = total_control
+        dynamic_energy_total = arch_total + tpu_result.compute_energy_j*1e6 + tpu_result.memory_energy_j*1e6
+        idle_leakage_energy = tpu_result.total_energy_j*1e6 - dynamic_energy_total
+
+        # Store idle energy back in result for summary table
+        tpu_result.static_energy_j = idle_leakage_energy * 1e-6
+
+        print(f"\n  TOTAL TPU ARCHITECTURAL OVERHEAD:  {arch_total:8.3f} μJ")
+        print(f"  Base Compute Energy:               {tpu_result.compute_energy_j*1e6:8.3f} μJ")
+        print(f"  Base Memory Energy:                {tpu_result.memory_energy_j*1e6:8.3f} μJ")
         print(f"  {'─'*80}")
-        print(f"  Why TPU is efficient:")
-        print(f"  • 1 instruction per {array_dim*array_dim:,} MACs (vs CPU: 1 per ~2 MACs)")
-        print(f"  • Weight-stationary dataflow (load weights once, reuse)")
-        print(f"  • Systolic array: no instruction fetch/decode per MAC")
+        print(f"  SUBTOTAL DYNAMIC ENERGY:           {dynamic_energy_total:8.3f} μJ  ({dynamic_energy_total/tpu_result.total_energy_j/1e6*100:.1f}%)")
+        print(f"  Idle/Leakage Energy (30W x latency): {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/tpu_result.total_energy_j/1e6*100:.1f}%)")
         print(f"  {'─'*80}")
+        print(f"  TOTAL TPU ENERGY:                  {tpu_result.total_energy_j*1e6:8.3f} μJ")
     else:
         # Fallback: simple systolic array model
         print(f"\n  (Simplified systolic array model - no detailed breakdown available)")
@@ -1085,6 +1108,23 @@ def _print_tpu_hierarchical_breakdown(tpu_result):
             print(f"  • Systolic Array Operations:        {systolic_mac:8.3f} μJ")
             print(f"  • On-Chip Buffer Access:            {on_chip:8.3f} μJ")
             print(f"  • Off-Chip DRAM Access:             {dram:8.3f} μJ")
+
+        # Summary
+        arch_total = tpu_result.get_total_architectural_overhead() * 1e6
+        dynamic_energy_total = arch_total + tpu_result.compute_energy_j*1e6 + tpu_result.memory_energy_j*1e6
+        idle_leakage_energy = tpu_result.total_energy_j*1e6 - dynamic_energy_total
+
+        # Store idle energy back in result for summary table
+        tpu_result.static_energy_j = idle_leakage_energy * 1e-6
+
+        print(f"\n  TOTAL TPU ARCHITECTURAL OVERHEAD:  {arch_total:8.3f} μJ")
+        print(f"  Base Compute Energy:               {tpu_result.compute_energy_j*1e6:8.3f} μJ")
+        print(f"  Base Memory Energy:                {tpu_result.memory_energy_j*1e6:8.3f} μJ")
+        print(f"  {'─'*80}")
+        print(f"  SUBTOTAL DYNAMIC ENERGY:           {dynamic_energy_total:8.3f} μJ  ({dynamic_energy_total/tpu_result.total_energy_j/1e6*100:.1f}%)")
+        print(f"  Idle/Leakage Energy (2W × latency): {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/tpu_result.total_energy_j/1e6*100:.1f}%)")
+        print(f"  {'─'*80}")
+        print(f"  TOTAL TPU ENERGY:                  {tpu_result.total_energy_j*1e6:8.3f} μJ")
 
 
 def _print_kpu_hierarchical_breakdown(kpu_result):
@@ -1098,8 +1138,18 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
     # Extract 8-component breakdown from KPUTileEnergyAdapter
     # Check if we have detailed tile energy model data
     if 'dram_energy' in events:
-        # Component 1: 4-Stage Memory Hierarchy
-        print(f"\n  1. MEMORY HIERARCHY (4-Stage: DRAM → L3 → L2 → L1)")
+        
+        # Component 1: SURE Program Loading
+        print(f"\n  1. SURE PROGRAM LOADING (Spatial dataflow configuration)")
+        program_load = events.get('program_load_energy', 0) * 1e6
+        cache_hit_rate = events.get('cache_hit_rate', 0.9)
+
+        print(f"     • Program Load/Broadcast:           {program_load:8.3f} μJ")
+        print(f"     • Cache Hit Rate:                   {cache_hit_rate*100:5.1f}%")
+        print(f"     └─ Subtotal:                        {program_load:8.3f} μJ")
+
+        # Component 2: 4-Stage Memory Hierarchy
+        print(f"\n  2. MEMORY HIERARCHY (4-Stage: DRAM → L3 → L2 → L1)")
         dram = events.get('dram_energy', 0) * 1e6
         l3 = events.get('l3_energy', 0) * 1e6
         l2 = events.get('l2_energy', 0) * 1e6
@@ -1118,8 +1168,8 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         print(f"     • Total Data Transferred:           [{total_bytes/1024:.1f} KB]")
         print(f"     └─ Subtotal:                        {mem_total:8.3f} μJ")
 
-        # Component 2: Data Movement Engines
-        print(f"\n  2. DATA MOVEMENT ENGINES (3 Specialized Engines)")
+        # Component 3: Data Movement Engines
+        print(f"\n  3. DATA MOVEMENT ENGINES (3 Specialized Engines)")
         dma = events.get('dma_energy', 0) * 1e6
         blockmover = events.get('blockmover_energy', 0) * 1e6
         streamer = events.get('streamer_energy', 0) * 1e6
@@ -1129,12 +1179,22 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         dme_total = dma + blockmover + streamer
 
         print(f"     • DMA Engine (DRAM ↔ L3):           {dma:8.3f} μJ  ({dma/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{dma_bytes/1024:.1f} KB]")
-        print(f"     • BlockMover (L3 ↔ L2, inter-tile): {blockmover:8.3f} μJ  ({blockmover/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{blockmover_bytes/1024:.1f} KB]")
-        print(f"     • Streamer (L2 ↔ L1, intra-tile):   {streamer:8.3f} μJ  ({streamer/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{streamer_bytes/1024:.1f} KB]")
+        print(f"     • BlockMover (L3 ↔ L2):             {blockmover:8.3f} μJ  ({blockmover/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{blockmover_bytes/1024:.1f} KB]")
+        print(f"     • Streamer (L2 ↔ L1:                {streamer:8.3f} μJ  ({streamer/dme_total*100 if dme_total > 0 else 0:5.1f}%)  [{streamer_bytes/1024:.1f} KB]")
         print(f"     └─ Subtotal:                        {dme_total:8.3f} μJ")
 
-        # Component 3: Token Signature Matching & Dispatch
-        print(f"\n  3. TOKEN SIGNATURE MATCHING & DISPATCH (Dataflow execution)")
+        # Component 4: Distributed L3 Scratchpad Routing
+        print(f"\n  4. DISTRIBUTED L3 SCRATCHPAD (NoC routing)")
+        l3_routing = events.get('l3_routing_energy', 0) * 1e6
+        avg_hops = events.get('average_l3_hops', 0)
+        l3_routing_accesses = events.get('l3_routing_accesses', 0)
+
+        print(f"     • NoC Routing Energy:               {l3_routing:8.3f} μJ  [{l3_routing_accesses:,} accesses]")
+        print(f"     • Average Hops:                     {avg_hops:5.1f}")
+        print(f"     └─ Subtotal:                        {l3_routing:8.3f} μJ")
+
+        # Component 5: Instruction Token Signature Matching & Dispatch
+        print(f"\n  5. INSTRUCTION TOKEN MATCHING & DISPATCH (Dataflow execution)")
         token_match = events.get('token_matching_energy', 0) * 1e6
         signature = events.get('signature_matching_energy', 0) * 1e6
         dispatch = events.get('dispatch_energy', 0) * 1e6
@@ -1144,25 +1204,6 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         print(f"     • Signature Matching:               {signature:8.3f} μJ  [{num_signature_matches:,} matches]")
         print(f"     • Instruction Token Dispatch:       {dispatch:8.3f} μJ  [{num_tokens:,} tokens fired]")
         print(f"     └─ Subtotal:                        {token_match:8.3f} μJ")
-
-        # Component 4: SURE Program Loading
-        print(f"\n  4. SURE PROGRAM LOADING (Spatial dataflow configuration)")
-        program_load = events.get('program_load_energy', 0) * 1e6
-        cache_hit_rate = events.get('cache_hit_rate', 0.9)
-
-        print(f"     • Program Load/Broadcast:           {program_load:8.3f} μJ")
-        print(f"     • Cache Hit Rate:                   {cache_hit_rate*100:5.1f}%")
-        print(f"     └─ Subtotal:                        {program_load:8.3f} μJ")
-
-        # Component 5: Distributed L3 Scratchpad Routing
-        print(f"\n  5. DISTRIBUTED L3 SCRATCHPAD (NoC routing)")
-        l3_routing = events.get('l3_routing_energy', 0) * 1e6
-        avg_hops = events.get('average_l3_hops', 0)
-        l3_routing_accesses = events.get('l3_routing_accesses', 0)
-
-        print(f"     • NoC Routing Energy:               {l3_routing:8.3f} μJ  [{l3_routing_accesses:,} accesses]")
-        print(f"     • Average Hops:                     {avg_hops:5.1f}")
-        print(f"     └─ Subtotal:                        {l3_routing:8.3f} μJ")
 
         # Component 6: Operator Fusion
         print(f"\n  6. OPERATOR FUSION (Hardware fusion)")
@@ -1182,7 +1223,7 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
         print(f"     └─ Subtotal:                        {token_routing:8.3f} μJ")
 
         # Component 8: Computation
-        print(f"\n  8. COMPUTATION (PE BLAS operators)")
+        print(f"\n  8. COMPUTATION (Compute Fabric operators)")
         compute = events.get('compute_energy', 0) * 1e6
         total_ops = events.get('total_ops', 0)
 
@@ -1212,35 +1253,14 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
             print(f"  • Arithmetic Intensity:               {events.get('arithmetic_intensity', 0):.2f} ops/byte")
             print(f"  • Compute vs Memory:                  {events.get('compute_percentage', 0):.1f}% compute")
 
-        print(f"\n  WHY SO EFFICIENT? Token-based spatial dataflow:")
+        print(f"\n  WHY SO EFFICIENT? Token-based distributed dataflow:")
         print(f"  • No instruction fetch/decode (dataflow, not stored-program)")
-        print(f"  • No coherence machinery (explicit token routing vs cache coherence)")
+        print(f"  • No coherence machinery (explicit spatial token routing vs random cache coherence)")
         print(f"  • 4-stage memory hierarchy reduces DRAM traffic")
-        print(f"  • 3 specialized data movement engines (DMA, BlockMover, Streamer)")
+        print(f"  • 3 specialized data movement engines (DMA, BlockMover, Streamer) to implement system level execution schedules")
     else:
-        # Fallback: simple domain-flow breakdown (old model)
-        print(f"\n  1. DOMAIN-FLOW CONTROL (Token-Based Execution)")
-        domain_track = events.get('Domain Tracking', 0) * 1e6
-        dataflow_adapt = events.get('Dataflow Adaptation', 0) * 1e6
-        injection = events.get('Domain Injection', 0) * 1e6
-        extraction = events.get('Domain Extraction', 0) * 1e6
-        control_total = domain_track + dataflow_adapt + injection + extraction
-
-        print(f"     • Domain Tracking (token match):    {domain_track:8.3f} μJ  ({domain_track/control_total*100 if control_total > 0 else 0:5.1f}%)")
-        print(f"     • Dataflow Adaptation (kernel cfg): {dataflow_adapt:8.3f} μJ  ({dataflow_adapt/control_total*100 if control_total > 0 else 0:5.1f}%)")
-        print(f"     • Domain Injection (input tokens):  {injection:8.3f} μJ  ({injection/control_total*100 if control_total > 0 else 0:5.1f}%)")
-        print(f"     • Domain Extraction (output tokens):{extraction:8.3f} μJ  ({extraction/control_total*100 if control_total > 0 else 0:5.1f}%)")
-        print(f"     └─ Subtotal:                        {control_total:8.3f} μJ")
-
-        print(f"\n  TOTAL KPU ARCHITECTURAL OVERHEAD:     {control_total:8.3f} μJ")
-        print(f"  Base Compute Energy:                  {kpu_result.compute_energy_j*1e6:8.3f} μJ")
-        print(f"  Base Memory Energy:                   {kpu_result.memory_energy_j*1e6:8.3f} μJ")
-        print(f"  {'─'*80}")
-        print(f"  TOTAL KPU ENERGY:                     {kpu_result.total_energy_j*1e6:8.3f} μJ")
-        print(f"\n  WHY SO EFFICIENT? Token-based execution eliminates:")
-        print(f"  • No instruction fetch/decode (dataflow, not stored-program)")
-        print(f"  • No coherence machinery (explicit token routing, not cache coherence)")
-        print(f"  • Minimal control overhead ({control_total:.1f} μJ vs GPU's SIMT overhead)")
+        # ERROR
+        print(f"\nERROR: No detailed KPU energy breakdown data available.")
 
 
 def _print_cpu_hierarchical_breakdown(cpu_result):
@@ -1483,7 +1503,7 @@ def _print_hardware_energy_config(gpu_result, kpu_result, cpu_result, comparator
             print(f"  • Future: Intel AMX (16×16 systolic array) will be added")
 
 
-def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu_result, kpu_result, comparator):
+def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu_result, kpu_result, comparator, print_arch_selection: List[str]):
     """Print detailed comparison for a single configuration"""
 
     print(f"\n{'='*80}")
@@ -1614,10 +1634,14 @@ def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu
     print(f"{'Memory Overhead (%)':<35} {(cpu_memory/cpu_dynamic*100):<15.1f} {(gpu_memory/gpu_dynamic*100):<15.1f} {(tpu_memory/tpu_dynamic*100):<15.1f} {(kpu_memory/kpu_dynamic*100):<15.1f}")
 
     # Architecture-specific hierarchical breakdowns
-    _print_cpu_hierarchical_breakdown(cpu_result)
-    _print_gpu_hierarchical_breakdown(gpu_result)
-    _print_tpu_hierarchical_breakdown(tpu_result)
-    _print_kpu_hierarchical_breakdown(kpu_result)
+    if 'cpu' in print_arch_selection:
+        _print_cpu_hierarchical_breakdown(cpu_result)
+    if 'gpu' in print_arch_selection:
+        _print_gpu_hierarchical_breakdown(gpu_result)
+    if 'tpu' in print_arch_selection:
+        _print_tpu_hierarchical_breakdown(tpu_result)
+    if 'kpu' in print_arch_selection:
+        _print_kpu_hierarchical_breakdown(kpu_result)
 
     # Performance metrics
     print(f"\n{'─'*100}")
@@ -1656,9 +1680,9 @@ def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu
         print(f"   KPU is {gpu_ratio:.2f}× more energy efficient than GPU")
         print(f"   KPU is {cpu_ratio:.2f}× more energy efficient than CPU")
         print(f"\n   WHY? Domain-flow spatial dataflow eliminates:")
-        print(f"   • GPU coherence machinery overhead ({sum(gpu_result.arch_specific_events.values())*1e6:.1f} μJ)")
-        print(f"   • CPU instruction fetch overhead ({sum(cpu_result.arch_specific_events.values())*1e6:.1f} μJ)")
-        print(f"   • Token-based execution requires only {sum(kpu_result.arch_specific_events.values())*1e6:.1f} μJ overhead")
+        print(f"   • GPU architectural overhead ({gpu_result.get_total_architectural_overhead()*1e6:.1f} μJ)")
+        print(f"   • CPU architectural overhead ({cpu_result.get_total_architectural_overhead()*1e6:.1f} μJ)")
+        print(f"   • Token-based execution requires only {kpu_result.get_total_architectural_overhead()*1e6:.1f} μJ overhead")
     elif tpu_total == min_energy:
         winner = "TPU"
         gpu_ratio = gpu_total / tpu_total
@@ -1678,7 +1702,7 @@ def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu
         print(f"   GPU is {kpu_ratio:.2f}× more energy efficient than KPU")
         print(f"   GPU is {cpu_ratio:.2f}× more energy efficient than CPU")
         print(f"\n   WHY? At large batch sizes, GPU amortizes coherence overhead:")
-        print(f"   • Coherence cost per sample: {sum(gpu_result.arch_specific_events.values())*1e6/batch_size:.1f} μJ")
+        print(f"   • Architectural overhead per sample: {gpu_result.get_total_architectural_overhead()*1e6/batch_size:.1f} μJ")
         print(f"   • Massive parallelism wins when overhead is amortized")
     else:
         winner = "CPU"
