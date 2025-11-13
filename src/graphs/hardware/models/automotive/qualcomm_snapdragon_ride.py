@@ -18,6 +18,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     PerformanceCharacteristics,
@@ -62,11 +64,69 @@ def qualcomm_snapdragon_ride_resource_model() -> HardwareResourceModel:
     # Physical hardware (heterogeneous multi-accelerator)
     # Estimate: 128 processing units across DSP + AI accelerators
     num_processing_units = 128  # Heterogeneous compute units
+    num_hvx_units = 8  # Multiple HVX vector units (scaled up from SA8775P)
     int8_ops_per_unit_per_clock = 512  # AI accelerator capabilities
 
     # 700 TOPS INT8 @ 2.7 GHz sustained
     # → 700e12 / (128 units × 2.7e9) = 2,025 ops/unit/clock
     # This suggests highly optimized matrix multiply units
+
+    peak_clock_hz = 3.0e9       # 3.0 GHz peak
+    sustained_clock_hz = 2.7e9  # 2.7 GHz sustained @ 100W
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Qualcomm Snapdragon Ride - High-end automotive)
+    # ========================================================================
+    # HVX Vector Fabric (SIMD operations: conv, pool, activations)
+    # ========================================================================
+    hvx_fabric = ComputeFabric(
+        fabric_type="hvx_vector",
+        circuit_type="simd_packed",    # SIMD vector operations
+        num_units=num_hvx_units,       # 8× HVX units (scaled up)
+        ops_per_unit_per_clock={
+            Precision.INT8: 256,        # 1024-bit / 4-bit = 256 INT8 ops/cycle
+            Precision.INT16: 128,       # 1024-bit / 8-bit = 128 INT16 ops/cycle
+            Precision.FP16: 64,         # Emulated, slower
+            Precision.INT4: 512,        # 1024-bit / 2-bit = 512 INT4 ops/cycle
+        },
+        core_frequency_hz=sustained_clock_hz,  # 2.7 GHz sustained
+        process_node_nm=4,              # 4nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(4, 'simd_packed'),  # 1.17 pJ
+        energy_scaling={
+            Precision.INT8: 0.15,       # INT8 is very efficient
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # ========================================================================
+    # AI Tensor Fabric (Dedicated AI accelerators: dense layers, attention)
+    # ========================================================================
+    ai_tensor_fabric = ComputeFabric(
+        fabric_type="ai_tensor_accelerator",
+        circuit_type="tensor_core",     # Dedicated AI tensor accelerators
+        num_units=16,                   # 16 dedicated AI accelerator units
+        ops_per_unit_per_clock={
+            Precision.INT8: 16000,      # High-performance AI accelerators: ~92% of 700 TOPS / 2.7 GHz / 16 units
+            Precision.INT16: 8000,      # Half of INT8
+            Precision.FP16: 4000,       # Slower
+            Precision.INT4: 32000,      # 2× INT8
+        },
+        core_frequency_hz=sustained_clock_hz,  # 2.7 GHz sustained
+        process_node_nm=4,
+        energy_per_flop_fp32=get_base_alu_energy(4, 'tensor_core'),  # 1.11 pJ (15% better)
+        energy_scaling={
+            Precision.INT8: 0.15,
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # HVX INT8: 8 units × 256 ops/cycle × 2.7 GHz = 5.5 TOPS
+    # AI Tensor INT8: 16 units × 16000 ops/cycle × 2.7 GHz = 691.2 TOPS
+    # Total sustained: 5.5 + 691.2 = 696.7 TOPS ≈ 700 TOPS ✓
 
     # ========================================================================
     # 65W MODE: L2+/L3 ADAS (highway pilot)
@@ -253,6 +313,10 @@ def qualcomm_snapdragon_ride_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Snapdragon-Ride-700TOPS",
         hardware_type=HardwareType.DSP,  # Heterogeneous platform (DSP + accelerators)
+
+        # NEW: Multi-fabric architecture (HVX vector + AI tensor accelerators)
+        compute_fabrics=[hvx_fabric, ai_tensor_fabric],
+
         compute_units=num_processing_units,
         threads_per_unit=256,  # AI accelerator threads
         warps_per_unit=8,
@@ -291,8 +355,8 @@ def qualcomm_snapdragon_ride_resource_model() -> HardwareResourceModel:
         l2_cache_total=32 * 1024 * 1024,  # 32 MB L2 (large cache)
         main_memory=32 * 1024**3,  # 32 GB LPDDR5X (L4/L5 requirement)
 
-        # Energy (4nm automotive process)
-        energy_per_flop_fp32=0.6e-12,  # 0.6 pJ/FLOP (4nm very efficient)
+        # Energy (use HVX fabric as baseline for general-purpose DSP operations)
+        energy_per_flop_fp32=hvx_fabric.energy_per_flop_fp32,  # 1.17 pJ (4nm, SIMD packed)
         energy_per_byte=8e-12,          # 8 pJ/byte (LPDDR5X)
 
         # Scheduling

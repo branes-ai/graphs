@@ -11,6 +11,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -60,9 +62,65 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     # Physical hardware specs (Nano has half the SMs of AGX)
     num_sms = 16  # 1024 CUDA cores / 64 cores per SM
     cuda_cores_per_sm = 64
-    int8_ops_per_sm_per_clock = 512  # Tensor Core: 64 × 8
-    fp32_ops_per_sm_per_clock = 64   # CUDA core
-    fp16_ops_per_sm_per_clock = 512  # Tensor Core FP16
+    tensor_cores_per_sm = 2  # Nano has 2 TCs/SM (vs 4 for AGX)
+    total_tensor_cores = num_sms * tensor_cores_per_sm  # 32 TCs
+    int8_ops_per_sm_per_clock = 128  # 2 TCs/SM × 64 MACs/TC = 128 MACs/SM/clock
+    fp32_ops_per_sm_per_clock = 128  # 64 CUDA cores × 2 ops (FMA) = 128 ops/SM/clock
+    fp16_ops_per_sm_per_clock = 128  # Tensor Core FP16: 2 TCs/SM × 64 MACs/TC
+
+    # Baseline frequency (sustained at 15W with active cooling)
+    baseline_freq_hz = 650e6  # 650 MHz sustained (typical)
+
+    # ========================================================================
+    # Multi-Fabric Architecture (NVIDIA Ampere GPU)
+    # ========================================================================
+    # CUDA Core Fabric (standard ALU operations)
+    # ========================================================================
+    cuda_fabric = ComputeFabric(
+        fabric_type="cuda_core",
+        circuit_type="standard_cell",
+        num_units=num_sms * cuda_cores_per_sm,  # 16 SMs × 64 cores/SM = 1,024 cores
+        ops_per_unit_per_clock={
+            Precision.FP64: 0.03125,  # 1/32 rate (emulated)
+            Precision.FP32: 2,         # FMA = 2 ops/clock (mul + add)
+            Precision.FP16: 2,         # FP16 emulated on CUDA cores
+            Precision.INT8: 2,         # INT8 emulated on CUDA cores
+        },
+        core_frequency_hz=baseline_freq_hz,  # 650 MHz sustained (15W)
+        process_node_nm=8,             # Samsung 8nm
+        energy_per_flop_fp32=get_base_alu_energy(8, 'standard_cell'),  # 1.9 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,       # Double precision = 2× energy
+            Precision.FP32: 1.0,       # Baseline
+            Precision.FP16: 0.5,       # Half precision (emulated on CUDA cores)
+            Precision.INT8: 0.125,     # INT8 (emulated on CUDA cores)
+        }
+    )
+
+    # ========================================================================
+    # Tensor Core Fabric (15% more efficient for fused MAC+accumulate)
+    # ========================================================================
+    tensor_fabric = ComputeFabric(
+        fabric_type="tensor_core",
+        circuit_type="tensor_core",
+        num_units=total_tensor_cores,  # 16 SMs × 2 TCs/SM = 32 TCs
+        ops_per_unit_per_clock={
+            Precision.FP16: 64,        # 64 FP16 ops/clock/TC (Ampere 2nd gen)
+            Precision.INT8: 64,        # 64 INT8 ops/clock/TC
+        },
+        core_frequency_hz=baseline_freq_hz,  # 650 MHz sustained (15W)
+        process_node_nm=8,
+        energy_per_flop_fp32=get_base_alu_energy(8, 'tensor_core'),  # 1.62 pJ (15% better)
+        energy_scaling={
+            Precision.FP16: 0.5,       # Half precision
+            Precision.INT8: 0.125,     # INT8
+        }
+    )
+
+    # Tensor Core INT8: 4×4×4 matmul = 64 MACs/clock per Tensor Core
+    # Total: 32 TCs × 64 MACs/TC/clock = 2,048 MACs/clock
+    # At 918 MHz boost: 2,048 × 918e6 = 1.88 TOPS INT8 (peak)
+    # At 650 MHz sustained: 2,048 × 650e6 = 1.33 TOPS INT8 (sustained)
 
     # ========================================================================
     # 7W MODE: Low power deployment (battery-powered devices)
@@ -193,6 +251,10 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Jetson-Orin-Nano-8GB",
         hardware_type=HardwareType.GPU,
+
+        # NEW: Multi-fabric architecture
+        compute_fabrics=[cuda_fabric, tensor_fabric],
+
         compute_units=num_sms,
         threads_per_unit=64,
         warps_per_unit=2,
@@ -220,7 +282,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=128 * 1024,
         l2_cache_total=2 * 1024 * 1024,  # 2 MB (half of AGX)
         main_memory=8 * 1024**3,  # 8 GB
-        energy_per_flop_fp32=1.2e-12,  # Slightly worse efficiency than AGX
+        energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.9 pJ (8nm Samsung, CUDA cores)
         energy_per_byte=18e-12,
         min_occupancy=0.3,
         max_concurrent_kernels=4,  # Fewer than AGX

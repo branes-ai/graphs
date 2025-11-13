@@ -44,17 +44,157 @@ class HardwareType(Enum):
 
 class Precision(Enum):
     """Numerical precision types"""
-    FP64 = "fp64"
-    FP32 = "fp32"
-    FP16 = "fp16"
-    BF16 = "bf16"
+    FP64 = "fp64"          # IEEE Double Precision, 64-bit, 1 sign, 11 exponent, 52 mantissa
+    FP32 = "fp32"          # IEEE Single Precision, 32-bit, 1 sign, 8 exponent, 23 mantissa
+    FP16 = "fp16"          # IEEE Half Precision, 16-bit, 1 sign, 5 exponent, 10 mantissa
+    FP8 = "fp8"            # IEEE FP8 (generic), 1 sign, 3 exponent, 4 mantissa
     FP8_E4M3 = "fp8_e4m3"  # 4-bit exponent, 3-bit mantissa
     FP8_E5M2 = "fp8_e5m2"  # 5-bit exponent, 2-bit mantissa
-    FP4 = "fp4"
-    INT32 = "int32"
-    INT16 = "int16"
-    INT8 = "int8"
-    INT4 = "int4"
+    FP4 = "fp4"            # 4-bit floating point, 1 sign, 2 exponent, 1 mantissa
+    BF16 = "bf16"          # Brain Floating Point, 16-bit, 1 sign, 8 exponent, 7 mantissa
+    INT32 = "int32"        # 32-bit integer
+    INT16 = "int16"        # 16-bit integer
+    INT8 = "int8"          # 8-bit integer
+    INT4 = "int4"          # 4-bit integer
+
+
+# ============================================================================
+# Physics-Based Energy Model
+# ============================================================================
+
+# Standard cell FP32 ALU energy by process node (Joules per operation)
+# Based on: Energy = Capacitance × Voltage² per switch
+# Frequency does NOT affect energy per operation (only power)
+PROCESS_NODE_ENERGY = {
+    3:   1.2e-12,  # 1.2 pJ @ 3nm (Intel 18A, TSMC N3, AMD Zen 5)
+    4:   1.3e-12,  # 1.3 pJ @ 4nm (TSMC N4/N4P)
+    5:   1.5e-12,  # 1.5 pJ @ 5nm (TSMC N5, Samsung 5LPE)
+    6:   1.65e-12, # 1.65 pJ @ 6nm (TSMC N6 - 7nm extension with slightly better density)
+    7:   1.8e-12,  # 1.8 pJ @ 7nm (TSMC N7, Samsung 7LPP)
+    8:   1.9e-12,  # 1.9 pJ @ 8nm (Samsung 8LPP)
+    10:  2.1e-12,  # 2.1 pJ @ 10nm (Intel 10nm/7)
+    12:  2.5e-12,  # 2.5 pJ @ 12nm (TSMC 12FFC)
+    14:  2.6e-12,  # 2.6 pJ @ 14nm (Intel 14nm, Samsung 14LPP)
+    16:  2.7e-12,  # 2.7 pJ @ 16nm (TSMC 16FFC)
+    28:  4.0e-12,  # 4.0 pJ @ 28nm (TSMC 28HPC+)
+}
+
+# Circuit type multipliers (relative to standard cell baseline)
+# Captures layout efficiency and parallelism benefits
+CIRCUIT_TYPE_MULTIPLIER = {
+    'standard_cell':     1.0,    # Baseline: Standard cell library ALU
+    'tensor_core':       0.85,   # 15% more efficient: Amortized control, fused MAC+accumulate
+    'simd_packed':       0.90,   # 10% more efficient: Packed operations (AVX-512, NEON)
+    'custom_datacenter': 2.75,   # 2.75× higher: 5+ GHz custom circuits, wide datapath, extra pipeline
+}
+
+def get_base_alu_energy(process_node_nm: int, circuit_type: str = 'standard_cell') -> float:
+    """
+    Calculate base ALU energy per FP32 operation.
+
+    Args:
+        process_node_nm: Process node in nanometers (4, 5, 7, 16, 28, etc.)
+        circuit_type: Circuit implementation type
+
+    Returns:
+        Energy per FP32 operation in Joules
+
+    Example:
+        >>> get_base_alu_energy(5, 'standard_cell')
+        1.5e-12  # 1.5 pJ
+        >>> get_base_alu_energy(5, 'tensor_core')
+        1.275e-12  # 1.28 pJ (15% better)
+    """
+    base_energy = PROCESS_NODE_ENERGY.get(process_node_nm)
+    if base_energy is None:
+        # Interpolate for missing nodes
+        nodes = sorted(PROCESS_NODE_ENERGY.keys())
+        if process_node_nm < nodes[0]:
+            base_energy = PROCESS_NODE_ENERGY[nodes[0]]
+        elif process_node_nm > nodes[-1]:
+            base_energy = PROCESS_NODE_ENERGY[nodes[-1]]
+        else:
+            # Linear interpolation
+            for i in range(len(nodes) - 1):
+                if nodes[i] <= process_node_nm <= nodes[i+1]:
+                    e1, e2 = PROCESS_NODE_ENERGY[nodes[i]], PROCESS_NODE_ENERGY[nodes[i+1]]
+                    t = (process_node_nm - nodes[i]) / (nodes[i+1] - nodes[i])
+                    base_energy = e1 + t * (e2 - e1)
+                    break
+
+    multiplier = CIRCUIT_TYPE_MULTIPLIER.get(circuit_type, 1.0)
+    return base_energy * multiplier
+
+
+# ============================================================================
+# Compute Fabric Model - Multi-Fabric Hardware Support
+# ============================================================================
+
+@dataclass
+class ComputeFabric:
+    """
+    A specific type of compute unit with its own energy characteristics.
+
+    Modern accelerators have multiple fabric types:
+      - GPU: CUDA cores (standard) + Tensor Cores (tensor_core)
+      - KPU: INT8 tiles (standard) + Matrix tiles (tensor_core)
+      - CPU: Scalar ALUs (standard/custom) + SIMD units (simd_packed)
+
+    Each fabric has:
+      - Different energy per operation (based on circuit type)
+      - Different peak throughput
+      - Different precision support
+
+    This enables workload-aware fabric selection during graph partitioning.
+
+    Example:
+        CUDA Core fabric (H100):
+          - circuit_type: 'standard_cell'
+          - energy: 1.5 pJ @ 5nm
+          - ops_per_clock: {FP32: 2, FP64: 2}
+
+        Tensor Core fabric (H100):
+          - circuit_type: 'tensor_core'
+          - energy: 1.28 pJ @ 5nm (15% more efficient)
+          - ops_per_clock: {BF16: 512, FP8: 1024}
+    """
+    fabric_type: str                    # "cuda_core", "tensor_core", "int8_tile", "matrix_tile", "avx512", "neon"
+    circuit_type: str                   # "standard_cell", "tensor_core", "simd_packed", "custom_datacenter"
+    num_units: int                      # Count of this fabric type
+    ops_per_unit_per_clock: Dict[Precision, int]  # Peak throughput
+    core_frequency_hz: float            # Operating frequency (for power calculation)
+
+    # Energy model (process + circuit type)
+    process_node_nm: int                # Process node (4, 5, 7, 16, etc.)
+    energy_per_flop_fp32: float         # Base energy (calculated from process + circuit)
+
+    # Precision-specific energy scaling
+    energy_scaling: Dict[Precision, float] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Calculate energy_per_flop_fp32 if not provided"""
+        if self.energy_per_flop_fp32 == 0:
+            self.energy_per_flop_fp32 = get_base_alu_energy(
+                self.process_node_nm,
+                self.circuit_type
+            )
+
+    def get_energy_per_op(self, precision: Precision) -> float:
+        """Get energy per operation for a specific precision"""
+        base = self.energy_per_flop_fp32
+        scaling = self.energy_scaling.get(precision, 1.0)
+        return base * scaling
+
+    def get_peak_ops_per_sec(self, precision: Precision) -> float:
+        """Calculate peak operations per second for a precision"""
+        ops_per_clock = self.ops_per_unit_per_clock.get(precision, 0)
+        return self.num_units * ops_per_clock * self.core_frequency_hz
+
+    def get_peak_power(self, precision: Precision) -> float:
+        """Calculate peak power (Watts) for sustained operation at this precision"""
+        ops_per_sec = self.get_peak_ops_per_sec(precision)
+        energy_per_op = self.get_energy_per_op(precision)
+        return ops_per_sec * energy_per_op
 
 
 # ============================================================================
@@ -77,7 +217,7 @@ class BOMCostProfile:
         - PCB assembly: $8
         - Thermal: $2 (small heatsink)
         → Total BOM: $120
-        → Retail (2.5× margin): $299
+        → Retail (2.5x margin): $299
     """
     # Component costs
     silicon_die_cost: float          # Die fabrication cost (process node dependent)
@@ -448,6 +588,10 @@ class HardwareResourceModel:
     # Captures architecture-specific energy events (instruction fetch, coherence, etc.)
     architecture_energy_model: Optional['ArchitecturalEnergyModel'] = None
     warp_size: int = 32  # Threads per warp (32 for NVIDIA, varies for others)
+
+    # NEW: Multi-fabric support (CUDA + Tensor Cores, INT8 + Matrix tiles, Scalar + SIMD)
+    # If specified, this overrides legacy energy_per_flop_fp32 and precision_profiles
+    compute_fabrics: Optional[List[ComputeFabric]] = None
 
     # Precision-specific performance
     # Key: Precision, Value: PrecisionProfile

@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -74,7 +76,40 @@ def arm_mali_g78_mp20_resource_model() -> HardwareResourceModel:
     # Each core: 97 GFLOPS FP32 @ 848 MHz
     # Total: 1.94 TFLOPS FP32
     num_cores = 20
+    sustained_clock_hz = 848e6  # 848 MHz typical (Google Tensor)
 
+    # ========================================================================
+    # Multi-Fabric Architecture (ARM Mali-G78 Mobile GPU)
+    # ========================================================================
+    # Unified Shader Core Fabric (Graphics + Compute)
+    # ========================================================================
+    shader_fabric = ComputeFabric(
+        fabric_type="mali_shader_core",
+        circuit_type="standard_cell",   # Mobile GPU standard cells
+        num_units=num_cores,             # 20 shader cores (MP20)
+        ops_per_unit_per_clock={
+            Precision.FP32: 114,         # 114 FP32 ops/cycle/core
+            Precision.FP16: 228,         # 228 FP16 ops/cycle/core (2× FP32)
+            Precision.INT8: 114,         # 114 INT8 ops/cycle/core (not optimized)
+            Precision.INT16: 114,        # Similar to FP16 throughput
+        },
+        core_frequency_hz=sustained_clock_hz,  # 848 MHz
+        process_node_nm=7,               # 7nm Samsung (Google Tensor)
+        energy_per_flop_fp32=get_base_alu_energy(7, 'standard_cell'),  # 1.8 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,         # Baseline
+            Precision.FP16: 0.50,        # Half precision
+            Precision.INT16: 0.30,       # INT16
+            Precision.INT8: 0.20,        # INT8 (not optimized for AI)
+        }
+    )
+
+    # Shader cores FP32: 20 cores × 114 ops/cycle × 848 MHz = 1.93 TFLOPS ✓
+    # Shader cores FP16: 20 cores × 228 ops/cycle × 848 MHz = 3.87 TFLOPS ✓
+
+    # ========================================================================
+    # Clock Domain and Compute Resources
+    # ========================================================================
     clock = ClockDomain(
         base_clock_hz=400e6,      # 400 MHz minimum
         max_boost_clock_hz=950e6, # 950 MHz max
@@ -135,6 +170,10 @@ def arm_mali_g78_mp20_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="ARM-Mali-G78-MP20",
         hardware_type=HardwareType.GPU,
+
+        # NEW: Multi-fabric architecture (Unified shader cores)
+        compute_fabrics=[shader_fabric],
+
         compute_units=num_cores,
         threads_per_unit=256,  # Warp size 16 × 16 execution lanes
         warps_per_unit=16,
@@ -177,7 +216,7 @@ def arm_mali_g78_mp20_resource_model() -> HardwareResourceModel:
         main_memory=8 * 1024**3,  # Up to 8 GB
 
         # Energy (mobile-optimized)
-        energy_per_flop_fp32=2.0e-12,  # 2.0 pJ/FLOP
+        energy_per_flop_fp32=shader_fabric.energy_per_flop_fp32,  # 1.8 pJ (7nm, standard cell)
         energy_per_byte=15e-12,  # 15 pJ/byte (mobile DRAM)
         energy_scaling={
             Precision.INT8: 0.20,

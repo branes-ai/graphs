@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -69,6 +71,52 @@ def ceva_neupro_npm11_resource_model() -> HardwareResourceModel:
     # Model as 64 equivalent processing elements
     # 20 TOPS @ 1.25 GHz → 16e12 ops/sec → 250 ops/cycle → 64 units × 312.5 ops/unit/cycle
     num_npu_units = 64
+    sustained_clock_hz = 1.0e9  # 1.0 GHz sustained
+
+    # ========================================================================
+    # Multi-Fabric Architecture (CEVA NeuPro-M NPM11 - Neural Processing IP)
+    # ========================================================================
+    # Tensor Fabric (INT8/INT16/INT4 tensor operations)
+    # ========================================================================
+    tensor_fabric = ComputeFabric(
+        fabric_type="neupro_tensor",
+        circuit_type="tensor_core",      # Tensor operations
+        num_units=64,                    # 64 tensor units
+        ops_per_unit_per_clock={
+            Precision.INT8: 312,         # 312 INT8 MACs/cycle/unit
+            Precision.INT16: 156,        # 156 INT16 MACs/cycle/unit
+            Precision.INT4: 624,         # 624 INT4 MACs/cycle/unit (2× INT8)
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz
+        process_node_nm=16,              # 16nm (typical for edge AI IP)
+        energy_per_flop_fp32=get_base_alu_energy(16, 'tensor_core'),  # 2.295 pJ
+        energy_scaling={
+            Precision.INT8: 0.12,        # INT8 is very efficient
+            Precision.INT16: 0.20,       # INT16
+            Precision.INT4: 0.06,        # INT4 (2× efficiency)
+        }
+    )
+
+    # ========================================================================
+    # Vector Fabric (FP16 vector operations)
+    # ========================================================================
+    vector_fabric = ComputeFabric(
+        fabric_type="neupro_vector",
+        circuit_type="simd_packed",      # Vector operations
+        num_units=64,                    # 64 vector units
+        ops_per_unit_per_clock={
+            Precision.FP16: 156,         # 156 FP16 MACs/cycle/unit
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz
+        process_node_nm=16,              # 16nm
+        energy_per_flop_fp32=get_base_alu_energy(16, 'simd_packed'),  # 2.43 pJ
+        energy_scaling={
+            Precision.FP16: 0.40,        # FP16
+        }
+    )
+
+    # Tensor INT8: 64 units × 312 ops/cycle × 1.0 GHz = 19.97 TOPS ≈ 20 TOPS ✓
+    # Vector FP16: 64 units × 156 ops/cycle × 1.0 GHz = 9.98 TFLOPS ≈ 10 TFLOPS ✓
 
     clock = ClockDomain(
         base_clock_hz=800e6,       # 800 MHz minimum
@@ -139,6 +187,10 @@ def ceva_neupro_npm11_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="CEVA-NeuPro-M-NPM11",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (Tensor + Vector units)
+        compute_fabrics=[tensor_fabric, vector_fabric],
+
         compute_units=num_npu_units,
         threads_per_unit=4,
         warps_per_unit=1,
@@ -181,7 +233,7 @@ def ceva_neupro_npm11_resource_model() -> HardwareResourceModel:
         main_memory=8 * 1024**3,  # Up to 8 GB
 
         # Energy (edge-optimized)
-        energy_per_flop_fp32=1.2e-12,  # 1.2 pJ/FLOP
+        energy_per_flop_fp32=tensor_fabric.energy_per_flop_fp32,  # 2.295 pJ (16nm, tensor_core)
         energy_per_byte=12e-12,  # 12 pJ/byte
         energy_scaling={
             Precision.INT8: 0.12,

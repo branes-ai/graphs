@@ -24,6 +24,8 @@ from ...resource_model import (
     Precision,
     PrecisionProfile,
     ThermalOperatingPoint,
+    ComputeFabric,
+    get_base_alu_energy,
 )
 from ...architectural_energy import TPUTileEnergyModel
 
@@ -51,7 +53,33 @@ def tpu_v3_resource_model() -> HardwareResourceModel:
         performance_specs={}  # Uses precision_profiles for performance
     )
 
-    # TPU v3 tile energy model
+    # ========================================================================
+    # Systolic Array Fabric (16nm Standard Cell)
+    # ========================================================================
+    # TPU v3 has 2 MXUs with 128×128 systolic arrays each
+    # Process: 16nm (3rd-gen TPU)
+    # Clock: 940 MHz
+    # Peak BF16: 123 TFLOPS (2 MXUs × 128×128 × 2 ops × 940 MHz)
+    # Peak INT8: 246 TOPS (2× BF16)
+    systolic_fabric = ComputeFabric(
+        fabric_type="systolic_array",
+        circuit_type="standard_cell",
+        num_units=2 * 128 * 128,  # 2 MXUs × 16,384 MACs = 32,768 total MACs
+        ops_per_unit_per_clock={
+            Precision.BF16: 2,  # MAC = 2 ops
+            Precision.INT8: 2,  # MAC = 2 ops
+        },
+        core_frequency_hz=940e6,  # 940 MHz
+        process_node_nm=16,  # 16nm process
+        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,
+            Precision.BF16: 0.5,  # BF16 is 2× more efficient
+            Precision.INT8: 0.125,  # INT8 is 8× more efficient
+        }
+    )
+
+    # TPU v3 tile energy model (for architectural analysis)
     tile_energy_model = TPUTileEnergyModel(
         # Array configuration (v3 uses smaller 128×128 arrays × 2)
         array_width=128,
@@ -85,9 +113,18 @@ def tpu_v3_resource_model() -> HardwareResourceModel:
         mac_energy=0.25e-12,  # 0.25 pJ per BF16 MAC
     )
 
+    # Calculate peak performance
+    bf16_peak = systolic_fabric.get_peak_ops_per_sec(Precision.BF16)
+    int8_peak = systolic_fabric.get_peak_ops_per_sec(Precision.INT8)
+
     model = HardwareResourceModel(
         name="TPU-v3",
         hardware_type=HardwareType.TPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[systolic_fabric],
+
+        # Legacy fields
         compute_units=2,  # 2 MXUs (Matrix Multiplier Units)
         threads_per_unit=128 * 128,  # 128×128 systolic array per MXU
         warps_per_unit=128,  # rows in systolic array
@@ -96,21 +133,21 @@ def tpu_v3_resource_model() -> HardwareResourceModel:
         precision_profiles={
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=61.5e12,  # Half of BF16 (not native)
+                peak_ops_per_sec=bf16_peak / 2,  # Half of BF16 (not native)
                 tensor_core_supported=True,
                 relative_speedup=0.5,
                 bytes_per_element=4,
             ),
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=123e12,  # 123 TFLOPS
+                peak_ops_per_sec=bf16_peak,  # 123 TFLOPS
                 tensor_core_supported=True,
                 relative_speedup=1.0,
                 bytes_per_element=2,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=246e12,  # 246 TOPS (2× BF16)
+                peak_ops_per_sec=int8_peak,  # 246 TOPS (2× BF16)
                 tensor_core_supported=True,
                 relative_speedup=2.0,
                 bytes_per_element=1,
@@ -123,8 +160,13 @@ def tpu_v3_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=16 * 1024 * 1024,  # 16 MB per MXU (estimated)
         l2_cache_total=32 * 1024 * 1024,  # 32 MB shared (estimated)
         main_memory=16 * 1024**3,  # 16 GB HBM
-        energy_per_flop_fp32=0.4e-12,
+        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm standard_cell)
         energy_per_byte=5e-12,  # HBM energy
+        energy_scaling={
+            Precision.FP32: 1.0,
+            Precision.BF16: 0.5,
+            Precision.INT8: 0.125,
+        },
         min_occupancy=0.5,  # Systolic arrays need high utilization
         max_concurrent_kernels=1,
         wave_quantization=1,

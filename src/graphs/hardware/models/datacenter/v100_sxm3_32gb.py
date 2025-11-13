@@ -12,6 +12,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -51,43 +53,93 @@ def v100_sxm3_32gb_resource_model() -> HardwareResourceModel:
     - Training pioneer (first with Tensor Cores)
     - DGX-1 V100, Cloud instances (AWS P3, GCP)
     """
+    # ========================================================================
+    # CUDA Core Fabric (Standard Cell FP32 ALUs)
+    # ========================================================================
+    cuda_fabric = ComputeFabric(
+        fabric_type="cuda_core",
+        circuit_type="standard_cell",
+        num_units=80 * 64,            # 80 SMs × 64 CUDA cores/SM = 5,120 cores
+        ops_per_unit_per_clock={
+            Precision.FP64: 2,         # FMA: 2 ops/clock
+            Precision.FP32: 2,         # FMA: 2 ops/clock
+        },
+        core_frequency_hz=1.53e9,     # 1.53 GHz boost
+        process_node_nm=12,            # TSMC 12nm FFN
+        energy_per_flop_fp32=get_base_alu_energy(12, 'standard_cell'),  # 2.5 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+        }
+    )
+
+    # ========================================================================
+    # Tensor Core Fabric (15% more efficient, 1st generation)
+    # ========================================================================
+    tensor_fabric = ComputeFabric(
+        fabric_type="tensor_core",
+        circuit_type="tensor_core",
+        num_units=80 * 8,             # 640 Tensor Cores (80 SMs × 8 TCs/SM)
+        ops_per_unit_per_clock={
+            Precision.FP16: 256,       # 256 FP16 ops/clock/TC (1st gen)
+        },
+        core_frequency_hz=1.53e9,
+        process_node_nm=12,
+        energy_per_flop_fp32=get_base_alu_energy(12, 'tensor_core'),  # 2.125 pJ (15% better)
+        energy_scaling={
+            Precision.FP16: 0.5,
+        }
+    )
+
+    # Calculate peak ops from fabrics
+    cuda_fp64_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP64)
+    cuda_fp32_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP32)
+    tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
+
     return HardwareResourceModel(
         name="V100-SXM3-32GB",
         hardware_type=HardwareType.GPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[cuda_fabric, tensor_fabric],
+
+        # Legacy fields
         compute_units=80,  # SMs
         threads_per_unit=2048,
         warps_per_unit=64,
         warp_size=32,
 
-        # Precision profiles
+        # Legacy precision profiles (calculated from fabrics)
         precision_profiles={
             Precision.FP64: PrecisionProfile(
                 precision=Precision.FP64,
-                peak_ops_per_sec=7.8e12,  # 7.8 TFLOPS
+                peak_ops_per_sec=cuda_fp64_peak,  # ~15.6 TFLOPS
                 tensor_core_supported=False,
                 relative_speedup=0.5,
                 bytes_per_element=8,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=15.7e12,  # 15.7 TFLOPS (CUDA cores)
+                peak_ops_per_sec=cuda_fp32_peak,  # ~15.6 TFLOPS (CUDA cores)
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=125e12,  # 125 TFLOPS (with Tensor Cores)
+                peak_ops_per_sec=tensor_fp16_peak,  # ~125 TFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=7.96,  # 125 / 15.7
+                relative_speedup=8.0,
                 bytes_per_element=2,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=125e12,  # Same as FP16 Tensor Cores
+                peak_ops_per_sec=tensor_fp16_peak,  # Same as FP16 (1st gen TCs)
                 tensor_core_supported=True,
-                relative_speedup=7.96,
+                relative_speedup=8.0,
                 bytes_per_element=1,
                 accumulator_precision=Precision.INT32,
             ),
@@ -98,8 +150,16 @@ def v100_sxm3_32gb_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=128 * 1024,  # 128 KB per SM
         l2_cache_total=6 * 1024 * 1024,  # 6 MB
         main_memory=32 * 1024**3,  # 32 GB HBM2
-        energy_per_flop_fp32=0.64e-12,  # ~0.64 pJ/FLOP (300W / 15.7 TFLOPS / efficiency)
-        energy_per_byte=12e-12,  # ~12 pJ/byte
+
+        # Legacy energy (use CUDA fabric as baseline)
+        energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 2.5 pJ
+        energy_per_byte=12e-12,  # ~12 pJ/byte (HBM2)
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+        },
         min_occupancy=0.25,
         max_concurrent_kernels=32,
         wave_quantization=4,

@@ -28,6 +28,8 @@ from ...resource_model import (
     Precision,
     PrecisionProfile,
     ThermalOperatingPoint,
+    ComputeFabric,
+    get_base_alu_energy,
 )
 from ...architectural_energy import TPUTileEnergyModel
 
@@ -56,7 +58,29 @@ def tpu_v1_resource_model() -> HardwareResourceModel:
         performance_specs={}  # Uses precision_profiles for performance
     )
 
-    # TPU v1 tile energy model
+    # ========================================================================
+    # Systolic Array Fabric (28nm Standard Cell)
+    # ========================================================================
+    # TPU v1 has a single large 256×256 systolic array
+    # Process: 28nm (first-gen TPU, older process)
+    # Clock: 700 MHz
+    # Peak INT8: 92 TOPS (256×256 × 2 ops × 700 MHz)
+    systolic_fabric = ComputeFabric(
+        fabric_type="systolic_array",
+        circuit_type="standard_cell",
+        num_units=256 * 256,  # 65,536 MACs (256×256 array)
+        ops_per_unit_per_clock={
+            Precision.INT8: 2,  # MAC = 2 ops (multiply + accumulate)
+        },
+        core_frequency_hz=700e6,  # 700 MHz
+        process_node_nm=28,  # 28nm process
+        energy_per_flop_fp32=get_base_alu_energy(28, 'standard_cell'),  # 4.0 pJ
+        energy_scaling={
+            Precision.INT8: 0.125,  # INT8 is 8× more efficient than FP32
+        }
+    )
+
+    # TPU v1 tile energy model (for architectural analysis)
     tile_energy_model = TPUTileEnergyModel(
         # Array configuration (v1 has the largest systolic array)
         array_width=256,
@@ -90,9 +114,17 @@ def tpu_v1_resource_model() -> HardwareResourceModel:
         mac_energy=0.2e-12,  # 0.2 pJ per INT8 MAC (optimized for INT8)
     )
 
+    # Calculate peak performance
+    int8_peak = systolic_fabric.get_peak_ops_per_sec(Precision.INT8)
+
     model = HardwareResourceModel(
         name="TPU-v1",
         hardware_type=HardwareType.TPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[systolic_fabric],
+
+        # Legacy fields
         compute_units=1,  # Single MXU (Matrix Multiplier Unit)
         threads_per_unit=256 * 256,  # 256×256 systolic array
         warps_per_unit=256,  # rows in systolic array
@@ -102,7 +134,7 @@ def tpu_v1_resource_model() -> HardwareResourceModel:
             # TPU v1 only supports INT8
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=92e12,  # 92 TOPS INT8
+                peak_ops_per_sec=int8_peak,  # 92 TOPS INT8
                 tensor_core_supported=True,  # Systolic array
                 relative_speedup=1.0,  # Only mode available
                 bytes_per_element=1,
@@ -115,8 +147,11 @@ def tpu_v1_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=64 * 1024,  # 64 KiB weight buffer per tile
         l2_cache_total=256 * 1024,  # 256 KiB Weight FIFO
         main_memory=8 * 1024**3,  # 8 GiB DDR3 Weight Memory
-        energy_per_flop_fp32=0.4e-12,  # N/A (no FP32), using INT8 equivalent
+        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 4.0 pJ (28nm standard_cell)
         energy_per_byte=10e-12,  # DDR3 energy
+        energy_scaling={
+            Precision.INT8: 0.125,  # INT8 is 8× more efficient
+        },
         min_occupancy=0.5,  # Systolic arrays need high utilization
         max_concurrent_kernels=1,  # Single large batch
         wave_quantization=1,

@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -53,7 +55,57 @@ def ti_tda4al_resource_model() -> HardwareResourceModel:
     - Replaces TDA4VM in newer designs
     """
     num_dsp_units = 32  # Same as TDA4VM
+    sustained_clock_hz = 980e6  # 980 MHz sustained @ 18W
 
+    # ========================================================================
+    # Multi-Fabric Architecture (TI C7x DSP + MMAv2)
+    # ========================================================================
+    # C7x DSP Fabric (General VLIW/SIMD compute: FP32, control flow)
+    # ========================================================================
+    c7x_fabric = ComputeFabric(
+        fabric_type="c7x_dsp",
+        circuit_type="simd_packed",    # VLIW/SIMD DSP
+        num_units=8,                   # 8 C7x DSP cores (estimated)
+        ops_per_unit_per_clock={
+            Precision.FP32: 10,         # 80 GFLOPS / 8 cores / 1.0 GHz = 10 ops/cycle
+            Precision.FP16: 20,         # 2× FP32
+        },
+        core_frequency_hz=1.0e9,       # 1.0 GHz base
+        process_node_nm=28,             # 28nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(28, 'simd_packed'),  # 3.6 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,        # Baseline
+            Precision.FP16: 0.50,       # Half precision
+            Precision.INT8: 0.15,       # INT8 (used by MMAv2)
+        }
+    )
+
+    # ========================================================================
+    # MMAv2 Tensor Fabric (Matrix operations: INT8 convolution, matmul)
+    # ========================================================================
+    mma_fabric = ComputeFabric(
+        fabric_type="mma_v2",
+        circuit_type="tensor_core",     # Matrix multiply accelerator
+        num_units=1,                    # Single MMA unit (large systolic array)
+        ops_per_unit_per_clock={
+            Precision.INT8: 8000,       # 8 TOPS / 1.0 GHz = 8000 ops/cycle
+            Precision.INT16: 4000,      # Half of INT8
+        },
+        core_frequency_hz=1.0e9,        # 1.0 GHz
+        process_node_nm=28,
+        energy_per_flop_fp32=get_base_alu_energy(28, 'tensor_core'),  # 3.4 pJ (15% better)
+        energy_scaling={
+            Precision.INT8: 0.15,       # INT8 is very efficient
+            Precision.INT16: 0.25,
+        }
+    )
+
+    # C7x DSP FP32: 8 cores × 10 ops/cycle × 1.0 GHz = 80 GFLOPS ✓
+    # MMAv2 INT8: 1 unit × 8000 ops/cycle × 1.0 GHz = 8 TOPS ✓
+
+    # ========================================================================
+    # Thermal Operating Points
+    # ========================================================================
     clock_10w = ClockDomain(base_clock_hz=600e6, max_boost_clock_hz=1.0e9, sustained_clock_hz=880e6, dvfs_enabled=True)
     compute_resource_10w = ComputeResource(
         resource_type="TI-C7x-DSP-MMAv2",
@@ -105,6 +157,10 @@ def ti_tda4al_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="TI-TDA4AL-C7x-MMAv2",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (C7x DSP + MMAv2)
+        compute_fabrics=[c7x_fabric, mma_fabric],
+
         compute_units=num_dsp_units,
         threads_per_unit=250,
         warps_per_unit=1,
@@ -118,7 +174,8 @@ def ti_tda4al_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=48 * 1024,
         l2_cache_total=8 * 1024 * 1024,
         main_memory=8 * 1024**3,
-        energy_per_flop_fp32=1.8e-12,  # 10% better than TDA4VM
+        # Energy (use C7x DSP fabric as baseline for general-purpose operations)
+        energy_per_flop_fp32=c7x_fabric.energy_per_flop_fp32,  # 3.6 pJ (28nm, SIMD packed)
         energy_per_byte=18e-12,
         energy_scaling={Precision.INT8: 0.15, Precision.INT16: 0.25, Precision.FP16: 0.50, Precision.FP32: 1.0},
         min_occupancy=0.70,

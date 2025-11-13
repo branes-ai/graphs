@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -55,6 +57,28 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
     # 2W / 3.4 TOPS = 0.59 pJ/op
     energy_per_flop_fp32 = 0.6e-12  # ~0.6 pJ/FLOP (most efficient!)
     energy_per_byte = 20e-12  # USB bandwidth limited
+
+    sustained_clock_hz = 500e6  # 500 MHz sustained
+
+    # ========================================================================
+    # Systolic Array Fabric (Edge TPU architecture)
+    # ========================================================================
+    systolic_fabric = ComputeFabric(
+        fabric_type="systolic_array",
+        circuit_type="standard_cell",   # Systolic arrays use standard cells
+        num_units=64 * 64,              # 64×64 systolic array (estimated)
+        ops_per_unit_per_clock={
+            Precision.INT8: 2,           # MAC = 2 ops (multiply + accumulate)
+        },
+        core_frequency_hz=sustained_clock_hz,  # 500 MHz
+        process_node_nm=14,              # 14nm process
+        energy_per_flop_fp32=get_base_alu_energy(14, 'standard_cell'),  # 2.6 pJ
+        energy_scaling={
+            Precision.INT8: 0.125,       # INT8 is very efficient
+        }
+    )
+
+    # Systolic array INT8: 4096 units × 2 ops/cycle × 500 MHz = 4.096 TOPS ≈ 4 TOPS ✓
 
     # Clock domain (single operating point - no DVFS on Edge TPU)
     clock_domain = ClockDomain(
@@ -146,6 +170,10 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
     model = HardwareResourceModel(
         name="Coral-Edge-TPU",
         hardware_type=HardwareType.TPU,
+
+        # NEW: Compute fabric (single systolic array)
+        compute_fabrics=[systolic_fabric],
+
         compute_units=1,  # Single systolic array
         threads_per_unit=256,  # Systolic array dimension (estimated)
         warps_per_unit=1,
@@ -168,10 +196,10 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=512 * 1024,  # ~512 KB on-chip memory (estimated)
         l2_cache_total=0,  # No L2, uses host memory
         main_memory=0,  # Uses host CPU memory
-        energy_per_flop_fp32=energy_per_flop_fp32,
+        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 2.6 pJ (14nm, standard cell)
         energy_per_byte=energy_per_byte,
         energy_scaling={
-            Precision.INT8: 1.0,  # Base (only mode)
+            Precision.INT8: 0.125,  # INT8 is very efficient (updated)
         },
         min_occupancy=1.0,  # Always fully utilized
         max_concurrent_kernels=1,  # Single model at a time

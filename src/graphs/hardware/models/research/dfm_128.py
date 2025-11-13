@@ -77,6 +77,8 @@ from graphs.hardware.resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ThermalOperatingPoint
 )
 
@@ -132,6 +134,43 @@ def dfm_128_resource_model() -> HardwareResourceModel:
 
     # Compute units = 8 PEs (each can execute one token per cycle)
     compute_units = 8
+    clock_hz = 2.0e9  # 2.0 GHz
+
+    # ========================================================================
+    # Multi-Fabric Architecture (DFM-128 - Data Flow Machine)
+    # ========================================================================
+    # Processing Element Fabric (Heterogeneous: INT ALUs + FP Units)
+    # ========================================================================
+    pe_fabric = ComputeFabric(
+        fabric_type="dfm_processing_element",
+        circuit_type="simd_packed",      # VLIW-like datapath with SIMD operations
+        num_units=8,                     # 8 Processing Elements
+        ops_per_unit_per_clock={
+            # FP32: 2 FP units × 8 ops/unit × 2 (FMA) / 8 PEs = 4 FP32 ops/PE/cycle
+            Precision.FP32: 4,           # 4 FP32 ops/cycle/PE (with FMA)
+            # FP16: 2× FP32
+            Precision.FP16: 8,           # 8 FP16 ops/cycle/PE
+            # BF16: Same as FP16
+            Precision.BF16: 8,           # 8 BF16 ops/cycle/PE
+            # INT8: 4 INT ALUs × 4 ops/unit / 8 PEs = 2 INT8 ops/PE/cycle
+            Precision.INT8: 2,           # 2 INT8 ops/cycle/PE
+            # INT4: 2× INT8
+            Precision.INT4: 4,           # 4 INT4 ops/cycle/PE
+        },
+        core_frequency_hz=clock_hz,      # 2.0 GHz
+        process_node_nm=7,               # 7nm (comparable to modern superscalar)
+        energy_per_flop_fp32=get_base_alu_energy(7, 'simd_packed'),  # 1.62 pJ
+        energy_scaling={
+            Precision.FP32: 1.0,         # Baseline
+            Precision.FP16: 0.50,        # Half precision
+            Precision.BF16: 0.50,        # Brain float
+            Precision.INT8: 0.20,        # INT8
+            Precision.INT4: 0.10,        # INT4
+        }
+    )
+
+    # Peak FP32: 8 PEs × 4 ops/cycle × 2.0 GHz = 64 GFLOPS ✓
+    # Peak INT8: 8 PEs × 2 ops/cycle × 2.0 GHz = 32 GOPS ✓
 
     # Peak performance (with FMA)
     # 2 FP units × 8 FP32/cycle × 2 (FMA) × 2.0 GHz = 64 GFLOPS
@@ -183,6 +222,9 @@ def dfm_128_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name='DFM-128',
         hardware_type=HardwareType.CPU,  # Closest match (general-purpose compute)
+
+        # NEW: Multi-fabric architecture (Dataflow Processing Elements)
+        compute_fabrics=[pe_fabric],
 
         # Compute resources
         compute_units=compute_units,
@@ -239,7 +281,7 @@ def dfm_128_resource_model() -> HardwareResourceModel:
         main_memory=total_memory,
 
         # Energy model
-        energy_per_flop_fp32=energy_per_flop_fp32,
+        energy_per_flop_fp32=pe_fabric.energy_per_flop_fp32,  # 1.62 pJ (7nm, simd_packed)
         energy_per_byte=energy_per_byte,
 
         # Scheduling

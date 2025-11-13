@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -50,6 +52,37 @@ def stanford_plasticine_cgra_resource_model() -> HardwareResourceModel:
     - Power: 15W (embodied AI target)
     - Reconfiguration: 1000 cycles (conservative modeling)
     """
+    sustained_clock_hz = 1.0e9  # 1.0 GHz
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Stanford Plasticine CGRA - Spatial Dataflow)
+    # ========================================================================
+    # PCU Fabric (Pattern Compute Units - Spatial Dataflow)
+    # ========================================================================
+    pcu_fabric = ComputeFabric(
+        fabric_type="pcu_spatial_dataflow",
+        circuit_type="standard_cell",   # Reconfigurable fabric
+        num_units=32,                    # 32 PCUs (medium granularity)
+        ops_per_unit_per_clock={
+            Precision.INT8: 320,         # Scaled to achieve 10 TOPS (320 ops/cycle × 32 PCUs × 1GHz ≈ 10 TOPS)
+            Precision.FP16: 80,          # 80 FP16 ops/PCU/cycle (1/4 of INT8)
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz
+        process_node_nm=28,              # 28nm (research prototype)
+        energy_per_flop_fp32=get_base_alu_energy(28, 'standard_cell'),  # 4.0 pJ
+        energy_scaling={
+            Precision.INT8: 0.15,        # INT8 is very efficient
+            Precision.FP16: 0.50,        # FP16 less efficient
+            Precision.FP32: 1.0,         # FP32 emulated
+        }
+    )
+
+    # PCU INT8: 32 PCUs × 320 ops/cycle × 1.0 GHz = 10.24 TOPS ✓
+    # Realistic (60% efficiency): 10.24 × 0.60 = 6.14 TOPS ✓
+
+    # ========================================================================
+    # Calculate theoretical and realistic peak performance
+    # ========================================================================
     # Calculate theoretical and realistic peak performance
     num_pcus = 32  # Pattern Compute Units
     macs_per_pcu = 8  # Medium granularity
@@ -74,6 +107,10 @@ def stanford_plasticine_cgra_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="CGRA-Plasticine-v2",
         hardware_type=HardwareType.CGRA,
+
+        # NEW: Multi-fabric architecture (PCU spatial dataflow)
+        compute_fabrics=[pcu_fabric],
+
         compute_units=32,  # PCUs (Pattern Compute Units)
         threads_per_unit=8,  # Operations per PCU
         warps_per_unit=1,  # Spatial execution (no warp concept)
@@ -109,7 +146,8 @@ def stanford_plasticine_cgra_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=64 * 1024,  # 64 KB scratchpad per PCU
         l2_cache_total=2 * 1024 * 1024,  # 2 MB shared
         main_memory=4 * 1024**3,  # 4 GB DDR4 (edge device)
-        energy_per_flop_fp32=energy_per_flop_fp32,  # ~8.48 pJ/FLOP
+        # Energy (use PCU fabric for spatial dataflow)
+        energy_per_flop_fp32=pcu_fabric.energy_per_flop_fp32,  # 4.0 pJ (28nm, standard cell)
         energy_per_byte=12e-12,  # Similar to KPU (on-chip network)
         min_occupancy=0.3,
         max_concurrent_kernels=1,  # Spatial execution (entire graph mapped)

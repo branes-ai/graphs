@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -99,17 +101,69 @@ def amd_epyc_turin_resource_model() -> HardwareResourceModel:
     peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 576 GB/s
 
     # Power and energy
-    tdp = 500.0  # Watts (higher due to 192 cores)
+    tdp = 500.0  # Watts (higher for 192 cores)
     idle_power = 120.0  # Estimated
     dynamic_power = tdp - idle_power  # 380W
+    energy_per_byte = 25e-12  # 25 pJ/byte (DDR5-6000)
 
-    # Energy per operation (at peak)
-    energy_per_flop_fp32 = dynamic_power / peak_fp32  # ~99 pJ/FLOP
-    energy_per_byte = 26e-12  # 26 pJ/byte (improved 3nm process)
+    # ========================================================================
+    # Scalar Fabric (Custom Datacenter)
+    # ========================================================================
+    scalar_fabric = ComputeFabric(
+        fabric_type="scalar_alu",
+        circuit_type="custom_datacenter",
+        num_units=num_cores * 2,           # 192 cores × 2 ALUs = 384 ALUs
+        ops_per_unit_per_clock={
+            Precision.FP64: 2,
+            Precision.FP32: 2,
+        },
+        core_frequency_hz=base_clock_hz,   # 2.5 GHz
+        process_node_nm=3,                  # TSMC 3nm
+        energy_per_flop_fp32=get_base_alu_energy(3, 'custom_datacenter'),  # 1.2 × 2.75 = 3.3 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+        }
+    )
+
+    # ========================================================================
+    # AVX-512 SIMD Fabric (Native, not double-pumped)
+    # ========================================================================
+    avx512_fabric = ComputeFabric(
+        fabric_type="avx512_native",
+        circuit_type="simd_packed",
+        num_units=num_cores,
+        ops_per_unit_per_clock={
+            Precision.FP64: 8,   # Native 512-bit
+            Precision.FP32: 16,  # Native 512-bit
+            Precision.FP16: 32,
+            Precision.INT8: 64,
+        },
+        core_frequency_hz=base_clock_hz,
+        process_node_nm=3,
+        energy_per_flop_fp32=get_base_alu_energy(3, 'simd_packed'),  # 1.2 × 0.90 = 1.08 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+        }
+    )
+
+    # Calculate peaks
+    scalar_fp64_peak = scalar_fabric.get_peak_ops_per_sec(Precision.FP64)
+    avx512_fp32_peak = avx512_fabric.get_peak_ops_per_sec(Precision.FP32)
+    avx512_fp16_peak = avx512_fabric.get_peak_ops_per_sec(Precision.FP16)
+    avx512_int8_peak = avx512_fabric.get_peak_ops_per_sec(Precision.INT8)
 
     return HardwareResourceModel(
         name="AMD-EPYC-Turin-Zen5",
         hardware_type=HardwareType.CPU,
+
+        # NEW: Compute fabrics
+        compute_fabrics=[scalar_fabric, avx512_fabric],
+
+        # Legacy fields
         compute_units=num_cores,  # 192 cores
         threads_per_unit=2,  # SMT (2 threads per core)
         warps_per_unit=1,  # No warp concept in CPUs
@@ -118,28 +172,28 @@ def amd_epyc_turin_resource_model() -> HardwareResourceModel:
         precision_profiles={
             Precision.FP64: PrecisionProfile(
                 precision=Precision.FP64,
-                peak_ops_per_sec=peak_fp32 / 2,  # 1.92 TFLOPS (half of FP32)
+                peak_ops_per_sec=scalar_fp64_peak,  # Scalar (half of FP32)
                 tensor_core_supported=False,
                 relative_speedup=0.5,
                 bytes_per_element=8,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=peak_fp32,  # 3.84 TFLOPS
+                peak_ops_per_sec=avx512_fp32_peak,  # AVX-512
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=peak_fp16,  # 7.68 TFLOPS
+                peak_ops_per_sec=avx512_fp16_peak,  # AVX-512
                 tensor_core_supported=False,
                 relative_speedup=2.0,
                 bytes_per_element=2,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=peak_int8,  # 15.36 TOPS
+                peak_ops_per_sec=avx512_int8_peak,  # AVX-512
                 tensor_core_supported=False,  # No AMX-like accelerator yet
                 relative_speedup=4.0,
                 bytes_per_element=1,
@@ -152,8 +206,14 @@ def amd_epyc_turin_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=48 * 1024,  # 48 KB L1D per core (increased from 32 KB)
         l2_cache_total=192 * 1024 * 1024,  # 192 MB total L2 (1 MB × 192 cores)
         main_memory=512 * 1024**3,  # 512 GB (typical server config, up to 6TB)
-        energy_per_flop_fp32=energy_per_flop_fp32,  # ~99 pJ/FLOP
-        energy_per_byte=energy_per_byte,  # 26 pJ/byte
+        energy_per_flop_fp32=avx512_fabric.energy_per_flop_fp32,  # 1.08 pJ
+        energy_per_byte=energy_per_byte,
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.INT8: 0.125,
+        },  # 26 pJ/byte
         min_occupancy=0.5,
         max_concurrent_kernels=num_cores,  # One kernel per core
         wave_quantization=1,

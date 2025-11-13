@@ -18,6 +18,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     PerformanceCharacteristics,
@@ -62,6 +64,63 @@ def qualcomm_qcs6490_resource_model() -> HardwareResourceModel:
     # → 12e12 / (16 cores × 1.5e9) = 500 ops/core/clock
     # Using 48 ops/core/clock × 16 cores × 1.5 GHz = 1.15 TOPS (conservative)
     # Scaling factor: Qualcomm likely has more tensor units or higher SIMD width
+
+    peak_clock_hz = 1.8e9      # 1.8 GHz peak
+    sustained_clock_hz = 1.5e9  # 1.5 GHz sustained @ 10W
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Qualcomm Hexagon V79 DSP)
+    # ========================================================================
+    # HVX Vector Fabric (SIMD operations: conv, pool, activations)
+    # ========================================================================
+    hvx_fabric = ComputeFabric(
+        fabric_type="hvx_vector",
+        circuit_type="simd_packed",    # SIMD vector operations
+        num_units=num_dsp_cores,       # 16 DSP cores with HVX
+        ops_per_unit_per_clock={
+            Precision.INT8: 200,        # 200 INT8 ops/cycle per core
+            Precision.INT16: 100,       # 100 INT16 ops/cycle
+            Precision.FP16: 50,         # Emulated, slower
+            Precision.INT4: 400,        # 400 INT4 ops/cycle
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.5 GHz sustained
+        process_node_nm=6,              # 6nm TSMC
+        energy_per_flop_fp32=get_base_alu_energy(6, 'simd_packed'),  # 1.49 pJ (6nm SIMD)
+        energy_scaling={
+            Precision.INT8: 0.15,       # INT8 is very efficient
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # ========================================================================
+    # HTA Tensor Fabric (Matrix operations: dense layers, attention)
+    # ========================================================================
+    hta_fabric = ComputeFabric(
+        fabric_type="hta_tensor",
+        circuit_type="tensor_core",     # Tensor accelerator (like GPU Tensor Cores)
+        num_units=1,                    # Single HTA unit
+        ops_per_unit_per_clock={
+            Precision.INT8: 5000,       # HTA dominates INT8: ~50% of 12 TOPS / 1.5 GHz
+            Precision.INT16: 2500,      # Half of INT8
+            Precision.FP16: 1250,       # Slower
+            Precision.INT4: 10000,      # 2× INT8
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.5 GHz sustained
+        process_node_nm=6,
+        energy_per_flop_fp32=get_base_alu_energy(6, 'tensor_core'),  # 1.40 pJ (15% better, 6nm tensor)
+        energy_scaling={
+            Precision.INT8: 0.15,
+            Precision.INT16: 0.25,
+            Precision.FP16: 0.50,
+            Precision.INT4: 0.08,
+        }
+    )
+
+    # HVX INT8: 16 cores × 200 ops/cycle × 1.5 GHz = 4.8 TOPS
+    # HTA INT8: 1 unit × 5000 ops/cycle × 1.5 GHz = 7.5 TOPS
+    # Total sustained: 4.8 + 7.5 = 12.3 TOPS ✓
 
     # ========================================================================
     # 5W MODE: Ultra-low power (battery-powered IoT cameras)
@@ -250,6 +309,10 @@ def qualcomm_qcs6490_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Qualcomm-QCS6490-Hexagon-V79",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (HVX vector + HTA tensor)
+        compute_fabrics=[hvx_fabric, hta_fabric],
+
         compute_units=num_dsp_cores,
         threads_per_unit=64,  # DSP vector threads
         warps_per_unit=2,
@@ -288,8 +351,8 @@ def qualcomm_qcs6490_resource_model() -> HardwareResourceModel:
         l2_cache_total=3 * 1024 * 1024,  # 3 MB L2 (estimated)
         main_memory=8 * 1024**3,  # 8 GB LPDDR4X (typical config)
 
-        # Energy (6nm is efficient)
-        energy_per_flop_fp32=0.8e-12,  # 0.8 pJ/FLOP (estimated, 6nm)
+        # Energy (use HVX fabric as baseline for general-purpose DSP operations)
+        energy_per_flop_fp32=hvx_fabric.energy_per_flop_fp32,  # 1.49 pJ (6nm, SIMD packed)
         energy_per_byte=12e-12,         # 12 pJ/byte (LPDDR4X)
 
         # Scheduling

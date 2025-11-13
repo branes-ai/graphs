@@ -9,6 +9,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ClockDomain,
     ComputeResource,
     TileSpecialization,
@@ -65,6 +67,36 @@ def cadence_vision_q8_resource_model() -> HardwareResourceModel:
     # Model as 32 equivalent processing elements
     # 3.8 TOPS @ 1.0 GHz → 3.8e12 ops/sec → 118.75 ops/cycle → 32 units × 118.75 ops/unit/cycle
     num_dsp_units = 32
+    sustained_clock_hz = 1.0e9  # 1.0 GHz sustained
+
+    # ========================================================================
+    # Multi-Fabric Architecture (Cadence Vision Q8 - 1024-bit SIMD DSP)
+    # ========================================================================
+    # SIMD Fabric (Vision processing - INT8/INT16/FP32/FP16)
+    # ========================================================================
+    simd_fabric = ComputeFabric(
+        fabric_type="vision_q8_simd",
+        circuit_type="simd_packed",      # 1024-bit SIMD engine
+        num_units=32,                    # 32 SIMD units
+        ops_per_unit_per_clock={
+            Precision.INT8: 119,         # 119 INT8 ops/cycle/unit
+            Precision.INT16: 119,        # 119 INT16 ops/cycle/unit (same as INT8 for vision)
+            Precision.FP32: 4,           # 4 FP32 ops/cycle/unit (129 GFLOPS / 32 units / 1 GHz)
+            Precision.FP16: 8,           # 8 FP16 ops/cycle/unit (2× FP32)
+        },
+        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz
+        process_node_nm=16,              # 16nm (typical for vision DSP IP)
+        energy_per_flop_fp32=get_base_alu_energy(16, 'simd_packed'),  # 2.43 pJ
+        energy_scaling={
+            Precision.INT8: 0.15,        # INT8
+            Precision.INT16: 0.15,       # INT16 (same as INT8)
+            Precision.FP16: 0.50,        # FP16
+            Precision.FP32: 1.0,         # Baseline
+        }
+    )
+
+    # SIMD INT8: 32 units × 119 ops/cycle × 1.0 GHz = 3.81 TOPS ≈ 3.8 TOPS ✓
+    # SIMD FP32: 32 units × 4 ops/cycle × 1.0 GHz = 128 GFLOPS ≈ 129 GFLOPS ✓
 
     clock = ClockDomain(
         base_clock_hz=600e6,      # 600 MHz minimum
@@ -123,6 +155,10 @@ def cadence_vision_q8_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Cadence-Tensilica-Vision-Q8",
         hardware_type=HardwareType.DSP,
+
+        # NEW: Multi-fabric architecture (1024-bit SIMD engine)
+        compute_fabrics=[simd_fabric],
+
         compute_units=num_dsp_units,
         threads_per_unit=4,
         warps_per_unit=1,
@@ -165,7 +201,7 @@ def cadence_vision_q8_resource_model() -> HardwareResourceModel:
         main_memory=4 * 1024**3,  # Up to 4 GB
 
         # Energy
-        energy_per_flop_fp32=1.5e-12,  # 1.5 pJ/FLOP
+        energy_per_flop_fp32=simd_fabric.energy_per_flop_fp32,  # 2.43 pJ (16nm, simd_packed)
         energy_per_byte=12e-12,  # 12 pJ/byte
         energy_scaling={
             Precision.INT8: 0.15,

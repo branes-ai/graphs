@@ -260,7 +260,7 @@ def jetson_orin_agx_cpu_resource_model() -> HardwareResourceModel:
         main_memory=64 * 1024**3,  # Shared 64 GB LPDDR5
 
         # Energy coefficients
-        energy_per_flop_fp32=5.0e-12,  # ~5 pJ per FLOP (higher than GPU/KPU due to control overhead)
+        energy_per_flop_fp32=2.09e-11,  # ~20.9 pJ/FLOP (ARM Cortex-A78AE, embedded RISC)
         energy_per_byte=20e-12,  # ~20 pJ per byte (DRAM access)
 
         # Energy scaling by precision

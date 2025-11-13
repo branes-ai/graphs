@@ -66,6 +66,8 @@ from ...resource_model import (
     HardwareType,
     Precision,
     PrecisionProfile,
+    ComputeFabric,
+    get_base_alu_energy,
     ThermalOperatingPoint,
 )
 
@@ -85,6 +87,68 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
     - Dual-die design with 10 TB/s inter-die bandwidth
     - 700W TDP (SXM allows higher power delivery than PCIe)
     """
+    # ========================================================================
+    # CUDA Core Fabric (Standard Cell FP32 ALUs)
+    # ========================================================================
+    # Estimated: 132 SMs × 128 CUDA cores/SM = 16,896 CUDA cores (same as H100)
+    # Blackwell may have more due to dual-die design, but conservative estimate
+    cuda_fabric = ComputeFabric(
+        fabric_type="cuda_core",
+        circuit_type="standard_cell",
+        num_units=132 * 128,          # 16,896 CUDA cores (estimated)
+        ops_per_unit_per_clock={
+            Precision.FP64: 2,         # FMA: 2 ops/clock
+            Precision.FP32: 2,         # FMA: 2 ops/clock
+        },
+        core_frequency_hz=2.1e9,      # 2.1 GHz boost (estimated)
+        process_node_nm=3,             # TSMC 4NP (4nm-class, maps to 3nm energy)
+        energy_per_flop_fp32=get_base_alu_energy(3, 'standard_cell'),  # 1.2 pJ
+        energy_scaling={
+            Precision.FP64: 2.0,       # Double precision = 2× energy
+            Precision.FP32: 1.0,       # Baseline
+            Precision.FP16: 0.5,       # Half precision (emulated on CUDA cores)
+            Precision.INT8: 0.125,     # INT8 (emulated on CUDA cores)
+        }
+    )
+
+    # ========================================================================
+    # Tensor Core Fabric (15% more efficient for fused MAC+accumulate)
+    # ========================================================================
+    # 5th generation Tensor Cores with FP4/FP6 support
+    tensor_fabric = ComputeFabric(
+        fabric_type="tensor_core",
+        circuit_type="tensor_core",
+        num_units=132 * 4,            # 528 Tensor Cores (132 SMs × 4 TCs/SM)
+        ops_per_unit_per_clock={
+            Precision.BF16: 1024,      # 1024 BF16 ops/clock/TC (5th gen, 2× H100)
+            Precision.FP16: 1024,      # 1024 FP16 ops/clock/TC
+            Precision.FP8_E4M3: 2048,  # 2048 FP8 ops/clock/TC (2× H100)
+            Precision.FP8_E5M2: 2048,  # 2048 FP8 ops/clock/TC
+            Precision.INT8: 2048,      # 2048 INT8 ops/clock/TC
+        },
+        core_frequency_hz=2.1e9,
+        process_node_nm=3,             # TSMC 4NP (4nm-class, maps to 3nm energy)
+        energy_per_flop_fp32=get_base_alu_energy(3, 'tensor_core'),  # 1.02 pJ (15% better)
+        energy_scaling={
+            Precision.BF16: 0.5,       # Half precision
+            Precision.FP16: 0.5,
+            Precision.FP8_E4M3: 0.25,  # Quarter precision
+            Precision.FP8_E5M2: 0.25,
+            Precision.INT8: 0.125,     # INT8
+        }
+    )
+
+    # ========================================================================
+    # Legacy Precision Profiles (for backward compatibility)
+    # ========================================================================
+    # Calculate peak ops using fabrics
+    cuda_fp64_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP64)
+    cuda_fp32_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP32)
+    tensor_bf16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.BF16)
+    tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
+    tensor_fp8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP8_E4M3)
+    tensor_int8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT8)
+
     # Thermal operating point (datacenter SXM)
     thermal_default = ThermalOperatingPoint(
         name="default",
@@ -97,6 +161,10 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
         name="B100-SXM6-192GB",
         hardware_type=HardwareType.GPU,
 
+        # NEW: Compute fabrics
+        compute_fabrics=[cuda_fabric, tensor_fabric],
+
+        # Legacy fields (for backward compatibility)
         # SM count not officially disclosed, but estimated from Tensor Core count
         # 528 Tensor Cores / 4 per SM = 132 SMs (same as H100)
         # This is conservative; actual may be higher due to dual-die design
@@ -105,19 +173,18 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
         warps_per_unit=64,  # Max warps per SM (2048 / 32)
         warp_size=32,
 
-        # Precision profiles (NVIDIA B100 specifications)
-        # Note: FP4 and FP6 are Blackwell-exclusive precisions
+        # Legacy precision profiles (calculated from fabrics)
         precision_profiles={
             Precision.FP64: PrecisionProfile(
                 precision=Precision.FP64,
-                peak_ops_per_sec=90e12,  # Estimated: 1.5× H100 (not primary use case)
+                peak_ops_per_sec=cuda_fp64_peak,  # ~71 TFLOPS
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=8,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=90e12,  # Estimated: 1.5× H100 (without Tensor Cores)
+                peak_ops_per_sec=cuda_fp32_peak,  # ~71 TFLOPS (CUDA cores)
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
@@ -126,41 +193,41 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
             # TF32 would be: 0.9 PFLOPS (dense) with Tensor Cores
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=1800e12,  # 1.8 PFLOPS (dense) with Tensor Cores
+                peak_ops_per_sec=tensor_bf16_peak,  # ~1.1 PFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=20.0,
+                relative_speedup=15.5,
                 bytes_per_element=2,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=1800e12,  # 1.8 PFLOPS (dense) with Tensor Cores
+                peak_ops_per_sec=tensor_fp16_peak,  # ~1.1 PFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=20.0,
+                relative_speedup=15.5,
                 bytes_per_element=2,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.FP8_E4M3: PrecisionProfile(
                 precision=Precision.FP8_E4M3,
-                peak_ops_per_sec=3500e12,  # 3.5 PFLOPS (dense) - 2.3× vs H100
+                peak_ops_per_sec=tensor_fp8_peak,  # ~2.3 PFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=38.9,
+                relative_speedup=32.4,
                 bytes_per_element=1,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.FP8_E5M2: PrecisionProfile(
                 precision=Precision.FP8_E5M2,
-                peak_ops_per_sec=3500e12,  # 3.5 PFLOPS (dense)
+                peak_ops_per_sec=tensor_fp8_peak,  # ~2.3 PFLOPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=38.9,
+                relative_speedup=32.4,
                 bytes_per_element=1,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=3500e12,  # 3.5 POPS (dense)
+                peak_ops_per_sec=tensor_int8_peak,  # ~2.3 POPS (Tensor Cores)
                 tensor_core_supported=True,
-                relative_speedup=38.9,
+                relative_speedup=32.4,
                 bytes_per_element=1,
                 accumulator_precision=Precision.INT32,
             ),
@@ -179,11 +246,18 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
         l2_cache_total=100 * 1024 * 1024,  # Estimated: 100 MB (2× H100's 50 MB)
         main_memory=192 * 1024**3,  # 192 GB HBM3e (2.4× H100's 80 GB)
 
-        # Energy efficiency (improved from H100 due to 4nm process)
-        # H100: 0.501 pJ/FLOP @ FP32
-        # B100: Estimated 0.4 pJ/FLOP @ FP32 (20% improvement from process node)
-        energy_per_flop_fp32=0.4e-12,  # ~0.4 pJ/FLOP at FP32
-        energy_per_byte=12e-12,  # ~12 pJ/byte (improved from H100's 15 pJ/byte)
+        # Legacy energy (use CUDA fabric as baseline)
+        energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.3 pJ
+        energy_per_byte=12e-12,  # ~12 pJ/byte (HBM3e)
+        energy_scaling={
+            Precision.FP64: 2.0,
+            Precision.FP32: 1.0,
+            Precision.FP16: 0.5,
+            Precision.BF16: 0.5,
+            Precision.FP8_E4M3: 0.25,
+            Precision.FP8_E5M2: 0.25,
+            Precision.INT8: 0.125,
+        },
 
         min_occupancy=0.25,
         max_concurrent_kernels=256,  # Dual-die: 2× H100's 128
