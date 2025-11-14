@@ -32,7 +32,7 @@ MEMORY:
 - Dual 4096-bit memory bus
 - 1.8 TB/s NVLink bandwidth (9th gen NVLink)
 
-POWER: 700W TDP (SXM allows higher power than PCIe variants)
+POWER: 1000W TDP
 
 ARCHITECTURE DETAILS:
 - 528 Tensor Cores (5th generation)
@@ -85,7 +85,7 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
     - 8 TB/s HBM3e bandwidth (4x H100)
     - 192 GB memory (2.4x H100)
     - Dual-die design with 10 TB/s inter-die bandwidth
-    - 700W TDP (SXM allows higher power delivery than PCIe)
+    - 1000W TDP
     """
     # ========================================================================
     # CUDA Core Fabric (Standard Cell FP32 ALUs)
@@ -152,7 +152,7 @@ def b100_sxm6_192gb_resource_model() -> HardwareResourceModel:
     # Thermal operating point (datacenter SXM)
     thermal_default = ThermalOperatingPoint(
         name="default",
-        tdp_watts=700.0,  # B100 SXM6 TDP (2× H100 PCIe, ~1.4× A100 SXM4)
+        tdp_watts=1000.0,  # B100 SXM6 TDP
         cooling_solution="active-air",  # Datacenter air cooling (or liquid)
         performance_specs={}  # Uses precision_profiles for performance
     )

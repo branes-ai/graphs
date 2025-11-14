@@ -104,6 +104,14 @@ def stanford_plasticine_cgra_resource_model() -> HardwareResourceModel:
     # Convert to FP32 equivalent (INT8 is ~4× more efficient)
     energy_per_flop_fp32 = energy_per_int8_op * 4  # 8.48e-12 J/FLOP
 
+    # Thermal operating point (embodied AI device)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=15.0,  # Plasticine v2 TDP (embodied AI range)
+        cooling_solution="passive-air",  # Edge device, passive cooling
+        performance_specs={}
+    )
+
     return HardwareResourceModel(
         name="CGRA-Plasticine-v2",
         hardware_type=HardwareType.CGRA,
@@ -152,6 +160,12 @@ def stanford_plasticine_cgra_resource_model() -> HardwareResourceModel:
         min_occupancy=0.3,
         max_concurrent_kernels=1,  # Spatial execution (entire graph mapped)
         wave_quantization=1,
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 

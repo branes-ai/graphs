@@ -153,6 +153,14 @@ def amd_epyc_9754_resource_model() -> HardwareResourceModel:
     avx512_fp16_peak = avx512_fabric.get_peak_ops_per_sec(Precision.FP16)
     avx512_int8_peak = avx512_fabric.get_peak_ops_per_sec(Precision.INT8)
 
+    # Thermal operating point (datacenter CPU)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=360.0,  # EPYC 9754 TDP
+        cooling_solution="active-air",  # Datacenter air cooling
+        performance_specs={}
+    )
+
     return HardwareResourceModel(
         name="AMD-EPYC-9754-Genoa",
         hardware_type=HardwareType.CPU,
@@ -215,6 +223,12 @@ def amd_epyc_9754_resource_model() -> HardwareResourceModel:
         min_occupancy=0.5,
         max_concurrent_kernels=num_cores,  # One kernel per core
         wave_quantization=1,
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 

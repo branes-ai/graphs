@@ -104,6 +104,14 @@ def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
     tensor_int8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT8)
     tensor_int4_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT4)
 
+    # Thermal operating point (inference-optimized PCIe)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=70.0,  # T4 PCIe TDP (inference-optimized)
+        cooling_solution="passive-air",  # PCIe card with passive cooling
+        performance_specs={}
+    )
+
     return HardwareResourceModel(
         name="T4-PCIe-16GB",
         hardware_type=HardwareType.GPU,
@@ -180,6 +188,12 @@ def t4_pcie_16gb_resource_model() -> HardwareResourceModel:
         # Tensor Core details (2nd generation, improved INT8)
         tensor_cores_per_sm=8,          # 8 TCs per SM
         tensor_core_ops_per_clock=256,  # Similar to Volta
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 

@@ -20,6 +20,7 @@ from ...resource_model import (
     PrecisionProfile,
     ComputeFabric,
     get_base_alu_energy,
+    ThermalOperatingPoint,
 )
 
 
@@ -27,7 +28,8 @@ def cpu_arm_resource_model(
     num_cores: int = 12,
     process_node_nm: int = 8,
     scalar_freq_ghz: float = 2.2,
-    name_suffix: str = "Cortex-A78AE"
+    name_suffix: str = "Cortex-A78AE",
+    tdp_watts: float = None
 ) -> HardwareResourceModel:
     """
     Generic ARM CPU resource model with scalar + NEON fabrics.
@@ -37,6 +39,7 @@ def cpu_arm_resource_model(
         process_node_nm: Process node (5, 7, 8, 16 nm)
         scalar_freq_ghz: CPU frequency (GHz)
         name_suffix: CPU core type name
+        tdp_watts: Thermal Design Power in Watts (optional)
 
     Returns:
         HardwareResourceModel with dual compute fabrics
@@ -110,6 +113,16 @@ def cpu_arm_resource_model(
     neon_peak = neon_fabric.get_peak_ops_per_sec(Precision.FP32)
     total_peak_fp32 = scalar_peak + neon_peak
 
+    # Thermal operating point (if TDP is provided)
+    thermal_default = None
+    if tdp_watts is not None:
+        thermal_default = ThermalOperatingPoint(
+            name="default",
+            tdp_watts=tdp_watts,
+            cooling_solution="active-air",
+            performance_specs={}
+        )
+
     return HardwareResourceModel(
         name=f"CPU-ARM-{num_cores}core-{name_suffix}",
         hardware_type=HardwareType.CPU,
@@ -179,6 +192,12 @@ def cpu_arm_resource_model(
         min_occupancy=0.5,
         max_concurrent_kernels=num_cores,  # One per core
         wave_quantization=1,
+
+        # Thermal profile (if provided)
+        thermal_operating_points={
+            "default": thermal_default,
+        } if thermal_default is not None else {},
+        default_thermal_profile="default" if thermal_default is not None else None,
     )
 
 
