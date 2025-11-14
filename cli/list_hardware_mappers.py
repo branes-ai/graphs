@@ -38,6 +38,38 @@ class HardwareMapperInfo:
     hardware_type: str  # programmable_isa or accelerator
 
 
+def _get_tdp_from_mapper(mapper) -> float:
+    """
+    Extract TDP from mapper's resource model thermal profile.
+
+    Single source of truth: reads from the resource model's thermal operating point.
+    Handles cases where default_thermal_profile is None or missing.
+    """
+    default_profile = mapper.resource_model.default_thermal_profile
+
+    # Handle case where default_thermal_profile is None or missing
+    if default_profile is None or default_profile not in mapper.resource_model.thermal_operating_points:
+        # Try to get first available profile
+        if mapper.resource_model.thermal_operating_points:
+            first_profile = next(iter(mapper.resource_model.thermal_operating_points.keys()))
+            return mapper.resource_model.thermal_operating_points[first_profile].tdp_watts
+        # If no thermal profiles exist, return 0 (should not happen in practice)
+        return 0.0
+
+    return mapper.resource_model.thermal_operating_points[default_profile].tdp_watts
+
+
+def _get_thermal_profiles(mapper) -> List[str]:
+    """
+    Extract available thermal profiles from mapper's resource model.
+
+    Single source of truth: reads from the resource model.
+    """
+    if not mapper.resource_model.thermal_operating_points:
+        return []
+    return list(mapper.resource_model.thermal_operating_points.keys())
+
+
 def discover_cpu_mappers() -> List[HardwareMapperInfo]:
     """Discover all CPU mappers"""
     from graphs.hardware.mappers.cpu import (
@@ -66,8 +98,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=350.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Cloud inference", "High-throughput servers"],
         factory_function="create_intel_xeon_platinum_8490h_mapper",
         hardware_type="programmable_isa"
@@ -84,8 +116,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=350.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Emerald Rapids", "Next-gen datacenter"],
         factory_function="create_intel_xeon_platinum_8592plus_mapper",
         hardware_type="programmable_isa"
@@ -102,8 +134,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=500.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Next-gen Intel", "2024-2025"],
         factory_function="create_intel_granite_rapids_mapper",
         hardware_type="programmable_isa"
@@ -120,8 +152,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=360.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Genoa", "Cloud"],
         factory_function="create_amd_epyc_9654_mapper",
         hardware_type="programmable_isa"
@@ -138,8 +170,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=360.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Bergamo", "Cloud-native"],
         factory_function="create_amd_epyc_9754_mapper",
         hardware_type="programmable_isa"
@@ -156,8 +188,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=500.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Next-gen AMD", "2024-2025"],
         factory_function="create_amd_epyc_turin_mapper",
         hardware_type="programmable_isa"
@@ -174,8 +206,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=350.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["ARM cloud servers", "Energy-efficient"],
         factory_function="create_ampere_ampereone_192_mapper",
         hardware_type="programmable_isa"
@@ -192,8 +224,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=250.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["ARM cloud", "Medium workloads"],
         factory_function="create_ampere_ampereone_128_mapper",
         hardware_type="programmable_isa"
@@ -210,8 +242,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=125.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Desktop AI", "Gaming + inference"],
         factory_function="create_i7_12700k_mapper",
         hardware_type="programmable_isa"
@@ -228,8 +260,8 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=15.0,
-        thermal_profiles=["7W", "15W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Edge computing", "Robotics"],
         factory_function="create_jetson_orin_agx_cpu_mapper",
         hardware_type="programmable_isa"
@@ -266,8 +298,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=70.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Inference", "Cloud AI"],
         factory_function="create_t4_pcie_16gb_mapper",
         hardware_type="programmable_isa"
@@ -284,8 +316,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=350.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["LLM inference", "Cloud AI"],
         factory_function="create_v100_sxm3_32gb_mapper",
         hardware_type="programmable_isa"
@@ -302,8 +334,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=400.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["LLM training", "FP16/TF32 inference"],
         factory_function="create_a100_sxm4_80gb_mapper",
         hardware_type="programmable_isa"
@@ -320,8 +352,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=350.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["LLM inference", "Cloud AI"],
         factory_function="create_h100_pcie_80gb_mapper",
         hardware_type="programmable_isa"
@@ -338,8 +370,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=700.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["LLM training", "FP8 inference"],
         factory_function="create_h100_sxm5_80gb_mapper",
         hardware_type="programmable_isa"
@@ -356,8 +388,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=700.0,
-        thermal_profiles=[],
+        power_tdp=mapper.resource_model.thermal_operating_points[mapper.resource_model.default_thermal_profile].tdp_watts,
+        thermal_profiles=list(mapper.resource_model.thermal_operating_points.keys()),
         use_cases=["LLM training", "FP4/FP6 inference", "MoE models"],
         factory_function="create_b100_smx6_192gb_mapper",
         hardware_type="programmable_isa"
@@ -374,8 +406,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=60.0,
-        thermal_profiles=["15W", "30W", "60W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Autonomous robots", "Edge AI"],
         factory_function="create_jetson_orin_agx_64gb_mapper",
         hardware_type="programmable_isa"
@@ -392,8 +424,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=15.0,
-        thermal_profiles=["7W", "15W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Edge inference", "IoT"],
         factory_function="create_jetson_orin_nano_8gb_mapper",
         hardware_type="programmable_isa"
@@ -410,8 +442,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=100.0,
-        thermal_profiles=["30W", "60W", "100W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Autonomous vehicles", "Next-gen ADAS"],
         factory_function="create_jetson_thor_128gb_mapper",
         hardware_type="programmable_isa"
@@ -428,8 +460,8 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=5.0,
-        thermal_profiles=["5W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Mobile gaming", "On-device AI"],
         factory_function="create_arm_mali_g78_mp20_mapper",
         hardware_type="programmable_isa"
@@ -458,8 +490,8 @@ def discover_dsp_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=7.0,
-        thermal_profiles=["7W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Drones", "Robotics"],
         factory_function="create_qrb5165_mapper",
         hardware_type="programmable_isa"
@@ -476,8 +508,8 @@ def discover_dsp_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=10.0,
-        thermal_profiles=["10W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["ADAS", "Automotive vision"],
         factory_function="create_ti_tda4vm_mapper",
         hardware_type="programmable_isa"
@@ -517,8 +549,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=200.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["LLM training", "Large-batch inference"],
         factory_function="create_tpu_v4_mapper",
         hardware_type="accelerator"
@@ -535,8 +567,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 only
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=2.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Ultra-low-power edge", "IoT"],
         factory_function="create_coral_edge_tpu_mapper",
         hardware_type="accelerator"
@@ -553,8 +585,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 primary
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=6.0,
-        thermal_profiles=["3W", "6W", "10W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Embodied AI", "Robotics", "Drones", "Edge devices"],
         factory_function="create_kpu_t64_mapper",
         hardware_type="accelerator"
@@ -571,8 +603,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 primary
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=30.0,
-        thermal_profiles=["15W", "30W", "50W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Embodied AI", "High-performance edge", "Autonomous vehicles"],
         factory_function="create_kpu_t256_mapper",
         hardware_type="accelerator"
@@ -589,8 +621,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 primary
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=60.0,
-        thermal_profiles=["30W", "60W", "100W"],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Embodied AI", "Datacenter inference", "LLM serving"],
         factory_function="create_kpu_t768_mapper",
         hardware_type="accelerator"
@@ -607,8 +639,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 only
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=50.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["FPGA inference", "Reconfigurable AI"],
         factory_function="create_dpu_vitis_ai_mapper",
         hardware_type="accelerator"
@@ -625,8 +657,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=mapper.resource_model.get_peak_ops(Precision.FP32) / 1e9,
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=100.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Spatial dataflow research", "Novel architectures"],
         factory_function="create_plasticine_v2_mapper",
         hardware_type="accelerator"
@@ -643,8 +675,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 only
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=2.5,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Edge vision", "Smart cameras"],
         factory_function="create_hailo8_mapper",
         hardware_type="accelerator"
@@ -661,8 +693,8 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         peak_flops_fp32=0.0,  # INT8 only
         peak_flops_int8=mapper.resource_model.get_peak_ops(Precision.INT8) / 1e9,
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
-        power_tdp=25.0,
-        thermal_profiles=[],
+        power_tdp=_get_tdp_from_mapper(mapper),
+        thermal_profiles=_get_thermal_profiles(mapper),
         use_cases=["Automotive ADAS", "In-cabin monitoring"],
         factory_function="create_hailo10h_mapper",
         hardware_type="accelerator"

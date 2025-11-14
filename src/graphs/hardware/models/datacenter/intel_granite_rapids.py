@@ -143,6 +143,14 @@ def intel_granite_rapids_resource_model() -> HardwareResourceModel:
     amx_bf16_peak = amx_fabric.get_peak_ops_per_sec(Precision.BF16)
     amx_int8_peak = amx_fabric.get_peak_ops_per_sec(Precision.INT8)
 
+    # Thermal operating point (datacenter CPU)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=500.0,  # Granite Rapids TDP (high core count)
+        cooling_solution="active-air",  # Datacenter air cooling
+        performance_specs={}
+    )
+
     return HardwareResourceModel(
         name="Intel-Xeon-Granite-Rapids",
         hardware_type=HardwareType.CPU,
@@ -214,6 +222,12 @@ def intel_granite_rapids_resource_model() -> HardwareResourceModel:
         min_occupancy=0.5,
         max_concurrent_kernels=num_cores,  # One kernel per core
         wave_quantization=1,
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 

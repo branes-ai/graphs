@@ -98,6 +98,14 @@ def v100_sxm3_32gb_resource_model() -> HardwareResourceModel:
     cuda_fp32_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP32)
     tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
 
+    # Thermal operating point (datacenter SXM)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=350.0,  # V100 SXM3 TDP (updated from 300W)
+        cooling_solution="active-air",
+        performance_specs={}
+    )
+
     return HardwareResourceModel(
         name="V100-SXM3-32GB",
         hardware_type=HardwareType.GPU,
@@ -173,6 +181,12 @@ def v100_sxm3_32gb_resource_model() -> HardwareResourceModel:
         # Tensor Core details (1st generation)
         tensor_cores_per_sm=8,          # 8 TCs per SM (first generation)
         tensor_core_ops_per_clock=256,  # 256 FP16 FMAs per clock per TC
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 

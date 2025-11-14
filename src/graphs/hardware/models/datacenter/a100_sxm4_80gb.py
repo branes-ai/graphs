@@ -107,6 +107,14 @@ def a100_sxm4_80gb_resource_model() -> HardwareResourceModel:
     tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
     tensor_int8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT8)
 
+    # Thermal operating point (datacenter SXM)
+    thermal_default = ThermalOperatingPoint(
+        name="default",
+        tdp_watts=400.0,  # A100 SXM4 TDP
+        cooling_solution="active-air",
+        performance_specs={}
+    )
+
     return HardwareResourceModel(
         name="A100-SXM4-80GB",
         hardware_type=HardwareType.GPU,
@@ -192,6 +200,12 @@ def a100_sxm4_80gb_resource_model() -> HardwareResourceModel:
         # Tensor Core details (3rd generation, added TF32/BF16/FP64)
         tensor_cores_per_sm=4,          # Reduced from 8 (but much more capable)
         tensor_core_ops_per_clock=512,  # 512 ops/clock (doubled throughput)
+
+        # Thermal profile
+        thermal_operating_points={
+            "default": thermal_default,
+        },
+        default_thermal_profile="default",
     )
 
 
