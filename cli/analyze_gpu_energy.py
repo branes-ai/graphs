@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-CPU Energy Breakdown Analysis Tool
+GPU Energy Breakdown Analysis Tool
 
-Analyzes energy consumption of DNN models mapped to specific CPU architectures.
-Shows detailed breakdown of CPU-specific energy events.
+Analyzes energy consumption of DNN models mapped to specific GPU architectures.
+Shows detailed breakdown of GPU-specific energy events (SIMT control, coherence, etc.).
 
 Usage:
     # Basic usage
-    ./cli/analyze_cpu_energy.py --cpu xeon_emerald_rapids --model resnet18
+    ./cli/analyze_gpu_energy.py --gpu h100_sxm5 --model resnet18
 
     # With custom batch size and precision
-    ./cli/analyze_cpu_energy.py --cpu jetson_orin_agx_cpu --model mobilenet_v2 --batch-size 8 --precision fp32
+    ./cli/analyze_gpu_energy.py --gpu jetson_orin_agx --model mobilenet_v2 --batch-size 8 --precision fp16
 
     # JSON output
-    ./cli/analyze_cpu_energy.py --cpu epyc_genoa --model resnet50 --output cpu_energy.json
+    ./cli/analyze_gpu_energy.py --gpu a100_sxm4 --model resnet50 --output gpu_energy.json
 
-    # List available CPUs
-    ./cli/analyze_cpu_energy.py --list-cpus
+    # List available GPUs
+    ./cli/analyze_gpu_energy.py --list-gpus
 
     # List available models
-    ./cli/analyze_cpu_energy.py --list-models
+    ./cli/analyze_gpu_energy.py --list-models
 """
 
 import sys
@@ -33,16 +33,17 @@ repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
 from graphs.hardware.resource_model import Precision
-from graphs.hardware.mappers.cpu import (
-    create_jetson_orin_agx_cpu_mapper,
-    create_intel_xeon_platinum_8490h_mapper,
-    create_intel_xeon_platinum_8592plus_mapper,
-    create_intel_granite_rapids_mapper,
-    create_amd_epyc_9654_mapper,
-    create_amd_epyc_9754_mapper,
-    create_amd_epyc_turin_mapper,
-    create_ampere_ampereone_192_mapper,
-    create_ampere_ampereone_128_mapper,
+from graphs.hardware.mappers.gpu import (
+    create_h100_sxm5_80gb_mapper,
+    create_h100_pcie_80gb_mapper,
+    create_b100_sxm6_192gb_mapper,
+    create_a100_sxm4_80gb_mapper,
+    create_v100_sxm3_32gb_mapper,
+    create_t4_pcie_16gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
+    create_jetson_thor_128gb_mapper,
+    create_arm_mali_g78_mp20_mapper,
 )
 
 # Import model factory
@@ -52,78 +53,83 @@ from model_factory import load_and_prepare_model, list_available_models
 from energy_breakdown_utils import export_energy_results
 
 
-# CPU configurations: name -> (factory_function, description, default_thermal_profile)
-CPU_CONFIGS = {
-    'jetson_orin_agx_cpu': (
-        lambda: create_jetson_orin_agx_cpu_mapper('30W'),
-        'ARM Cortex-A78AE (12 cores, 8nm, 30W)',
-        '30W'
+# GPU configurations: name -> (factory_function, description, default_thermal_profile)
+GPU_CONFIGS = {
+    'h100_sxm5': (
+        create_h100_sxm5_80gb_mapper,
+        'NVIDIA H100 SXM5 (132 SMs, 80GB HBM3, 700W)',
+        '700W'
     ),
-    'xeon_emerald_rapids': (
-        create_intel_xeon_platinum_8490h_mapper,
-        'Intel Xeon Platinum 8490H (60 cores, 7nm Intel 4)',
-        None  # Uses default from mapper
+    'h100_pcie': (
+        create_h100_pcie_80gb_mapper,
+        'NVIDIA H100 PCIe (114 SMs, 80GB HBM2e, 350W)',
+        '350W'
     ),
-    'xeon_sapphire_rapids': (
-        create_intel_xeon_platinum_8592plus_mapper,
-        'Intel Xeon Platinum 8592+ (64 cores, 7nm Intel 4)',
-        None
+    'b100_sxm6': (
+        create_b100_sxm6_192gb_mapper,
+        'NVIDIA B100 SXM6 (156 SMs, 192GB HBM3e, 1000W)',
+        '1000W'
     ),
-    'xeon_granite_rapids': (
-        create_intel_granite_rapids_mapper,
-        'Intel Granite Rapids (128 cores, 4nm Intel 3)',
-        None
+    'a100_sxm4': (
+        create_a100_sxm4_80gb_mapper,
+        'NVIDIA A100 SXM4 (108 SMs, 80GB HBM2e, 400W)',
+        '400W'
     ),
-    'epyc_genoa': (
-        create_amd_epyc_9654_mapper,
-        'AMD EPYC 9654 (96 cores, 5nm)',
-        None
+    'v100_sxm3': (
+        create_v100_sxm3_32gb_mapper,
+        'NVIDIA V100 SXM3 (80 SMs, 32GB HBM2, 300W)',
+        '300W'
     ),
-    'epyc_bergamo': (
-        create_amd_epyc_9754_mapper,
-        'AMD EPYC 9754 (128 cores, 5nm)',
-        None
+    't4_pcie': (
+        create_t4_pcie_16gb_mapper,
+        'NVIDIA T4 PCIe (40 SMs, 16GB GDDR6, 70W)',
+        '70W'
     ),
-    'epyc_turin': (
-        create_amd_epyc_turin_mapper,
-        'AMD EPYC Turin (192 cores, 4nm)',
-        None
+    'jetson_orin_agx': (
+        create_jetson_orin_agx_64gb_mapper,
+        'NVIDIA Jetson Orin AGX (2048 CUDA cores, 64GB LPDDR5, 50W)',
+        '50W'
     ),
-    'ampere_one_m192': (
-        create_ampere_ampereone_192_mapper,
-        'Ampere One M192 (192 cores, 5nm)',
-        None
+    'jetson_orin_nano': (
+        create_jetson_orin_nano_8gb_mapper,
+        'NVIDIA Jetson Orin Nano (1024 CUDA cores, 8GB LPDDR5, 15W)',
+        '15W'
     ),
-    'ampere_altra_max_m128': (
-        create_ampere_ampereone_128_mapper,
-        'Ampere Altra Max M128 (128 cores, 7nm)',
-        None
+    'jetson_thor': (
+        create_jetson_thor_128gb_mapper,
+        'NVIDIA Jetson Thor (4096 CUDA cores, 128GB LPDDR5x, 75W)',
+        '75W'
+    ),
+    'arm_mali_g78': (
+        create_arm_mali_g78_mp20_mapper,
+        'ARM Mali-G78 MP20 (20 cores, 8GB, 15W)',
+        '15W'
     ),
 }
 
 
-def list_available_cpus():
-    """Print all available CPU configurations."""
-    print("\nAvailable CPU Configurations:")
+def list_available_gpus():
+    """Print all available GPU configurations."""
+    print("\nAvailable GPU Configurations:")
     print("=" * 80)
-    for cpu_name, (_, description, _) in CPU_CONFIGS.items():
-        print(f"  {cpu_name:<30} {description}")
+    for gpu_name, (_, description, _) in GPU_CONFIGS.items():
+        print(f"  {gpu_name:<25} {description}")
     print()
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='CPU Energy Breakdown Analysis for DNN Models',
+        description='GPU Energy Breakdown Analysis for DNN Models',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
 
-    # CPU selection
+    # GPU selection
     parser.add_argument(
-        '--cpu',
-        choices=list(CPU_CONFIGS.keys()),
-        help='CPU architecture to analyze'
+        '--gpu',
+        choices=list(GPU_CONFIGS.keys()),
+        help='GPU architecture to analyze'
     )
 
     # Model selection
@@ -159,7 +165,7 @@ def parse_args():
 
     parser.add_argument(
         '--thermal-profile',
-        help='Thermal/power profile (e.g., "30W", "350W"). Uses hardware default if not specified.'
+        help='Thermal/power profile (e.g., "50W", "700W"). Uses hardware default if not specified.'
     )
 
     # Output options
@@ -176,9 +182,9 @@ def parse_args():
 
     # List options
     parser.add_argument(
-        '--list-cpus',
+        '--list-gpus',
         action='store_true',
-        help='List available CPU configurations'
+        help='List available GPU configurations'
     )
 
     parser.add_argument(
@@ -195,8 +201,8 @@ def main():
     args = parse_args()
 
     # Handle list commands
-    if args.list_cpus:
-        list_available_cpus()
+    if args.list_gpus:
+        list_available_gpus()
         return
 
     if args.list_models:
@@ -204,8 +210,8 @@ def main():
         return
 
     # Validate required arguments
-    if not args.cpu:
-        print("ERROR: --cpu is required (or use --list-cpus)")
+    if not args.gpu:
+        print("ERROR: --gpu is required (or use --list-gpus)")
         sys.exit(1)
 
     if not args.model and not args.model_path:
@@ -226,9 +232,9 @@ def main():
     precision = precision_map[args.precision]
 
     print("=" * 80)
-    print("CPU ENERGY BREAKDOWN ANALYSIS")
+    print("GPU ENERGY BREAKDOWN ANALYSIS")
     print("=" * 80)
-    print(f"CPU: {CPU_CONFIGS[args.cpu][1]}")
+    print(f"GPU: {GPU_CONFIGS[args.gpu][1]}")
     print(f"Model: {args.model or args.model_path}")
     print(f"Batch Size: {args.batch_size}")
     print(f"Precision: {args.precision.upper()}")
@@ -249,41 +255,36 @@ def main():
         print(f"✗ Failed to load model: {e}")
         sys.exit(1)
 
-    # Step 2: Create CPU mapper
-    print(f"\n[2/4] Creating CPU mapper for {args.cpu}...")
+    # Step 2: Create GPU mapper
+    print(f"\n[2/4] Creating GPU mapper for {args.gpu}...")
     try:
-        factory_fn, description, default_thermal = CPU_CONFIGS[args.cpu]
-        thermal_profile = args.thermal_profile or default_thermal
+        factory_fn, description, default_thermal = GPU_CONFIGS[args.gpu]
+        # TODO: Support thermal profiles once GPU mappers have them properly configured
+        # For now, use default from factory
+        gpu_mapper = factory_fn()
 
-        if thermal_profile:
-            # TODO: Pass thermal profile to factory (some mappers accept it, some don't)
-            # For now, use default from factory
-            cpu_mapper = factory_fn()
-        else:
-            cpu_mapper = factory_fn()
-
-        print(f"✓ CPU mapper created: {cpu_mapper.resource_model.name}")
-        print(f"  Cores: {cpu_mapper.resource_model.compute_units}")
-        print(f"  Peak Performance (FP32): {cpu_mapper.resource_model.precision_profiles[Precision.FP32].peak_ops_per_sec / 1e12:.2f} TFLOPS")
+        print(f"✓ GPU mapper created: {gpu_mapper.resource_model.name}")
+        print(f"  SMs/Cores: {gpu_mapper.resource_model.compute_units}")
+        print(f"  Peak Performance (FP32): {gpu_mapper.resource_model.precision_profiles[Precision.FP32].peak_ops_per_sec / 1e12:.2f} TFLOPS")
     except Exception as e:
-        print(f"✗ Failed to create CPU mapper: {e}")
+        print(f"✗ Failed to create GPU mapper: {e}")
         sys.exit(1)
 
-    # Step 3: Map model to CPU
-    print(f"\n[3/4] Mapping model to CPU...")
+    # Step 3: Map model to GPU
+    print(f"\n[3/4] Mapping model to GPU...")
     try:
         # Create sequential execution stages (one stage per subgraph)
         execution_stages = [[i] for i in range(len(partition_report.fused_subgraphs))]
 
-        # Map to CPU hardware
-        mapping_result = cpu_mapper.map_graph(
-            partition_report,  # PartitionReport has .fused_subgraphs alias
+        # Map to GPU hardware
+        mapping_result = gpu_mapper.map_graph(
+            partition_report,
             execution_stages,
             batch_size=args.batch_size,
             precision=precision
         )
         print(f"✓ Model mapped")
-        print(f"  Peak cores used: {mapping_result.peak_compute_units_used} / {cpu_mapper.resource_model.compute_units}")
+        print(f"  Peak SMs used: {mapping_result.peak_compute_units_used} / {gpu_mapper.resource_model.compute_units}")
         print(f"  Avg utilization: {mapping_result.average_utilization * 100:.1f}%")
         print(f"  Estimated latency: {mapping_result.total_latency * 1000:.2f} ms")
         print(f"  Total energy: {mapping_result.total_energy * 1000:.2f} mJ")
@@ -299,9 +300,9 @@ def main():
 
     # Extract architectural energy breakdown
     arch_events = None
-    if cpu_mapper.resource_model.architecture_energy_model:
+    if gpu_mapper.resource_model.architecture_energy_model:
         # Aggregate ops and bytes across all subgraphs
-        total_ops = sum(alloc.compute_time * cpu_mapper.resource_model.get_peak_ops(precision)
+        total_ops = sum(alloc.compute_time * gpu_mapper.resource_model.get_peak_ops(precision)
                        for alloc in mapping_result.subgraph_allocations)
         total_bytes = sum(sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
                          for sg in partition_report.fused_subgraphs)
@@ -313,11 +314,11 @@ def main():
         # Compute architectural energy breakdown
         execution_context = {
             'batch_size': args.batch_size,
-            'num_threads': cpu_mapper.resource_model.compute_units,
+            'num_sms': gpu_mapper.resource_model.compute_units,
         }
 
         try:
-            arch_breakdown = cpu_mapper.resource_model.architecture_energy_model.compute_architectural_energy(
+            arch_breakdown = gpu_mapper.resource_model.architecture_energy_model.compute_architectural_energy(
                 ops=int(total_ops),
                 bytes_transferred=int(total_bytes),
                 compute_energy_baseline=total_compute_energy,
@@ -333,12 +334,12 @@ def main():
 
     # Print hierarchical breakdown if available
     if arch_events:
-        from energy_breakdown_utils import print_cpu_hierarchical_breakdown
+        from energy_breakdown_utils import print_gpu_hierarchical_breakdown
 
         total_compute_energy = sum(a.compute_energy for a in mapping_result.subgraph_allocations)
         total_memory_energy = sum(a.memory_energy for a in mapping_result.subgraph_allocations)
 
-        print_cpu_hierarchical_breakdown(
+        print_gpu_hierarchical_breakdown(
             arch_specific_events=arch_events,
             total_energy_j=mapping_result.total_energy,
             compute_energy_j=total_compute_energy,
@@ -352,9 +353,9 @@ def main():
         print(f"Latency: {mapping_result.total_latency * 1000:.2f} ms")
         print(f"Throughput: {args.batch_size / mapping_result.total_latency:.2f} inferences/sec")
 
-        if not cpu_mapper.resource_model.architecture_energy_model:
-            print(f"\nNote: Detailed architectural breakdown not available for {args.cpu}")
-            print(f"      (no StoredProgramEnergyModel configured)")
+        if not gpu_mapper.resource_model.architecture_energy_model:
+            print(f"\nNote: Detailed architectural breakdown not available for {args.gpu}")
+            print(f"      (no SIMTEnergyModel configured)")
 
     # Export to JSON/CSV if requested
     if args.output:
@@ -365,8 +366,8 @@ def main():
 
         export_energy_results(
             output_path=args.output,
-            architecture='CPU',
-            hardware_name=cpu_mapper.resource_model.name,
+            architecture='GPU',
+            hardware_name=gpu_mapper.resource_model.name,
             model_name=args.model or args.model_path,
             batch_size=args.batch_size,
             precision=args.precision.upper(),

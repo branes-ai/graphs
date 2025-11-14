@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-CPU Energy Breakdown Analysis Tool
+KPU Energy Breakdown Analysis Tool
 
-Analyzes energy consumption of DNN models mapped to specific CPU architectures.
-Shows detailed breakdown of CPU-specific energy events.
+Analyzes energy consumption of DNN models mapped to specific KPU (Knowledge Processing Unit) architectures.
+Shows detailed breakdown of KPU-specific energy events (dataflow, tile engines, etc.).
 
 Usage:
     # Basic usage
-    ./cli/analyze_cpu_energy.py --cpu xeon_emerald_rapids --model resnet18
+    ./cli/analyze_kpu_energy.py --kpu kpu_t64 --model resnet18
 
     # With custom batch size and precision
-    ./cli/analyze_cpu_energy.py --cpu jetson_orin_agx_cpu --model mobilenet_v2 --batch-size 8 --precision fp32
+    ./cli/analyze_kpu_energy.py --kpu kpu_t256 --model mobilenet_v2 --batch-size 8 --precision int8
 
     # JSON output
-    ./cli/analyze_cpu_energy.py --cpu epyc_genoa --model resnet50 --output cpu_energy.json
+    ./cli/analyze_kpu_energy.py --kpu kpu_t768 --model resnet50 --output kpu_energy.json
 
-    # List available CPUs
-    ./cli/analyze_cpu_energy.py --list-cpus
+    # List available KPUs
+    ./cli/analyze_kpu_energy.py --list-kpus
 
     # List available models
-    ./cli/analyze_cpu_energy.py --list-models
+    ./cli/analyze_kpu_energy.py --list-models
 """
 
 import sys
@@ -33,16 +33,10 @@ repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
 from graphs.hardware.resource_model import Precision
-from graphs.hardware.mappers.cpu import (
-    create_jetson_orin_agx_cpu_mapper,
-    create_intel_xeon_platinum_8490h_mapper,
-    create_intel_xeon_platinum_8592plus_mapper,
-    create_intel_granite_rapids_mapper,
-    create_amd_epyc_9654_mapper,
-    create_amd_epyc_9754_mapper,
-    create_amd_epyc_turin_mapper,
-    create_ampere_ampereone_192_mapper,
-    create_ampere_ampereone_128_mapper,
+from graphs.hardware.mappers.accelerators.kpu import (
+    create_kpu_t64_mapper,
+    create_kpu_t256_mapper,
+    create_kpu_t768_mapper,
 )
 
 # Import model factory
@@ -52,78 +46,48 @@ from model_factory import load_and_prepare_model, list_available_models
 from energy_breakdown_utils import export_energy_results
 
 
-# CPU configurations: name -> (factory_function, description, default_thermal_profile)
-CPU_CONFIGS = {
-    'jetson_orin_agx_cpu': (
-        lambda: create_jetson_orin_agx_cpu_mapper('30W'),
-        'ARM Cortex-A78AE (12 cores, 8nm, 30W)',
+# KPU configurations: name -> (factory_function, description, default_thermal_profile)
+KPU_CONFIGS = {
+    'kpu_t64': (
+        create_kpu_t64_mapper,
+        'Stillwater KPU-T64 (64 tiles, edge AI, 6W)',
+        '6W'
+    ),
+    'kpu_t256': (
+        create_kpu_t256_mapper,
+        'Stillwater KPU-T256 (256 tiles, high-performance edge, 30W)',
         '30W'
     ),
-    'xeon_emerald_rapids': (
-        create_intel_xeon_platinum_8490h_mapper,
-        'Intel Xeon Platinum 8490H (60 cores, 7nm Intel 4)',
-        None  # Uses default from mapper
-    ),
-    'xeon_sapphire_rapids': (
-        create_intel_xeon_platinum_8592plus_mapper,
-        'Intel Xeon Platinum 8592+ (64 cores, 7nm Intel 4)',
-        None
-    ),
-    'xeon_granite_rapids': (
-        create_intel_granite_rapids_mapper,
-        'Intel Granite Rapids (128 cores, 4nm Intel 3)',
-        None
-    ),
-    'epyc_genoa': (
-        create_amd_epyc_9654_mapper,
-        'AMD EPYC 9654 (96 cores, 5nm)',
-        None
-    ),
-    'epyc_bergamo': (
-        create_amd_epyc_9754_mapper,
-        'AMD EPYC 9754 (128 cores, 5nm)',
-        None
-    ),
-    'epyc_turin': (
-        create_amd_epyc_turin_mapper,
-        'AMD EPYC Turin (192 cores, 4nm)',
-        None
-    ),
-    'ampere_one_m192': (
-        create_ampere_ampereone_192_mapper,
-        'Ampere One M192 (192 cores, 5nm)',
-        None
-    ),
-    'ampere_altra_max_m128': (
-        create_ampere_ampereone_128_mapper,
-        'Ampere Altra Max M128 (128 cores, 7nm)',
-        None
+    'kpu_t768': (
+        create_kpu_t768_mapper,
+        'Stillwater KPU-T768 (768 tiles, datacenter AI, 60W)',
+        '60W'
     ),
 }
 
 
-def list_available_cpus():
-    """Print all available CPU configurations."""
-    print("\nAvailable CPU Configurations:")
+def list_available_kpus():
+    """Print all available KPU configurations."""
+    print("\nAvailable KPU Configurations:")
     print("=" * 80)
-    for cpu_name, (_, description, _) in CPU_CONFIGS.items():
-        print(f"  {cpu_name:<30} {description}")
+    for kpu_name, (_, description, _) in KPU_CONFIGS.items():
+        print(f"  {kpu_name:<15} {description}")
     print()
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='CPU Energy Breakdown Analysis for DNN Models',
+        description='KPU Energy Breakdown Analysis for DNN Models',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
 
-    # CPU selection
+    # KPU selection
     parser.add_argument(
-        '--cpu',
-        choices=list(CPU_CONFIGS.keys()),
-        help='CPU architecture to analyze'
+        '--kpu',
+        choices=list(KPU_CONFIGS.keys()),
+        help='KPU architecture to analyze'
     )
 
     # Model selection
@@ -153,13 +117,13 @@ def parse_args():
     parser.add_argument(
         '--precision',
         choices=['fp32', 'fp16', 'bf16', 'int8'],
-        default='fp32',
-        help='Numerical precision (default: fp32)'
+        default='int8',
+        help='Numerical precision (default: int8 for KPU)'
     )
 
     parser.add_argument(
         '--thermal-profile',
-        help='Thermal/power profile (e.g., "30W", "350W"). Uses hardware default if not specified.'
+        help='Thermal/power profile (e.g., "3W", "30W"). Uses hardware default if not specified.'
     )
 
     # Output options
@@ -176,9 +140,9 @@ def parse_args():
 
     # List options
     parser.add_argument(
-        '--list-cpus',
+        '--list-kpus',
         action='store_true',
-        help='List available CPU configurations'
+        help='List available KPU configurations'
     )
 
     parser.add_argument(
@@ -195,8 +159,8 @@ def main():
     args = parse_args()
 
     # Handle list commands
-    if args.list_cpus:
-        list_available_cpus()
+    if args.list_kpus:
+        list_available_kpus()
         return
 
     if args.list_models:
@@ -204,8 +168,8 @@ def main():
         return
 
     # Validate required arguments
-    if not args.cpu:
-        print("ERROR: --cpu is required (or use --list-cpus)")
+    if not args.kpu:
+        print("ERROR: --kpu is required (or use --list-kpus)")
         sys.exit(1)
 
     if not args.model and not args.model_path:
@@ -226,9 +190,9 @@ def main():
     precision = precision_map[args.precision]
 
     print("=" * 80)
-    print("CPU ENERGY BREAKDOWN ANALYSIS")
+    print("KPU ENERGY BREAKDOWN ANALYSIS")
     print("=" * 80)
-    print(f"CPU: {CPU_CONFIGS[args.cpu][1]}")
+    print(f"KPU: {KPU_CONFIGS[args.kpu][1]}")
     print(f"Model: {args.model or args.model_path}")
     print(f"Batch Size: {args.batch_size}")
     print(f"Precision: {args.precision.upper()}")
@@ -249,42 +213,36 @@ def main():
         print(f"✗ Failed to load model: {e}")
         sys.exit(1)
 
-    # Step 2: Create CPU mapper
-    print(f"\n[2/4] Creating CPU mapper for {args.cpu}...")
+    # Step 2: Create KPU mapper
+    print(f"\n[2/4] Creating KPU mapper for {args.kpu}...")
     try:
-        factory_fn, description, default_thermal = CPU_CONFIGS[args.cpu]
-        thermal_profile = args.thermal_profile or default_thermal
+        factory_fn, description, default_thermal = KPU_CONFIGS[args.kpu]
+        # TODO: Support thermal profiles once KPU mappers have them properly configured
+        # For now, use default from factory
+        kpu_mapper = factory_fn()
 
-        if thermal_profile:
-            # TODO: Pass thermal profile to factory (some mappers accept it, some don't)
-            # For now, use default from factory
-            cpu_mapper = factory_fn()
-        else:
-            cpu_mapper = factory_fn()
-
-        print(f"✓ CPU mapper created: {cpu_mapper.resource_model.name}")
-        print(f"  Cores: {cpu_mapper.resource_model.compute_units}")
-        print(f"  Peak Performance (FP32): {cpu_mapper.resource_model.precision_profiles[Precision.FP32].peak_ops_per_sec / 1e12:.2f} TFLOPS")
+        print(f"✓ KPU mapper created: {kpu_mapper.resource_model.name}")
+        print(f"  Tiles: {kpu_mapper.resource_model.compute_units}")
+        print(f"  Peak Performance (INT8): {kpu_mapper.resource_model.precision_profiles[Precision.INT8].peak_ops_per_sec / 1e12:.2f} TOPS")
     except Exception as e:
-        print(f"✗ Failed to create CPU mapper: {e}")
+        print(f"✗ Failed to create KPU mapper: {e}")
         sys.exit(1)
 
-    # Step 3: Map model to CPU
-    print(f"\n[3/4] Mapping model to CPU...")
+    # Step 3: Map model to KPU
+    print(f"\n[3/4] Mapping model to KPU...")
     try:
         # Create sequential execution stages (one stage per subgraph)
         execution_stages = [[i] for i in range(len(partition_report.fused_subgraphs))]
 
-        # Map to CPU hardware
-        mapping_result = cpu_mapper.map_graph(
-            partition_report,  # PartitionReport has .fused_subgraphs alias
+        # Map to KPU hardware
+        mapping_result = kpu_mapper.map_graph(
+            partition_report,
             execution_stages,
             batch_size=args.batch_size,
             precision=precision
         )
         print(f"✓ Model mapped")
-        print(f"  Peak cores used: {mapping_result.peak_compute_units_used} / {cpu_mapper.resource_model.compute_units}")
-        print(f"  Avg utilization: {mapping_result.average_utilization * 100:.1f}%")
+        print(f"  Tile utilization: {mapping_result.average_utilization * 100:.1f}%")
         print(f"  Estimated latency: {mapping_result.total_latency * 1000:.2f} ms")
         print(f"  Total energy: {mapping_result.total_energy * 1000:.2f} mJ")
     except Exception as e:
@@ -299,9 +257,9 @@ def main():
 
     # Extract architectural energy breakdown
     arch_events = None
-    if cpu_mapper.resource_model.architecture_energy_model:
+    if kpu_mapper.resource_model.architecture_energy_model:
         # Aggregate ops and bytes across all subgraphs
-        total_ops = sum(alloc.compute_time * cpu_mapper.resource_model.get_peak_ops(precision)
+        total_ops = sum(alloc.compute_time * kpu_mapper.resource_model.get_peak_ops(precision)
                        for alloc in mapping_result.subgraph_allocations)
         total_bytes = sum(sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
                          for sg in partition_report.fused_subgraphs)
@@ -313,11 +271,11 @@ def main():
         # Compute architectural energy breakdown
         execution_context = {
             'batch_size': args.batch_size,
-            'num_threads': cpu_mapper.resource_model.compute_units,
+            'num_tiles': kpu_mapper.resource_model.compute_units,
         }
 
         try:
-            arch_breakdown = cpu_mapper.resource_model.architecture_energy_model.compute_architectural_energy(
+            arch_breakdown = kpu_mapper.resource_model.architecture_energy_model.compute_architectural_energy(
                 ops=int(total_ops),
                 bytes_transferred=int(total_bytes),
                 compute_energy_baseline=total_compute_energy,
@@ -333,12 +291,12 @@ def main():
 
     # Print hierarchical breakdown if available
     if arch_events:
-        from energy_breakdown_utils import print_cpu_hierarchical_breakdown
+        from energy_breakdown_utils import print_kpu_hierarchical_breakdown
 
         total_compute_energy = sum(a.compute_energy for a in mapping_result.subgraph_allocations)
         total_memory_energy = sum(a.memory_energy for a in mapping_result.subgraph_allocations)
 
-        print_cpu_hierarchical_breakdown(
+        print_kpu_hierarchical_breakdown(
             arch_specific_events=arch_events,
             total_energy_j=mapping_result.total_energy,
             compute_energy_j=total_compute_energy,
@@ -352,9 +310,9 @@ def main():
         print(f"Latency: {mapping_result.total_latency * 1000:.2f} ms")
         print(f"Throughput: {args.batch_size / mapping_result.total_latency:.2f} inferences/sec")
 
-        if not cpu_mapper.resource_model.architecture_energy_model:
-            print(f"\nNote: Detailed architectural breakdown not available for {args.cpu}")
-            print(f"      (no StoredProgramEnergyModel configured)")
+        if not kpu_mapper.resource_model.architecture_energy_model:
+            print(f"\nNote: Detailed architectural breakdown not available for {args.kpu}")
+            print(f"      (no KPUTileEnergyAdapter configured)")
 
     # Export to JSON/CSV if requested
     if args.output:
@@ -365,8 +323,8 @@ def main():
 
         export_energy_results(
             output_path=args.output,
-            architecture='CPU',
-            hardware_name=cpu_mapper.resource_model.name,
+            architecture='KPU',
+            hardware_name=kpu_mapper.resource_model.name,
             model_name=args.model or args.model_path,
             batch_size=args.batch_size,
             precision=args.precision.upper(),
