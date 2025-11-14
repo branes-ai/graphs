@@ -48,6 +48,9 @@ from graphs.hardware.mappers.cpu import (
 # Import model factory
 from model_factory import load_and_prepare_model, list_available_models
 
+# Import export utilities
+from energy_breakdown_utils import export_energy_results
+
 
 # CPU configurations: name -> (factory_function, description, default_thermal_profile)
 CPU_CONFIGS = {
@@ -353,7 +356,31 @@ def main():
             print(f"\nNote: Detailed architectural breakdown not available for {args.cpu}")
             print(f"      (no StoredProgramEnergyModel configured)")
 
-    # TODO: Export to JSON/CSV if requested
+    # Export to JSON/CSV if requested
+    if args.output:
+        # Calculate energies
+        total_compute_energy = sum(a.compute_energy for a in mapping_result.subgraph_allocations)
+        total_memory_energy = sum(a.memory_energy for a in mapping_result.subgraph_allocations)
+        static_energy = mapping_result.total_energy - total_compute_energy - total_memory_energy
+
+        export_energy_results(
+            output_path=args.output,
+            architecture='CPU',
+            hardware_name=cpu_mapper.resource_model.name,
+            model_name=args.model or args.model_path,
+            batch_size=args.batch_size,
+            precision=args.precision.upper(),
+            total_energy_j=mapping_result.total_energy,
+            latency_s=mapping_result.total_latency,
+            throughput_inf_per_s=args.batch_size / mapping_result.total_latency,
+            compute_energy_j=total_compute_energy,
+            memory_energy_j=total_memory_energy,
+            static_energy_j=static_energy,
+            utilization=mapping_result.average_utilization,
+            num_subgraphs=len(partition_report.subgraphs),
+            arch_specific_events=arch_events,
+            subgraph_allocations=mapping_result.subgraph_allocations
+        )
 
     print("\n" + "=" * 80)
     print("Analysis complete!")
