@@ -470,6 +470,7 @@ class ArchitectureEnergyComparator:
                 # Compute units (Phase 3: separate MAC/FLOP energy)
                 'Tensor Core Operations': arch_breakdown.extra_details.get('tensor_core_mac_energy', 0),
                 'tensor_core_ops': arch_breakdown.extra_details.get('tensor_core_ops', 0),
+                'tensor_core_macs': arch_breakdown.extra_details.get('tensor_core_macs', 0),
                 'CUDA Core Operations': (
                     arch_breakdown.extra_details.get('cuda_core_mac_energy', 0) +
                     arch_breakdown.extra_details.get('cuda_core_flop_energy', 0)
@@ -478,6 +479,8 @@ class ArchitectureEnergyComparator:
                     arch_breakdown.extra_details.get('cuda_core_macs', 0) +
                     arch_breakdown.extra_details.get('cuda_core_flops', 0)
                 ),
+                'cuda_core_macs': arch_breakdown.extra_details.get('cuda_core_macs', 0),
+                'cuda_core_flops': arch_breakdown.extra_details.get('cuda_core_flops', 0),
                 'Register File Access': arch_breakdown.extra_details.get('register_file_energy', 0),
                 'num_register_accesses': arch_breakdown.extra_details.get('num_register_accesses', 0),
 
@@ -495,10 +498,17 @@ class ArchitectureEnergyComparator:
                 # Memory hierarchy (NVIDIA Ampere nomenclature)
                 'Shared Memory/L1 Unified': arch_breakdown.extra_details.get('shared_mem_l1_unified_energy', 0),
                 'shared_mem_l1_accesses': arch_breakdown.extra_details.get('shared_mem_l1_accesses', 0),
+                'shared_mem_bytes': arch_breakdown.extra_details.get('shared_mem_bytes', 0),
+                'l1_bytes': arch_breakdown.extra_details.get('l1_bytes', 0),
                 'L2 Cache': arch_breakdown.extra_details.get('l2_cache_energy', 0),
                 'l2_accesses': arch_breakdown.extra_details.get('l2_accesses', 0),
+                'l2_bytes': arch_breakdown.extra_details.get('l2_bytes', 0),
                 'DRAM': arch_breakdown.extra_details.get('dram_energy', 0),
                 'dram_accesses': arch_breakdown.extra_details.get('dram_accesses', 0),
+                'dram_bytes': arch_breakdown.extra_details.get('dram_bytes', 0),
+
+                # Workload data movement (for consistent AI)
+                'bytes_transferred': arch_breakdown.extra_details.get('bytes_transferred', 0),
 
                 # SIMT control overheads
                 'Coherence Machinery': arch_breakdown.extra_details.get('coherence_energy', 0),
@@ -538,6 +548,7 @@ class ArchitectureEnergyComparator:
                     'on_chip_buffer_accesses': arch_breakdown.extra_details.get('on_chip_buffer_accesses', 0),
                     'Off-Chip DRAM Access': arch_breakdown.extra_details.get('dram_energy', 0),
                     'dram_accesses': arch_breakdown.extra_details.get('dram_accesses', 0),
+                    'bytes_transferred': arch_breakdown.extra_details.get('bytes_transferred', 0),
                 }
         else:  # cpu
             # Return all CPU components directly
@@ -568,6 +579,10 @@ Examples:
 
   # CSV output
   %(prog)s --output comparison.csv
+
+  # Detailed architecture energy breakdowns
+  %(prog)s --print-arch cpu gpu tpu kpu
+  %(prog)s --print-arch gpu              # Only GPU details
 
   # All options
   %(prog)s --mlp-dims 256 512 --batch-sizes 1 8 16 --plot --output results.json
@@ -605,9 +620,9 @@ Power Budget:
         help='Directory for plots (default: ./energy_plots)'
     )
     parser.add_argument(
-        '--print-arch', nargs='+', type=str, default=['cpu', 'gpu', 'tpu', 'kpu'],
+        '--print-arch', nargs='+', type=str, default=[],
         choices=['cpu', 'gpu', 'tpu', 'kpu'],
-        help='Architectures to print detailed breakdowns for (default: all)'
+        help='Architectures to print detailed breakdowns for (default: none, summary only)'
     )
     parser.add_argument(
         '--thermal-profile', type=str, default='30W',
@@ -986,6 +1001,34 @@ def _print_gpu_hierarchical_breakdown(gpu_result):
     print(f"  {'─'*80}")
     print(f"  TOTAL GPU ENERGY:                  {gpu_result.total_energy_j*1e6:8.3f} μJ")
 
+    # Efficiency metrics
+    print(f"\n  EFFICIENCY METRICS:")
+    print(f"  • Energy per MAC:                     {gpu_result.energy_per_mac_pj:.2f} pJ")
+
+    # Calculate arithmetic intensity (ops/byte) - ROOFLINE MODEL DEFINITION
+    # AI = total_ops / bytes_transferred (workload-level, consistent across architectures)
+    # NOTE: Use MACs + FLOPs, not tensor_core_ops (which counts Tensor Core instructions)
+    total_ops = (events.get('tensor_core_macs', 0) + events.get('cuda_core_macs', 0) +
+                 events.get('cuda_core_flops', 0))
+    total_bytes = events.get('bytes_transferred', 1)  # Workload bytes (avoid div by zero)
+    arithmetic_intensity = total_ops / total_bytes if total_bytes > 0 else 0
+    print(f"  • Arithmetic Intensity:               {arithmetic_intensity:.2f} ops/byte")
+
+    # Compute vs Data Movement breakdown
+    compute_energy = gpu_result.compute_energy_j * 1e6  # Convert to μJ
+    data_movement_energy = gpu_result.memory_energy_j * 1e6  # Convert to μJ
+    total_dynamic = compute_energy + data_movement_energy
+    compute_efficiency = (compute_energy / total_dynamic * 100) if total_dynamic > 0 else 100.0
+    print(f"  • Compute Energy:                     {compute_energy:.3f} μJ")
+    print(f"  • Data Movement Energy:               {data_movement_energy:.3f} μJ")
+    print(f"  • Compute Efficiency:                 {compute_efficiency:.1f}%")
+
+    # Performance metrics
+    print(f"\n  PERFORMANCE:")
+    print(f"  • Latency per inference:              {gpu_result.latency_s*1e6:.2f} μs")
+    print(f"  • Throughput:                         {gpu_result.throughput_inferences_per_sec:,.0f} infer/sec")
+    print(f"  • Total energy per inference:         {gpu_result.total_energy_j*1e6:.3f} μJ")
+
 
 def _print_tpu_hierarchical_breakdown(tpu_result):
     """Print hierarchical energy breakdown for TPU (Systolic-Array)"""
@@ -1097,6 +1140,32 @@ def _print_tpu_hierarchical_breakdown(tpu_result):
         print(f"  Idle/Leakage Energy (30W x latency): {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/tpu_result.total_energy_j/1e6*100:.1f}%)")
         print(f"  {'─'*80}")
         print(f"  TOTAL TPU ENERGY:                  {tpu_result.total_energy_j*1e6:8.3f} μJ")
+
+        # Efficiency metrics
+        print(f"\n  EFFICIENCY METRICS:")
+        print(f"  • Energy per MAC:                     {tpu_result.energy_per_mac_pj:.2f} pJ")
+
+        # Calculate arithmetic intensity (ops/byte) - ROOFLINE MODEL DEFINITION
+        # AI = total_ops / bytes_transferred (workload-level, consistent across architectures)
+        total_ops = events.get('total_macs', 0) * 2  # MAC = 2 ops
+        total_bytes = events.get('bytes_transferred', 1)  # Workload bytes (avoid div by zero)
+        arithmetic_intensity = total_ops / total_bytes if total_bytes > 0 else 0
+        print(f"  • Arithmetic Intensity:               {arithmetic_intensity:.2f} ops/byte")
+
+        # Compute vs Data Movement breakdown
+        compute_energy = tpu_result.compute_energy_j * 1e6  # Convert to μJ
+        data_movement_energy = tpu_result.memory_energy_j * 1e6  # Convert to μJ
+        total_dynamic = compute_energy + data_movement_energy
+        compute_efficiency = (compute_energy / total_dynamic * 100) if total_dynamic > 0 else 100.0
+        print(f"  • Compute Energy:                     {compute_energy:.3f} μJ")
+        print(f"  • Data Movement Energy:               {data_movement_energy:.3f} μJ")
+        print(f"  • Compute Efficiency:                 {compute_efficiency:.1f}%")
+
+        # Performance metrics
+        print(f"\n  PERFORMANCE:")
+        print(f"  • Latency per inference:              {tpu_result.latency_s*1e6:.2f} μs")
+        print(f"  • Throughput:                         {tpu_result.throughput_inferences_per_sec:,.0f} infer/sec")
+        print(f"  • Total energy per inference:         {tpu_result.total_energy_j*1e6:.3f} μJ")
     else:
         # Fallback: simple systolic array model
         print(f"\n  (Simplified systolic array model - no detailed breakdown available)")
@@ -1125,6 +1194,25 @@ def _print_tpu_hierarchical_breakdown(tpu_result):
         print(f"  Idle/Leakage Energy (2W × latency): {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/tpu_result.total_energy_j/1e6*100:.1f}%)")
         print(f"  {'─'*80}")
         print(f"  TOTAL TPU ENERGY:                  {tpu_result.total_energy_j*1e6:8.3f} μJ")
+
+        # Efficiency metrics (fallback path)
+        print(f"\n  EFFICIENCY METRICS:")
+        print(f"  • Energy per MAC:                     {tpu_result.energy_per_mac_pj:.2f} pJ")
+
+        # Compute vs Data Movement breakdown
+        compute_energy = tpu_result.compute_energy_j * 1e6  # Convert to μJ
+        data_movement_energy = tpu_result.memory_energy_j * 1e6  # Convert to μJ
+        total_dynamic = compute_energy + data_movement_energy
+        compute_efficiency = (compute_energy / total_dynamic * 100) if total_dynamic > 0 else 100.0
+        print(f"  • Compute Energy:                     {compute_energy:.3f} μJ")
+        print(f"  • Data Movement Energy:               {data_movement_energy:.3f} μJ")
+        print(f"  • Compute Efficiency:                 {compute_efficiency:.1f}%")
+
+        # Performance metrics
+        print(f"\n  PERFORMANCE:")
+        print(f"  • Latency per inference:              {tpu_result.latency_s*1e6:.2f} μs")
+        print(f"  • Throughput:                         {tpu_result.throughput_inferences_per_sec:,.0f} infer/sec")
+        print(f"  • Total energy per inference:         {tpu_result.total_energy_j*1e6:.3f} μJ")
 
 
 def _print_kpu_hierarchical_breakdown(kpu_result):
@@ -1251,7 +1339,21 @@ def _print_kpu_hierarchical_breakdown(kpu_result):
             print(f"\n  EFFICIENCY METRICS:")
             print(f"  • Energy per MAC:                     {events['energy_per_mac_pj']:.2f} pJ")
             print(f"  • Arithmetic Intensity:               {events.get('arithmetic_intensity', 0):.2f} ops/byte")
-            print(f"  • Compute vs Memory:                  {events.get('compute_percentage', 0):.1f}% compute")
+
+            # Compute vs Data Movement breakdown
+            compute_energy = kpu_result.compute_energy_j * 1e6  # Convert to μJ
+            data_movement_energy = kpu_result.memory_energy_j * 1e6  # Convert to μJ
+            total_dynamic = compute_energy + data_movement_energy
+            compute_efficiency = (compute_energy / total_dynamic * 100) if total_dynamic > 0 else 100.0
+            print(f"  • Compute Energy:                     {compute_energy:.3f} μJ")
+            print(f"  • Data Movement Energy:               {data_movement_energy:.3f} μJ")
+            print(f"  • Compute Efficiency:                 {compute_efficiency:.1f}%")
+
+            # Performance metrics
+            print(f"\n  PERFORMANCE:")
+            print(f"  • Latency per inference:              {kpu_result.latency_s*1e6:.2f} μs")
+            print(f"  • Throughput:                         {kpu_result.throughput_inferences_per_sec:,.0f} infer/sec")
+            print(f"  • Total energy per inference:         {kpu_result.total_energy_j*1e6:.3f} μJ")
 
         print(f"\n  WHY SO EFFICIENT? Token-based distributed dataflow:")
         print(f"  • No instruction fetch/decode (dataflow, not stored-program)")
@@ -1350,6 +1452,32 @@ def _print_cpu_hierarchical_breakdown(cpu_result):
     print(f"  Idle/Leakage Energy (15W × latency):  {idle_leakage_energy:8.3f} μJ  ({idle_leakage_energy/cpu_result.total_energy_j/1e6*100:.1f}%)")
     print(f"  {'─'*80}")
     print(f"  TOTAL CPU ENERGY:                     {cpu_result.total_energy_j*1e6:8.3f} μJ")
+
+    # Efficiency metrics
+    print(f"\n  EFFICIENCY METRICS:")
+    print(f"  • Energy per MAC:                     {cpu_result.energy_per_mac_pj:.2f} pJ")
+
+    # Calculate arithmetic intensity (ops/byte) - ROOFLINE MODEL DEFINITION
+    # AI = total_ops / bytes_transferred (workload-level, consistent across architectures)
+    total_ops = events.get('alu_ops', 0) + events.get('fpu_ops', 0)
+    total_bytes = events.get('bytes_transferred', 1)  # Workload bytes (avoid div by zero)
+    arithmetic_intensity = total_ops / total_bytes if total_bytes > 0 else 0
+    print(f"  • Arithmetic Intensity:               {arithmetic_intensity:.2f} ops/byte")
+
+    # Compute vs Data Movement breakdown
+    compute_energy = cpu_result.compute_energy_j * 1e6  # Convert to μJ
+    data_movement_energy = cpu_result.memory_energy_j * 1e6  # Convert to μJ
+    total_dynamic = compute_energy + data_movement_energy
+    compute_efficiency = (compute_energy / total_dynamic * 100) if total_dynamic > 0 else 100.0
+    print(f"  • Compute Energy:                     {compute_energy:.3f} μJ")
+    print(f"  • Data Movement Energy:               {data_movement_energy:.3f} μJ")
+    print(f"  • Compute Efficiency:                 {compute_efficiency:.1f}%")
+
+    # Performance metrics
+    print(f"\n  PERFORMANCE:")
+    print(f"  • Latency per inference:              {cpu_result.latency_s*1e6:.2f} μs")
+    print(f"  • Throughput:                         {cpu_result.throughput_inferences_per_sec:,.0f} infer/sec")
+    print(f"  • Total energy per inference:         {cpu_result.total_energy_j*1e6:.3f} μJ")
 
     print(f"\n  CPU CHARACTERISTICS:")
     print(f"  • Instruction fetch overhead: {inst_fetch:.3f} μJ ({num_instructions:,} instructions)")
@@ -1732,6 +1860,15 @@ def _print_config_comparison(mlp_config, batch_size, cpu_result, gpu_result, tpu
     if winner != throughput_winner:
         print(f"   Note: Energy efficiency vs throughput trade-off!")
         print(f"         {winner} wins on energy, {throughput_winner} wins on throughput")
+
+    # Print note about detailed breakdowns if none were requested
+    if not print_arch_selection:
+        print(f"\n{'─'*80}")
+        print(f"NOTE: Detailed architecture energy breakdowns not shown.")
+        print(f"      To see detailed breakdowns, use:")
+        print(f"      --print-arch cpu gpu tpu kpu   (for all architectures)")
+        print(f"      --print-arch cpu gpu            (for specific architectures)")
+        print(f"{'─'*80}")
 
 
 def _save_results(results: Dict[str, List[ArchitecturalEnergyBreakdown]], output_path: str):
