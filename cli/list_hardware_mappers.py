@@ -763,20 +763,51 @@ def generate_text_report(all_mappers: List[HardwareMapperInfo], category_filter:
         print(f"    Average Power: {avg_power:.1f} W")
         print()
 
-    # Overall comparison table
+    # Overall comparison table (segmented by deployment)
     print("=" * 100)
-    print("PERFORMANCE COMPARISON (sorted by INT8 TOPS)")
+    print("PERFORMANCE COMPARISON (by Deployment)")
     print("=" * 100)
     print()
-    print(f"{'Hardware':<35} {'Category':<8} {'Deployment':<15} {'INT8 TOPS':<12} {'Power (W)':<10} {'Efficiency (TOPS/W)':<15}")
-    print("-" * 100)
 
-    for mapper in sorted(all_mappers, key=lambda x: x.peak_flops_int8, reverse=True):
-        int8_tops = mapper.peak_flops_int8 / 1000
-        efficiency = int8_tops / mapper.power_tdp if mapper.power_tdp > 0 else 0
-        print(f"{mapper.name:<35} {mapper.category:<8} {mapper.deployment:<15} {int8_tops:<12.1f} {mapper.power_tdp:<10.1f} {efficiency:<15.2f}")
+    # Group by deployment
+    deployment_groups = {}
+    for mapper in all_mappers:
+        if mapper.deployment not in deployment_groups:
+            deployment_groups[mapper.deployment] = []
+        deployment_groups[mapper.deployment].append(mapper)
 
-    print()
+    # Define deployment order (logical grouping)
+    deployment_order = [
+        "Datacenter",
+        "Embodied AI",
+        "Edge",
+        "Edge/Datacenter",
+        "Automotive",
+        "Desktop",
+        "Mobile",
+        "Research"
+    ]
+
+    # Print each deployment segment
+    for deployment in deployment_order:
+        if deployment not in deployment_groups:
+            continue
+
+        mappers = deployment_groups[deployment]
+
+        print(f"--- {deployment} ({len(mappers)} devices) ---")
+        print()
+        print(f"{'Hardware':<35} {'Category':<8} {'INT8 TOPS':<12} {'Power (W)':<10} {'Efficiency (TOPS/W)':<15}")
+        print("-" * 100)
+
+        # Sort by INT8 TOPS within deployment
+        for mapper in sorted(mappers, key=lambda x: x.peak_flops_int8, reverse=True):
+            int8_tops = mapper.peak_flops_int8 / 1000
+            efficiency = int8_tops / mapper.power_tdp if mapper.power_tdp > 0 else 0
+            print(f"{mapper.name:<35} {mapper.category:<8} {int8_tops:<12.1f} {mapper.power_tdp:<10.1f} {efficiency:<15.2f}")
+
+        print()
+
     print("=" * 100)
     print(f"Total: {len(all_mappers)} hardware mappers available")
     print("=" * 100)

@@ -588,8 +588,13 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
             'l3_accesses': l3_accesses,
             'dram_accesses': dram_accesses,
 
-            # ALU
+            # ALU (for arithmetic intensity calculation)
             'alu_energy': alu_energy_total,
+            'alu_ops': ops,  # Total operations (for arithmetic intensity)
+            'fpu_ops': 0,    # FPU ops (not separately tracked in this model)
+
+            # Workload data movement (for consistent AI calculation across architectures)
+            'bytes_transferred': bytes_transferred,
 
             # Branch Prediction
             'branch_energy': branch_energy,
@@ -916,10 +921,17 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
                 # Memory hierarchy (NVIDIA Ampere nomenclature)
                 'shared_mem_l1_unified_energy': shared_mem_l1_energy,
                 'shared_mem_l1_accesses': shared_mem_l1_accesses,
+                'shared_mem_bytes': shared_mem_l1_accesses * 4,  # For arithmetic intensity
+                'l1_bytes': shared_mem_l1_accesses * 4,          # Alias for shared_mem_bytes
                 'l2_cache_energy': l2_energy,
                 'l2_accesses': l2_accesses,
+                'l2_bytes': l2_accesses * 4,                     # For arithmetic intensity
                 'dram_energy': dram_energy,
                 'dram_accesses': dram_accesses,
+                'dram_bytes': dram_accesses * 4,                 # For arithmetic intensity
+
+                # Workload data movement (for consistent AI calculation across architectures)
+                'bytes_transferred': bytes_transferred,
 
                 # SIMT control overheads
                 'coherence_energy': coherence_energy,
@@ -1198,6 +1210,14 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
                 'num_tiles': num_tiles,
                 'num_matrix_ops': num_matrix_ops,
                 'control_overhead_per_mac_pj': (control_overhead_total/ops*1e12) if ops > 0 else 0,
+                # For arithmetic intensity calculation
+                'total_macs': ops // 2,  # MACs (each MAC = 2 ops: multiply + accumulate)
+                'dma_bytes': bytes_transferred,  # All bytes go through DMA
+                'on_chip_buffer_bytes': bytes_transferred,  # Unified buffer holds all activations
+
+                # Workload data movement (for consistent AI calculation across architectures)
+                'bytes_transferred': bytes_transferred,
+
                 # Occurrence counts
                 'num_dma_transfers': num_dma_transfers,
                 'num_cache_lines': num_cache_lines,
