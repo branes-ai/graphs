@@ -58,6 +58,7 @@ Each KPU **tile** contains:
 
 ### Per-Tile Compute Resources
 
+#### Scalar Streaming Tiles
 ```
 ┌────────────────────────────────────┐
 │     KPU Tile (16×16 PE Array)      │
@@ -67,6 +68,35 @@ Each KPU **tile** contains:
 │  │   16×16 MAC Array            │  │
 │  │   (256 MACs @ 1.5 GHz)       │  │
 │  │   = 384 GOPS (INT8/BF16)     │  │
+│  └──────────────────────────────┘  │
+│                                    │
+│  ┌──────────────────────────────┐  │
+│  │   FP32 Vector Engine         │  │
+│  │   (16-wide SIMD @ 1.5 GHz)   │  │
+│  │   For: Bias, Activation,     │  │
+│  │        Normalization         │  │
+│  └──────────────────────────────┘  │
+│                                    │
+│  ┌──────────────────────────────┐  │
+│  │   Local Scratchpad (L1)      │  │
+│  │   256 KB SRAM                │  │
+│  │   Single-cycle access        │  │
+│  └──────────────────────────────┘  │
+│                                    │
+└────────────────────────────────────┘
+```
+
+#### Block-Matrix Streaming Tile
+
+```
+┌────────────────────────────────────┐
+│   KPU Tile (8×8 TensorCore Array)  │
+├────────────────────────────────────┤
+│                                    │
+│  ┌──────────────────────────────┐  │
+│  │   8×8 TensorCore Array       │  │
+│  │   (64 TCs @ 1.0 GHz)         │  │  TC = 4x4 matmul/clock
+│  │   = 4096 GOPS (BF16/FP32)    │  │     = 64 MACs/clock
 │  └──────────────────────────────┘  │
 │                                    │
 │  ┌──────────────────────────────┐  │
@@ -149,10 +179,11 @@ Time: [Load Weights] [Compute] [Unload] [Load Weights] [Compute] [Unload] ....
 ### KPU: Stream Processing Dataflow
 
 **Execution Schedule**:
-1. **Pipeline setup**: Load initial tile of weights into scratchpad
-2. **Stream data**: Activations flow through PE array continuously
-3. **Overlap**: Next weight tile loads while current tile computes
-4. **No bubbles**: Array never waits for data
+1. **Pipeline setup**: Load initial tile of inputs and weights into scratchpad
+2. **Stream data**: Inputs and Activations flow through PE array continuously, no need to load/unload
+3. **Output Stationary**: Typically, outputs will stay stationary so that we can efficiently support larger accumulation types (BF16 mul, FP32 accumulate)
+4. **Overlap**: Next input and weight tile loads while current tiles are streamed in to trigger compute
+5. **No bubbles**: Array never has to wait for data
 
 **High utilization**:
 ```
@@ -167,7 +198,7 @@ Time: [Compute][Compute][Compute][Compute][Compute][Compute]
 - **Scratchpad buffering** hide memory latency
 - **Blocked matmuls** each block is independent, pipelines naturally
 
-**Result**: Near 100% utilization even at batch=1, even with tiled operations.
+**Result**: Near 100% utilization even at batch=1, with tiled operations.
 
 ---
 
@@ -206,6 +237,8 @@ Based on workload analysis:
 - **~70% INT8 tiles**: Handle Conv2D, Linear (bulk of compute)
 - **~20% BF16 tiles**: Handle Attention, large matmuls
 - **~10% FP32/Matrix tiles**: Handle none-quantizable tensor ops
+
+**Matrix tiles** are arrays where the processing elements are TensorCores. So the array is executing a blocked matrix multiply, and the processing elements are doing small matmuls.
 
 ### KPU-T256 Configuration
 
@@ -272,7 +305,7 @@ FP32:   ReLU @ FP32       ✓ (non-linearity sensitive)
 
 ### Per-Tile Vector Engine
 
-Each KPU tile includes:
+Each KPU tile includes an FP32 vector engine to provide free operator fusion of Bias and Activation as the output flows to the L1.
 ```
 ┌──────────────────────────────────┐
 │   FP32 Vector Engine (16-wide)   │
@@ -321,14 +354,15 @@ Footnote:
 
 KPU supports two distinct scaling strategies for different use cases:
 
-#### 1. Performance Scaling (Datacenter/Edge Server)
+#### 1. Performance Scaling (Device/Edge Server)
 
 **Goal**: Increase compute capacity
 
 **Method**: Scale tile count within checkerboard constraints
-- **KPU-T256**: 256 tiles (16 rows × 16 tiles) → **~100 TOPS**
-- **KPU-T768**: 768 tiles (16 rows × 48 tiles) → **~300 TOPS**
-- **KPU-T2048**: 2048 tiles (16 rows × 128 tiles) → **~800 TOPS**
+- **KPU-T64**: 64 tiles (8 rows × 8 columns) → **~24 TOPS**
+- **KPU-T256**: 256 tiles (16 rows × 16 columns) → **~100 TOPS**
+- **KPU-T768**: 768 tiles (16 rows × 48 columns) → **~300 TOPS**
+- **KPU-T2048**: 2048 tiles (16 rows × 128 columns) → **~800 TOPS**
 
 **Characteristics**:
 - Single coherent address space
@@ -336,7 +370,7 @@ KPU supports two distinct scaling strategies for different use cases:
 - Maximum performance per chip
 - Lower cost per TOPS
 
-**Use case**: Cloud inference, edge servers, high-throughput applications
+**Use case**: Device Inference, Edge Servers, high-throughput applications
 
 #### 2. Redundancy Scaling (Automotive/Safety-Critical)
 
@@ -403,6 +437,8 @@ If one checkerboard develops a fault (manufacturing defect, radiation strike, ag
 - **R3 (triple)**: 200% overhead, 66% degraded performance if one fails
 
 **Marketing names**:
+The number following the **KPU** tag represents the sustained performance of the device in TOPS:
+- KPU-T64 → **KPU-25**
 - KPU-T256 → **KPU-100**
 - KPU-T768 → **KPU-300**
 - KPU-T2048 → **KPU-800**
@@ -540,14 +576,14 @@ In total, a fully enabled H100 GPU can support over 250,000 concurrent threads, 
 | Aspect | Jetson Orin AGX | KPU-T256 | Winner |
 |--------|-----------------|----------|--------|
 | **Peak TOPS** | 85 INT8 (GPU)† | 95 INT8 | **KPU** (1.1×) |
-| **Power** | 15-60W | 6-25W | **KPU** (lower) |
+| **Power** | 15-30-60W | 15-30-60W | **tie** |
 | **Utilization** | 40-60% | 90-100% | **KPU** |
 | **Cost** | $2,000 | $400 | **KPU** (5×) |
 | **Redundancy** | No | Yes (R2/R3) | **KPU** (automotive) |
 | **Ecosystem** | CUDA, mature | Custom, new | **Jetson** |
 | **Target** | Robotics, automotive | Robotics, automotive | Same market! |
 
-† **Jetson Orin Performance Clarification**: Marketing specs show 275 TOPS INT8 (sparse networks, all engines: GPU+DLA+PVA) or 138 TOPS (dense networks, GPU+DLA). For typical PyTorch workloads running dense networks on GPU only: **85 TOPS INT8**. (Breakdown: 170 TOPS GPU sparse → 85 TOPS GPU dense; 105 TOPS 2×DLA sparse → 52.5 TOPS DLA dense).
+† **Jetson Orin Performance Clarification**: Marketing specs show 275 TOPS INT8 (sparse networks, all engines: GPU+DLA+PVA) or 138 TOPS (dense networks, GPU+DLA). For typical PyTorch workloads running dense networks on GPU only: **85 TOPS INT8**. (Breakdown: 170 TOPS GPU sparse → 85 TOPS GPU dense; 105 TOPS 2×DLA sparse → 52.5 TOPS DLA dense). 64 TensorCores = 4096 @ 1.3GHz = 5TOPS
 
 **Key insight**: For PyTorch workloads, KPU-T256 delivers comparable peak performance with better utilization, lower cost/power, and automotive redundancy features. Jetson's advantage is mature CUDA ecosystem.
 
