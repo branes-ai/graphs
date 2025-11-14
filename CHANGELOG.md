@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-14] - Arithmetic Intensity Fixes & UI Improvements
+
+### Fixed
+
+**Arithmetic Intensity Calculation Consistency**
+- **Root Cause Analysis**: Fixed arithmetic intensity showing 0.00 for CPU/GPU/TPU in `compare_architectures_energy.py`
+  - **CPU**: Missing `alu_ops` and `fpu_ops` keys in `extra_details` dictionary
+  - **GPU**: Missing `shared_mem_bytes`, `l1_bytes`, `l2_bytes`, `dram_bytes` keys; also was counting Tensor Core instructions instead of MACs
+  - **TPU**: Missing `total_macs`, `dma_bytes`, `on_chip_buffer_bytes` keys
+- **Unified Definition**: Standardized arithmetic intensity calculation across all architectures
+  - Uses `AI = total_ops / bytes_transferred` (workload-level data movement)
+  - Previously mixed cache hierarchy bytes (inflating denominator) vs DRAM-only bytes
+  - GPU was counting tensor_core_ops (instructions) instead of tensor_core_macs (operations)
+- **Implementation**:
+  - Added missing keys to `architectural_energy.py` (CPU lines 591-597, GPU lines 921-934, TPU lines 1207-1219)
+  - Updated `compare_architectures_energy.py` to extract and use `bytes_transferred` for consistent AI calculations
+  - Fixed GPU to count MACs+FLOPs instead of hardware instructions (line 1004-1005)
+- **Result**: All architectures now show consistent arithmetic intensity (e.g., 1024x1024 MLP: CPU/GPU/TPU = 0.25 ops/byte, KPU = 0.50 ops/byte)
+
+### Changed
+
+**CLI Default Behavior: Summary-First Approach**
+- Changed `compare_architectures_energy.py` default to **not** print detailed architecture breakdowns
+  - `--print-arch` default changed from `['cpu', 'gpu', 'tpu', 'kpu']` to `[]` (line 619)
+  - Default output now shows only high-level efficiency metrics and comparison tables
+  - Added helpful note when no detailed breakdowns shown, explaining how to use `--print-arch`
+  - Updated help text and examples to show `--print-arch` usage patterns
+- **Rationale**: Cleaner default output focused on comparison metrics; users opt-in for detailed breakdowns
+
+**PERFORMANCE Section in Detailed Architecture Breakdowns**
+- Added PERFORMANCE section to all four architecture-specific breakdowns:
+  - **CPU**: Lines 1452-1456
+  - **GPU**: Lines 1026-1030
+  - **TPU**: Lines 1164-1168 (detailed), 1211-1215 (fallback)
+  - **KPU**: Lines 1352-1356
+- Shows three key metrics directly linking latency to energy:
+  - Latency per inference (μs)
+  - Throughput (inferences/sec)
+  - Total energy per inference (μJ)
+- **Rationale**: Makes idle/leakage energy relationship clear (Idle Energy = Power × Latency)
+  - Example: CPU 82μs latency → 1360μJ total vs GPU 20μs → 375μJ total
+
+### Documentation
+- Session log: `docs/sessions/2025-11-14_arithmetic_intensity_fixes.md`
+
+---
+
 ## [2025-11-13] - Architecture-Specific Energy Analysis CLI Tools (Phase 1A)
 
 ### Added
