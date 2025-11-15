@@ -8,7 +8,7 @@ import platform
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration
 from .benchmarks import calibrate_matmul, calibrate_memory_bandwidth
@@ -53,6 +53,8 @@ def calibrate_hardware(
     hardware_name: str,
     theoretical_peak_gflops: float,
     theoretical_bandwidth_gbps: float,
+    theoretical_peaks: Optional[Dict[str, float]] = None,  # NEW: per-precision theoretical peaks
+    device: str = 'cpu',  # NEW: 'cpu' or 'cuda'
     output_path: Optional[Path] = None,
     operations: Optional[List[str]] = None,
     fusion_patterns: Optional[List[str]] = None,
@@ -63,8 +65,10 @@ def calibrate_hardware(
 
     Args:
         hardware_name: Name of hardware being calibrated (e.g., "i7-12700K")
-        theoretical_peak_gflops: Theoretical peak GFLOPS from datasheet
+        theoretical_peak_gflops: Theoretical peak GFLOPS from datasheet (FP32 or default precision)
         theoretical_bandwidth_gbps: Theoretical memory bandwidth from datasheet
+        theoretical_peaks: Per-precision theoretical peaks (dict: precision -> GFLOPS)
+        device: Device type ('cpu' or 'cuda')
         output_path: Optional path to save calibration JSON
         operations: List of operations to calibrate (None = all)
         fusion_patterns: List of fusion patterns to benchmark (e.g., ['linear', 'conv', 'attention'] or ['all'])
@@ -106,6 +110,8 @@ def calibrate_hardware(
         pytorch_version=sw_versions['pytorch_version'],
         num_warmup_runs=2 if quick else 3,
         num_measurement_runs=5 if quick else 10,
+        device_type=device,  # NEW: record device type
+        platform_architecture=platform.machine().lower(),  # NEW: record platform
     )
 
     # Initialize calibration object
