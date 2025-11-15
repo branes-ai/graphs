@@ -174,7 +174,8 @@ def calibrate_matmul_all_precisions(
     precisions: List[Precision],
     theoretical_peaks: Dict[str, float],
     device: str = 'cpu',
-    num_trials: int = 10
+    num_trials: int = 10,
+    min_useful_throughput: float = 50.0  # Skip precision for larger sizes if < this GOPS
 ) -> Dict[int, Dict[str, PrecisionTestResult]]:
     """
     Calibrate matmul across all precisions at multiple sizes.
@@ -182,14 +183,17 @@ def calibrate_matmul_all_precisions(
     Args:
         sizes: Matrix sizes to test
         precisions: List of Precision enums to test
-        theoretical_peaks: Dict mapping precision name -> theoretical GFLOPS
+        theoretical_peaks: Dict mapping precision name -> theoretical GFLOPS/GIOPS
         device: 'cpu' or 'cuda'
         num_trials: Trials per test
+        min_useful_throughput: Skip precision for larger sizes if throughput < this (GOPS)
+                               Default 50 GOPS - below this is not useful for Embodied AI
 
     Returns:
         Dict mapping size -> Dict mapping precision name -> PrecisionTestResult
     """
     results = {}
+    skip_precisions = set()  # Precisions to skip for larger sizes
 
     for N in sizes:
         print(f"\nCalibrating matmul {N}×{N} across {len(precisions)} precisions...")
@@ -198,6 +202,19 @@ def calibrate_matmul_all_precisions(
         fp32_latency = None
 
         for precision in precisions:
+            # Skip if this precision was too slow on smaller size
+            if precision in skip_precisions:
+                print(f"  {precision.value:8s}... ⊘ SKIPPED (< {min_useful_throughput} GOPS on smaller size)")
+                # Create skipped result
+                precision_results[precision.value] = PrecisionTestResult(
+                    precision=precision.value,
+                    supported=False,
+                    failure_reason=f"Skipped: throughput <{min_useful_throughput} GOPS on smaller matrix",
+                    test_size=N,
+                    num_trials=0
+                )
+                continue
+
             # Print status
             print(f"  {precision.value:8s}...", end=" ", flush=True)
 
@@ -214,11 +231,24 @@ def calibrate_matmul_all_precisions(
                 is_int = precision in [Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]
                 units = "GIOPS" if is_int else "GFLOPS"
 
-                print(f"✓ {result.measured_gops:7.1f} {units}", end="")
+                # Format latency: show seconds if >1000ms, else milliseconds
+                latency_ms = result.mean_latency_ms
+                if latency_ms >= 1000:
+                    latency_str = f"{latency_ms/1000:5.1f}s"
+                else:
+                    latency_str = f"{latency_ms:6.1f}ms"
+
+                print(f"✓ {result.measured_gops:7.1f} {units} ({latency_str})", end="")
                 if result.efficiency:
-                    print(f" ({result.efficiency*100:5.1f}% eff)")
+                    print(f" {result.efficiency*100:5.1f}% eff")
                 else:
                     print()
+
+                # Check if this precision has unusable throughput (skip for larger sizes)
+                # Below 50 GOPS is not useful for Embodied AI applications
+                if result.measured_gops < min_useful_throughput:
+                    skip_precisions.add(precision)
+                    print(f"    ⚠ Warning: Throughput <{min_useful_throughput} GOPS, will skip this precision for larger sizes")
 
                 # Track FP32 for speedup calculations
                 if precision == Precision.FP32:

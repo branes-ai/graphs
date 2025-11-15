@@ -181,7 +181,8 @@ def calibrate_hardware(
             precisions=precisions_to_test,
             theoretical_peaks=theoretical_peaks or {},
             device=device,
-            num_trials=metadata.num_measurement_runs
+            num_trials=metadata.num_measurement_runs,
+            min_useful_throughput=50.0  # Skip precisions with <50 GOPS (not useful for Embodied AI)
         )
 
         # Convert to OperationCalibration objects with precision_results populated
