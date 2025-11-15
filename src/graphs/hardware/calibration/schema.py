@@ -532,28 +532,122 @@ class HardwareCalibration:
         print()
 
         print("Theoretical Specifications:")
-        print(f"  Peak GFLOPS:    {self.theoretical_peak_gflops:.1f}")
-        print(f"  Peak Bandwidth: {self.theoretical_bandwidth_gbps:.1f} GB/s")
+        print(f"  Peak GFLOPS (FP32): {self.theoretical_peak_gflops:.1f}")
+        print(f"  Peak Bandwidth:     {self.theoretical_bandwidth_gbps:.1f} GB/s")
         print()
 
-        print("Measured Performance:")
-        print(f"  Best GFLOPS:    {self.best_measured_gflops:.1f} ({self.best_efficiency*100:.1f}% efficiency)")
-        print(f"  Avg GFLOPS:     {self.avg_measured_gflops:.1f} ({self.avg_efficiency*100:.1f}% efficiency)")
-        print(f"  Worst GFLOPS:   {self.worst_measured_gflops:.1f} ({self.worst_efficiency*100:.1f}% efficiency)")
-        print(f"  Bandwidth:      {self.measured_bandwidth_gbps:.1f} GB/s ({self.bandwidth_efficiency*100:.1f}% efficiency)")
-        print()
+        # Separate memory and compute operations
+        memory_ops = {}
+        compute_ops = {}
 
-        print(f"Operation Profiles ({len(self.operation_profiles)} total):")
-        print(f"  {'Operation':<25} {'GFLOPS':>10} {'Efficiency':>12} {'Bound':>12}")
-        print("  " + "-" * 65)
+        for key, profile in self.operation_profiles.items():
+            if profile.operation_type == 'memory_copy' or profile.memory_bound:
+                memory_ops[key] = profile
+            else:
+                compute_ops[key] = profile
 
-        for key, profile in sorted(self.operation_profiles.items()):
-            bound = "Memory" if profile.memory_bound else "Compute"
-            print(f"  {key:<25} {profile.measured_gflops:>10.1f} {profile.efficiency*100:>11.1f}% {bound:>12}")
+        # Memory Operations Section
+        if memory_ops:
+            print("Memory Operations:")
+            print(f"  {'Operation':<40} {'Bandwidth':>12} {'Efficiency':>12}")
+            print("  " + "-" * 70)
+
+            for key, profile in sorted(memory_ops.items()):
+                bandwidth = profile.achieved_bandwidth_gbps if profile.achieved_bandwidth_gbps > 0 else self.measured_bandwidth_gbps
+                eff = self.bandwidth_efficiency if profile.achieved_bandwidth_gbps == 0 else (profile.achieved_bandwidth_gbps / self.theoretical_bandwidth_gbps)
+                print(f"  {key:<40} {bandwidth:>10.1f} GB/s {eff*100:>10.1f}%")
+            print()
+
+        # Compute Operations Section - Group by precision
+        if compute_ops:
+            print("Matrix Multiplication Performance (by precision):")
+            print(f"  {'Precision':<10} {'Size':<12} {'Latency':>10} {'Min GOPS':>10} {'Avg GOPS':>10} {'Max GOPS':>10} {'Efficiency':>11}")
+            print("  " + "-" * 90)
+
+            # Collect all matmul results by precision and size
+            # Structure: matmul_by_precision[precision][size] = [(gops, latency_ms), ...]
+            matmul_by_precision = {}
+
+            for key, profile in sorted(compute_ops.items()):
+                if profile.operation_type == 'matmul' and profile.precision_results:
+                    # Extract matrix size from extra_params or key
+                    size = profile.extra_params.get('matrix_size', 'unknown')
+
+                    # Process each precision
+                    for prec_name, prec_result in profile.precision_results.items():
+                        if prec_result.supported:
+                            if prec_name not in matmul_by_precision:
+                                matmul_by_precision[prec_name] = {}
+
+                            if size not in matmul_by_precision[prec_name]:
+                                matmul_by_precision[prec_name][size] = []
+
+                            matmul_by_precision[prec_name][size].append((prec_result.measured_gops, prec_result.mean_latency_ms))
+                        else:
+                            # Track failed/skipped precisions
+                            if prec_name not in matmul_by_precision:
+                                matmul_by_precision[prec_name] = {}
+
+                            if size not in matmul_by_precision[prec_name]:
+                                matmul_by_precision[prec_name][size] = []
+
+                            matmul_by_precision[prec_name][size].append(None)  # Mark as skipped
+
+            # Print results grouped by precision
+            for prec_name in sorted(matmul_by_precision.keys()):
+                sizes_data = matmul_by_precision[prec_name]
+
+                for size in sorted(sizes_data.keys()):
+                    results = sizes_data[size]
+
+                    # Format size as a single string with fixed width
+                    size_str = f"{size}×{size}"
+
+                    # Check if this precision was skipped
+                    if results and results[0] is None:
+                        # Use "-" for unmeasured values, put skip reason on the right
+                        print(f"  {prec_name:<10} {size_str:<12} {'-':>10} {'-':>10} {'-':>10} {'-':>10} {'-':>10}  SKIPPED (< 50 GOPS)")
+                    elif results:
+                        # Extract gops and latency from tuples
+                        gops_values = [r[0] for r in results]
+                        latency_values = [r[1] for r in results]
+
+                        min_gops = min(gops_values)
+                        avg_gops = sum(gops_values) / len(gops_values)
+                        max_gops = max(gops_values)
+                        avg_latency = sum(latency_values) / len(latency_values)
+
+                        # Format latency: show seconds if >= 1000ms, else milliseconds
+                        if avg_latency >= 1000:
+                            latency_str = f"{avg_latency/1000:.2f}s"
+                        else:
+                            latency_str = f"{avg_latency:.1f}ms"
+
+                        # Get efficiency from precision matrix
+                        theoretical_peak = self.precision_matrix.theoretical_peaks.get(prec_name, None) if self.precision_matrix else None
+                        if theoretical_peak and theoretical_peak > 0:
+                            efficiency = max_gops / theoretical_peak
+                        else:
+                            efficiency = 0.0
+
+                        # Determine units
+                        is_int = prec_name in ['int32', 'int16', 'int8', 'int4']
+                        units = "GIOPS" if is_int else "GFLOPS"
+
+                        print(f"  {prec_name:<10} {size_str:<12} {latency_str:>10} {min_gops:>10.1f} {avg_gops:>10.1f} {max_gops:>10.1f} {efficiency*100:>10.1f}%")
+
+            print()
+
+        # Precision Support Summary
+        if self.precision_matrix:
+            print("Precision Support Summary:")
+            print(f"  Supported:   {', '.join(self.precision_matrix.supported_precisions)}")
+            if self.precision_matrix.unsupported_precisions:
+                print(f"  Unsupported: {', '.join(self.precision_matrix.unsupported_precisions)}")
+            print()
 
         # Fusion patterns summary
         if self.fusion_profiles:
-            print()
             print(f"Fusion Pattern Performance ({len(self.fusion_profiles)} total):")
             print("  " + "-" * 80)
 
