@@ -100,6 +100,57 @@ PRESETS = {
             'int8': 4096.0,     # 4× INT32
         }
     },
+    # Jetson CPU-only presets (for environments without CUDA)
+    'jetson-orin-agx-cpu': {
+        'name': 'NVIDIA-Jetson-Orin-AGX-CPU',
+        'device': 'cpu',
+        'platform': 'aarch64',
+        'peak_bandwidth': 204.8,  # LPDDR5
+        'theoretical_peaks': {
+            'fp64': 52.8,       # 12 cores × 2 NEON lanes × 2 FMA × 2.2 GHz (Cortex-A78AE)
+            'fp32': 105.6,      # 2× FP64
+            'fp16': 211.2,      # 4× FP64 (NEON FP16)
+            'int32': 52.8,      # Same as FP64
+            'int16': 105.6,     # 2× INT32
+            'int8': 211.2,      # 4× INT32
+        }
+    },
+    'jetson-orin-agx-gpu': {
+        'name': 'NVIDIA-Jetson-Orin-AGX-GPU',
+        'device': 'cuda',
+        'platform': 'aarch64',
+        'peak_bandwidth': 204.8,  # LPDDR5
+        'theoretical_peaks': {
+            'fp32': 5300.0,     # 2048 CUDA cores (Ampere) @ 1.3 GHz
+            'fp16': 10600.0,    # 2× FP32 (Tensor Cores)
+            'int8': 21200.0,    # 4× FP32 (Tensor Cores)
+        }
+    },
+    'jetson-orin-nano-cpu': {
+        'name': 'NVIDIA-Jetson-Orin-Nano-CPU',
+        'device': 'cpu',
+        'platform': 'aarch64',
+        'peak_bandwidth': 68.0,  # LPDDR5 (64-bit bus)
+        'theoretical_peaks': {
+            'fp64': 19.2,       # 6 cores × 2 NEON lanes × 2 FMA × 1.5 GHz (Cortex-A78AE)
+            'fp32': 38.4,       # 2× FP64
+            'fp16': 76.8,       # 4× FP64 (NEON FP16)
+            'int32': 19.2,      # Same as FP64
+            'int16': 38.4,      # 2× INT32
+            'int8': 76.8,       # 4× INT32
+        }
+    },
+    'jetson-orin-nano-gpu': {
+        'name': 'NVIDIA-Jetson-Orin-Nano-GPU',
+        'device': 'cuda',
+        'platform': 'aarch64',
+        'peak_bandwidth': 68.0,  # LPDDR5 (64-bit bus)
+        'theoretical_peaks': {
+            'fp32': 1000.0,     # 1024 CUDA cores (Ampere) @ 625 MHz
+            'fp16': 2000.0,     # 2× FP32 (Tensor Cores)
+            'int8': 4000.0,     # 4× FP32 (Tensor Cores)
+        }
+    },
 }
 
 
