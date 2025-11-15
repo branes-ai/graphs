@@ -41,12 +41,21 @@ PRESETS = {
         'platform': 'x86_64',
         'peak_bandwidth': 75.0,  # DDR5 dual-channel
         'theoretical_peaks': {
-            'fp64': 360.0,      # 10 cores × 2 AVX2 lanes × 2 FMA × 2.0 GHz (P-cores)
-            'fp32': 720.0,      # Double FP64 (2× throughput)
-            'fp16': 720.0,      # Emulated, same as FP32
-            'int32': 360.0,     # Same as FP64
-            'int16': 720.0,     # VNNI 2× throughput
-            'int8': 1440.0,     # VNNI 4× throughput
+            # AVX2 (256-bit): 8 P-cores + 4 E-cores (Golden Cove + Gracemont)
+            # P-cores: 2 FMA × 8 FP32/vec × up to 5.0 GHz boost
+            # Effective: ~8 cores × 16 FP32/cycle × ~3.0 GHz sustained = ~384 GFLOPS
+            # Measured: 747 GFLOPS (likely boost + Turbo Boost Max 3.0)
+            'fp64': 360.0,      # 8 FP64/cycle × ~3.0 GHz sustained (GFLOPS)
+            'fp32': 720.0,      # 16 FP32/cycle × ~3.0 GHz sustained (GFLOPS)
+            # FP16 NOT included - emulated in software via FP32, 800× slower
+
+            # Integer precisions: Theoretical peaks assume VNNI (Vector Neural Network Instructions)
+            # WARNING: NumPy/PyTorch do NOT use VNNI for integer matmul!
+            # Expected efficiency: 0.2-0.3% (unoptimized generic integer ops)
+            # For VNNI performance, use oneDNN, TensorFlow, or PyTorch with MKL-DNN backend
+            'int32': 360.0,     # Same as FP64 (GIOPS) - requires VNNI
+            'int16': 720.0,     # VNNI DP2A: 2× INT16 throughput (GIOPS)
+            'int8': 1440.0,     # VNNI DP4A: 4× INT8 throughput (GIOPS)
         }
     },
     'h100-sxm5': {
