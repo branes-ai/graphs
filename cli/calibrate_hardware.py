@@ -35,22 +35,27 @@ from graphs.hardware.calibration.calibrator import calibrate_hardware, load_cali
 PRESETS = {
     'i7-12700k': {
         'name': 'Intel-i7-12700K',
-        'peak_gflops': 1000.0,  # All cores + HT realistic peak
-        'peak_bandwidth': 75.0,  # DDR5 dual-channel
+        'peak_gflops': 1000.0,    # All cores + HT realistic peak
+        'peak_bandwidth': 75.0,   # DDR5 dual-channel
     },
     'h100': {
         'name': 'NVIDIA-H100-80GB',
-        'peak_gflops': 60000.0,  # FP32 with sparsity
-        'peak_bandwidth': 3352.0,  # HBM3
+        'peak_gflops': 60000.0,   # FP32 with sparsity
+        'peak_bandwidth': 3352.0, # HBM3
     },
-    'jetson-orin': {
-        'name': 'NVIDIA-Jetson-AGX-Orin',
-        'peak_gflops': 5300.0,  # FP32
+    'jetson-orin-agx': {
+        'name': 'NVIDIA-Jetson-Orin-AGX',
+        'peak_gflops': 5300.0,    # FP32, 64 Tensorcores
         'peak_bandwidth': 204.8,  # LPDDR5
+    },
+    'jetson-orin-nano': {
+        'name': 'NVIDIA-Jetson-Orin-Nano',
+        'peak_gflops': 2600.0,    # FP32, 32 TensorCores
+        'peak_bandwidth': 102.4,  # LPDDR5
     },
     'ampere-altra': {
         'name': 'Ampere-Altra-Max-128',
-        'peak_gflops': 2048.0,  # 128 cores × 2 NEON × 4 floats × 2 GHz
+        'peak_gflops': 2048.0,    # 128 cores × 2 NEON × 4 floats × 2 GHz
         'peak_bandwidth': 204.8,  # DDR4-3200 8-channel
     },
 }
