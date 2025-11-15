@@ -173,7 +173,8 @@ def calibrate_hardware(
             # Fallback: test common precisions
             precisions_to_test = [Precision.FP64, Precision.FP32, Precision.INT32, Precision.INT16, Precision.INT8]
 
-        sizes = [1024, 2048] if quick else [1024, 2048, 4096]
+        # Always start with 256 as a probe to quickly identify unusable precisions
+        sizes = [256, 1024, 2048] if quick else [256, 1024, 2048, 4096]
 
         # Run multi-precision calibration
         multi_prec_results = calibrate_matmul_all_precisions(
