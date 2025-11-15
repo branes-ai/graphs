@@ -48,6 +48,49 @@ class OperationType(Enum):
 
 
 @dataclass
+class PrecisionTestResult:
+    """
+    Result of testing a single precision on hardware.
+
+    Captures whether the precision is supported and its performance characteristics.
+    This enables reporting FAIL for unsupported precisions with clear failure reasons.
+    """
+    precision: str  # Precision enum value (e.g., "fp32", "int8", "fp8_e4m3")
+
+    # Support status
+    supported: bool  # True if hardware can execute this precision
+    failure_reason: Optional[str] = None  # Why it failed (if supported=False)
+
+    # Performance metrics (only populated if supported=True)
+    measured_gflops: Optional[float] = None
+    efficiency: Optional[float] = None  # Fraction of theoretical peak for this precision
+    mean_latency_ms: Optional[float] = None
+    std_latency_ms: Optional[float] = None
+    min_latency_ms: Optional[float] = None
+    max_latency_ms: Optional[float] = None
+
+    # Comparison to FP32 baseline
+    speedup_vs_fp32: Optional[float] = None  # e.g., FP16 = 2.0× faster than FP32
+
+    # Test configuration
+    test_size: int = 0  # Matrix size for matmul, kernel size for conv, etc.
+    num_trials: int = 0
+
+    # Additional metrics
+    arithmetic_intensity: Optional[float] = None
+    achieved_bandwidth_gbps: Optional[float] = None
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PrecisionTestResult':
+        """Create from dictionary"""
+        return cls(**data)
+
+
+@dataclass
 class OperationCalibration:
     """
     Measured performance for a specific operation type.
@@ -57,7 +100,7 @@ class OperationCalibration:
     """
     operation_type: str  # OperationType value
 
-    # Performance metrics
+    # Performance metrics (legacy - use precision_results for multi-precision)
     measured_gflops: float
     efficiency: float  # Fraction of theoretical peak (0.0 to 1.0)
     achieved_bandwidth_gbps: float
@@ -82,9 +125,20 @@ class OperationCalibration:
     # Additional parameters (kernel size for conv, etc.)
     extra_params: Dict[str, Any] = field(default_factory=dict)
 
+    # NEW: Multi-precision test results
+    # Maps precision name (e.g., "fp32", "int8") -> PrecisionTestResult
+    precision_results: Dict[str, PrecisionTestResult] = field(default_factory=dict)
+
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
-        return asdict(self)
+        d = asdict(self)
+        # Convert PrecisionTestResult objects to dicts
+        if 'precision_results' in d and d['precision_results']:
+            d['precision_results'] = {
+                k: v if isinstance(v, dict) else v.to_dict()
+                for k, v in d['precision_results'].items()
+            }
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'OperationCalibration':
@@ -94,6 +148,14 @@ class OperationCalibration:
             data['input_shape'] = tuple(data['input_shape'])
         if isinstance(data.get('output_shape'), list):
             data['output_shape'] = tuple(data['output_shape'])
+
+        # Convert precision_results from dicts to PrecisionTestResult objects
+        if 'precision_results' in data and data['precision_results']:
+            data['precision_results'] = {
+                k: PrecisionTestResult.from_dict(v) if isinstance(v, dict) else v
+                for k, v in data['precision_results'].items()
+            }
+
         return cls(**data)
 
 
@@ -147,6 +209,42 @@ class FusionCalibration:
 
 
 @dataclass
+class PrecisionCapabilityMatrix:
+    """
+    Hardware precision support matrix.
+
+    Summarizes which precisions are supported across all operations tested.
+    This provides a quick overview of hardware precision capabilities.
+    """
+    hardware_name: str
+
+    # Precision support classification
+    supported_precisions: List[str] = field(default_factory=list)  # ["fp32", "fp16", "int8"]
+    unsupported_precisions: List[str] = field(default_factory=list)  # ["fp64", "fp8_e4m3"]
+
+    # Per-precision peak performance (if supported)
+    # Maps precision name -> best measured GFLOPS across all operations
+    peak_gflops_by_precision: Dict[str, float] = field(default_factory=dict)
+
+    # Speedup ratios relative to FP32 baseline
+    # Maps precision name -> speedup factor (e.g., {"fp16": 2.0, "int8": 4.0})
+    speedup_vs_fp32: Dict[str, float] = field(default_factory=dict)
+
+    # Per-precision theoretical peaks (from hardware specs)
+    # Populated from preset configuration
+    theoretical_peaks: Dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PrecisionCapabilityMatrix':
+        """Create from dictionary"""
+        return cls(**data)
+
+
+@dataclass
 class CalibrationMetadata:
     """Metadata about the calibration run"""
     hardware_name: str
@@ -166,6 +264,10 @@ class CalibrationMetadata:
     # Calibration settings
     num_warmup_runs: int = 3
     num_measurement_runs: int = 10
+
+    # NEW: Device type for platform validation
+    device_type: str = "cpu"  # "cpu" or "cuda"
+    platform_architecture: str = "unknown"  # "x86_64", "aarch64", "arm64"
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -203,6 +305,9 @@ class HardwareCalibration:
 
     # Fusion pattern calibration profiles
     fusion_profiles: Dict[str, FusionCalibration] = field(default_factory=dict)
+
+    # NEW: Precision capability summary
+    precision_matrix: Optional[PrecisionCapabilityMatrix] = None
 
     # Summary statistics
     best_efficiency: float = 0.0     # Best case efficiency
@@ -358,7 +463,8 @@ class HardwareCalibration:
             },
             'fusion_profiles': {
                 k: v.to_dict() for k, v in self.fusion_profiles.items()
-            }
+            },
+            'precision_matrix': self.precision_matrix.to_dict() if self.precision_matrix else None
         }
 
     @classmethod
@@ -374,6 +480,10 @@ class HardwareCalibration:
             for k, v in data.get('fusion_profiles', {}).items()
         }
 
+        precision_matrix = None
+        if data.get('precision_matrix'):
+            precision_matrix = PrecisionCapabilityMatrix.from_dict(data['precision_matrix'])
+
         return cls(
             metadata=metadata,
             theoretical_peak_gflops=data['theoretical_peak_gflops'],
@@ -385,6 +495,7 @@ class HardwareCalibration:
             bandwidth_efficiency=data.get('bandwidth_efficiency', 0),
             operation_profiles=operation_profiles,
             fusion_profiles=fusion_profiles,
+            precision_matrix=precision_matrix,
             best_efficiency=data.get('best_efficiency', 0),
             avg_efficiency=data.get('avg_efficiency', 0),
             worst_efficiency=data.get('worst_efficiency', 0),
