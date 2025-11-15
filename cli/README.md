@@ -697,6 +697,15 @@ Now includes Phase 3 analysis modes via `--analysis` flag.
 
 **New Visualization Flags:**
 ```bash
+# Show three-column mapping visualization (NEW 2025-11-15)
+# Visualizes: FX Graph → Fused Subgraphs → Hardware Allocation
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --show-mapping-visualization
+
+# Limit visualization to specific subgraph range
+./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
+  --show-mapping-visualization --mapping-viz-start 0 --mapping-viz-end 5
+
 # Show energy breakdown chart
 ./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
   --analysis energy --show-energy-breakdown
@@ -709,9 +718,10 @@ Now includes Phase 3 analysis modes via `--analysis` flag.
 ./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
   --analysis memory --show-memory-timeline
 
-# All visualizations
+# All visualizations including three-column mapping
 ./cli/analyze_graph_mapping.py --model resnet18 --hardware H100 \
-  --analysis all --show-energy-breakdown --show-roofline --show-memory-timeline
+  --analysis all --show-energy-breakdown --show-roofline --show-memory-timeline \
+  --show-mapping-visualization
 ```
 
 **Analysis Modes:**
@@ -726,6 +736,35 @@ Now includes Phase 3 analysis modes via `--analysis` flag.
 - Default mode is `--analysis basic` (original behavior)
 - All existing scripts and workflows continue to work unchanged
 - Phase 3 analysis only runs when explicitly requested
+
+**Three-Column Mapping Visualization (NEW 2025-11-15):**
+
+The `--show-mapping-visualization` flag provides a detailed view of the complete hardware mapping pipeline:
+
+| Column 1: FX Graph | Column 2: Fused Subgraphs | Column 3: Hardware Allocation |
+|-------------------|---------------------------|-------------------------------|
+| Raw FX nodes in execution order | Grouped operations with workload characteristics | Resource allocation with latency & energy estimates |
+| Shows node type, name, shape | Shows FLOPs, memory, arithmetic intensity, bottleneck | Shows SMs/cores/tiles allocated, utilization%, latency, power, energy |
+
+**Example Output:**
+```
+       FX Graph (Execution Order)        │           Fused Subgraphs           │         Hardware Allocation
+-----------------------------------------+-------------------------------------+------------------------------------
+2. [call_module] conv1                   │ ╔═ SUBGRAPH 0 ═══                   │ ┌─ ALLOCATION ────────
+   Shape: [1, 64, 112, 112]              │ ║ Conv2d_BatchNorm2d_ReLU           │ │ SMs: 114/114
+                                         │ ║ FLOPs: 236.03 MFLOPs              │ │ Util: 100.0%
+3. [call_module] bn1                     │ ║ Memory: 3.85 MB                   │ ├─────────────────────
+   Shape: [1, 64, 112, 112]              │ ║ AI: 61.3                          │ │ Latency: 0.002 ms
+                                         │ ║ Bottleneck: compute-bound         │ │ Power: 350.0 W
+4. [call_module] relu                    │ ╚══════════════════════════════     │ │ Energy: 0.67 mJ
+   Shape: [1, 64, 112, 112]              │                                     │ └─────────────────────
+```
+
+**Use Cases:**
+- **Debugging hardware utilization**: See exactly which subgraphs underutilize hardware resources
+- **Understanding fusion benefits**: Compare fused vs unfused graph execution
+- **Hardware mapping validation**: Verify that subgraphs are mapped correctly to hardware units
+- **Performance bottleneck analysis**: Identify which subgraphs contribute most to latency/energy
 
 **Documentation**: See `cli/docs/analyze_graph_mapping.md` for comprehensive guide
 

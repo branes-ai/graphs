@@ -676,8 +676,9 @@ def analyze_graph_mapping(
     hardware_name: str,
     batch_size: int = 1,
     precision: str = 'fp16',
-    thermal_profile: str = 'default'
-) -> ExecutionPlan:
+    thermal_profile: str = 'default',
+    return_intermediate_data: bool = False
+):
     """
     Analyze how a model is partitioned and mapped to hardware
 
@@ -687,9 +688,11 @@ def analyze_graph_mapping(
         batch_size: Batch size
         precision: Precision ('fp32', 'fp16', 'int8')
         thermal_profile: Thermal/power profile
+        return_intermediate_data: If True, also return fx_graph and fusion_report
 
     Returns:
         ExecutionPlan with complete allocation and execution info
+        If return_intermediate_data is True: tuple of (ExecutionPlan, fx_graph, fusion_report)
     """
     print(f"\n{'='*100}")
     print(f"Graph Mapping Analysis: {model_name} → {hardware_name}")
@@ -818,7 +821,10 @@ def analyze_graph_mapping(
     print(f"      ✓ Average power: {execution_plan.average_power_watts:.1f} W")
     print(f"      ✓ Average utilization: {execution_plan.average_utilization*100:.1f}%")
 
-    return execution_plan
+    if return_intermediate_data:
+        return execution_plan, traced, fusion_report
+    else:
+        return execution_plan
 
 
 # =============================================================================
@@ -1778,6 +1784,228 @@ def print_energy_breakdown(energy_report: EnergyReport):
     print(f"  Static  ({static_pct:.1f}%): {static_bar}")
 
 
+# =============================================================================
+# Three-Column Mapping Visualization (NEW)
+# =============================================================================
+
+def print_three_column_mapping_visualization(
+    fx_graph,
+    fusion_report,
+    execution_plan: ExecutionPlan,
+    start: int = None,
+    end: int = None
+):
+    """
+    Print three-column visualization: FX Graph → Fused Subgraphs → Hardware Allocation
+
+    This visualization shows:
+    - Column 1: Raw FX graph nodes in execution order
+    - Column 2: Fused subgraphs with workload characteristics
+    - Column 3: Hardware allocation with latency and energy estimates
+
+    Args:
+        fx_graph: FX traced graph
+        fusion_report: FusionPartitioner result
+        execution_plan: ExecutionPlan with hardware allocations
+        start: Starting subgraph index (optional)
+        end: Ending subgraph index (optional)
+    """
+    # Column widths
+    col1_width = 40  # FX Graph
+    col2_width = 35  # Fused Subgraphs
+    col3_width = 35  # Hardware Allocation
+    total_width = col1_width + col2_width + col3_width + 8  # +8 for separators
+
+    lines = []
+
+    # Header
+    lines.append("=" * total_width)
+    lines.append("THREE-COLUMN HARDWARE MAPPING VISUALIZATION".center(total_width))
+    lines.append("=" * total_width)
+    lines.append(f"Model: {execution_plan.model_name}")
+    lines.append(f"Hardware: {execution_plan.hardware_name} ({execution_plan.hardware_type})")
+    lines.append("=" * total_width)
+    lines.append("")
+
+    # Column headers
+    header_1 = "FX Graph (Execution Order)".center(col1_width)
+    header_2 = "Fused Subgraphs".center(col2_width)
+    header_3 = "Hardware Allocation".center(col3_width)
+    lines.append(f"{header_1} │ {header_2} │ {header_3}")
+    lines.append(f"{'-'*col1_width}-+-{'-'*col2_width}-+-{'-'*col3_width}")
+    lines.append("")
+
+    # Build mapping from node names to subgraphs
+    node_to_subgraph = {}
+    for i, fused_sg in enumerate(fusion_report.fused_subgraphs):
+        for node_id in fused_sg.node_ids:
+            node_to_subgraph[node_id] = i
+
+    # Get all FX nodes
+    all_nodes = list(fx_graph.graph.nodes)
+    total_nodes = len(all_nodes)
+
+    # Determine range
+    start_idx = start if start is not None else 0
+    end_idx = end if end is not None else len(fusion_report.fused_subgraphs)
+
+    # Track which subgraph we're currently displaying
+    current_subgraph_idx = None
+    subgraph_first_node = True
+
+    # Iterate through FX nodes
+    node_idx = 0
+    for fx_node in all_nodes:
+        node_name = fx_node.name
+
+        # Check if this node belongs to a subgraph in our range
+        if node_name in node_to_subgraph:
+            sg_idx = node_to_subgraph[node_name]
+
+            if sg_idx < start_idx or sg_idx >= end_idx:
+                node_idx += 1
+                continue  # Skip nodes outside our range
+
+            # Check if we're starting a new subgraph
+            if sg_idx != current_subgraph_idx:
+                current_subgraph_idx = sg_idx
+                subgraph_first_node = True
+
+            # Get subgraph and allocation
+            fused_sg = fusion_report.fused_subgraphs[sg_idx]
+            alloc = execution_plan.subgraph_allocations[sg_idx]
+
+            # Format Column 1: FX node
+            col1_lines = _format_fx_node_info(fx_node, node_idx + 1)
+
+            # Format Column 2: Fused subgraph (only on first node)
+            if subgraph_first_node:
+                col2_lines = _format_fused_subgraph_info(fused_sg, sg_idx)
+                subgraph_first_node = False
+            else:
+                col2_lines = [""]
+
+            # Format Column 3: Hardware allocation (only on first node)
+            if sg_idx != current_subgraph_idx or len(col2_lines) > 1:
+                col3_lines = _format_hardware_allocation_info(
+                    alloc, execution_plan.hardware_type
+                )
+            else:
+                col3_lines = [""]
+
+            # Combine columns
+            max_lines = max(len(col1_lines), len(col2_lines), len(col3_lines))
+            for i in range(max_lines):
+                c1 = col1_lines[i] if i < len(col1_lines) else ""
+                c2 = col2_lines[i] if i < len(col2_lines) else ""
+                c3 = col3_lines[i] if i < len(col3_lines) else ""
+                lines.append(
+                    f"{c1:<{col1_width}} │ {c2:<{col2_width}} │ {c3:<{col3_width}}"
+                )
+
+            lines.append("")  # Spacing between nodes
+
+        node_idx += 1
+
+    # Footer
+    lines.append("=" * total_width)
+    lines.append(f"Total FX Nodes: {total_nodes}")
+    lines.append(f"Fused Subgraphs: {len(fusion_report.fused_subgraphs)}")
+    lines.append(f"Showing subgraphs {start_idx} to {end_idx}")
+    lines.append(f"Total Latency: {execution_plan.total_latency_ms:.3f} ms")
+    lines.append(f"Average Power: {execution_plan.average_power_watts:.1f} W")
+    lines.append("=" * total_width)
+
+    print("\n".join(lines))
+
+
+def _format_fx_node_info(node, idx: int) -> List[str]:
+    """Format FX node information for column 1"""
+    lines = []
+    lines.append(f"{idx}. [{node.op}] {node.name}")
+
+    # Add shape if available
+    if hasattr(node, 'meta') and 'tensor_meta' in node.meta:
+        shape = node.meta['tensor_meta'].shape
+        lines.append(f"   Shape: {list(shape)}")
+
+    return lines
+
+
+def _format_fused_subgraph_info(fused_sg, sg_idx: int) -> List[str]:
+    """Format fused subgraph information for column 2"""
+    lines = []
+    lines.append(f"╔═ SUBGRAPH {sg_idx} ═══")
+
+    # Operation summary
+    ops_summary = fused_sg.fusion_pattern if len(fused_sg.fusion_pattern) <= 30 else fused_sg.fusion_pattern[:27] + "..."
+    lines.append(f"║ {ops_summary}")
+
+    # FLOPs
+    if fused_sg.total_flops >= 1e9:
+        flops_str = f"{fused_sg.total_flops / 1e9:.2f} GFLOPs"
+    elif fused_sg.total_flops >= 1e6:
+        flops_str = f"{fused_sg.total_flops / 1e6:.2f} MFLOPs"
+    else:
+        flops_str = f"{fused_sg.total_flops / 1e3:.2f} KFLOPs"
+    lines.append(f"║ FLOPs: {flops_str}")
+
+    # Memory
+    total_mem = (fused_sg.total_input_bytes + fused_sg.total_output_bytes + fused_sg.total_weight_bytes)
+    if total_mem >= 1e6:
+        mem_str = f"{total_mem / 1e6:.2f} MB"
+    else:
+        mem_str = f"{total_mem / 1e3:.2f} KB"
+    lines.append(f"║ Memory: {mem_str}")
+
+    # Arithmetic intensity
+    lines.append(f"║ AI: {fused_sg.arithmetic_intensity:.1f}")
+
+    # Bottleneck
+    bottleneck_str = str(fused_sg.recommended_bottleneck.value).replace('_', '-')
+    lines.append(f"║ Bottleneck: {bottleneck_str}")
+    lines.append(f"╚{'═'*30}")
+
+    return lines
+
+
+def _format_hardware_allocation_info(alloc: SubgraphAllocation, hw_type: str) -> List[str]:
+    """Format hardware allocation information for column 3"""
+    lines = []
+    lines.append(f"┌─ ALLOCATION ────────")
+
+    # Hardware-specific allocation details
+    hw_alloc = alloc.hardware_allocation
+    if hw_type == "GPU":
+        lines.append(f"│ SMs: {hw_alloc.allocated_units}/{hw_alloc.total_available_units}")
+        if 'warps_required' in hw_alloc.allocation_details:
+            lines.append(f"│ Warps: {hw_alloc.allocation_details['warps_required']}")
+        lines.append(f"│ Util: {hw_alloc.utilization*100:.1f}%")
+    elif hw_type == "CPU":
+        lines.append(f"│ Cores: {hw_alloc.allocated_units}/{hw_alloc.total_available_units}")
+        lines.append(f"│ Util: {hw_alloc.utilization*100:.1f}%")
+    elif hw_type in ["TPU", "KPU"]:
+        lines.append(f"│ Tiles: {hw_alloc.allocated_units}/{hw_alloc.total_available_units}")
+        lines.append(f"│ Util: {hw_alloc.utilization*100:.1f}%")
+    elif hw_type == "DSP":
+        lines.append(f"│ VUs: {hw_alloc.allocated_units}/{hw_alloc.total_available_units}")
+        lines.append(f"│ Util: {hw_alloc.utilization*100:.1f}%")
+    else:
+        lines.append(f"│ Units: {hw_alloc.allocated_units}/{hw_alloc.total_available_units}")
+        lines.append(f"│ Util: {hw_alloc.utilization*100:.1f}%")
+
+    lines.append(f"├─────────────────────")
+
+    # Performance metrics
+    lines.append(f"│ Latency: {alloc.actual_latency_ms:.3f} ms")
+    lines.append(f"│ Power: {alloc.total_power_watts:.1f} W")
+    lines.append(f"│ Energy: {alloc.actual_latency_ms * alloc.total_power_watts:.2f} mJ")
+
+    lines.append(f"└─────────────────────")
+
+    return lines
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -1855,6 +2083,27 @@ def main():
         help='Show memory timeline'
     )
 
+    # Three-column visualization options (NEW)
+    parser.add_argument(
+        '--show-mapping-visualization',
+        action='store_true',
+        help='Show three-column mapping visualization (FX Graph → Subgraphs → Hardware)'
+    )
+
+    parser.add_argument(
+        '--mapping-viz-start',
+        type=int,
+        default=None,
+        help='Starting subgraph index for mapping visualization'
+    )
+
+    parser.add_argument(
+        '--mapping-viz-end',
+        type=int,
+        default=None,
+        help='Ending subgraph index for mapping visualization'
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
@@ -1876,16 +2125,38 @@ def main():
         )
     else:
         # Single hardware analysis
-        execution_plan = analyze_graph_mapping(
-            model_name=args.model,
-            hardware_name=args.hardware,
-            batch_size=args.batch_size,
-            precision=args.precision,
-            thermal_profile=args.thermal_profile
-        )
+        if args.show_mapping_visualization:
+            # Request intermediate data for visualization
+            execution_plan, fx_graph, fusion_report = analyze_graph_mapping(
+                model_name=args.model,
+                hardware_name=args.hardware,
+                batch_size=args.batch_size,
+                precision=args.precision,
+                thermal_profile=args.thermal_profile,
+                return_intermediate_data=True
+            )
+        else:
+            execution_plan = analyze_graph_mapping(
+                model_name=args.model,
+                hardware_name=args.hardware,
+                batch_size=args.batch_size,
+                precision=args.precision,
+                thermal_profile=args.thermal_profile
+            )
 
-        # Print report
+        # Print standard report
         print_execution_plan_report(execution_plan)
+
+        # Print three-column mapping visualization if requested
+        if args.show_mapping_visualization:
+            print("\n")
+            print_three_column_mapping_visualization(
+                fx_graph,
+                fusion_report,
+                execution_plan,
+                start=args.mapping_viz_start,
+                end=args.mapping_viz_end
+            )
 
         # Run Phase 3 analysis if requested
         if args.analysis != 'basic':
