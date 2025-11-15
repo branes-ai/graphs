@@ -10,8 +10,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
 
-from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration
+from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration, PrecisionCapabilityMatrix
 from .benchmarks import calibrate_matmul, calibrate_memory_bandwidth
+from .benchmarks.matmul_bench_multi import calibrate_matmul_all_precisions
+from .precision_detector import get_precision_capabilities
+from ..resource_model import Precision
 
 
 def detect_hardware_info() -> dict:
@@ -157,18 +160,62 @@ def calibrate_hardware(
         print()
 
     if 'matmul' in operations:
-        print("2. Matrix Multiplication")
+        print("2. Matrix Multiplication (Multi-Precision)")
         print("-" * 80)
-        sizes = [1024, 2048] if quick else [512, 1024, 2048, 4096]
-        matmul_calibrations = calibrate_matmul(
+
+        # Determine which precisions to test from theoretical_peaks
+        if theoretical_peaks:
+            precisions_to_test = [
+                Precision(prec_name) for prec_name in theoretical_peaks.keys()
+                if prec_name in [p.value for p in Precision]
+            ]
+        else:
+            # Fallback: test common precisions
+            precisions_to_test = [Precision.FP64, Precision.FP32, Precision.INT32, Precision.INT16, Precision.INT8]
+
+        sizes = [1024, 2048] if quick else [1024, 2048, 4096]
+
+        # Run multi-precision calibration
+        multi_prec_results = calibrate_matmul_all_precisions(
             sizes=sizes,
-            theoretical_peak_gflops=theoretical_peak_gflops,
-            theoretical_bandwidth_gbps=theoretical_bandwidth_gbps,
+            precisions=precisions_to_test,
+            theoretical_peaks=theoretical_peaks or {},
+            device=device,
             num_trials=metadata.num_measurement_runs
         )
 
-        for cal in matmul_calibrations:
-            calibration.add_operation(cal)
+        # Convert to OperationCalibration objects with precision_results populated
+        for size, precision_results in multi_prec_results.items():
+            # Use FP32 as the primary result for backward compatibility
+            fp32_result = precision_results.get('fp32')
+            if not fp32_result or not fp32_result.supported:
+                # Fallback to first supported precision
+                fp32_result = next((r for r in precision_results.values() if r.supported), None)
+
+            if fp32_result and fp32_result.supported:
+                # Create OperationCalibration
+                op_cal = OperationCalibration(
+                    operation_type='matmul',
+                    measured_gflops=fp32_result.measured_gops,  # Use FP32 result for backward compat
+                    efficiency=fp32_result.efficiency or 0.0,
+                    achieved_bandwidth_gbps=0.0,  # Computed separately
+                    memory_bound=fp32_result.arithmetic_intensity < 10.0 if fp32_result.arithmetic_intensity else False,
+                    compute_bound=fp32_result.arithmetic_intensity >= 10.0 if fp32_result.arithmetic_intensity else True,
+                    arithmetic_intensity=fp32_result.arithmetic_intensity or 0.0,
+                    batch_size=1,
+                    input_shape=(size, size),
+                    output_shape=(size, size),
+                    mean_latency_ms=fp32_result.mean_latency_ms,
+                    std_latency_ms=fp32_result.std_latency_ms or 0.0,
+                    min_latency_ms=fp32_result.min_latency_ms or 0.0,
+                    max_latency_ms=fp32_result.max_latency_ms or 0.0,
+                    num_trials=fp32_result.num_trials,
+                    extra_params={'matrix_size': size, 'device': device},
+                    precision_results=precision_results  # NEW: all precision results
+                )
+
+                calibration.add_operation(op_cal)
+
         print()
 
     # Fusion pattern calibration
@@ -258,6 +305,38 @@ def calibrate_hardware(
                     calibration.add_fusion_pattern(fusion_cal)
 
         print()
+
+    # Build precision capability matrix
+    print("Building precision capability matrix...")
+    supported, unsupported = get_precision_capabilities(device)
+
+    precision_matrix = PrecisionCapabilityMatrix(
+        hardware_name=hardware_name,
+        supported_precisions=[p.value for p in supported],
+        unsupported_precisions=[p.value for p in unsupported],
+        peak_gflops_by_precision={},
+        speedup_vs_fp32={},
+        theoretical_peaks=theoretical_peaks or {}
+    )
+
+    # Extract peak GOPS (GFLOPS/GIOPS) per precision from matmul results
+    for op_cal in calibration.operation_profiles.values():
+        if op_cal.operation_type == 'matmul' and op_cal.precision_results:
+            for prec_name, prec_result in op_cal.precision_results.items():
+                if prec_result.supported and prec_result.measured_gops:
+                    # Track best GOPS for each precision (GFLOPS for float, GIOPS for int)
+                    current_best = precision_matrix.peak_gflops_by_precision.get(prec_name, 0.0)
+                    precision_matrix.peak_gflops_by_precision[prec_name] = max(
+                        current_best,
+                        prec_result.measured_gops
+                    )
+
+                    # Track speedup vs FP32
+                    if prec_result.speedup_vs_fp32:
+                        precision_matrix.speedup_vs_fp32[prec_name] = prec_result.speedup_vs_fp32
+
+    calibration.precision_matrix = precision_matrix
+    print()
 
     # Save if path provided
     if output_path:

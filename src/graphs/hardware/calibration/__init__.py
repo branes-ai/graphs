@@ -28,12 +28,19 @@ from .schema import (
     OperationCalibration,
     HardwareCalibration,
     CalibrationMetadata,
+    PrecisionTestResult,
+    PrecisionCapabilityMatrix,
 )
-from .calibrator import load_calibration
+from .calibrator import load_calibration, calibrate_hardware
+from .precision_detector import get_precision_capabilities
 
 __all__ = [
     'OperationCalibration',
     'HardwareCalibration',
     'CalibrationMetadata',
+    'PrecisionTestResult',
+    'PrecisionCapabilityMatrix',
     'load_calibration',
+    'calibrate_hardware',
+    'get_precision_capabilities',
 ]

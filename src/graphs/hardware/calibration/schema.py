@@ -54,6 +54,10 @@ class PrecisionTestResult:
 
     Captures whether the precision is supported and its performance characteristics.
     This enables reporting FAIL for unsupported precisions with clear failure reasons.
+
+    Note: measured_gops is used generically:
+    - For floating-point (FP64, FP32, FP16, BF16, FP8): GFLOPS (Giga Floating-Point Ops/Second)
+    - For integer (INT32, INT16, INT8, INT4): GIOPS (Giga Integer Ops/Second)
     """
     precision: str  # Precision enum value (e.g., "fp32", "int8", "fp8_e4m3")
 
@@ -62,7 +66,7 @@ class PrecisionTestResult:
     failure_reason: Optional[str] = None  # Why it failed (if supported=False)
 
     # Performance metrics (only populated if supported=True)
-    measured_gflops: Optional[float] = None
+    measured_gops: Optional[float] = None  # GFLOPS for float, GIOPS for int
     efficiency: Optional[float] = None  # Fraction of theoretical peak for this precision
     mean_latency_ms: Optional[float] = None
     std_latency_ms: Optional[float] = None
@@ -79,6 +83,12 @@ class PrecisionTestResult:
     # Additional metrics
     arithmetic_intensity: Optional[float] = None
     achieved_bandwidth_gbps: Optional[float] = None
+
+    # Backward compatibility alias
+    @property
+    def measured_gflops(self) -> Optional[float]:
+        """Deprecated: Use measured_gops instead"""
+        return self.measured_gops
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
