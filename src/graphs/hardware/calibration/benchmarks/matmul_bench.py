@@ -149,7 +149,7 @@ def calibrate_matmul(
     calibrations = []
 
     for N in sizes:
-        print(f"Calibrating matmul {N}×{N}...", end=" ", flush=True)
+        print(f"Calibrating matmul {N}×{N} (FP32)...", end=" ", flush=True)
 
         # Benchmark with NumPy (best case)
         numpy_result = benchmark_numpy_matmul(N, num_trials=num_trials)
