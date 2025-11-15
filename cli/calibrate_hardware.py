@@ -79,9 +79,11 @@ PRESETS = {
         'platform': 'aarch64',
         'peak_bandwidth': 204.8,  # LPDDR5
         'theoretical_peaks': {
-            'fp32': 5300.0,     # 64 Tensor Cores × 2 SM × 2.0 GHz (Ampere)
-            'fp16': 10600.0,    # 2× FP32 (Tensor Cores)
-            'int8': 21200.0,    # 4× FP32 (Tensor Cores)
+            # 2048 CUDA cores @ 1.3 GHz
+            # FMA as 2 FLOPS: 2048 × 2 × 1.3 = 5324.8 GFLOPS
+            'fp32': 5325.0,     # 2048 CUDA cores × 2 FP32 ops/cycle × 1.3 GHz
+            'fp16': 10650.0,    # 2× FP32 (Tensor Cores)
+            'int8': 21300.0,    # 4× FP32 (Tensor Cores)
         }
     },
     'jetson-orin-nano': {
@@ -90,9 +92,11 @@ PRESETS = {
         'platform': 'aarch64',
         'peak_bandwidth': 68.0,  # LPDDR5 (64-bit bus)
         'theoretical_peaks': {
-            'fp32': 1000.0,     # 32 Tensor Cores (Ampere) @ 625 MHz
-            'fp16': 2000.0,     # 2× FP32 (Tensor Cores)
-            'int8': 4000.0,     # 4× FP32 (Tensor Cores)
+            # 1024 CUDA cores @ 625 MHz
+            # FMA as 2 FLOPS: 1024 × 2 × 0.625 = 1280 GFLOPS
+            'fp32': 1280.0,     # 1024 CUDA cores × 2 FP32 ops/cycle × 625 MHz
+            'fp16': 2560.0,     # 2× FP32 (Tensor Cores)
+            'int8': 5120.0,     # 4× FP32 (Tensor Cores)
         }
     },
     'ampere-altra-max': {
@@ -132,9 +136,11 @@ PRESETS = {
         'platform': 'aarch64',
         'peak_bandwidth': 204.8,  # LPDDR5
         'theoretical_peaks': {
-            'fp32': 5300.0,     # 2048 CUDA cores (Ampere) @ 1.3 GHz
-            'fp16': 10600.0,    # 2× FP32 (Tensor Cores)
-            'int8': 21200.0,    # 4× FP32 (Tensor Cores)
+            # 2048 CUDA cores @ 1.3 GHz (64GB model, 60W mode)
+            # FMA counted as 2 FLOPS: 2048 × 2 × 1.3 = 5324.8 GFLOPS
+            'fp32': 5325.0,     # 2048 CUDA cores × 2 FP32 ops/cycle × 1.3 GHz
+            'fp16': 10650.0,    # 2× FP32 throughput (Ampere FP16 units)
+            'int8': 21300.0,    # 4× FP32 throughput (Tensor Cores)
         }
     },
     'jetson-orin-nano-cpu': {
@@ -160,9 +166,11 @@ PRESETS = {
         'platform': 'aarch64',
         'peak_bandwidth': 68.0,  # LPDDR5 (64-bit bus)
         'theoretical_peaks': {
-            'fp32': 1000.0,     # 1024 CUDA cores (Ampere) @ 625 MHz
-            'fp16': 2000.0,     # 2× FP32 (Tensor Cores)
-            'int8': 4000.0,     # 4× FP32 (Tensor Cores)
+            # 1024 CUDA cores @ 625 MHz (15W mode)
+            # FMA counted as 2 FLOPS (industry standard for matmul): 1024 × 2 × 0.625 = 1280 GFLOPS
+            'fp32': 1280.0,     # 1024 CUDA cores × 2 FP32 ops/cycle × 625 MHz
+            'fp16': 2560.0,     # 2× FP32 throughput (Ampere FP16 units)
+            'int8': 5120.0,     # 4× FP32 throughput (Tensor Cores, with sparsity potentially 2× more)
         }
     },
 }
