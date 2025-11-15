@@ -107,12 +107,14 @@ PRESETS = {
         'platform': 'aarch64',
         'peak_bandwidth': 204.8,  # LPDDR5
         'theoretical_peaks': {
-            'fp64': 52.8,       # 12 cores × 2 NEON lanes × 2 FMA × 2.2 GHz (Cortex-A78AE)
-            'fp32': 105.6,      # 2× FP64
-            'fp16': 211.2,      # 4× FP64 (NEON FP16)
-            'int32': 52.8,      # Same as FP64
-            'int16': 105.6,     # 2× INT32
-            'int8': 211.2,      # 4× INT32
+            # Cortex-A78AE: 2× 128-bit NEON units/core, 16 FP32 ops/cycle/core
+            # 12 cores (8P+4E all A78AE) @ 2.2 GHz max boost
+            'fp64': 211.2,      # 12 cores × 8 FP64/cycle × 2.2 GHz
+            'fp32': 422.4,      # 12 cores × 16 FP32/cycle × 2.2 GHz
+            'fp16': 844.8,      # 2× FP32 throughput
+            'int32': 211.2,     # Same as FP64
+            'int16': 422.4,     # 2× INT32
+            'int8': 844.8,      # 4× INT32
         }
     },
     'jetson-orin-agx-gpu': {
@@ -132,12 +134,15 @@ PRESETS = {
         'platform': 'aarch64',
         'peak_bandwidth': 68.0,  # LPDDR5 (64-bit bus)
         'theoretical_peaks': {
-            'fp64': 19.2,       # 6 cores × 2 NEON lanes × 2 FMA × 1.5 GHz (Cortex-A78AE)
-            'fp32': 38.4,       # 2× FP64
-            'fp16': 76.8,       # 4× FP64 (NEON FP16)
-            'int32': 19.2,      # Same as FP64
-            'int16': 38.4,      # 2× INT32
-            'int8': 76.8,       # 4× INT32
+            # Cortex-A78AE: 2× 128-bit NEON units/core, 16 FP32 ops/cycle/core
+            # 6 cores @ 1.9 GHz max boost (25W mode)
+            # Note: 15W mode = 1.5 GHz, 7W mode = 1.0 GHz
+            'fp64': 91.2,       # 6 cores × 8 FP64/cycle × 1.9 GHz
+            'fp32': 182.4,      # 6 cores × 16 FP32/cycle × 1.9 GHz
+            'fp16': 364.8,      # 2× FP32 throughput
+            'int32': 91.2,      # Same as FP64
+            'int16': 182.4,     # 2× INT32
+            'int8': 364.8,      # 4× INT32
         }
     },
     'jetson-orin-nano-gpu': {
