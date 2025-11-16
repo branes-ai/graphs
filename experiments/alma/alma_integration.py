@@ -346,14 +346,20 @@ def validate_with_alma(
         print(f"  Device: {device}")
 
     # Prepare data for Alma
-    # Alma expects data tensor directly (not dataloader for simplicity)
-    # Repeat input to create multiple samples for benchmarking
-    benchmark_data = example_input.repeat(config.n_samples, 1, 1, 1)
+    # Create a dataset with n_samples copies of the input
+    # Remove batch dimension if present, alma will add it back
+    single_sample = example_input[0] if example_input.shape[0] == 1 else example_input
+
+    # Stack n_samples copies to create dataset
+    benchmark_data = torch.stack([single_sample] * n_samples, dim=0)
+
+    if verbose:
+        print(f"\nPrepared benchmark data: {benchmark_data.shape}")
 
     # Run Alma benchmark
     if verbose:
         print("\nRunning Alma benchmark...")
-        print(f"Benchmarking {benchmark_data.shape[0]} samples...")
+        print(f"Benchmarking {n_samples} samples...")
 
     try:
         alma_results = benchmark_model(
