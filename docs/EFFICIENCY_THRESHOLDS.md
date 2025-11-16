@@ -46,6 +46,7 @@ fp32  2048×2048 22.0ms  781.1 GFLOPS  108.5% eff  ✓ Normal (optimized BLAS)
 - **Highly optimized libraries**: Intel MKL, cuBLAS using specialized instructions not in theoretical calculations
 - **Very conservative theoretical peaks**: Datasheet values significantly underestimate real capability
 - **FMA counting**: If theoretical uses 1 FLOP per FMA but benchmarks count 2 FLOPs
+- **⭐ Tensor Cores (GPUs)**: FP16/INT8 use specialized matrix hardware much faster than CUDA cores (see below)
 
 **Examples**:
 ```
@@ -123,19 +124,31 @@ int8    ... ✓     4.3 GIOPS (   7.9ms)   0.3% eff
 
 ### NVIDIA GPUs (Jetson Orin Nano)
 
-**Base vs Boost clocks**:
-- Base: 625 MHz (15W mode)
-- Boost: Can exceed base depending on thermal/power headroom
+**⭐ IMPORTANT: GPUs Have Two Compute Paths**
 
-**Expected efficiency**:
-- Compute-bound (large matmul): 80-95%
-- Memory-bound (small ops): 15-30%
-- Tensor Core ops (FP16/INT8): 85-95%
+1. **CUDA Cores** (general purpose)
+   - FP32 operations
+   - Theoretical: 1280 GFLOPS
+   - Expected efficiency: 85-95%
 
-**Why <100% more common on GPU**:
-- Theoretical peaks assume perfect occupancy (all SMs busy)
-- Real workloads have launch overhead, synchronization
-- Memory transfers (CPU ↔ GPU) not included in theoretical peak
+2. **Tensor Cores** (specialized matrix multiply)
+   - FP16/INT8 matrix operations
+   - Theoretical: 7600 GFLOPS FP16, 15200 GIOPS INT8
+   - **6× faster than CUDA cores for matmul!**
+   - Expected efficiency: 80-100%
+
+**Why FP16 Shows 298% Efficiency with Old Peaks**:
+- Old theoretical peak: 2560 GFLOPS (assumed CUDA cores only)
+- Real FP16 uses Tensor Cores: 7630 GFLOPS measured
+- Efficiency: 7630 / 2560 = 298% ❌ (wrong theoretical peak)
+- **After correction**: 7630 / 7600 = 100.4% ✅ (correct!)
+
+**Expected efficiency by precision**:
+- FP32 (CUDA Cores): 85-95%
+- FP16 (Tensor Cores): 80-100%
+- INT8 (Tensor Cores): 85-100%
+
+**See `docs/TENSOR_CORE_PERFORMANCE.md` for complete explanation.**
 
 ### CPU Integer Operations
 
