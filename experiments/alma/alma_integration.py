@@ -167,17 +167,26 @@ class AlmaValidationResult:
 # ============================================================================
 
 # Tier 1: Inductor only (inductor_validation.py)
-TIER1_CONVERSIONS = ["EAGER", "COMPILE_INDUCTOR"]
+TIER1_CONVERSIONS = [
+    "EAGER", 
+    "COMPILE_INDUCTOR"
+]
 
 # Tier 2: Core deployment options (~10 options, ~5 minutes)
 TIER2_CONVERSIONS_GPU = [
     "EAGER",
-    "COMPILE_INDUCTOR",
-    "COMPILE_INDUCTOR_MAX_AUTOTUNE",
+#    "EXPORT",
+#    "ONNX_GPU",
+#    "COMPILE_CUDAGRAPHS",
+#    "COMPILE_INDUCTOR",
+#    "COMPILE_INDUCTOR_DEFAULT",
+#    "COMPILE_INDUCTOR_MAX_AUTOTUNE",
+#    "COMPILE_INDUCTOR_EAGER_FALLBACK",
     "TENSORRT",
-    "ONNX_GPU",
-    "FP16+COMPILE_CUDAGRAPHS",
-    "TORCHAO_QUANT_INT8+COMPILE_INDUCTOR",
+#    "FP16+COMPILE_CUDAGRAPHS",
+#    "TORCHAO_QUANT_INT8+COMPILE_INDUCTOR",
+#    "EXPORT+AOT_INDUCTOR",
+#    "EXPORT+COMPILE_CUDAGRAPHS",
 ]
 
 TIER2_CONVERSIONS_CPU = [
