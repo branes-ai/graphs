@@ -345,40 +345,17 @@ def validate_with_alma(
         print(f"  Batch size: {example_input.shape[0]}")
         print(f"  Device: {device}")
 
-    # Prepare data for Alma
-    # Alma expects a DataLoader, not raw tensors
-    from torch.utils.data import TensorDataset, DataLoader
-
-    # Create dataset with n_samples copies of the input
-    # Each sample should be [3, 224, 224] without batch dimension
-    single_sample = example_input[0] if example_input.shape[0] == 1 else example_input
-
-    # Create a simple dataset
-    dataset = TensorDataset(torch.stack([single_sample] * n_samples, dim=0))
-
-    # Create DataLoader
-    data_loader = DataLoader(
-        dataset,
-        batch_size=config.batch_size,
-        shuffle=False,
-        num_workers=0,  # Avoid multiprocessing issues on Jetson
-        pin_memory=False
-    )
-
-    if verbose:
-        print(f"\nPrepared benchmark DataLoader:")
-        print(f"  Dataset size: {len(dataset)}")
-        print(f"  Batch size: {config.batch_size}")
-        print(f"  Total batches: {len(data_loader)}")
-
     # Run Alma benchmark
+    # Let Alma auto-generate data based on the model's input requirements
     if verbose:
         print("\nRunning Alma benchmark...")
-        print(f"Benchmarking {n_samples} samples...")
+        print(f"Benchmarking with {n_samples} samples (auto-generated data)...")
+        print(f"Note: Alma will auto-detect model input shape from first forward pass")
 
     try:
+        # Don't pass data parameter - let Alma auto-generate based on model inspection
         alma_results = benchmark_model(
-            model, config, conversions, data=data_loader
+            model, config, conversions
         )
 
         if verbose:
