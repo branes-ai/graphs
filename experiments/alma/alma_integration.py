@@ -346,24 +346,53 @@ def validate_with_alma(
         print(f"  Device: {device}")
 
     # Prepare data for Alma
-    # Alma expects a simple tensor of shape [n_samples, C, H, W]
-    # It will internally batch this according to config.batch_size
+    # Create a proper DataLoader that yields batches of [batch_size, C, H, W]
+    from torch.utils.data import Dataset, DataLoader
 
     # Get input shape from example_input
-    # example_input is [batch_size, C, H, W], we need the C, H, W part
     if example_input.dim() == 4:
         _, C, H, W = example_input.shape
     else:
         raise ValueError(f"Unexpected example_input shape: {example_input.shape}")
 
-    # Create benchmark data: random tensor [n_samples, C, H, W]
-    benchmark_data = torch.randn(n_samples, C, H, W, device=device)
+    # Create a simple custom dataset
+    class SimpleDataset(Dataset):
+        def __init__(self, n_samples, C, H, W, device):
+            self.n_samples = n_samples
+            self.C = C
+            self.H = H
+            self.W = W
+            self.device = device
+            # Pre-generate all samples to avoid memory issues with on-the-fly generation
+            self.data = torch.randn(n_samples, C, H, W, device=device)
+
+        def __len__(self):
+            return self.n_samples
+
+        def __getitem__(self, idx):
+            # Return just the image tensor (no label)
+            # This ensures DataLoader yields [batch_size, C, H, W]
+            return self.data[idx]
+
+    dataset = SimpleDataset(n_samples, C, H, W, device)
+    data_loader = DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+        drop_last=False
+    )
 
     if verbose:
-        print(f"\nPrepared benchmark data:")
-        print(f"  Shape: {benchmark_data.shape}")
-        print(f"  Device: {benchmark_data.device}")
-        print(f"  Expected: [n_samples={n_samples}, C={C}, H={H}, W={W}]")
+        print(f"\nPrepared benchmark DataLoader:")
+        print(f"  Dataset size: {len(dataset)}")
+        print(f"  Batch size: {config.batch_size}")
+        print(f"  Sample shape: [{C}, {H}, {W}]")
+        # Test the dataloader
+        test_batch = next(iter(data_loader))
+        print(f"  Test batch shape: {test_batch.shape}")
+        print(f"  Expected batch shape: [{config.batch_size}, {C}, {H}, {W}]")
 
     # Run Alma benchmark
     if verbose:
@@ -371,7 +400,7 @@ def validate_with_alma(
 
     try:
         alma_results = benchmark_model(
-            model, config, conversions, data=benchmark_data
+            model, config, conversions, data_loader=data_loader
         )
 
         if verbose:
