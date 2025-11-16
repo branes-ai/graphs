@@ -458,6 +458,21 @@ def validate_with_alma(
 
         if verbose:
             print("\nBenchmark complete")
+
+            # Check which conversions actually ran
+            requested = set(conversions)
+            completed = set(alma_results.keys())
+            failed = requested - completed
+
+            if failed:
+                print(f"\n⚠️  Warning: {len(failed)} conversion(s) failed to run:")
+                for conv in sorted(failed):
+                    print(f"    - {conv}")
+                print(f"  Possible reasons:")
+                print(f"    - Missing dependencies (e.g., torch-tensorrt, tensorrt)")
+                print(f"    - Incompatible versions")
+                print(f"    - Compilation errors")
+
             display_all_results(alma_results)
 
     except Exception as e:
