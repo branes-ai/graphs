@@ -365,14 +365,16 @@ def validate_with_alma(
             self.device = device
             # Pre-generate all samples to avoid memory issues with on-the-fly generation
             self.data = torch.randn(n_samples, C, H, W, device=device)
+            # Create dummy labels (Alma expects (data, label) tuples)
+            self.labels = torch.zeros(n_samples, dtype=torch.long, device=device)
 
         def __len__(self):
             return self.n_samples
 
         def __getitem__(self, idx):
-            # Return just the image tensor (no label)
-            # This ensures DataLoader yields [batch_size, C, H, W]
-            return self.data[idx]
+            # Return (image, label) tuple as expected by Alma
+            # This ensures DataLoader yields batches of ([batch_size, C, H, W], [batch_size])
+            return self.data[idx], self.labels[idx]
 
     dataset = SimpleDataset(n_samples, C, H, W, device)
     data_loader = DataLoader(
@@ -390,9 +392,10 @@ def validate_with_alma(
         print(f"  Batch size: {config.batch_size}")
         print(f"  Sample shape: [{C}, {H}, {W}]")
         # Test the dataloader
-        test_batch = next(iter(data_loader))
-        print(f"  Test batch shape: {test_batch.shape}")
-        print(f"  Expected batch shape: [{config.batch_size}, {C}, {H}, {W}]")
+        test_data, test_labels = next(iter(data_loader))
+        print(f"  Test batch data shape: {test_data.shape}")
+        print(f"  Test batch labels shape: {test_labels.shape}")
+        print(f"  Expected: data=[{config.batch_size}, {C}, {H}, {W}], labels=[{config.batch_size}]")
 
     # Run Alma benchmark
     if verbose:
