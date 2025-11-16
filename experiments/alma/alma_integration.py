@@ -243,6 +243,7 @@ def validate_with_alma(
     conversions: Optional[List[str]] = None,
     predicted_latency_ms: Optional[float] = None,
     predicted_energy_j: Optional[float] = None,
+    n_samples: int = 256,
     verbose: bool = True
 ) -> AlmaValidationResult:
     """
@@ -257,6 +258,7 @@ def validate_with_alma(
         conversions: Optional explicit list of conversions (overrides tier)
         predicted_latency_ms: Predicted latency from graphs.analysis
         predicted_energy_j: Predicted energy from graphs.analysis
+        n_samples: Number of samples for benchmarking (default 256, reduce for low-memory systems)
         verbose: Print detailed output
 
     Returns:
@@ -331,11 +333,17 @@ def validate_with_alma(
     # Configure Alma
     device = torch.device("cuda" if torch.cuda.is_available() and 'GPU' in hardware.upper() else "cpu")
     config = BenchmarkConfig(
-        n_samples=2048,
+        n_samples=n_samples,
         batch_size=example_input.shape[0],
         device=device,
         multiprocessing=False,  # Disable multiprocessing to avoid hangs
     )
+
+    if verbose:
+        print(f"\nBenchmark configuration:")
+        print(f"  Samples: {n_samples}")
+        print(f"  Batch size: {example_input.shape[0]}")
+        print(f"  Device: {device}")
 
     # Prepare data for Alma
     # Alma expects data tensor directly (not dataloader for simplicity)
@@ -582,6 +590,12 @@ def main():
         default=1,
         help="Batch size for inference"
     )
+    parser.add_argument(
+        "--n-samples",
+        type=int,
+        default=256,
+        help="Number of samples for benchmarking (default 256, use 64-128 for Jetson 8GB)"
+    )
 
     args = parser.parse_args()
 
@@ -611,6 +625,7 @@ def main():
         tier=args.tier,
         conversions=args.conversions,
         predicted_latency_ms=None,  # Would come from graphs.analysis in production
+        n_samples=args.n_samples,
         verbose=True
     )
 
