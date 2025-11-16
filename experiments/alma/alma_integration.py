@@ -345,17 +345,33 @@ def validate_with_alma(
         print(f"  Batch size: {example_input.shape[0]}")
         print(f"  Device: {device}")
 
+    # Prepare data for Alma
+    # Alma expects a simple tensor of shape [n_samples, C, H, W]
+    # It will internally batch this according to config.batch_size
+
+    # Get input shape from example_input
+    # example_input is [batch_size, C, H, W], we need the C, H, W part
+    if example_input.dim() == 4:
+        _, C, H, W = example_input.shape
+    else:
+        raise ValueError(f"Unexpected example_input shape: {example_input.shape}")
+
+    # Create benchmark data: random tensor [n_samples, C, H, W]
+    benchmark_data = torch.randn(n_samples, C, H, W, device=device)
+
+    if verbose:
+        print(f"\nPrepared benchmark data:")
+        print(f"  Shape: {benchmark_data.shape}")
+        print(f"  Device: {benchmark_data.device}")
+        print(f"  Expected: [n_samples={n_samples}, C={C}, H={H}, W={W}]")
+
     # Run Alma benchmark
-    # Let Alma auto-generate data based on the model's input requirements
     if verbose:
         print("\nRunning Alma benchmark...")
-        print(f"Benchmarking with {n_samples} samples (auto-generated data)...")
-        print(f"Note: Alma will auto-detect model input shape from first forward pass")
 
     try:
-        # Don't pass data parameter - let Alma auto-generate based on model inspection
         alma_results = benchmark_model(
-            model, config, conversions
+            model, config, conversions, data=benchmark_data
         )
 
         if verbose:
