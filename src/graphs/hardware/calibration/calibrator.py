@@ -16,6 +16,20 @@ from .benchmarks.matmul_bench_multi import calibrate_matmul_all_precisions
 from .precision_detector import get_precision_capabilities
 from ..resource_model import Precision
 
+# Framework-specific benchmark imports
+try:
+    from .benchmarks.numpy import calibrate_matmul_numpy, calibrate_memory_bandwidth_numpy
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from .benchmarks.pytorch import calibrate_matmul_pytorch, calibrate_memory_bandwidth_pytorch
+    import torch
+    PYTORCH_AVAILABLE = True
+except ImportError:
+    PYTORCH_AVAILABLE = False
+
 
 def detect_hardware_info() -> dict:
     """Detect system hardware information"""
@@ -52,12 +66,63 @@ def detect_software_versions() -> dict:
     return versions
 
 
+def select_framework(device: str, framework_override: Optional[str] = None) -> str:
+    """
+    Select which framework to use for benchmarks.
+
+    Args:
+        device: Device type ('cpu' or 'cuda')
+        framework_override: Optional framework override ('numpy' or 'pytorch')
+
+    Returns:
+        Framework name ('numpy' or 'pytorch')
+
+    Raises:
+        RuntimeError if requirements not met
+    """
+    # Handle explicit override
+    if framework_override:
+        if framework_override == 'numpy':
+            if not NUMPY_AVAILABLE:
+                raise RuntimeError("NumPy framework requested but NumPy is not installed")
+            if device == 'cuda':
+                raise RuntimeError("NumPy cannot use CUDA. Use PyTorch for GPU benchmarks.")
+            return 'numpy'
+        elif framework_override == 'pytorch':
+            if not PYTORCH_AVAILABLE:
+                raise RuntimeError("PyTorch framework requested but PyTorch is not installed")
+            return 'pytorch'
+        else:
+            raise ValueError(f"Unknown framework: {framework_override}")
+
+    # Auto-select based on device
+    if device == 'cuda':
+        # GPU requires PyTorch
+        if not PYTORCH_AVAILABLE:
+            raise RuntimeError(
+                "CUDA device requires PyTorch, but PyTorch is not installed. "
+                "Install PyTorch with CUDA support."
+            )
+        return 'pytorch'
+    else:
+        # CPU: prefer NumPy (represents real-world Embodied AI signal processing)
+        if NUMPY_AVAILABLE:
+            return 'numpy'
+        elif PYTORCH_AVAILABLE:
+            print("⚠ NumPy not available, falling back to PyTorch for CPU benchmarks")
+            return 'pytorch'
+        else:
+            raise RuntimeError("Neither NumPy nor PyTorch is installed")
+
+
 def calibrate_hardware(
     hardware_name: str,
     theoretical_peak_gflops: float,
     theoretical_bandwidth_gbps: float,
     theoretical_peaks: Optional[Dict[str, float]] = None,  # NEW: per-precision theoretical peaks
     device: str = 'cpu',  # NEW: 'cpu' or 'cuda'
+    actual_device_info: Optional[Dict] = None,  # NEW: actual device being used (for reporting)
+    framework: Optional[str] = None,  # NEW: framework override ('numpy' or 'pytorch')
     output_path: Optional[Path] = None,
     operations: Optional[List[str]] = None,
     fusion_patterns: Optional[List[str]] = None,
@@ -72,6 +137,8 @@ def calibrate_hardware(
         theoretical_bandwidth_gbps: Theoretical memory bandwidth from datasheet
         theoretical_peaks: Per-precision theoretical peaks (dict: precision -> GFLOPS)
         device: Device type ('cpu' or 'cuda')
+        actual_device_info: Actual device being used (from detect_actual_device), optional
+        framework: Framework override ('numpy' or 'pytorch', default: auto-select)
         output_path: Optional path to save calibration JSON
         operations: List of operations to calibrate (None = all)
         fusion_patterns: List of fusion patterns to benchmark (e.g., ['linear', 'conv', 'attention'] or ['all'])
@@ -100,6 +167,28 @@ def calibrate_hardware(
         print(f"  PyTorch: {sw_versions['pytorch_version']}")
     print()
 
+    # Select framework
+    selected_framework = select_framework(device, framework)
+
+    # Display execution device and framework information prominently
+    if actual_device_info:
+        print("Execution Device:")
+        print(f"  Running on: {actual_device_info['device_name']}")
+        if actual_device_info['fallback_occurred']:
+            print(f"  ⚠ FALLBACK from requested '{device}' to '{actual_device_info['actual_device']}'")
+            print(f"  Reason: {actual_device_info['fallback_reason']}")
+        print(f"  Framework:  {selected_framework.upper()}")
+        if selected_framework == 'numpy':
+            print(f"              (CPU-only, real-world signal processing performance)")
+        else:
+            print(f"              (PyTorch DL framework, GPU-accelerated)")
+        print()
+    else:
+        # Fallback if device info not provided (for backward compatibility)
+        print(f"Target Device: {device.upper()}")
+        print(f"Framework:     {selected_framework.upper()}")
+        print()
+
     # Create metadata
     metadata = CalibrationMetadata(
         hardware_name=hardware_name,
@@ -115,6 +204,7 @@ def calibrate_hardware(
         num_measurement_runs=5 if quick else 10,
         device_type=device,  # NEW: record device type
         platform_architecture=platform.machine().lower(),  # NEW: record platform
+        framework=selected_framework,  # NEW: record framework used for benchmarks
     )
 
     # Initialize calibration object
@@ -141,11 +231,21 @@ def calibrate_hardware(
         print("1. Memory Bandwidth")
         print("-" * 80)
         sizes = [128, 256] if quick else [64, 128, 256, 512]
-        mem_calibrations = calibrate_memory_bandwidth(
-            sizes_mb=sizes,
-            theoretical_bandwidth_gbps=theoretical_bandwidth_gbps,
-            num_trials=metadata.num_measurement_runs
-        )
+
+        # Dispatch to framework-specific benchmark
+        if selected_framework == 'numpy':
+            mem_calibrations = calibrate_memory_bandwidth_numpy(
+                sizes_mb=sizes,
+                theoretical_bandwidth_gbps=theoretical_bandwidth_gbps,
+                num_trials=metadata.num_measurement_runs
+            )
+        else:  # pytorch
+            mem_calibrations = calibrate_memory_bandwidth_pytorch(
+                sizes_mb=sizes,
+                theoretical_bandwidth_gbps=theoretical_bandwidth_gbps,
+                device=device,
+                num_trials=metadata.num_measurement_runs
+            )
 
         for cal in mem_calibrations:
             calibration.add_operation(cal)
@@ -176,15 +276,24 @@ def calibrate_hardware(
         # Always start with 256 as a probe to quickly identify unusable precisions
         sizes = [256, 1024, 2048] if quick else [256, 1024, 2048, 4096]
 
-        # Run multi-precision calibration
-        multi_prec_results = calibrate_matmul_all_precisions(
-            sizes=sizes,
-            precisions=precisions_to_test,
-            theoretical_peaks=theoretical_peaks or {},
-            device=device,
-            num_trials=metadata.num_measurement_runs,
-            min_useful_throughput=50.0  # Skip precisions with <50 GOPS (not useful for Embodied AI)
-        )
+        # Dispatch to framework-specific benchmark
+        if selected_framework == 'numpy':
+            multi_prec_results = calibrate_matmul_numpy(
+                sizes=sizes,
+                precisions=precisions_to_test,
+                theoretical_peaks=theoretical_peaks or {},
+                num_trials=metadata.num_measurement_runs,
+                min_useful_throughput=50.0
+            )
+        else:  # pytorch
+            multi_prec_results = calibrate_matmul_pytorch(
+                sizes=sizes,
+                precisions=precisions_to_test,
+                theoretical_peaks=theoretical_peaks or {},
+                device=device,
+                num_trials=metadata.num_measurement_runs,
+                min_useful_throughput=50.0
+            )
 
         # Convert to OperationCalibration objects with precision_results populated
         for size, precision_results in multi_prec_results.items():

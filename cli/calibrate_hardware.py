@@ -209,6 +209,60 @@ def detect_platform() -> dict:
     }
 
 
+def detect_actual_device(requested_device: str) -> dict:
+    """
+    Detect which device will actually be used for benchmarks.
+
+    This can differ from the requested device if PyTorch/CUDA is not available.
+
+    Args:
+        requested_device: Device user requested ('cpu' or 'cuda')
+
+    Returns:
+        dict with 'actual_device', 'device_name', 'fallback_occurred', 'fallback_reason'
+    """
+    if requested_device == 'cpu':
+        # CPU always available
+        return {
+            'actual_device': 'cpu',
+            'device_name': 'CPU',
+            'fallback_occurred': False,
+            'fallback_reason': None
+        }
+
+    # Check if CUDA is actually available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return {
+                'actual_device': 'cuda',
+                'device_name': f'GPU ({torch.cuda.get_device_name(0)})',
+                'fallback_occurred': False,
+                'fallback_reason': None
+            }
+        else:
+            return {
+                'actual_device': 'cpu',
+                'device_name': 'CPU (fallback)',
+                'fallback_occurred': True,
+                'fallback_reason': 'CUDA requested but not available'
+            }
+    except ImportError:
+        return {
+            'actual_device': 'cpu',
+            'device_name': 'CPU (fallback)',
+            'fallback_occurred': True,
+            'fallback_reason': 'PyTorch not installed'
+        }
+    except Exception as e:
+        return {
+            'actual_device': 'cpu',
+            'device_name': 'CPU (fallback)',
+            'fallback_occurred': True,
+            'fallback_reason': f'Error: {str(e)}'
+        }
+
+
 def validate_preset_platform(preset_name: str, preset_config: dict) -> bool:
     """
     Validate that the preset matches the current platform.
@@ -296,6 +350,8 @@ def main():
                        help="Run quick calibration (fewer sizes/trials)")
     parser.add_argument("--operations", type=str, default=None,
                        help="Comma-separated operations to calibrate (default: all)")
+    parser.add_argument("--framework", type=str, choices=['numpy', 'pytorch'], default=None,
+                       help="Override framework selection (default: numpy for CPU, pytorch for GPU)")
     parser.add_argument("--skip-platform-check", action="store_true",
                        help="Skip platform validation (USE WITH CAUTION)")
 
@@ -326,19 +382,61 @@ def main():
         print("WARNING: Platform validation skipped. Results may be incorrect!")
         print()
 
-    # Determine output path
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        # Default: profiles/<hardware_name>.json
-        profiles_dir = Path(__file__).parent.parent / "src" / "graphs" / "hardware" / "calibration" / "profiles"
-        safe_name = hardware_name.lower().replace(" ", "_").replace("-", "_")
-        output_path = profiles_dir / f"{safe_name}.json"
-
     # Parse operations
     operations = None
     if args.operations:
         operations = [op.strip() for op in args.operations.split(',')]
+
+    # Detect actual device that will be used (may differ from requested if fallback occurs)
+    device_info = detect_actual_device(device)
+
+    # Determine framework (need this for filename)
+    from graphs.hardware.calibration.calibrator import select_framework
+    try:
+        selected_framework = select_framework(device, args.framework)
+    except RuntimeError as e:
+        print()
+        print("=" * 80)
+        print("ERROR: Framework Selection Failed")
+        print("=" * 80)
+        print(f"  {e}")
+        print()
+        return 1
+
+    # Determine output path (include framework to avoid overwriting)
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        # Default: profiles/<hardware_name>_<framework>.json
+        # This prevents overwriting when running with different frameworks
+        profiles_dir = Path(__file__).parent.parent / "src" / "graphs" / "hardware" / "calibration" / "profiles"
+        safe_name = hardware_name.lower().replace(" ", "_").replace("-", "_")
+        output_path = profiles_dir / f"{safe_name}_{selected_framework}.json"
+
+    # Show device information prominently
+    print()
+    print("=" * 80)
+    print("EXECUTION DEVICE")
+    print("=" * 80)
+    print(f"  Requested device: {device.upper()}")
+    print(f"  Actual device:    {device_info['device_name']}")
+    print(f"  Framework:        {selected_framework.upper()}")
+
+    if device_info['fallback_occurred']:
+        print()
+        print("  ⚠ WARNING: Device Fallback Occurred!")
+        print(f"  Reason: {device_info['fallback_reason']}")
+        print()
+        print("  This will produce INCORRECT calibration data for the requested hardware!")
+        print("  The calibration will reflect CPU performance, not GPU performance.")
+        print()
+
+        # Ask user if they want to continue
+        response = input("  Continue anyway? (yes/no): ").strip().lower()
+        if response not in ['yes', 'y']:
+            print("  Calibration cancelled.")
+            return 1
+    print()
 
     # Run calibration
     try:
@@ -348,6 +446,8 @@ def main():
             theoretical_bandwidth_gbps=peak_bandwidth,
             theoretical_peaks=theoretical_peaks,  # NEW: per-precision peaks
             device=device,  # NEW: specify device type
+            actual_device_info=device_info,  # NEW: actual device being used
+            framework=args.framework,  # NEW: framework override
             output_path=output_path,
             operations=operations,
             quick=args.quick
