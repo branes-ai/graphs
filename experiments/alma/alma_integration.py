@@ -41,6 +41,18 @@ def _create_mock_onnxruntime():
     """Create a mock onnxruntime module that raises errors on use."""
     mock_module = types.ModuleType('onnxruntime')
 
+    # Create a mock ModuleSpec for compatibility with PyTorch dynamo
+    import importlib.machinery
+    mock_spec = importlib.machinery.ModuleSpec(
+        name='onnxruntime',
+        loader=None,
+        origin='mock',
+        is_package=False
+    )
+    mock_module.__spec__ = mock_spec
+    mock_module.__file__ = '<mock>'
+    mock_module.__package__ = None
+
     class MockInferenceSession:
         def __init__(self, *args, **kwargs):
             raise ImportError("onnxruntime not available on this platform (ARM64/Jetson)")
