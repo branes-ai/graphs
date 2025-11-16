@@ -6,6 +6,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-16] - Alma Integration for Jetson ARM64 Platform
+
+### Added
+
+**Alma Multi-Backend Benchmarking Integration** (`experiments/alma/alma_integration.py`)
+- Added comprehensive Alma (https://github.com/saifhaq/alma) integration for multi-backend PyTorch model validation
+- Three-tier validation strategy:
+  - **Tier 1**: Inductor-only validation (seconds)
+  - **Tier 2**: Core deployment options - TensorRT, ONNX, etc. (minutes)
+  - **Tier 3**: Extended analysis with 90+ conversion options (hours)
+- Configurable sample count (`--n-samples`) to manage memory usage on resource-constrained devices
+- Automatic filtering of unavailable backends based on platform capabilities
+
+**ARM64/Jetson Compatibility Layer**
+- ONNX Runtime monkey-patch: Created mock module when ONNX Runtime is unavailable (ARM64 Python 3.10 compatibility issue)
+- Triton availability detection: Automatically filters out torch.compile/inductor conversions when Triton is not available
+- Platform-aware conversion filtering: Detects and skips incompatible backends (ONNX, Triton-dependent conversions)
+- System TensorRT integration: Documentation for linking JetPack TensorRT to Python venv
+
+**Validation Reporting**
+- Reports which conversions succeeded vs failed with diagnostic information
+- Performance comparison tables showing latency and speedup vs eager mode
+- Deployment recommendations based on benchmark results
+
+### Fixed
+
+**Alma Data Loading Issues**
+- Fixed tensor shape mismatches (5D tensor error) by implementing proper PyTorch DataLoader with (data, label) tuples
+- Pre-allocation of benchmark data on GPU to avoid memory transfer overhead
+- Proper handling of batch dimensions for model inference
+
+**Memory Management**
+- Reduced default sample count from 2048 to 256 (configurable via `--n-samples`)
+- Added `num_workers=0` and `pin_memory=False` for DataLoader to reduce memory pressure on Jetson
+- Pre-generate dataset on GPU to avoid CPU-GPU transfer overhead
+
+### Changed
+
+**Dependency Installation Workflow**
+- Documented manual dependency installation process for `alma-torch` on ARM64/Jetson
+- Required dependencies: `tqdm`, `pydantic`, `optimum`, `optimum-quanto`
+- TensorRT linking from JetPack system installation to venv
+
+**Conversion Tier Defaults** (User-Modified)
+- Tier 1: EAGER + COMPILE_INDUCTOR
+- Tier 2 (GPU): EAGER + TENSORRT (most other conversions commented out due to platform limitations)
+- Automatic filtering based on available dependencies
+
+### Known Limitations
+
+**ARM64/Jetson Platform Constraints**
+- ONNX Runtime: No official Python 3.10 ARM64 wheels available; requires platform-specific build
+- Triton: Not supported on ARM64/Jetson; all torch.compile inductor conversions unavailable
+- torch-tensorrt: Cannot be installed via pip on Tegra systems ("TensorRT does not currently build wheels for Tegra systems")
+  - Base `tensorrt` (10.3.0) available via JetPack system installation
+  - PyTorch-TensorRT wrapper not available, limiting TensorRT conversion options in Alma
+
+**Validation Results**
+- Successfully benchmarked EAGER mode: 20.22ms latency, 49.45 samples/sec on Jetson Orin AGX
+- TensorRT conversion silently fails due to missing `torch_tensorrt` integration layer
+
+---
+
 ## [2025-11-14] - Arithmetic Intensity Fixes & UI Improvements
 
 ### Fixed
