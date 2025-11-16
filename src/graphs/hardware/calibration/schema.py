@@ -278,6 +278,7 @@ class CalibrationMetadata:
     # NEW: Device type for platform validation
     device_type: str = "cpu"  # "cpu" or "cuda"
     platform_architecture: str = "unknown"  # "x86_64", "aarch64", "arm64"
+    framework: str = "numpy"  # "numpy" or "pytorch" - which framework ran the benchmarks
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -531,6 +532,13 @@ class HardwareCalibration:
         print("=" * 80)
         print()
 
+        # Show framework and device info if available
+        if hasattr(self.metadata, 'framework'):
+            print(f"Framework: {self.metadata.framework.upper()}")
+            if hasattr(self.metadata, 'device_type'):
+                print(f"Device:    {self.metadata.device_type.upper()}")
+            print()
+
         print("Theoretical Specifications:")
         print(f"  Peak GFLOPS (FP32): {self.theoretical_peak_gflops:.1f}")
         print(f"  Peak Bandwidth:     {self.theoretical_bandwidth_gbps:.1f} GB/s")
@@ -634,7 +642,13 @@ class HardwareCalibration:
                         is_int = prec_name in ['int32', 'int16', 'int8', 'int4']
                         units = "GIOPS" if is_int else "GFLOPS"
 
-                        print(f"  {prec_name:<10} {size_str:<12} {latency_str:>10} {min_gops:>10.1f} {avg_gops:>10.1f} {max_gops:>10.1f} {efficiency*100:>10.1f}%")
+                        # Format efficiency with warning if >110%
+                        if efficiency > 1.10:
+                            eff_str = f"{efficiency*100:>10.1f}%  ⚠ ABOVE THEORETICAL"
+                        else:
+                            eff_str = f"{efficiency*100:>10.1f}%"
+
+                        print(f"  {prec_name:<10} {size_str:<12} {latency_str:>10} {min_gops:>10.1f} {avg_gops:>10.1f} {max_gops:>10.1f} {eff_str}")
 
             print()
 
@@ -644,6 +658,27 @@ class HardwareCalibration:
             print(f"  Supported:   {', '.join(self.precision_matrix.supported_precisions)}")
             if self.precision_matrix.unsupported_precisions:
                 print(f"  Unsupported: {', '.join(self.precision_matrix.unsupported_precisions)}")
+            print()
+
+        # Add efficiency explanation if any results exceed theoretical
+        has_high_efficiency = False
+        if compute_ops:
+            for key, profile in compute_ops.items():
+                if profile.precision_results:
+                    for prec_result in profile.precision_results.values():
+                        if prec_result.supported and prec_result.efficiency and prec_result.efficiency > 1.10:
+                            has_high_efficiency = True
+                            break
+                if has_high_efficiency:
+                    break
+
+        if has_high_efficiency:
+            print("Note on >100% Efficiency:")
+            print("  Efficiency above theoretical peak typically indicates:")
+            print("    • Turbo Boost / GPU Boost clocks exceeding base frequency")
+            print("    • Optimized BLAS libraries (MKL, cuBLAS) exceeding naive calculations")
+            print("    • Conservative theoretical peaks (based on sustained, not peak clocks)")
+            print("  This is normal and indicates good hardware utilization.")
             print()
 
         # Fusion patterns summary

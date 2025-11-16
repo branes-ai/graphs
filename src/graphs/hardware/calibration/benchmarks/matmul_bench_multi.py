@@ -195,6 +195,21 @@ def calibrate_matmul_all_precisions(
     results = {}
     skip_precisions = set()  # Precisions to skip for larger sizes
 
+    # Detect actual execution device
+    actual_device = 'cpu'  # Currently only NumPy is implemented, which always uses CPU
+    if device == 'cuda':
+        # Check if CUDA is actually available
+        try:
+            import torch
+            if torch.cuda.is_available():
+                # NOTE: Current implementation uses NumPy (CPU only)
+                # TODO: Add PyTorch/CUDA path for GPU benchmarks
+                print(f"⚠ NOTE: CUDA requested but benchmarks use NumPy (CPU-only)")
+                print(f"         Results will reflect CPU performance, not GPU")
+                print()
+        except ImportError:
+            pass
+
     for N in sizes:
         print(f"\nCalibrating matmul {N}×{N} across {len(precisions)} precisions...")
 
