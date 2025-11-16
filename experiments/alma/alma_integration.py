@@ -72,6 +72,15 @@ except (ImportError, OSError) as e:
     print("⚠️  ONNX Runtime not available (ARM64/Jetson compatibility issue)")
     print("   ONNX-based conversions will be disabled")
 
+# Check for Triton availability (needed for torch.compile)
+try:
+    import triton
+    TRITON_AVAILABLE = True
+except ImportError:
+    TRITON_AVAILABLE = False
+    print("⚠️  Triton not available (ARM64/Jetson - not supported)")
+    print("   torch.compile conversions will be disabled")
+
 # Try to import Alma (graceful degradation if not installed)
 ALMA_AVAILABLE = False
 try:
@@ -212,6 +221,35 @@ def _filter_onnx_conversions(conversions: List[str]) -> List[str]:
     return filtered
 
 
+def _filter_triton_conversions(conversions: List[str]) -> List[str]:
+    """Filter out Triton-dependent conversions if Triton is not available."""
+    if TRITON_AVAILABLE:
+        return conversions
+
+    # Conversions that require Triton (torch.compile inductor backend)
+    # These patterns match both standalone and compound conversions
+    triton_dependent_patterns = [
+        'COMPILE_INDUCTOR',
+        'COMPILE_CUDAGRAPHS',
+        'COMPILE_OPENXLA',
+        'COMPILE_TVM',
+    ]
+
+    # Remove any conversion that contains these patterns
+    filtered = []
+    for c in conversions:
+        requires_triton = any(pattern in c for pattern in triton_dependent_patterns)
+        if not requires_triton:
+            filtered.append(c)
+
+    if len(filtered) < len(conversions):
+        removed = set(conversions) - set(filtered)
+        print(f"   Filtered out Triton-dependent conversions: {', '.join(sorted(removed))}")
+        print(f"   (Triton not available on ARM64/Jetson)")
+
+    return filtered
+
+
 def get_conversions_for_tier(tier: int, hardware: str) -> List[str]:
     """Get appropriate conversion list for validation tier and hardware."""
     if tier == 1:
@@ -226,8 +264,10 @@ def get_conversions_for_tier(tier: int, hardware: str) -> List[str]:
     else:
         raise ValueError(f"Invalid tier: {tier}. Must be 1, 2, or 3")
 
-    # Filter out ONNX conversions if ONNX Runtime is not available
-    return _filter_onnx_conversions(conversions)
+    # Filter out unavailable conversions
+    conversions = _filter_onnx_conversions(conversions)
+    conversions = _filter_triton_conversions(conversions)
+    return conversions
 
 
 # ============================================================================
@@ -324,6 +364,7 @@ def validate_with_alma(
     else:
         # Filter user-provided conversions as well
         conversions = _filter_onnx_conversions(conversions)
+        conversions = _filter_triton_conversions(conversions)
 
     if verbose:
         print(f"\nTesting {len(conversions)} conversions:")
