@@ -30,6 +30,36 @@ from pathlib import Path
 # Add dynamo experiments to path for inductor_validation import
 sys.path.append(str(Path(__file__).parent.parent / "dynamo"))
 
+# ============================================================================
+# Monkey-patch to make ONNX Runtime optional for ARM64/Jetson compatibility
+# ============================================================================
+import importlib
+import types
+
+# Create a mock onnxruntime module if it's not available
+def _create_mock_onnxruntime():
+    """Create a mock onnxruntime module that raises errors on use."""
+    mock_module = types.ModuleType('onnxruntime')
+
+    class MockInferenceSession:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("onnxruntime not available on this platform (ARM64/Jetson)")
+
+    mock_module.InferenceSession = MockInferenceSession
+    return mock_module
+
+# Try to import onnxruntime, if it fails, use mock
+try:
+    import onnxruntime
+    ONNX_AVAILABLE = True
+except (ImportError, OSError) as e:
+    # ONNX Runtime not available (common on Jetson ARM64)
+    # Install mock so alma's import doesn't crash
+    sys.modules['onnxruntime'] = _create_mock_onnxruntime()
+    ONNX_AVAILABLE = False
+    print("⚠️  ONNX Runtime not available (ARM64/Jetson compatibility issue)")
+    print("   ONNX-based conversions will be disabled")
+
 # Try to import Alma (graceful degradation if not installed)
 ALMA_AVAILABLE = False
 try:
@@ -37,8 +67,9 @@ try:
     from alma.benchmark import BenchmarkConfig
     from alma.benchmark.log import display_all_results
     ALMA_AVAILABLE = True
-except ImportError:
-    print("⚠️  Alma not installed. Install with: pip install alma-torch")
+except ImportError as e:
+    print(f"⚠️  Alma not installed or import failed: {e}")
+    print("   Install with: pip install alma-torch")
     print("   Continuing with inductor-only validation...")
 
 # Import our inductor validation
@@ -154,19 +185,37 @@ TIER3_CONVERSIONS_GPU = TIER2_CONVERSIONS_GPU + [
 ]
 
 
+def _filter_onnx_conversions(conversions: List[str]) -> List[str]:
+    """Filter out ONNX conversions if ONNX Runtime is not available."""
+    if ONNX_AVAILABLE:
+        return conversions
+
+    # Remove any conversion with "ONNX" in the name
+    filtered = [c for c in conversions if 'ONNX' not in c]
+
+    if len(filtered) < len(conversions):
+        removed = set(conversions) - set(filtered)
+        print(f"   Filtered out ONNX conversions: {', '.join(sorted(removed))}")
+
+    return filtered
+
+
 def get_conversions_for_tier(tier: int, hardware: str) -> List[str]:
     """Get appropriate conversion list for validation tier and hardware."""
     if tier == 1:
-        return TIER1_CONVERSIONS
+        conversions = TIER1_CONVERSIONS
     elif tier == 2:
         if 'GPU' in hardware.upper() or 'Jetson-Orin-AGX' in hardware or 'A100' in hardware:
-            return TIER2_CONVERSIONS_GPU
+            conversions = TIER2_CONVERSIONS_GPU
         else:
-            return TIER2_CONVERSIONS_CPU
+            conversions = TIER2_CONVERSIONS_CPU
     elif tier == 3:
-        return TIER3_CONVERSIONS_GPU
+        conversions = TIER3_CONVERSIONS_GPU
     else:
         raise ValueError(f"Invalid tier: {tier}. Must be 1, 2, or 3")
+
+    # Filter out ONNX conversions if ONNX Runtime is not available
+    return _filter_onnx_conversions(conversions)
 
 
 # ============================================================================
@@ -258,6 +307,9 @@ def validate_with_alma(
     # Get conversions list
     if conversions is None:
         conversions = get_conversions_for_tier(tier, hardware)
+    else:
+        # Filter user-provided conversions as well
+        conversions = _filter_onnx_conversions(conversions)
 
     if verbose:
         print(f"\nTesting {len(conversions)} conversions:")
