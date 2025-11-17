@@ -120,12 +120,21 @@ graphs/
 
 ### Python Environment Setup
 ```bash
-# Install dependencies
-pip install torch torchvision pandas
-
-# Install package in development mode (from repo root)
+# Install all dependencies (recommended)
 pip install -e .
+
+# Or install manually
+pip install torch torchvision pandas psutil py-cpuinfo
+
+# Or from requirements.txt
+pip install -r requirements.txt
 ```
+
+**Core dependencies:**
+- `torch`, `torchvision`: DNN models and graph tracing
+- `pandas`: Results tabulation
+- `psutil`: Cross-platform CPU/system info (hardware detection)
+- `py-cpuinfo`: Cross-platform CPU details (hardware detection)
 
 ### Running Characterization
 ```bash

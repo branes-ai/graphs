@@ -5,35 +5,39 @@ Hardware Calibration CLI Tool
 Runs calibration benchmarks and generates performance profiles for hardware mappers.
 
 Usage:
-    # Calibrate i7-12700K (runs BLAS + STREAM by default)
-    ./cli/calibrate_hardware.py --preset i7-12700k
+    # Auto-detect and calibrate current hardware (runs BLAS + STREAM by default)
+    ./cli/calibrate_hardware.py
 
-    # Calibrate Jetson Orin Nano GPU
-    ./cli/calibrate_hardware.py --preset jetson-orin-nano-gpu
+    # Calibrate specific hardware from database
+    ./cli/calibrate_hardware.py --id i7_12700k
+    ./cli/calibrate_hardware.py --id jetson_orin_nano_gpu
 
     # Quick calibration (fewer sizes/trials)
-    ./cli/calibrate_hardware.py --preset i7-12700k --quick
+    ./cli/calibrate_hardware.py --quick
 
     # BLAS suite only (all 3 levels: vector-vector, matrix-vector, matrix-matrix)
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations blas
+    ./cli/calibrate_hardware.py --operations blas
 
     # Individual BLAS levels
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations blas1,blas2,blas3
+    ./cli/calibrate_hardware.py --operations blas1,blas2,blas3
 
     # Individual BLAS operations
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations dot,axpy,gemv,gemm
+    ./cli/calibrate_hardware.py --operations dot,axpy,gemv,gemm
 
     # STREAM benchmark only (all 4 kernels)
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations stream
+    ./cli/calibrate_hardware.py --operations stream
 
     # Individual STREAM kernels
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations stream_copy,stream_triad
+    ./cli/calibrate_hardware.py --operations stream_copy,stream_triad
 
     # Combined BLAS + STREAM
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations blas,stream
+    ./cli/calibrate_hardware.py --operations blas,stream
 
     # Load and view existing calibration
     ./cli/calibrate_hardware.py --load profiles/jetson_orin_nano.json
+
+    # Legacy: Use preset (deprecated, will use database)
+    ./cli/calibrate_hardware.py --preset i7-12700k
 """
 
 import argparse
@@ -45,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from graphs.hardware.calibration.calibrator import calibrate_hardware, load_calibration
+from graphs.hardware.database import HardwareDatabase, HardwareDetector, get_database
 
 
 # Hardware presets with multi-precision theoretical peaks
@@ -219,6 +224,79 @@ PRESETS = {
 }
 
 
+def auto_detect_hardware(db: HardwareDatabase):
+    """
+    Auto-detect current hardware and match to database.
+
+    Returns:
+        tuple: (matched_spec, confidence) or (None, 0.0) if no match
+    """
+    print()
+    print("=" * 80)
+    print("Auto-Detecting Hardware")
+    print("=" * 80)
+
+    detector = HardwareDetector()
+    results = detector.auto_detect(db)
+
+    # Show detected hardware
+    if results['cpu']:
+        cpu = results['cpu']
+        print(f"CPU:      {cpu.model_name}")
+        print(f"Vendor:   {cpu.vendor}")
+        print(f"Cores:    {cpu.cores} cores, {cpu.threads} threads")
+
+        # Show E-cores if hybrid
+        if cpu.e_cores:
+            p_cores = cpu.cores - cpu.e_cores
+            print(f"          ({p_cores}P + {cpu.e_cores}E cores)")
+
+    if results['gpus']:
+        for i, gpu in enumerate(results['gpus']):
+            print(f"GPU #{i+1}:  {gpu.model_name}")
+            if gpu.memory_gb:
+                print(f"Memory:   {gpu.memory_gb} GB")
+
+    print()
+
+    # Check for CPU match
+    if results['cpu_matches']:
+        best_match = results['cpu_matches'][0]
+        conf_pct = best_match.confidence * 100
+        spec = best_match.matched_spec
+
+        print(f"✓ Matched to database: {spec.id}")
+        print(f"  Confidence: {conf_pct:.0f}%")
+        print(f"  Device: {spec.device_type.upper()}")
+        print()
+
+        return spec, best_match.confidence
+
+    # Check for GPU match
+    if results['gpu_matches'] and results['gpu_matches'][0]:
+        best_match = results['gpu_matches'][0][0]
+        conf_pct = best_match.confidence * 100
+        spec = best_match.matched_spec
+
+        print(f"✓ Matched to database: {spec.id}")
+        print(f"  Confidence: {conf_pct:.0f}%")
+        print(f"  Device: {spec.device_type.upper()}")
+        print()
+
+        return spec, best_match.confidence
+
+    # No match found
+    print("✗ No hardware match found in database")
+    print()
+    print("Options:")
+    print("  1. Add your hardware: python scripts/hardware_db/add_hardware.py")
+    print("  2. Use specific hardware: --id <hardware_id>")
+    print("  3. List available hardware: python scripts/hardware_db/list_hardware.py")
+    print()
+
+    return None, 0.0
+
+
 def detect_platform() -> dict:
     """
     Detect current platform characteristics.
@@ -379,10 +457,12 @@ def main():
         epilog=__doc__
     )
 
-    # Hardware specification (presets only)
-    hw_group = parser.add_mutually_exclusive_group(required=True)
+    # Hardware specification (auto-detect, database ID, or legacy preset)
+    hw_group = parser.add_mutually_exclusive_group(required=False)
+    hw_group.add_argument("--id", type=str,
+                         help="Hardware ID from database (e.g., i7_12700k, h100_sxm5)")
     hw_group.add_argument("--preset", choices=PRESETS.keys(),
-                         help="Hardware preset to calibrate")
+                         help="[DEPRECATED] Legacy preset (use --id or auto-detection instead)")
     hw_group.add_argument("--load", type=str,
                          help="Load and display existing calibration file")
 
@@ -413,21 +493,99 @@ def main():
         calibration.print_summary()
         return 0
 
-    # Get preset configuration
-    preset = PRESETS[args.preset]
-    hardware_name = preset['name']
-    device = preset['device']
-    theoretical_peaks = preset['theoretical_peaks']
-    peak_bandwidth = preset['peak_bandwidth']
+    # Load hardware database
+    db = get_database()
+    db.load_all()
+
+    # Determine which hardware to calibrate
+    hardware_spec = None
+
+    if args.id:
+        # Use specific hardware from database
+        hardware_spec = db.get(args.id)
+        if not hardware_spec:
+            print(f"✗ Hardware not found in database: {args.id}")
+            print()
+            print("Available hardware:")
+            for hw_id in sorted(db._cache.keys()):
+                spec = db._cache[hw_id]
+                print(f"  {hw_id:<30} {spec.vendor} {spec.model}")
+            print()
+            return 1
+
+        print()
+        print("=" * 80)
+        print(f"Using Hardware from Database: {hardware_spec.id}")
+        print("=" * 80)
+        print(f"  Vendor:   {hardware_spec.vendor}")
+        print(f"  Model:    {hardware_spec.model}")
+        print(f"  Type:     {hardware_spec.device_type}")
+        print(f"  Platform: {hardware_spec.platform}")
+        print()
+
+    elif args.preset:
+        # Legacy preset mode (deprecated)
+        print()
+        print("⚠ WARNING: --preset is deprecated")
+        print("  Use --id <hardware_id> or auto-detection instead")
+        print("  Falling back to legacy preset mode...")
+        print()
+
+        preset = PRESETS[args.preset]
+
+        # Convert preset to HardwareSpec format
+        from graphs.hardware.database import HardwareSpec
+        from datetime import datetime
+
+        # Map preset device type
+        device_type = 'gpu' if preset['device'] == 'cuda' else preset['device']
+
+        hardware_spec = HardwareSpec(
+            id=args.preset.replace('-', '_'),
+            vendor="Unknown",
+            model=preset['name'],
+            architecture="Unknown",
+            device_type=device_type,
+            platform=preset['platform'],
+            peak_bandwidth_gbps=preset['peak_bandwidth'],
+            theoretical_peaks=preset['theoretical_peaks'],
+            mapper_class="GPUMapper" if device_type == 'gpu' else "CPUMapper",
+            mapper_config={},
+            data_source="preset",
+            last_updated=datetime.utcnow().isoformat() + "Z"
+        )
+
+    else:
+        # Auto-detect hardware
+        hardware_spec, confidence = auto_detect_hardware(db)
+
+        if not hardware_spec:
+            print("Auto-detection failed. Please use --id to specify hardware.")
+            return 1
+
+        if confidence < 0.5:
+            print(f"⚠ WARNING: Low confidence match ({confidence*100:.0f}%)")
+            print("  Consider using --id to explicitly specify hardware")
+            print()
+            response = input("Continue with this hardware? (yes/no): ").strip().lower()
+            if response not in ['yes', 'y']:
+                print("Calibration cancelled.")
+                return 1
+
+    # Extract calibration parameters from hardware spec
+    hardware_name = hardware_spec.model
+    device = 'cuda' if hardware_spec.device_type == 'gpu' else hardware_spec.device_type
+    theoretical_peaks = hardware_spec.theoretical_peaks
+    peak_bandwidth = hardware_spec.peak_bandwidth_gbps
 
     # Use FP32 as the default peak for backward compatibility
-    peak_gflops = theoretical_peaks.get('fp32', max(theoretical_peaks.values()))
+    peak_gflops = theoretical_peaks.get('fp32', max(theoretical_peaks.values()) if theoretical_peaks else 100.0)
 
-    # Platform validation
-    if not args.skip_platform_check:
-        if not validate_preset_platform(args.preset, preset):
+    # Platform validation (only for preset mode)
+    if args.preset and not args.skip_platform_check:
+        if not validate_preset_platform(args.preset, PRESETS[args.preset]):
             return 1
-    else:
+    elif args.skip_platform_check:
         print("WARNING: Platform validation skipped. Results may be incorrect!")
         print()
 
@@ -456,11 +614,11 @@ def main():
     if args.output:
         output_path = Path(args.output)
     else:
-        # Default: profiles/<hardware_name>_<framework>.json
+        # Default: profiles/<hardware_id>_<framework>.json
         # This prevents overwriting when running with different frameworks
         profiles_dir = Path(__file__).parent.parent / "src" / "graphs" / "hardware" / "calibration" / "profiles"
-        safe_name = hardware_name.lower().replace(" ", "_").replace("-", "_")
-        output_path = profiles_dir / f"{safe_name}_{selected_framework}.json"
+        safe_id = hardware_spec.id.lower().replace(" ", "_").replace("-", "_")
+        output_path = profiles_dir / f"{safe_id}_{selected_framework}.json"
 
     # Show device information prominently
     print()
@@ -514,8 +672,12 @@ def main():
         print("  1. Review the calibration results above")
         print("  2. Use this calibration in your analysis:")
         print(f"     ./cli/analyze_comprehensive.py --model resnet18 \\")
-        print(f"         --hardware {args.preset} \\")
+        print(f"         --hardware {hardware_spec.id} \\")
         print(f"         --calibration {output_path}")
+        print()
+        print("  3. Or export calibration to database:")
+        print(f"     python scripts/hardware_db/update_hardware.py --id {hardware_spec.id} \\")
+        print(f"         --field calibration_file --value {output_path}")
         print()
 
         return 0
