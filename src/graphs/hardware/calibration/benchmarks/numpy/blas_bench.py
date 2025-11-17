@@ -13,11 +13,39 @@ BLAS Levels:
 
 import numpy as np
 import time
+import signal
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
 from ...schema import OperationCalibration, OperationType, PrecisionTestResult
 from ....resource_model import Precision
+
+
+class TimeoutError(Exception):
+    """Raised when a benchmark trial exceeds the timeout"""
+    pass
+
+
+def timeout_handler(signum, frame):
+    """Signal handler for timeout"""
+    raise TimeoutError("Benchmark trial exceeded timeout")
+
+
+class BenchmarkTimeout:
+    """Context manager for benchmark timeouts using SIGALRM"""
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def __enter__(self):
+        if self.seconds > 0:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(self.seconds)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.seconds > 0:
+            signal.alarm(0)  # Cancel the alarm
+        return False  # Don't suppress exceptions
 
 
 # Precision to NumPy dtype mappings
@@ -29,12 +57,30 @@ NUMPY_PRECISION_MAP = {
     'fp8': (Precision.FP8_E4M3, None),  # NumPy doesn't have native fp8
     'fp4': (Precision.FP4, None),  # NumPy doesn't have native fp4
     'bf16': (Precision.BF16, None),  # NumPy doesn't have native bfloat16
-    'int64': (Precision.INT32, np.int64),  # Use INT32 enum for now (no INT64 in Precision enum)
+    'int64': (Precision.INT64, np.int64),
     'int32': (Precision.INT32, np.int32),
     'int16': (Precision.INT16, np.int16),
     'int8': (Precision.INT8, np.int8),
     'int4': (Precision.INT4, None),  # NumPy doesn't have native int4
 }
+
+
+def _generate_random_array(shape, dtype):
+    """
+    Generate random array with appropriate values for dtype.
+
+    For float types: values in [0.0, 1.0)
+    For integer types: values in [1, 100] to avoid overflow and ensure non-zero results
+    """
+    if np.issubdtype(dtype, np.integer):
+        # Integer types: use randint with reasonable range
+        return np.random.randint(1, 100, size=shape, dtype=dtype)
+    else:
+        # Float types: use rand
+        if isinstance(shape, tuple):
+            return np.random.rand(*shape).astype(dtype)
+        else:
+            return np.random.rand(shape).astype(dtype)
 
 
 @dataclass
@@ -65,8 +111,8 @@ def benchmark_blas1_dot_numpy(
     Arithmetic intensity: 1.0 FLOPs/byte (for FP32)
     """
     # Allocate vectors
-    x = np.random.rand(size).astype(dtype)
-    y = np.random.rand(size).astype(dtype)
+    x = _generate_random_array(size, dtype)
+    y = _generate_random_array(size, dtype)
 
     # Warmup
     for _ in range(num_warmup):
@@ -121,9 +167,9 @@ def benchmark_blas1_axpy_numpy(
     Arithmetic intensity: 0.67 FLOPs/byte (for FP32)
     """
     # Allocate vectors
-    alpha = 2.5
-    x = np.random.rand(size).astype(dtype)
-    y = np.random.rand(size).astype(dtype)
+    alpha = 2.5 if not np.issubdtype(dtype, np.integer) else 2
+    x = _generate_random_array(size, dtype)
+    y = _generate_random_array(size, dtype)
 
     # Warmup
     for _ in range(num_warmup):
@@ -182,10 +228,10 @@ def benchmark_blas2_gemv_numpy(
     Arithmetic intensity: ~2.0 FLOPs/byte (for FP32, large n)
     """
     # Allocate matrix and vectors
-    alpha = 1.0
-    beta = 0.0
-    A = np.random.rand(size, size).astype(dtype)
-    x = np.random.rand(size).astype(dtype)
+    alpha = 1.0 if not np.issubdtype(dtype, np.integer) else 1
+    beta = 0.0 if not np.issubdtype(dtype, np.integer) else 0
+    A = _generate_random_array((size, size), dtype)
+    x = _generate_random_array(size, dtype)
     y = np.zeros(size, dtype=dtype)
 
     # Warmup
@@ -236,7 +282,8 @@ def benchmark_blas3_gemm_numpy(
     size: int,
     dtype=np.float32,
     num_trials: int = 10,
-    num_warmup: int = 3
+    num_warmup: int = 3,
+    timeout_seconds: int = 5
 ) -> Dict:
     """
     BLAS Level 3: GEMM (General Matrix-Matrix multiply)
@@ -244,25 +291,38 @@ def benchmark_blas3_gemm_numpy(
 
     For n×n matrices: 2n³ FLOPs
     Arithmetic intensity: ~n/2 FLOPs/byte (grows with n!)
+
+    Args:
+        timeout_seconds: Maximum seconds per trial (0 = no timeout)
     """
     # Allocate matrices
-    alpha = 1.0
-    beta = 0.0
-    A = np.random.rand(size, size).astype(dtype)
-    B = np.random.rand(size, size).astype(dtype)
+    alpha = 1.0 if not np.issubdtype(dtype, np.integer) else 1
+    beta = 0.0 if not np.issubdtype(dtype, np.integer) else 0
+    A = _generate_random_array((size, size), dtype)
+    B = _generate_random_array((size, size), dtype)
     C = np.zeros((size, size), dtype=dtype)
 
-    # Warmup
-    for _ in range(num_warmup):
-        C[:] = alpha * (A @ B) + beta * C
+    # Warmup (with timeout)
+    try:
+        with BenchmarkTimeout(timeout_seconds):
+            for _ in range(num_warmup):
+                C[:] = alpha * (A @ B) + beta * C
+    except TimeoutError:
+        # Warmup timed out - this precision/size is too slow
+        raise TimeoutError(f"Warmup exceeded {timeout_seconds}s timeout")
 
     # Benchmark
     times = []
-    for _ in range(num_trials):
-        start = time.perf_counter()
-        C[:] = alpha * (A @ B) + beta * C
-        end = time.perf_counter()
-        times.append((end - start) * 1000)
+    for trial_idx in range(num_trials):
+        try:
+            with BenchmarkTimeout(timeout_seconds):
+                start = time.perf_counter()
+                C[:] = alpha * (A @ B) + beta * C
+                end = time.perf_counter()
+                times.append((end - start) * 1000)
+        except TimeoutError:
+            # Trial timed out
+            raise TimeoutError(f"Trial {trial_idx+1}/{num_trials} exceeded {timeout_seconds}s timeout")
 
     # Statistics
     mean_time_ms = np.mean(times)
@@ -302,7 +362,8 @@ def calibrate_blas_suite_numpy(
     precisions: List[str] = None,
     theoretical_peak_gflops: float = 720.0,
     precision_peaks: Dict[str, float] = None,
-    num_trials: int = 10
+    num_trials: int = 10,
+    min_useful_gflops: float = 1.0
 ) -> List[OperationCalibration]:
     """
     Run full BLAS benchmark suite (NumPy, CPU-only) across multiple precisions.
@@ -370,6 +431,11 @@ def calibrate_blas_suite_numpy(
         print(f"\nBLAS Level {level}: {op_name.upper()}")
         print("-" * 90)
 
+        # Track which precisions to skip for remaining sizes (due to poor performance)
+        # Only enable early termination for BLAS Level 3 (GEMM) to avoid long runtimes
+        skipped_precisions = {}  # {prec_name: (reason, skip_after_size)}
+        enable_early_termination = (level == 3)  # Only for GEMM
+
         for size in op_sizes:
             # Format size for display
             if size >= 1000000:
@@ -384,6 +450,16 @@ def calibrate_blas_suite_numpy(
             fp32_gflops = None  # For speedup calculation
 
             for prec_name in precisions:
+                # Check if this precision was skipped due to poor performance (only for GEMM)
+                if enable_early_termination and prec_name in skipped_precisions:
+                    reason, skip_size = skipped_precisions[prec_name]
+                    precision_results[prec_name] = PrecisionTestResult(
+                        precision=prec_name,
+                        supported=False,
+                        failure_reason=f"Skipped (poor performance at size {skip_size}: {reason})"
+                    )
+                    continue
+
                 if prec_name not in NUMPY_PRECISION_MAP:
                     # Unknown precision, mark as N/A
                     precision_results[prec_name] = PrecisionTestResult(
@@ -406,7 +482,11 @@ def calibrate_blas_suite_numpy(
 
                 # Try to run benchmark for this precision
                 try:
-                    result = bench_fn(size, dtype=dtype, num_trials=num_trials)
+                    # Add timeout for GEMM (level 3) to avoid very slow integer matmuls
+                    if level == 3:
+                        result = bench_fn(size, dtype=dtype, num_trials=num_trials, timeout_seconds=5)
+                    else:
+                        result = bench_fn(size, dtype=dtype, num_trials=num_trials)
 
                     # Get theoretical peak for this precision
                     peak_gflops = precision_peaks.get(prec_name, theoretical_peak_gflops)
@@ -436,6 +516,21 @@ def calibrate_blas_suite_numpy(
                         arithmetic_intensity=result['arithmetic_intensity'],
                         achieved_bandwidth_gbps=result['bandwidth_gbps']
                     )
+
+                    # Check for poor performance - skip this precision for larger sizes (GEMM only)
+                    if enable_early_termination and result['gflops'] < min_useful_gflops and prec_name not in skipped_precisions:
+                        size_display = f"{size_str}"
+                        skipped_precisions[prec_name] = (f"{result['gflops']:.1f} GFLOPS < {min_useful_gflops} GFLOPS", size_display)
+
+                except TimeoutError as e:
+                    # Benchmark timed out - mark as skipped for remaining sizes (GEMM only)
+                    precision_results[prec_name] = PrecisionTestResult(
+                        precision=prec_name,
+                        supported=False,
+                        failure_reason=f"Timeout: {str(e)}"
+                    )
+                    if enable_early_termination and prec_name not in skipped_precisions:
+                        skipped_precisions[prec_name] = (f"Timeout (>{5}s)", size_str)
 
                 except Exception as e:
                     # Benchmark failed, mark as unsupported
@@ -483,16 +578,33 @@ def calibrate_blas_suite_numpy(
 
             calibrations.append(calibration)
 
-            # Print results (show best precision)
-            num_supported = len(supported_results)
-            num_total = len(precisions)
-            gflops_str = f"{best_result.measured_gops:>8.1f} GFLOPS"
-            lat_str = f"{best_result.mean_latency_ms:>8.2f} ms"
-            ai_str = f"AI={best_result.arithmetic_intensity:>6.2f}"
-            eff_str = f"({best_result.efficiency*100:>5.1f}%)"
-            prec_str = f"[{best_prec}, {num_supported}/{num_total} precisions]"
+            # Print results for all precisions (show calibration for each precision)
+            print(f"  Size {size_str:>6}:")
+            from ...schema import CANONICAL_PRECISION_ORDER
+            for prec_name in [p for p in CANONICAL_PRECISION_ORDER if p in precision_results]:
+                result = precision_results[prec_name]
+                if result.supported:
+                    gflops = result.measured_gops
+                    latency_ms = result.mean_latency_ms
+                    # Format latency
+                    if latency_ms >= 1000:
+                        lat_str = f"{latency_ms/1000:>6.2f}s"
+                    else:
+                        lat_str = f"{latency_ms:>6.2f}ms"
 
-            print(f"  Size {size_str:>6}... {gflops_str} {lat_str}  {ai_str}  {eff_str}  {prec_str}")
+                    # Determine unit based on precision type
+                    unit = "GIOPS" if prec_name.startswith('int') else "GFLOPS"
+
+                    # Highlight if performance is poor
+                    if gflops < min_useful_gflops:
+                        status = f"⚠ SLOW ({gflops:>6.1f} {unit} < {min_useful_gflops} GFLOPS threshold)"
+                    else:
+                        status = f"{gflops:>6.1f} {unit}"
+                    print(f"    {prec_name:<6} {status:>50}  {lat_str}")
+                else:
+                    # Show why it failed/was skipped
+                    reason = result.failure_reason or "Unknown"
+                    print(f"    {prec_name:<6} {'SKIPPED':>50}  ({reason})")
 
     print()
     print("=" * 90)
