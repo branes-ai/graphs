@@ -42,7 +42,7 @@ def test_numpy_precision(precision: Precision, numpy_dtype) -> Tuple[bool, Optio
     """
     try:
         # Create small test arrays (use appropriate RNG for dtype)
-        if precision in [Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
+        if precision in [Precision.INT64, Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
             # Integer types: use randint
             A = np.random.randint(-10, 10, size=(16, 16), dtype=numpy_dtype)
             B = np.random.randint(-10, 10, size=(16, 16), dtype=numpy_dtype)
@@ -55,7 +55,7 @@ def test_numpy_precision(precision: Precision, numpy_dtype) -> Tuple[bool, Optio
         C = A @ B
 
         # Check for NaN/Inf (only for floating-point types)
-        if precision not in [Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
+        if precision not in [Precision.INT64, Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
             if not np.all(np.isfinite(C)):
                 return False, "Matmul produced NaN/Inf"
 
@@ -86,7 +86,7 @@ def test_pytorch_precision(precision: Precision, torch_dtype, device: str = 'cpu
 
     try:
         # Create small test tensors (use appropriate RNG for dtype)
-        if precision in [Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
+        if precision in [Precision.INT64, Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
             # Integer types: use randint
             A = torch.randint(-10, 10, (16, 16), dtype=torch_dtype, device=device)
             B = torch.randint(-10, 10, (16, 16), dtype=torch_dtype, device=device)
@@ -103,7 +103,7 @@ def test_pytorch_precision(precision: Precision, torch_dtype, device: str = 'cpu
             torch.cuda.synchronize()
 
         # Check for NaN/Inf (only for floating-point types)
-        if precision not in [Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
+        if precision not in [Precision.INT64, Precision.INT32, Precision.INT16, Precision.INT8, Precision.INT4]:
             if not torch.all(torch.isfinite(C)):
                 return False, "Matmul produced NaN/Inf"
 
@@ -129,6 +129,7 @@ def detect_numpy_precisions() -> Tuple[List[Precision], List[Precision]]:
         (Precision.FP64, np.float64),
         (Precision.FP32, np.float32),
         (Precision.FP16, np.float16),
+        (Precision.INT64, np.int64),
         (Precision.INT32, np.int32),
         (Precision.INT16, np.int16),
         (Precision.INT8, np.int8),
@@ -171,6 +172,7 @@ def detect_pytorch_precisions(device: str = 'cpu') -> Tuple[List[Precision], Lis
         (Precision.FP32, torch.float32),
         (Precision.FP16, torch.float16),
         (Precision.BF16, torch.bfloat16),
+        (Precision.INT64, torch.int64),
         (Precision.INT32, torch.int32),
         (Precision.INT16, torch.int16),
         (Precision.INT8, torch.int8),

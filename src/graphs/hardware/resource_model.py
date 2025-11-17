@@ -52,6 +52,7 @@ class Precision(Enum):
     FP8_E5M2 = "fp8_e5m2"  # 5-bit exponent, 2-bit mantissa
     FP4 = "fp4"            # 4-bit floating point, 1 sign, 2 exponent, 1 mantissa
     BF16 = "bf16"          # Brain Floating Point, 16-bit, 1 sign, 8 exponent, 7 mantissa
+    INT64 = "int64"        # 64-bit integer
     INT32 = "int32"        # 32-bit integer
     INT16 = "int16"        # 16-bit integer
     INT8 = "int8"          # 8-bit integer

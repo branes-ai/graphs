@@ -12,6 +12,7 @@ BLAS Levels:
 """
 
 import time
+import signal
 from typing import Dict, List, Tuple, Optional
 
 try:
@@ -24,6 +25,33 @@ from ...schema import OperationCalibration, OperationType, PrecisionTestResult
 from ....resource_model import Precision
 
 
+class TimeoutError(Exception):
+    """Raised when a benchmark trial exceeds the timeout"""
+    pass
+
+
+def timeout_handler(signum, frame):
+    """Signal handler for timeout"""
+    raise TimeoutError("Benchmark trial exceeded timeout")
+
+
+class BenchmarkTimeout:
+    """Context manager for benchmark timeouts using SIGALRM"""
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def __enter__(self):
+        if self.seconds > 0:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(self.seconds)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.seconds > 0:
+            signal.alarm(0)  # Cancel the alarm
+        return False  # Don't suppress exceptions
+
+
 # Precision to PyTorch dtype mappings
 # Canonical order: fp64, fp32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
 if TORCH_AVAILABLE:
@@ -34,7 +62,7 @@ if TORCH_AVAILABLE:
         'fp8': (Precision.FP8_E4M3, None),  # PyTorch 2.1+ has experimental fp8, but not widely supported
         'fp4': (Precision.FP4, None),  # PyTorch doesn't have native fp4
         'bf16': (Precision.BF16, torch.bfloat16),
-        'int64': (Precision.INT32, torch.int64),  # Use INT32 enum for now (no INT64 in Precision enum)
+        'int64': (Precision.INT64, torch.int64),
         'int32': (Precision.INT32, torch.int32),
         'int16': (Precision.INT16, torch.int16),
         'int8': (Precision.INT8, torch.int8),
@@ -42,6 +70,27 @@ if TORCH_AVAILABLE:
     }
 else:
     PYTORCH_PRECISION_MAP = {}
+
+
+def _generate_random_tensor(shape, dtype, device='cpu'):
+    """
+    Generate random tensor with appropriate values for dtype.
+
+    For float types: values in [0.0, 1.0)
+    For integer types: values in [1, 100] to avoid overflow and ensure non-zero results
+    """
+    if dtype in [torch.int64, torch.int32, torch.int16, torch.int8]:
+        # Integer types: use randint with reasonable range
+        if isinstance(shape, tuple):
+            return torch.randint(1, 100, shape, dtype=dtype, device=device)
+        else:
+            return torch.randint(1, 100, (shape,), dtype=dtype, device=device)
+    else:
+        # Float types: use rand
+        if isinstance(shape, tuple):
+            return torch.rand(*shape, dtype=dtype, device=device)
+        else:
+            return torch.rand(shape, dtype=dtype, device=device)
 
 
 # ===================================
@@ -68,8 +117,8 @@ def benchmark_blas1_dot_pytorch(
     torch_device = torch.device(device)
 
     # Allocate vectors
-    x = torch.randn(size, dtype=dtype, device=torch_device)
-    y = torch.randn(size, dtype=dtype, device=torch_device)
+    x = _generate_random_tensor(size, dtype, device=torch_device)
+    y = _generate_random_tensor(size, dtype, device=torch_device)
 
     # Warmup
     for _ in range(num_warmup):
@@ -141,9 +190,9 @@ def benchmark_blas1_axpy_pytorch(
     torch_device = torch.device(device)
 
     # Allocate vectors
-    alpha = 2.5
-    x = torch.randn(size, dtype=dtype, device=torch_device)
-    y = torch.randn(size, dtype=dtype, device=torch_device)
+    alpha = 2.5 if dtype not in [torch.int64, torch.int32, torch.int16, torch.int8] else 2
+    x = _generate_random_tensor(size, dtype, device=torch_device)
+    y = _generate_random_tensor(size, dtype, device=torch_device)
 
     # Warmup
     for _ in range(num_warmup):
@@ -219,10 +268,10 @@ def benchmark_blas2_gemv_pytorch(
     torch_device = torch.device(device)
 
     # Allocate matrix and vectors
-    alpha = 1.0
-    beta = 0.0
-    A = torch.randn(size, size, dtype=dtype, device=torch_device)
-    x = torch.randn(size, dtype=dtype, device=torch_device)
+    alpha = 1.0 if dtype not in [torch.int64, torch.int32, torch.int16, torch.int8] else 1
+    beta = 0.0 if dtype not in [torch.int64, torch.int32, torch.int16, torch.int8] else 0
+    A = _generate_random_tensor((size, size), dtype, device=torch_device)
+    x = _generate_random_tensor(size, dtype, device=torch_device)
     y = torch.zeros(size, dtype=dtype, device=torch_device)
 
     # Warmup
@@ -285,7 +334,8 @@ def benchmark_blas3_gemm_pytorch(
     device: str = 'cpu',
     dtype=torch.float32,
     num_trials: int = 10,
-    num_warmup: int = 3
+    num_warmup: int = 3,
+    timeout_seconds: int = 5
 ) -> Dict:
     """
     BLAS Level 3: GEMM (General Matrix-Matrix multiply)
@@ -293,6 +343,9 @@ def benchmark_blas3_gemm_pytorch(
 
     For n×n matrices: 2n³ FLOPs
     Arithmetic intensity: ~n/2 FLOPs/byte (grows with n!)
+
+    Args:
+        timeout_seconds: Maximum seconds per trial (0 = no timeout)
     """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
@@ -300,32 +353,40 @@ def benchmark_blas3_gemm_pytorch(
     torch_device = torch.device(device)
 
     # Allocate matrices
-    alpha = 1.0
-    beta = 0.0
-    A = torch.randn(size, size, dtype=dtype, device=torch_device)
-    B = torch.randn(size, size, dtype=dtype, device=torch_device)
+    alpha = 1.0 if dtype not in [torch.int64, torch.int32, torch.int16, torch.int8] else 1
+    beta = 0.0 if dtype not in [torch.int64, torch.int32, torch.int16, torch.int8] else 0
+    A = _generate_random_tensor((size, size), dtype, device=torch_device)
+    B = _generate_random_tensor((size, size), dtype, device=torch_device)
     C = torch.zeros(size, size, dtype=dtype, device=torch_device)
 
-    # Warmup
-    for _ in range(num_warmup):
-        C[:] = alpha * (A @ B) + beta * C
-        if device == 'cuda':
-            torch.cuda.synchronize()
+    # Warmup (with timeout)
+    try:
+        with BenchmarkTimeout(timeout_seconds):
+            for _ in range(num_warmup):
+                C[:] = alpha * (A @ B) + beta * C
+                if device == 'cuda':
+                    torch.cuda.synchronize()
+    except TimeoutError:
+        raise TimeoutError(f"Warmup exceeded {timeout_seconds}s timeout")
 
     # Benchmark
     times = []
-    for _ in range(num_trials):
-        if device == 'cuda':
-            torch.cuda.synchronize()
+    for trial_idx in range(num_trials):
+        try:
+            with BenchmarkTimeout(timeout_seconds):
+                if device == 'cuda':
+                    torch.cuda.synchronize()
 
-        start = time.perf_counter()
-        C[:] = alpha * (A @ B) + beta * C
+                start = time.perf_counter()
+                C[:] = alpha * (A @ B) + beta * C
 
-        if device == 'cuda':
-            torch.cuda.synchronize()
+                if device == 'cuda':
+                    torch.cuda.synchronize()
 
-        end = time.perf_counter()
-        times.append((end - start) * 1000)
+                end = time.perf_counter()
+                times.append((end - start) * 1000)
+        except TimeoutError:
+            raise TimeoutError(f"Trial {trial_idx+1}/{num_trials} exceeded {timeout_seconds}s timeout")
 
     # Statistics
     import statistics
@@ -368,7 +429,8 @@ def calibrate_blas_suite_pytorch(
     theoretical_peak_gflops: float = 720.0,
     precision_peaks: Dict[str, float] = None,
     device: str = 'cpu',
-    num_trials: int = 10
+    num_trials: int = 10,
+    min_useful_gflops: float = 1.0
 ) -> List[OperationCalibration]:
     """
     Run full BLAS benchmark suite (PyTorch, CPU or GPU) across multiple precisions.
@@ -448,6 +510,11 @@ def calibrate_blas_suite_pytorch(
         print(f"\nBLAS Level {level}: {op_name.upper()}")
         print("-" * 90)
 
+        # Track which precisions to skip for remaining sizes (due to poor performance)
+        # Only enable early termination for BLAS Level 3 (GEMM) to avoid long runtimes
+        skipped_precisions = {}  # {prec_name: (reason, skip_after_size)}
+        enable_early_termination = (level == 3)  # Only for GEMM
+
         for size in op_sizes:
             # Format size for display
             if size >= 1000000:
@@ -462,6 +529,16 @@ def calibrate_blas_suite_pytorch(
             fp32_gflops = None  # For speedup calculation
 
             for prec_name in precisions:
+                # Check if this precision was skipped due to poor performance (only for GEMM)
+                if enable_early_termination and prec_name in skipped_precisions:
+                    reason, skip_size = skipped_precisions[prec_name]
+                    precision_results[prec_name] = PrecisionTestResult(
+                        precision=prec_name,
+                        supported=False,
+                        failure_reason=f"Skipped (poor performance at size {skip_size}: {reason})"
+                    )
+                    continue
+
                 if prec_name not in PYTORCH_PRECISION_MAP:
                     # Unknown precision, mark as N/A
                     precision_results[prec_name] = PrecisionTestResult(
@@ -484,7 +561,11 @@ def calibrate_blas_suite_pytorch(
 
                 # Try to run benchmark for this precision
                 try:
-                    result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials)
+                    # Add timeout for GEMM (level 3) to avoid very slow integer matmuls
+                    if level == 3:
+                        result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials, timeout_seconds=5)
+                    else:
+                        result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials)
 
                     # Get theoretical peak for this precision
                     peak_gflops = precision_peaks.get(prec_name, theoretical_peak_gflops)
@@ -514,6 +595,21 @@ def calibrate_blas_suite_pytorch(
                         arithmetic_intensity=result['arithmetic_intensity'],
                         achieved_bandwidth_gbps=result['bandwidth_gbps']
                     )
+
+                    # Check for poor performance - skip this precision for larger sizes (GEMM only)
+                    if enable_early_termination and result['gflops'] < min_useful_gflops and prec_name not in skipped_precisions:
+                        size_display = f"{size_str}"
+                        skipped_precisions[prec_name] = (f"{result['gflops']:.1f} GFLOPS < {min_useful_gflops} GFLOPS", size_display)
+
+                except TimeoutError as e:
+                    # Benchmark timed out - mark as skipped for remaining sizes (GEMM only)
+                    precision_results[prec_name] = PrecisionTestResult(
+                        precision=prec_name,
+                        supported=False,
+                        failure_reason=f"Timeout: {str(e)}"
+                    )
+                    if enable_early_termination and prec_name not in skipped_precisions:
+                        skipped_precisions[prec_name] = (f"Timeout (>{5}s)", size_str)
 
                 except Exception as e:
                     # Benchmark failed, mark as unsupported
@@ -562,16 +658,33 @@ def calibrate_blas_suite_pytorch(
 
             calibrations.append(calibration)
 
-            # Print results (show best precision)
-            num_supported = len(supported_results)
-            num_total = len(precisions)
-            gflops_str = f"{best_result.measured_gops:>8.1f} GFLOPS"
-            lat_str = f"{best_result.mean_latency_ms:>8.2f} ms"
-            ai_str = f"AI={best_result.arithmetic_intensity:>6.2f}"
-            eff_str = f"({best_result.efficiency*100:>5.1f}%)"
-            prec_str = f"[{best_prec}, {num_supported}/{num_total} precisions]"
+            # Print results for all precisions (show calibration for each precision)
+            print(f"  Size {size_str:>6}:")
+            from ...schema import CANONICAL_PRECISION_ORDER
+            for prec_name in [p for p in CANONICAL_PRECISION_ORDER if p in precision_results]:
+                result = precision_results[prec_name]
+                if result.supported:
+                    gflops = result.measured_gops
+                    latency_ms = result.mean_latency_ms
+                    # Format latency
+                    if latency_ms >= 1000:
+                        lat_str = f"{latency_ms/1000:>6.2f}s"
+                    else:
+                        lat_str = f"{latency_ms:>6.2f}ms"
 
-            print(f"  Size {size_str:>6}... {gflops_str} {lat_str}  {ai_str}  {eff_str}  {prec_str}")
+                    # Determine unit based on precision type
+                    unit = "GIOPS" if prec_name.startswith('int') else "GFLOPS"
+
+                    # Highlight if performance is poor
+                    if gflops < min_useful_gflops:
+                        status = f"⚠ SLOW ({gflops:>6.1f} {unit} < {min_useful_gflops} GFLOPS threshold)"
+                    else:
+                        status = f"{gflops:>6.1f} {unit}"
+                    print(f"    {prec_name:<6} {status:>50}  {lat_str}")
+                else:
+                    # Show why it failed/was skipped
+                    reason = result.failure_reason or "Unknown"
+                    print(f"    {prec_name:<6} {'SKIPPED':>50}  ({reason})")
 
     print()
     print("=" * 90)

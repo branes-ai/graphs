@@ -68,6 +68,7 @@ PRESETS = {
             # WARNING: NumPy/PyTorch do NOT use VNNI for integer matmul!
             # Expected efficiency: 0.2-0.3% (unoptimized generic integer ops)
             # For VNNI performance, use oneDNN, TensorFlow, or PyTorch with MKL-DNN backend
+            'int64': 360.0,     # Same as FP64 (GIOPS) - no SIMD/VNNI support for 64-bit
             'int32': 360.0,     # Same as FP64 (GIOPS) - requires VNNI
             'int16': 720.0,     # VNNI DP2A: 2× INT16 throughput (GIOPS)
             'int8': 1440.0,     # VNNI DP4A: 4× INT8 throughput (GIOPS)
@@ -123,6 +124,7 @@ PRESETS = {
             'fp64': 1024.0,     # 128 cores × 2 NEON lanes × 2 FMA × 2.0 GHz
             'fp32': 2048.0,     # 2× FP64
             'fp16': 4096.0,     # 4× FP64 (NEON FP16)
+            'int64': 1024.0,    # Same as FP64
             'int32': 1024.0,    # Same as FP64
             'int16': 2048.0,    # 2× INT32
             'int8': 4096.0,     # 4× INT32
@@ -140,6 +142,7 @@ PRESETS = {
             'fp64': 211.2,      # 12 cores × 8 FP64/cycle × 2.2 GHz
             'fp32': 422.4,      # 12 cores × 16 FP32/cycle × 2.2 GHz
             'fp16': 844.8,      # 2× FP32 throughput
+            'int64': 211.2,     # Same as FP64
             'int32': 211.2,     # Same as FP64
             'int16': 422.4,     # 2× INT32
             'int8': 844.8,      # 4× INT32
@@ -182,6 +185,7 @@ PRESETS = {
             'fp64': 91.2,       # 6 cores × 8 FP64/cycle × 1.9 GHz
             'fp32': 182.4,      # 6 cores × 16 FP32/cycle × 1.9 GHz
             'fp16': 364.8,      # 2× FP32 throughput
+            'int64': 91.2,      # Same as FP64
             'int32': 91.2,      # Same as FP64
             'int16': 182.4,     # 2× INT32
             'int8': 364.8,      # 4× INT32
@@ -392,6 +396,9 @@ def main():
                             "BLAS options: blas (all), blas1, blas2, blas3, dot, axpy, gemv, gemm. "
                             "STREAM options: stream (all 4), stream_copy, stream_scale, stream_add, stream_triad. "
                             "Legacy: matmul, memory")
+    parser.add_argument("--min-gflops", type=float, default=1.0,
+                       help="Minimum GFLOPS threshold for precision early termination (default: 1.0). "
+                            "Precisions achieving less than this will be skipped for larger sizes.")
     parser.add_argument("--framework", type=str, choices=['numpy', 'pytorch'], default=None,
                        help="Override framework selection (default: numpy for CPU, pytorch for GPU)")
     parser.add_argument("--skip-platform-check", action="store_true",
@@ -492,7 +499,8 @@ def main():
             framework=args.framework,  # NEW: framework override
             output_path=output_path,
             operations=operations,
-            quick=args.quick
+            quick=args.quick,
+            min_useful_gflops=args.min_gflops  # NEW: configurable early termination threshold
         )
 
         print()

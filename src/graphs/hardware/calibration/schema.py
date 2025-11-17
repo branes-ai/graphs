@@ -666,7 +666,7 @@ class HardwareCalibration:
 
             # FORMAT 1: Compact Grid Summary (if multi-precision data exists)
             if has_precision_results:
-                print("BLAS Performance Summary (Best GFLOPS by Precision):")
+                print("BLAS Performance Summary (Highest Throughput by Precision):")
                 # Sort precisions using canonical order
                 precisions_sorted = [p for p in CANONICAL_PRECISION_ORDER if p in all_precisions]
 
@@ -724,7 +724,7 @@ class HardwareCalibration:
 
                         if has_precision_results and any(p.precision_results for p in profiles):
                             # Multi-precision view
-                            print(f"  {'Precision':<10} {'Best Size':>10} {'Best GFLOPS':>12} {'Latency':>10} {'AI':>8} {'Efficiency':>12}")
+                            print(f"  {'Precision':<10} {'Best Size':>10} {'Highest Throughput':>18} {'Latency':>10} {'AI':>8} {'Efficiency':>12}")
                             print("  " + "-" * 80)
 
                             # Collect best result per precision
@@ -759,10 +759,14 @@ class HardwareCalibration:
                                 else:
                                     lat_str = f"{latency:.2f}ms"
 
-                                print(f"  {prec:<10} {size_str:>10} {gflops:>10.1f} GFLOPS {lat_str:>10} {ai:>8.2f} {eff*100:>10.1f}%")
+                                # Determine unit based on precision type
+                                unit = "GIOPS" if prec.startswith('int') else "GFLOPS"
+                                throughput_str = f"{gflops:.1f} {unit}"
+
+                                print(f"  {prec:<10} {size_str:>10} {throughput_str:>18} {lat_str:>10} {ai:>8.2f} {eff*100:>10.1f}%")
                         else:
                             # Single precision view (legacy)
-                            print(f"  {'Best Size':>10} {'Best GFLOPS':>12} {'Latency':>10} {'AI':>8} {'Efficiency':>12}")
+                            print(f"  {'Best Size':>10} {'Highest Throughput':>18} {'Latency':>10} {'AI':>8} {'Efficiency':>12}")
                             print("  " + "-" * 70)
 
                             best_profile = max(profiles, key=lambda p: p.measured_gflops)
@@ -789,7 +793,10 @@ class HardwareCalibration:
                             else:
                                 lat_str = f"{latency:.2f}ms"
 
-                            print(f"  {size_str:>10} {gflops:>10.1f} GFLOPS {lat_str:>10} {ai:>8.2f} {eff*100:>10.1f}%")
+                            # Legacy view: assume GFLOPS (typically FP32)
+                            throughput_str = f"{gflops:.1f} GFLOPS"
+
+                            print(f"  {size_str:>10} {throughput_str:>18} {lat_str:>10} {ai:>8.2f} {eff*100:>10.1f}%")
 
             print()
 

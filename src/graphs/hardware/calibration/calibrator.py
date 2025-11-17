@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
 
-from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration, PrecisionCapabilityMatrix
+from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration, PrecisionCapabilityMatrix, CANONICAL_PRECISION_ORDER
 from .benchmarks import calibrate_matmul, calibrate_memory_bandwidth
 from .benchmarks.matmul_bench_multi import calibrate_matmul_all_precisions
 from .precision_detector import get_precision_capabilities
@@ -126,7 +126,8 @@ def calibrate_hardware(
     output_path: Optional[Path] = None,
     operations: Optional[List[str]] = None,
     fusion_patterns: Optional[List[str]] = None,
-    quick: bool = False
+    quick: bool = False,
+    min_useful_gflops: float = 1.0  # NEW: minimum GFLOPS threshold for early termination
 ) -> HardwareCalibration:
     """
     Run full hardware calibration.
@@ -328,9 +329,20 @@ def calibrate_hardware(
                 if prec_name in [p.value for p in Precision]
             ]
         else:
-            # Default: test common precisions in canonical order
-            # fp64, fp32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
-            precisions_to_test = ['fp64', 'fp32', 'fp16', 'fp8', 'fp4', 'bf16', 'int64', 'int32', 'int16', 'int8', 'int4']
+            # Default: test well-supported precisions to avoid extremely slow benchmarks
+            # NumPy has poor support for fp16/bf16/fp8/fp4 on CPU (falls back to slow emulation)
+            # PyTorch has better support, especially on GPU
+            if selected_framework == 'numpy':
+                # NumPy: Only test native dtypes (fast)
+                precisions_to_test = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
+            else:
+                # PyTorch: Can test more precisions (especially on GPU)
+                if device == 'cuda':
+                    # GPU: Test all supported precisions
+                    precisions_to_test = ['fp64', 'fp32', 'fp16', 'bf16', 'int64', 'int32', 'int16', 'int8']
+                else:
+                    # CPU: Skip poorly-supported fp16/bf16 unless explicitly requested
+                    precisions_to_test = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
 
         print(f"Testing precisions: {', '.join(precisions_to_test)}")
         print()
@@ -344,7 +356,8 @@ def calibrate_hardware(
                 precisions=precisions_to_test,
                 theoretical_peak_gflops=theoretical_peak_gflops,
                 precision_peaks=theoretical_peaks or {},
-                num_trials=metadata.num_measurement_runs
+                num_trials=metadata.num_measurement_runs,
+                min_useful_gflops=min_useful_gflops
             )
         else:  # pytorch
             from .benchmarks.pytorch import calibrate_blas_suite_pytorch
@@ -355,7 +368,8 @@ def calibrate_hardware(
                 theoretical_peak_gflops=theoretical_peak_gflops,
                 precision_peaks=theoretical_peaks or {},
                 device=device,
-                num_trials=metadata.num_measurement_runs
+                num_trials=metadata.num_measurement_runs,
+                min_useful_gflops=min_useful_gflops
             )
 
         for cal in blas_calibrations:
@@ -522,34 +536,43 @@ def calibrate_hardware(
 
         print()
 
-    # Build precision capability matrix
+    # Build precision capability matrix based on ACTUAL benchmark results
     print("Building precision capability matrix...")
-    supported, unsupported = get_precision_capabilities(device)
 
-    precision_matrix = PrecisionCapabilityMatrix(
-        hardware_name=hardware_name,
-        supported_precisions=[p.value for p in supported],
-        unsupported_precisions=[p.value for p in unsupported],
-        peak_gflops_by_precision={},
-        speedup_vs_fp32={},
-        theoretical_peaks=theoretical_peaks or {}
-    )
+    # Collect precisions from actual benchmark results
+    actually_supported = set()
+    actually_unsupported = set()
+    peak_gflops_by_precision = {}
+    speedup_vs_fp32 = {}
 
-    # Extract peak GOPS (GFLOPS/GIOPS) per precision from matmul results
+    # Extract precision results from all BLAS operations (not just matmul)
     for op_cal in calibration.operation_profiles.values():
-        if op_cal.operation_type == 'matmul' and op_cal.precision_results:
+        if op_cal.precision_results:
             for prec_name, prec_result in op_cal.precision_results.items():
                 if prec_result.supported and prec_result.measured_gops:
+                    actually_supported.add(prec_name)
                     # Track best GOPS for each precision (GFLOPS for float, GIOPS for int)
-                    current_best = precision_matrix.peak_gflops_by_precision.get(prec_name, 0.0)
-                    precision_matrix.peak_gflops_by_precision[prec_name] = max(
+                    current_best = peak_gflops_by_precision.get(prec_name, 0.0)
+                    peak_gflops_by_precision[prec_name] = max(
                         current_best,
                         prec_result.measured_gops
                     )
-
                     # Track speedup vs FP32
                     if prec_result.speedup_vs_fp32:
-                        precision_matrix.speedup_vs_fp32[prec_name] = prec_result.speedup_vs_fp32
+                        speedup_vs_fp32[prec_name] = prec_result.speedup_vs_fp32
+                elif not prec_result.supported:
+                    # Only add to unsupported if not already in supported
+                    if prec_name not in actually_supported:
+                        actually_unsupported.add(prec_name)
+
+    precision_matrix = PrecisionCapabilityMatrix(
+        hardware_name=hardware_name,
+        supported_precisions=sorted(actually_supported, key=lambda p: CANONICAL_PRECISION_ORDER.index(p) if p in CANONICAL_PRECISION_ORDER else 999),
+        unsupported_precisions=sorted(actually_unsupported, key=lambda p: CANONICAL_PRECISION_ORDER.index(p) if p in CANONICAL_PRECISION_ORDER else 999),
+        peak_gflops_by_precision=peak_gflops_by_precision,
+        speedup_vs_fp32=speedup_vs_fp32,
+        theoretical_peaks=theoretical_peaks or {}
+    )
 
     calibration.precision_matrix = precision_matrix
     print()
