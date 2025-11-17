@@ -5,7 +5,7 @@ Hardware Calibration CLI Tool
 Runs calibration benchmarks and generates performance profiles for hardware mappers.
 
 Usage:
-    # Calibrate i7-12700K (runs STREAM + matmul by default)
+    # Calibrate i7-12700K (runs BLAS + STREAM by default)
     ./cli/calibrate_hardware.py --preset i7-12700k
 
     # Calibrate Jetson Orin Nano GPU
@@ -14,14 +14,23 @@ Usage:
     # Quick calibration (fewer sizes/trials)
     ./cli/calibrate_hardware.py --preset i7-12700k --quick
 
+    # BLAS suite only (all 3 levels: vector-vector, matrix-vector, matrix-matrix)
+    ./cli/calibrate_hardware.py --preset i7-12700k --operations blas
+
+    # Individual BLAS levels
+    ./cli/calibrate_hardware.py --preset i7-12700k --operations blas1,blas2,blas3
+
+    # Individual BLAS operations
+    ./cli/calibrate_hardware.py --preset i7-12700k --operations dot,axpy,gemv,gemm
+
     # STREAM benchmark only (all 4 kernels)
     ./cli/calibrate_hardware.py --preset i7-12700k --operations stream
 
     # Individual STREAM kernels
     ./cli/calibrate_hardware.py --preset i7-12700k --operations stream_copy,stream_triad
 
-    # Matrix multiplication only
-    ./cli/calibrate_hardware.py --preset i7-12700k --operations matmul
+    # Combined BLAS + STREAM
+    ./cli/calibrate_hardware.py --preset i7-12700k --operations blas,stream
 
     # Load and view existing calibration
     ./cli/calibrate_hardware.py --load profiles/jetson_orin_nano.json
@@ -379,9 +388,10 @@ def main():
     parser.add_argument("--quick", action="store_true",
                        help="Run quick calibration (fewer sizes/trials)")
     parser.add_argument("--operations", type=str, default=None,
-                       help="Comma-separated operations to calibrate (default: matmul,stream). "
-                            "Options: matmul, stream (all 4 kernels), stream_copy, stream_scale, "
-                            "stream_add, stream_triad, or 'memory' (legacy alias for stream)")
+                       help="Comma-separated operations to calibrate (default: blas,stream). "
+                            "BLAS options: blas (all), blas1, blas2, blas3, dot, axpy, gemv, gemm. "
+                            "STREAM options: stream (all 4), stream_copy, stream_scale, stream_add, stream_triad. "
+                            "Legacy: matmul, memory")
     parser.add_argument("--framework", type=str, choices=['numpy', 'pytorch'], default=None,
                        help="Override framework selection (default: numpy for CPU, pytorch for GPU)")
     parser.add_argument("--skip-platform-check", action="store_true",

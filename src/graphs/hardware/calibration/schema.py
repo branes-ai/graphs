@@ -12,9 +12,41 @@ import json
 from pathlib import Path
 
 
+# Canonical precision ordering: large to small, floating-point to integer
+# This ordering is used for consistent display in reports and tables
+CANONICAL_PRECISION_ORDER = [
+    'fp64',   # IEEE Double Precision
+    'fp32',   # IEEE Single Precision
+    'fp16',   # IEEE Half Precision
+    'fp8',    # 8-bit floating point
+    'fp4',    # 4-bit floating point
+    'bf16',   # Brain Float 16
+    'int64',  # 64-bit integer
+    'int32',  # 32-bit integer
+    'int16',  # 16-bit integer
+    'int8',   # 8-bit integer
+    'int4',   # 4-bit integer
+]
+
+
 class OperationType(Enum):
     """Classification of operation types for calibration"""
+    # Legacy matmul (alias for BLAS3_GEMM)
     MATMUL = "matmul"
+
+    # BLAS Level 1: Vector-Vector operations (O(n))
+    BLAS1_DOT = "blas1_dot"          # dot(x, y) - inner product
+    BLAS1_AXPY = "blas1_axpy"        # y = a*x + y
+    BLAS1_SCAL = "blas1_scal"        # x = a*x
+
+    # BLAS Level 2: Matrix-Vector operations (O(n²))
+    BLAS2_GEMV = "blas2_gemv"        # y = alpha*A*x + beta*y
+    BLAS2_GER = "blas2_ger"          # A = alpha*x*y' + A (outer product)
+
+    # BLAS Level 3: Matrix-Matrix operations (O(n³))
+    BLAS3_GEMM = "blas3_gemm"        # C = alpha*A*B + beta*C
+
+    # Convolution operations
     CONV2D = "conv2d"
     CONV1D = "conv1d"
     DEPTHWISE_CONV = "depthwise_conv"
@@ -550,86 +582,235 @@ class HardwareCalibration:
         print(f"  Peak Bandwidth:     {self.theoretical_bandwidth_gbps:.1f} GB/s")
         print()
 
-        # Separate memory and compute operations
-        memory_ops = {}
+        # Separate operations by category: STREAM (memory), BLAS (compute), other
+        stream_ops = {}
+        blas_ops = {}
+        other_memory_ops = {}
         compute_ops = {}
 
         for key, profile in self.operation_profiles.items():
-            if profile.operation_type == 'memory_copy' or profile.memory_bound:
-                memory_ops[key] = profile
+            if 'stream' in profile.operation_type:
+                stream_ops[key] = profile
+            elif 'blas' in profile.operation_type:
+                blas_ops[key] = profile
+            elif profile.memory_bound:
+                other_memory_ops[key] = profile
             else:
                 compute_ops[key] = profile
 
-        # Memory Operations Section - STREAM Benchmark Results
-        if memory_ops:
-            # Check if we have STREAM operations
-            has_stream = any('stream' in profile.operation_type for profile in memory_ops.values())
+        # STREAM Memory Bandwidth Benchmark Results
+        if stream_ops:
+            print("STREAM Memory Bandwidth Benchmark:")
+            print(f"  {'Kernel':<15} {'Size (MB)':>10} {'Bandwidth':>12} {'Latency':>10} {'Efficiency':>12} {'Description'}")
+            print("  " + "-" * 95)
 
-            if has_stream:
-                print("STREAM Memory Bandwidth Benchmark:")
-                print(f"  {'Kernel':<15} {'Size (MB)':>10} {'Bandwidth':>12} {'Latency':>10} {'Efficiency':>12} {'Description'}")
-                print("  " + "-" * 95)
+            # Group by kernel
+            stream_kernels = {}
+            for key, profile in sorted(stream_ops.items()):
+                kernel = profile.extra_params.get('kernel', 'unknown')
+                if kernel not in stream_kernels:
+                    stream_kernels[kernel] = []
+                stream_kernels[kernel].append(profile)
 
-                # Group by kernel
-                stream_kernels = {}
-                for key, profile in sorted(memory_ops.items()):
-                    if 'stream' in profile.operation_type:
-                        kernel = profile.extra_params.get('kernel', 'unknown')
-                        if kernel not in stream_kernels:
-                            stream_kernels[kernel] = []
-                        stream_kernels[kernel].append(profile)
+            # Define kernel descriptions
+            kernel_descriptions = {
+                'copy': 'a[i] = b[i]',
+                'scale': 'a[i] = q * b[i]',
+                'add': 'a[i] = b[i] + c[i]',
+                'triad': 'a[i] = b[i] + q * c[i]'
+            }
 
-                # Define kernel descriptions
-                kernel_descriptions = {
-                    'copy': 'a[i] = b[i]',
-                    'scale': 'a[i] = q * b[i]',
-                    'add': 'a[i] = b[i] + c[i]',
-                    'triad': 'a[i] = b[i] + q * c[i]'
-                }
+            # Print results by kernel
+            for kernel_name in ['copy', 'scale', 'add', 'triad']:
+                if kernel_name in stream_kernels:
+                    profiles = stream_kernels[kernel_name]
+                    # Find best bandwidth for this kernel
+                    best_profile = max(profiles, key=lambda p: p.achieved_bandwidth_gbps)
+                    bandwidth = best_profile.achieved_bandwidth_gbps
+                    latency = best_profile.mean_latency_ms
+                    eff = bandwidth / self.theoretical_bandwidth_gbps
+                    size = best_profile.extra_params.get('size_mb', '?')
+                    desc = kernel_descriptions.get(kernel_name, '')
 
-                # Print results by kernel
-                for kernel_name in ['copy', 'scale', 'add', 'triad']:
-                    if kernel_name in stream_kernels:
-                        profiles = stream_kernels[kernel_name]
-                        # Find best bandwidth for this kernel
-                        best_profile = max(profiles, key=lambda p: p.achieved_bandwidth_gbps)
-                        bandwidth = best_profile.achieved_bandwidth_gbps
-                        latency = best_profile.mean_latency_ms
-                        eff = bandwidth / self.theoretical_bandwidth_gbps
-                        size = best_profile.extra_params.get('size_mb', '?')
-                        desc = kernel_descriptions.get(kernel_name, '')
+                    print(f"  {kernel_name.upper():<15} {size:>10} {bandwidth:>10.1f} GB/s {latency:>8.2f} ms {eff*100:>10.1f}%  {desc}")
 
-                        print(f"  {kernel_name.upper():<15} {size:>10} {bandwidth:>10.1f} GB/s {latency:>8.2f} ms {eff*100:>10.1f}%  {desc}")
-
-                # Print STREAM score (minimum bandwidth)
-                all_stream_bw = [p.achieved_bandwidth_gbps for p in memory_ops.values() if 'stream' in p.operation_type]
-                if all_stream_bw:
-                    stream_score = min(all_stream_bw)
-                    print()
-                    print(f"  STREAM Score (minimum): {stream_score:.1f} GB/s")
+            # Print STREAM score (minimum bandwidth)
+            all_stream_bw = [p.achieved_bandwidth_gbps for p in stream_ops.values()]
+            if all_stream_bw:
+                stream_score = min(all_stream_bw)
                 print()
-            else:
-                # Legacy format for non-STREAM memory operations
-                print("Memory Operations:")
-                print(f"  {'Operation':<40} {'Bandwidth':>12} {'Efficiency':>12}")
-                print("  " + "-" * 70)
+                print(f"  STREAM Score (minimum): {stream_score:.1f} GB/s")
+            print()
 
-                for key, profile in sorted(memory_ops.items()):
-                    bandwidth = profile.achieved_bandwidth_gbps if profile.achieved_bandwidth_gbps > 0 else self.measured_bandwidth_gbps
-                    eff = self.bandwidth_efficiency if profile.achieved_bandwidth_gbps == 0 else (profile.achieved_bandwidth_gbps / self.theoretical_bandwidth_gbps)
-                    print(f"  {key:<40} {bandwidth:>10.1f} GB/s {eff*100:>10.1f}%")
+        # BLAS Compute Performance Benchmark Results
+        if blas_ops:
+            # Group by BLAS level and operation
+            blas_by_level = {1: {}, 2: {}, 3: {}}
+            for key, profile in sorted(blas_ops.items()):
+                level = profile.extra_params.get('blas_level', 0)
+                operation = profile.extra_params.get('operation', 'unknown')
+                if level in blas_by_level:
+                    if operation not in blas_by_level[level]:
+                        blas_by_level[level][operation] = []
+                    blas_by_level[level][operation].append(profile)
+
+            # Check if any operations have precision results
+            has_precision_results = False
+            all_precisions = set()
+            for profiles_by_op in blas_by_level.values():
+                for profiles in profiles_by_op.values():
+                    for profile in profiles:
+                        if profile.precision_results:
+                            has_precision_results = True
+                            all_precisions.update(profile.precision_results.keys())
+
+            # FORMAT 1: Compact Grid Summary (if multi-precision data exists)
+            if has_precision_results:
+                print("BLAS Performance Summary (Best GFLOPS by Precision):")
+                # Sort precisions using canonical order
+                precisions_sorted = [p for p in CANONICAL_PRECISION_ORDER if p in all_precisions]
+
+                # Build header
+                header = f"  {'Operation':<12}"
+                for prec in precisions_sorted:
+                    header += f" {prec:>10}"
+                header += f" {'Best Precision':>16}"
+                print(header)
+                print("  " + "-" * (14 + len(precisions_sorted) * 11 + 16))
+
+                # Print each operation
+                for level in [1, 2, 3]:
+                    if blas_by_level[level]:
+                        for operation in sorted(blas_by_level[level].keys()):
+                            profiles = blas_by_level[level][operation]
+
+                            # Find best across all sizes for each precision
+                            best_by_precision = {}
+                            for profile in profiles:
+                                if profile.precision_results:
+                                    for prec, result in profile.precision_results.items():
+                                        if result.supported and result.measured_gops:
+                                            if prec not in best_by_precision or result.measured_gops > best_by_precision[prec]:
+                                                best_by_precision[prec] = result.measured_gops
+
+                            # Determine overall best precision
+                            if best_by_precision:
+                                best_prec = max(best_by_precision.items(), key=lambda x: x[1])[0]
+
+                                row = f"  {operation.upper():<12}"
+                                for prec in precisions_sorted:
+                                    if prec in best_by_precision:
+                                        row += f" {best_by_precision[prec]:>10.1f}"
+                                    else:
+                                        row += f" {'N/A':>10}"
+                                row += f" {best_prec:>16}"
+                                print(row)
+
                 print()
 
-        # Compute Operations Section - Group by precision
+            # FORMAT 2: Hierarchical Precision Breakdown
+            print("BLAS Compute Performance (by Operation and Precision):")
+            print("=" * 120)
+
+            for level in [1, 2, 3]:
+                if blas_by_level[level]:
+                    print(f"\nLevel {level}: {'Vector-Vector (O(n))' if level == 1 else 'Matrix-Vector (O(n²))' if level == 2 else 'Matrix-Matrix (O(n³))'}")
+                    print("-" * 120)
+
+                    for operation in sorted(blas_by_level[level].keys()):
+                        profiles = blas_by_level[level][operation]
+
+                        print(f"\n{operation.upper()}:")
+
+                        if has_precision_results and any(p.precision_results for p in profiles):
+                            # Multi-precision view
+                            print(f"  {'Precision':<10} {'Best Size':>10} {'Best GFLOPS':>12} {'Latency':>10} {'AI':>8} {'Efficiency':>12}")
+                            print("  " + "-" * 80)
+
+                            # Collect best result per precision
+                            precision_best = {}
+                            for profile in profiles:
+                                if profile.precision_results:
+                                    for prec, result in profile.precision_results.items():
+                                        if result.supported and result.measured_gops:
+                                            if prec not in precision_best or result.measured_gops > precision_best[prec][0]:
+                                                precision_best[prec] = (result.measured_gops, result.mean_latency_ms,
+                                                                       result.arithmetic_intensity, result.efficiency,
+                                                                       profile.extra_params.get('size', '?'))
+
+                            # Print sorted by canonical precision order
+                            for prec in [p for p in CANONICAL_PRECISION_ORDER if p in precision_best]:
+                                gflops, latency, ai, eff, size = precision_best[prec]
+
+                                # Format size
+                                if isinstance(size, int):
+                                    if size >= 1000000:
+                                        size_str = f"{size // 1000000}M"
+                                    elif size >= 1000:
+                                        size_str = f"{size // 1000}K"
+                                    else:
+                                        size_str = str(size)
+                                else:
+                                    size_str = str(size)
+
+                                # Format latency
+                                if latency >= 1000:
+                                    lat_str = f"{latency/1000:.2f}s"
+                                else:
+                                    lat_str = f"{latency:.2f}ms"
+
+                                print(f"  {prec:<10} {size_str:>10} {gflops:>10.1f} GFLOPS {lat_str:>10} {ai:>8.2f} {eff*100:>10.1f}%")
+                        else:
+                            # Single precision view (legacy)
+                            print(f"  {'Best Size':>10} {'Best GFLOPS':>12} {'Latency':>10} {'AI':>8} {'Efficiency':>12}")
+                            print("  " + "-" * 70)
+
+                            best_profile = max(profiles, key=lambda p: p.measured_gflops)
+                            gflops = best_profile.measured_gflops
+                            latency = best_profile.mean_latency_ms
+                            ai = best_profile.arithmetic_intensity
+                            eff = best_profile.efficiency
+                            size = best_profile.extra_params.get('size', '?')
+
+                            # Format size
+                            if isinstance(size, int):
+                                if size >= 1000000:
+                                    size_str = f"{size // 1000000}M"
+                                elif size >= 1000:
+                                    size_str = f"{size // 1000}K"
+                                else:
+                                    size_str = str(size)
+                            else:
+                                size_str = str(size)
+
+                            # Format latency
+                            if latency >= 1000:
+                                lat_str = f"{latency/1000:.2f}s"
+                            else:
+                                lat_str = f"{latency:.2f}ms"
+
+                            print(f"  {size_str:>10} {gflops:>10.1f} GFLOPS {lat_str:>10} {ai:>8.2f} {eff*100:>10.1f}%")
+
+            print()
+
+        # Other memory operations (if any)
+        if other_memory_ops:
+            print("Other Memory Operations:")
+            print(f"  {'Operation':<40} {'Bandwidth':>12} {'Efficiency':>12}")
+            print("  " + "-" * 70)
+
+            for key, profile in sorted(other_memory_ops.items()):
+                bandwidth = profile.achieved_bandwidth_gbps if profile.achieved_bandwidth_gbps > 0 else self.measured_bandwidth_gbps
+                eff = self.bandwidth_efficiency if profile.achieved_bandwidth_gbps == 0 else (profile.achieved_bandwidth_gbps / self.theoretical_bandwidth_gbps)
+                print(f"  {key:<40} {bandwidth:>10.1f} GB/s {eff*100:>10.1f}%")
+            print()
+
+        # Compute Operations Section - Group by precision (legacy matmul only)
+        # Collect all matmul results by precision and size first
+        # Structure: matmul_by_precision[precision][size] = [(gops, latency_ms), ...]
+        matmul_by_precision = {}
+
         if compute_ops:
-            print("Matrix Multiplication Performance (by precision):")
-            print(f"  {'Precision':<10} {'Size':<12} {'Latency':>10} {'Min GOPS':>10} {'Avg GOPS':>10} {'Max GOPS':>10} {'Efficiency':>11}")
-            print("  " + "-" * 90)
-
-            # Collect all matmul results by precision and size
-            # Structure: matmul_by_precision[precision][size] = [(gops, latency_ms), ...]
-            matmul_by_precision = {}
-
             for key, profile in sorted(compute_ops.items()):
                 if profile.operation_type == 'matmul' and profile.precision_results:
                     # Extract matrix size from extra_params or key
@@ -654,6 +835,12 @@ class HardwareCalibration:
                                 matmul_by_precision[prec_name][size] = []
 
                             matmul_by_precision[prec_name][size].append(None)  # Mark as skipped
+
+        # Only print the section if there's actual matmul data
+        if matmul_by_precision:
+            print("Matrix Multiplication Performance (by precision):")
+            print(f"  {'Precision':<10} {'Size':<12} {'Latency':>10} {'Min GOPS':>10} {'Avg GOPS':>10} {'Max GOPS':>10} {'Efficiency':>11}")
+            print("  " + "-" * 90)
 
             # Print results grouped by precision
             for prec_name in sorted(matmul_by_precision.keys()):
