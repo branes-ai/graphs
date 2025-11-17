@@ -221,7 +221,7 @@ def calibrate_hardware(
 
     # Determine which operations to calibrate
     if operations is None:
-        operations = ['matmul', 'stream']  # Default to full STREAM suite
+        operations = ['blas', 'stream']  # Default to BLAS suite + STREAM
 
     # Run calibrations
     print("Running calibration benchmarks...")
@@ -285,6 +285,85 @@ def calibrate_hardware(
         print(f"STREAM Score (minimum bandwidth): {stream_score:.1f} GB/s")
         print()
 
+    # Handle BLAS compute benchmarks
+    # 'blas' = all levels, 'blas1', 'blas2', 'blas3' for individual levels
+    blas_ops_requested = []
+    if 'blas' in operations:
+        blas_ops_requested = ['dot', 'axpy', 'gemv', 'gemm']
+    elif 'blas1' in operations:
+        blas_ops_requested.extend(['dot', 'axpy'])
+    elif 'blas2' in operations:
+        blas_ops_requested.append('gemv')
+    elif 'blas3' in operations:
+        blas_ops_requested.append('gemm')
+    # Check for individual BLAS operations
+    for op in ['dot', 'axpy', 'gemv', 'gemm']:
+        if op in operations and op not in blas_ops_requested:
+            blas_ops_requested.append(op)
+
+    if blas_ops_requested:
+        print("2. BLAS Compute Benchmark Suite")
+        print("-" * 80)
+
+        # Define sizes per BLAS level
+        if quick:
+            blas_sizes = {
+                'dot':  [1000, 10000, 100000, 1000000],
+                'axpy': [1000, 10000, 100000, 1000000],
+                'gemv': [64, 128, 256, 512, 1024],
+                'gemm': [64, 128, 256, 512, 1024],
+            }
+        else:
+            blas_sizes = {
+                'dot':  [1000, 10000, 100000, 1000000, 10000000],
+                'axpy': [1000, 10000, 100000, 1000000, 10000000],
+                'gemv': [32, 64, 128, 256, 512, 1024, 2048],
+                'gemm': [32, 64, 128, 256, 512, 1024, 2048],
+            }
+
+        # Determine which precisions to test from theoretical_peaks
+        if theoretical_peaks:
+            precisions_to_test = [
+                prec_name for prec_name in theoretical_peaks.keys()
+                if prec_name in [p.value for p in Precision]
+            ]
+        else:
+            # Default: test common precisions in canonical order
+            # fp64, fp32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+            precisions_to_test = ['fp64', 'fp32', 'fp16', 'fp8', 'fp4', 'bf16', 'int64', 'int32', 'int16', 'int8', 'int4']
+
+        print(f"Testing precisions: {', '.join(precisions_to_test)}")
+        print()
+
+        # Dispatch to framework-specific BLAS benchmark
+        if selected_framework == 'numpy':
+            from .benchmarks.numpy import calibrate_blas_suite_numpy
+            blas_calibrations = calibrate_blas_suite_numpy(
+                operations=blas_ops_requested,
+                sizes=blas_sizes,
+                precisions=precisions_to_test,
+                theoretical_peak_gflops=theoretical_peak_gflops,
+                precision_peaks=theoretical_peaks or {},
+                num_trials=metadata.num_measurement_runs
+            )
+        else:  # pytorch
+            from .benchmarks.pytorch import calibrate_blas_suite_pytorch
+            blas_calibrations = calibrate_blas_suite_pytorch(
+                operations=blas_ops_requested,
+                sizes=blas_sizes,
+                precisions=precisions_to_test,
+                theoretical_peak_gflops=theoretical_peak_gflops,
+                precision_peaks=theoretical_peaks or {},
+                device=device,
+                num_trials=metadata.num_measurement_runs
+            )
+
+        for cal in blas_calibrations:
+            calibration.add_operation(cal)
+
+        print()
+
+    # Legacy matmul support (kept for backward compatibility)
     if 'matmul' in operations:
         print("2. Matrix Multiplication (Multi-Precision)")
         print("-" * 80)
