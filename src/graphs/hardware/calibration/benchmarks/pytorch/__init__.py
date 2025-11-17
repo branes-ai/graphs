@@ -14,9 +14,10 @@ use the numpy/ benchmarks instead.
 """
 
 from .matmul_bench import calibrate_matmul_pytorch
-from .memory_bench import calibrate_memory_bandwidth_pytorch
+from .memory_bench import calibrate_memory_bandwidth_pytorch, calibrate_stream_bandwidth_pytorch
 
 __all__ = [
     'calibrate_matmul_pytorch',
     'calibrate_memory_bandwidth_pytorch',
+    'calibrate_stream_bandwidth_pytorch',
 ]

@@ -20,6 +20,12 @@ class OperationType(Enum):
     DEPTHWISE_CONV = "depthwise_conv"
     TRANSPOSE_CONV = "transpose_conv"
 
+    # STREAM memory bandwidth benchmarks
+    STREAM_COPY = "stream_copy"      # a[i] = b[i]
+    STREAM_SCALE = "stream_scale"    # a[i] = q * b[i]
+    STREAM_ADD = "stream_add"        # a[i] = b[i] + c[i]
+    STREAM_TRIAD = "stream_triad"    # a[i] = b[i] + q * c[i]
+
     # Elementwise operations
     RELU = "relu"
     GELU = "gelu"
@@ -554,17 +560,65 @@ class HardwareCalibration:
             else:
                 compute_ops[key] = profile
 
-        # Memory Operations Section
+        # Memory Operations Section - STREAM Benchmark Results
         if memory_ops:
-            print("Memory Operations:")
-            print(f"  {'Operation':<40} {'Bandwidth':>12} {'Efficiency':>12}")
-            print("  " + "-" * 70)
+            # Check if we have STREAM operations
+            has_stream = any('stream' in profile.operation_type for profile in memory_ops.values())
 
-            for key, profile in sorted(memory_ops.items()):
-                bandwidth = profile.achieved_bandwidth_gbps if profile.achieved_bandwidth_gbps > 0 else self.measured_bandwidth_gbps
-                eff = self.bandwidth_efficiency if profile.achieved_bandwidth_gbps == 0 else (profile.achieved_bandwidth_gbps / self.theoretical_bandwidth_gbps)
-                print(f"  {key:<40} {bandwidth:>10.1f} GB/s {eff*100:>10.1f}%")
-            print()
+            if has_stream:
+                print("STREAM Memory Bandwidth Benchmark:")
+                print(f"  {'Kernel':<15} {'Size (MB)':>10} {'Bandwidth':>12} {'Latency':>10} {'Efficiency':>12} {'Description'}")
+                print("  " + "-" * 95)
+
+                # Group by kernel
+                stream_kernels = {}
+                for key, profile in sorted(memory_ops.items()):
+                    if 'stream' in profile.operation_type:
+                        kernel = profile.extra_params.get('kernel', 'unknown')
+                        if kernel not in stream_kernels:
+                            stream_kernels[kernel] = []
+                        stream_kernels[kernel].append(profile)
+
+                # Define kernel descriptions
+                kernel_descriptions = {
+                    'copy': 'a[i] = b[i]',
+                    'scale': 'a[i] = q * b[i]',
+                    'add': 'a[i] = b[i] + c[i]',
+                    'triad': 'a[i] = b[i] + q * c[i]'
+                }
+
+                # Print results by kernel
+                for kernel_name in ['copy', 'scale', 'add', 'triad']:
+                    if kernel_name in stream_kernels:
+                        profiles = stream_kernels[kernel_name]
+                        # Find best bandwidth for this kernel
+                        best_profile = max(profiles, key=lambda p: p.achieved_bandwidth_gbps)
+                        bandwidth = best_profile.achieved_bandwidth_gbps
+                        latency = best_profile.mean_latency_ms
+                        eff = bandwidth / self.theoretical_bandwidth_gbps
+                        size = best_profile.extra_params.get('size_mb', '?')
+                        desc = kernel_descriptions.get(kernel_name, '')
+
+                        print(f"  {kernel_name.upper():<15} {size:>10} {bandwidth:>10.1f} GB/s {latency:>8.2f} ms {eff*100:>10.1f}%  {desc}")
+
+                # Print STREAM score (minimum bandwidth)
+                all_stream_bw = [p.achieved_bandwidth_gbps for p in memory_ops.values() if 'stream' in p.operation_type]
+                if all_stream_bw:
+                    stream_score = min(all_stream_bw)
+                    print()
+                    print(f"  STREAM Score (minimum): {stream_score:.1f} GB/s")
+                print()
+            else:
+                # Legacy format for non-STREAM memory operations
+                print("Memory Operations:")
+                print(f"  {'Operation':<40} {'Bandwidth':>12} {'Efficiency':>12}")
+                print("  " + "-" * 70)
+
+                for key, profile in sorted(memory_ops.items()):
+                    bandwidth = profile.achieved_bandwidth_gbps if profile.achieved_bandwidth_gbps > 0 else self.measured_bandwidth_gbps
+                    eff = self.bandwidth_efficiency if profile.achieved_bandwidth_gbps == 0 else (profile.achieved_bandwidth_gbps / self.theoretical_bandwidth_gbps)
+                    print(f"  {key:<40} {bandwidth:>10.1f} GB/s {eff*100:>10.1f}%")
+                print()
 
         # Compute Operations Section - Group by precision
         if compute_ops:

@@ -221,26 +221,48 @@ def calibrate_hardware(
 
     # Determine which operations to calibrate
     if operations is None:
-        operations = ['matmul', 'memory']
+        operations = ['matmul', 'stream']  # Default to full STREAM suite
 
     # Run calibrations
     print("Running calibration benchmarks...")
     print()
 
-    if 'memory' in operations:
-        print("1. Memory Bandwidth")
-        print("-" * 80)
-        sizes = [128, 256] if quick else [64, 128, 256, 512]
+    # Handle STREAM memory bandwidth benchmarks
+    # 'stream' = all 4 kernels, 'stream_copy', 'stream_scale', etc. for individual kernels
+    stream_kernels_requested = []
+    if 'stream' in operations:
+        stream_kernels_requested = ['copy', 'scale', 'add', 'triad']
+    else:
+        # Check for individual STREAM kernels
+        for op in operations:
+            if op.startswith('stream_'):
+                kernel_name = op[7:]  # Remove 'stream_' prefix
+                if kernel_name in ['copy', 'scale', 'add', 'triad']:
+                    stream_kernels_requested.append(kernel_name)
 
-        # Dispatch to framework-specific benchmark
+    # Backward compatibility: 'memory' means 'stream' (all kernels)
+    if 'memory' in operations and not stream_kernels_requested:
+        stream_kernels_requested = ['copy', 'scale', 'add', 'triad']
+
+    if stream_kernels_requested:
+        print("1. STREAM Memory Bandwidth Benchmark")
+        print("-" * 80)
+        # Smaller sizes (8-32MB) capture L3 cache effects, larger sizes (64-512MB) measure DRAM bandwidth
+        sizes = [8, 16, 32, 64] if quick else [8, 16, 32, 64, 128, 256, 512]
+
+        # Dispatch to framework-specific STREAM benchmark
         if selected_framework == 'numpy':
-            mem_calibrations = calibrate_memory_bandwidth_numpy(
+            from .benchmarks.numpy import calibrate_stream_bandwidth_numpy
+            mem_calibrations = calibrate_stream_bandwidth_numpy(
+                kernels=stream_kernels_requested,
                 sizes_mb=sizes,
                 theoretical_bandwidth_gbps=theoretical_bandwidth_gbps,
                 num_trials=metadata.num_measurement_runs
             )
         else:  # pytorch
-            mem_calibrations = calibrate_memory_bandwidth_pytorch(
+            from .benchmarks.pytorch import calibrate_stream_bandwidth_pytorch
+            mem_calibrations = calibrate_stream_bandwidth_pytorch(
+                kernels=stream_kernels_requested,
                 sizes_mb=sizes,
                 theoretical_bandwidth_gbps=theoretical_bandwidth_gbps,
                 device=device,
@@ -250,13 +272,17 @@ def calibrate_hardware(
         for cal in mem_calibrations:
             calibration.add_operation(cal)
 
-        # Update bandwidth measurement
+        # Update bandwidth measurement (use maximum across all STREAM kernels)
         calibration.measured_bandwidth_gbps = max(
             c.achieved_bandwidth_gbps for c in mem_calibrations
         )
         calibration.bandwidth_efficiency = (
             calibration.measured_bandwidth_gbps / theoretical_bandwidth_gbps
         )
+
+        # Print STREAM score (minimum bandwidth across all kernels)
+        stream_score = min(c.achieved_bandwidth_gbps for c in mem_calibrations)
+        print(f"STREAM Score (minimum bandwidth): {stream_score:.1f} GB/s")
         print()
 
     if 'matmul' in operations:
@@ -273,8 +299,8 @@ def calibrate_hardware(
             # Fallback: test common precisions
             precisions_to_test = [Precision.FP64, Precision.FP32, Precision.INT32, Precision.INT16, Precision.INT8]
 
-        # Always start with 256 as a probe to quickly identify unusable precisions
-        sizes = [256, 1024, 2048] if quick else [256, 1024, 2048, 4096]
+        # Always start with 32 as a probe to quickly identify unusable precisions
+        sizes = [32, 256, 1024, 2048] if quick else [32, 256, 1024, 2048, 4096]
 
         # Dispatch to framework-specific benchmark
         if selected_framework == 'numpy':
