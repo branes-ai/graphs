@@ -1,53 +1,190 @@
 {
   "id": "jetson_orin_agx_gpu",
-  "vendor": "NVIDIA",
-  "model": "NVIDIA-Jetson-Orin-AGX-GPU",
-  "architecture": "Unknown",
-  "device_type": "gpu",
-  "platform": "aarch64",
+  "system": {
+    "vendor": "NVIDIA",
+    "model": "Jetson Orin AGX (GPU)",
+    "architecture": "Ampere",
+    "device_type": "gpu",
+    "platform": "aarch64",
+    "os_compatibility": [
+      "linux"
+    ],
+    "isa_extensions": [
+      "CUDA",
+      "Tensor Cores",
+      "NVDEC",
+      "NVENC"
+    ],
+    "special_features": [
+      "CUDA Compute Capability 8.7",
+      "INT8 Tensor Core acceleration",
+      "FP16 Tensor Core acceleration",
+      "Unified memory with CPU",
+      "Hardware video decode/encode",
+      "Multi-instance GPU (MIG) capable"
+    ],
+    "tdp_watts": 15.0,
+    "max_power_watts": 50.0,
+    "release_date": "2022-03-22",
+    "manufacturer_url": "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/",
+    "notes": "Flagship Ampere GPU with 2048 CUDA cores (16 SMs) and 64 Tensor Cores (Gen 3). Shares unified memory with CPU in Jetson Orin AGX SoC. 2× GPU performance vs Orin Nano."
+  },
   "detection_patterns": [
     "NVIDIA.*NVIDIA\\-Jetson\\-Orin\\-AGX\\-GPU",
-    "Jetson.*Orin",
-    "Jetson",
-    "Jetson.*Orin.*AGX.*GPU"
+    "Jetson.*Orin.*AGX.*GPU",
+    "Orin.*AGX.*Ampere",
+    "Jetson.*Orin.*AGX.*iGPU"
   ],
-  "os_compatibility": [
-    "linux",
-    "windows",
-    "macos"
-  ],
-  "cores": 12,
-  "threads": 12,
-  "e_cores": null,
-  "base_frequency_ghz": null,
-  "boost_frequency_ghz": null,
-  "cuda_cores": null,
-  "tensor_cores": null,
-  "sms": null,
-  "rt_cores": null,
-  "cuda_capability": null,
-  "memory_type": "Unknown",
-  "memory_channels": null,
-  "memory_bus_width": null,
-  "peak_bandwidth_gbps": 204.8,
-  "isa_extensions": [],
-  "special_features": [],
+  "core_info": {
+    "cores": 2048,
+    "threads": 65536,
+    "base_frequency_ghz": 0.306,
+    "boost_frequency_ghz": 1.3,
+    "core_clusters": [
+      {
+        "name": "Ampere SMs",
+        "type": "compute",
+        "count": 16,
+        "architecture": "Ampere SM",
+        "base_frequency_ghz": 0.306,
+        "boost_frequency_ghz": 1.3,
+        "cuda_cores_per_sm": 128,
+        "tensor_cores_per_sm": 4,
+        "fp32_units_per_sm": 64,
+        "fp64_units_per_sm": 2,
+        "int32_units_per_sm": 64,
+        "load_store_units_per_sm": 32,
+        "special_function_units_per_sm": 16,
+        "warp_size": 32,
+        "max_warps_per_sm": 48,
+        "max_threads_per_sm": 1536,
+        "registers_per_sm": 65536,
+        "shared_memory_per_sm_kb": 100
+      }
+    ],
+    "total_cuda_cores": 2048,
+    "total_tensor_cores": 64,
+    "total_sms": 16,
+    "total_rt_cores": 0,
+    "cuda_capability": "8.7"
+  },
+  "memory_subsystem": {
+    "total_size_gb": 64,
+    "peak_bandwidth_gbps": 204.8,
+    "memory_channels": [
+      {
+        "name": "Unified LPDDR5 Channel 0",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "ecc_enabled": false,
+        "numa_node": 0,
+        "physical_position": 0
+      },
+      {
+        "name": "Unified LPDDR5 Channel 1",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "ecc_enabled": false,
+        "numa_node": 0,
+        "physical_position": 1
+      },
+      {
+        "name": "Unified LPDDR5 Channel 2",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "ecc_enabled": false,
+        "numa_node": 0,
+        "physical_position": 2
+      },
+      {
+        "name": "Unified LPDDR5 Channel 3",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "ecc_enabled": false,
+        "numa_node": 0,
+        "physical_position": 3
+      }
+    ]
+  },
   "theoretical_peaks": {
     "fp32": 5325.0,
-    "fp16": 30000.0,
-    "int8": 60000.0
+    "fp64": 166.0,
+    "fp16": 10650.0,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 10650.0,
+    "int64": 0.0,
+    "int32": 5325.0,
+    "int16": 10650.0,
+    "int8": 21300.0,
+    "int4": 0.0
   },
-  "l1_cache_kb": null,
-  "l2_cache_kb": null,
-  "l3_cache_kb": null,
-  "tdp_watts": null,
-  "max_power_watts": null,
-  "release_date": null,
-  "end_of_life": null,
-  "manufacturer_url": null,
-  "notes": "Migrated from cli/calibrate_hardware.py preset 'jetson-orin-agx-gpu'",
+  "onchip_memory_hierarchy": {
+    "cache_levels": [
+      {
+        "name": "L1 Data Cache/Shared Memory",
+        "level": 1,
+        "cache_type": "data",
+        "scope": "per_sm",
+        "size_per_unit_kb": 128,
+        "associativity": null,
+        "line_size_bytes": 128,
+        "configurable": true,
+        "note": "Configurable split between L1 cache and shared memory"
+      },
+      {
+        "name": "L1 Instruction Cache",
+        "level": 1,
+        "cache_type": "instruction",
+        "scope": "per_sm",
+        "size_per_unit_kb": 12,
+        "associativity": null,
+        "line_size_bytes": 128
+      },
+      {
+        "name": "L2 Cache",
+        "level": 2,
+        "cache_type": "unified",
+        "scope": "shared",
+        "total_size_kb": 4096,
+        "associativity": null,
+        "line_size_bytes": 128
+      }
+    ]
+  },
   "data_source": "migrated",
-  "last_updated": "2025-11-17T23:26:53.164626Z",
-  "mapper_class": "GPUMapper",
-  "mapper_config": {}
+  "last_updated": "2025-11-18T19:20:00.000000Z",
+  "mapper": {
+    "mapper_class": "GPUMapper",
+    "mapper_config": {
+      "prefer_tensor_cores": true,
+      "enable_unified_memory": true
+    },
+    "hints": {
+      "preferred_block_size": [256, 1, 1],
+      "max_threads_per_block": 1024,
+      "warp_size": 32,
+      "tensor_core_hint": "Use Tensor Cores for FP16/BF16/INT8 matrix operations (64 Gen3 Tensor Cores available - 2× Nano)",
+      "memory_hint": "Unified 64 GB LPDDR5 with CPU - use cudaMallocManaged for easy CPU/GPU data sharing. 4-channel 204.8 GB/s bandwidth.",
+      "occupancy_hint": "16 SMs × 48 warps/SM = 768 max concurrent warps (2× Nano). Target 50-75% occupancy for best performance.",
+      "performance_notes": "Flagship Orin GPU: 2048 CUDA cores, 64 Tensor Cores, 4 MB L2 cache. 2× GPU performance and 3× memory bandwidth vs Nano.",
+      "architecture_notes": "Ampere architecture with 16 SMs, no RT cores. Multi-Instance GPU (MIG) capable for workload isolation."
+    }
+  }
 }

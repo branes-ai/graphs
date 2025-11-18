@@ -157,8 +157,6 @@ class MatchResult:
 | **macOS x86_64** | ✅ sysctl | ✅ nvidia-smi + torch.cuda | Supported |
 | **macOS arm64** | ✅ sysctl | ✅ torch.cuda (limited) | Supported |
 
-**Note**: Windows x86_64 support explicitly requested and implemented for GPU detection since "many GPUs are better supported on Windows."
-
 ## Example Usage
 
 ### Auto-Detect Current Hardware
