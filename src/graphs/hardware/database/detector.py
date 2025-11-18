@@ -651,8 +651,14 @@ class HardwareDetector:
             cache_info['l3_cache_associativity'] = cpu_info['l3_cache_associativity']
 
         # Fallback: Windows-specific cache detection using wmic
-        # py-cpuinfo doesn't populate cache fields on Windows
-        if not cache_info and platform.system() == 'Windows':
+        # py-cpuinfo doesn't populate cache SIZE fields on Windows
+        # Check if we have any cache SIZES (not just associativity/line size)
+        has_cache_sizes = any(
+            key in cache_info
+            for key in ['l1_dcache_kb', 'l1_icache_kb', 'l2_cache_kb', 'l3_cache_kb']
+        )
+
+        if not has_cache_sizes and platform.system() == 'Windows':
             try:
                 import subprocess
 
