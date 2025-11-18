@@ -499,7 +499,9 @@ def main():
         if success:
             print()
             print(f"✓ Added hardware: {spec.id}")
-            print(f"  File: {db._get_spec_path(spec)}")
+            spec_file = db._find_spec_file(spec.id)
+            if spec_file:
+                print(f"  File: {spec_file}")
             print()
             print("Next steps:")
             print("  1. Verify with: python scripts/hardware_db/query_hardware.py --id", spec.id)

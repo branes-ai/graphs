@@ -1,0 +1,77 @@
+{
+  "id": "nvidia_h100_sxm5_80gb",
+  "vendor": "NVIDIA",
+  "model": "H100 SXM5 80GB",
+  "architecture": "Hopper",
+  "device_type": "gpu",
+  "platform": "x86_64",
+
+  "detection_patterns": [
+    "NVIDIA H100.*80GB",
+    "H100 80GB HBM3"
+  ],
+  "os_compatibility": ["linux", "windows"],
+
+  "cuda_capability": "9.0",
+
+  "core_clusters": [
+    {
+      "name": "SM",
+      "type": "data_parallel",
+      "count": 132,
+      "architecture": "Hopper",
+      "base_frequency_ghz": 1.095,
+      "boost_frequency_ghz": 1.83,
+      "cuda_cores_per_cluster": 128,
+      "tensor_cores_per_cluster": 4,
+      "rt_cores_per_cluster": 0,
+      "max_threads_per_cluster": 2048,
+      "max_warps_per_cluster": 64,
+      "shared_memory_kb": 228,
+      "register_file_kb": 256,
+      "l1_cache_kb": 256
+    }
+  ],
+
+  "memory_type": "HBM3",
+  "memory_bus_width": 5120,
+  "peak_bandwidth_gbps": 3350.0,
+
+  "isa_extensions": [],
+  "special_features": [
+    "Tensor Cores (4th Gen)",
+    "Transformer Engine",
+    "FP8 Support",
+    "MIG (Multi-Instance GPU)",
+    "NVLink 4.0",
+    "PCIe Gen5"
+  ],
+
+  "theoretical_peaks": {
+    "fp64": 33500.0,
+    "fp32": 67000.0,
+    "fp16": 1979000.0,
+    "bf16": 1979000.0,
+    "fp8": 3958000.0,
+    "int8": 3958000.0
+  },
+
+  "l2_cache_kb": 51200,
+
+  "tdp_watts": 700,
+  "max_power_watts": 700,
+
+  "release_date": "Q2 2022",
+  "manufacturer_url": "https://www.nvidia.com/en-us/data-center/h100/",
+  "notes": "SXM5 form factor with NVLink. Higher TDP and memory bandwidth than PCIe version.",
+
+  "data_source": "manufacturer",
+  "last_updated": "2025-11-18T16:00:00Z",
+
+  "mapper_class": "GPUMapper",
+  "mapper_config": {
+    "warp_size": 32,
+    "max_blocks_per_sm": 32,
+    "max_threads_per_block": 1024
+  }
+}

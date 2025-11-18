@@ -52,6 +52,18 @@ class DetectedCPU:
     e_cores: Optional[int] = None  # Efficiency cores (for hybrid CPUs)
     isa_extensions: List[str] = field(default_factory=list)
 
+    # Cache information
+    l1_data_cache_kb: Optional[int] = None
+    l1_instruction_cache_kb: Optional[int] = None
+    l2_cache_kb: Optional[int] = None
+    l3_cache_kb: Optional[int] = None
+    l1_cache_line_size_bytes: Optional[int] = None
+    l2_cache_line_size_bytes: Optional[int] = None
+    l3_cache_line_size_bytes: Optional[int] = None
+    l1_cache_associativity: Optional[int] = None
+    l2_cache_associativity: Optional[int] = None
+    l3_cache_associativity: Optional[int] = None
+
 
 @dataclass
 class DetectedGPU:
@@ -180,6 +192,9 @@ class HardwareDetector:
         # Detect E-cores for hybrid CPUs (platform-specific)
         e_cores = self._detect_e_cores(model_name, vendor, cores, threads)
 
+        # Extract cache information from cpuinfo
+        cache_info = self._extract_cache_info(cpu_info)
+
         return DetectedCPU(
             model_name=model_name,
             vendor=vendor,
@@ -188,7 +203,8 @@ class HardwareDetector:
             threads=threads,
             base_frequency_ghz=base_frequency_ghz,
             e_cores=e_cores,
-            isa_extensions=isa_extensions
+            isa_extensions=isa_extensions,
+            **cache_info
         )
 
     def _detect_e_cores(
@@ -540,6 +556,48 @@ class HardwareDetector:
             return processors
 
         return len(cores_seen)
+
+    def _extract_cache_info(self, cpu_info: Dict) -> Dict[str, Optional[int]]:
+        """
+        Extract cache information from cpuinfo dictionary.
+
+        Args:
+            cpu_info: Dictionary from cpuinfo.get_cpu_info()
+
+        Returns:
+            Dictionary with cache fields in KB and bytes
+        """
+        cache_info = {}
+
+        # Extract cache sizes (convert from bytes to KB)
+        if 'l1_data_cache_size' in cpu_info:
+            cache_info['l1_data_cache_kb'] = cpu_info['l1_data_cache_size'] // 1024
+        if 'l1_instruction_cache_size' in cpu_info:
+            cache_info['l1_instruction_cache_kb'] = cpu_info['l1_instruction_cache_size'] // 1024
+        if 'l2_cache_size' in cpu_info:
+            cache_info['l2_cache_kb'] = cpu_info['l2_cache_size'] // 1024
+        if 'l3_cache_size' in cpu_info:
+            cache_info['l3_cache_kb'] = cpu_info['l3_cache_size'] // 1024
+
+        # Extract cache line sizes (already in bytes from cpuinfo)
+        # Note: cpuinfo typically only provides L2 cache line size
+        if 'l2_cache_line_size' in cpu_info:
+            cache_info['l2_cache_line_size_bytes'] = cpu_info['l2_cache_line_size']
+            # Assume L1 and L3 have same cache line size (typical for most CPUs)
+            cache_info['l1_cache_line_size_bytes'] = cpu_info['l2_cache_line_size']
+            cache_info['l3_cache_line_size_bytes'] = cpu_info['l2_cache_line_size']
+
+        # Extract cache associativity
+        if 'l2_cache_associativity' in cpu_info:
+            cache_info['l2_cache_associativity'] = cpu_info['l2_cache_associativity']
+
+        # Try to extract L1 and L3 associativity if available
+        if 'l1_cache_associativity' in cpu_info:
+            cache_info['l1_cache_associativity'] = cpu_info['l1_cache_associativity']
+        if 'l3_cache_associativity' in cpu_info:
+            cache_info['l3_cache_associativity'] = cpu_info['l3_cache_associativity']
+
+        return cache_info
 
     def _extract_architecture(self, model_name: str, vendor: str) -> str:
         """Extract CPU architecture from model name"""
