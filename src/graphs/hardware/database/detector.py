@@ -650,6 +650,51 @@ class HardwareDetector:
         if 'l3_cache_associativity' in cpu_info:
             cache_info['l3_cache_associativity'] = cpu_info['l3_cache_associativity']
 
+        # Fallback: Windows-specific cache detection using wmic
+        # py-cpuinfo doesn't populate cache fields on Windows
+        if not cache_info and platform.system() == 'Windows':
+            try:
+                import subprocess
+
+                # Get L1/L2/L3 cache sizes from wmic
+                result = subprocess.run(
+                    ['wmic', 'cpu', 'get', 'L2CacheSize,L3CacheSize', '/format:list'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split('\n'):
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip()
+
+                            if key == 'L2CacheSize' and value:
+                                # wmic returns KB
+                                cache_info['l2_cache_kb'] = int(value)
+                            elif key == 'L3CacheSize' and value:
+                                # wmic returns KB
+                                cache_info['l3_cache_kb'] = int(value)
+
+                # L1 cache isn't directly available from wmic, use typical values
+                # Most modern CPUs have 32-64 KB L1 data + instruction per core
+                if not cache_info.get('l1_dcache_kb'):
+                    cache_info['l1_dcache_kb'] = 32  # Conservative estimate
+                if not cache_info.get('l1_icache_kb'):
+                    cache_info['l1_icache_kb'] = 32  # Conservative estimate
+
+                # Set typical cache line size (64 bytes is standard for x86)
+                if not cache_info.get('l1_cache_line_size_bytes'):
+                    cache_info['l1_cache_line_size_bytes'] = 64
+                    cache_info['l2_cache_line_size_bytes'] = 64
+                    cache_info['l3_cache_line_size_bytes'] = 64
+
+            except Exception as e:
+                # Windows cache detection failed, continue with empty cache_info
+                pass
+
         # Build cache_levels structure
         cache_levels = []
 
