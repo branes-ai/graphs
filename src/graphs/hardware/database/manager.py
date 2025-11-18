@@ -40,6 +40,25 @@ class HardwareDatabase:
         self._cache: Dict[str, HardwareSpec] = {}
         self._loaded = False
 
+    @staticmethod
+    def _get_system_field(spec: HardwareSpec, field: str) -> Optional[Any]:
+        """
+        Safely extract a field from system block with fallback to deprecated fields.
+
+        Args:
+            spec: HardwareSpec instance
+            field: Field name (e.g., 'vendor', 'device_type', 'platform')
+
+        Returns:
+            Field value or None if not found
+        """
+        # Try new consolidated system block first
+        if spec.system and field in spec.system:
+            return spec.system[field]
+
+        # Fall back to deprecated top-level field for backward compatibility
+        return getattr(spec, field, None)
+
     def load_all(self, force_reload: bool = False) -> Dict[str, HardwareSpec]:
         """
         Load all hardware specs into cache.
@@ -185,7 +204,10 @@ class HardwareDatabase:
         categories = defaultdict(lambda: defaultdict(list))
 
         for spec in self._cache.values():
-            categories[spec.device_type][spec.vendor].append(spec.id)
+            device_type = self._get_system_field(spec, 'device_type')
+            vendor = self._get_system_field(spec, 'vendor')
+            if device_type and vendor:
+                categories[device_type][vendor].append(spec.id)
 
         # Convert to regular dict for serialization
         return {
@@ -219,7 +241,14 @@ class HardwareDatabase:
 
         # Determine file path based on device_type and vendor
         # e.g., cpu/intel/i7_12700k.json
-        vendor_dir = self.db_root / spec.device_type / spec.vendor.lower().replace(' ', '_')
+        device_type = self._get_system_field(spec, 'device_type')
+        vendor = self._get_system_field(spec, 'vendor')
+
+        if not device_type or not vendor:
+            print(f"✗ Error: Hardware spec missing device_type or vendor")
+            return False
+
+        vendor_dir = self.db_root / device_type / vendor.lower().replace(' ', '_')
         vendor_dir.mkdir(parents=True, exist_ok=True)
 
         filepath = vendor_dir / f"{spec.id}.json"
@@ -368,11 +397,20 @@ class HardwareDatabase:
         }
 
         for spec in self._cache.values():
-            stats['by_device_type'][spec.device_type] += 1
-            stats['by_vendor'][spec.vendor] += 1
-            stats['by_platform'][spec.platform] += 1
-            for os_type in spec.os_compatibility:
-                stats['by_os'][os_type] += 1
+            device_type = self._get_system_field(spec, 'device_type')
+            vendor = self._get_system_field(spec, 'vendor')
+            platform = self._get_system_field(spec, 'platform')
+            os_compatibility = self._get_system_field(spec, 'os_compatibility')
+
+            if device_type:
+                stats['by_device_type'][device_type] += 1
+            if vendor:
+                stats['by_vendor'][vendor] += 1
+            if platform:
+                stats['by_platform'][platform] += 1
+            if os_compatibility:
+                for os_type in os_compatibility:
+                    stats['by_os'][os_type] += 1
 
         # Convert defaultdicts to regular dicts
         stats['by_device_type'] = dict(stats['by_device_type'])

@@ -1,55 +1,192 @@
 {
   "id": "jetson_orin_agx_cpu",
-  "vendor": "NVIDIA",
-  "model": "NVIDIA-Jetson-Orin-AGX-CPU",
-  "architecture": "Unknown",
-  "device_type": "cpu",
-  "platform": "aarch64",
+  "system": {
+    "vendor": "NVIDIA",
+    "model": "Jetson Orin AGX (CPU)",
+    "architecture": "Cortex-A78AE",
+    "device_type": "cpu",
+    "platform": "aarch64",
+    "os_compatibility": [
+      "linux"
+    ],
+    "isa_extensions": [
+      "NEON",
+      "FP16",
+      "DotProd",
+      "SVE"
+    ],
+    "special_features": [
+      "ARM v8.2-A",
+      "64-bit",
+      "Lockstep for safety",
+      "SVE (Scalable Vector Extension)"
+    ],
+    "tdp_watts": 15.0,
+    "max_power_watts": 50.0,
+    "release_date": "2022-03-22",
+    "manufacturer_url": "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/",
+    "notes": "12-core ARM Cortex-A78AE cluster with NEON SIMD and SVE support. Migrated from cli/calibrate_hardware.py preset. Part of Jetson Orin AGX SoC with integrated GPU. Flagship Orin module with highest CPU performance."
+  },
   "detection_patterns": [
     "NVIDIA.*NVIDIA\\-Jetson\\-Orin\\-AGX\\-CPU",
-    "NVIDIA\\-Jetson\\-Orin\\-AGX\\-CPU"
+    "NVIDIA\\-Jetson\\-Orin\\-AGX\\-CPU",
+    "Jetson.*Orin.*AGX.*CPU",
+    "Cortex-A78AE.*Orin.*AGX"
   ],
-  "os_compatibility": [
-    "linux",
-    "windows",
-    "macos"
-  ],
-  "cores": 12,
-  "threads": 12,
-  "e_cores": null,
-  "base_frequency_ghz": null,
-  "boost_frequency_ghz": null,
-  "cuda_cores": null,
-  "tensor_cores": null,
-  "sms": null,
-  "rt_cores": null,
-  "cuda_capability": null,
-  "memory_type": "DDR5",
-  "memory_channels": null,
-  "memory_bus_width": null,
-  "peak_bandwidth_gbps": 204.8,
-  "isa_extensions": [],
-  "special_features": [],
+  "core_info": {
+    "cores": 12,
+    "threads": 12,
+    "base_frequency_ghz": 1.7,
+    "boost_frequency_ghz": 2.2,
+    "core_clusters": [
+      {
+        "name": "Cortex-A78AE Cluster",
+        "type": "performance",
+        "count": 12,
+        "architecture": "Cortex-A78AE",
+        "base_frequency_ghz": 1.7,
+        "boost_frequency_ghz": 2.2,
+        "has_hyperthreading": false,
+        "simd_width_bits": 128
+      }
+    ]
+  },
+  "memory_subsystem": {
+    "total_size_gb": 64,
+    "peak_bandwidth_gbps": 204.8,
+    "memory_channels": [
+      {
+        "name": "LPDDR5 Channel 0",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "dimm_slots": 1,
+        "dimms_populated": 1,
+        "dimm_size_gb": 16,
+        "ecc_enabled": false,
+        "rank_count": 1,
+        "numa_node": 0,
+        "physical_position": 0
+      },
+      {
+        "name": "LPDDR5 Channel 1",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "dimm_slots": 1,
+        "dimms_populated": 1,
+        "dimm_size_gb": 16,
+        "ecc_enabled": false,
+        "rank_count": 1,
+        "numa_node": 0,
+        "physical_position": 1
+      },
+      {
+        "name": "LPDDR5 Channel 2",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "dimm_slots": 1,
+        "dimms_populated": 1,
+        "dimm_size_gb": 16,
+        "ecc_enabled": false,
+        "rank_count": 1,
+        "numa_node": 0,
+        "physical_position": 2
+      },
+      {
+        "name": "LPDDR5 Channel 3",
+        "type": "lpddr5",
+        "size_gb": 16,
+        "frequency_mhz": 3200,
+        "data_rate_mts": 6400,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 51.2,
+        "dimm_slots": 1,
+        "dimms_populated": 1,
+        "dimm_size_gb": 16,
+        "ecc_enabled": false,
+        "rank_count": 1,
+        "numa_node": 0,
+        "physical_position": 3
+      }
+    ]
+  },
   "theoretical_peaks": {
-    "fp64": 211.2,
     "fp32": 422.4,
+    "fp64": 211.2,
     "fp16": 844.8,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 0.0,
     "int64": 211.2,
     "int32": 211.2,
     "int16": 422.4,
-    "int8": 844.8
+    "int8": 844.8,
+    "int4": 0.0
   },
-  "l1_cache_kb": null,
-  "l2_cache_kb": null,
-  "l3_cache_kb": null,
-  "tdp_watts": null,
-  "max_power_watts": null,
-  "release_date": null,
-  "end_of_life": null,
-  "manufacturer_url": null,
-  "notes": "Migrated from cli/calibrate_hardware.py preset 'jetson-orin-agx-cpu'",
+  "onchip_memory_hierarchy": {
+    "cache_levels": [
+      {
+        "name": "L1 dcache",
+        "level": 1,
+        "cache_type": "data",
+        "scope": "per_core",
+        "size_per_unit_kb": 64,
+        "associativity": 4,
+        "line_size_bytes": 64
+      },
+      {
+        "name": "L1 icache",
+        "level": 1,
+        "cache_type": "instruction",
+        "scope": "per_core",
+        "size_per_unit_kb": 64,
+        "associativity": 4,
+        "line_size_bytes": 64
+      },
+      {
+        "name": "L2",
+        "level": 2,
+        "cache_type": "unified",
+        "scope": "per_core",
+        "size_per_unit_kb": 512,
+        "associativity": 8,
+        "line_size_bytes": 64
+      },
+      {
+        "name": "L3",
+        "level": 3,
+        "cache_type": "unified",
+        "scope": "shared",
+        "total_size_kb": 6144,
+        "associativity": 16,
+        "line_size_bytes": 64
+      }
+    ]
+  },
   "data_source": "migrated",
-  "last_updated": "2025-11-17T23:26:53.141289Z",
-  "mapper_class": "CPUMapper",
-  "mapper_config": {}
+  "last_updated": "2025-11-18T19:10:00.000000Z",
+  "mapper": {
+    "mapper_class": "CPUMapper",
+    "mapper_config": {},
+    "hints": {
+      "preferred_tile_size": [
+        128,
+        128
+      ],
+      "simd_hint": "ARM NEON available - use 128-bit SIMD with FP16 and SVE support",
+      "parallelism_hint": "Use up to 12 threads (physical cores: 12, no SMT)",
+      "architecture_notes": "ARM Cortex-A78AE with 128-bit NEON SIMD, supports FP16, int8 dot product, and SVE (Scalable Vector Extension) instructions. Flagship Orin CPU with 2× cores vs Nano."
+    }
+  }
 }

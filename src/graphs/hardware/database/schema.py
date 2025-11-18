@@ -18,7 +18,7 @@ REQUIRED_PRECISIONS = [
     'fp64',   # Double precision floating point
     'fp32',   # Single precision floating point
     'fp16',   # Half precision floating point
-    'fp8',    # Quarter precision floating point
+    'fp8',    # 8-bit floating point
     'fp4',    # 4-bit floating point
     'bf16',   # Brain float 16
     'int64',  # 64-bit integer
@@ -225,6 +225,41 @@ class CoreInfo:
     For GPUs (NVIDIA SMs, AMD CUs):
     - One or more entries describing SM/CU configuration
     - Includes CUDA cores, tensor cores, shared memory per SM/CU
+    """
+
+    # GPU-specific aggregate fields (computed from core_clusters)
+    total_cuda_cores: Optional[int] = None
+    """
+    Total CUDA cores across all SMs (NVIDIA) or Stream Processors across all CUs (AMD).
+    Required for GPU specs. Should equal sum of (count × cuda_cores_per_sm) from core_clusters.
+    """
+
+    total_tensor_cores: Optional[int] = None
+    """
+    Total Tensor Cores across all SMs (NVIDIA) or Matrix Cores across all CUs (AMD).
+    Required for GPU specs. Should equal sum of (count × tensor_cores_per_sm) from core_clusters.
+    """
+
+    total_sms: Optional[int] = None
+    """
+    Total number of Streaming Multiprocessors (NVIDIA SMs) or Compute Units (AMD CUs).
+    Required for GPU specs. Should equal sum of count from core_clusters.
+    For NVIDIA: Also known as the SM count.
+    For AMD: Also known as the CU count.
+    """
+
+    total_rt_cores: Optional[int] = None
+    """
+    Total RT (Ray Tracing) cores across all SMs (NVIDIA RTX GPUs only).
+    Required for GPU specs (set to 0 if no RT cores).
+    Should equal sum of (count × rt_cores_per_sm) from core_clusters.
+    """
+
+    cuda_capability: Optional[str] = None
+    """
+    CUDA Compute Capability version (NVIDIA GPUs only).
+    Examples: "8.9" (H100), "8.7" (Orin), "8.6" (A100), "7.5" (T4)
+    Required for NVIDIA GPU specs.
     """
 
     def get_core_clusters(self) -> List['CoreCluster']:
@@ -1482,7 +1517,9 @@ class HardwareSpec:
             deprecated_core_fields = [
                 'cores', 'threads', 'e_cores',
                 'base_frequency_ghz', 'boost_frequency_ghz',
-                'core_clusters'
+                'core_clusters',
+                # GPU-specific fields now in core_info
+                'cuda_cores', 'tensor_cores', 'sms', 'rt_cores', 'cuda_capability'
             ]
             for field in deprecated_core_fields:
                 if field in data:
@@ -1734,8 +1771,39 @@ class HardwareSpec:
         if 'onchip_memory_hierarchy' not in data or data['onchip_memory_hierarchy'] is None:
             data['onchip_memory_hierarchy'] = {"cache_levels": []}
 
+        # Populate deprecated fields from consolidated blocks for backward compatibility
+        # This ensures that code accessing spec.vendor, spec.device_type, etc. still works
+        if data.get('system'):
+            system = data['system']
+            # Only populate if the deprecated field is not already set
+            if 'vendor' not in data or data['vendor'] is None:
+                data['vendor'] = system.get('vendor')
+            if 'model' not in data or data['model'] is None:
+                data['model'] = system.get('model')
+            if 'architecture' not in data or data['architecture'] is None:
+                data['architecture'] = system.get('architecture')
+            if 'device_type' not in data or data['device_type'] is None:
+                data['device_type'] = system.get('device_type')
+            if 'platform' not in data or data['platform'] is None:
+                data['platform'] = system.get('platform')
+            if 'os_compatibility' not in data or data['os_compatibility'] is None:
+                data['os_compatibility'] = system.get('os_compatibility')
+            if 'isa_extensions' not in data or data['isa_extensions'] is None:
+                data['isa_extensions'] = system.get('isa_extensions')
+            if 'special_features' not in data or data['special_features'] is None:
+                data['special_features'] = system.get('special_features')
+
+        if data.get('mapper'):
+            mapper = data['mapper']
+            # Only populate if the deprecated field is not already set
+            if 'mapper_class' not in data or data['mapper_class'] is None:
+                data['mapper_class'] = mapper.get('mapper_class')
+            if 'mapper_config' not in data or data['mapper_config'] is None:
+                data['mapper_config'] = mapper.get('mapper_config')
+
         # Clean up deprecated fields that have been migrated
-        # These fields should NOT be passed to the constructor
+        # NOTE: We keep vendor, device_type, platform, etc. for backward compatibility
+        # even though they're now in the system block
         deprecated_fields = [
             # Old core fields (migrated to core_info)
             'cores', 'threads', 'e_cores', 'base_frequency_ghz', 'boost_frequency_ghz', 'core_clusters',
@@ -1748,13 +1816,8 @@ class HardwareSpec:
             'l1_cache_line_size_bytes', 'l2_cache_line_size_bytes', 'l3_cache_line_size_bytes',
             'l1_cache_associativity', 'l2_cache_associativity', 'l3_cache_associativity',
             'l1_dcache_associativity', 'l1_icache_associativity',
-            # Old system fields (migrated to system)
-            'vendor', 'model', 'architecture', 'device_type', 'platform',
-            'os_compatibility', 'isa_extensions', 'special_features',
-            'tdp_watts', 'max_power_watts',
-            'release_date', 'end_of_life', 'manufacturer_url', 'notes',
-            # Old mapper fields (migrated to mapper)
-            'mapper_class', 'mapper_config',
+            # NOTE: We do NOT delete system/mapper fields here for backward compatibility
+            # They are kept populated from the consolidated blocks above
         ]
 
         for field in deprecated_fields:
@@ -2152,6 +2215,107 @@ class HardwareSpec:
                     f"threads ({self.threads}) doesn't match core_clusters total ({computed_threads}). "
                     "Update threads to match cluster total or remove it."
                 )
+
+        # Validate GPU-specific fields in core_info
+        device_type = None
+        if self.system:
+            system_info = self.get_system_info()
+            if system_info:
+                device_type = system_info.device_type
+        else:
+            device_type = self.device_type
+
+        if device_type == 'gpu':
+            # For GPU specs, validate core_info contains required GPU fields
+            if self.core_info:
+                core_info = self.get_core_info()
+                if core_info:
+                    # Require total_cuda_cores for GPUs
+                    if core_info.total_cuda_cores is None:
+                        errors.append("GPU spec requires core_info.total_cuda_cores")
+                    elif core_info.total_cuda_cores < 0:
+                        errors.append("core_info.total_cuda_cores must be >= 0")
+
+                    # Require total_tensor_cores for GPUs
+                    if core_info.total_tensor_cores is None:
+                        errors.append("GPU spec requires core_info.total_tensor_cores (use 0 if none)")
+                    elif core_info.total_tensor_cores < 0:
+                        errors.append("core_info.total_tensor_cores must be >= 0")
+
+                    # Require total_sms for GPUs
+                    if core_info.total_sms is None:
+                        errors.append("GPU spec requires core_info.total_sms")
+                    elif core_info.total_sms <= 0:
+                        errors.append("core_info.total_sms must be > 0")
+
+                    # Require total_rt_cores for GPUs
+                    if core_info.total_rt_cores is None:
+                        errors.append("GPU spec requires core_info.total_rt_cores (use 0 if none)")
+                    elif core_info.total_rt_cores < 0:
+                        errors.append("core_info.total_rt_cores must be >= 0")
+
+                    # For NVIDIA GPUs, require cuda_capability
+                    if system_info and system_info.vendor == 'NVIDIA':
+                        if not core_info.cuda_capability:
+                            errors.append("NVIDIA GPU spec requires core_info.cuda_capability (e.g., '8.9', '8.7')")
+
+                    # Validate that aggregate fields match cluster totals
+                    if core_info.core_clusters:
+                        # Compute totals from clusters
+                        computed_cuda_cores = 0
+                        computed_tensor_cores = 0
+                        computed_sms = 0
+                        computed_rt_cores = 0
+
+                        for cluster_dict in core_info.core_clusters:
+                            count = cluster_dict.get('count', 0)
+                            computed_sms += count
+
+                            if 'total_cuda_cores' in cluster_dict:
+                                computed_cuda_cores += cluster_dict['total_cuda_cores']
+                            elif 'cuda_cores_per_sm' in cluster_dict:
+                                computed_cuda_cores += count * cluster_dict['cuda_cores_per_sm']
+
+                            if 'total_tensor_cores' in cluster_dict:
+                                computed_tensor_cores += cluster_dict['total_tensor_cores']
+                            elif 'tensor_cores_per_sm' in cluster_dict:
+                                computed_tensor_cores += count * cluster_dict['tensor_cores_per_sm']
+
+                            if 'total_rt_cores' in cluster_dict:
+                                computed_rt_cores += cluster_dict['total_rt_cores']
+                            elif 'rt_cores_per_sm' in cluster_dict:
+                                computed_rt_cores += count * cluster_dict['rt_cores_per_sm']
+
+                        # Verify totals match
+                        if core_info.total_cuda_cores is not None and computed_cuda_cores > 0:
+                            if core_info.total_cuda_cores != computed_cuda_cores:
+                                errors.append(
+                                    f"core_info.total_cuda_cores ({core_info.total_cuda_cores}) doesn't match "
+                                    f"sum from core_clusters ({computed_cuda_cores})"
+                                )
+
+                        if core_info.total_tensor_cores is not None and computed_tensor_cores > 0:
+                            if core_info.total_tensor_cores != computed_tensor_cores:
+                                errors.append(
+                                    f"core_info.total_tensor_cores ({core_info.total_tensor_cores}) doesn't match "
+                                    f"sum from core_clusters ({computed_tensor_cores})"
+                                )
+
+                        if core_info.total_sms is not None and computed_sms > 0:
+                            if core_info.total_sms != computed_sms:
+                                errors.append(
+                                    f"core_info.total_sms ({core_info.total_sms}) doesn't match "
+                                    f"sum from core_clusters ({computed_sms})"
+                                )
+
+                        if core_info.total_rt_cores is not None and computed_rt_cores > 0:
+                            if core_info.total_rt_cores != computed_rt_cores:
+                                errors.append(
+                                    f"core_info.total_rt_cores ({core_info.total_rt_cores}) doesn't match "
+                                    f"sum from core_clusters ({computed_rt_cores})"
+                                )
+            else:
+                errors.append("GPU spec requires core_info block")
 
         # Validate memory_subsystem if specified
         if self.memory_subsystem:

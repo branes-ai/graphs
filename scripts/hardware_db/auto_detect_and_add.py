@@ -369,31 +369,68 @@ def detect_and_create_spec(
         print(f"✓ Detected heterogeneous CPU: {p_cores} P-cores + {e_cores} E-cores")
         print()
 
-        # Create core clusters
-        # Note: We don't have individual frequencies for P vs E cores from detection,
-        # so we use the same frequencies for both (may be lower for E-cores in reality)
+        # Determine specific core architectures based on generation
+        p_core_arch = cpu.architecture
+        e_core_arch = cpu.architecture
+
+        # Intel-specific architecture mapping
+        if cpu.vendor == "Intel":
+            if "12th Gen" in cpu.model_name or "Alder Lake" in cpu.architecture:
+                p_core_arch = "Golden Cove"
+                e_core_arch = "Gracemont"
+            elif "13th Gen" in cpu.model_name or "Raptor Lake" in cpu.architecture:
+                p_core_arch = "Raptor Cove"
+                e_core_arch = "Gracemont"
+            elif "14th Gen" in cpu.model_name or "Meteor Lake" in cpu.architecture:
+                p_core_arch = "Redwood Cove"
+                e_core_arch = "Crestmont"
+
+        # Detect SIMD width based on ISA extensions
+        p_core_simd = 512 if 'AVX512' in cpu.isa_extensions else (256 if 'AVX2' in cpu.isa_extensions else 128)
+        e_core_simd = 128  # E-cores typically have more limited SIMD
+
+        # Create core clusters with detailed architecture info
         core_info["core_clusters"] = [
             {
                 "name": "Performance Cores",
                 "type": "performance",
                 "count": p_cores,
-                "architecture": cpu.architecture,
+                "architecture": p_core_arch,
                 "base_frequency_ghz": cpu.base_frequency_ghz,
                 "boost_frequency_ghz": cpu.boost_frequency_ghz,
-                "has_hyperthreading": True,  # P-cores typically have HT
-                "simd_width_bits": 256 if 'AVX2' in cpu.isa_extensions else 128
+                "has_hyperthreading": True,
+                "simd_width_bits": p_core_simd
             },
             {
                 "name": "Efficiency Cores",
                 "type": "efficiency",
                 "count": e_cores,
-                "architecture": cpu.architecture,
-                "base_frequency_ghz": cpu.base_frequency_ghz,  # May be lower in reality
-                "boost_frequency_ghz": cpu.boost_frequency_ghz,  # May be lower in reality
-                "has_hyperthreading": False,  # E-cores typically don't have HT
-                "simd_width_bits": 128  # E-cores have more limited SIMD
+                "architecture": e_core_arch,
+                "base_frequency_ghz": cpu.base_frequency_ghz,
+                "boost_frequency_ghz": cpu.boost_frequency_ghz,
+                "has_hyperthreading": False,
+                "simd_width_bits": e_core_simd
             }
         ]
+
+    # Generate auto-notes about detection
+    notes = []
+    notes.append(f"Auto-detected on {detector.os_type} {detector.platform_arch}")
+
+    # Warn about suspicious values
+    if cpu.cache_levels:
+        for cache in cpu.cache_levels:
+            if cache.get('line_size_bytes', 64) > 256:
+                notes.append(f"WARNING: {cache['name']} line size ({cache['line_size_bytes']} bytes) seems unusually large - please verify")
+
+    if cpu.base_frequency_ghz and cpu.base_frequency_ghz < 0.5:
+        notes.append(f"WARNING: Base frequency ({cpu.base_frequency_ghz:.2f} GHz) seems low - CPU may be throttled")
+
+    if bandwidth_override is None:
+        notes.append("Memory bandwidth should be verified with STREAM benchmark")
+
+    if fp32_override is None:
+        notes.append("Theoretical peak FP32 performance should be verified with calibration")
 
     # Create consolidated system info
     system_info = {
@@ -405,12 +442,49 @@ def detect_and_create_spec(
         "os_compatibility": [detector.os_type],
         "isa_extensions": cpu.isa_extensions,
         "special_features": [],
+        "notes": " | ".join(notes) if notes else None
     }
+
+    # Generate smart mapper hints based on hardware characteristics
+    mapper_hints = {}
+
+    # Suggest tile sizes based on L1/L2 cache
+    if cpu.cache_levels:
+        l1_size = None
+        l2_size = None
+        for cache in cpu.cache_levels:
+            if cache['level'] == 1 and cache.get('cache_type') == 'data':
+                l1_size = cache.get('size_per_unit_kb')
+            elif cache['level'] == 2:
+                l2_size = cache.get('size_per_unit_kb')
+
+        # Suggest tile size that fits in L2 with some headroom
+        if l2_size and l2_size >= 256:
+            # For matrix operations, suggest square tiles
+            # Aim for ~1/4 of L2 size to leave room for multiple tiles
+            target_kb = l2_size // 4
+            # For FP32, 128x128 matrix = 64KB, 256x256 = 256KB, 512x512 = 1024KB
+            if target_kb >= 1024:
+                mapper_hints["preferred_tile_size"] = [512, 512]
+            elif target_kb >= 256:
+                mapper_hints["preferred_tile_size"] = [256, 256]
+            else:
+                mapper_hints["preferred_tile_size"] = [128, 128]
+
+    # Add SIMD hints based on ISA
+    if 'AVX512' in cpu.isa_extensions:
+        mapper_hints["simd_hint"] = "AVX512 available - use 512-bit SIMD"
+    elif 'AVX2' in cpu.isa_extensions:
+        mapper_hints["simd_hint"] = "AVX2 available - use 256-bit SIMD"
+
+    # Add parallelism hints
+    mapper_hints["parallelism_hint"] = f"Use up to {cpu.threads} threads (physical cores: {cpu.cores})"
 
     # Create consolidated mapper info
     mapper_info = {
         "mapper_class": "CPUMapper",
-        "mapper_config": {}
+        "mapper_config": {},
+        "hints": mapper_hints if mapper_hints else None
     }
 
     # Create HardwareSpec
