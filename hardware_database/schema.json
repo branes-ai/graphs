@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/stillwater-sc/graphs/hardware-spec-v1",
+  "title": "Hardware Specification",
+  "description": "Complete hardware specification for performance calibration and mapping",
+  "type": "object",
+  "required": [
+    "id",
+    "vendor",
+    "model",
+    "architecture",
+    "device_type",
+    "platform",
+    "theoretical_peaks",
+    "peak_bandwidth_gbps",
+    "mapper_class"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "Unique identifier (lowercase, underscores only)",
+      "examples": ["intel_i7_12700k", "nvidia_h100_sxm5_80gb"]
+    },
+    "vendor": {
+      "type": "string",
+      "description": "Vendor/manufacturer name",
+      "examples": ["Intel", "NVIDIA", "AMD", "Ampere Computing", "Google"]
+    },
+    "model": {
+      "type": "string",
+      "description": "Full model name",
+      "examples": ["Core i7-12700K", "H100 SXM5 80GB"]
+    },
+    "architecture": {
+      "type": "string",
+      "description": "Architecture name",
+      "examples": ["Alder Lake", "Hopper", "Zen 4"]
+    },
+    "device_type": {
+      "type": "string",
+      "enum": ["cpu", "gpu", "tpu", "kpu", "dpu", "cgra"],
+      "description": "Type of hardware device"
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["x86_64", "aarch64", "arm64"],
+      "description": "Platform architecture"
+    },
+    "detection_patterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Regex patterns for auto-detection",
+      "examples": [["12th Gen Intel.*Core.*i7-12700K", "NVIDIA H100.*80GB"]]
+    },
+    "os_compatibility": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["linux", "windows", "macos"]
+      },
+      "default": ["linux", "windows", "macos"],
+      "description": "Supported operating systems"
+    },
+    "cores": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of physical cores"
+    },
+    "threads": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of hardware threads"
+    },
+    "e_cores": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of efficiency cores (hybrid CPUs)"
+    },
+    "base_frequency_ghz": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Base frequency in GHz"
+    },
+    "boost_frequency_ghz": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum boost frequency in GHz"
+    },
+    "cuda_cores": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "CUDA cores (NVIDIA GPUs)"
+    },
+    "tensor_cores": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tensor cores for matrix ops"
+    },
+    "sms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Streaming Multiprocessors or Compute Units"
+    },
+    "rt_cores": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Ray Tracing cores"
+    },
+    "cuda_capability": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "CUDA compute capability",
+      "examples": ["8.9", "9.0"]
+    },
+    "memory_type": {
+      "type": "string",
+      "description": "Memory type",
+      "examples": ["DDR5", "HBM3", "LPDDR5", "GDDR6X"]
+    },
+    "memory_channels": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of memory channels"
+    },
+    "memory_bus_width": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Memory bus width in bits"
+    },
+    "peak_bandwidth_gbps": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMinimum": 0,
+      "description": "Theoretical peak memory bandwidth in GB/s"
+    },
+    "isa_extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Instruction set extensions",
+      "examples": [["AVX2", "AVX512F", "FMA3"], ["NEON", "SVE", "BF16"]]
+    },
+    "special_features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Special hardware features",
+      "examples": [["Tensor Cores", "RT Cores"], ["Matrix Engine"]]
+    },
+    "theoretical_peaks": {
+      "type": "object",
+      "description": "Theoretical peak performance (GFLOPS for float, GIOPS for int)",
+      "properties": {
+        "fp64": {"type": "number", "minimum": 0},
+        "fp32": {"type": "number", "minimum": 0},
+        "fp16": {"type": "number", "minimum": 0},
+        "fp8": {"type": "number", "minimum": 0},
+        "fp4": {"type": "number", "minimum": 0},
+        "bf16": {"type": "number", "minimum": 0},
+        "int64": {"type": "number", "minimum": 0},
+        "int32": {"type": "number", "minimum": 0},
+        "int16": {"type": "number", "minimum": 0},
+        "int8": {"type": "number", "minimum": 0},
+        "int4": {"type": "number", "minimum": 0}
+      },
+      "required": ["fp32"],
+      "additionalProperties": false
+    },
+    "l1_cache_kb": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "L1 cache size in KB"
+    },
+    "l2_cache_kb": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "L2 cache size in KB"
+    },
+    "l3_cache_kb": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "L3 cache size in KB"
+    },
+    "tdp_watts": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Thermal Design Power in watts"
+    },
+    "max_power_watts": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum power consumption in watts"
+    },
+    "release_date": {
+      "type": "string",
+      "description": "Release date",
+      "examples": ["Q4 2021", "2022-11", "November 2021"]
+    },
+    "end_of_life": {
+      "type": "string",
+      "description": "End of life date"
+    },
+    "manufacturer_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Official product page URL"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes, quirks, known issues"
+    },
+    "data_source": {
+      "type": "string",
+      "enum": ["manufacturer", "measured", "estimated", "community"],
+      "default": "manufacturer",
+      "description": "Source of specifications"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last update"
+    },
+    "mapper_class": {
+      "type": "string",
+      "enum": ["CPUMapper", "GPUMapper", "TPUMapper", "KPUMapper", "DPUMapper", "CGRAMapper"],
+      "description": "Mapper class for this hardware"
+    },
+    "mapper_config": {
+      "type": "object",
+      "description": "Mapper-specific configuration parameters",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
