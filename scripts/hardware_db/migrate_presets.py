@@ -14,7 +14,7 @@ Usage:
 import sys
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -153,7 +153,7 @@ def migrate_preset(preset_id: str, preset_data: dict) -> HardwareSpec:
         mapper=mapper_info,
 
         data_source="migrated",
-        last_updated=datetime.utcnow().isoformat() + "Z"
+        last_updated=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     )
 
     return spec

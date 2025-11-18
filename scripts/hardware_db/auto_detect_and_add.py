@@ -16,7 +16,7 @@ Usage:
 import sys
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict
 
 # Add src to path
@@ -348,9 +348,31 @@ def detect_and_create_spec(
 
     elif memory:
         print(f"✓ Detected {memory.total_gb:.0f} GB total memory (no detailed channel info)")
+
+        # Create minimal memory_subsystem from total only
+        if bandwidth_override is not None:
+            total_bandwidth_gbps = bandwidth_override
+        else:
+            total_bandwidth_gbps = peak_bandwidth_gbps if peak_bandwidth_gbps else 0.0
+
+        memory_subsystem = {
+            "total_size_gb": memory.total_gb,
+            "peak_bandwidth_gbps": total_bandwidth_gbps,
+            "memory_channels": []
+        }
         print()
     else:
         print("✗ Could not detect memory configuration")
+        print()
+
+    # If memory_subsystem is still None but we have bandwidth info, create minimal subsystem
+    if memory_subsystem is None and peak_bandwidth_gbps and peak_bandwidth_gbps > 0:
+        memory_subsystem = {
+            "total_size_gb": 0.0,  # Unknown
+            "peak_bandwidth_gbps": peak_bandwidth_gbps,
+            "memory_channels": []
+        }
+        print(f"Created minimal memory subsystem with bandwidth: {peak_bandwidth_gbps:.1f} GB/s")
         print()
 
     # Generate core_info with core_clusters for heterogeneous CPUs (P/E-cores)
@@ -515,7 +537,7 @@ def detect_and_create_spec(
         mapper=mapper_info,
 
         data_source="detected" + (" + calibrated" if with_calibration else ""),
-        last_updated=datetime.utcnow().isoformat() + "Z"
+        last_updated=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     )
 
     return spec

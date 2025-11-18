@@ -535,7 +535,7 @@ def main():
 
         # Convert preset to HardwareSpec format
         from graphs.hardware.database import HardwareSpec
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         # Map preset device type
         device_type = 'gpu' if preset['device'] == 'cuda' else preset['device']
@@ -571,7 +571,7 @@ def main():
             theoretical_peaks=preset['theoretical_peaks'],
             mapper=mapper_info,
             data_source="preset",
-            last_updated=datetime.utcnow().isoformat() + "Z"
+            last_updated=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         )
 
     else:
