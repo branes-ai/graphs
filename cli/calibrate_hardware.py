@@ -540,17 +540,36 @@ def main():
         # Map preset device type
         device_type = 'gpu' if preset['device'] == 'cuda' else preset['device']
 
+        # Create consolidated blocks for preset
+        system_info = {
+            "vendor": "Unknown",
+            "model": preset['name'],
+            "architecture": "Unknown",
+            "device_type": device_type,
+            "platform": preset['platform'],
+            "os_compatibility": ["linux", "windows", "macos"],
+            "isa_extensions": [],
+            "special_features": []
+        }
+
+        memory_subsystem = {
+            "total_size_gb": 0,
+            "peak_bandwidth_gbps": preset['peak_bandwidth'],
+            "memory_channels": []
+        }
+
+        mapper_info = {
+            "mapper_class": "GPUMapper" if device_type == 'gpu' else "CPUMapper",
+            "mapper_config": {},
+            "hints": {}
+        }
+
         hardware_spec = HardwareSpec(
             id=args.preset.replace('-', '_'),
-            vendor="Unknown",
-            model=preset['name'],
-            architecture="Unknown",
-            device_type=device_type,
-            platform=preset['platform'],
-            peak_bandwidth_gbps=preset['peak_bandwidth'],
+            system=system_info,
+            memory_subsystem=memory_subsystem,
             theoretical_peaks=preset['theoretical_peaks'],
-            mapper_class="GPUMapper" if device_type == 'gpu' else "CPUMapper",
-            mapper_config={},
+            mapper=mapper_info,
             data_source="preset",
             last_updated=datetime.utcnow().isoformat() + "Z"
         )

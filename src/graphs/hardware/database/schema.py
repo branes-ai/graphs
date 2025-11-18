@@ -2321,8 +2321,10 @@ class HardwareSpec:
         if self.memory_subsystem:
             if isinstance(self.memory_subsystem, dict):
                 # New format: dict with total_size_gb, peak_bandwidth_gbps, memory_channels
-                if 'total_size_gb' not in self.memory_subsystem or self.memory_subsystem['total_size_gb'] <= 0:
-                    errors.append("memory_subsystem: total_size_gb must be specified and positive")
+                if 'total_size_gb' not in self.memory_subsystem:
+                    errors.append("memory_subsystem: total_size_gb must be specified")
+                elif self.memory_subsystem['total_size_gb'] < 0:
+                    errors.append("memory_subsystem: total_size_gb cannot be negative")
 
                 if 'peak_bandwidth_gbps' not in self.memory_subsystem or self.memory_subsystem['peak_bandwidth_gbps'] <= 0:
                     errors.append("memory_subsystem: peak_bandwidth_gbps must be specified and positive")

@@ -14,6 +14,7 @@ Usage:
 import sys
 import argparse
 from pathlib import Path
+from datetime import datetime
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -101,37 +102,58 @@ def migrate_preset(preset_id: str, preset_data: dict) -> HardwareSpec:
         cores = 6
         threads = 6
 
-    # Create HardwareSpec
+    # Create consolidated blocks
+
+    # Block 1: System information
+    system_info = {
+        "vendor": vendor,
+        "model": preset_data.get('name', preset_id),
+        "architecture": "Unknown",  # Not in preset data, needs manual entry
+        "device_type": device_type,
+        "platform": preset_data.get('platform', 'x86_64'),
+        "os_compatibility": ["linux", "windows", "macos"],
+        "isa_extensions": [],
+        "special_features": [],
+        "notes": f"Migrated from cli/calibrate_hardware.py preset '{preset_id}'"
+    }
+
+    # Block 2: Core information
+    core_info = None
+    if cores:
+        core_info = {
+            "cores": cores,
+            "threads": threads if threads else cores
+        }
+
+    # Block 3: Memory subsystem
+    memory_subsystem = {
+        "total_size_gb": 0,
+        "peak_bandwidth_gbps": preset_data.get('peak_bandwidth', 0.0),
+        "memory_channels": []
+    }
+
+    # Block 4: Mapper
+    mapper_info = {
+        "mapper_class": "GPUMapper" if device_type == 'gpu' else "CPUMapper",
+        "mapper_config": {},
+        "hints": {}
+    }
+
+    # Create HardwareSpec with consolidated blocks
     spec = HardwareSpec(
         id=normalized_id,
-        vendor=vendor,
-        model=preset_data.get('name', preset_id),
-        architecture="Unknown",  # Not in preset data, needs manual entry
-        device_type=device_type,
-        platform=preset_data.get('platform', 'x86_64'),
 
-        # Detection (will need refinement)
+        system=system_info,
         detection_patterns=[preset_data.get('name', preset_id)],
-        os_compatibility=["linux", "windows", "macos"],
 
-        # Core specs
-        cores=cores,
-        threads=threads,
-
-        # Memory
-        memory_type="DDR5" if device_type == 'cpu' else "Unknown",
-        peak_bandwidth_gbps=preset_data.get('peak_bandwidth', 0.0),
-
-        # Performance
+        core_info=core_info,
+        memory_subsystem=memory_subsystem,
         theoretical_peaks=preset_data.get('theoretical_peaks', {}),
 
-        # Mapper
-        mapper_class="GPUMapper" if device_type == 'gpu' else "CPUMapper",
-        mapper_config={},
+        mapper=mapper_info,
 
-        # Metadata
         data_source="migrated",
-        notes=f"Migrated from cli/calibrate_hardware.py preset '{preset_id}'"
+        last_updated=datetime.utcnow().isoformat() + "Z"
     )
 
     return spec
