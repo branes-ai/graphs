@@ -174,6 +174,12 @@ def interactive_add_hardware(db: HardwareDatabase) -> HardwareSpec:
         cuda_cores = prompt_int("CUDA cores (or compute units)")
         sms = prompt_int("SMs (streaming multiprocessors)")
         tensor_cores = prompt_int("Tensor cores")
+        rt_cores = prompt_int("RT cores (ray tracing, 0 if none)", default=0)
+
+        # NVIDIA GPUs need CUDA capability
+        cuda_capability = None
+        if vendor.upper() == "NVIDIA":
+            cuda_capability = prompt_optional("CUDA Compute Capability (e.g., 8.9, 8.7, 9.0)")
 
     base_frequency_ghz = prompt_float("Base frequency (GHz)")
     boost_frequency_ghz = prompt_float("Boost frequency (GHz)")
@@ -181,6 +187,7 @@ def interactive_add_hardware(db: HardwareDatabase) -> HardwareSpec:
 
     # Memory
     print("--- Memory Specifications ---")
+    memory_size_gb = prompt_float("Total memory size (GB)", default=0.0)
     memory_type = prompt_optional("Memory type (e.g., DDR5, HBM3, GDDR6X)")
     peak_bandwidth_gbps = prompt_float("Peak memory bandwidth (GB/s)")
     print()
@@ -236,50 +243,114 @@ def interactive_add_hardware(db: HardwareDatabase) -> HardwareSpec:
     notes = prompt_optional("Notes")
     print()
 
-    # Create HardwareSpec
+    # Create consolidated blocks
+
+    # Block 1: System information
+    system_info = {
+        "vendor": vendor,
+        "model": model,
+        "architecture": architecture or "Unknown",
+        "device_type": device_type,
+        "platform": platform,
+        "os_compatibility": ["linux", "windows", "macos"],
+        "isa_extensions": isa_extensions if isa_extensions else [],
+        "special_features": [],
+        "tdp_watts": tdp_watts,
+        "max_power_watts": max_power_watts,
+        "release_date": release_date,
+        "manufacturer_url": manufacturer_url,
+        "notes": notes
+    }
+
+    # Block 2: Core information
+    core_info = {}
+    if device_type == 'cpu':
+        core_info = {
+            "cores": cores,
+            "threads": threads,
+            "base_frequency_ghz": base_frequency_ghz,
+            "boost_frequency_ghz": boost_frequency_ghz,
+        }
+        if e_cores:
+            core_info["e_cores"] = e_cores
+    elif device_type == 'gpu':
+        core_info = {
+            "cores": cuda_cores if cuda_cores else 0,
+            "threads": 0,  # Will be calculated from SMs
+            "base_frequency_ghz": base_frequency_ghz,
+            "boost_frequency_ghz": boost_frequency_ghz,
+            "total_cuda_cores": cuda_cores if cuda_cores else 0,
+            "total_tensor_cores": tensor_cores if tensor_cores else 0,
+            "total_sms": sms if sms else 0,
+            "total_rt_cores": rt_cores if rt_cores else 0,
+        }
+        if cuda_capability:
+            core_info["cuda_capability"] = cuda_capability
+
+    # Block 3: Memory subsystem (basic - needs manual enhancement for channels)
+    memory_subsystem = None
+    if peak_bandwidth_gbps:
+        memory_subsystem = {
+            "total_size_gb": memory_size_gb if memory_size_gb else 0.0,
+            "peak_bandwidth_gbps": peak_bandwidth_gbps,
+            "memory_channels": []  # Needs manual entry for detailed channels
+        }
+
+    # Block 4: On-chip memory hierarchy
+    onchip_memory = None
+    cache_levels = []
+    if l1_cache_kb:
+        cache_levels.append({
+            "name": "L1 dcache",
+            "level": 1,
+            "cache_type": "data",
+            "scope": "per_core",
+            "size_per_unit_kb": l1_cache_kb,
+        })
+    if l2_cache_kb:
+        cache_levels.append({
+            "name": "L2",
+            "level": 2,
+            "cache_type": "unified",
+            "scope": "per_core" if device_type == 'cpu' else "shared",
+            "size_per_unit_kb": l2_cache_kb if device_type == 'cpu' else None,
+            "total_size_kb": l2_cache_kb if device_type == 'gpu' else None,
+        })
+    if l3_cache_kb:
+        cache_levels.append({
+            "name": "L3",
+            "level": 3,
+            "cache_type": "unified",
+            "scope": "shared",
+            "total_size_kb": l3_cache_kb,
+        })
+
+    if cache_levels:
+        onchip_memory = {"cache_levels": cache_levels}
+
+    # Block 5: Mapper configuration
+    mapper_info = {
+        "mapper_class": mapper_class,
+        "mapper_config": {},
+        "hints": {}
+    }
+
+    # Create HardwareSpec with consolidated blocks
     spec = HardwareSpec(
         id=hw_id,
-        vendor=vendor,
-        model=model,
-        architecture=architecture or "Unknown",
-        device_type=device_type,
-        platform=platform,
 
+        system=system_info,
         detection_patterns=detection_patterns,
-        os_compatibility=["linux", "windows", "macos"],
 
-        cores=cores,
-        threads=threads,
-        e_cores=e_cores,
-        base_frequency_ghz=base_frequency_ghz,
-        boost_frequency_ghz=boost_frequency_ghz,
-
-        cuda_cores=cuda_cores,
-        sms=sms,
-        tensor_cores=tensor_cores if device_type == 'gpu' else None,
-
-        memory_type=memory_type,
-        peak_bandwidth_gbps=peak_bandwidth_gbps or 0.0,
-
-        isa_extensions=isa_extensions,
+        core_info=core_info if core_info else None,
+        memory_subsystem=memory_subsystem,
         theoretical_peaks=theoretical_peaks,
+        onchip_memory_hierarchy=onchip_memory,
 
-        l1_cache_kb=l1_cache_kb,
-        l2_cache_kb=l2_cache_kb,
-        l3_cache_kb=l3_cache_kb,
-
-        tdp_watts=tdp_watts,
-        max_power_watts=max_power_watts,
-
-        release_date=release_date,
-        manufacturer_url=manufacturer_url,
-        notes=notes,
+        mapper=mapper_info,
 
         data_source="user",
-        last_updated=datetime.utcnow().isoformat() + "Z",
-
-        mapper_class=mapper_class,
-        mapper_config={}
+        last_updated=datetime.utcnow().isoformat() + "Z"
     )
 
     return spec
@@ -361,31 +432,65 @@ def add_from_detection(db: HardwareDatabase, detection_file: Path) -> bool:
             if value:
                 theoretical_peaks[prec] = value
 
-        # Create spec from detection
+        # Create consolidated blocks
+
+        # Block 1: System information
+        system_info = {
+            "vendor": cpu['vendor'],
+            "model": cpu['model_name'],
+            "architecture": cpu['architecture'],
+            "device_type": 'cpu',
+            "platform": detection['platform']['architecture'],
+            "os_compatibility": [detection['platform']['os']],
+            "isa_extensions": cpu.get('isa_extensions', []),
+            "special_features": []
+        }
+
+        # Block 2: Core information
+        core_info = {
+            "cores": cpu['cores'],
+            "threads": cpu['threads'],
+            "base_frequency_ghz": cpu.get('base_frequency_ghz'),
+            "boost_frequency_ghz": cpu.get('boost_frequency_ghz')
+        }
+
+        # Block 3: Memory subsystem
+        memory_subsystem = None
+        if peak_bandwidth_gbps:
+            memory_subsystem = {
+                "total_size_gb": 0,  # Unknown
+                "peak_bandwidth_gbps": peak_bandwidth_gbps,
+                "memory_channels": []
+            }
+
+        # Block 4: On-chip memory hierarchy (from detection if available)
+        onchip_memory = None
+        if cpu.get('cache_levels'):
+            onchip_memory = {"cache_levels": cpu['cache_levels']}
+
+        # Block 5: Mapper
+        mapper_info = {
+            "mapper_class": "CPUMapper",
+            "mapper_config": {},
+            "hints": {}
+        }
+
+        # Create spec from detection with consolidated blocks
         spec = HardwareSpec(
             id=hw_id,
-            vendor=cpu['vendor'],
-            model=cpu['model_name'],
-            architecture=cpu['architecture'],
-            device_type='cpu',
-            platform=detection['platform']['architecture'],
 
+            system=system_info,
             detection_patterns=[cpu['model_name']],
-            os_compatibility=[detection['platform']['os']],
 
-            cores=cpu['cores'],
-            threads=cpu['threads'],
-            base_frequency_ghz=cpu.get('base_frequency_ghz'),
-
-            peak_bandwidth_gbps=peak_bandwidth_gbps or 0.0,
-            isa_extensions=cpu.get('isa_extensions', []),
+            core_info=core_info,
+            memory_subsystem=memory_subsystem,
             theoretical_peaks=theoretical_peaks,
+            onchip_memory_hierarchy=onchip_memory,
+
+            mapper=mapper_info,
 
             data_source="detected",
-            last_updated=datetime.utcnow().isoformat() + "Z",
-
-            mapper_class="CPUMapper",
-            mapper_config={}
+            last_updated=datetime.utcnow().isoformat() + "Z"
         )
 
         # Validate
