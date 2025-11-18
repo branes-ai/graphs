@@ -52,15 +52,16 @@ class DetectedCPU:
     e_cores: Optional[int] = None  # Efficiency cores (for hybrid CPUs)
     isa_extensions: List[str] = field(default_factory=list)
 
-    # Cache information
-    l1_data_cache_kb: Optional[int] = None
-    l1_instruction_cache_kb: Optional[int] = None
+    # Cache information (on-chip memory hierarchy)
+    l1_dcache_kb: Optional[int] = None
+    l1_icache_kb: Optional[int] = None
     l2_cache_kb: Optional[int] = None
     l3_cache_kb: Optional[int] = None
     l1_cache_line_size_bytes: Optional[int] = None
     l2_cache_line_size_bytes: Optional[int] = None
     l3_cache_line_size_bytes: Optional[int] = None
-    l1_cache_associativity: Optional[int] = None
+    l1_dcache_associativity: Optional[int] = None
+    l1_icache_associativity: Optional[int] = None
     l2_cache_associativity: Optional[int] = None
     l3_cache_associativity: Optional[int] = None
 
@@ -73,6 +74,27 @@ class DetectedGPU:
     memory_gb: Optional[int] = None
     cuda_capability: Optional[str] = None
     driver_version: Optional[str] = None
+
+
+@dataclass
+class DetectedMemoryChannel:
+    """Detected memory channel/DIMM information"""
+    name: str
+    type: str  # "ddr4", "ddr5", "lpddr5x", etc.
+    size_gb: float
+    speed_mts: int  # MT/s (e.g., 5600)
+    rank_count: Optional[int] = None
+    ecc_enabled: Optional[bool] = None
+    physical_position: Optional[int] = None
+    locator: Optional[str] = None  # e.g., "Channel 0", "DIMM_A1"
+
+
+@dataclass
+class DetectedMemory:
+    """Memory detection result"""
+    total_gb: float
+    channels: List[DetectedMemoryChannel] = field(default_factory=list)
+    numa_nodes: Optional[int] = None
 
 
 class HardwareDetector:
@@ -571,9 +593,9 @@ class HardwareDetector:
 
         # Extract cache sizes (convert from bytes to KB)
         if 'l1_data_cache_size' in cpu_info:
-            cache_info['l1_data_cache_kb'] = cpu_info['l1_data_cache_size'] // 1024
+            cache_info['l1_dcache_kb'] = cpu_info['l1_data_cache_size'] // 1024
         if 'l1_instruction_cache_size' in cpu_info:
-            cache_info['l1_instruction_cache_kb'] = cpu_info['l1_instruction_cache_size'] // 1024
+            cache_info['l1_icache_kb'] = cpu_info['l1_instruction_cache_size'] // 1024
         if 'l2_cache_size' in cpu_info:
             cache_info['l2_cache_kb'] = cpu_info['l2_cache_size'] // 1024
         if 'l3_cache_size' in cpu_info:
@@ -593,7 +615,9 @@ class HardwareDetector:
 
         # Try to extract L1 and L3 associativity if available
         if 'l1_cache_associativity' in cpu_info:
-            cache_info['l1_cache_associativity'] = cpu_info['l1_cache_associativity']
+            # Apply to both dcache and icache (most CPUs have same associativity)
+            cache_info['l1_dcache_associativity'] = cpu_info['l1_cache_associativity']
+            cache_info['l1_icache_associativity'] = cpu_info['l1_cache_associativity']
         if 'l3_cache_associativity' in cpu_info:
             cache_info['l3_cache_associativity'] = cpu_info['l3_cache_associativity']
 
@@ -915,6 +939,142 @@ class HardwareDetector:
 
         # No match
         return 0.0
+
+    # ========================================================================
+    # Memory Detection
+    # ========================================================================
+
+    def detect_memory(self) -> Optional[DetectedMemory]:
+        """
+        Detect system memory configuration.
+
+        On Linux, uses dmidecode to get detailed DIMM information.
+        On other platforms, falls back to psutil for total memory only.
+
+        Returns:
+            DetectedMemory instance or None if detection fails
+        """
+        if self.os_type == 'linux':
+            return self._detect_memory_linux()
+        else:
+            return self._detect_memory_fallback()
+
+    def _detect_memory_linux(self) -> Optional[DetectedMemory]:
+        """Detect memory using dmidecode on Linux (requires sudo)"""
+        try:
+            # Run dmidecode to get memory info
+            result = subprocess.run(
+                ['sudo', 'dmidecode', '-t', 'memory'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                # Fall back to psutil if dmidecode fails
+                return self._detect_memory_fallback()
+
+            output = result.stdout
+
+            # Parse dmidecode output
+            channels = []
+            current_dimm = {}
+            channel_idx = 0
+
+            for line in output.split('\n'):
+                line = line.strip()
+
+                # Size field
+                if line.startswith('Size:'):
+                    size_str = line.split(':', 1)[1].strip()
+                    if 'MB' in size_str:
+                        size_mb = int(size_str.split()[0])
+                        current_dimm['size_gb'] = size_mb / 1024.0
+                    elif 'GB' in size_str:
+                        size_gb = int(size_str.split()[0])
+                        current_dimm['size_gb'] = size_gb
+                    elif 'No Module Installed' not in size_str:
+                        # Skip empty slots
+                        continue
+
+                # Type field
+                elif line.startswith('Type:') and 'size_gb' in current_dimm:
+                    mem_type = line.split(':', 1)[1].strip().lower()
+                    if mem_type != 'unknown':
+                        current_dimm['type'] = mem_type
+
+                # Speed field (in MT/s)
+                elif line.startswith('Configured Memory Speed:') and 'size_gb' in current_dimm:
+                    speed_str = line.split(':', 1)[1].strip()
+                    if 'MT/s' in speed_str:
+                        speed = int(speed_str.split()[0])
+                        current_dimm['speed_mts'] = speed
+
+                # Locator field
+                elif line.startswith('Locator:') and 'size_gb' in current_dimm:
+                    locator = line.split(':', 1)[1].strip()
+                    current_dimm['locator'] = locator
+
+                # Rank field
+                elif line.startswith('Rank:') and 'size_gb' in current_dimm:
+                    rank_str = line.split(':', 1)[1].strip()
+                    if rank_str.isdigit():
+                        current_dimm['rank_count'] = int(rank_str)
+
+                # ECC detection
+                elif line.startswith('Error Correction Type:'):
+                    ecc_type = line.split(':', 1)[1].strip()
+                    current_dimm['ecc_enabled'] = (ecc_type != 'None')
+
+                # End of a memory device entry - save it
+                elif line == '' and current_dimm and 'size_gb' in current_dimm and 'type' in current_dimm:
+                    # Create a DetectedMemoryChannel
+                    name = current_dimm.get('locator', f'Channel {channel_idx}')
+                    channel = DetectedMemoryChannel(
+                        name=name,
+                        type=current_dimm['type'],
+                        size_gb=current_dimm['size_gb'],
+                        speed_mts=current_dimm.get('speed_mts', 0),
+                        rank_count=current_dimm.get('rank_count'),
+                        ecc_enabled=current_dimm.get('ecc_enabled'),
+                        physical_position=channel_idx,
+                        locator=current_dimm.get('locator')
+                    )
+                    channels.append(channel)
+                    channel_idx += 1
+                    current_dimm = {}
+
+            # Calculate total memory
+            total_gb = sum(ch.size_gb for ch in channels)
+
+            if total_gb > 0 and channels:
+                return DetectedMemory(
+                    total_gb=total_gb,
+                    channels=channels
+                )
+            else:
+                # Fall back if dmidecode parsing failed
+                return self._detect_memory_fallback()
+
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            # dmidecode not available or failed, fall back
+            return self._detect_memory_fallback()
+
+    def _detect_memory_fallback(self) -> Optional[DetectedMemory]:
+        """Fallback memory detection using psutil (total memory only)"""
+        if not PSUTIL_AVAILABLE:
+            return None
+
+        try:
+            mem_info = psutil.virtual_memory()
+            total_gb = mem_info.total / (1024 ** 3)
+
+            return DetectedMemory(
+                total_gb=total_gb,
+                channels=[]  # No detailed channel info available
+            )
+        except Exception:
+            return None
 
     # ========================================================================
     # Full Auto-Detection

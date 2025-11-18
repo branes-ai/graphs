@@ -14,6 +14,155 @@ from datetime import datetime
 
 
 @dataclass
+class MemorySubsystem:
+    """
+    Description of a memory channel, stack, or bank in the memory subsystem.
+
+    Handles diverse memory architectures:
+    - CPU: DDR4/DDR5 channels with DIMMs
+    - GPU Datacenter: HBM2e/HBM3 stacks
+    - GPU Consumer: GDDR6/GDDR6X controllers
+    - Mobile/Embedded: LPDDR4/LPDDR5 channels
+    - Grace Hopper: LPDDR5X with ECC and NUMA
+    """
+
+    name: str
+    """
+    Memory channel/stack/bank identifier.
+    CPU: "Channel 0", "Channel 1", "Channel 2", "Channel 3"
+    GPU HBM: "HBM Stack 0", "HBM Stack 1", "HBM Stack 2"
+    GPU GDDR: "GDDR Bank 0", "GDDR Bank 1"
+    Mobile: "LPDDR Channel 0", "LPDDR Channel 1"
+    """
+
+    type: str
+    """
+    Memory technology type.
+    Values: "ddr5", "ddr4", "hbm3", "hbm2e", "gddr6x", "gddr6", "lpddr5", "lpddr5x", "lpddr4x"
+    """
+
+    # Capacity
+    size_gb: float
+    """Memory size for this channel/stack/bank in GB"""
+
+    # Frequency and Data Rate
+    frequency_mhz: int
+    """Memory clock frequency in MHz (base clock)"""
+
+    data_rate_mts: int
+    """
+    Data rate in MT/s (megatransfers per second).
+    This is the effective transfer rate (double data rate).
+    """
+
+    # Bus Configuration
+    bus_width_bits: int
+    """
+    Memory bus width in bits.
+    - DDR4/DDR5: 64 bits per channel (72 with ECC)
+    - HBM: 1024 bits per stack
+    - GDDR6/GDDR6X: 32 bits per controller
+    - LPDDR: 32 bits per channel
+    """
+
+    # Bandwidth
+    bandwidth_gbps: float
+    """
+    Theoretical peak bandwidth for this channel/stack/bank in GB/s.
+    Formula: (data_rate_mts × bus_width_bits) / 8 / 1000
+    """
+
+    effective_bandwidth_gbps: Optional[float] = None
+    """
+    Effective bandwidth accounting for ECC overhead, protocol overhead, etc.
+    Typically 1-2% lower than theoretical for ECC, 5-10% for other overheads.
+    """
+
+    # NUMA and Topology
+    numa_node: Optional[int] = None
+    """
+    NUMA node this memory is attached to (CPU servers, Grace Hopper).
+    0-indexed. None for non-NUMA systems.
+    """
+
+    physical_position: Optional[int] = None
+    """
+    Physical position/index of this channel/stack/bank.
+    Useful for: HBM stack positions, memory controller mapping, thermal modeling.
+    0-indexed.
+    """
+
+    # CPU DDR-specific fields
+    dimm_slots: Optional[int] = None
+    """Number of DIMM slots available in this channel (CPU only)"""
+
+    dimms_populated: Optional[int] = None
+    """Number of DIMMs actually installed in this channel (CPU only)"""
+
+    dimm_size_gb: Optional[int] = None
+    """Size per DIMM in GB (CPU only). Total = dimms_populated × dimm_size_gb"""
+
+    ecc_enabled: Optional[bool] = None
+    """
+    Error Correcting Code (ECC) enabled.
+    CPU/Server: Typically optional (consumer: false, server: true)
+    Grace Hopper: true
+    """
+
+    rank_count: Optional[int] = None
+    """
+    Number of ranks per DIMM (CPU only).
+    1=single-rank, 2=dual-rank, 4=quad-rank
+    Higher rank can improve bandwidth but may limit speed/capacity.
+    """
+
+    # GPU HBM-specific fields
+    dies_per_stack: Optional[int] = None
+    """
+    Number of dies in an HBM stack (GPU HBM only).
+    HBM2e: typically 8 or 12 dies
+    HBM3: typically 8 or 16 dies
+    """
+
+    stack_height: Optional[int] = None
+    """Physical height of HBM stack in mm (GPU HBM only)"""
+
+    # Mobile/Embedded-specific
+    package_on_package: Optional[bool] = None
+    """
+    Package-on-Package (PoP) configuration (mobile/embedded).
+    Memory die stacked directly on SoC die.
+    """
+
+    def compute_effective_bandwidth(self, ecc_overhead: float = 0.02) -> float:
+        """
+        Compute effective bandwidth accounting for ECC overhead if enabled.
+
+        Args:
+            ecc_overhead: Overhead fraction (default 2% = 0.02)
+
+        Returns:
+            Effective bandwidth in GB/s
+        """
+        if self.effective_bandwidth_gbps is not None:
+            return self.effective_bandwidth_gbps
+
+        if self.ecc_enabled:
+            return self.bandwidth_gbps * (1.0 - ecc_overhead)
+
+        return self.bandwidth_gbps
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'MemorySubsystem':
+        """Create from dictionary (from JSON)"""
+        return cls(**data)
+
+
+@dataclass
 class CoreCluster:
     """
     Description of a homogeneous compute cluster (CPU cores or GPU SMs/CUs).
@@ -148,6 +297,63 @@ class CoreCluster:
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'CoreCluster':
+        """Create from dictionary (from JSON)"""
+        return cls(**data)
+
+
+@dataclass
+class OnChipMemoryHierarchy:
+    """
+    On-chip memory hierarchy (cache subsystem).
+
+    Organizes L1/L2/L3 cache configuration with separate tracking for
+    L1 data cache (dcache) and instruction cache (icache).
+    """
+
+    # L1 Data Cache
+    l1_dcache_kb: Optional[int] = None
+    """L1 data cache size in KB (per core or total, see notes)"""
+
+    l1_dcache_associativity: Optional[int] = None
+    """L1 data cache associativity (e.g., 8-way, 12-way)"""
+
+    # L1 Instruction Cache
+    l1_icache_kb: Optional[int] = None
+    """L1 instruction cache size in KB (per core or total, see notes)"""
+
+    l1_icache_associativity: Optional[int] = None
+    """L1 instruction cache associativity (e.g., 8-way)"""
+
+    # L1 Common
+    l1_cache_line_size_bytes: Optional[int] = None
+    """L1 cache line size in bytes (typically 64 bytes for modern CPUs)"""
+
+    # L2 Cache
+    l2_cache_kb: Optional[int] = None
+    """L2 cache size in KB (per core or total, see notes)"""
+
+    l2_cache_associativity: Optional[int] = None
+    """L2 cache associativity (e.g., 16-way, 20-way)"""
+
+    l2_cache_line_size_bytes: Optional[int] = None
+    """L2 cache line size in bytes (typically 64 bytes)"""
+
+    # L3 Cache
+    l3_cache_kb: Optional[int] = None
+    """L3 cache size in KB (typically shared, total capacity)"""
+
+    l3_cache_associativity: Optional[int] = None
+    """L3 cache associativity (e.g., 12-way, 16-way)"""
+
+    l3_cache_line_size_bytes: Optional[int] = None
+    """L3 cache line size in bytes (typically 64 bytes)"""
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'OnChipMemoryHierarchy':
         """Create from dictionary (from JSON)"""
         return cls(**data)
 
@@ -334,16 +540,88 @@ class HardwareSpec:
     # =========================================================================
 
     memory_type: str = "DDR4"
-    """Memory type: 'DDR5', 'DDR4', 'HBM3', 'HBM2e', 'LPDDR5', 'GDDR6X'"""
+    """
+    Memory technology type (primary/first channel).
+    DEPRECATED: Use memory_subsystem for detailed configuration.
+    """
 
     memory_channels: Optional[int] = None
-    """Number of memory channels"""
+    """
+    Number of memory channels/stacks/banks.
+    DEPRECATED: Use memory_subsystem array length instead.
+    """
 
     memory_bus_width: Optional[int] = None
-    """Memory bus width in bits"""
+    """
+    Total memory bus width in bits.
+    DEPRECATED: Use compute_total_bus_width_bits() with memory_subsystem.
+    """
 
     peak_bandwidth_gbps: float = 0.0
-    """Theoretical peak memory bandwidth in GB/s"""
+    """
+    Theoretical peak memory bandwidth in GB/s.
+    DEPRECATED: Use compute_total_bandwidth_gbps() with memory_subsystem.
+    """
+
+    memory_subsystem: Optional[List[Dict]] = None
+    """
+    Detailed memory subsystem configuration (channels/stacks/banks).
+
+    Each entry describes a memory channel (CPU DDR), HBM stack (GPU datacenter),
+    GDDR bank (GPU consumer), or LPDDR channel (mobile/embedded).
+
+    Example (CPU Dual-Channel DDR5):
+    [
+        {
+            "name": "Channel 0",
+            "type": "ddr5",
+            "size_gb": 32,
+            "frequency_mhz": 2400,
+            "data_rate_mts": 4800,
+            "bus_width_bits": 64,
+            "bandwidth_gbps": 38.4,
+            "dimm_slots": 2,
+            "dimms_populated": 2,
+            "dimm_size_gb": 16,
+            "ecc_enabled": false,
+            "numa_node": 0
+        },
+        {
+            "name": "Channel 1",
+            "type": "ddr5",
+            "size_gb": 32,
+            "frequency_mhz": 2400,
+            "data_rate_mts": 4800,
+            "bus_width_bits": 64,
+            "bandwidth_gbps": 38.4,
+            "dimm_slots": 2,
+            "dimms_populated": 2,
+            "dimm_size_gb": 16,
+            "ecc_enabled": false,
+            "numa_node": 0
+        }
+    ]
+
+    Example (GPU HBM3):
+    [
+        {
+            "name": "HBM Stack 0",
+            "type": "hbm3",
+            "size_gb": 16,
+            "frequency_mhz": 2600,
+            "data_rate_mts": 5200,
+            "bus_width_bits": 1024,
+            "bandwidth_gbps": 665.6,
+            "dies_per_stack": 8,
+            "physical_position": 0
+        },
+        // ... stacks 1-4
+    ]
+
+    When memory_subsystem is specified, it is the authoritative source for
+    memory configuration. Legacy fields (memory_type, peak_bandwidth_gbps)
+    should be computed from memory_subsystem.
+    """
 
     # =========================================================================
     # ISA & FEATURES
@@ -394,41 +672,52 @@ class HardwareSpec:
     """
 
     # =========================================================================
-    # CACHE (CPU-specific)
+    # ON-CHIP MEMORY HIERARCHY (Cache Subsystem)
+    # =========================================================================
+
+    onchip_memory_hierarchy: Optional[Dict] = None
+    """
+    On-chip memory hierarchy (cache subsystem).
+    Contains L1 dcache/icache, L2, L3 configuration with sizes, associativity, line sizes.
+    Use get_onchip_memory_hierarchy() to access as OnChipMemoryHierarchy dataclass.
+    """
+
+    # DEPRECATED CACHE FIELDS (for backward compatibility)
+    # Use onchip_memory_hierarchy instead
     # =========================================================================
 
     l1_data_cache_kb: Optional[int] = None
-    """L1 data cache size in KB (total across all cores)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l1_dcache_kb"""
 
     l1_instruction_cache_kb: Optional[int] = None
-    """L1 instruction cache size in KB (total across all cores)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l1_icache_kb"""
 
     l1_cache_kb: Optional[int] = None
-    """L1 cache size in KB (deprecated: use l1_data_cache_kb + l1_instruction_cache_kb)"""
+    """DEPRECATED: Use onchip_memory_hierarchy"""
 
     l2_cache_kb: Optional[int] = None
-    """L2 cache size in KB (total or per-core depending on architecture)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l2_cache_kb"""
 
     l3_cache_kb: Optional[int] = None
-    """L3 cache size in KB (shared across all cores)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l3_cache_kb"""
 
     l1_cache_line_size_bytes: Optional[int] = None
-    """L1 cache line size in bytes (typically 64)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l1_cache_line_size_bytes"""
 
     l2_cache_line_size_bytes: Optional[int] = None
-    """L2 cache line size in bytes (typically 64 or 128)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l2_cache_line_size_bytes"""
 
     l3_cache_line_size_bytes: Optional[int] = None
-    """L3 cache line size in bytes (typically 64 or 128)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l3_cache_line_size_bytes"""
 
     l1_cache_associativity: Optional[int] = None
-    """L1 cache associativity (n-way set associative)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l1_dcache_associativity or l1_icache_associativity"""
 
     l2_cache_associativity: Optional[int] = None
-    """L2 cache associativity (n-way set associative)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l2_cache_associativity"""
 
     l3_cache_associativity: Optional[int] = None
-    """L3 cache associativity (n-way set associative)"""
+    """DEPRECATED: Use onchip_memory_hierarchy.l3_cache_associativity"""
 
     # =========================================================================
     # POWER
@@ -499,7 +788,66 @@ class HardwareSpec:
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'HardwareSpec':
-        """Create from dictionary (from JSON)"""
+        """
+        Create from dictionary (from JSON).
+
+        Handles backward compatibility by migrating old cache fields to onchip_memory_hierarchy.
+        """
+        # Make a copy to avoid mutating the input
+        data = data.copy()
+
+        # Migrate old cache fields to onchip_memory_hierarchy if not already present
+        if 'onchip_memory_hierarchy' not in data or data['onchip_memory_hierarchy'] is None:
+            # Check if any old cache fields are present
+            old_cache_fields = [
+                'l1_data_cache_kb', 'l1_instruction_cache_kb', 'l1_cache_kb',
+                'l2_cache_kb', 'l3_cache_kb',
+                'l1_cache_line_size_bytes', 'l2_cache_line_size_bytes', 'l3_cache_line_size_bytes',
+                'l1_cache_associativity', 'l2_cache_associativity', 'l3_cache_associativity'
+            ]
+
+            has_old_fields = any(data.get(field) is not None for field in old_cache_fields)
+
+            if has_old_fields:
+                # Migrate to new structure
+                onchip = {}
+
+                # L1 dcache (data cache)
+                if data.get('l1_data_cache_kb') is not None:
+                    onchip['l1_dcache_kb'] = data['l1_data_cache_kb']
+
+                # L1 icache (instruction cache)
+                if data.get('l1_instruction_cache_kb') is not None:
+                    onchip['l1_icache_kb'] = data['l1_instruction_cache_kb']
+
+                # L1 associativity (apply to both dcache and icache for now)
+                if data.get('l1_cache_associativity') is not None:
+                    onchip['l1_dcache_associativity'] = data['l1_cache_associativity']
+                    onchip['l1_icache_associativity'] = data['l1_cache_associativity']
+
+                # L1 cache line size
+                if data.get('l1_cache_line_size_bytes') is not None:
+                    onchip['l1_cache_line_size_bytes'] = data['l1_cache_line_size_bytes']
+
+                # L2 cache
+                if data.get('l2_cache_kb') is not None:
+                    onchip['l2_cache_kb'] = data['l2_cache_kb']
+                if data.get('l2_cache_associativity') is not None:
+                    onchip['l2_cache_associativity'] = data['l2_cache_associativity']
+                if data.get('l2_cache_line_size_bytes') is not None:
+                    onchip['l2_cache_line_size_bytes'] = data['l2_cache_line_size_bytes']
+
+                # L3 cache
+                if data.get('l3_cache_kb') is not None:
+                    onchip['l3_cache_kb'] = data['l3_cache_kb']
+                if data.get('l3_cache_associativity') is not None:
+                    onchip['l3_cache_associativity'] = data['l3_cache_associativity']
+                if data.get('l3_cache_line_size_bytes') is not None:
+                    onchip['l3_cache_line_size_bytes'] = data['l3_cache_line_size_bytes']
+
+                if onchip:
+                    data['onchip_memory_hierarchy'] = onchip
+
         return cls(**data)
 
     def to_json(self, filepath: Path):
@@ -639,6 +987,121 @@ class HardwareSpec:
             return sum(cluster.total_rt_cores() for cluster in self.get_core_clusters())
         return self.rt_cores or 0
 
+    def get_memory_subsystem(self) -> List['MemorySubsystem']:
+        """
+        Get memory subsystem as MemorySubsystem objects.
+
+        Returns:
+            List of MemorySubsystem objects, or empty list if not specified
+        """
+        if not self.memory_subsystem:
+            return []
+
+        return [MemorySubsystem.from_dict(mem) for mem in self.memory_subsystem]
+
+    def has_memory_subsystem(self) -> bool:
+        """
+        Check if detailed memory subsystem is specified.
+
+        Returns:
+            True if memory_subsystem is specified, False otherwise
+        """
+        return self.memory_subsystem is not None and len(self.memory_subsystem) > 0
+
+    def get_onchip_memory_hierarchy(self) -> Optional['OnChipMemoryHierarchy']:
+        """
+        Get on-chip memory hierarchy (cache configuration) as OnChipMemoryHierarchy object.
+
+        Returns:
+            OnChipMemoryHierarchy object, or None if not specified
+        """
+        if not self.onchip_memory_hierarchy:
+            return None
+
+        return OnChipMemoryHierarchy.from_dict(self.onchip_memory_hierarchy)
+
+    def has_onchip_memory_hierarchy(self) -> bool:
+        """
+        Check if on-chip memory hierarchy is specified.
+
+        Returns:
+            True if onchip_memory_hierarchy is specified, False otherwise
+        """
+        return self.onchip_memory_hierarchy is not None
+
+    def compute_total_memory_gb(self) -> float:
+        """
+        Compute total memory capacity from subsystem.
+
+        Returns:
+            Total memory in GB
+        """
+        if self.has_memory_subsystem():
+            return sum(mem.size_gb for mem in self.get_memory_subsystem())
+        return 0.0
+
+    def compute_total_bandwidth_gbps(self) -> float:
+        """
+        Compute total memory bandwidth from subsystem.
+
+        Returns:
+            Total theoretical bandwidth in GB/s
+        """
+        if self.has_memory_subsystem():
+            return sum(mem.bandwidth_gbps for mem in self.get_memory_subsystem())
+        return self.peak_bandwidth_gbps
+
+    def compute_total_effective_bandwidth_gbps(self) -> float:
+        """
+        Compute total effective memory bandwidth accounting for ECC overhead.
+
+        Returns:
+            Total effective bandwidth in GB/s
+        """
+        if self.has_memory_subsystem():
+            return sum(mem.compute_effective_bandwidth() for mem in self.get_memory_subsystem())
+        return self.peak_bandwidth_gbps
+
+    def compute_total_bus_width_bits(self) -> int:
+        """
+        Compute total memory bus width from subsystem.
+
+        Returns:
+            Total bus width in bits
+        """
+        if self.has_memory_subsystem():
+            return sum(mem.bus_width_bits for mem in self.get_memory_subsystem())
+        return self.memory_bus_width or 0
+
+    def get_numa_nodes(self) -> List[int]:
+        """
+        Get list of NUMA nodes present in memory subsystem.
+
+        Returns:
+            Sorted list of unique NUMA node IDs
+        """
+        if not self.has_memory_subsystem():
+            return []
+
+        numa_nodes = set()
+        for mem in self.get_memory_subsystem():
+            if mem.numa_node is not None:
+                numa_nodes.add(mem.numa_node)
+
+        return sorted(numa_nodes)
+
+    def has_ecc_memory(self) -> bool:
+        """
+        Check if any memory channel has ECC enabled.
+
+        Returns:
+            True if at least one channel has ECC enabled
+        """
+        if not self.has_memory_subsystem():
+            return False
+
+        return any(mem.ecc_enabled for mem in self.get_memory_subsystem() if mem.ecc_enabled is not None)
+
     def validate(self) -> List[str]:
         """
         Validate hardware spec for completeness and correctness.
@@ -693,13 +1156,66 @@ class HardwareSpec:
                     "Update threads to match cluster total or remove it."
                 )
 
+        # Validate memory_subsystem if specified
+        if self.memory_subsystem:
+            for i, mem_dict in enumerate(self.memory_subsystem):
+                try:
+                    mem = MemorySubsystem.from_dict(mem_dict)
+                    if not mem.name:
+                        errors.append(f"memory_subsystem[{i}]: Missing name")
+                    if not mem.type:
+                        errors.append(f"memory_subsystem[{i}]: Missing type")
+                    if mem.size_gb <= 0:
+                        errors.append(f"memory_subsystem[{i}]: size_gb must be positive")
+                    if mem.bandwidth_gbps <= 0:
+                        errors.append(f"memory_subsystem[{i}]: bandwidth_gbps must be positive")
+                except Exception as e:
+                    errors.append(f"memory_subsystem[{i}]: Invalid memory configuration: {e}")
+
+            # Check for uniform configuration within same NUMA node (no asymmetric)
+            # Channels on same NUMA node should have same size and type
+            # Channels on different NUMA nodes can differ (e.g., Grace Hopper)
+            mem_configs = self.get_memory_subsystem()
+            if len(mem_configs) > 1:
+                # Group by NUMA node
+                numa_groups = {}
+                for mem in mem_configs:
+                    numa_node = mem.numa_node if mem.numa_node is not None else 0
+                    if numa_node not in numa_groups:
+                        numa_groups[numa_node] = []
+                    numa_groups[numa_node].append(mem)
+
+                # Check uniformity within each NUMA node
+                for numa_node, mems in numa_groups.items():
+                    if len(mems) > 1:
+                        first_mem = mems[0]
+                        for mem in mems[1:]:
+                            if mem.type != first_mem.type:
+                                errors.append(
+                                    f"Asymmetric memory configuration on NUMA node {numa_node}: "
+                                    f"{mem.name} type ({mem.type}) differs from {first_mem.name} ({first_mem.type}). "
+                                    f"Memory controllers down-configure mixed types."
+                                )
+                            if mem.size_gb != first_mem.size_gb:
+                                errors.append(
+                                    f"Asymmetric memory configuration on NUMA node {numa_node}: "
+                                    f"{mem.name} size ({mem.size_gb}GB) differs from {first_mem.name} ({first_mem.size_gb}GB). "
+                                    f"Consider using uniform memory sizes."
+                                )
+                            if mem.data_rate_mts != first_mem.data_rate_mts:
+                                errors.append(
+                                    f"Asymmetric memory configuration on NUMA node {numa_node}: "
+                                    f"{mem.name} speed ({mem.data_rate_mts}MT/s) differs from {first_mem.name} ({first_mem.data_rate_mts}MT/s). "
+                                    f"Memory controller will down-configure to lowest speed."
+                                )
+
         # Theoretical peaks should have at least fp32
         if not self.theoretical_peaks or 'fp32' not in self.theoretical_peaks:
             errors.append("theoretical_peaks must include 'fp32'")
 
-        # Peak bandwidth should be positive
-        if self.peak_bandwidth_gbps <= 0:
-            errors.append("peak_bandwidth_gbps must be positive")
+        # Peak bandwidth should be positive (if not using memory_subsystem)
+        if not self.has_memory_subsystem() and self.peak_bandwidth_gbps <= 0:
+            errors.append("peak_bandwidth_gbps must be positive (or use memory_subsystem)")
 
         # Mapper class should be specified
         if not self.mapper_class:

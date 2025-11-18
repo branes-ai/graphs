@@ -75,23 +75,23 @@ def detect_and_create_spec(
     print()
 
     # Cache information
-    if cpu.l1_data_cache_kb or cpu.l2_cache_kb or cpu.l3_cache_kb:
+    if cpu.l1_dcache_kb or cpu.l2_cache_kb or cpu.l3_cache_kb:
         print(f"  Cache Information:")
 
         # L1 Data Cache
-        if cpu.l1_data_cache_kb:
-            l1d_parts = [f"{cpu.l1_data_cache_kb} KB"]
-            if cpu.l1_cache_associativity:
-                l1d_parts.append(f"{cpu.l1_cache_associativity}-way")
+        if cpu.l1_dcache_kb:
+            l1d_parts = [f"{cpu.l1_dcache_kb} KB"]
+            if cpu.l1_dcache_associativity:
+                l1d_parts.append(f"{cpu.l1_dcache_associativity}-way")
             if cpu.l1_cache_line_size_bytes:
                 l1d_parts.append(f"{cpu.l1_cache_line_size_bytes}-byte line")
             print(f"    L1 Data:       {', '.join(l1d_parts)}")
 
         # L1 Instruction Cache
-        if cpu.l1_instruction_cache_kb:
-            l1i_parts = [f"{cpu.l1_instruction_cache_kb} KB"]
-            if cpu.l1_cache_associativity:
-                l1i_parts.append(f"{cpu.l1_cache_associativity}-way")
+        if cpu.l1_icache_kb:
+            l1i_parts = [f"{cpu.l1_icache_kb} KB"]
+            if cpu.l1_icache_associativity:
+                l1i_parts.append(f"{cpu.l1_icache_associativity}-way")
             if cpu.l1_cache_line_size_bytes:
                 l1i_parts.append(f"{cpu.l1_cache_line_size_bytes}-byte line")
             print(f"    L1 Instr:      {', '.join(l1i_parts)}")
@@ -238,6 +238,124 @@ def detect_and_create_spec(
                         pass
         print()
 
+    # Detect memory configuration
+    print("=" * 80)
+    print("Memory Detection")
+    print("=" * 80)
+    print()
+
+    memory = detector.detect_memory()
+    memory_subsystem = None
+    memory_type = "DDR4"  # default
+
+    if memory and memory.channels:
+        print(f"✓ Detected {len(memory.channels)} memory channel(s):")
+        memory_type = memory.channels[0].type.upper()
+
+        # Display detected memory
+        for ch in memory.channels:
+            print(f"  {ch.name}: {ch.size_gb:.0f} GB {ch.type.upper()}-{ch.speed_mts}")
+        print(f"  Total: {memory.total_gb:.0f} GB")
+        print()
+
+        # Generate memory_subsystem from detected channels
+        memory_subsystem = []
+        channel_map = {}  # Map controller to channels
+
+        for ch in memory.channels:
+            # Extract channel number from locator (e.g., "Controller0-DIMM1" -> controller 0)
+            controller_num = 0
+            if ch.locator and 'Controller' in ch.locator:
+                try:
+                    controller_num = int(ch.locator.split('Controller')[1].split('-')[0])
+                except (IndexError, ValueError):
+                    pass
+
+            # Group by controller to identify channels
+            if controller_num not in channel_map:
+                channel_map[controller_num] = []
+            channel_map[controller_num].append(ch)
+
+        # Create memory_subsystem entries per channel (controller)
+        for controller_num, dimms in sorted(channel_map.items()):
+            # Calculate per-channel bandwidth
+            # Bandwidth (GB/s) = (MT/s * bus_width_bits) / 8 / 1000
+            # DDR typically has 64-bit bus per channel
+            speed_mts = dimms[0].speed_mts
+            bus_width_bits = 64
+            bandwidth_gbps = (speed_mts * bus_width_bits) / 8 / 1000
+
+            # Sum memory size for this channel
+            channel_size_gb = sum(d.size_gb for d in dimms)
+
+            # Determine how many DIMM slots (assume 2 per channel is common)
+            dimm_slots = 2
+            dimms_populated = len(dimms)
+
+            memory_subsystem.append({
+                "name": f"Channel {controller_num}",
+                "type": dimms[0].type,
+                "size_gb": channel_size_gb,
+                "frequency_mhz": speed_mts // 2,  # MT/s to MHz (DDR = double data rate)
+                "data_rate_mts": speed_mts,
+                "bus_width_bits": bus_width_bits,
+                "bandwidth_gbps": bandwidth_gbps,
+                "dimm_slots": dimm_slots,
+                "dimms_populated": dimms_populated,
+                "dimm_size_gb": dimms[0].size_gb,
+                "ecc_enabled": dimms[0].ecc_enabled if dimms[0].ecc_enabled is not None else False,
+                "rank_count": dimms[0].rank_count,
+                "numa_node": 0,  # Default to NUMA node 0 for consumer CPUs
+                "physical_position": controller_num
+            })
+
+        # Calculate total bandwidth
+        if bandwidth_override is None:
+            peak_bandwidth_gbps = sum(ch["bandwidth_gbps"] for ch in memory_subsystem)
+            print(f"Calculated peak bandwidth: {peak_bandwidth_gbps:.1f} GB/s")
+            print()
+
+    elif memory:
+        print(f"✓ Detected {memory.total_gb:.0f} GB total memory (no detailed channel info)")
+        print()
+    else:
+        print("✗ Could not detect memory configuration")
+        print()
+
+    # Generate core_clusters for heterogeneous CPUs (P/E-cores)
+    core_clusters = None
+    if cpu.e_cores and cpu.e_cores > 0:
+        # This is a heterogeneous CPU (e.g., Intel 12th gen+ with P/E-cores)
+        p_cores = cpu.cores - cpu.e_cores
+        e_cores = cpu.e_cores
+
+        print(f"✓ Detected heterogeneous CPU: {p_cores} P-cores + {e_cores} E-cores")
+        print()
+
+        # Create core clusters
+        # Note: We don't have individual frequencies for P vs E cores from detection,
+        # so we use the base frequency as a starting point
+        core_clusters = [
+            {
+                "name": "Performance Cores",
+                "type": "performance",
+                "count": p_cores,
+                "architecture": cpu.architecture,
+                "base_frequency_ghz": cpu.base_frequency_ghz,
+                "has_hyperthreading": True,  # P-cores typically have HT
+                "simd_width_bits": 256 if 'AVX2' in cpu.isa_extensions else 128
+            },
+            {
+                "name": "Efficiency Cores",
+                "type": "efficiency",
+                "count": e_cores,
+                "architecture": cpu.architecture,
+                "base_frequency_ghz": cpu.base_frequency_ghz,  # May be lower in reality
+                "has_hyperthreading": False,  # E-cores typically don't have HT
+                "simd_width_bits": 128  # E-cores have more limited SIMD
+            }
+        ]
+
     # Create HardwareSpec
     spec = HardwareSpec(
         id=hw_id,
@@ -255,21 +373,29 @@ def detect_and_create_spec(
         e_cores=cpu.e_cores,
         base_frequency_ghz=cpu.base_frequency_ghz,
 
+        # New structured fields
+        core_clusters=core_clusters,
+        memory_subsystem=memory_subsystem,
+        memory_type=memory_type,
+
         peak_bandwidth_gbps=peak_bandwidth_gbps,
         isa_extensions=cpu.isa_extensions,
         theoretical_peaks=theoretical_peaks,
 
-        # Cache information
-        l1_data_cache_kb=cpu.l1_data_cache_kb,
-        l1_instruction_cache_kb=cpu.l1_instruction_cache_kb,
-        l2_cache_kb=cpu.l2_cache_kb,
-        l3_cache_kb=cpu.l3_cache_kb,
-        l1_cache_line_size_bytes=cpu.l1_cache_line_size_bytes,
-        l2_cache_line_size_bytes=cpu.l2_cache_line_size_bytes,
-        l3_cache_line_size_bytes=cpu.l3_cache_line_size_bytes,
-        l1_cache_associativity=cpu.l1_cache_associativity,
-        l2_cache_associativity=cpu.l2_cache_associativity,
-        l3_cache_associativity=cpu.l3_cache_associativity,
+        # On-chip memory hierarchy (cache subsystem)
+        onchip_memory_hierarchy={
+            "l1_dcache_kb": cpu.l1_dcache_kb,
+            "l1_icache_kb": cpu.l1_icache_kb,
+            "l1_dcache_associativity": cpu.l1_dcache_associativity,
+            "l1_icache_associativity": cpu.l1_icache_associativity,
+            "l1_cache_line_size_bytes": cpu.l1_cache_line_size_bytes,
+            "l2_cache_kb": cpu.l2_cache_kb,
+            "l2_cache_associativity": cpu.l2_cache_associativity,
+            "l2_cache_line_size_bytes": cpu.l2_cache_line_size_bytes,
+            "l3_cache_kb": cpu.l3_cache_kb,
+            "l3_cache_associativity": cpu.l3_cache_associativity,
+            "l3_cache_line_size_bytes": cpu.l3_cache_line_size_bytes,
+        },
 
         data_source="detected" + (" + calibrated" if with_calibration else ""),
         last_updated=datetime.utcnow().isoformat() + "Z",
