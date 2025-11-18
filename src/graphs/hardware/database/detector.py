@@ -49,10 +49,12 @@ class DetectedCPU:
     cores: int
     threads: int
     base_frequency_ghz: Optional[float] = None
+    boost_frequency_ghz: Optional[float] = None
     e_cores: Optional[int] = None  # Efficiency cores (for hybrid CPUs)
     isa_extensions: List[str] = field(default_factory=list)
 
     # Cache information (on-chip memory hierarchy)
+    # Simple fields for backward compatibility
     l1_dcache_kb: Optional[int] = None
     l1_icache_kb: Optional[int] = None
     l2_cache_kb: Optional[int] = None
@@ -64,6 +66,9 @@ class DetectedCPU:
     l1_icache_associativity: Optional[int] = None
     l2_cache_associativity: Optional[int] = None
     l3_cache_associativity: Optional[int] = None
+
+    # Structured cache_levels
+    cache_levels: Optional[List[Dict]] = None
 
 
 @dataclass
@@ -201,11 +206,34 @@ class HardwareDetector:
         # Get frequency from psutil
         freq = psutil.cpu_freq()
         base_frequency_ghz = None
+        boost_frequency_ghz = None
         if freq:
-            # Use current frequency, or max if current not available
-            freq_mhz = freq.current if freq.current else freq.max
-            if freq_mhz:
-                base_frequency_ghz = freq_mhz / 1000.0
+            # Use current frequency as base
+            if freq.current:
+                base_frequency_ghz = freq.current / 1000.0
+            # Use max frequency as boost
+            if freq.max:
+                boost_frequency_ghz = freq.max / 1000.0
+
+        # On Linux, try to get more accurate frequencies from lscpu
+        if self.os_type == 'linux':
+            try:
+                result = subprocess.run(
+                    ['lscpu'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'CPU max MHz:' in line:
+                            max_mhz = float(line.split(':')[1].strip())
+                            boost_frequency_ghz = max_mhz / 1000.0
+                        elif 'CPU min MHz:' in line and base_frequency_ghz is None:
+                            min_mhz = float(line.split(':')[1].strip())
+                            # Don't use min as base; keep current from psutil
+            except Exception:
+                pass  # Fallback to psutil values
 
         # Extract ISA extensions from flags
         flags = cpu_info.get('flags', [])
@@ -224,6 +252,7 @@ class HardwareDetector:
             cores=cores,
             threads=threads,
             base_frequency_ghz=base_frequency_ghz,
+            boost_frequency_ghz=boost_frequency_ghz,
             e_cores=e_cores,
             isa_extensions=isa_extensions,
             **cache_info
@@ -620,6 +649,60 @@ class HardwareDetector:
             cache_info['l1_icache_associativity'] = cpu_info['l1_cache_associativity']
         if 'l3_cache_associativity' in cpu_info:
             cache_info['l3_cache_associativity'] = cpu_info['l3_cache_associativity']
+
+        # Build cache_levels structure
+        cache_levels = []
+
+        # L1 dcache - per_core
+        if cache_info.get('l1_dcache_kb'):
+            cache_levels.append({
+                "name": "L1 dcache",
+                "level": 1,
+                "cache_type": "data",
+                "scope": "per_core",
+                "size_per_unit_kb": cache_info['l1_dcache_kb'],
+                "associativity": cache_info.get('l1_dcache_associativity'),
+                "line_size_bytes": cache_info.get('l1_cache_line_size_bytes')
+            })
+
+        # L1 icache - per_core
+        if cache_info.get('l1_icache_kb'):
+            cache_levels.append({
+                "name": "L1 icache",
+                "level": 1,
+                "cache_type": "instruction",
+                "scope": "per_core",
+                "size_per_unit_kb": cache_info['l1_icache_kb'],
+                "associativity": cache_info.get('l1_icache_associativity'),
+                "line_size_bytes": cache_info.get('l1_cache_line_size_bytes')
+            })
+
+        # L2 - per_core (modern CPUs)
+        if cache_info.get('l2_cache_kb'):
+            cache_levels.append({
+                "name": "L2",
+                "level": 2,
+                "cache_type": "unified",
+                "scope": "per_core",
+                "size_per_unit_kb": cache_info['l2_cache_kb'],
+                "associativity": cache_info.get('l2_cache_associativity'),
+                "line_size_bytes": cache_info.get('l2_cache_line_size_bytes')
+            })
+
+        # L3 - shared (LLC)
+        if cache_info.get('l3_cache_kb'):
+            cache_levels.append({
+                "name": "L3",
+                "level": 3,
+                "cache_type": "unified",
+                "scope": "shared",
+                "total_size_kb": cache_info['l3_cache_kb'],
+                "associativity": cache_info.get('l3_cache_associativity'),
+                "line_size_bytes": cache_info.get('l3_cache_line_size_bytes')
+            })
+
+        if cache_levels:
+            cache_info['cache_levels'] = cache_levels
 
         return cache_info
 

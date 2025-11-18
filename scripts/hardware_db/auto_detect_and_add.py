@@ -22,7 +22,7 @@ from typing import Optional, Dict
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from graphs.hardware.database import HardwareDatabase, HardwareSpec
+from graphs.hardware.database import HardwareDatabase, HardwareSpec, REQUIRED_PRECISIONS
 from graphs.hardware.database.detector import HardwareDetector
 
 # Optional calibration support
@@ -71,7 +71,9 @@ def detect_and_create_spec(
     if cpu.e_cores:
         print(f"  E-cores:      {cpu.e_cores} (P-cores: {cpu.cores - cpu.e_cores})")
     if cpu.base_frequency_ghz:
-        print(f"  Frequency:    {cpu.base_frequency_ghz:.2f} GHz")
+        print(f"  Base Freq:    {cpu.base_frequency_ghz:.2f} GHz")
+    if cpu.boost_frequency_ghz:
+        print(f"  Boost Freq:   {cpu.boost_frequency_ghz:.2f} GHz")
     print()
 
     # Cache information
@@ -227,16 +229,33 @@ def detect_and_create_spec(
         # Optional: other precisions (only in interactive mode)
         if sys.stdin.isatty():
             print("Optional: Enter peaks for other precisions (press Enter to skip)")
-            for prec in ['fp64', 'fp16', 'int64', 'int32', 'int16', 'int8']:
+            for prec in ['fp64', 'fp16', 'bf16', 'int64', 'int32', 'int16', 'int8']:
                 value_input = input(f"  {prec} (GFLOPS/GIOPS): ").strip()
                 if value_input:
                     try:
                         value = float(value_input)
-                        if value > 0:
+                        if value >= 0:  # Allow 0 for unsupported precisions
                             theoretical_peaks[prec] = value
                     except ValueError:
                         pass
         print()
+
+    # Ensure ALL required precisions are present (set unsupported to 0.0)
+    print("Ensuring all required precisions are present...")
+    for precision in REQUIRED_PRECISIONS:
+        if precision not in theoretical_peaks:
+            theoretical_peaks[precision] = 0.0
+            print(f"  {precision}: 0.0 (not supported)")
+
+    print()
+    print("Final theoretical peaks:")
+    for prec in REQUIRED_PRECISIONS:
+        value = theoretical_peaks[prec]
+        if value > 0:
+            print(f"  {prec}: {value:.1f}")
+        else:
+            print(f"  {prec}: 0.0 (not supported)")
+    print()
 
     # Detect memory configuration
     print("=" * 80)
@@ -259,7 +278,7 @@ def detect_and_create_spec(
         print()
 
         # Generate memory_subsystem from detected channels
-        memory_subsystem = []
+        memory_channels = []
         channel_map = {}  # Map controller to channels
 
         for ch in memory.channels:
@@ -276,7 +295,7 @@ def detect_and_create_spec(
                 channel_map[controller_num] = []
             channel_map[controller_num].append(ch)
 
-        # Create memory_subsystem entries per channel (controller)
+        # Create memory channel entries
         for controller_num, dimms in sorted(channel_map.items()):
             # Calculate per-channel bandwidth
             # Bandwidth (GB/s) = (MT/s * bus_width_bits) / 8 / 1000
@@ -292,7 +311,7 @@ def detect_and_create_spec(
             dimm_slots = 2
             dimms_populated = len(dimms)
 
-            memory_subsystem.append({
+            memory_channels.append({
                 "name": f"Channel {controller_num}",
                 "type": dimms[0].type,
                 "size_gb": channel_size_gb,
@@ -309,11 +328,23 @@ def detect_and_create_spec(
                 "physical_position": controller_num
             })
 
-        # Calculate total bandwidth
-        if bandwidth_override is None:
-            peak_bandwidth_gbps = sum(ch["bandwidth_gbps"] for ch in memory_subsystem)
-            print(f"Calculated peak bandwidth: {peak_bandwidth_gbps:.1f} GB/s")
-            print()
+        # Calculate totals
+        total_memory_gb = sum(ch["size_gb"] for ch in memory_channels)
+        total_bandwidth_gbps = sum(ch["bandwidth_gbps"] for ch in memory_channels)
+
+        if bandwidth_override is not None:
+            total_bandwidth_gbps = bandwidth_override
+
+        # Create consolidated memory_subsystem structure
+        memory_subsystem = {
+            "total_size_gb": total_memory_gb,
+            "peak_bandwidth_gbps": total_bandwidth_gbps,
+            "memory_channels": memory_channels
+        }
+
+        print(f"Total memory: {total_memory_gb:.0f} GB")
+        print(f"Peak bandwidth: {total_bandwidth_gbps:.1f} GB/s")
+        print()
 
     elif memory:
         print(f"✓ Detected {memory.total_gb:.0f} GB total memory (no detailed channel info)")
@@ -322,8 +353,14 @@ def detect_and_create_spec(
         print("✗ Could not detect memory configuration")
         print()
 
-    # Generate core_clusters for heterogeneous CPUs (P/E-cores)
-    core_clusters = None
+    # Generate core_info with core_clusters for heterogeneous CPUs (P/E-cores)
+    core_info = {
+        "cores": cpu.cores,
+        "threads": cpu.threads,
+        "base_frequency_ghz": cpu.base_frequency_ghz,
+        "boost_frequency_ghz": cpu.boost_frequency_ghz,
+    }
+
     if cpu.e_cores and cpu.e_cores > 0:
         # This is a heterogeneous CPU (e.g., Intel 12th gen+ with P/E-cores)
         p_cores = cpu.cores - cpu.e_cores
@@ -334,14 +371,15 @@ def detect_and_create_spec(
 
         # Create core clusters
         # Note: We don't have individual frequencies for P vs E cores from detection,
-        # so we use the base frequency as a starting point
-        core_clusters = [
+        # so we use the same frequencies for both (may be lower for E-cores in reality)
+        core_info["core_clusters"] = [
             {
                 "name": "Performance Cores",
                 "type": "performance",
                 "count": p_cores,
                 "architecture": cpu.architecture,
                 "base_frequency_ghz": cpu.base_frequency_ghz,
+                "boost_frequency_ghz": cpu.boost_frequency_ghz,
                 "has_hyperthreading": True,  # P-cores typically have HT
                 "simd_width_bits": 256 if 'AVX2' in cpu.isa_extensions else 128
             },
@@ -351,57 +389,59 @@ def detect_and_create_spec(
                 "count": e_cores,
                 "architecture": cpu.architecture,
                 "base_frequency_ghz": cpu.base_frequency_ghz,  # May be lower in reality
+                "boost_frequency_ghz": cpu.boost_frequency_ghz,  # May be lower in reality
                 "has_hyperthreading": False,  # E-cores typically don't have HT
                 "simd_width_bits": 128  # E-cores have more limited SIMD
             }
         ]
 
+    # Create consolidated system info
+    system_info = {
+        "vendor": cpu.vendor,
+        "model": cpu.model_name,
+        "architecture": cpu.architecture,
+        "device_type": "cpu",
+        "platform": detector.platform_arch,
+        "os_compatibility": [detector.os_type],
+        "isa_extensions": cpu.isa_extensions,
+        "special_features": [],
+    }
+
+    # Create consolidated mapper info
+    mapper_info = {
+        "mapper_class": "CPUMapper",
+        "mapper_config": {}
+    }
+
     # Create HardwareSpec
     spec = HardwareSpec(
         id=hw_id,
-        vendor=cpu.vendor,
-        model=cpu.model_name,
-        architecture=cpu.architecture,
-        device_type='cpu',
-        platform=detector.platform_arch,
+
+        # Consolidated system/platform information
+        system=system_info,
 
         detection_patterns=[cpu.model_name],
-        os_compatibility=[detector.os_type],
 
-        cores=cpu.cores,
-        threads=cpu.threads,
-        e_cores=cpu.e_cores,
-        base_frequency_ghz=cpu.base_frequency_ghz,
+        # Consolidated core information
+        core_info=core_info,
 
-        # New structured fields
-        core_clusters=core_clusters,
+        # Consolidated memory subsystem
         memory_subsystem=memory_subsystem,
-        memory_type=memory_type,
 
-        peak_bandwidth_gbps=peak_bandwidth_gbps,
-        isa_extensions=cpu.isa_extensions,
+        # Performance
         theoretical_peaks=theoretical_peaks,
 
         # On-chip memory hierarchy (cache subsystem)
+        # Only use cache_levels - the structured format
         onchip_memory_hierarchy={
-            "l1_dcache_kb": cpu.l1_dcache_kb,
-            "l1_icache_kb": cpu.l1_icache_kb,
-            "l1_dcache_associativity": cpu.l1_dcache_associativity,
-            "l1_icache_associativity": cpu.l1_icache_associativity,
-            "l1_cache_line_size_bytes": cpu.l1_cache_line_size_bytes,
-            "l2_cache_kb": cpu.l2_cache_kb,
-            "l2_cache_associativity": cpu.l2_cache_associativity,
-            "l2_cache_line_size_bytes": cpu.l2_cache_line_size_bytes,
-            "l3_cache_kb": cpu.l3_cache_kb,
-            "l3_cache_associativity": cpu.l3_cache_associativity,
-            "l3_cache_line_size_bytes": cpu.l3_cache_line_size_bytes,
+            "cache_levels": cpu.cache_levels if cpu.cache_levels else [],
         },
 
-        data_source="detected" + (" + calibrated" if with_calibration else ""),
-        last_updated=datetime.utcnow().isoformat() + "Z",
+        # Consolidated mapper configuration
+        mapper=mapper_info,
 
-        mapper_class="CPUMapper",
-        mapper_config={}
+        data_source="detected" + (" + calibrated" if with_calibration else ""),
+        last_updated=datetime.utcnow().isoformat() + "Z"
     )
 
     return spec
@@ -512,17 +552,29 @@ Examples:
         print("Review Hardware Specification")
         print("=" * 80)
         print(f"ID:       {spec.id}")
-        print(f"Vendor:   {spec.vendor}")
-        print(f"Model:    {spec.model}")
-        print(f"Type:     {spec.device_type}")
-        print(f"Platform: {spec.platform}")
-        if spec.cores:
-            print(f"Cores:    {spec.cores}")
+
+        # Get system info (consolidated fields)
+        system_info = spec.get_system_info()
+        if system_info:
+            print(f"Vendor:   {system_info.vendor}")
+            print(f"Model:    {system_info.model}")
+            print(f"Type:     {system_info.device_type}")
+            print(f"Platform: {system_info.platform}")
+
+        # Get core info (consolidated fields)
+        core_info = spec.get_core_info()
+        if core_info:
+            print(f"Cores:    {core_info.cores}")
+
         if spec.theoretical_peaks:
             peaks_str = ", ".join([f"{k}={v:.0f}" for k, v in list(spec.theoretical_peaks.items())[:3]])
             print(f"Peaks:    {peaks_str}")
-        if spec.peak_bandwidth_gbps:
-            print(f"Bandwidth: {spec.peak_bandwidth_gbps:.1f} GB/s")
+
+        # Get memory info (consolidated fields)
+        if spec.memory_subsystem and isinstance(spec.memory_subsystem, dict):
+            peak_bw = spec.memory_subsystem.get('peak_bandwidth_gbps')
+            if peak_bw:
+                print(f"Bandwidth: {peak_bw:.1f} GB/s")
         print()
 
         # Dry run?
@@ -551,8 +603,13 @@ Examples:
                 print(f"  1. Review and edit the JSON file: {output_path}")
                 print(f"  2. Fix any issues (e.g., cache line size)")
                 print(f"  3. Move to database:")
-                print(f"     mkdir -p {args.db}/{spec.device_type}/{spec.vendor.lower().replace(' ', '_')}")
-                print(f"     mv {output_path} {args.db}/{spec.device_type}/{spec.vendor.lower().replace(' ', '_')}/{spec.id}.json")
+                # Get system info for path construction
+                system_info = spec.get_system_info()
+                if system_info:
+                    vendor_dir = system_info.vendor.lower().replace(' ', '_')
+                    device_dir = system_info.device_type
+                    print(f"     mkdir -p {args.db}/{device_dir}/{vendor_dir}")
+                    print(f"     mv {output_path} {args.db}/{device_dir}/{vendor_dir}/{spec.id}.json")
                 print(f"  4. Verify: python scripts/hardware_db/query_hardware.py --id {spec.id}")
                 return 0
             except Exception as e:
