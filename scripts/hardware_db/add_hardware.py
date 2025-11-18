@@ -14,7 +14,7 @@ import sys
 import json
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -350,7 +350,7 @@ def interactive_add_hardware(db: HardwareDatabase) -> HardwareSpec:
         mapper=mapper_info,
 
         data_source="user",
-        last_updated=datetime.utcnow().isoformat() + "Z"
+        last_updated=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     )
 
     return spec
@@ -490,7 +490,7 @@ def add_from_detection(db: HardwareDatabase, detection_file: Path) -> bool:
             mapper=mapper_info,
 
             data_source="detected",
-            last_updated=datetime.utcnow().isoformat() + "Z"
+            last_updated=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         )
 
         # Validate
