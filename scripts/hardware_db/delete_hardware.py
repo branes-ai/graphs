@@ -61,7 +61,9 @@ def main():
     print(f"  Model:    {spec.model}")
     print(f"  Type:     {spec.device_type}")
     print(f"  Platform: {spec.platform}")
-    print(f"  File:     {db._get_spec_path(spec)}")
+    spec_file = db._find_spec_file(spec.id)
+    if spec_file:
+        print(f"  File:     {spec_file}")
     print()
 
     # Confirm deletion

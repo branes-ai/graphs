@@ -14,6 +14,145 @@ from datetime import datetime
 
 
 @dataclass
+class CoreCluster:
+    """
+    Description of a homogeneous compute cluster (CPU cores or GPU SMs/CUs).
+
+    Used for:
+    - CPU: Heterogeneous cores (Intel P/E-cores, ARM big.LITTLE)
+    - GPU: Streaming Multiprocessors (NVIDIA SMs), Compute Units (AMD CUs), Xe-cores (Intel)
+
+    The same structure handles both CPU and GPU hierarchies.
+    """
+
+    name: str
+    """
+    Cluster name.
+    CPU: 'P-core', 'E-core', 'Big', 'Little', 'Medium', 'Prime'
+    GPU: 'SM', 'CU', 'Xe-core', 'EU'
+    """
+
+    type: str
+    """
+    Cluster type.
+    CPU: 'performance', 'efficiency', 'balanced'
+    GPU: 'data_parallel', 'compute', 'graphics', 'ray_tracing'
+    """
+
+    count: int
+    """
+    Number of clusters.
+    CPU: Number of cores in this cluster (e.g., 8 P-cores)
+    GPU: Number of SMs/CUs (e.g., 132 SMs)
+    """
+
+    architecture: Optional[str] = None
+    """
+    Microarchitecture name.
+    CPU: 'Golden Cove', 'Gracemont', 'Cortex-X3', 'Cortex-A510'
+    GPU: 'Ada', 'Ampere', 'RDNA 3', 'Xe-HPG'
+    """
+
+    base_frequency_ghz: Optional[float] = None
+    """Base frequency for this cluster in GHz"""
+
+    boost_frequency_ghz: Optional[float] = None
+    """Maximum boost/turbo frequency for this cluster in GHz"""
+
+    # CPU-specific fields
+    has_hyperthreading: Optional[bool] = None
+    """Whether cores support SMT/Hyper-Threading (CPU only)"""
+
+    simd_width_bits: Optional[int] = None
+    """SIMD width in bits (CPU: 256 for AVX2, 512 for AVX512; GPU: N/A)"""
+
+    # GPU-specific fields (per SM/CU)
+    cuda_cores_per_cluster: Optional[int] = None
+    """CUDA cores per SM (NVIDIA) or Stream Processors per CU (AMD)"""
+
+    tensor_cores_per_cluster: Optional[int] = None
+    """Tensor Cores per SM (NVIDIA) or Matrix Cores per CU (AMD)"""
+
+    rt_cores_per_cluster: Optional[int] = None
+    """RT cores per SM (NVIDIA RTX only)"""
+
+    max_threads_per_cluster: Optional[int] = None
+    """Maximum resident threads per SM/CU"""
+
+    max_warps_per_cluster: Optional[int] = None
+    """Maximum warps per SM (NVIDIA, 32 threads/warp) or wavefronts per CU (AMD, 64 threads/wave)"""
+
+    shared_memory_kb: Optional[int] = None
+    """Shared memory per SM/CU in KB"""
+
+    register_file_kb: Optional[int] = None
+    """Register file size per SM/CU in KB"""
+
+    l1_cache_kb: Optional[int] = None
+    """L1 cache per SM/CU in KB (may be shared with shared memory)"""
+
+    def threads_per_core(self) -> int:
+        """
+        Calculate threads per core (CPU only).
+
+        Returns 2 if hyperthreading, 1 otherwise.
+        For GPUs, use max_threads_per_cluster instead.
+        """
+        if self.has_hyperthreading is None:
+            return 1
+        return 2 if self.has_hyperthreading else 1
+
+    def total_threads(self) -> int:
+        """
+        Calculate total hardware threads for this cluster.
+
+        CPU: count × threads_per_core
+        GPU: count × max_threads_per_cluster
+        """
+        if self.max_threads_per_cluster is not None:
+            # GPU: total threads = SMs × threads per SM
+            return self.count * self.max_threads_per_cluster
+        else:
+            # CPU: total threads = cores × (2 if HT else 1)
+            return self.count * self.threads_per_core()
+
+    def total_cuda_cores(self) -> int:
+        """Calculate total CUDA cores across all SMs/CUs in this cluster"""
+        if self.cuda_cores_per_cluster is not None:
+            return self.count * self.cuda_cores_per_cluster
+        return 0
+
+    def total_tensor_cores(self) -> int:
+        """Calculate total Tensor Cores across all SMs/CUs in this cluster"""
+        if self.tensor_cores_per_cluster is not None:
+            return self.count * self.tensor_cores_per_cluster
+        return 0
+
+    def total_rt_cores(self) -> int:
+        """Calculate total RT Cores across all SMs in this cluster"""
+        if self.rt_cores_per_cluster is not None:
+            return self.count * self.rt_cores_per_cluster
+        return 0
+
+    def is_cpu_cluster(self) -> bool:
+        """Check if this is a CPU core cluster"""
+        return self.type in ['performance', 'efficiency', 'balanced']
+
+    def is_gpu_cluster(self) -> bool:
+        """Check if this is a GPU SM/CU cluster"""
+        return self.type in ['data_parallel', 'compute', 'graphics', 'ray_tracing']
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CoreCluster':
+        """Create from dictionary (from JSON)"""
+        return cls(**data)
+
+
+@dataclass
 class HardwareSpec:
     """
     Complete hardware specification for database.
@@ -70,32 +209,122 @@ class HardwareSpec:
 
     # CPU/GPU Core Configuration
     cores: Optional[int] = None
-    """Physical cores (P-cores for hybrid CPUs)"""
+    """
+    Physical cores (total across all clusters).
+    For homogeneous CPUs, this is the simple core count.
+    For heterogeneous CPUs, this is P-cores + E-cores.
+    """
 
     threads: Optional[int] = None
-    """Hardware threads (with SMT/Hyper-Threading)"""
+    """Hardware threads (with SMT/Hyper-Threading, total across all clusters)"""
 
     e_cores: Optional[int] = None
-    """Efficiency cores (for hybrid CPUs like Alder Lake)"""
+    """
+    Efficiency cores (for hybrid CPUs like Alder Lake).
+    DEPRECATED: Use core_clusters for detailed heterogeneous specifications.
+    """
 
     base_frequency_ghz: Optional[float] = None
-    """Base/sustained frequency in GHz"""
+    """
+    Base/sustained frequency in GHz.
+    For heterogeneous CPUs, this is typically the P-core/Big core frequency.
+    For detailed per-cluster frequencies, use core_clusters.
+    """
 
     boost_frequency_ghz: Optional[float] = None
-    """Maximum boost/turbo frequency in GHz"""
+    """
+    Maximum boost/turbo frequency in GHz.
+    For heterogeneous CPUs, this is typically the maximum across all clusters.
+    For detailed per-cluster frequencies, use core_clusters.
+    """
 
-    # GPU-specific
+    core_clusters: Optional[List[Dict]] = None
+    """
+    Detailed core cluster specifications for heterogeneous CPUs.
+
+    Each cluster describes a homogeneous set of cores with same architecture,
+    frequency, and features. Used for Intel P/E-cores, ARM big.LITTLE, etc.
+
+    Example (Intel i7-12700K):
+    [
+        {
+            "name": "P-core",
+            "type": "performance",
+            "count": 8,
+            "architecture": "Golden Cove",
+            "base_frequency_ghz": 3.6,
+            "boost_frequency_ghz": 5.0,
+            "has_hyperthreading": true,
+            "simd_width_bits": 256
+        },
+        {
+            "name": "E-core",
+            "type": "efficiency",
+            "count": 4,
+            "architecture": "Gracemont",
+            "base_frequency_ghz": 2.7,
+            "boost_frequency_ghz": 3.8,
+            "has_hyperthreading": false,
+            "simd_width_bits": 256
+        }
+    ]
+
+    Example (ARM big.LITTLE - Snapdragon):
+    [
+        {
+            "name": "Prime",
+            "type": "performance",
+            "count": 1,
+            "architecture": "Cortex-X3",
+            "base_frequency_ghz": 2.0,
+            "boost_frequency_ghz": 3.2
+        },
+        {
+            "name": "Performance",
+            "type": "performance",
+            "count": 3,
+            "architecture": "Cortex-A715",
+            "base_frequency_ghz": 1.8,
+            "boost_frequency_ghz": 2.8
+        },
+        {
+            "name": "Efficiency",
+            "type": "efficiency",
+            "count": 4,
+            "architecture": "Cortex-A510",
+            "base_frequency_ghz": 1.0,
+            "boost_frequency_ghz": 2.0
+        }
+    ]
+
+    When core_clusters is specified, it should be considered the authoritative
+    source for core configuration, with cores/threads being computed totals.
+    """
+
+    # GPU-specific (DEPRECATED - use core_clusters instead)
     cuda_cores: Optional[int] = None
-    """CUDA cores (NVIDIA GPUs)"""
+    """
+    Total CUDA cores (NVIDIA GPUs).
+    DEPRECATED: Use core_clusters with cuda_cores_per_cluster instead.
+    """
 
     tensor_cores: Optional[int] = None
-    """Tensor cores for matrix ops (NVIDIA)"""
+    """
+    Total Tensor cores for matrix ops (NVIDIA).
+    DEPRECATED: Use core_clusters with tensor_cores_per_cluster instead.
+    """
 
     sms: Optional[int] = None
-    """Streaming Multiprocessors (NVIDIA) or Compute Units (AMD)"""
+    """
+    Number of Streaming Multiprocessors (NVIDIA) or Compute Units (AMD).
+    DEPRECATED: Use core_clusters with count instead.
+    """
 
     rt_cores: Optional[int] = None
-    """Ray Tracing cores (NVIDIA RTX)"""
+    """
+    Total Ray Tracing cores (NVIDIA RTX).
+    DEPRECATED: Use core_clusters with rt_cores_per_cluster instead.
+    """
 
     cuda_capability: Optional[str] = None
     """CUDA compute capability: '8.9', '9.0'"""
@@ -168,14 +397,38 @@ class HardwareSpec:
     # CACHE (CPU-specific)
     # =========================================================================
 
+    l1_data_cache_kb: Optional[int] = None
+    """L1 data cache size in KB (total across all cores)"""
+
+    l1_instruction_cache_kb: Optional[int] = None
+    """L1 instruction cache size in KB (total across all cores)"""
+
     l1_cache_kb: Optional[int] = None
-    """L1 cache size in KB (per core or total)"""
+    """L1 cache size in KB (deprecated: use l1_data_cache_kb + l1_instruction_cache_kb)"""
 
     l2_cache_kb: Optional[int] = None
-    """L2 cache size in KB"""
+    """L2 cache size in KB (total or per-core depending on architecture)"""
 
     l3_cache_kb: Optional[int] = None
-    """L3 cache size in KB (shared)"""
+    """L3 cache size in KB (shared across all cores)"""
+
+    l1_cache_line_size_bytes: Optional[int] = None
+    """L1 cache line size in bytes (typically 64)"""
+
+    l2_cache_line_size_bytes: Optional[int] = None
+    """L2 cache line size in bytes (typically 64 or 128)"""
+
+    l3_cache_line_size_bytes: Optional[int] = None
+    """L3 cache line size in bytes (typically 64 or 128)"""
+
+    l1_cache_associativity: Optional[int] = None
+    """L1 cache associativity (n-way set associative)"""
+
+    l2_cache_associativity: Optional[int] = None
+    """L2 cache associativity (n-way set associative)"""
+
+    l3_cache_associativity: Optional[int] = None
+    """L3 cache associativity (n-way set associative)"""
 
     # =========================================================================
     # POWER
@@ -281,6 +534,111 @@ class HardwareSpec:
             data = json.load(f)
         return cls.from_dict(data)
 
+    def get_core_clusters(self) -> List[CoreCluster]:
+        """
+        Get core clusters as CoreCluster objects.
+
+        Returns:
+            List of CoreCluster objects, or empty list if not specified
+        """
+        if not self.core_clusters:
+            return []
+
+        return [CoreCluster.from_dict(cluster) for cluster in self.core_clusters]
+
+    def has_heterogeneous_cores(self) -> bool:
+        """
+        Check if this CPU has heterogeneous core architecture.
+
+        Returns:
+            True if core_clusters is specified, False otherwise
+        """
+        return self.core_clusters is not None and len(self.core_clusters) > 0
+
+    def compute_total_cores(self) -> int:
+        """
+        Compute total core count from clusters or use cores field.
+
+        Returns:
+            Total number of physical cores
+        """
+        if self.has_heterogeneous_cores():
+            return sum(cluster.count for cluster in self.get_core_clusters())
+        return self.cores or 0
+
+    def compute_total_threads(self) -> int:
+        """
+        Compute total thread count from clusters or use threads field.
+
+        Returns:
+            Total number of hardware threads
+        """
+        if self.has_heterogeneous_cores():
+            return sum(cluster.total_threads() for cluster in self.get_core_clusters())
+        return self.threads or 0
+
+    def get_max_boost_frequency(self) -> Optional[float]:
+        """
+        Get maximum boost frequency across all clusters.
+
+        Returns:
+            Maximum boost frequency in GHz, or None if not specified
+        """
+        if self.has_heterogeneous_cores():
+            boost_freqs = [
+                cluster.boost_frequency_ghz
+                for cluster in self.get_core_clusters()
+                if cluster.boost_frequency_ghz is not None
+            ]
+            return max(boost_freqs) if boost_freqs else None
+        return self.boost_frequency_ghz
+
+    def compute_total_sms(self) -> int:
+        """
+        Compute total SM/CU count from clusters or use sms field.
+
+        Returns:
+            Total number of SMs/CUs
+        """
+        if self.has_heterogeneous_cores():
+            clusters = self.get_core_clusters()
+            gpu_clusters = [c for c in clusters if c.is_gpu_cluster()]
+            return sum(cluster.count for cluster in gpu_clusters)
+        return self.sms or 0
+
+    def compute_total_cuda_cores(self) -> int:
+        """
+        Compute total CUDA cores from clusters or use cuda_cores field.
+
+        Returns:
+            Total number of CUDA cores
+        """
+        if self.has_heterogeneous_cores():
+            return sum(cluster.total_cuda_cores() for cluster in self.get_core_clusters())
+        return self.cuda_cores or 0
+
+    def compute_total_tensor_cores(self) -> int:
+        """
+        Compute total Tensor Cores from clusters or use tensor_cores field.
+
+        Returns:
+            Total number of Tensor Cores
+        """
+        if self.has_heterogeneous_cores():
+            return sum(cluster.total_tensor_cores() for cluster in self.get_core_clusters())
+        return self.tensor_cores or 0
+
+    def compute_total_rt_cores(self) -> int:
+        """
+        Compute total RT Cores from clusters or use rt_cores field.
+
+        Returns:
+            Total number of RT Cores
+        """
+        if self.has_heterogeneous_cores():
+            return sum(cluster.total_rt_cores() for cluster in self.get_core_clusters())
+        return self.rt_cores or 0
+
     def validate(self) -> List[str]:
         """
         Validate hardware spec for completeness and correctness.
@@ -305,6 +663,35 @@ class HardwareSpec:
             errors.append("Missing required field: platform")
         if self.platform not in ['x86_64', 'aarch64', 'arm64']:
             errors.append(f"Invalid platform: {self.platform}")
+
+        # Validate core_clusters if specified
+        if self.core_clusters:
+            for i, cluster_dict in enumerate(self.core_clusters):
+                try:
+                    cluster = CoreCluster.from_dict(cluster_dict)
+                    if not cluster.name:
+                        errors.append(f"core_clusters[{i}]: Missing name")
+                    if not cluster.type:
+                        errors.append(f"core_clusters[{i}]: Missing type")
+                    if cluster.count <= 0:
+                        errors.append(f"core_clusters[{i}]: count must be positive")
+                except Exception as e:
+                    errors.append(f"core_clusters[{i}]: Invalid cluster definition: {e}")
+
+            # Check that cores/threads match cluster totals (if both specified)
+            computed_cores = self.compute_total_cores()
+            if self.cores and computed_cores != self.cores:
+                errors.append(
+                    f"cores ({self.cores}) doesn't match core_clusters total ({computed_cores}). "
+                    "Update cores to match cluster total or remove it."
+                )
+
+            computed_threads = self.compute_total_threads()
+            if self.threads and computed_threads != self.threads:
+                errors.append(
+                    f"threads ({self.threads}) doesn't match core_clusters total ({computed_threads}). "
+                    "Update threads to match cluster total or remove it."
+                )
 
         # Theoretical peaks should have at least fp32
         if not self.theoretical_peaks or 'fp32' not in self.theoretical_peaks:
