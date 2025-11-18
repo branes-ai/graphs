@@ -2,7 +2,159 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-11-13
+**Last Updated**: 2025-11-17
+
+---
+
+## [2025-11-17] - Hardware Database System (Phases 1-4 Complete)
+
+### Added
+
+- **Hardware Database Foundation** (Phase 1):
+  - JSON-based hardware specification database in `hardware_database/`
+  - `HardwareSpec` schema with 30+ fields (identity, detection, performance, architecture, metadata)
+  - `HardwareDatabase` manager with caching, validation, and query capabilities
+  - Directory structure: `cpu/{vendor}/`, `gpu/{vendor}/`, `accelerators/{vendor}/`
+  - 9 initial hardware specs migrated from PRESETS (4 CPUs, 4 GPUs, 1 TPU)
+  - JSON schema validation (`schema.json`)
+  - Files: `src/graphs/hardware/database/schema.py` (210 lines), `manager.py` (180 lines)
+
+- **Cross-Platform Hardware Detection** (Phase 2):
+  - `HardwareDetector` class with CPU/GPU auto-detection
+  - Cross-platform support via `psutil` and `py-cpuinfo` libraries
+  - Platform support: Linux, Windows, macOS (x86_64, aarch64, arm64)
+  - Hybrid CPU detection (P-cores + E-cores) using mathematical approach: `E_cores = 2*cores - threads`
+  - Pattern matching with confidence scoring (0-100%)
+  - Detection tool: `scripts/hardware_db/detect_hardware.py` (280 lines)
+  - Dependencies added to `pyproject.toml` and `requirements.txt`
+  - File: `src/graphs/hardware/database/detector.py` (450 lines)
+
+- **Management Tools** (Phase 3):
+  - `scripts/hardware_db/add_hardware.py` (434 lines): Interactive wizard for adding hardware
+  - `scripts/hardware_db/update_hardware.py` (266 lines): Update existing hardware specs
+  - `scripts/hardware_db/delete_hardware.py` (69 lines): Remove hardware from database
+  - `scripts/hardware_db/improve_patterns.py` (230 lines): Automatic pattern generation
+  - `scripts/hardware_db/list_hardware.py` (120 lines): List all hardware with filtering
+  - `scripts/hardware_db/query_hardware.py` (150 lines): Query by ID or criteria
+  - `scripts/hardware_db/validate_database.py` (100 lines): Schema validation
+  - `scripts/hardware_db/migrate_presets.py`: One-time migration from legacy PRESETS
+  - Applied pattern improvements to all 9 hardware specs (42 total patterns, avg 4.7 per hardware)
+
+- **Calibration Integration** (Phase 4):
+  - Auto-detection integrated with `cli/calibrate_hardware.py`
+  - `--preset` flag deprecated (backward compatible with warning)
+  - `--id` flag for database lookup
+  - Auto-detection now the default mode (no flags required)
+  - `scripts/hardware_db/compare_calibration.py` (273 lines): Compare theoretical vs measured performance
+  - Auto-identification from calibration filename
+  - Efficiency percentages by precision (fp64, fp32, fp16, int8, etc.)
+  - Performance recommendations (excellent ≥80%, good ≥50%, moderate ≥20%, low <20%)
+
+### Changed
+
+- **Calibration Workflow** (Breaking Change, Backward Compatible):
+  - Old: `./cli/calibrate_hardware.py --preset i7-12700k` (deprecated)
+  - New: `./cli/calibrate_hardware.py` (auto-detect) or `./cli/calibrate_hardware.py --id i7_12700k`
+  - `--preset` shows deprecation warning but still works
+  - Hardware specs now loaded from database instead of hardcoded PRESETS
+
+- **Hardware Detection Method**:
+  - Replaced platform-specific subprocess calls with cross-platform libraries
+  - psutil: cores/threads/frequency (Windows/Linux/macOS)
+  - py-cpuinfo: CPU model/vendor/ISA extensions (Windows/Linux/macOS)
+  - Platform-specific code only for specialized features (E-core refinement on Linux)
+
+### Fixed
+
+- **CPU Detection Accuracy**:
+  - Was reporting "20 cores, 20 threads" for i7-12700K (incorrect)
+  - Now reports "12 cores (8P + 4E), 20 threads" (correct)
+  - Root cause: Using `nproc --all` which returns logical CPUs, not physical cores
+  - Fixed by using cross-platform psutil and mathematical E-core detection
+
+- **Database Update Method**:
+  - `db.update(spec)` was broken (TypeError: unhashable type)
+  - Fixed by using `db.add(spec, overwrite=True)` pattern
+  - Applied to `update_hardware.py` and `improve_patterns.py`
+
+### Documentation
+
+- `hardware_database/README.md`: Database usage guide with calibration workflow
+- `scripts/hardware_db/README.md` (442 lines): Complete management tools guide
+- `docs/PHASE1_DATABASE_FOUNDATION.md`: Phase 1 implementation details
+- `docs/PHASE2_HARDWARE_DETECTION.md`: Phase 2 cross-platform detection
+- `docs/PHASE4_CALIBRATION_INTEGRATION.md`: Phase 4 calibration integration
+- `docs/HARDWARE_DATABASE_IMPLEMENTATION.md` (645 lines): Complete implementation summary
+- `docs/sessions/2025-11-17_hardware_database_implementation.md`: Session log
+
+### Migration Guide
+
+**For Users:**
+```bash
+# Old workflow (deprecated)
+./cli/calibrate_hardware.py --preset i7-12700k
+
+# New workflow (recommended)
+./cli/calibrate_hardware.py  # Auto-detect
+./cli/calibrate_hardware.py --id i7_12700k  # Explicit
+
+# Compare results
+python scripts/hardware_db/compare_calibration.py \
+    --calibration src/graphs/hardware/calibration/profiles/i7_12700k_numpy.json
+```
+
+**For Developers:**
+```python
+# Load hardware database
+from graphs.hardware.database import get_database
+
+db = get_database()
+db.load_all()
+
+# Query hardware
+hw_spec = db.get('i7_12700k')
+print(f"{hw_spec.model}: {hw_spec.theoretical_peaks['fp32']} GFLOPS")
+
+# Auto-detect
+from graphs.hardware.database.detector import HardwareDetector
+
+detector = HardwareDetector()
+results = detector.auto_detect(db)
+if results['cpu_matches']:
+    match = results['cpu_matches'][0]
+    print(f"Detected: {match.matched_spec.model} ({match.confidence*100:.0f}%)")
+```
+
+### Statistics
+
+- **Files Created**: 28 total
+  - 3 core modules (schema, manager, detector)
+  - 9 hardware JSON specs
+  - 9 management tools
+  - 7 documentation files
+- **Lines of Code**: ~2,800 lines
+- **Hardware Supported**: 9 specs (4 CPUs, 4 GPUs, 1 TPU)
+- **Detection Patterns**: 42 total (improved via automation)
+- **Platforms**: Windows, Linux, macOS
+
+### Benefits
+
+- ✅ Eliminates manual preset selection errors
+- ✅ Auto-detection removes guesswork (2-command workflow)
+- ✅ Maintainable (JSON specs, not Python code)
+- ✅ Extensible (easy to add new hardware)
+- ✅ Cross-platform (Windows, Linux, macOS)
+- ✅ Production-ready (backward compatible, error handling)
+
+### Future Enhancements (Phase 5)
+
+Planned for next release:
+1. Export calibration results directly to database
+2. Historical calibration tracking
+3. Multi-run calibration averaging
+4. Thermal/power profiling integration
+5. Complete removal of `--preset` flag
+6. Web-based visualization
 
 ---
 
