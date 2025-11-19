@@ -2,7 +2,99 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-11-17
+**Last Updated**: 2025-11-18
+
+---
+
+## [2025-11-18] - Hardware Database Schema Consolidation & GPU Auto-Detection
+
+### Added
+
+- **GPU Auto-Detection**:
+  - `detect_and_create_gpu_specs()` function in `auto_detect_and_add.py`
+  - Detects all NVIDIA GPUs via `nvidia-smi` (cross-platform Windows/Linux/macOS)
+  - Auto-infers architecture from model name (Hopper, Ada Lovelace, Ampere, Turing, Pascal, Volta)
+  - Detects Tensor Core capability from CUDA compute capability (≥7.0)
+  - Creates hardware specs with consolidated 5-block structure
+  - New CLI flags: `--detect-gpus` (CPU + GPUs), `--gpus-only` (skip CPU)
+  - Support for multiple GPU detection and batch JSON output
+  - Auto-detected fields: model name, VRAM size, CUDA capability, driver version, architecture
+  - Placeholder fields (require manual entry): SM count, CUDA cores, Tensor cores, RT cores, frequencies, theoretical peaks, cache hierarchy
+  - Test script: `test_gpu_detection.py` for quick GPU detection validation
+
+- **Consolidated Hardware Schema** (5-Block Structure):
+  - Migrated all hardware specs to new consolidated format
+  - Block 1: `system` - Vendor, model, architecture, device type, platform, ISA extensions, special features, TDP, release date, notes
+  - Block 2: `core_info` - Cores, threads, frequencies, core clusters (for heterogeneous CPUs/GPUs)
+  - Block 3: `memory_subsystem` - Total size, peak bandwidth, memory channels (with detailed channel info)
+  - Block 4: `onchip_memory_hierarchy` - Cache levels with structured metadata (level, type, scope, size, associativity, line size)
+  - Block 5: `mapper` - Mapper class, config, hints
+  - GPU-specific aggregate fields: `total_cuda_cores`, `total_tensor_cores`, `total_sms`, `total_rt_cores`, `cuda_capability`
+  - Backward compatibility: `from_dict()` auto-converts old scattered format
+  - Forward compatibility: `to_dict()` excludes deprecated fields
+  - Updated all Jetson Orin hardware files (Nano CPU/GPU, AGX CPU/GPU)
+
+### Fixed
+
+- **Windows Cache Detection Bug**:
+  - Root cause: Stale Python bytecode cache (`.pyc` files) from old detector code
+  - Windows was using cached old version even after source updates
+  - Solution: `pip install -e .` forces bytecode refresh
+  - Windows cache fallback now properly triggers when py-cpuinfo lacks cache SIZE fields
+  - Fixed condition from `if not cache_info` to `has_cache_sizes = any(key in cache_info for key in ['l1_dcache_kb', ...])`
+  - py-cpuinfo may return metadata (associativity, line size) but not sizes on Windows
+  - wmic fallback properly populates L2/L3 cache sizes on Windows
+  - `_extract_cache_info()` now builds `cache_levels` array correctly on all platforms
+  - Test script: `test_cache_extraction.py` for isolated cache detection testing
+  - Test script: `clear_cache_and_test.py` for bytecode cleanup and validation
+
+- **Auto-Detection Schema Compliance**:
+  - `auto_detect_and_add.py` was creating old scattered format on Windows
+  - Updated to use consolidated 5-block structure
+  - Fixed `add_hardware.py` interactive mode to use new schema
+  - Fixed `calibrate_hardware.py` preset handling to use new schema
+  - Fixed `migrate_presets.py` to use timezone-aware datetimes
+  - All HardwareSpec creation now uses consolidated blocks
+
+- **Schema Validation**:
+  - Changed `total_size_gb` validation from "must be positive" to "cannot be negative"
+  - Allows `total_size_gb: 0` for unknown memory configurations
+  - Auto-detection creates minimal `memory_subsystem` when detection fails
+  - Ensures `memory_subsystem` always present if bandwidth is known
+
+- **Jetson Orin AGX GPU Spec**:
+  - Fixed wrong field names: `cuda_cores` → `total_cuda_cores`, `tensor_cores` → `total_tensor_cores`, `sms` → `total_sms`
+  - Fixed wrong SM count: 128 → 16 (correct: 16 SMs × 128 cores/SM = 2048 total CUDA cores)
+  - Fixed wrong `total_sms`: 128 → 16
+  - Updated notes from "4× Nano" to "2× Nano" (correct performance ratio)
+  - Removed duplicate fields from inside cluster definition
+
+### Changed
+
+- **Datetime Handling**:
+  - Replaced deprecated `datetime.utcnow()` with `datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')`
+  - Updated in: `auto_detect_and_add.py`, `add_hardware.py`, `calibrate_hardware.py`, `migrate_presets.py`
+  - All timestamps now timezone-aware (UTC)
+
+- **Auto-Detection Workflow**:
+  - Now detects both CPU and GPU when `--detect-gpus` specified
+  - Processes multiple hardware specs in single run
+  - Batch JSON output: creates separate file per device
+  - Improved next-steps guidance for GPU completion (SM count, cores, calibration)
+  - Enhanced validation and review output for multiple devices
+
+### Documentation
+
+- Session log: `docs/sessions/2025-11-18_windows_cache_gpu_detection.md`
+- Updated CHANGELOG_RECENT.md with schema consolidation and GPU detection
+
+### Notes
+
+- Windows cache detection requires `pip install -e .` after code updates to clear bytecode cache
+- GPU auto-detection creates minimal valid specs that require manual completion
+- Recommended workflow: `--gpus-only -o .` → manually complete JSON → move to database
+- All new hardware specs use consolidated 5-block structure
+- Legacy scattered format still supported via `from_dict()` auto-conversion
 
 ---
 
