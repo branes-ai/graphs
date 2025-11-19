@@ -17,7 +17,7 @@ import sys
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -543,9 +543,165 @@ def detect_and_create_spec(
     return spec
 
 
+def detect_and_create_gpu_specs(
+    detector: HardwareDetector,
+    fp32_override: Optional[float] = None
+) -> List[HardwareSpec]:
+    """
+    Detect GPUs and create HardwareSpec for each.
+
+    Args:
+        detector: HardwareDetector instance
+        fp32_override: Manual fp32 peak in GFLOPS (if known)
+
+    Returns:
+        List of HardwareSpec instances for detected GPUs
+    """
+    print("=" * 80)
+    print("GPU Detection")
+    print("=" * 80)
+    print()
+
+    gpus = detector.detect_gpu()
+
+    if not gpus:
+        print("No GPUs detected")
+        print()
+        return []
+
+    print(f"✓ Detected {len(gpus)} GPU(s):")
+    for i, gpu in enumerate(gpus):
+        print(f"\n  GPU {i}:")
+        print(f"    Model:      {gpu.model_name}")
+        print(f"    Vendor:     {gpu.vendor}")
+        print(f"    Memory:     {gpu.memory_gb} GB")
+        print(f"    CUDA Cap:   {gpu.cuda_capability}")
+        print(f"    Driver:     {gpu.driver_version}")
+    print()
+
+    # Create specs for each GPU
+    gpu_specs = []
+
+    for gpu in gpus:
+        # Generate ID from model name
+        hw_id = gpu.model_name.lower().replace(' ', '_').replace('-', '_')
+        hw_id = ''.join(c for c in hw_id if c.isalnum() or c == '_')
+
+        # Extract architecture from model name (heuristic)
+        architecture = "Unknown"
+        if "RTX 40" in gpu.model_name or "RTX40" in gpu.model_name:
+            architecture = "Ada Lovelace"
+        elif "RTX 30" in gpu.model_name or "RTX30" in gpu.model_name:
+            architecture = "Ampere"
+        elif "RTX 20" in gpu.model_name or "RTX20" in gpu.model_name:
+            architecture = "Turing"
+        elif "GTX 16" in gpu.model_name or "GTX16" in gpu.model_name:
+            architecture = "Turing"
+        elif "GTX 10" in gpu.model_name or "GTX10" in gpu.model_name:
+            architecture = "Pascal"
+        elif "H100" in gpu.model_name:
+            architecture = "Hopper"
+        elif "A100" in gpu.model_name or "A10" in gpu.model_name:
+            architecture = "Ampere"
+        elif "V100" in gpu.model_name:
+            architecture = "Volta"
+        elif "T4" in gpu.model_name:
+            architecture = "Turing"
+
+        # Notes about what needs manual entry
+        notes = []
+        notes.append(f"Auto-detected on {detector.os_type} {detector.platform_arch}")
+        notes.append("IMPORTANT: Detailed GPU specs (SM count, CUDA cores, Tensor cores) require manual entry or calibration")
+        notes.append("IMPORTANT: Theoretical peaks for all precisions should be calibrated or looked up from vendor specs")
+        notes.append("IMPORTANT: On-chip cache hierarchy should be added from architecture documentation")
+        notes.append(f"Driver version: {gpu.driver_version}")
+
+        # System info
+        system_info = {
+            "vendor": gpu.vendor,
+            "model": gpu.model_name,
+            "architecture": architecture,
+            "device_type": "gpu",
+            "platform": detector.platform_arch,
+            "os_compatibility": [detector.os_type],
+            "isa_extensions": ["CUDA"],
+            "special_features": [f"CUDA Compute Capability {gpu.cuda_capability}"],
+            "notes": " | ".join(notes)
+        }
+
+        # Add Tensor Cores to ISA if compute capability >= 7.0
+        if gpu.cuda_capability:
+            major = int(gpu.cuda_capability.split('.')[0])
+            if major >= 7:
+                system_info["isa_extensions"].append("Tensor Cores")
+            if major >= 8:
+                system_info["special_features"].append("3rd Gen Tensor Cores")
+            if major >= 9:
+                system_info["special_features"].append("4th Gen Tensor Cores")
+
+        # Core info - minimal, needs manual entry
+        core_info = {
+            "cores": 0,  # Needs manual entry (total CUDA cores)
+            "threads": 0,  # Needs manual entry
+            "base_frequency_ghz": 0.0,  # Needs manual entry
+            "boost_frequency_ghz": 0.0,  # Needs manual entry
+            "total_cuda_cores": 0,  # Needs manual entry
+            "total_tensor_cores": 0,  # Needs manual entry
+            "total_sms": 0,  # Needs manual entry
+            "total_rt_cores": 0,  # Needs manual entry
+            "cuda_capability": gpu.cuda_capability
+        }
+
+        # Memory subsystem - we have VRAM size
+        memory_subsystem = {
+            "total_size_gb": gpu.memory_gb,
+            "peak_bandwidth_gbps": 0.0,  # Needs manual entry or calibration
+            "memory_channels": []  # Needs manual entry
+        }
+
+        # Theoretical peaks - all need calibration or manual entry
+        theoretical_peaks = {}
+        for precision in REQUIRED_PRECISIONS:
+            if precision == 'fp32' and fp32_override is not None:
+                theoretical_peaks[precision] = fp32_override
+            else:
+                theoretical_peaks[precision] = 0.0
+
+        # Mapper info
+        mapper_info = {
+            "mapper_class": "GPUMapper",
+            "mapper_config": {},
+            "hints": {
+                "warp_size": 32,
+                "calibration_needed": "Run calibration to determine actual peak performance",
+                "manual_entry_needed": "Add SM count, CUDA cores, Tensor cores, RT cores, and cache hierarchy"
+            }
+        }
+
+        # Create spec
+        spec = HardwareSpec(
+            id=hw_id,
+            system=system_info,
+            detection_patterns=[gpu.model_name],
+            core_info=core_info,
+            memory_subsystem=memory_subsystem,
+            theoretical_peaks=theoretical_peaks,
+            onchip_memory_hierarchy={
+                "cache_levels": []  # Needs manual entry from architecture docs
+            },
+            mapper=mapper_info,
+            data_source="detected (incomplete - needs manual completion)",
+            last_updated=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        )
+
+        gpu_specs.append(spec)
+
+    return gpu_specs
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Automatically detect hardware and add to database",
+        description="Automatically detect hardware (CPU and GPU) and add to database",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -557,6 +713,9 @@ Examples:
 
   # Write to current directory with auto-generated filename
   python scripts/hardware_db/auto_detect_and_add.py --bandwidth 51.2 --fp32-gflops 115.2 -o .
+
+  # Detect GPUs and write to files (requires manual completion)
+  python scripts/hardware_db/auto_detect_and_add.py --detect-gpus -o .
 
   # With calibration benchmarks (automatic performance measurement)
   python scripts/hardware_db/auto_detect_and_add.py --with-calibration -o my_cpu.json
@@ -605,6 +764,16 @@ Examples:
         type=Path,
         help="Write JSON to file instead of adding to database (e.g., my_cpu.json)"
     )
+    parser.add_argument(
+        "--detect-gpus",
+        action="store_true",
+        help="Detect and create specs for GPUs in addition to CPU"
+    )
+    parser.add_argument(
+        "--gpus-only",
+        action="store_true",
+        help="Only detect GPUs, skip CPU detection"
+    )
 
     args = parser.parse_args()
 
@@ -617,61 +786,92 @@ Examples:
         # Initialize detector
         detector = HardwareDetector()
 
-        # Detect and create spec
-        spec = detect_and_create_spec(
-            detector,
-            bandwidth_override=args.bandwidth,
-            fp32_override=args.fp32_gflops,
-            with_calibration=args.with_calibration
-        )
+        # Collect all specs to process
+        all_specs = []
 
-        if not spec:
+        # Detect CPU unless --gpus-only
+        if not args.gpus_only:
+            spec = detect_and_create_spec(
+                detector,
+                bandwidth_override=args.bandwidth,
+                fp32_override=args.fp32_gflops,
+                with_calibration=args.with_calibration
+            )
+
+            if spec:
+                all_specs.append(spec)
+            elif not args.detect_gpus and not args.gpus_only:
+                # CPU detection failed and we're not detecting GPUs
+                return 1
+
+        # Detect GPUs if requested
+        if args.detect_gpus or args.gpus_only:
+            gpu_specs = detect_and_create_gpu_specs(
+                detector,
+                fp32_override=args.fp32_gflops
+            )
+            all_specs.extend(gpu_specs)
+
+        if not all_specs:
+            print("✗ No hardware detected")
             return 1
 
-        # Validate
-        print("=" * 80)
-        print("Validation")
-        print("=" * 80)
-        errors = spec.validate()
+        # Process each spec
+        for i, spec in enumerate(all_specs):
+            if len(all_specs) > 1:
+                print()
+                print("=" * 80)
+                print(f"Processing Hardware {i+1}/{len(all_specs)}")
+                print("=" * 80)
+                print()
 
-        if errors:
-            print("⚠ Validation warnings:")
-            for error in errors:
-                print(f"  - {error}")
+            # Validate
+            print("=" * 80)
+            print("Validation")
+            print("=" * 80)
+            errors = spec.validate()
+
+            if errors:
+                print("⚠ Validation warnings:")
+                for error in errors:
+                    print(f"  - {error}")
+                print()
+            else:
+                print("✓ Specification is valid")
+                print()
+
+            # Review
+            print("=" * 80)
+            print("Review Hardware Specification")
+            print("=" * 80)
+            print(f"ID:       {spec.id}")
+
+            # Get system info (consolidated fields)
+            system_info = spec.get_system_info()
+            if system_info:
+                print(f"Vendor:   {system_info.vendor}")
+                print(f"Model:    {system_info.model}")
+                print(f"Type:     {system_info.device_type}")
+                print(f"Platform: {system_info.platform}")
+
+            # Get core info (consolidated fields)
+            core_info = spec.get_core_info()
+            if core_info:
+                print(f"Cores:    {core_info.cores}")
+
+            if spec.theoretical_peaks:
+                peaks_str = ", ".join([f"{k}={v:.0f}" for k, v in list(spec.theoretical_peaks.items())[:3]])
+                print(f"Peaks:    {peaks_str}")
+
+            # Get memory info (consolidated fields)
+            if spec.memory_subsystem and isinstance(spec.memory_subsystem, dict):
+                peak_bw = spec.memory_subsystem.get('peak_bandwidth_gbps')
+                total_mem = spec.memory_subsystem.get('total_size_gb')
+                if total_mem and total_mem > 0:
+                    print(f"Memory:    {total_mem} GB")
+                if peak_bw and peak_bw > 0:
+                    print(f"Bandwidth: {peak_bw:.1f} GB/s")
             print()
-        else:
-            print("✓ Specification is valid")
-            print()
-
-        # Review
-        print("=" * 80)
-        print("Review Hardware Specification")
-        print("=" * 80)
-        print(f"ID:       {spec.id}")
-
-        # Get system info (consolidated fields)
-        system_info = spec.get_system_info()
-        if system_info:
-            print(f"Vendor:   {system_info.vendor}")
-            print(f"Model:    {system_info.model}")
-            print(f"Type:     {system_info.device_type}")
-            print(f"Platform: {system_info.platform}")
-
-        # Get core info (consolidated fields)
-        core_info = spec.get_core_info()
-        if core_info:
-            print(f"Cores:    {core_info.cores}")
-
-        if spec.theoretical_peaks:
-            peaks_str = ", ".join([f"{k}={v:.0f}" for k, v in list(spec.theoretical_peaks.items())[:3]])
-            print(f"Peaks:    {peaks_str}")
-
-        # Get memory info (consolidated fields)
-        if spec.memory_subsystem and isinstance(spec.memory_subsystem, dict):
-            peak_bw = spec.memory_subsystem.get('peak_bandwidth_gbps')
-            if peak_bw:
-                print(f"Bandwidth: {peak_bw:.1f} GB/s")
-        print()
 
         # Dry run?
         if args.dry_run:
@@ -682,67 +882,102 @@ Examples:
 
         # Write JSON output?
         if args.output:
-            output_path = args.output
+            output_base = args.output
 
-            # Default filename if output is a directory
-            if output_path.is_dir() or str(output_path).endswith('/'):
-                output_path = output_path / f"{spec.id}.json"
+            # Determine if output is a directory
+            is_dir = output_base.is_dir() or str(output_base).endswith('/')
 
             print()
-            print(f"Writing JSON to: {output_path}")
+            print("=" * 80)
+            print(f"Writing {len(all_specs)} hardware spec(s) to JSON")
+            print("=" * 80)
+            print()
 
-            try:
-                spec.to_json(output_path)
-                print(f"✓ Successfully wrote hardware spec to {output_path}")
-                print()
-                print("Next steps:")
-                print(f"  1. Review and edit the JSON file: {output_path}")
-                print(f"  2. Fix any issues (e.g., cache line size)")
-                print(f"  3. Move to database:")
-                # Get system info for path construction
+            written_files = []
+            for spec in all_specs:
+                # Determine output path for this spec
+                if is_dir:
+                    output_path = output_base / f"{spec.id}.json"
+                elif len(all_specs) == 1:
+                    # Single spec, use provided path as-is
+                    output_path = output_base
+                else:
+                    # Multiple specs but output is a file, append to filename
+                    output_path = output_base.parent / f"{output_base.stem}_{spec.id}{output_base.suffix}"
+
+                try:
+                    spec.to_json(output_path)
+                    print(f"✓ {spec.id} -> {output_path}")
+                    written_files.append((spec, output_path))
+                except Exception as e:
+                    print(f"✗ {spec.id} -> Error: {e}")
+                    return 1
+
+            print()
+            print(f"✓ Successfully wrote {len(written_files)} hardware spec(s)")
+            print()
+            print("Next steps:")
+            for spec, output_path in written_files:
                 system_info = spec.get_system_info()
                 if system_info:
                     vendor_dir = system_info.vendor.lower().replace(' ', '_')
                     device_dir = system_info.device_type
+                    print(f"\n{spec.id}:")
+                    print(f"  1. Review and edit: {output_path}")
+                    if device_dir == 'gpu':
+                        print(f"  2. Add missing GPU details (SM count, CUDA cores, Tensor cores, cache hierarchy)")
+                        print(f"  3. Run calibration or add theoretical peaks from vendor specs")
+                    print(f"  4. Move to database:")
                     print(f"     mkdir -p {args.db}/{device_dir}/{vendor_dir}")
                     print(f"     mv {output_path} {args.db}/{device_dir}/{vendor_dir}/{spec.id}.json")
-                print(f"  4. Verify: python scripts/hardware_db/query_hardware.py --id {spec.id}")
-                return 0
-            except Exception as e:
-                print(f"✗ Error writing JSON: {e}")
-                return 1
+                    print(f"  5. Verify: python scripts/hardware_db/query_hardware.py --id {spec.id}")
+            return 0
 
-        # Confirm
-        confirm = input("Add this hardware to database? (y/n): ").strip().lower()
+        # Confirm (interactive mode - database addition)
+        if len(all_specs) == 1:
+            confirm = input(f"Add {all_specs[0].id} to database? (y/n): ").strip().lower()
+        else:
+            print()
+            print(f"Detected {len(all_specs)} hardware device(s)")
+            confirm = input(f"Add all {len(all_specs)} devices to database? (y/n): ").strip().lower()
+
         if confirm != 'y':
             print("Cancelled")
             return 1
 
-        # Load database and add
+        # Load database and add all specs
         print()
         print("Adding to database...")
         db = HardwareDatabase(args.db)
         db.load_all()
 
-        success = db.add(spec, overwrite=args.overwrite)
+        success_count = 0
+        failed_specs = []
 
-        if success:
-            print()
-            print(f"✓ Successfully added hardware: {spec.id}")
-            spec_file = db._find_spec_file(spec.id)
-            if spec_file:
-                print(f"  File: {spec_file}")
+        for spec in all_specs:
+            success = db.add(spec, overwrite=args.overwrite)
+            if success:
+                success_count += 1
+                print(f"✓ Added: {spec.id}")
+            else:
+                failed_specs.append(spec.id)
+                print(f"✗ Failed: {spec.id}")
+
+        print()
+        if success_count == len(all_specs):
+            print(f"✓ Successfully added all {success_count} hardware specs")
             print()
             print("Next steps:")
-            print(f"  1. Verify: python scripts/hardware_db/query_hardware.py --id {spec.id}")
-            print("  2. Test detection: python scripts/hardware_db/detect_hardware.py")
-            print("  3. Test mapping: python cli/analyze_comprehensive.py --model resnet18 --hardware", spec.id)
+            print("  1. Test detection: python scripts/hardware_db/detect_hardware.py")
+            if all_specs:
+                print(f"  2. Test mapping: python cli/analyze_comprehensive.py --model resnet18 --hardware {all_specs[0].id}")
             return 0
         else:
-            print()
-            print(f"✗ Failed to add hardware")
-            if not args.overwrite:
-                print("  Hardware may already exist. Use --overwrite to replace.")
+            print(f"✓ Added {success_count}/{len(all_specs)} hardware specs")
+            if failed_specs:
+                print(f"✗ Failed: {', '.join(failed_specs)}")
+                if not args.overwrite:
+                    print("  Some hardware may already exist. Use --overwrite to replace.")
             return 1
 
     except KeyboardInterrupt:
