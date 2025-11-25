@@ -2,7 +2,7 @@
 
 Here are the tools for loading models, partitioning, and comparing hardware mappings:
 
-  1. Loading and Partitioning Models
+## Loading and Partitioning Models
 
   CLI Tool - Partition Analyzer:
 ```bash
@@ -61,15 +61,15 @@ Models supported: FX-traceable torchvision and transformers
   # result contains partition_report with subgraphs
 ```
 
-  2. Comparing Hardware Mappings
+## Comparing Hardware Mappings
 
-  CLI Tool - Hardware Mapping Analysis:
+CLI Tool - Hardware Mapping Analysis:
 ```bash
 ./cli/analyze_graph_mapping.py --model resnet18 --hardware Jetson-Orin-Nano --precision fp16
 ```
 
 
-  CLI Tool - Comprehensive Analysis (compare across hardware):
+CLI Tool - Comprehensive Analysis (compare across hardware):
 ```bash
 # Compare same model on different hardware
 ./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-Nano
@@ -77,20 +77,7 @@ Models supported: FX-traceable torchvision and transformers
 ./cli/analyze_comprehensive.py --model resnet18 --hardware Coral-Edge-TPU
 ```
 
-  3. Validation Tests for Hardware Comparison
-
-  10-way hardware comparison:
-```bash
-  python validation/hardware/test_all_hardware.py
-```
-
-  Specific comparisons:
-```bash
-  python validation/hardware/test_cpu_vs_gpu_mapping.py
-  python validation/hardware/test_gpu_cpu_kpu_comparison.py
-```
-
-  4. Python API for Custom Comparisons
+Python API for Custom Comparisons
 
 ```python
   from graphs.analysis.unified_analyzer import UnifiedAnalyzer
@@ -111,7 +98,65 @@ Models supported: FX-traceable torchvision and transformers
       print(generator.generate_text_report(result))
 ```
 
-  Key Files
+## Analysis of Graph Mappings
+
+CLI Tool - Graph Mapper
+```bash
+Graph Mapping Analysis Tool
+
+Analyzes how computational graphs are partitioned and mapped onto hardware resources.
+
+Provides detailed insight into:
+- Graph partitioning into subgraphs
+- Memory and compute requirements per subgraph
+- Hardware resource allocation per subgraph
+- Power and latency estimates per subgraph
+- Sequential execution modeling
+- Total power and latency for complete execution
+
+This tool helps compiler and hardware designers understand:
+- How computational graphs use hardware
+- Where performance is lost (low utilization, bottlenecks)
+- Optimization opportunities (fusion, data layout, etc.)
+
+Usage:
+    ./cli/analyze_graph_mapping.py --model resnet18 --hardware KPU-T64
+    ./cli/analyze_graph_mapping.py --model mobilenet_v2 --compare Jetson-Orin-Nano,KPU-T64 --batch-size 4
+    ./cli/analyze_graph_mapping.py --model resnet50 --hardware Coral-Edge-TPU --precision int8
+
+Command-line Options:
+  -h, --help            show this help message and exit
+  --model MODEL         Model name (resnet18, resnet50, mobilenet_v2, etc.)
+  --hardware HARDWARE   Exact hardware name (run with invalid name to see full list)
+  --compare COMPARE     Compare multiple hardware targets (comma-separated, e.g., "KPU-T64,Jetson-Orin-AGX,Coral-Edge-TPU")
+  
+  Workload and Data path Configuration:
+  --batch-size BATCH_SIZE
+                        Batch size (default: 1)
+  --precision {fp32,fp16,int8,int4}
+                        Precision (default: fp16)
+  --thermal-profile THERMAL_PROFILE
+                        Thermal/power profile (10W, 350W, etc.) - uses hardware default if not specified
+  --analysis {basic,full,energy,roofline,memory,all}
+                        Analysis mode (default: basic - allocation only, full: roofline+energy+memory, all: everything)
+
+  Reporting Options:
+  --show-energy-breakdown
+                        Show detailed energy breakdown visualization
+  --show-roofline       Show ASCII roofline plot
+  --show-memory-timeline
+                        Show memory timeline
+  --show-mapping-visualization
+                        Show three-column mapping visualization (FX Graph → Subgraphs → Hardware)
+  
+  Range Selection (for visualization):
+  --mapping-viz-start MAPPING_VIZ_START
+                        Starting subgraph index for mapping visualization
+  --mapping-viz-end MAPPING_VIZ_END
+                        Ending subgraph index for mapping visualization 
+```
+
+## Key Files
 
   | Purpose          | Location                                                    |
   |------------------|-------------------------------------------------------------|
@@ -120,4 +165,20 @@ Models supported: FX-traceable torchvision and transformers
   | Partitioner      | src/graphs/transform/partitioning/                          |
   | CLI tools        | cli/analyze_comprehensive.py, cli/analyze_graph_mapping.py  |
   | Validation tests | validation/hardware/                                        |
+
+## Appendix
+
+## Validation Tests for Hardware Comparison
+
+10-way hardware comparison:
+```bash
+  python validation/hardware/test_all_hardware.py
+```
+
+Specific comparisons:
+```bash
+  python validation/hardware/test_cpu_vs_gpu_mapping.py
+  python validation/hardware/test_gpu_cpu_kpu_comparison.py
+```
+
 
