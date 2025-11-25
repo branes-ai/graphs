@@ -14,22 +14,22 @@ Supports:
 
 Usage:
     # Comprehensive single-model analysis
-    ./cli/analyze_comprehensive.py --model resnet18 --hardware H100
+    ./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-AGX
 
     # JSON output
-    ./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
+    ./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-AGX \
         --output results.json
 
     # CSV output
-    ./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
+    ./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-AGX \
         --output results.csv --format csv
 
     # Markdown report
-    ./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
+    ./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-AGX \
         --output report.md --format markdown
 
     # Different precision
-    ./cli/analyze_comprehensive.py --model resnet50 --hardware H100 \
+    ./cli/analyze_comprehensive.py --model resnet50 --hardware Jetson-Orin-AGX \
         --precision fp16 --batch-size 32
 """
 
@@ -57,10 +57,10 @@ def main():
         epilog="""
 Examples:
   # Basic analysis (text output)
-  %(prog)s --model resnet18 --hardware H100
+  %(prog)s --model resnet18 --hardware Jetson-Orin-AGX
 
   # JSON output
-  %(prog)s --model resnet18 --hardware H100 --output results.json
+  %(prog)s --model resnet18 --hardware Jetson-Orin-AGX --output results.json
 
   # CSV output
   %(prog)s --model mobilenet_v2 --hardware Jetson-Orin-Nano --output results.csv
@@ -69,17 +69,17 @@ Examples:
   %(prog)s --model efficientnet_b0 --hardware KPU-T256 --output report.md
 
   # FP16 precision with batch size 32
-  %(prog)s --model resnet50 --hardware H100 --precision fp16 --batch-size 32
+  %(prog)s --model resnet50 --hardware Jetson-Orin-AGX --precision fp16 --batch-size 32
 
   # Enable power gating for accurate idle energy modeling
-  %(prog)s --model resnet18 --hardware H100 --power-gating
+  %(prog)s --model resnet18 --hardware Jetson-Orin-AGX --power-gating
 
   # Compare with and without power gating
-  %(prog)s --model resnet18 --hardware H100 --output no_pg.json
-  %(prog)s --model resnet18 --hardware H100 --output with_pg.json --power-gating
+  %(prog)s --model resnet18 --hardware Jetson-Orin-AGX --output no_pg.json
+  %(prog)s --model resnet18 --hardware Jetson-Orin-AGX --output with_pg.json --power-gating
 
   # Disable hardware mapping (fallback to thread-based estimation)
-  %(prog)s --model resnet18 --hardware H100 --no-hardware-mapping
+  %(prog)s --model resnet18 --hardware Jetson-Orin-AGX --no-hardware-mapping
 
 Supported models:
   ResNet: resnet18, resnet34, resnet50, resnet101, resnet152
@@ -90,8 +90,8 @@ Supported models:
 
 Supported hardware:
   GPUs: H100, A100, V100, Jetson-Orin-AGX, Jetson-Orin-Nano
-  TPUs: TPU-v4, Coral
-  KPUs: KPU-T64, KPU-T256, KPU-T768
+  TPUs: TPU-v4, Coral-Edge-TPU
+  KPUs: KPU-T768, KPU-T256, KPU-T64
   CPUs: EPYC, Xeon, Ampere-One, i7-12700K, Ryzen
   DSPs: QRB5165, TI-TDA4VM
   Accelerators: DPU, CGRA
@@ -102,7 +102,11 @@ Supported hardware:
     parser.add_argument('--model', required=True,
                        help='Model to analyze (e.g., resnet18, mobilenet_v2)')
     parser.add_argument('--hardware', required=True,
-                       help='Target hardware (e.g., H100, Jetson-Orin-AGX)')
+                       choices=['H100', 'A100', 'V100', 'Jetson-Orin-AGX', 'Jetson-Orin-Nano',
+                                'TPU-v4', 'Coral-Edge-TPU', 'KPU-T768', 'KPU-T256', 'KPU-T64',
+                                'EPYC', 'Xeon', 'Ampere-One', 'i7-12700K', 'Ryzen',
+                                'QRB5165', 'TI-TDA4VM', 'DPU', 'CGRA'],
+                       help='Target hardware (e.g., KPU-T64, Jetson-Orin-AGX)')
 
     # Analysis configuration
     parser.add_argument('--precision', default='fp32',
@@ -121,7 +125,7 @@ Supported hardware:
     parser.add_argument('--concurrency', action='store_true',
                        help='Run concurrency analysis (expensive)')
 
-    # Power management options (NEW)
+    # Power management options
     parser.add_argument('--power-gating', action='store_true',
                        help='Enable power gating modeling (unallocated units consume 0 idle power)')
     parser.add_argument('--no-hardware-mapping', action='store_true',
@@ -267,7 +271,7 @@ Supported hardware:
                     f.write(content)
 
             if not args.quiet:
-                print(f"\n✓ Report saved to: {args.output}")
+                print(f"\nReport saved to: {args.output}")
 
         else:
             # Print to stdout
