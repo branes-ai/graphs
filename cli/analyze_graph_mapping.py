@@ -3,6 +3,7 @@
 Graph Mapping Analysis Tool
 
 Analyzes how computational graphs are partitioned and mapped onto hardware resources.
+
 Provides detailed insight into:
 - Graph partitioning into subgraphs
 - Memory and compute requirements per subgraph
@@ -17,9 +18,40 @@ This tool helps compiler and hardware designers understand:
 - Optimization opportunities (fusion, data layout, etc.)
 
 Usage:
-    ./cli/analyze_graph_mapping.py --model resnet18 --hardware H100
+    ./cli/analyze_graph_mapping.py --model resnet18 --hardware KPU-T64
     ./cli/analyze_graph_mapping.py --model mobilenet_v2 --hardware Jetson-Orin --batch-size 4
     ./cli/analyze_graph_mapping.py --model resnet50 --hardware TPU-v4 --precision int8
+
+Command-line Options:
+  -h, --help            show this help message and exit
+  --model MODEL         Model name (resnet18, resnet50, mobilenet_v2, etc.)
+  --hardware HARDWARE   Exact hardware name (run with invalid name to see full list)
+  --compare COMPARE     Compare multiple hardware targets (comma-separated, e.g., "KPU-T64,Jetson-Orin-AGX,Coral-Edge-TPU")
+  
+  Workload and Data path Configuration:
+  --batch-size BATCH_SIZE
+                        Batch size (default: 1)
+  --precision {fp32,fp16,int8,int4}
+                        Precision (default: fp16)
+  --thermal-profile THERMAL_PROFILE
+                        Thermal/power profile (10W, 350W, etc.) - uses hardware default if not specified
+  --analysis {basic,full,energy,roofline,memory,all}
+                        Analysis mode (default: basic - allocation only, full: roofline+energy+memory, all: everything)
+
+  Reporting Options:
+  --show-energy-breakdown
+                        Show detailed energy breakdown visualization
+  --show-roofline       Show ASCII roofline plot
+  --show-memory-timeline
+                        Show memory timeline
+  --show-mapping-visualization
+                        Show three-column mapping visualization (FX Graph → Subgraphs → Hardware)
+  
+  Range Selection (for visualization):
+  --mapping-viz-start MAPPING_VIZ_START
+                        Starting subgraph index for mapping visualization
+  --mapping-viz-end MAPPING_VIZ_END
+                        Ending subgraph index for mapping visualization   
 """
 
 import argparse
