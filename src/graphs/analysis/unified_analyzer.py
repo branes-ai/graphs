@@ -51,7 +51,7 @@ from graphs.analysis.memory import MemoryEstimator, MemoryReport
 from graphs.analysis.concurrency import ConcurrencyAnalyzer
 from graphs.ir.structures import ConcurrencyDescriptor
 
-# Phase 2: Operator-level EDP (NEW)
+# Phase 2: Operator-level EDP
 # Note: Import moved to method to avoid circular dependency
 # from graphs.analysis.architecture_comparator import (...)
 
@@ -1020,6 +1020,7 @@ class UnifiedAnalyzer:
             'tpu': create_tpu_v4_mapper,
             'coral': create_coral_edge_tpu_mapper,
             'coral-tpu': create_coral_edge_tpu_mapper,
+            'coral-edge-tpu': create_coral_edge_tpu_mapper,
 
             # KPUs
             'kpu-t64': create_kpu_t64_mapper,
