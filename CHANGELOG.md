@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-25] - CUDA Kernel Validation for Jetson Orin Nano SM Occupancy
+
+### Added
+
+**CUDA Kernel Validation Suite** (`validation/hardware/cuda_kernels/`)
+- Added matrix-vector multiplication kernels for SM occupancy validation:
+  - `matvec_shared_memory`: Shared memory tiling with 256 threads (8 warps), 1 KB shared memory
+  - `matvec_warp_reduce`: Warp shuffle reduction using registers only (no shared memory)
+- Added matrix-matrix multiplication kernels with three optimization levels:
+  - `matmul_naive`: Baseline implementation for comparison
+  - `matmul_tiled`: Shared memory tiling (32×32 tiles, 8 KB per block, ~83% occupancy)
+  - `matmul_double_buffered`: Overlapped compute/memory (16 KB per block, ~33% occupancy)
+
+**Detailed Occupancy Analysis**
+- Embedded occupancy calculations in kernels for Jetson Orin Nano (SM 8.7 Ampere):
+  - Thread/warp/block limits: 1536 threads, 48 warps, 16 blocks per SM
+  - Shared memory limits: 48 KB default (configurable to 100 KB)
+  - Register limits: 65536 per SM
+- Warp assignment visualizations showing thread-to-warp mapping
+- Shared memory bank conflict analysis
+- L1 cache/shared memory unified architecture documentation
+
+**Build Infrastructure**
+- Makefile targeting SM 8.7 with PTX verbosity for register/shared memory reporting
+- Profiling targets using `ncu` (Nsight Compute) or `nvprof`
+- PTX and SASS generation for detailed instruction analysis
+
+### Purpose
+
+These kernels validate the SM occupancy model in `src/graphs/hardware/mappers/gpu.py`:
+- Verify blocks-per-SM calculations match CUDA occupancy calculator
+- Validate warp scheduling assumptions
+- Cross-check memory bandwidth utilization estimates
+- Benchmark actual vs predicted GFLOPS on Jetson Orin Nano
+
+---
+
 ## [2025-11-16] - Alma Integration for Jetson ARM64 Platform
 
 ### Added
