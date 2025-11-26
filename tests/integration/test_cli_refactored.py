@@ -184,7 +184,7 @@ class TestRefactoredCLITools(unittest.TestCase):
         )
 
         self.assertNotEqual(returncode, 0)
-        self.assertIn('Unknown hardware', stderr)
+        self.assertIn('invalid choice', stderr)
 
     # =========================================================================
     # analyze_batch.py Tests
