@@ -244,15 +244,29 @@ def _query_jetson_sysfs() -> Optional[GPUClockInfo]:
 
         # Try different sysfs paths for different Jetson models
         clock_paths = [
-            '/sys/devices/gpu.0/devfreq/17000000.ga10b/cur_freq',  # Orin
-            '/sys/devices/gpu.0/devfreq/57000000.gpu/cur_freq',   # Xavier
-            '/sys/devices/17000000.ga10b/devfreq/17000000.ga10b/cur_freq',  # Orin alt
+            # Orin Nano/NX (JetPack 6.x) - platform bus path
+            '/sys/devices/platform/bus@0/17000000.gpu/devfreq/17000000.gpu/cur_freq',
+            # Orin AGX
+            '/sys/devices/gpu.0/devfreq/17000000.ga10b/cur_freq',
+            '/sys/devices/17000000.ga10b/devfreq/17000000.ga10b/cur_freq',
+            # Xavier family
+            '/sys/devices/gpu.0/devfreq/57000000.gpu/cur_freq',
+            '/sys/devices/platform/bus@0/57000000.gpu/devfreq/57000000.gpu/cur_freq',
+            # Symlink path (works on most Jetsons)
+            '/sys/class/devfreq/17000000.gpu/cur_freq',
         ]
 
         max_clock_paths = [
+            # Orin Nano/NX (JetPack 6.x)
+            '/sys/devices/platform/bus@0/17000000.gpu/devfreq/17000000.gpu/max_freq',
+            # Orin AGX
             '/sys/devices/gpu.0/devfreq/17000000.ga10b/max_freq',
-            '/sys/devices/gpu.0/devfreq/57000000.gpu/max_freq',
             '/sys/devices/17000000.ga10b/devfreq/17000000.ga10b/max_freq',
+            # Xavier family
+            '/sys/devices/gpu.0/devfreq/57000000.gpu/max_freq',
+            '/sys/devices/platform/bus@0/57000000.gpu/devfreq/57000000.gpu/max_freq',
+            # Symlink path
+            '/sys/class/devfreq/17000000.gpu/max_freq',
         ]
 
         # Try to read current frequency
