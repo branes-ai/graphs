@@ -197,6 +197,9 @@ class HardwareRegistry:
         """
         Auto-detect current hardware and match to registry.
 
+        For ARM/embedded devices, uses board detection (device-tree) for more
+        accurate matching since CPU model names are often generic (e.g., "ARMv8").
+
         Returns:
             DetectionResult with matched profile information
         """
@@ -207,22 +210,36 @@ class HardwareRegistry:
         detector = HardwareDetector()
         detection = detector.detect_all()
 
+        # For ARM devices, try board detection first (more reliable than CPU name)
+        board = detection.get('board')
+        if board and board.family:
+            board_match = self._match_board_to_profile(board, detection.get('cpu'))
+            if board_match:
+                return board_match
+
         # Try to match CPU
         if detection.get('cpu'):
             cpu = detection['cpu']
             detected_name = cpu.model_name
 
-            # Try exact ID match first
+            # Collect all matching profiles with confidence scores
+            matches = []
             for profile in self._cache.values():
                 if profile.device_type == 'cpu':
-                    # Check various matching strategies
-                    if self._matches_hardware(profile, cpu.model_name, cpu.vendor):
-                        return DetectionResult(
-                            profile_id=profile.id,
-                            confidence=0.9,
-                            detected_name=detected_name,
-                            profile=profile
-                        )
+                    confidence = self._calculate_match_confidence(profile, cpu)
+                    if confidence > 0:
+                        matches.append((confidence, profile))
+
+            # Return best match if any
+            if matches:
+                matches.sort(key=lambda x: x[0], reverse=True)
+                best_confidence, best_profile = matches[0]
+                return DetectionResult(
+                    profile_id=best_profile.id,
+                    confidence=best_confidence,
+                    detected_name=detected_name,
+                    profile=best_profile
+                )
 
             # Return partial result with no match
             return DetectionResult(
@@ -261,8 +278,147 @@ class HardwareRegistry:
             profile=None
         )
 
+    def _match_board_to_profile(self, board, cpu) -> Optional[DetectionResult]:
+        """
+        Match detected board to a CPU profile in the registry.
+
+        Uses device-tree model string to identify specific hardware like Jetson.
+
+        Args:
+            board: DetectedBoard from hardware detection
+            cpu: DetectedCPU (optional, for additional context)
+
+        Returns:
+            DetectionResult if a match is found, None otherwise
+        """
+        device_tree_model = board.device_tree_model or board.model or ""
+        dt_lower = device_tree_model.lower()
+
+        # Build detected name for reporting
+        detected_name = device_tree_model or f"{board.vendor} {board.family or 'Board'}"
+
+        # Jetson matching based on device tree
+        if board.vendor == "NVIDIA" and board.family == "Jetson":
+            # Match specific Jetson models
+            jetson_profiles = {
+                # Orin family
+                'orin nano': 'jetson_orin_nano_cpu',
+                'orin nx': 'jetson_orin_nx_cpu',
+                'agx orin': 'jetson_orin_agx_cpu',
+                'orin agx': 'jetson_orin_agx_cpu',
+                # Xavier family
+                'xavier nx': 'jetson_xavier_nx_cpu',
+                'agx xavier': 'jetson_xavier_agx_cpu',
+                'xavier agx': 'jetson_xavier_agx_cpu',
+                # Older models
+                'nano': 'jetson_nano_cpu',
+                'tx2': 'jetson_tx2_cpu',
+                'tx1': 'jetson_tx1_cpu',
+            }
+
+            for pattern, profile_id in jetson_profiles.items():
+                if pattern in dt_lower:
+                    profile = self._cache.get(profile_id)
+                    if profile:
+                        return DetectionResult(
+                            profile_id=profile_id,
+                            confidence=0.95,  # High confidence from device-tree
+                            detected_name=detected_name,
+                            profile=profile
+                        )
+
+            # Fallback: try to match any Jetson CPU profile by SoC
+            if board.soc:
+                soc_lower = board.soc.lower()
+                for profile in self._cache.values():
+                    if profile.device_type == 'cpu' and 'jetson' in profile.id.lower():
+                        # Check if profile notes mention the SoC
+                        notes = getattr(profile, 'notes', '') or ''
+                        if soc_lower in notes.lower():
+                            return DetectionResult(
+                                profile_id=profile.id,
+                                confidence=0.85,
+                                detected_name=detected_name,
+                                profile=profile
+                            )
+
+        # Raspberry Pi matching
+        elif board.vendor == "Raspberry Pi Foundation":
+            pi_profiles = {
+                'raspberry pi 5': 'raspberry_pi_5_cpu',
+                'raspberry pi 4': 'raspberry_pi_4_cpu',
+                'raspberry pi 3': 'raspberry_pi_3_cpu',
+            }
+            for pattern, profile_id in pi_profiles.items():
+                if pattern in dt_lower:
+                    profile = self._cache.get(profile_id)
+                    if profile:
+                        return DetectionResult(
+                            profile_id=profile_id,
+                            confidence=0.95,
+                            detected_name=detected_name,
+                            profile=profile
+                        )
+
+        return None
+
+    def _calculate_match_confidence(self, profile: HardwareProfile, cpu) -> float:
+        """
+        Calculate match confidence between a profile and detected CPU.
+
+        Returns a confidence score from 0.0 to 1.0, where:
+        - 0.0 = no match
+        - 0.5 = partial match (architecture only)
+        - 0.7 = good match (architecture + core count)
+        - 0.9 = excellent match (name/ID match)
+        """
+        detected_lower = cpu.model_name.lower()
+        profile_id_lower = profile.id.lower()
+        profile_model_lower = profile.model.lower()
+
+        # Check if profile ID appears in detected name (best match)
+        # e.g., 'i7_12700k' in '12th Gen Intel(R) Core(TM) i7-12700K'
+        id_parts = profile_id_lower.replace('_', ' ').replace('-', ' ').split()
+        if all(part in detected_lower.replace('-', ' ').replace('_', ' ') for part in id_parts if len(part) > 2):
+            return 0.95
+
+        # Check model name match
+        model_parts = profile_model_lower.replace('_', ' ').replace('-', ' ').split()
+        if all(part in detected_lower.replace('-', ' ').replace('_', ' ') for part in model_parts if len(part) > 2):
+            return 0.9
+
+        # Architecture-based matching (for ARM/embedded devices)
+        if hasattr(profile, 'architecture') and profile.architecture:
+            arch_lower = profile.architecture.lower()
+
+            # ARM Cortex matching with core count
+            is_arm_match = False
+            if 'cortex-a78' in arch_lower and 'armv8' in detected_lower:
+                is_arm_match = True
+            elif 'cortex-a72' in arch_lower and 'armv8' in detected_lower:
+                is_arm_match = True
+            elif 'cortex-a57' in arch_lower and 'armv8' in detected_lower:
+                is_arm_match = True
+
+            if is_arm_match:
+                # Check core count for disambiguation
+                profile_cores = getattr(profile, 'compute_units', None)
+                detected_cores = getattr(cpu, 'cores', None)
+
+                if profile_cores and detected_cores and profile_cores == detected_cores:
+                    # Architecture + core count match
+                    return 0.8
+                elif profile_cores and detected_cores:
+                    # Architecture match but core count mismatch - lower confidence
+                    return 0.3
+                else:
+                    # Architecture match only
+                    return 0.5
+
+        return 0.0
+
     def _matches_hardware(self, profile: HardwareProfile, detected_name: str, vendor: str) -> bool:
-        """Check if a profile matches detected hardware."""
+        """Check if a profile matches detected hardware (legacy method for GPU matching)."""
         detected_lower = detected_name.lower()
         profile_id_lower = profile.id.lower()
         profile_model_lower = profile.model.lower()
