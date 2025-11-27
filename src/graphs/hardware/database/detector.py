@@ -1312,7 +1312,8 @@ class HardwareDetector:
             results['board_match'] = board_match
 
             # If we have a board match but no CPU/GPU matches, use the board's components
-            if board_match and board_match.confidence > 0.5:
+            # Use 0.35 threshold - board detection is only used when direct matching fails
+            if board_match and board_match.confidence > 0.35:
                 if not results['cpu_matches'] and 'cpu' in board_match.components:
                     cpu_spec = db.get(board_match.components['cpu'])
                     if cpu_spec:
@@ -1446,6 +1447,16 @@ class HardwareDetector:
                         return line
         except (PermissionError, IOError):
             pass
+
+        # Also check compatible strings for tegra info
+        compatible = self._read_compatible_strings()
+        for cs in compatible:
+            if 'tegra234' in cs:
+                return 'tegra234'
+            elif 'tegra194' in cs:
+                return 'tegra194'
+            elif 'tegra210' in cs:
+                return 'tegra210'
 
         return None
 
