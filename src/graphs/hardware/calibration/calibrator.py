@@ -10,11 +10,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
 
-from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration, PrecisionCapabilityMatrix, GPUClockData, CANONICAL_PRECISION_ORDER
+from .schema import (
+    HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration,
+    PrecisionCapabilityMatrix, GPUClockData, CPUClockData, PreflightData, PreflightCheckResult,
+    CANONICAL_PRECISION_ORDER
+)
 from .benchmarks import calibrate_matmul, calibrate_memory_bandwidth
 from .benchmarks.matmul_bench_multi import calibrate_matmul_all_precisions
 from .precision_detector import get_precision_capabilities
 from .gpu_clock import get_gpu_clock_info, GPUClockInfo
+from .cpu_clock import get_cpu_clock_info, CPUClockInfo
+from .preflight import run_preflight_checks, PreflightReport
 from ..resource_model import Precision
 
 # Framework-specific benchmark imports
@@ -128,7 +134,9 @@ def calibrate_hardware(
     operations: Optional[List[str]] = None,
     fusion_patterns: Optional[List[str]] = None,
     quick: bool = False,
-    min_useful_gflops: float = 1.0  # NEW: minimum GFLOPS threshold for early termination
+    min_useful_gflops: float = 1.0,  # NEW: minimum GFLOPS threshold for early termination
+    force: bool = False,  # NEW: force calibration despite failed pre-flight checks
+    skip_preflight: bool = False,  # NEW: skip pre-flight checks entirely
 ) -> HardwareCalibration:
     """
     Run full hardware calibration.
@@ -145,14 +153,62 @@ def calibrate_hardware(
         operations: List of operations to calibrate (None = all)
         fusion_patterns: List of fusion patterns to benchmark (e.g., ['linear', 'conv', 'attention'] or ['all'])
         quick: If True, run faster but less comprehensive calibration
+        force: If True, continue calibration even if pre-flight checks fail
+        skip_preflight: If True, skip pre-flight checks entirely
 
     Returns:
         Complete HardwareCalibration object
+
+    Raises:
+        RuntimeError: If pre-flight checks fail and force=False
     """
     print("=" * 80)
     print(f"Hardware Calibration: {hardware_name}")
     print("=" * 80)
     print()
+
+    # Run pre-flight checks (unless skipped)
+    preflight_data: Optional[PreflightData] = None
+    if not skip_preflight:
+        print("Running pre-flight checks...")
+        preflight_report = run_preflight_checks(device)
+        print(preflight_report.format_report())
+
+        # Convert preflight report to storage format
+        preflight_data = PreflightData(
+            timestamp=preflight_report.timestamp,
+            passed=preflight_report.passed,
+            forced=force if not preflight_report.passed else False,
+            checks=[
+                PreflightCheckResult(
+                    name=c.name,
+                    status=c.status.value,
+                    message=c.message,
+                    current_value=c.current_value,
+                    expected_value=c.expected_value,
+                )
+                for c in preflight_report.checks
+            ]
+        )
+
+        # Abort if pre-flight checks failed and not forcing
+        if not preflight_report.passed and not force:
+            raise RuntimeError(
+                "Pre-flight checks failed. System is not in performance mode.\n"
+                "Calibration results would not represent peak hardware capability.\n"
+                "Use --force to override (results will be flagged as non-representative)."
+            )
+
+        if not preflight_report.passed and force:
+            print()
+            print("⚠ WARNING: Proceeding with calibration despite failed pre-flight checks.")
+            print("  Results will be flagged as non-representative of peak performance.")
+            print()
+        elif preflight_report.has_warnings:
+            print()
+            print("⚠ Note: Some pre-flight checks have warnings.")
+            print("  Results may not represent absolute peak performance.")
+            print()
 
     # Gather system information
     hw_info = detect_hardware_info()
@@ -191,40 +247,90 @@ def calibrate_hardware(
         print(f"Framework:     {selected_framework.upper()}")
         print()
 
-    # Query GPU clock if using CUDA
+    # Query CPU clock frequencies (required for all calibrations)
+    print("Querying CPU clock frequencies...")
+    cpu_clock_info = get_cpu_clock_info()
+    if not cpu_clock_info.query_success:
+        raise RuntimeError(
+            f"Cannot calibrate without CPU clock frequency data.\n"
+            f"Query method: {cpu_clock_info.query_method}\n"
+            f"Error: {cpu_clock_info.error_message}\n"
+            f"Ensure cpufreq sysfs is available or install psutil."
+        )
+
+    if not cpu_clock_info.current_freq_mhz:
+        raise RuntimeError(
+            f"CPU clock query succeeded but no frequency data available.\n"
+            f"Query method: {cpu_clock_info.query_method}\n"
+            f"Cannot calibrate without knowing the CPU clock frequency."
+        )
+
+    cpu_clock_data = CPUClockData(
+        current_freq_mhz=cpu_clock_info.current_freq_mhz,  # Required
+        query_method=cpu_clock_info.query_method,  # Required
+        min_freq_mhz=cpu_clock_info.min_freq_mhz,
+        max_freq_mhz=cpu_clock_info.max_freq_mhz,
+        base_freq_mhz=cpu_clock_info.base_freq_mhz,
+        per_core_freq_mhz=cpu_clock_info.per_core_freq_mhz,
+        governor=cpu_clock_info.governor,
+        driver=cpu_clock_info.driver,
+        turbo_enabled=cpu_clock_info.turbo_enabled,
+    )
+
+    print(f"  CPU Freq: {cpu_clock_info.current_freq_mhz:.0f} MHz", end="")
+    if cpu_clock_info.max_freq_mhz:
+        pct = cpu_clock_info.current_freq_mhz / cpu_clock_info.max_freq_mhz * 100
+        print(f" ({pct:.0f}% of max {cpu_clock_info.max_freq_mhz:.0f} MHz)")
+    else:
+        print()
+    if cpu_clock_info.governor:
+        print(f"  Governor: {cpu_clock_info.governor}")
+    if cpu_clock_info.turbo_enabled is not None:
+        print(f"  Turbo:    {'Enabled' if cpu_clock_info.turbo_enabled else 'Disabled'}")
+    print()
+
+    # Query GPU clock if using CUDA (required for GPU calibration)
     gpu_clock_data = None
     if device == 'cuda':
-        if not quiet:
-            print("Querying GPU clock frequencies...")
-        clock_info = get_gpu_clock_info()
-        if clock_info.query_success:
-            gpu_clock_data = GPUClockData(
-                sm_clock_mhz=clock_info.sm_clock_mhz,
-                mem_clock_mhz=clock_info.mem_clock_mhz,
-                max_sm_clock_mhz=clock_info.max_sm_clock_mhz,
-                max_mem_clock_mhz=clock_info.max_mem_clock_mhz,
-                power_draw_watts=clock_info.power_draw_watts,
-                power_limit_watts=clock_info.power_limit_watts,
-                temperature_c=clock_info.temperature_c,
-                nvpmodel_mode=clock_info.nvpmodel_mode,
-                power_mode_name=clock_info.power_mode_name,
-                query_method=clock_info.query_method,
+        print("Querying GPU clock frequencies...")
+        gpu_clock_info = get_gpu_clock_info()
+        if not gpu_clock_info.query_success:
+            raise RuntimeError(
+                f"Cannot calibrate GPU without clock frequency data.\n"
+                f"Query method: {gpu_clock_info.query_method}\n"
+                f"Error: {gpu_clock_info.error_message}\n"
+                f"Ensure nvidia-smi is available or check GPU driver installation."
             )
-            if not quiet:
-                if clock_info.sm_clock_mhz:
-                    print(f"  SM Clock: {clock_info.sm_clock_mhz} MHz", end="")
-                    if clock_info.max_sm_clock_mhz:
-                        pct = clock_info.sm_clock_mhz / clock_info.max_sm_clock_mhz * 100
-                        print(f" ({pct:.0f}% of max {clock_info.max_sm_clock_mhz} MHz)")
-                    else:
-                        print()
-                if clock_info.power_mode_name:
-                    print(f"  Power Mode: {clock_info.power_mode_name}")
-                print()
+
+        if not gpu_clock_info.sm_clock_mhz:
+            raise RuntimeError(
+                f"GPU clock query succeeded but no SM clock frequency available.\n"
+                f"Query method: {gpu_clock_info.query_method}\n"
+                f"Cannot calibrate GPU without knowing the clock frequency."
+            )
+
+        gpu_clock_data = GPUClockData(
+            sm_clock_mhz=gpu_clock_info.sm_clock_mhz,  # Required
+            query_method=gpu_clock_info.query_method,  # Required
+            mem_clock_mhz=gpu_clock_info.mem_clock_mhz,
+            max_sm_clock_mhz=gpu_clock_info.max_sm_clock_mhz,
+            max_mem_clock_mhz=gpu_clock_info.max_mem_clock_mhz,
+            power_draw_watts=gpu_clock_info.power_draw_watts,
+            power_limit_watts=gpu_clock_info.power_limit_watts,
+            temperature_c=gpu_clock_info.temperature_c,
+            nvpmodel_mode=gpu_clock_info.nvpmodel_mode,
+            power_mode_name=gpu_clock_info.power_mode_name,
+        )
+
+        print(f"  SM Clock: {gpu_clock_info.sm_clock_mhz} MHz", end="")
+        if gpu_clock_info.max_sm_clock_mhz:
+            pct = gpu_clock_info.sm_clock_mhz / gpu_clock_info.max_sm_clock_mhz * 100
+            print(f" ({pct:.0f}% of max {gpu_clock_info.max_sm_clock_mhz} MHz)")
         else:
-            if not quiet:
-                print(f"  Warning: Could not query GPU clock ({clock_info.error_message})")
-                print()
+            print()
+        if gpu_clock_info.power_mode_name:
+            print(f"  Power Mode: {gpu_clock_info.power_mode_name}")
+        print()
 
     # Create metadata
     metadata = CalibrationMetadata(
@@ -242,7 +348,9 @@ def calibrate_hardware(
         device_type=device,
         platform_architecture=platform.machine().lower(),
         framework=selected_framework,
-        gpu_clock=gpu_clock_data,  # NEW: GPU clock data for CUDA devices
+        cpu_clock=cpu_clock_data,  # CPU clock data
+        gpu_clock=gpu_clock_data,  # GPU clock data for CUDA devices
+        preflight=preflight_data,  # Pre-flight check results
     )
 
     # Initialize calibration object

@@ -1616,3 +1616,25 @@ class HardwareDetector:
 
         confidence = score / max_score if max_score > 0 else 0.0
         return confidence, matched_signals
+
+    # ========================================================================
+    # Combined Detection
+    # ========================================================================
+
+    def detect_all(self) -> Dict[str, Any]:
+        """
+        Detect all hardware components.
+
+        Returns:
+            Dictionary with keys:
+                - 'cpu': DetectedCPU or None
+                - 'gpus': List[DetectedGPU]
+                - 'memory': DetectedMemory or None
+                - 'board': DetectedBoard or None
+        """
+        return {
+            'cpu': self.detect_cpu(),
+            'gpus': self.detect_gpu(),
+            'memory': self.detect_memory(),
+            'board': self.detect_board(),
+        }
