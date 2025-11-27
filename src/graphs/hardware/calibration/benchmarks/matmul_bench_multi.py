@@ -28,6 +28,7 @@ NUMPY_DTYPE_MAP = {
 TORCH_DTYPE_MAP = {
     Precision.FP64: 'torch.float64',
     Precision.FP32: 'torch.float32',
+    Precision.TF32: 'torch.float32',  # TF32 uses float32 dtype with Tensor Core truncation
     Precision.FP16: 'torch.float16',
     Precision.BF16: 'torch.bfloat16',
     Precision.INT32: 'torch.int32',
