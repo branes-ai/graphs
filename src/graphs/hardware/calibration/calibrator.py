@@ -483,8 +483,9 @@ def calibrate_hardware(
             else:
                 # PyTorch: Can test more precisions (especially on GPU)
                 if device == 'cuda':
-                    # GPU: Test all supported precisions
-                    precisions_to_test = ['fp64', 'fp32', 'fp16', 'bf16', 'int64', 'int32', 'int16', 'int8']
+                    # GPU: Test all supported precisions including TF32
+                    # TF32 uses FP32 dtype but with Tensor Core truncation (19-bit mantissa)
+                    precisions_to_test = ['fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'int64', 'int32', 'int16', 'int8']
                 else:
                     # CPU: Skip poorly-supported fp16/bf16 unless explicitly requested
                     precisions_to_test = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
@@ -709,6 +710,10 @@ def calibrate_hardware(
                     # Only add to unsupported if not already in supported
                     if prec_name not in actually_supported:
                         actually_unsupported.add(prec_name)
+
+    # Final cleanup: remove any precision from unsupported if it's in supported
+    # This handles edge cases where order of operations causes both to be set
+    actually_unsupported -= actually_supported
 
     precision_matrix = PrecisionCapabilityMatrix(
         hardware_name=hardware_name,
