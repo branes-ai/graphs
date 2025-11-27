@@ -46,6 +46,7 @@ class Precision(Enum):
     """Numerical precision types"""
     FP64 = "fp64"          # IEEE Double Precision, 64-bit, 1 sign, 11 exponent, 52 mantissa
     FP32 = "fp32"          # IEEE Single Precision, 32-bit, 1 sign, 8 exponent, 23 mantissa
+    TF32 = "tf32"          # NVIDIA TensorFloat-32, 19-bit (1 sign, 8 exp, 10 mantissa), Tensor Cores only
     FP16 = "fp16"          # IEEE Half Precision, 16-bit, 1 sign, 5 exponent, 10 mantissa
     FP8 = "fp8"            # IEEE FP8 (generic), 1 sign, 3 exponent, 4 mantissa
     FP8_E4M3 = "fp8_e4m3"  # 4-bit exponent, 3-bit mantissa

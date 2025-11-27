@@ -53,11 +53,13 @@ class BenchmarkTimeout:
 
 
 # Precision to PyTorch dtype mappings
-# Canonical order: fp64, fp32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+# Canonical order: fp64, fp32, tf32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+# Note: TF32 uses float32 dtype but with Tensor Core truncation (19-bit mantissa)
 if TORCH_AVAILABLE:
     PYTORCH_PRECISION_MAP = {
         'fp64': (Precision.FP64, torch.float64),
         'fp32': (Precision.FP32, torch.float32),
+        'tf32': (Precision.TF32, torch.float32),  # Same dtype, different Tensor Core mode
         'fp16': (Precision.FP16, torch.float16),
         'fp8': (Precision.FP8_E4M3, None),  # PyTorch 2.1+ has experimental fp8, but not widely supported
         'fp4': (Precision.FP4, None),  # PyTorch doesn't have native fp4
@@ -561,11 +563,30 @@ def calibrate_blas_suite_pytorch(
 
                 # Try to run benchmark for this precision
                 try:
+                    # Handle TF32 mode for CUDA devices
+                    # TF32 uses FP32 tensors but truncates mantissa on Tensor Cores (19-bit)
+                    tf32_was_enabled = None
+                    if device == 'cuda' and TORCH_AVAILABLE:
+                        tf32_was_enabled = torch.backends.cuda.matmul.allow_tf32
+                        if prec_name == 'tf32':
+                            # Enable TF32 for TF32 benchmark
+                            torch.backends.cuda.matmul.allow_tf32 = True
+                            torch.backends.cudnn.allow_tf32 = True
+                        elif prec_name == 'fp32':
+                            # Disable TF32 for true FP32 benchmark
+                            torch.backends.cuda.matmul.allow_tf32 = False
+                            torch.backends.cudnn.allow_tf32 = False
+
                     # Add timeout for GEMM (level 3) to avoid very slow integer matmuls
                     if level == 3:
                         result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials, timeout_seconds=5)
                     else:
                         result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials)
+
+                    # Restore TF32 setting
+                    if tf32_was_enabled is not None:
+                        torch.backends.cuda.matmul.allow_tf32 = tf32_was_enabled
+                        torch.backends.cudnn.allow_tf32 = tf32_was_enabled
 
                     # Get theoretical peak for this precision
                     peak_gflops = precision_peaks.get(prec_name, theoretical_peak_gflops)
@@ -602,6 +623,10 @@ def calibrate_blas_suite_pytorch(
                         skipped_precisions[prec_name] = (f"{result['gflops']:.1f} GFLOPS < {min_useful_gflops} GFLOPS", size_display)
 
                 except TimeoutError as e:
+                    # Restore TF32 setting on error
+                    if tf32_was_enabled is not None:
+                        torch.backends.cuda.matmul.allow_tf32 = tf32_was_enabled
+                        torch.backends.cudnn.allow_tf32 = tf32_was_enabled
                     # Benchmark timed out - mark as skipped for remaining sizes (GEMM only)
                     precision_results[prec_name] = PrecisionTestResult(
                         precision=prec_name,
@@ -612,6 +637,10 @@ def calibrate_blas_suite_pytorch(
                         skipped_precisions[prec_name] = (f"Timeout (>{5}s)", size_str)
 
                 except Exception as e:
+                    # Restore TF32 setting on error
+                    if tf32_was_enabled is not None:
+                        torch.backends.cuda.matmul.allow_tf32 = tf32_was_enabled
+                        torch.backends.cudnn.allow_tf32 = tf32_was_enabled
                     # Benchmark failed, mark as unsupported
                     precision_results[prec_name] = PrecisionTestResult(
                         precision=prec_name,
