@@ -7,7 +7,7 @@ Provides a unified interface for discovering, loading, and managing hardware dat
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from .config import RegistryConfig, get_config
@@ -50,15 +50,24 @@ class HardwareRegistry:
         ├── cpu/
         │   └── i7_12700k/
         │       ├── spec.json
-        │       └── calibration.json
+        │       └── calibrations/
+        │           ├── performance_4900MHz_numpy.json
+        │           └── performance_4900MHz_pytorch.json
         ├── gpu/
         │   └── h100_sxm5/
         │       ├── spec.json
-        │       └── calibration.json
+        │       └── calibrations/
+        │           └── default_1980MHz_pytorch.json
         └── boards/
             └── jetson_orin_nano/
                 ├── spec.json
-                └── calibration.json
+                └── calibrations/
+                    ├── 7W_306MHz_numpy.json
+                    ├── 15W_625MHz_numpy.json
+                    └── MAXN_625MHz_pytorch.json
+
+    Calibration filenames follow the pattern:
+        {power_mode}_{frequency_mhz}MHz_{framework}.json
     """
 
     def __init__(self, config: Optional[RegistryConfig] = None):
@@ -124,18 +133,40 @@ class HardwareRegistry:
         self._loaded = True
         return count
 
-    def get(self, hardware_id: str) -> Optional[HardwareProfile]:
+    def get(
+        self,
+        hardware_id: str,
+        calibration_filter: Optional[Dict[str, Any]] = None
+    ) -> Optional[HardwareProfile]:
         """
         Get a hardware profile by ID.
 
         Args:
             hardware_id: Profile ID (e.g., 'i7_12700k', 'h100_sxm5')
+            calibration_filter: Optional filter for calibration selection.
+                               Keys: 'power_mode', 'freq_mhz', 'framework'
+                               If None, loads the most recent calibration.
 
         Returns:
             HardwareProfile if found, None otherwise
         """
         self._ensure_loaded()
-        return self._cache.get(hardware_id)
+
+        # If no filter, return cached profile
+        if calibration_filter is None:
+            return self._cache.get(hardware_id)
+
+        # With filter, reload from disk with specific calibration
+        profile = self._cache.get(hardware_id)
+        if not profile:
+            return None
+
+        # Find the profile directory
+        device_dir = self.path / profile.device_type / hardware_id
+        if device_dir.exists():
+            return HardwareProfile.load(device_dir, calibration_filter)
+
+        return profile
 
     def list_all(self) -> List[str]:
         """
@@ -146,6 +177,24 @@ class HardwareRegistry:
         """
         self._ensure_loaded()
         return sorted(self._cache.keys())
+
+    def list_calibrations(self, hardware_id: str) -> List[Dict[str, Any]]:
+        """
+        List all available calibrations for a hardware profile.
+
+        Args:
+            hardware_id: Profile ID
+
+        Returns:
+            List of dicts with calibration info (power_mode, freq_mhz, framework, path)
+        """
+        self._ensure_loaded()
+        profile = self._cache.get(hardware_id)
+        if not profile:
+            return []
+
+        device_dir = self.path / profile.device_type / hardware_id
+        return HardwareProfile.list_calibrations(device_dir)
 
     def list_by_type(self, device_type: str) -> List[str]:
         """

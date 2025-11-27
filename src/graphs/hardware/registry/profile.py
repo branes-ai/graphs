@@ -3,12 +3,21 @@ Unified Hardware Profile
 
 Combines hardware specification (theoretical) with calibration data (measured)
 into a single coherent view of hardware capabilities.
+
+Calibration files are stored in a calibrations/ subdirectory with naming:
+    {power_mode}_{frequency_mhz}MHz_{framework}.json
+
+Examples:
+    calibrations/MAXN_625MHz_pytorch.json
+    calibrations/7W_306MHz_pytorch.json
+    calibrations/performance_4900MHz_numpy.json
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 import json
+import re
 
 from ..calibration.schema import (
     HardwareCalibration,
@@ -17,6 +26,60 @@ from ..calibration.schema import (
     GPUClockData,
     PrecisionCapabilityMatrix,
 )
+
+
+def _make_calibration_filename(calibration: HardwareCalibration) -> str:
+    """
+    Generate calibration filename from calibration metadata.
+
+    Format: {power_mode}_{frequency_mhz}MHz_{framework}.json
+
+    Examples:
+        MAXN_625MHz_pytorch.json
+        7W_306MHz_pytorch.json
+        performance_4900MHz_numpy.json
+    """
+    metadata = calibration.metadata
+
+    # Get power mode
+    if metadata.gpu_clock and metadata.gpu_clock.power_mode_name:
+        power_mode = metadata.gpu_clock.power_mode_name
+    elif metadata.cpu_clock and metadata.cpu_clock.governor:
+        power_mode = metadata.cpu_clock.governor
+    else:
+        power_mode = "unknown"
+
+    # Get frequency (GPU SM clock or CPU frequency)
+    if metadata.device_type == 'cuda' and metadata.gpu_clock and metadata.gpu_clock.sm_clock_mhz:
+        freq_mhz = metadata.gpu_clock.sm_clock_mhz
+    elif metadata.cpu_clock and metadata.cpu_clock.current_freq_mhz:
+        freq_mhz = int(metadata.cpu_clock.current_freq_mhz)
+    else:
+        freq_mhz = 0
+
+    # Get framework
+    framework = metadata.framework or "unknown"
+
+    # Sanitize power mode (replace spaces, special chars)
+    power_mode = re.sub(r'[^a-zA-Z0-9]', '', power_mode)
+
+    return f"{power_mode}_{freq_mhz}MHz_{framework}.json"
+
+
+def _parse_calibration_filename(filename: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse calibration filename to extract metadata.
+
+    Returns dict with power_mode, freq_mhz, framework or None if invalid.
+    """
+    match = re.match(r'^([^_]+)_(\d+)MHz_([^.]+)\.json$', filename)
+    if match:
+        return {
+            'power_mode': match.group(1),
+            'freq_mhz': int(match.group(2)),
+            'framework': match.group(3),
+        }
+    return None
 
 
 @dataclass
@@ -229,7 +292,7 @@ class HardwareProfile:
 
         Creates:
         - spec.json: Hardware specification
-        - calibration.json: Calibration data (if available)
+        - calibrations/{power_mode}_{freq}MHz_{framework}.json: Calibration data (if available)
 
         Args:
             directory: Directory to save to (will be created if needed)
@@ -241,18 +304,24 @@ class HardwareProfile:
         with open(spec_path, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
 
-        # Save calibration if available
+        # Save calibration to calibrations/ subdirectory if available
         if self.calibration:
-            cal_path = directory / 'calibration.json'
+            cal_dir = directory / 'calibrations'
+            cal_dir.mkdir(parents=True, exist_ok=True)
+            cal_filename = _make_calibration_filename(self.calibration)
+            cal_path = cal_dir / cal_filename
             self.calibration.save(cal_path)
 
     @classmethod
-    def load(cls, directory: Path) -> 'HardwareProfile':
+    def load(cls, directory: Path, calibration_filter: Optional[Dict[str, Any]] = None) -> 'HardwareProfile':
         """
         Load profile from a directory.
 
         Args:
-            directory: Directory containing spec.json and optionally calibration.json
+            directory: Directory containing spec.json and optionally calibrations/
+            calibration_filter: Optional filter to select specific calibration.
+                               Keys: 'power_mode', 'freq_mhz', 'framework'
+                               If None, loads the most recent calibration.
 
         Returns:
             HardwareProfile instance
@@ -265,14 +334,101 @@ class HardwareProfile:
         with open(spec_path) as f:
             spec_data = json.load(f)
 
-        # Load calibration if available
+        # Load calibration from calibrations/ subdirectory
         calibration = None
-        cal_path = directory / 'calibration.json'
-        if cal_path.exists():
-            calibration = HardwareCalibration.load(cal_path)
-            spec_data['calibration_date'] = calibration.metadata.calibration_date
+        cal_dir = directory / 'calibrations'
+        if cal_dir.exists() and cal_dir.is_dir():
+            calibration = cls._load_calibration(cal_dir, calibration_filter)
+            if calibration:
+                spec_data['calibration_date'] = calibration.metadata.calibration_date
 
         return cls.from_dict(spec_data, calibration)
+
+    @classmethod
+    def _load_calibration(
+        cls,
+        cal_dir: Path,
+        calibration_filter: Optional[Dict[str, Any]] = None
+    ) -> Optional[HardwareCalibration]:
+        """
+        Load a calibration from the calibrations/ directory.
+
+        Args:
+            cal_dir: Path to calibrations/ directory
+            calibration_filter: Optional filter (power_mode, freq_mhz, framework)
+
+        Returns:
+            HardwareCalibration or None if no matching calibration found
+        """
+        # Find all calibration files
+        cal_files = list(cal_dir.glob('*.json'))
+        if not cal_files:
+            return None
+
+        # Parse all filenames
+        candidates = []
+        for cal_file in cal_files:
+            parsed = _parse_calibration_filename(cal_file.name)
+            if parsed:
+                parsed['path'] = cal_file
+                parsed['mtime'] = cal_file.stat().st_mtime
+                candidates.append(parsed)
+
+        if not candidates:
+            return None
+
+        # Apply filter if provided
+        if calibration_filter:
+            filtered = []
+            for c in candidates:
+                match = True
+                if 'power_mode' in calibration_filter:
+                    if c['power_mode'].lower() != calibration_filter['power_mode'].lower():
+                        match = False
+                if 'freq_mhz' in calibration_filter:
+                    if c['freq_mhz'] != calibration_filter['freq_mhz']:
+                        match = False
+                if 'framework' in calibration_filter:
+                    if c['framework'].lower() != calibration_filter['framework'].lower():
+                        match = False
+                if match:
+                    filtered.append(c)
+            candidates = filtered
+
+        if not candidates:
+            return None
+
+        # Select most recent calibration
+        candidates.sort(key=lambda c: c['mtime'], reverse=True)
+        best = candidates[0]
+
+        return HardwareCalibration.load(best['path'])
+
+    @classmethod
+    def list_calibrations(cls, directory: Path) -> List[Dict[str, Any]]:
+        """
+        List all available calibrations for a profile directory.
+
+        Args:
+            directory: Profile directory containing calibrations/ subdirectory
+
+        Returns:
+            List of dicts with calibration info (power_mode, freq_mhz, framework, path)
+        """
+        cal_dir = directory / 'calibrations'
+        if not cal_dir.exists():
+            return []
+
+        results = []
+        for cal_file in cal_dir.glob('*.json'):
+            parsed = _parse_calibration_filename(cal_file.name)
+            if parsed:
+                parsed['path'] = str(cal_file)
+                results.append(parsed)
+
+        # Sort by power mode, then frequency
+        results.sort(key=lambda x: (x['power_mode'], x['freq_mhz']))
+        return results
 
     def __str__(self) -> str:
         """Human-readable string representation."""
