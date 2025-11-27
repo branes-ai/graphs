@@ -7,28 +7,31 @@ Each hardware device is described in a JSON file following the HardwareSpec sche
 
 ```
 hardware_database/
-├── schema.json              # JSON Schema for validation
-├── README.md                # This file
+├── schema.json                  # JSON Schema for validation
+├── README.md                    # This file
+├── efficiency_calibration.md    # Calibration documentation
 ├── cpu/
 │   ├── intel/
-│   │   ├── i7_12700k.json
-│   │   └── i9_13900k.json
+│   │   └── intel_12th_gen_intelr_coretm_i7_12700k.json
 │   ├── amd/
-│   │   └── ryzen_9_7950x.json
-│   └── ampere/
-│       └── altra_max_128.json
+│   │   ├── amd_amd_ryzen_7_2700x_eight_core_processor.json
+│   │   └── amd_ryzen_7_2700x_eight_core_processor.json
+│   ├── ampere/                  # (empty - placeholder)
+│   ├── ampere_computing/
+│   │   └── ampere_altra_max.json
+│   └── nvidia/
+│       ├── jetson_orin_agx_cpu.json
+│       └── jetson_orin_nano_cpu.json
 ├── gpu/
 │   ├── nvidia/
-│   │   ├── h100_sxm5_80gb.json
-│   │   ├── a100_sxm4_80gb.json
-│   │   └── jetson_orin_agx_64gb.json
-│   └── amd/
-│       └── mi300x.json
+│   │   ├── h100_sxm5.json
+│   │   ├── jetson_orin_agx_gpu.json
+│   │   ├── jetson_orin_nano_gpu.json
+│   │   └── nvidia_geforce_gtx_1070.json
+│   └── amd/                     # (empty - placeholder)
 └── accelerators/
-    ├── google/
-    │   └── tpu_v4.json
-    └── xilinx/
-        └── vitis_ai_dpu.json
+    ├── google/                  # (empty - placeholder)
+    └── xilinx/                  # (empty - placeholder)
 ```
 
 ## Hardware Spec Format

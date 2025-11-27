@@ -30,9 +30,17 @@ from .schema import (
     CalibrationMetadata,
     PrecisionTestResult,
     PrecisionCapabilityMatrix,
+    GPUClockData,
 )
 from .calibrator import load_calibration, calibrate_hardware
 from .precision_detector import get_precision_capabilities
+from .gpu_clock import (
+    GPUClockInfo,
+    get_gpu_clock_info,
+    get_jetson_power_mode,
+    estimate_theoretical_peak,
+    print_gpu_clock_info,
+)
 
 __all__ = [
     'OperationCalibration',
@@ -40,7 +48,13 @@ __all__ = [
     'CalibrationMetadata',
     'PrecisionTestResult',
     'PrecisionCapabilityMatrix',
+    'GPUClockData',
+    'GPUClockInfo',
     'load_calibration',
     'calibrate_hardware',
     'get_precision_capabilities',
+    'get_gpu_clock_info',
+    'get_jetson_power_mode',
+    'estimate_theoretical_peak',
+    'print_gpu_clock_info',
 ]

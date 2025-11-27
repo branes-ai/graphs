@@ -35,8 +35,8 @@
     "Jetson.*Orin.*Nano.*iGPU"
   ],
   "core_info": {
-    "cores": 512,
-    "threads": 16384,
+    "cores": 8,
+    "threads": 12288,
     "base_frequency_ghz": 0.306,
     "boost_frequency_ghz": 0.625,
     "core_clusters": [
@@ -98,17 +98,46 @@
     ]
   },
   "theoretical_peaks": {
-    "fp32": 640.0,
     "fp64": 20.0,
+    "fp32": 640.0,
     "fp16": 1280.0,
     "fp8": 0.0,
     "fp4": 0.0,
     "bf16": 1280.0,
+    "tf32": 1280.0,
     "int64": 0.0,
     "int32": 640.0,
     "int16": 1280.0,
     "int8": 2560.0,
     "int4": 0.0
+  },
+  "calibration_summary": {
+    "measured_peaks": {
+      "fp32": 1199.0501893086514,
+      "fp16": 7324.931275696259
+    },
+    "efficiency": {
+      "fp32": 0.9367579603973839,
+      "fp16": 0.9638067468021393
+    },
+    "measured_bandwidth_gbps": 57.77763074616958,
+    "bandwidth_efficiency": 0.8496710403848468,
+    "best_efficiency": 0.9367579603973839,
+    "avg_efficiency": 0.5829665082210874,
+    "worst_efficiency": 0.13429157341926187,
+    "calibration_date": "2025-11-16T10:04:26.791492",
+    "power_mode": "25W",
+    "framework": "pytorch",
+    "profile_path": "src/graphs/hardware/calibration/profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json"
+  },
+  "calibration_profiles": {
+    "default": "src/graphs/hardware/calibration/profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json",
+    "by_power_mode": {
+      "25W": "src/graphs/hardware/calibration/profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json"
+    },
+    "by_framework": {
+      "pytorch": "src/graphs/hardware/calibration/profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json"
+    }
   },
   "onchip_memory_hierarchy": {
     "cache_levels": [
@@ -144,7 +173,7 @@
     ]
   },
   "data_source": "migrated",
-  "last_updated": "2025-11-18T19:00:00.000000Z",
+  "last_updated": "2025-11-26T21:46:38.254491Z",
   "mapper": {
     "mapper_class": "GPUMapper",
     "mapper_config": {
@@ -152,12 +181,16 @@
       "enable_unified_memory": true
     },
     "hints": {
-      "preferred_block_size": [256, 1, 1],
+      "preferred_block_size": [
+        256,
+        1,
+        1
+      ],
       "max_threads_per_block": 1024,
       "warp_size": 32,
       "tensor_core_hint": "Use Tensor Cores for FP16/BF16/INT8 matrix operations (16 Gen3 Tensor Cores available)",
       "memory_hint": "Unified memory with CPU - use cudaMallocManaged for easy CPU/GPU data sharing",
-      "occupancy_hint": "32 SMs × 48 warps/SM = 1536 max concurrent warps. Target 50-75% occupancy for best performance.",
+      "occupancy_hint": "32 SMs \u00d7 48 warps/SM = 1536 max concurrent warps. Target 50-75% occupancy for best performance.",
       "architecture_notes": "Ampere architecture with 512 CUDA cores, 16 Tensor Cores Gen 3, no RT cores. Shared LPDDR5 memory with CPU subsystem."
     }
   }

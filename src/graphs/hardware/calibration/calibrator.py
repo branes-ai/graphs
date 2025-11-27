@@ -10,10 +10,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
 
-from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration, PrecisionCapabilityMatrix, CANONICAL_PRECISION_ORDER
+from .schema import HardwareCalibration, CalibrationMetadata, OperationCalibration, FusionCalibration, PrecisionCapabilityMatrix, GPUClockData, CANONICAL_PRECISION_ORDER
 from .benchmarks import calibrate_matmul, calibrate_memory_bandwidth
 from .benchmarks.matmul_bench_multi import calibrate_matmul_all_precisions
 from .precision_detector import get_precision_capabilities
+from .gpu_clock import get_gpu_clock_info, GPUClockInfo
 from ..resource_model import Precision
 
 # Framework-specific benchmark imports
@@ -190,6 +191,41 @@ def calibrate_hardware(
         print(f"Framework:     {selected_framework.upper()}")
         print()
 
+    # Query GPU clock if using CUDA
+    gpu_clock_data = None
+    if device == 'cuda':
+        if not quiet:
+            print("Querying GPU clock frequencies...")
+        clock_info = get_gpu_clock_info()
+        if clock_info.query_success:
+            gpu_clock_data = GPUClockData(
+                sm_clock_mhz=clock_info.sm_clock_mhz,
+                mem_clock_mhz=clock_info.mem_clock_mhz,
+                max_sm_clock_mhz=clock_info.max_sm_clock_mhz,
+                max_mem_clock_mhz=clock_info.max_mem_clock_mhz,
+                power_draw_watts=clock_info.power_draw_watts,
+                power_limit_watts=clock_info.power_limit_watts,
+                temperature_c=clock_info.temperature_c,
+                nvpmodel_mode=clock_info.nvpmodel_mode,
+                power_mode_name=clock_info.power_mode_name,
+                query_method=clock_info.query_method,
+            )
+            if not quiet:
+                if clock_info.sm_clock_mhz:
+                    print(f"  SM Clock: {clock_info.sm_clock_mhz} MHz", end="")
+                    if clock_info.max_sm_clock_mhz:
+                        pct = clock_info.sm_clock_mhz / clock_info.max_sm_clock_mhz * 100
+                        print(f" ({pct:.0f}% of max {clock_info.max_sm_clock_mhz} MHz)")
+                    else:
+                        print()
+                if clock_info.power_mode_name:
+                    print(f"  Power Mode: {clock_info.power_mode_name}")
+                print()
+        else:
+            if not quiet:
+                print(f"  Warning: Could not query GPU clock ({clock_info.error_message})")
+                print()
+
     # Create metadata
     metadata = CalibrationMetadata(
         hardware_name=hardware_name,
@@ -203,9 +239,10 @@ def calibrate_hardware(
         pytorch_version=sw_versions['pytorch_version'],
         num_warmup_runs=2 if quick else 3,
         num_measurement_runs=5 if quick else 10,
-        device_type=device,  # NEW: record device type
-        platform_architecture=platform.machine().lower(),  # NEW: record platform
-        framework=selected_framework,  # NEW: record framework used for benchmarks
+        device_type=device,
+        platform_architecture=platform.machine().lower(),
+        framework=selected_framework,
+        gpu_clock=gpu_clock_data,  # NEW: GPU clock data for CUDA devices
     )
 
     # Initialize calibration object

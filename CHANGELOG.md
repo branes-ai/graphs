@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-26] - Hardware Schema Cleanup and Backward Compatibility Fix
+
+### Fixed
+
+**HardwareSpec Backward Compatibility Bug** (`src/graphs/hardware/database/schema.py`)
+- Fixed `AttributeError: 'NoneType' object has no attribute 'upper'` in `calibrate_hardware.py` when using preset mode
+- Root cause: When creating `HardwareSpec` directly with constructor (not `from_dict`), deprecated fields like `device_type` remained `None` even though values existed in consolidated blocks (`system`, `core_info`, etc.)
+- Solution: Added `__post_init__` method to automatically populate deprecated fields from consolidated blocks
+
+**CoreCluster Field Name Mapping** (`src/graphs/hardware/database/schema.py`)
+- `CoreCluster.from_dict()` now handles alternative field names used in JSON files:
+  - `cuda_cores_per_sm` → `cuda_cores_per_cluster`
+  - `tensor_cores_per_sm` → `tensor_cores_per_cluster`
+  - `max_threads_per_sm` → `max_threads_per_cluster`
+  - `max_warps_per_sm` → `max_warps_per_cluster`
+  - `shared_memory_per_sm_kb` → `shared_memory_kb`
+  - `registers_per_sm` → `register_file_kb`
+- Ignores extra descriptive fields (`fp32_units_per_sm`, `warp_size`, etc.)
+
+### Changed
+
+**Precision Framework Expansion**
+- Added `tf32` (NVIDIA TensorFloat-32) to `REQUIRED_PRECISIONS`
+- Added comprehensive precision taxonomy documentation distinguishing:
+  - IEEE 754 formats: `fp64`, `fp32`, `fp16`, `fp8`, `fp4`
+  - Vendor-specific: `tf32` (NVIDIA 19-bit, Tensor Cores only), `bf16` (Google Brain 16-bit)
+  - Integer: `int64`, `int32`, `int16`, `int8`, `int4`
+- Added `PRECISION_BITS` and `PRECISION_STORAGE_BITS` dictionaries
+- Note: TF32 is 19 bits (1+8+10), NOT 32 bits despite NVIDIA's marketing name
+
+**Hardware Database JSON Files**
+- Converted `h100_sxm5.json` to new consolidated format with complete specs
+- Updated `nvidia_geforce_gtx_1070.json` with complete Pascal architecture specs
+- Fixed GPU `platform` values: changed `"cuda"` to `"x86_64"` (cuda is an ISA extension)
+- Fixed GPU `cores`/`threads` to represent SMs and max_threads (not CUDA cores)
+- Set reasonable memory size placeholders for CPU specs
+
+### Removed
+
+- Duplicate file `hardware_database/cpu/amd/amd_amd_ryzen_7_2700x_eight_core_processor.json`
+
+### Technical Details
+
+The `__post_init__` method ensures code accessing `spec.vendor`, `spec.device_type`, `spec.cores`, etc. works correctly regardless of how the `HardwareSpec` was created:
+- Direct constructor call with consolidated blocks (e.g., in `calibrate_hardware.py`)
+- `from_dict()` deserialization
+- `from_json()` file loading
+
+---
+
 ## [2025-11-25] - CUDA Kernel Validation for Jetson Orin Nano SM Occupancy
 
 ### Added
