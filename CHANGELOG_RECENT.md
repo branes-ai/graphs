@@ -2,7 +2,79 @@
 
 **Purpose**: Quick context for AI assistants resuming work. Full history in `CHANGELOG.md`.
 
-**Last Updated**: 2025-11-18
+**Last Updated**: 2025-11-27
+
+---
+
+## [2025-11-27] - Multi-Calibration Profile Support & Precision Fixes
+
+### Added
+
+- **Multi-Calibration Directory Structure**:
+  - Hardware profiles now support multiple calibrations in `calibrations/` subdirectory
+  - Calibration filename format: `{power_mode}_{frequency_mhz}MHz_{framework}.json`
+  - Examples: `MAXN_625MHz_pytorch.json`, `7W_306MHz_numpy.json`, `performance_4900MHz_numpy.json`
+  - New `calibration_filter` parameter in `HardwareProfile.load()` and `registry.get()`
+  - Filter by `power_mode`, `freq_mhz`, `framework` - defaults to most recent
+  - New `HardwareProfile.list_calibrations()` and `registry.list_calibrations()` methods
+
+- **list_calibrations Script** (`scripts/hardware_db/list_calibrations.py`):
+  - List all calibrations across hardware registry
+  - Filter by `--hardware`, `--framework`, `--power-mode`
+  - `--detail` shows GFLOPS, bandwidth, date for each calibration
+  - `--summary` shows statistics by hardware/framework/power mode
+
+- **Migration Script** (`cli/migrate_calibrations.py`):
+  - Migrates old `calibration.json` files to new `calibrations/` structure
+  - Supports `--dry-run` mode to preview changes
+
+- **TF32 Precision Support**:
+  - Added `tf32` to default GPU precision list in calibrator
+  - Added `tf32` to `CANONICAL_PRECISION_ORDER` in schema (between fp32 and fp16)
+  - TF32 uses FP32 dtype with Tensor Core truncation (19-bit mantissa)
+
+### Fixed
+
+- **GEMM Early Termination Bug**:
+  - Root cause: Early termination triggered at size 32 where timing overhead dominates
+  - 32x32 GEMM = 65K FLOPs at 0.13ms = 0.5 GFLOPS (below 1.0 threshold)
+  - Fix: Added `min_early_termination_size = 256` threshold
+  - Early termination only triggers after testing meaningful matrix sizes
+  - Result: Jetson CPU GEMM now correctly shows 50+ GFLOPS (was 0.5 GFLOPS)
+
+- **Duplicate Precision in Support Summary**:
+  - Root cause: Order of operation processing could add precision to unsupported before supported
+  - Fix: Added `actually_unsupported -= actually_supported` cleanup
+  - Result: Clean precision support summary without duplicates
+
+- **TF32 Not Displayed in Benchmarks**:
+  - Root cause: `tf32` missing from `CANONICAL_PRECISION_ORDER`
+  - Display loops using `for p in CANONICAL_ORDER if p in results` silently skipped tf32
+  - Fix: Added `tf32` to canonical order list
+
+### Changed
+
+- **Hardware Registry Directory Structure**:
+  ```
+  hardware_registry/
+  ├── cpu/
+  │   └── jetson_orin_nano_cpu/
+  │       ├── spec.json
+  │       └── calibrations/
+  │           ├── schedutil_729MHz_numpy.json
+  │           └── schedutil_883MHz_numpy.json
+  └── gpu/
+      └── jetson_orin_nano_gpu/
+          ├── spec.json
+          └── calibrations/
+              └── 7W_306MHz_pytorch.json
+  ```
+
+- **No Backward Compatibility**: Old `calibration.json` format not supported; use migration script
+
+### Documentation
+
+- Session log: `docs/sessions/2025-11-27_calibration_multi_profile_support.md`
 
 ---
 
