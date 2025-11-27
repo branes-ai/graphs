@@ -294,16 +294,24 @@ class PrecisionCapabilityMatrix:
 
 @dataclass
 class GPUClockData:
-    """GPU clock frequency data captured during calibration."""
+    """GPU clock frequency data captured during calibration.
 
-    # Current clock frequencies (MHz)
-    sm_clock_mhz: Optional[int] = None
-    """SM/Graphics clock frequency during calibration."""
+    Note: sm_clock_mhz is required - GPU calibration fails without it.
+    Other fields are optional but recommended for full analysis.
+    """
 
+    # SM/Graphics clock frequency (MHz) - REQUIRED
+    sm_clock_mhz: int
+    """SM/Graphics clock frequency during calibration. Required."""
+
+    # Query metadata - REQUIRED
+    query_method: str
+    """How clocks were queried: 'nvidia-smi', 'sysfs', 'tegrastats'. Required."""
+
+    # Optional clock frequencies
     mem_clock_mhz: Optional[int] = None
     """Memory clock frequency during calibration."""
 
-    # Maximum clock frequencies (MHz)
     max_sm_clock_mhz: Optional[int] = None
     """Maximum SM clock (for calculating % of max)."""
 
@@ -327,10 +335,6 @@ class GPUClockData:
     power_mode_name: Optional[str] = None
     """Human-readable power mode (e.g., 'MAXN', '15W')."""
 
-    # Query metadata
-    query_method: str = "unknown"
-    """How clocks were queried: 'nvidia-smi', 'sysfs', 'tegrastats'."""
-
     def to_dict(self) -> Dict:
         """Convert to dictionary, excluding None values."""
         result = {}
@@ -346,6 +350,123 @@ class GPUClockData:
         known_fields = set(cls.__dataclass_fields__.keys())
         filtered = {k: v for k, v in data.items() if k in known_fields}
         return cls(**filtered)
+
+
+@dataclass
+class CPUClockData:
+    """CPU clock frequency data captured during calibration.
+
+    Note: current_freq_mhz is required - calibration fails without it.
+    Other fields are optional but recommended for full analysis.
+    """
+
+    # Current clock frequency (MHz) - REQUIRED
+    current_freq_mhz: float
+    """Current CPU frequency during calibration (average across cores). Required."""
+
+    # Query metadata - REQUIRED
+    query_method: str
+    """How clocks were queried: 'sysfs', 'cpuinfo', 'sysctl', 'psutil'. Required."""
+
+    # Optional frequency range
+    min_freq_mhz: Optional[float] = None
+    """Minimum CPU frequency (scaling_min_freq)."""
+
+    max_freq_mhz: Optional[float] = None
+    """Maximum CPU frequency (scaling_max_freq)."""
+
+    base_freq_mhz: Optional[float] = None
+    """Base/nominal CPU frequency from spec."""
+
+    # Per-core frequencies (for heterogeneous CPUs)
+    per_core_freq_mhz: List[float] = field(default_factory=list)
+    """Per-core frequencies in MHz."""
+
+    # Frequency scaling
+    governor: Optional[str] = None
+    """CPU frequency governor (e.g., 'performance', 'powersave')."""
+
+    driver: Optional[str] = None
+    """CPU frequency scaling driver (e.g., 'intel_pstate')."""
+
+    # Turbo/boost state
+    turbo_enabled: Optional[bool] = None
+    """Whether turbo boost is enabled."""
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary, excluding None/empty values."""
+        result = {}
+        for key, value in asdict(self).items():
+            if value is not None and value != []:
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CPUClockData':
+        """Create from dictionary."""
+        # Filter to only known fields
+        known_fields = set(cls.__dataclass_fields__.keys())
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered)
+
+
+@dataclass
+class PreflightCheckResult:
+    """Result of a single pre-flight check (stored in calibration data)."""
+    name: str
+    status: str  # 'passed', 'warning', 'failed', 'skipped'
+    message: str
+    current_value: Optional[str] = None
+    expected_value: Optional[str] = None
+
+    def to_dict(self) -> Dict:
+        result = {'name': self.name, 'status': self.status, 'message': self.message}
+        if self.current_value:
+            result['current_value'] = self.current_value
+        if self.expected_value:
+            result['expected_value'] = self.expected_value
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PreflightCheckResult':
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class PreflightData:
+    """Pre-flight check results stored in calibration data.
+
+    Records system state at calibration time to help interpret results.
+    """
+    timestamp: str
+    """When pre-flight checks were run."""
+
+    passed: bool
+    """Whether all checks passed (no failures)."""
+
+    forced: bool = False
+    """Whether calibration was forced despite failures."""
+
+    checks: List[PreflightCheckResult] = field(default_factory=list)
+    """Individual check results."""
+
+    def to_dict(self) -> Dict:
+        return {
+            'timestamp': self.timestamp,
+            'passed': self.passed,
+            'forced': self.forced,
+            'checks': [c.to_dict() for c in self.checks]
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PreflightData':
+        checks = [PreflightCheckResult.from_dict(c) for c in data.get('checks', [])]
+        return cls(
+            timestamp=data['timestamp'],
+            passed=data['passed'],
+            forced=data.get('forced', False),
+            checks=checks
+        )
 
 
 @dataclass
@@ -374,9 +495,16 @@ class CalibrationMetadata:
     platform_architecture: str = "unknown"  # "x86_64", "aarch64", "arm64"
     framework: str = "numpy"  # "numpy" or "pytorch" - which framework ran the benchmarks
 
-    # GPU clock data (for CUDA devices)
+    # Clock data captured during calibration
     gpu_clock: Optional[GPUClockData] = None
     """GPU clock frequencies captured during calibration (CUDA only)."""
+
+    cpu_clock: Optional[CPUClockData] = None
+    """CPU clock frequencies captured during calibration."""
+
+    # Pre-flight check results
+    preflight: Optional[PreflightData] = None
+    """Pre-flight check results (system state validation)."""
 
     def to_dict(self) -> Dict:
         result = asdict(self)
@@ -385,14 +513,28 @@ class CalibrationMetadata:
             result['gpu_clock'] = self.gpu_clock.to_dict()
         elif 'gpu_clock' in result:
             del result['gpu_clock']  # Remove None gpu_clock
+        # Handle nested CPUClockData
+        if self.cpu_clock is not None:
+            result['cpu_clock'] = self.cpu_clock.to_dict()
+        elif 'cpu_clock' in result:
+            del result['cpu_clock']  # Remove None cpu_clock
+        # Handle nested PreflightData
+        if self.preflight is not None:
+            result['preflight'] = self.preflight.to_dict()
+        elif 'preflight' in result:
+            del result['preflight']  # Remove None preflight
         return result
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'CalibrationMetadata':
-        # Handle nested GPUClockData
+        # Handle nested clock data
         data = data.copy()
         if 'gpu_clock' in data and data['gpu_clock'] is not None:
             data['gpu_clock'] = GPUClockData.from_dict(data['gpu_clock'])
+        if 'cpu_clock' in data and data['cpu_clock'] is not None:
+            data['cpu_clock'] = CPUClockData.from_dict(data['cpu_clock'])
+        if 'preflight' in data and data['preflight'] is not None:
+            data['preflight'] = PreflightData.from_dict(data['preflight'])
         known_fields = set(cls.__dataclass_fields__.keys())
         return cls(**{k: v for k, v in data.items() if k in known_fields})
 

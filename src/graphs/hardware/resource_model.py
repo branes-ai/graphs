@@ -23,9 +23,14 @@ from enum import Enum
 from graphs.ir.structures import (
     SubgraphDescriptor,
     ParallelismDescriptor,
-    BottleneckType
+    BottleneckType,
+    PartitionReport,
 )
-from graphs.transform.partitioning import FusedSubgraph, FusionReport
+
+# Aliases for backward compatibility (these were originally in transform.partitioning)
+# Importing directly from ir.structures avoids pulling in torch dependency
+FusedSubgraph = SubgraphDescriptor
+FusionReport = PartitionReport
 
 if TYPE_CHECKING:
     from graphs.hardware.architectural_energy import ArchitecturalEnergyModel
