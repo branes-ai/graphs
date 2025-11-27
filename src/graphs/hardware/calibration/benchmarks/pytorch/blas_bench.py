@@ -514,8 +514,12 @@ def calibrate_blas_suite_pytorch(
 
         # Track which precisions to skip for remaining sizes (due to poor performance)
         # Only enable early termination for BLAS Level 3 (GEMM) to avoid long runtimes
+        # BUT only after reaching a minimum size where timing overhead doesn't dominate
         skipped_precisions = {}  # {prec_name: (reason, skip_after_size)}
         enable_early_termination = (level == 3)  # Only for GEMM
+        # Minimum size for early termination - small matrices have high overhead
+        # 256x256 GEMM = 33M FLOPs, gives meaningful GFLOPS measurement
+        min_early_termination_size = 256
 
         for size in op_sizes:
             # Format size for display
@@ -618,7 +622,12 @@ def calibrate_blas_suite_pytorch(
                     )
 
                     # Check for poor performance - skip this precision for larger sizes (GEMM only)
-                    if enable_early_termination and result['gflops'] < min_useful_gflops and prec_name not in skipped_precisions:
+                    # Only trigger early termination after reaching minimum size threshold
+                    # Small matrices have high overhead and naturally low GFLOPS
+                    if (enable_early_termination and
+                        size >= min_early_termination_size and
+                        result['gflops'] < min_useful_gflops and
+                        prec_name not in skipped_precisions):
                         size_display = f"{size_str}"
                         skipped_precisions[prec_name] = (f"{result['gflops']:.1f} GFLOPS < {min_useful_gflops} GFLOPS", size_display)
 
