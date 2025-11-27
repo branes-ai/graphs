@@ -19,11 +19,15 @@ from ....resource_model import Precision
 
 
 # Precision to PyTorch dtype mappings
+# Note: TF32 uses float32 dtype but with Tensor Core truncation (19-bit)
+# TF32 is enabled/disabled via torch.backends.cuda.matmul.allow_tf32
 TORCH_DTYPE_MAP = {
     Precision.FP64: torch.float64 if TORCH_AVAILABLE else None,
     Precision.FP32: torch.float32 if TORCH_AVAILABLE else None,
+    Precision.TF32: torch.float32 if TORCH_AVAILABLE else None,  # Same dtype, different mode
     Precision.FP16: torch.float16 if TORCH_AVAILABLE else None,
     Precision.BF16: torch.bfloat16 if TORCH_AVAILABLE else None,
+    Precision.INT64: torch.int64 if TORCH_AVAILABLE else None,
     Precision.INT32: torch.int32 if TORCH_AVAILABLE else None,
     Precision.INT16: torch.int16 if TORCH_AVAILABLE else None,
     Precision.INT8: torch.int8 if TORCH_AVAILABLE else None,
@@ -184,7 +188,26 @@ def calibrate_matmul_pytorch(
 
             # Run benchmark
             try:
+                # Handle TF32 mode for CUDA devices
+                # TF32 uses FP32 tensors but truncates mantissa on Tensor Cores
+                tf32_was_enabled = None
+                if device == 'cuda' and TORCH_AVAILABLE:
+                    tf32_was_enabled = torch.backends.cuda.matmul.allow_tf32
+                    if precision == Precision.TF32:
+                        # Enable TF32 for TF32 benchmark
+                        torch.backends.cuda.matmul.allow_tf32 = True
+                        torch.backends.cudnn.allow_tf32 = True
+                    elif precision == Precision.FP32:
+                        # Disable TF32 for true FP32 benchmark
+                        torch.backends.cuda.matmul.allow_tf32 = False
+                        torch.backends.cudnn.allow_tf32 = False
+
                 result = benchmark_torch_matmul(N, dtype, device, num_trials)
+
+                # Restore TF32 setting
+                if tf32_was_enabled is not None:
+                    torch.backends.cuda.matmul.allow_tf32 = tf32_was_enabled
+                    torch.backends.cudnn.allow_tf32 = tf32_was_enabled
 
                 # Calculate efficiency vs theoretical peak
                 theoretical_peak = theoretical_peaks.get(precision.value, None)

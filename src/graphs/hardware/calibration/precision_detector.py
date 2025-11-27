@@ -19,10 +19,12 @@ except ImportError:
     class Precision(Enum):
         FP64 = "fp64"
         FP32 = "fp32"
+        TF32 = "tf32"  # NVIDIA TensorFloat-32, Tensor Cores only
         FP16 = "fp16"
         BF16 = "bf16"
         FP8_E4M3 = "fp8_e4m3"
         FP8_E5M2 = "fp8_e5m2"
+        INT64 = "int64"
         INT32 = "int32"
         INT16 = "int16"
         INT8 = "int8"
