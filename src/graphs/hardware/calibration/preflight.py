@@ -463,7 +463,14 @@ def _check_thermal_throttling() -> CheckResult:
 
 
 def _check_gpu_power_state() -> CheckResult:
-    """Check GPU power state (NVIDIA)."""
+    """Check GPU power state (NVIDIA).
+
+    For Jetson platforms, all standard power profiles (7W, 15W, 25W, MAXN, etc.)
+    are valid calibration configurations. Calibrating at a specific power profile
+    is intentional - it measures performance at that power envelope.
+
+    Only unknown/unexpected power modes trigger a warning.
+    """
     try:
         from .gpu_clock import get_gpu_clock_info
 
@@ -477,20 +484,37 @@ def _check_gpu_power_state() -> CheckResult:
 
         # Check Jetson power mode
         if info.power_mode_name:
-            if info.power_mode_name.upper() in ('MAXN', 'MAX', '50W', '60W'):
+            mode_upper = info.power_mode_name.upper()
+
+            # All known Jetson power profiles are valid for calibration
+            # Each profile represents a specific power/performance envelope
+            # - MAXN/MAX: Maximum performance (no power limit)
+            # - 7W, 10W, 15W, 25W, 30W, 50W, 60W: Power-limited profiles
+            known_jetson_modes = {
+                'MAXN', 'MAX',  # Maximum performance modes
+                '7W', '10W', '15W', '20W', '25W', '30W', '50W', '60W',  # Power profiles
+            }
+
+            if mode_upper in known_jetson_modes:
+                # Indicate if this is max performance or a power-limited profile
+                if mode_upper in ('MAXN', 'MAX'):
+                    desc = "maximum performance"
+                else:
+                    desc = f"power-limited profile"
                 return CheckResult(
                     name="GPU Power Mode",
                     status=CheckStatus.PASSED,
-                    message=f"{info.power_mode_name} (maximum performance)"
+                    message=f"{info.power_mode_name} ({desc})"
                 )
             else:
+                # Unknown power mode - warn but don't fail
                 return CheckResult(
                     name="GPU Power Mode",
                     status=CheckStatus.WARNING,
-                    message=f"{info.power_mode_name} (not maximum)",
+                    message=f"{info.power_mode_name} (unknown mode)",
                     current_value=info.power_mode_name,
-                    expected_value="MAXN",
-                    fix_command="sudo nvpmodel -m 0"
+                    expected_value="Known mode (MAXN, 7W, 15W, 25W, etc.)",
+                    fix_command="sudo nvpmodel -m 0  # for MAXN mode"
                 )
 
         # Check SM clock percentage
