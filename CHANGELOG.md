@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-27] - Jetson Calibration Fixes and GPU Clock-Under-Load
+
+### Fixed
+
+**Jetson Pre-flight Checks** (`src/graphs/hardware/calibration/preflight.py`)
+- Fixed CPU governor check for Jetson platforms - `schedutil` is now recognized as valid (Jetson default)
+- Fixed CPU frequency check for Jetson - low idle frequency now passes since DVFS will boost under load
+- Added `MAXN_SUPER` to known Jetson power modes (Jetson Orin Nano Super devkit)
+- Added `_is_jetson()` helper function for platform detection
+
+**GPU Clock Measurement** (`src/graphs/hardware/calibration/gpu_clock.py`, `calibrator.py`)
+- **Critical fix**: GPU clock was being captured at idle (306 MHz) instead of under load (918 MHz)
+- Added `get_gpu_clock_under_load()` function that runs a warmup GEMM before querying clock
+- Calibrator now shows both idle and load clocks for transparency
+- Calibration profiles now store the actual operating frequency during benchmarks
+
+**Jetson Orin Nano Theoretical Peaks** (`hardware_database/gpu/nvidia/jetson_orin_nano_gpu.json`, `hardware_registry/gpu/jetson_orin_nano_gpu/spec.json`)
+- Fixed `boost_frequency_ghz`: 0.625 → 0.918 (918 MHz actual max boost)
+- Recalculated all theoretical peaks at boost clock:
+  - FP32: 640 → 1880 GFLOPS
+  - FP16: 1280 → 7520 GFLOPS (Tensor Core throughput corrected)
+  - BF16: 1280 → 7520 GFLOPS
+  - TF32: 1280 → 3760 GFLOPS
+  - INT8: 2560 → 15040 GOPS
+
+### Added
+
+**New CLI Tool** (`cli/show_calibration_efficiency.py`)
+- Displays calibration measurements as percentage of theoretical peak
+- Shows per-precision efficiency with status indicators (Excellent/Good/Suboptimal/Very low)
+- Supports filtering by `--id`, `--power-mode`, `--framework`
+- Usage: `./cli/show_calibration_efficiency.py --id jetson_orin_nano_gpu`
+
+### Technical Details
+
+**Root Cause Analysis: Incorrect Efficiency Percentages**
+1. GPU clock was queried at idle before benchmarks started (306 MHz)
+2. Theoretical peaks were calculated using wrong boost clock (625 MHz instead of 918 MHz)
+3. Tensor Core throughput was underestimated (64 ops/TC instead of 256 ops/SM)
+4. Result: Calibration showed >100% efficiency for Tensor Core operations
+
+**Corrected Jetson Orin Nano Specs at 918 MHz Boost**
+| Precision | Old Peak | New Peak | Calculation |
+|-----------|----------|----------|-------------|
+| FP64 | 20 GFLOPS | 60 GFLOPS | 1024 cores × 2 ops × 918 MHz / 32 |
+| FP32 | 640 GFLOPS | 1880 GFLOPS | 1024 cores × 2 ops × 918 MHz |
+| TF32 | 1280 GFLOPS | 3760 GFLOPS | 8 SMs × 128 TC ops × 918 MHz × 2 |
+| FP16 | 1280 GFLOPS | 7520 GFLOPS | 8 SMs × 256 TC ops × 918 MHz × 2 |
+| BF16 | 1280 GFLOPS | 7520 GFLOPS | Same as FP16 |
+| INT8 | 2560 GOPS | 15040 GOPS | 8 SMs × 512 TC ops × 918 MHz × 2 |
+
+---
+
 ## [2025-11-26] - Hardware Schema Cleanup and Backward Compatibility Fix
 
 ### Fixed
