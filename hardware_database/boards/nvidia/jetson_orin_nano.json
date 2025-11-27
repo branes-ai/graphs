@@ -1,0 +1,70 @@
+{
+  "id": "jetson_orin_nano",
+  "type": "board",
+  "vendor": "NVIDIA",
+  "model": "Jetson Orin Nano Developer Kit",
+  "family": "Jetson",
+  "series": "Orin",
+  "soc": "Tegra T234",
+  "platform": "aarch64",
+  "release_date": "2023-03",
+  "manufacturer_url": "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/",
+
+  "detection": {
+    "device_tree_model": [
+      "NVIDIA Jetson Orin Nano Developer Kit",
+      "NVIDIA Orin Nano Developer Kit"
+    ],
+    "tegra_release": "t234",
+    "compatible_strings": [
+      "nvidia,p3768-0000+p3767-0003",
+      "nvidia,p3767-0003",
+      "nvidia,jetson-orin-nano"
+    ],
+    "cuda_capability": "8.7",
+    "cpu_cores": [4, 6],
+    "gpu_model_patterns": [
+      "Orin.*nvgpu",
+      "ga10b"
+    ],
+    "cpu_model_patterns": [
+      "ARMv8 Processor",
+      "Cortex-A78AE"
+    ]
+  },
+
+  "components": {
+    "cpu": "jetson_orin_nano_cpu",
+    "gpu": "jetson_orin_nano_gpu"
+  },
+
+  "power_modes": {
+    "25W": {
+      "description": "Maximum performance mode",
+      "cpu_cores_online": 6,
+      "cpu_freq_ghz": 1.9,
+      "gpu_freq_ghz": 0.625
+    },
+    "15W": {
+      "description": "Balanced mode",
+      "cpu_cores_online": 6,
+      "cpu_freq_ghz": 1.5,
+      "gpu_freq_ghz": 0.510
+    },
+    "7W": {
+      "description": "Power saving mode",
+      "cpu_cores_online": 4,
+      "cpu_freq_ghz": 1.0,
+      "gpu_freq_ghz": 0.306
+    }
+  },
+
+  "shared_memory": {
+    "type": "unified",
+    "total_gb": 8,
+    "technology": "LPDDR5",
+    "note": "CPU and GPU share unified memory pool"
+  },
+
+  "notes": "Entry-level Jetson Orin module. 6-core ARM Cortex-A78AE CPU with 1024 CUDA core Ampere GPU. Unified LPDDR5 memory shared between CPU and GPU."
+}

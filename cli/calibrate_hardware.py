@@ -81,6 +81,14 @@ def auto_detect_hardware(db: HardwareDatabase):
             if gpu.memory_gb:
                 print(f"Memory:   {gpu.memory_gb} GB")
 
+    # Show board detection if available
+    board_match = results.get('board_match')
+    if results.get('board'):
+        board = results['board']
+        print(f"Board:    {board.model}")
+        if board.soc:
+            print(f"SoC:      {board.soc}")
+
     print()
 
     # Check for CPU match
@@ -89,7 +97,11 @@ def auto_detect_hardware(db: HardwareDatabase):
         conf_pct = best_match.confidence * 100
         spec = best_match.matched_spec
 
-        print(f"✓ Matched to database: {spec.id}")
+        via_board = ""
+        if board_match and "via board:" in best_match.detected_string:
+            via_board = f" (via board: {board_match.board_id})"
+
+        print(f"✓ Matched to database: {spec.id}{via_board}")
         print(f"  Confidence: {conf_pct:.0f}%")
         print(f"  Device: {spec.device_type.upper()}")
         print()
@@ -102,7 +114,11 @@ def auto_detect_hardware(db: HardwareDatabase):
         conf_pct = best_match.confidence * 100
         spec = best_match.matched_spec
 
-        print(f"✓ Matched to database: {spec.id}")
+        via_board = ""
+        if board_match and "via board:" in best_match.detected_string:
+            via_board = f" (via board: {board_match.board_id})"
+
+        print(f"✓ Matched to database: {spec.id}{via_board}")
         print(f"  Confidence: {conf_pct:.0f}%")
         print(f"  Device: {spec.device_type.upper()}")
         print()

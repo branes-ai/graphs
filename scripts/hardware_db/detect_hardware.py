@@ -182,6 +182,39 @@ def main():
         print("No GPUs detected")
         print()
 
+    # Display board detection (for embedded/SoC devices)
+    if results.get('board'):
+        board = results['board']
+        print("Detected Board/SoC")
+        print("-" * 80)
+        print(f"Model:        {board.model}")
+        print(f"Vendor:       {board.vendor}")
+        if board.family:
+            print(f"Family:       {board.family}")
+        if board.soc:
+            print(f"SoC:          {board.soc}")
+        if args.verbose:
+            if board.device_tree_model:
+                print(f"Device Tree:  {board.device_tree_model}")
+            if board.tegra_release:
+                print(f"Tegra:        {board.tegra_release}")
+            if board.compatible_strings:
+                print(f"Compatible:   {board.compatible_strings[:3]}")
+        print()
+
+        if results.get('board_match'):
+            board_match = results['board_match']
+            conf_pct = board_match.confidence * 100
+            print("Board Match")
+            print("-" * 80)
+            print(f"Board ID:     {board_match.board_id}")
+            print(f"Confidence:   {conf_pct:.0f}%")
+            print(f"Components:   CPU={board_match.components.get('cpu', 'N/A')}, "
+                  f"GPU={board_match.components.get('gpu', 'N/A')}")
+            if args.verbose and board_match.matched_signals:
+                print(f"Signals:      {', '.join(board_match.matched_signals)}")
+            print()
+
     # Export if requested
     if args.export:
         export_data = {
@@ -247,12 +280,20 @@ def main():
     print("Summary")
     print("=" * 80)
 
-    cpu_match = "✓ Matched" if results['cpu_matches'] else "✗ Not found"
+    # Check if matches came via board detection
+    board_match = results.get('board_match')
+    via_board = ""
+    if board_match and board_match.confidence > 0.5:
+        via_board = f" (via board: {board_match.board_id})"
+
+    cpu_match_status = "✓ Matched" + via_board if results['cpu_matches'] else "✗ Not found"
     gpu_count = len(results['gpus'])
     gpu_matched = sum(1 for matches in results['gpu_matches'] if matches)
 
-    print(f"CPU:  {cpu_match}")
-    print(f"GPUs: {gpu_count} detected, {gpu_matched} matched in database")
+    print(f"CPU:   {cpu_match_status}")
+    print(f"GPUs:  {gpu_count} detected, {gpu_matched} matched in database{via_board if gpu_matched and via_board else ''}")
+    if board_match:
+        print(f"Board: ✓ {board_match.board_id} ({board_match.confidence*100:.0f}% confidence)")
     print()
 
     if not results['cpu_matches'] or gpu_count != gpu_matched:

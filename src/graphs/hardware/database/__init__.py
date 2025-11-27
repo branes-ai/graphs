@@ -23,7 +23,14 @@ from .schema import (
     PRECISION_STORAGE_BITS,
 )
 from .manager import HardwareDatabase, get_database
-from .detector import HardwareDetector, DetectedCPU, DetectedGPU, MatchResult
+from .detector import (
+    HardwareDetector,
+    DetectedCPU,
+    DetectedGPU,
+    DetectedBoard,
+    MatchResult,
+    BoardMatchResult,
+)
 
 __all__ = [
     # Core types
@@ -50,5 +57,7 @@ __all__ = [
     'HardwareDetector',
     'DetectedCPU',
     'DetectedGPU',
+    'DetectedBoard',
     'MatchResult',
+    'BoardMatchResult',
 ]
