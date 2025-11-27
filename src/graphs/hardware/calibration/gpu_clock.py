@@ -435,6 +435,77 @@ def get_jetson_power_mode() -> Optional[str]:
     return nvp.get('power_mode_name') if nvp else None
 
 
+def get_gpu_clock_under_load(
+    warmup_duration_ms: int = 500,
+    matrix_size: int = 2048,
+    device_index: int = 0
+) -> GPUClockInfo:
+    """
+    Query GPU clock frequency while GPU is under compute load.
+
+    This function runs a warmup compute kernel (matrix multiplication) to boost
+    the GPU clock via DVFS, then queries the clock frequency while the GPU is
+    still at elevated frequency. This gives a more accurate picture of the
+    actual operating frequency during calibration benchmarks.
+
+    Args:
+        warmup_duration_ms: Minimum time to run warmup kernel (default 500ms)
+        matrix_size: Size of matrix for warmup GEMM (default 2048)
+        device_index: GPU device index (default 0)
+
+    Returns:
+        GPUClockInfo with clock data captured under load
+
+    Example:
+        >>> info = get_gpu_clock_under_load()
+        >>> print(f"SM Clock under load: {info.sm_clock_mhz} MHz")
+    """
+    try:
+        import torch
+        import time
+
+        if not torch.cuda.is_available():
+            return get_gpu_clock_info(device_index)
+
+        device = torch.device(f'cuda:{device_index}')
+
+        # Create matrices for warmup GEMM
+        a = torch.randn(matrix_size, matrix_size, device=device, dtype=torch.float32)
+        b = torch.randn(matrix_size, matrix_size, device=device, dtype=torch.float32)
+
+        # Warmup to boost GPU clock
+        start_time = time.time()
+        warmup_duration_sec = warmup_duration_ms / 1000.0
+
+        while (time.time() - start_time) < warmup_duration_sec:
+            c = torch.mm(a, b)
+            torch.cuda.synchronize()
+
+        # Query clock while GPU is still boosted
+        # Run one more GEMM to keep GPU active during query
+        c = torch.mm(a, b)
+        info = get_gpu_clock_info(device_index)
+        torch.cuda.synchronize()
+
+        # Clean up
+        del a, b, c
+        torch.cuda.empty_cache()
+
+        # Mark that this was captured under load
+        info.query_method = f"{info.query_method}_under_load"
+
+        return info
+
+    except ImportError:
+        # PyTorch not available, fall back to idle query
+        return get_gpu_clock_info(device_index)
+    except Exception as e:
+        # If warmup fails, fall back to idle query
+        info = get_gpu_clock_info(device_index)
+        info.error_message = f"Warmup failed ({e}), using idle clock"
+        return info
+
+
 def estimate_theoretical_peak(
     cuda_cores: int,
     tensor_cores: int,
