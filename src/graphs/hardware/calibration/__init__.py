@@ -37,6 +37,7 @@ from .precision_detector import get_precision_capabilities
 from .gpu_clock import (
     GPUClockInfo,
     get_gpu_clock_info,
+    get_gpu_clock_under_load,
     get_jetson_power_mode,
     estimate_theoretical_peak,
     print_gpu_clock_info,
@@ -54,6 +55,7 @@ __all__ = [
     'calibrate_hardware',
     'get_precision_capabilities',
     'get_gpu_clock_info',
+    'get_gpu_clock_under_load',
     'get_jetson_power_mode',
     'estimate_theoretical_peak',
     'print_gpu_clock_info',

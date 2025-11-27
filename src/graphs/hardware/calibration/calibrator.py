@@ -18,7 +18,7 @@ from .schema import (
 from .benchmarks import calibrate_matmul, calibrate_memory_bandwidth
 from .benchmarks.matmul_bench_multi import calibrate_matmul_all_precisions
 from .precision_detector import get_precision_capabilities
-from .gpu_clock import get_gpu_clock_info, GPUClockInfo
+from .gpu_clock import get_gpu_clock_info, get_gpu_clock_under_load, GPUClockInfo
 from .cpu_clock import get_cpu_clock_info, CPUClockInfo
 from .preflight import run_preflight_checks, PreflightReport
 from ..resource_model import Precision
@@ -293,7 +293,15 @@ def calibrate_hardware(
     gpu_clock_data = None
     if device == 'cuda':
         print("Querying GPU clock frequencies...")
-        gpu_clock_info = get_gpu_clock_info()
+
+        # First get idle clock for reference
+        idle_clock_info = get_gpu_clock_info()
+        idle_sm_clock = idle_clock_info.sm_clock_mhz if idle_clock_info.query_success else None
+
+        # Run warmup and query clock under load (captures actual operating frequency)
+        print("  Running warmup to capture clock under load...")
+        gpu_clock_info = get_gpu_clock_under_load(warmup_duration_ms=500, matrix_size=2048)
+
         if not gpu_clock_info.query_success:
             raise RuntimeError(
                 f"Cannot calibrate GPU without clock frequency data.\n"
@@ -310,7 +318,7 @@ def calibrate_hardware(
             )
 
         gpu_clock_data = GPUClockData(
-            sm_clock_mhz=gpu_clock_info.sm_clock_mhz,  # Required
+            sm_clock_mhz=gpu_clock_info.sm_clock_mhz,  # Required - now captured under load
             query_method=gpu_clock_info.query_method,  # Required
             mem_clock_mhz=gpu_clock_info.mem_clock_mhz,
             max_sm_clock_mhz=gpu_clock_info.max_sm_clock_mhz,
@@ -322,7 +330,13 @@ def calibrate_hardware(
             power_mode_name=gpu_clock_info.power_mode_name,
         )
 
-        print(f"  SM Clock: {gpu_clock_info.sm_clock_mhz} MHz", end="")
+        # Show both idle and load clocks for transparency
+        if idle_sm_clock and idle_sm_clock != gpu_clock_info.sm_clock_mhz:
+            print(f"  SM Clock (idle): {idle_sm_clock} MHz")
+            print(f"  SM Clock (load): {gpu_clock_info.sm_clock_mhz} MHz", end="")
+        else:
+            print(f"  SM Clock: {gpu_clock_info.sm_clock_mhz} MHz", end="")
+
         if gpu_clock_info.max_sm_clock_mhz:
             pct = gpu_clock_info.sm_clock_mhz / gpu_clock_info.max_sm_clock_mhz * 100
             print(f" ({pct:.0f}% of max {gpu_clock_info.max_sm_clock_mhz} MHz)")
