@@ -102,6 +102,28 @@ class DetectedMemory:
     numa_nodes: Optional[int] = None
 
 
+@dataclass
+class DetectedBoard:
+    """Board/SoC detection result for embedded devices"""
+    model: str
+    vendor: str
+    family: Optional[str] = None
+    soc: Optional[str] = None
+    device_tree_model: Optional[str] = None
+    tegra_release: Optional[str] = None
+    compatible_strings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class BoardMatchResult:
+    """Result of matching detected hardware to a board spec"""
+    board_id: str
+    board_spec: Dict[str, Any]
+    confidence: float
+    matched_signals: List[str]  # Which detection signals matched
+    components: Dict[str, str]  # cpu/gpu hardware IDs from board spec
+
+
 class HardwareDetector:
     """
     Cross-platform hardware detector.
@@ -1280,4 +1302,306 @@ class HardwareDetector:
             matches = self.match_gpu_to_database(gpu, db)
             results['gpu_matches'].append(matches)
 
+        # Try board detection for embedded/SoC devices
+        # This is especially useful when CPU/GPU names are generic (e.g., "ARMv8 Processor")
+        board = self.detect_board()
+        results['board'] = board
+
+        if board:
+            board_match = self.match_board_to_database(board, cpu, gpus, db)
+            results['board_match'] = board_match
+
+            # If we have a board match but no CPU/GPU matches, use the board's components
+            if board_match and board_match.confidence > 0.5:
+                if not results['cpu_matches'] and 'cpu' in board_match.components:
+                    cpu_spec = db.get(board_match.components['cpu'])
+                    if cpu_spec:
+                        results['cpu_matches'] = [MatchResult(
+                            detected_string=f"via board:{board_match.board_id}",
+                            matched_spec=cpu_spec,
+                            confidence=board_match.confidence
+                        )]
+
+                if (not any(results['gpu_matches']) and 'gpu' in board_match.components):
+                    gpu_spec = db.get(board_match.components['gpu'])
+                    if gpu_spec:
+                        # Add match for each detected GPU
+                        for i, _ in enumerate(gpus):
+                            if i < len(results['gpu_matches']):
+                                if not results['gpu_matches'][i]:
+                                    results['gpu_matches'][i] = [MatchResult(
+                                        detected_string=f"via board:{board_match.board_id}",
+                                        matched_spec=gpu_spec,
+                                        confidence=board_match.confidence
+                                    )]
+                            else:
+                                results['gpu_matches'].append([MatchResult(
+                                    detected_string=f"via board:{board_match.board_id}",
+                                    matched_spec=gpu_spec,
+                                    confidence=board_match.confidence
+                                )])
+        else:
+            results['board_match'] = None
+
         return results
+
+    # ========================================================================
+    # Board/SoC Detection (for embedded devices)
+    # ========================================================================
+
+    def detect_board(self) -> Optional[DetectedBoard]:
+        """
+        Detect board/SoC information for embedded devices.
+
+        Reads device-tree and vendor-specific files to identify the board.
+        Works on Linux ARM/ARM64 systems like Jetson, Raspberry Pi, Qualcomm.
+
+        Returns:
+            DetectedBoard instance or None if not an identifiable board
+        """
+        if self.os_type != 'linux':
+            return None
+
+        if self.platform_arch not in ('aarch64', 'arm64', 'armv7l'):
+            return None
+
+        device_tree_model = self._read_device_tree_model()
+        tegra_release = self._read_tegra_release()
+        compatible_strings = self._read_compatible_strings()
+
+        if not device_tree_model and not tegra_release and not compatible_strings:
+            return None
+
+        # Parse vendor and family from device tree model
+        vendor = "Unknown"
+        family = None
+        soc = None
+
+        if device_tree_model:
+            if 'NVIDIA' in device_tree_model or 'Jetson' in device_tree_model:
+                vendor = "NVIDIA"
+                family = "Jetson"
+                if 'Orin' in device_tree_model:
+                    soc = "Tegra T234"
+                elif 'Xavier' in device_tree_model:
+                    soc = "Tegra T194"
+            elif 'Raspberry Pi' in device_tree_model:
+                vendor = "Raspberry Pi Foundation"
+                family = "Raspberry Pi"
+            elif 'Qualcomm' in device_tree_model:
+                vendor = "Qualcomm"
+
+        if tegra_release:
+            if 't234' in tegra_release.lower():
+                soc = "Tegra T234"
+            elif 't194' in tegra_release.lower():
+                soc = "Tegra T194"
+
+        return DetectedBoard(
+            model=device_tree_model or "Unknown Board",
+            vendor=vendor,
+            family=family,
+            soc=soc,
+            device_tree_model=device_tree_model,
+            tegra_release=tegra_release,
+            compatible_strings=compatible_strings
+        )
+
+    def _read_device_tree_model(self) -> Optional[str]:
+        """Read device tree model from /proc/device-tree/model"""
+        paths = [
+            Path('/proc/device-tree/model'),
+            Path('/sys/firmware/devicetree/base/model')
+        ]
+
+        for path in paths:
+            try:
+                if path.exists():
+                    content = path.read_text().strip().rstrip('\x00')
+                    if content:
+                        return content
+            except (PermissionError, IOError):
+                continue
+
+        return None
+
+    def _read_tegra_release(self) -> Optional[str]:
+        """Read NVIDIA Tegra release info from /etc/nv_tegra_release"""
+        path = Path('/etc/nv_tegra_release')
+
+        try:
+            if path.exists():
+                content = path.read_text().strip()
+                # Extract release line: "# R35 (release), REVISION: 4.1, GCID: ..."
+                # Look for t234, t194, etc.
+                if 't234' in content.lower():
+                    return 't234'
+                elif 't194' in content.lower():
+                    return 't194'
+                elif 't210' in content.lower():
+                    return 't210'
+                # Return full line if no Tegra identified
+                for line in content.split('\n'):
+                    if line.startswith('#'):
+                        return line
+        except (PermissionError, IOError):
+            pass
+
+        return None
+
+    def _read_compatible_strings(self) -> List[str]:
+        """Read device tree compatible strings"""
+        path = Path('/proc/device-tree/compatible')
+
+        try:
+            if path.exists():
+                content = path.read_bytes()
+                # Compatible strings are null-separated
+                strings = content.decode('utf-8', errors='ignore').split('\x00')
+                return [s.strip() for s in strings if s.strip()]
+        except (PermissionError, IOError):
+            pass
+
+        return []
+
+    def match_board_to_database(
+        self,
+        board: DetectedBoard,
+        cpu: Optional[DetectedCPU],
+        gpus: List[DetectedGPU],
+        db
+    ) -> Optional[BoardMatchResult]:
+        """
+        Match detected board against board database entries.
+
+        Uses multiple signals for matching:
+        - Device tree model string
+        - Tegra release version
+        - Compatible strings
+        - CUDA capability (for NVIDIA)
+        - CPU core count
+
+        Args:
+            board: DetectedBoard instance
+            cpu: DetectedCPU instance (for additional matching signals)
+            gpus: List of DetectedGPU instances
+            db: HardwareDatabase instance
+
+        Returns:
+            BoardMatchResult or None if no match
+        """
+        board_specs = db.load_boards()
+
+        if not board_specs:
+            return None
+
+        best_match = None
+        best_confidence = 0.0
+
+        for board_id, spec in board_specs.items():
+            confidence, matched_signals = self._calculate_board_match_confidence(
+                board, cpu, gpus, spec
+            )
+
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_match = BoardMatchResult(
+                    board_id=board_id,
+                    board_spec=spec,
+                    confidence=confidence,
+                    matched_signals=matched_signals,
+                    components=spec.get('components', {})
+                )
+
+        return best_match if best_confidence > 0.3 else None
+
+    def _calculate_board_match_confidence(
+        self,
+        board: DetectedBoard,
+        cpu: Optional[DetectedCPU],
+        gpus: List[DetectedGPU],
+        spec: Dict[str, Any]
+    ) -> tuple:
+        """
+        Calculate confidence score for board matching.
+
+        Returns (confidence, matched_signals) tuple.
+        """
+        detection = spec.get('detection', {})
+        matched_signals = []
+        score = 0.0
+        max_score = 0.0
+
+        # Device tree model match (highest weight)
+        dt_patterns = detection.get('device_tree_model', [])
+        if dt_patterns and board.device_tree_model:
+            max_score += 3.0
+            for pattern in dt_patterns:
+                if pattern.lower() in board.device_tree_model.lower():
+                    score += 3.0
+                    matched_signals.append(f"device_tree_model:{pattern}")
+                    break
+
+        # Tegra release match
+        tegra = detection.get('tegra_release')
+        if tegra and board.tegra_release:
+            max_score += 2.0
+            if tegra.lower() in board.tegra_release.lower():
+                score += 2.0
+                matched_signals.append(f"tegra_release:{tegra}")
+
+        # Compatible strings match
+        compat_patterns = detection.get('compatible_strings', [])
+        if compat_patterns and board.compatible_strings:
+            max_score += 2.0
+            for pattern in compat_patterns:
+                if any(pattern in cs for cs in board.compatible_strings):
+                    score += 2.0
+                    matched_signals.append(f"compatible:{pattern}")
+                    break
+
+        # CUDA capability match (for NVIDIA boards)
+        cuda_cap = detection.get('cuda_capability')
+        if cuda_cap and gpus:
+            max_score += 1.5
+            for gpu in gpus:
+                if gpu.cuda_capability == cuda_cap:
+                    score += 1.5
+                    matched_signals.append(f"cuda_capability:{cuda_cap}")
+                    break
+
+        # CPU core count match
+        core_range = detection.get('cpu_cores', [])
+        if core_range and cpu:
+            max_score += 1.0
+            if isinstance(core_range, list) and len(core_range) >= 2:
+                if core_range[0] <= cpu.cores <= core_range[1]:
+                    score += 1.0
+                    matched_signals.append(f"cpu_cores:{cpu.cores}")
+            elif cpu.cores in core_range:
+                score += 1.0
+                matched_signals.append(f"cpu_cores:{cpu.cores}")
+
+        # GPU model pattern match
+        gpu_patterns = detection.get('gpu_model_patterns', [])
+        if gpu_patterns and gpus:
+            max_score += 1.0
+            for gpu in gpus:
+                for pattern in gpu_patterns:
+                    if re.search(pattern, gpu.model_name, re.IGNORECASE):
+                        score += 1.0
+                        matched_signals.append(f"gpu_model:{pattern}")
+                        break
+
+        # CPU model pattern match
+        cpu_patterns = detection.get('cpu_model_patterns', [])
+        if cpu_patterns and cpu:
+            max_score += 0.5
+            for pattern in cpu_patterns:
+                if re.search(pattern, cpu.model_name, re.IGNORECASE):
+                    score += 0.5
+                    matched_signals.append(f"cpu_model:{pattern}")
+                    break
+
+        confidence = score / max_score if max_score > 0 else 0.0
+        return confidence, matched_signals

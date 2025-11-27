@@ -1,0 +1,70 @@
+{
+  "id": "jetson_orin_agx",
+  "type": "board",
+  "vendor": "NVIDIA",
+  "model": "Jetson AGX Orin Developer Kit",
+  "family": "Jetson",
+  "series": "Orin",
+  "soc": "Tegra T234",
+  "platform": "aarch64",
+  "release_date": "2022-03",
+  "manufacturer_url": "https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/",
+
+  "detection": {
+    "device_tree_model": [
+      "NVIDIA Jetson AGX Orin Developer Kit",
+      "NVIDIA Jetson AGX Orin"
+    ],
+    "tegra_release": "t234",
+    "compatible_strings": [
+      "nvidia,p3737-0000+p3701-0000",
+      "nvidia,p3701-0000",
+      "nvidia,jetson-agx-orin"
+    ],
+    "cuda_capability": "8.7",
+    "cpu_cores": [8, 12],
+    "gpu_model_patterns": [
+      "Orin.*nvgpu",
+      "ga10b"
+    ],
+    "cpu_model_patterns": [
+      "ARMv8 Processor",
+      "Cortex-A78AE"
+    ]
+  },
+
+  "components": {
+    "cpu": "jetson_orin_agx_cpu",
+    "gpu": "jetson_orin_agx_gpu"
+  },
+
+  "power_modes": {
+    "60W": {
+      "description": "Maximum performance mode",
+      "cpu_cores_online": 12,
+      "cpu_freq_ghz": 2.2,
+      "gpu_freq_ghz": 1.3
+    },
+    "30W": {
+      "description": "Balanced mode",
+      "cpu_cores_online": 8,
+      "cpu_freq_ghz": 1.8,
+      "gpu_freq_ghz": 0.9
+    },
+    "15W": {
+      "description": "Power saving mode",
+      "cpu_cores_online": 4,
+      "cpu_freq_ghz": 1.2,
+      "gpu_freq_ghz": 0.6
+    }
+  },
+
+  "shared_memory": {
+    "type": "unified",
+    "total_gb": 64,
+    "technology": "LPDDR5",
+    "note": "CPU and GPU share unified memory pool"
+  },
+
+  "notes": "High-end Jetson Orin module. 12-core ARM Cortex-A78AE CPU with 2048 CUDA core Ampere GPU. Unified LPDDR5 memory shared between CPU and GPU."
+}

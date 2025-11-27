@@ -84,6 +84,10 @@ class HardwareDatabase:
             if json_file.name == "schema.json":
                 continue
 
+            # Skip boards/ directory (board specs are loaded separately)
+            if "boards" in json_file.parts:
+                continue
+
             try:
                 spec = HardwareSpec.from_json(json_file)
 
@@ -377,6 +381,36 @@ class HardwareDatabase:
                 invalid_specs[hardware_id] = errors
 
         return invalid_specs
+
+    def load_boards(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load all board/SoC definitions from the boards/ directory.
+
+        Board definitions are separate from hardware specs and define
+        embedded systems that contain multiple components (CPU + GPU).
+
+        Returns:
+            Dictionary of {board_id: board_spec_dict}
+        """
+        boards = {}
+        boards_dir = self.db_root / "boards"
+
+        if not boards_dir.exists():
+            return boards
+
+        for json_file in boards_dir.rglob("*.json"):
+            try:
+                with open(json_file) as f:
+                    spec = json.load(f)
+
+                board_id = spec.get('id')
+                if board_id:
+                    boards[board_id] = spec
+            except Exception as e:
+                print(f"⚠ Error loading board {json_file}: {e}")
+                continue
+
+        return boards
 
     def get_statistics(self) -> Dict[str, Any]:
         """
