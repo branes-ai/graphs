@@ -49,10 +49,11 @@ class BenchmarkTimeout:
 
 
 # Precision to NumPy dtype mappings
-# Canonical order: fp64, fp32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+# Canonical order: fp64, fp32, tf32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
 NUMPY_PRECISION_MAP = {
     'fp64': (Precision.FP64, np.float64),
     'fp32': (Precision.FP32, np.float32),
+    'tf32': (Precision.TF32, None),  # TF32 is NVIDIA Tensor Core only, not available in NumPy
     'fp16': (Precision.FP16, np.float16),
     'fp8': (Precision.FP8_E4M3, None),  # NumPy doesn't have native fp8
     'fp4': (Precision.FP4, None),  # NumPy doesn't have native fp4
