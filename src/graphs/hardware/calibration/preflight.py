@@ -36,6 +36,31 @@ class CheckStatus(Enum):
     SKIPPED = "skipped"
 
 
+def _is_jetson() -> bool:
+    """Check if running on NVIDIA Jetson platform."""
+    # Check for Jetson-specific files
+    jetson_indicators = [
+        '/etc/nv_tegra_release',
+        '/sys/devices/gpu.0',
+        '/usr/bin/tegrastats',
+    ]
+
+    for indicator in jetson_indicators:
+        if os.path.exists(indicator):
+            return True
+
+    # Check platform
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            model = f.read().lower()
+            if 'jetson' in model or 'orin' in model:
+                return True
+    except (FileNotFoundError, PermissionError):
+        pass
+
+    return False
+
+
 @dataclass
 class CheckResult:
     """Result of a single pre-flight check."""
@@ -154,7 +179,12 @@ class PreflightReport:
 
 
 def _check_cpu_governor() -> CheckResult:
-    """Check CPU frequency governor."""
+    """Check CPU frequency governor.
+
+    On Jetson platforms, 'schedutil' is the default and recommended governor.
+    It works with nvpmodel to manage power/performance. The 'performance'
+    governor may not be available or may conflict with nvpmodel.
+    """
     try:
         # Read governor from first CPU
         governor_path = '/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'
@@ -168,6 +198,39 @@ def _check_cpu_governor() -> CheckResult:
         with open(governor_path) as f:
             governor = f.read().strip()
 
+        is_jetson = _is_jetson()
+
+        # Jetson-specific handling
+        if is_jetson:
+            # On Jetson, schedutil is the recommended governor - it works with nvpmodel
+            # to provide DVFS. Performance governor may not be available.
+            if governor in ('performance', 'schedutil'):
+                return CheckResult(
+                    name="CPU Governor",
+                    status=CheckStatus.PASSED,
+                    message=f"{governor}" + (" (Jetson default)" if governor == 'schedutil' else ""),
+                    current_value=governor,
+                    expected_value="schedutil or performance"
+                )
+            elif governor in ('powersave', 'conservative'):
+                return CheckResult(
+                    name="CPU Governor",
+                    status=CheckStatus.WARNING,
+                    message=f"{governor} (low performance mode)",
+                    current_value=governor,
+                    expected_value="schedutil",
+                    fix_command="sudo nvpmodel -m 0  # Set MAXN power mode"
+                )
+            else:
+                return CheckResult(
+                    name="CPU Governor",
+                    status=CheckStatus.PASSED,
+                    message=f"{governor} (Jetson DVFS active)",
+                    current_value=governor,
+                    expected_value="schedutil or performance"
+                )
+
+        # Standard x86/AMD handling
         if governor == 'performance':
             return CheckResult(
                 name="CPU Governor",
@@ -210,6 +273,11 @@ def _check_cpu_frequency() -> CheckResult:
     Note: With intel_pstate driver in performance mode, idle frequency may be low
     but will ramp up under load. We check the governor separately and only fail
     here if governor is NOT performance and frequency is low.
+
+    On Jetson platforms, DVFS (Dynamic Voltage and Frequency Scaling) is the
+    normal operating mode. The CPU frequency scales based on load and the
+    nvpmodel power profile. Low idle frequency is expected and the CPU will
+    boost under load during calibration.
     """
     try:
         from .cpu_clock import get_cpu_clock_info
@@ -236,6 +304,27 @@ def _check_cpu_frequency() -> CheckResult:
             )
 
         pct = current / max_freq * 100
+        is_jetson = _is_jetson()
+
+        # Jetson-specific handling: DVFS is normal, CPU will boost under load
+        if is_jetson:
+            if pct >= 90:
+                return CheckResult(
+                    name="CPU Frequency",
+                    status=CheckStatus.PASSED,
+                    message=f"{current:.0f} MHz ({pct:.0f}% of max)",
+                    current_value=f"{current:.0f} MHz",
+                    expected_value=f">= {max_freq * 0.9:.0f} MHz (90%)"
+                )
+            else:
+                # Low idle freq on Jetson is normal - DVFS will boost under load
+                return CheckResult(
+                    name="CPU Frequency",
+                    status=CheckStatus.PASSED,
+                    message=f"{current:.0f} MHz idle (DVFS will boost under load)",
+                    current_value=f"{current:.0f} MHz (idle)",
+                    expected_value=f"Up to {max_freq:.0f} MHz under load"
+                )
 
         # Check if using intel_pstate driver
         driver = info.driver or ""
