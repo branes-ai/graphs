@@ -1,56 +1,105 @@
 {
   "id": "ampere_altra_max",
-  "vendor": "Ampere Computing",
-  "model": "Ampere-Altra-Max-128",
-  "architecture": "Unknown",
-  "device_type": "cpu",
-  "platform": "aarch64",
+  "system": {
+    "vendor": "Ampere Computing",
+    "model": "Ampere Altra Max M128-30",
+    "architecture": "Neoverse N1",
+    "device_type": "cpu",
+    "platform": "aarch64",
+    "os_compatibility": ["linux"],
+    "isa_extensions": ["NEON", "SVE"],
+    "special_features": ["128 cores", "Single-threaded cores", "Server-class ARM"],
+    "tdp_watts": 250.0,
+    "max_power_watts": 300.0,
+    "release_date": "2022-03",
+    "manufacturer_url": "https://amperecomputing.com/processors/ampere-altra-max",
+    "notes": "128-core ARM server processor based on Neoverse N1"
+  },
   "detection_patterns": [
-    "Ampere Computing.*Ampere\\-Altra\\-Max\\-128",
-    "Ampere\\-Altra\\-Max\\-128",
-    "Ampere.*Altra.*"
+    "Ampere.*Altra.*Max",
+    "Ampere-Altra-Max-128",
+    "Neoverse-N1.*128"
   ],
-  "os_compatibility": [
-    "linux",
-    "windows",
-    "macos"
-  ],
-  "cores": 128,
-  "threads": 128,
-  "e_cores": null,
-  "base_frequency_ghz": null,
-  "boost_frequency_ghz": null,
-  "cuda_cores": null,
-  "tensor_cores": null,
-  "sms": null,
-  "rt_cores": null,
-  "cuda_capability": null,
-  "memory_type": "DDR5",
-  "memory_channels": null,
-  "memory_bus_width": null,
-  "peak_bandwidth_gbps": 204.8,
-  "isa_extensions": [],
-  "special_features": [],
+  "core_info": {
+    "cores": 128,
+    "threads": 128,
+    "base_frequency_ghz": 3.0,
+    "boost_frequency_ghz": 3.0
+  },
+  "memory_subsystem": {
+    "total_size_gb": 512,
+    "peak_bandwidth_gbps": 409.6,
+    "memory_channels": [
+      {
+        "name": "Channel 0-7",
+        "type": "ddr4",
+        "size_gb": 512,
+        "frequency_mhz": 1600,
+        "data_rate_mts": 3200,
+        "bus_width_bits": 512,
+        "bandwidth_gbps": 204.8
+      }
+    ]
+  },
   "theoretical_peaks": {
     "fp64": 1024.0,
     "fp32": 2048.0,
     "fp16": 4096.0,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 0.0,
+    "tf32": 0.0,
     "int64": 1024.0,
     "int32": 1024.0,
     "int16": 2048.0,
-    "int8": 4096.0
+    "int8": 4096.0,
+    "int4": 0.0
   },
-  "l1_cache_kb": null,
-  "l2_cache_kb": null,
-  "l3_cache_kb": null,
-  "tdp_watts": null,
-  "max_power_watts": null,
-  "release_date": null,
-  "end_of_life": null,
-  "manufacturer_url": null,
-  "notes": "Migrated from cli/calibrate_hardware.py preset 'ampere-altra-max'",
+  "onchip_memory_hierarchy": {
+    "cache_levels": [
+      {
+        "name": "L1 dcache",
+        "level": 1,
+        "cache_type": "data",
+        "scope": "per_core",
+        "size_per_unit_kb": 64,
+        "line_size_bytes": 64
+      },
+      {
+        "name": "L1 icache",
+        "level": 1,
+        "cache_type": "instruction",
+        "scope": "per_core",
+        "size_per_unit_kb": 64,
+        "line_size_bytes": 64
+      },
+      {
+        "name": "L2",
+        "level": 2,
+        "cache_type": "unified",
+        "scope": "per_core",
+        "size_per_unit_kb": 1024,
+        "line_size_bytes": 64
+      },
+      {
+        "name": "SLC (System Level Cache)",
+        "level": 3,
+        "cache_type": "unified",
+        "scope": "shared",
+        "total_size_kb": 32768,
+        "line_size_bytes": 64
+      }
+    ]
+  },
   "data_source": "migrated",
-  "last_updated": "2025-11-17T23:26:53.141451Z",
-  "mapper_class": "CPUMapper",
-  "mapper_config": {}
+  "last_updated": "2025-11-26T12:00:00Z",
+  "mapper": {
+    "mapper_class": "CPUMapper",
+    "mapper_config": {},
+    "hints": {
+      "preferred_tile_size": [512, 512],
+      "simd_hint": "NEON/SVE available - use 128-bit or scalable vectors",
+      "parallelism_hint": "Use up to 128 threads (128 single-threaded cores)"
+    }
+  }
 }

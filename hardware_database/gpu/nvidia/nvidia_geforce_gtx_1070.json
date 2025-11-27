@@ -6,72 +6,165 @@
     "architecture": "Pascal",
     "device_type": "gpu",
     "platform": "x86_64",
-    "os_compatibility": [
-      "windows"
-    ],
-    "isa_extensions": [
-      "CUDA"
-    ],
+    "os_compatibility": ["windows", "linux"],
+    "isa_extensions": ["CUDA"],
     "special_features": [
-      "CUDA Compute Capability 6.1"
+      "CUDA Compute Capability 6.1",
+      "Pascal architecture",
+      "GDDR5 memory",
+      "Simultaneous Multi-Projection"
     ],
-    "notes": "Auto-detected on windows x86_64 | IMPORTANT: Detailed GPU specs (SM count, CUDA cores, Tensor cores) require manual entry or calibration | IMPORTANT: Theoretical peaks for all precisions should be calibrated or looked up from vendor specs | IMPORTANT: On-chip cache hierarchy should be added from architecture documentation | Driver version: 566.14"
+    "tdp_watts": 150.0,
+    "max_power_watts": 180.0,
+    "release_date": "2016-06-10",
+    "manufacturer_url": "https://www.nvidia.com/en-us/geforce/products/10series/geforce-gtx-1070/",
+    "notes": "Pascal consumer GPU. No Tensor Cores (pre-Volta). 8GB GDDR5 with 256-bit bus."
   },
   "detection_patterns": [
-    "NVIDIA GeForce GTX 1070"
+    "NVIDIA GeForce GTX 1070",
+    "GTX 1070",
+    "GeForce.*1070"
   ],
   "core_info": {
-    "cores": 0,
-    "threads": 0,
-    "base_frequency_ghz": 0.0,
-    "boost_frequency_ghz": 0.0,
-    "total_cuda_cores": 0,
+    "cores": 15,
+    "threads": 30720,
+    "base_frequency_ghz": 1.506,
+    "boost_frequency_ghz": 1.683,
+    "core_clusters": [
+      {
+        "name": "Pascal SMs",
+        "type": "compute",
+        "count": 15,
+        "architecture": "Pascal SM",
+        "base_frequency_ghz": 1.506,
+        "boost_frequency_ghz": 1.683,
+        "cuda_cores_per_sm": 128,
+        "tensor_cores_per_sm": 0,
+        "fp32_units_per_sm": 128,
+        "fp64_units_per_sm": 4,
+        "int32_units_per_sm": 128,
+        "warp_size": 32,
+        "max_warps_per_sm": 64,
+        "max_threads_per_sm": 2048,
+        "registers_per_sm": 65536,
+        "shared_memory_per_sm_kb": 96
+      }
+    ],
+    "total_cuda_cores": 1920,
     "total_tensor_cores": 0,
-    "total_sms": 0,
+    "total_sms": 15,
     "total_rt_cores": 0,
     "cuda_capability": "6.1"
   },
   "memory_subsystem": {
     "total_size_gb": 8,
-    "peak_bandwidth_gbps": 0.0,
-    "memory_channels": []
+    "peak_bandwidth_gbps": 256.3,
+    "memory_channels": [
+      {
+        "name": "GDDR5 Bank 0",
+        "type": "gddr5",
+        "size_gb": 2,
+        "frequency_mhz": 2002,
+        "data_rate_mts": 8008,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 64.1,
+        "physical_position": 0
+      },
+      {
+        "name": "GDDR5 Bank 1",
+        "type": "gddr5",
+        "size_gb": 2,
+        "frequency_mhz": 2002,
+        "data_rate_mts": 8008,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 64.1,
+        "physical_position": 1
+      },
+      {
+        "name": "GDDR5 Bank 2",
+        "type": "gddr5",
+        "size_gb": 2,
+        "frequency_mhz": 2002,
+        "data_rate_mts": 8008,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 64.1,
+        "physical_position": 2
+      },
+      {
+        "name": "GDDR5 Bank 3",
+        "type": "gddr5",
+        "size_gb": 2,
+        "frequency_mhz": 2002,
+        "data_rate_mts": 8008,
+        "bus_width_bits": 64,
+        "bandwidth_gbps": 64.1,
+        "physical_position": 3
+      }
+    ]
   },
   "theoretical_peaks": {
-    "fp64": 0.0,
-    "fp32": 0.0,
+    "fp64": 202.0,
+    "fp32": 6463.0,
     "fp16": 0.0,
     "fp8": 0.0,
     "fp4": 0.0,
     "bf16": 0.0,
+    "tf32": 0.0,
     "int64": 0.0,
-    "int32": 0.0,
+    "int32": 6463.0,
     "int16": 0.0,
     "int8": 0.0,
     "int4": 0.0
   },
   "onchip_memory_hierarchy": {
-    "cache_levels": []
+    "cache_levels": [
+      {
+        "name": "L1 Data Cache/Shared Memory",
+        "level": 1,
+        "cache_type": "data",
+        "scope": "per_sm",
+        "size_per_unit_kb": 48,
+        "associativity": null,
+        "line_size_bytes": 128,
+        "configurable": true,
+        "note": "Configurable split between L1 cache (16/48 KB) and shared memory (48/16 KB)"
+      },
+      {
+        "name": "L1 Texture Cache",
+        "level": 1,
+        "cache_type": "texture",
+        "scope": "per_sm",
+        "size_per_unit_kb": 48,
+        "associativity": null,
+        "line_size_bytes": 128
+      },
+      {
+        "name": "L2 Cache",
+        "level": 2,
+        "cache_type": "unified",
+        "scope": "shared",
+        "total_size_kb": 2048,
+        "associativity": null,
+        "line_size_bytes": 128
+      }
+    ]
   },
-  "l1_data_cache_kb": null,
-  "l1_instruction_cache_kb": null,
-  "l1_cache_kb": null,
-  "l2_cache_kb": null,
-  "l3_cache_kb": null,
-  "l1_cache_line_size_bytes": null,
-  "l2_cache_line_size_bytes": null,
-  "l3_cache_line_size_bytes": null,
-  "l1_cache_associativity": null,
-  "l2_cache_associativity": null,
-  "l3_cache_associativity": null,
-  "data_source": "detected (incomplete - needs manual completion)",
-  "last_updated": "2025-11-19T00:01:51.987005Z",
+  "data_source": "manufacturer",
+  "last_updated": "2025-11-26T12:00:00Z",
   "mapper": {
     "mapper_class": "GPUMapper",
-    "mapper_config": {},
+    "mapper_config": {
+      "prefer_tensor_cores": false
+    },
     "hints": {
+      "preferred_block_size": [256, 1, 1],
+      "max_threads_per_block": 1024,
       "warp_size": 32,
-      "calibration_needed": "Run calibration to determine actual peak performance",
-      "manual_entry_needed": "Add SM count, CUDA cores, Tensor cores, RT cores, and cache hierarchy"
+      "tensor_core_hint": "No Tensor Cores - Pascal architecture predates Tensor Cores (Volta+)",
+      "memory_hint": "8 GB GDDR5 with 256 GB/s bandwidth. 256-bit memory bus.",
+      "occupancy_hint": "15 SMs × 64 warps/SM = 960 max concurrent warps. Target 50-75% occupancy.",
+      "performance_notes": "Pascal consumer GPU: 1920 CUDA cores, no Tensor Cores, no RT cores. Good for FP32 compute.",
+      "architecture_notes": "Pascal GP104 with 15 SMs. Compute Capability 6.1. No native FP16 compute (emulated via FP32)."
     }
   }
 }

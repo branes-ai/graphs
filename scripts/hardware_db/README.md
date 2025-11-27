@@ -82,6 +82,42 @@ python scripts/hardware_db/query_hardware.py --id h100_sxm5 --detail
 python scripts/hardware_db/query_hardware.py --id h100_sxm5 --export h100.json
 ```
 
+### `summarize_database.py`
+
+Generate comprehensive reports and summaries of the hardware database. Best for reflecting on database contents and comparing hardware capabilities.
+
+```bash
+# Quick overview of all hardware
+python scripts/hardware_db/summarize_database.py
+
+# Detailed report for specific hardware
+python scripts/hardware_db/summarize_database.py --id jetson_orin_nano_gpu --detail
+
+# Compare theoretical peaks across all hardware
+python scripts/hardware_db/summarize_database.py --compare peaks
+
+# Compare memory bandwidth and arithmetic intensity
+python scripts/hardware_db/summarize_database.py --compare bandwidth
+
+# Compare power efficiency (GFLOPS/W)
+python scripts/hardware_db/summarize_database.py --compare efficiency
+
+# Filter by device type
+python scripts/hardware_db/summarize_database.py --device-type gpu
+
+# Filter by vendor
+python scripts/hardware_db/summarize_database.py --vendor NVIDIA
+
+# Export to Markdown
+python scripts/hardware_db/summarize_database.py --output summary.md
+```
+
+**Output Modes:**
+- **Overview (default):** Statistics and quick list by device type
+- **Comparison tables:** Side-by-side performance comparisons
+- **Detailed view:** Full hardware specifications with cache, ISA, features
+- **Markdown export:** Documentation-ready format
+
 ### `validate_database.py`
 
 Validate hardware specs against schema.

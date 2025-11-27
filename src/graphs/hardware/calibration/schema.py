@@ -293,6 +293,62 @@ class PrecisionCapabilityMatrix:
 
 
 @dataclass
+class GPUClockData:
+    """GPU clock frequency data captured during calibration."""
+
+    # Current clock frequencies (MHz)
+    sm_clock_mhz: Optional[int] = None
+    """SM/Graphics clock frequency during calibration."""
+
+    mem_clock_mhz: Optional[int] = None
+    """Memory clock frequency during calibration."""
+
+    # Maximum clock frequencies (MHz)
+    max_sm_clock_mhz: Optional[int] = None
+    """Maximum SM clock (for calculating % of max)."""
+
+    max_mem_clock_mhz: Optional[int] = None
+    """Maximum memory clock."""
+
+    # Power state
+    power_draw_watts: Optional[float] = None
+    """Power draw during calibration."""
+
+    power_limit_watts: Optional[float] = None
+    """Configured power limit."""
+
+    temperature_c: Optional[int] = None
+    """GPU temperature during calibration."""
+
+    # Jetson-specific
+    nvpmodel_mode: Optional[int] = None
+    """Jetson NVPModel mode ID."""
+
+    power_mode_name: Optional[str] = None
+    """Human-readable power mode (e.g., 'MAXN', '15W')."""
+
+    # Query metadata
+    query_method: str = "unknown"
+    """How clocks were queried: 'nvidia-smi', 'sysfs', 'tegrastats'."""
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary, excluding None values."""
+        result = {}
+        for key, value in asdict(self).items():
+            if value is not None:
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'GPUClockData':
+        """Create from dictionary."""
+        # Filter to only known fields
+        known_fields = set(cls.__dataclass_fields__.keys())
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered)
+
+
+@dataclass
 class CalibrationMetadata:
     """Metadata about the calibration run"""
     hardware_name: str
@@ -313,17 +369,32 @@ class CalibrationMetadata:
     num_warmup_runs: int = 3
     num_measurement_runs: int = 10
 
-    # NEW: Device type for platform validation
+    # Device type for platform validation
     device_type: str = "cpu"  # "cpu" or "cuda"
     platform_architecture: str = "unknown"  # "x86_64", "aarch64", "arm64"
     framework: str = "numpy"  # "numpy" or "pytorch" - which framework ran the benchmarks
 
+    # GPU clock data (for CUDA devices)
+    gpu_clock: Optional[GPUClockData] = None
+    """GPU clock frequencies captured during calibration (CUDA only)."""
+
     def to_dict(self) -> Dict:
-        return asdict(self)
+        result = asdict(self)
+        # Handle nested GPUClockData
+        if self.gpu_clock is not None:
+            result['gpu_clock'] = self.gpu_clock.to_dict()
+        elif 'gpu_clock' in result:
+            del result['gpu_clock']  # Remove None gpu_clock
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'CalibrationMetadata':
-        return cls(**data)
+        # Handle nested GPUClockData
+        data = data.copy()
+        if 'gpu_clock' in data and data['gpu_clock'] is not None:
+            data['gpu_clock'] = GPUClockData.from_dict(data['gpu_clock'])
+        known_fields = set(cls.__dataclass_fields__.keys())
+        return cls(**{k: v for k, v in data.items() if k in known_fields})
 
 
 @dataclass

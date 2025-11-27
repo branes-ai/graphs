@@ -12,21 +12,107 @@ from pathlib import Path
 from datetime import datetime
 import json
 
+# =============================================================================
+# Precision Format Taxonomy
+# =============================================================================
+#
+# IEEE 754 Floating-Point Formats (fpXX):
+#   fp64: IEEE 754 binary64 - 64 bits (1 sign + 11 exp + 52 mantissa)
+#   fp32: IEEE 754 binary32 - 32 bits (1 sign + 8 exp + 23 mantissa)
+#   fp16: IEEE 754 binary16 - 16 bits (1 sign + 5 exp + 10 mantissa)
+#   fp8:  IEEE draft 8-bit  - 8 bits  (variants: E4M3, E5M2)
+#   fp4:  4-bit float       - 4 bits  (experimental, vendor-specific)
+#
+# Vendor-Specific Floating-Point Formats:
+#   bf16: Google Brain Float16 - 16 bits (1 sign + 8 exp + 7 mantissa)
+#         Same exponent range as fp32, reduced precision. Common in TPUs/GPUs.
+#
+#   tf32: NVIDIA TensorFloat-32 - 19 bits (1 sign + 8 exp + 10 mantissa)
+#         MISLEADING NAME: NOT 32-bit! Uses fp32 exponent range with fp16 mantissa.
+#         Only available in Tensor Cores on Ampere+ GPUs for matrix operations.
+#         Stored as fp32 in memory, truncated to 19 bits during Tensor Core ops.
+#
+# Integer Formats (intXX):
+#   int64: 64-bit signed integer
+#   int32: 32-bit signed integer
+#   int16: 16-bit signed integer
+#   int8:  8-bit signed integer
+#   int4:  4-bit signed integer (packed, for quantized inference)
+#
+# Bit Layout Reference:
+#   Format   Total  Sign  Exponent  Mantissa  Exponent Range
+#   -------  -----  ----  --------  --------  --------------
+#   fp64      64     1      11        52      ~10^-308 to 10^308
+#   fp32      32     1       8        23      ~10^-38 to 10^38
+#   tf32      19     1       8        10      ~10^-38 to 10^38 (same as fp32)
+#   bf16      16     1       8         7      ~10^-38 to 10^38 (same as fp32)
+#   fp16      16     1       5        10      ~10^-5 to 65504
+#   fp8-e5m2   8     1       5         2      ~10^-5 to 57344
+#   fp8-e4m3   8     1       4         3      ~10^-3 to 448
+#
+# IMPORTANT: When reporting GPU performance:
+#   - CUDA cores execute IEEE fp32 operations
+#   - Tensor Cores execute tf32 (not fp32!) for "FP32" matrix ops on Ampere+
+#   - Always distinguish cuda_core_fp32 from tensor_core_tf32
+# =============================================================================
+
 # Standard set of precisions that MUST be present in theoretical_peaks
 # If a precision is not supported, it MUST be set to 0.0
 REQUIRED_PRECISIONS = [
-    'fp64',   # Double precision floating point
-    'fp32',   # Single precision floating point
-    'fp16',   # Half precision floating point
-    'fp8',    # 8-bit floating point
-    'fp4',    # 4-bit floating point
-    'bf16',   # Brain float 16
-    'int64',  # 64-bit integer
-    'int32',  # 32-bit integer
-    'int16',  # 16-bit integer
-    'int8',   # 8-bit integer
-    'int4',   # 4-bit integer
+    # IEEE 754 floating-point
+    'fp64',   # IEEE 754 binary64 - 64 bits (1+11+52)
+    'fp32',   # IEEE 754 binary32 - 32 bits (1+8+23) - CUDA cores only
+    'fp16',   # IEEE 754 binary16 - 16 bits (1+5+10)
+    'fp8',    # IEEE draft 8-bit float (E4M3 or E5M2 variants)
+    'fp4',    # 4-bit float (vendor-specific)
+    # Vendor-specific floating-point
+    'bf16',   # Google Brain Float16 - 16 bits (1+8+7)
+    'tf32',   # NVIDIA TensorFloat-32 - 19 bits (1+8+10) - Tensor Cores only
+    # Integer
+    'int64',  # 64-bit signed integer
+    'int32',  # 32-bit signed integer
+    'int16',  # 16-bit signed integer
+    'int8',   # 8-bit signed integer
+    'int4',   # 4-bit signed integer (packed)
 ]
+
+# Groupings for validation and reporting
+IEEE_FLOAT_PRECISIONS = ['fp64', 'fp32', 'fp16', 'fp8', 'fp4']
+VENDOR_FLOAT_PRECISIONS = ['bf16', 'tf32']
+INTEGER_PRECISIONS = ['int64', 'int32', 'int16', 'int8', 'int4']
+ALL_FLOAT_PRECISIONS = IEEE_FLOAT_PRECISIONS + VENDOR_FLOAT_PRECISIONS
+
+# Precision bit widths (for memory calculations)
+PRECISION_BITS = {
+    'fp64': 64,
+    'fp32': 32,
+    'tf32': 19,  # Note: stored as 32 bits in memory, 19 bits in computation
+    'bf16': 16,
+    'fp16': 16,
+    'fp8': 8,
+    'fp4': 4,
+    'int64': 64,
+    'int32': 32,
+    'int16': 16,
+    'int8': 8,
+    'int4': 4,
+}
+
+# Memory storage size (tf32 is stored as fp32 in memory)
+PRECISION_STORAGE_BITS = {
+    'fp64': 64,
+    'fp32': 32,
+    'tf32': 32,  # Stored as fp32, truncated during Tensor Core ops
+    'bf16': 16,
+    'fp16': 16,
+    'fp8': 8,
+    'fp4': 4,
+    'int64': 64,
+    'int32': 32,
+    'int16': 16,
+    'int8': 8,
+    'int4': 4,
+}
 
 
 @dataclass
@@ -430,7 +516,57 @@ class CoreCluster:
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'CoreCluster':
-        """Create from dictionary (from JSON)"""
+        """
+        Create from dictionary (from JSON).
+
+        Handles alternative field names used in JSON files:
+        - cuda_cores_per_sm -> cuda_cores_per_cluster
+        - tensor_cores_per_sm -> tensor_cores_per_cluster
+        - rt_cores_per_sm -> rt_cores_per_cluster
+        - max_threads_per_sm -> max_threads_per_cluster
+        - max_warps_per_sm -> max_warps_per_cluster
+        - shared_memory_per_sm_kb -> shared_memory_kb
+        - registers_per_sm -> register_file_kb (approximate conversion)
+
+        Also ignores extra fields like fp32_units_per_sm, int32_units_per_sm, etc.
+        """
+        # Make a copy to avoid mutating the input
+        data = data.copy()
+
+        # Map alternative field names to canonical names
+        field_mappings = {
+            'cuda_cores_per_sm': 'cuda_cores_per_cluster',
+            'tensor_cores_per_sm': 'tensor_cores_per_cluster',
+            'rt_cores_per_sm': 'rt_cores_per_cluster',
+            'max_threads_per_sm': 'max_threads_per_cluster',
+            'max_warps_per_sm': 'max_warps_per_cluster',
+            'shared_memory_per_sm_kb': 'shared_memory_kb',
+        }
+
+        for old_name, new_name in field_mappings.items():
+            if old_name in data and new_name not in data:
+                data[new_name] = data[old_name]
+            # Remove the old name to avoid passing it to __init__
+            if old_name in data:
+                del data[old_name]
+
+        # Handle registers_per_sm -> register_file_kb (registers * 4 bytes / 1024)
+        if 'registers_per_sm' in data and 'register_file_kb' not in data:
+            # Each register is 32 bits = 4 bytes
+            data['register_file_kb'] = (data['registers_per_sm'] * 4) // 1024
+            del data['registers_per_sm']
+
+        # Remove fields that are not part of the CoreCluster dataclass
+        # These are descriptive fields in the JSON that don't map to our schema
+        extra_fields = [
+            'fp32_units_per_sm', 'fp64_units_per_sm', 'int32_units_per_sm',
+            'load_store_units_per_sm', 'special_function_units_per_sm',
+            'warp_size',  # This is a constant (32 for NVIDIA)
+        ]
+        for field in extra_fields:
+            if field in data:
+                del data[field]
+
         return cls(**data)
 
 
@@ -921,6 +1057,257 @@ class MapperInfo:
         return cls(**data)
 
 
+# =============================================================================
+# CALIBRATION DATA STRUCTURES
+# =============================================================================
+
+@dataclass
+class CalibrationSummary:
+    """
+    Aggregated empirical performance data from calibration runs.
+
+    This captures the key efficiency metrics measured via micro-benchmarks,
+    allowing comparison between theoretical (datasheet) and measured performance.
+
+    The summary is stored in the hardware_database JSON alongside theoretical_peaks,
+    providing a complete picture of expected vs actual performance.
+    """
+
+    # Measured performance by precision (best achieved)
+    measured_peaks: Dict[str, float] = field(default_factory=dict)
+    """
+    Best measured GFLOPS/GIOPS per precision from calibration.
+
+    Example:
+    {
+        "fp32": 1199.0,    # Best FP32 matmul performance
+        "fp16": 7325.0,    # Best FP16 matmul performance (Tensor Cores)
+        "int8": 0.0        # Not measured or not supported
+    }
+    """
+
+    # Efficiency ratios (measured / theoretical)
+    efficiency: Dict[str, float] = field(default_factory=dict)
+    """
+    Efficiency ratio per precision: measured_peaks[prec] / theoretical_peaks[prec].
+
+    Values typically range from 0.0 to 1.0 (0% to 100%).
+    Values > 1.0 indicate turbo boost or conservative theoretical peaks.
+
+    Example:
+    {
+        "fp32": 0.937,     # 93.7% of theoretical FP32 peak
+        "fp16": 0.964,     # 96.4% of theoretical FP16 peak
+    }
+    """
+
+    # Memory bandwidth
+    measured_bandwidth_gbps: Optional[float] = None
+    """Best measured memory bandwidth in GB/s from memory copy benchmarks."""
+
+    bandwidth_efficiency: Optional[float] = None
+    """
+    Bandwidth efficiency: measured_bandwidth / theoretical_bandwidth.
+    Typically 0.80-0.95 for well-configured systems.
+    """
+
+    # Aggregate metrics
+    best_efficiency: Optional[float] = None
+    """Highest efficiency achieved across all precisions."""
+
+    avg_efficiency: Optional[float] = None
+    """Average efficiency across all measured precisions."""
+
+    worst_efficiency: Optional[float] = None
+    """Lowest efficiency across all measured precisions."""
+
+    # Calibration metadata
+    calibration_date: Optional[str] = None
+    """ISO 8601 timestamp of calibration: '2025-11-16T10:04:26.791492'"""
+
+    power_mode: Optional[str] = None
+    """
+    Power mode during calibration (for devices with multiple modes).
+    Example: '25W', '15W', '7W' for Jetson Orin Nano.
+    """
+
+    framework: str = "unknown"
+    """Framework used for calibration: 'pytorch', 'numpy', 'tensorrt'."""
+
+    profile_path: Optional[str] = None
+    """
+    Relative path to full calibration profile JSON.
+    Example: 'profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json'
+    """
+
+    # Clock frequency during calibration (Phase 1: GPU Clock Measurement)
+    measured_clock_mhz: Optional[int] = None
+    """
+    GPU SM clock frequency measured during calibration (MHz).
+    Critical for accurate efficiency calculation since theoretical peaks
+    are typically specified at a reference clock.
+
+    Example: 1300 (Jetson Orin Nano at MAXN/25W mode)
+    """
+
+    gpu_clock: Optional[Dict[str, Any]] = None
+    """
+    Full GPU clock data captured during calibration.
+
+    Example:
+    {
+        "sm_clock_mhz": 1300,
+        "mem_clock_mhz": 3200,
+        "max_sm_clock_mhz": 1300,
+        "power_draw_watts": 22.5,
+        "power_limit_watts": 25.0,
+        "temperature_c": 45,
+        "power_mode_name": "MAXN",
+        "nvpmodel_mode": 0,
+        "query_method": "sysfs"
+    }
+    """
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+
+        # Always include measured data
+        if self.measured_peaks:
+            result['measured_peaks'] = self.measured_peaks
+        if self.efficiency:
+            result['efficiency'] = self.efficiency
+
+        # Include bandwidth if present
+        if self.measured_bandwidth_gbps is not None:
+            result['measured_bandwidth_gbps'] = self.measured_bandwidth_gbps
+        if self.bandwidth_efficiency is not None:
+            result['bandwidth_efficiency'] = self.bandwidth_efficiency
+
+        # Include aggregate metrics if present
+        if self.best_efficiency is not None:
+            result['best_efficiency'] = self.best_efficiency
+        if self.avg_efficiency is not None:
+            result['avg_efficiency'] = self.avg_efficiency
+        if self.worst_efficiency is not None:
+            result['worst_efficiency'] = self.worst_efficiency
+
+        # Include metadata
+        if self.calibration_date:
+            result['calibration_date'] = self.calibration_date
+        if self.power_mode:
+            result['power_mode'] = self.power_mode
+        if self.framework != "unknown":
+            result['framework'] = self.framework
+        if self.profile_path:
+            result['profile_path'] = self.profile_path
+
+        # Include clock data (Phase 1: GPU Clock Measurement)
+        if self.measured_clock_mhz is not None:
+            result['measured_clock_mhz'] = self.measured_clock_mhz
+        if self.gpu_clock:
+            result['gpu_clock'] = self.gpu_clock
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CalibrationSummary':
+        """Create from dictionary (from JSON)."""
+        return cls(
+            measured_peaks=data.get('measured_peaks', {}),
+            efficiency=data.get('efficiency', {}),
+            measured_bandwidth_gbps=data.get('measured_bandwidth_gbps'),
+            bandwidth_efficiency=data.get('bandwidth_efficiency'),
+            best_efficiency=data.get('best_efficiency'),
+            avg_efficiency=data.get('avg_efficiency'),
+            worst_efficiency=data.get('worst_efficiency'),
+            calibration_date=data.get('calibration_date'),
+            power_mode=data.get('power_mode'),
+            framework=data.get('framework', 'unknown'),
+            profile_path=data.get('profile_path'),
+            measured_clock_mhz=data.get('measured_clock_mhz'),
+            gpu_clock=data.get('gpu_clock'),
+        )
+
+
+@dataclass
+class CalibrationProfiles:
+    """
+    Links to detailed calibration profile files.
+
+    Hardware may have multiple calibration profiles for different:
+    - Power modes (7W, 15W, 25W for Jetson)
+    - Frameworks (PyTorch, NumPy, TensorRT)
+    - Workload types (micro-benchmarks, DNN models)
+
+    This structure organizes all available profiles for a hardware entry.
+    """
+
+    default: Optional[str] = None
+    """
+    Path to the default/recommended calibration profile.
+    Example: 'profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json'
+    """
+
+    by_power_mode: Dict[str, str] = field(default_factory=dict)
+    """
+    Calibration profiles indexed by power mode.
+    Example:
+    {
+        "7W": "profiles/nvidia/jetson_orin_nano/7W/nvidia_jetson_orin_nano_gpu_pytorch.json",
+        "15W": "profiles/nvidia/jetson_orin_nano/15W/nvidia_jetson_orin_nano_gpu_pytorch.json",
+        "25W": "profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json"
+    }
+    """
+
+    by_framework: Dict[str, str] = field(default_factory=dict)
+    """
+    Calibration profiles indexed by framework.
+    Example:
+    {
+        "pytorch": "profiles/.../nvidia_jetson_orin_nano_gpu_pytorch.json",
+        "numpy": "profiles/.../nvidia_jetson_orin_nano_cpu_numpy.json",
+        "tensorrt": "profiles/.../nvidia_jetson_orin_nano_gpu_tensorrt.json"
+    }
+    """
+
+    by_workload: Dict[str, str] = field(default_factory=dict)
+    """
+    Calibration profiles indexed by workload type.
+    Example:
+    {
+        "microbenchmarks": "profiles/.../microbenchmarks.json",
+        "resnet18": "profiles/.../resnet18_calibration.json",
+        "mobilenetv2": "profiles/.../mobilenetv2_calibration.json"
+    }
+    """
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+
+        if self.default:
+            result['default'] = self.default
+        if self.by_power_mode:
+            result['by_power_mode'] = self.by_power_mode
+        if self.by_framework:
+            result['by_framework'] = self.by_framework
+        if self.by_workload:
+            result['by_workload'] = self.by_workload
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CalibrationProfiles':
+        """Create from dictionary (from JSON)."""
+        return cls(
+            default=data.get('default'),
+            by_power_mode=data.get('by_power_mode', {}),
+            by_framework=data.get('by_framework', {}),
+            by_workload=data.get('by_workload', {}),
+        )
+
+
 @dataclass
 class HardwareSpec:
     """
@@ -1325,6 +1712,62 @@ class HardwareSpec:
     """
 
     # =========================================================================
+    # CALIBRATION (Empirical Performance)
+    # =========================================================================
+
+    calibration_summary: Optional[Dict] = None
+    """
+    Aggregated empirical performance from calibration runs.
+    Use get_calibration_summary() to access as CalibrationSummary dataclass.
+
+    Contains measured peaks, efficiency ratios, and bandwidth measurements
+    that can be compared against theoretical_peaks to understand real-world
+    performance characteristics.
+
+    Example:
+    {
+        "measured_peaks": {
+            "fp32": 1199.0,
+            "fp16": 7325.0
+        },
+        "efficiency": {
+            "fp32": 0.937,
+            "fp16": 0.964
+        },
+        "measured_bandwidth_gbps": 57.8,
+        "bandwidth_efficiency": 0.85,
+        "best_efficiency": 0.964,
+        "avg_efficiency": 0.90,
+        "calibration_date": "2025-11-16T10:04:26.791492",
+        "power_mode": "25W",
+        "framework": "pytorch",
+        "profile_path": "profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json"
+    }
+    """
+
+    calibration_profiles: Optional[Dict] = None
+    """
+    Links to detailed calibration profile files.
+    Use get_calibration_profiles() to access as CalibrationProfiles dataclass.
+
+    Organizes multiple calibration profiles by power mode, framework, or workload.
+
+    Example:
+    {
+        "default": "profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json",
+        "by_power_mode": {
+            "7W": "profiles/nvidia/jetson_orin_nano/7W/nvidia_jetson_orin_nano_gpu_pytorch.json",
+            "15W": "profiles/nvidia/jetson_orin_nano/15W/nvidia_jetson_orin_nano_gpu_pytorch.json",
+            "25W": "profiles/nvidia/jetson_orin_nano/25W/nvidia_jetson_orin_nano_gpu_pytorch.json"
+        },
+        "by_framework": {
+            "pytorch": "profiles/.../nvidia_jetson_orin_nano_gpu_pytorch.json",
+            "numpy": "profiles/.../nvidia_jetson_orin_nano_cpu_numpy.json"
+        }
+    }
+    """
+
+    # =========================================================================
     # ON-CHIP MEMORY HIERARCHY (Cache Subsystem)
     # =========================================================================
 
@@ -1439,6 +1882,93 @@ class HardwareSpec:
 
     mapper_config: Optional[Dict[str, Any]] = None
     """DEPRECATED: Use mapper.mapper_config"""
+
+    # =========================================================================
+    # POST-INIT: Populate deprecated fields from consolidated blocks
+    # =========================================================================
+
+    def __post_init__(self):
+        """
+        Populate deprecated fields from consolidated blocks.
+
+        This ensures that code accessing spec.vendor, spec.device_type, etc.
+        works correctly whether the HardwareSpec was created via:
+        - Direct constructor call with consolidated blocks
+        - from_dict() deserialization
+        - from_json() file loading
+
+        Deprecated fields are populated on-demand from their consolidated sources:
+        - vendor, model, architecture, device_type, platform, etc. from system
+        - cores, threads, base_frequency_ghz, etc. from core_info
+        - mapper_class, mapper_config from mapper
+        - peak_bandwidth_gbps from memory_subsystem
+        """
+        # Populate from system block
+        if self.system:
+            if self.vendor is None:
+                self.vendor = self.system.get('vendor')
+            if self.model is None:
+                self.model = self.system.get('model')
+            if self.architecture is None:
+                self.architecture = self.system.get('architecture')
+            if self.device_type is None:
+                self.device_type = self.system.get('device_type')
+            if self.platform is None:
+                self.platform = self.system.get('platform')
+            if self.os_compatibility is None:
+                self.os_compatibility = self.system.get('os_compatibility')
+            if self.isa_extensions is None:
+                self.isa_extensions = self.system.get('isa_extensions')
+            if self.special_features is None:
+                self.special_features = self.system.get('special_features')
+            if self.tdp_watts is None:
+                self.tdp_watts = self.system.get('tdp_watts')
+            if self.max_power_watts is None:
+                self.max_power_watts = self.system.get('max_power_watts')
+            if self.release_date is None:
+                self.release_date = self.system.get('release_date')
+            if self.end_of_life is None:
+                self.end_of_life = self.system.get('end_of_life')
+            if self.manufacturer_url is None:
+                self.manufacturer_url = self.system.get('manufacturer_url')
+            if self.notes is None:
+                self.notes = self.system.get('notes')
+
+        # Populate from core_info block
+        if self.core_info:
+            if self.cores is None:
+                self.cores = self.core_info.get('cores')
+            if self.threads is None:
+                self.threads = self.core_info.get('threads')
+            if self.base_frequency_ghz is None:
+                self.base_frequency_ghz = self.core_info.get('base_frequency_ghz')
+            if self.boost_frequency_ghz is None:
+                self.boost_frequency_ghz = self.core_info.get('boost_frequency_ghz')
+            if self.core_clusters is None:
+                self.core_clusters = self.core_info.get('core_clusters')
+            # GPU-specific fields
+            if self.cuda_cores is None:
+                self.cuda_cores = self.core_info.get('total_cuda_cores')
+            if self.tensor_cores is None:
+                self.tensor_cores = self.core_info.get('total_tensor_cores')
+            if self.sms is None:
+                self.sms = self.core_info.get('total_sms')
+            if self.rt_cores is None:
+                self.rt_cores = self.core_info.get('total_rt_cores')
+            if self.cuda_capability is None:
+                self.cuda_capability = self.core_info.get('cuda_capability')
+
+        # Populate from mapper block
+        if self.mapper:
+            if self.mapper_class is None:
+                self.mapper_class = self.mapper.get('mapper_class')
+            if self.mapper_config is None:
+                self.mapper_config = self.mapper.get('mapper_config')
+
+        # Populate from memory_subsystem block
+        if self.memory_subsystem and isinstance(self.memory_subsystem, dict):
+            if self.peak_bandwidth_gbps == 0.0:  # Default value means not set
+                self.peak_bandwidth_gbps = self.memory_subsystem.get('peak_bandwidth_gbps', 0.0)
 
     # =========================================================================
     # SERIALIZATION
@@ -1902,6 +2432,69 @@ class HardwareSpec:
         if not self.mapper:
             return None
         return MapperInfo.from_dict(self.mapper)
+
+    def get_calibration_summary(self) -> Optional['CalibrationSummary']:
+        """
+        Get calibration summary as CalibrationSummary dataclass.
+
+        Returns:
+            CalibrationSummary object if calibration_summary is specified, None otherwise
+        """
+        if not self.calibration_summary:
+            return None
+        return CalibrationSummary.from_dict(self.calibration_summary)
+
+    def get_calibration_profiles(self) -> Optional['CalibrationProfiles']:
+        """
+        Get calibration profiles as CalibrationProfiles dataclass.
+
+        Returns:
+            CalibrationProfiles object if calibration_profiles is specified, None otherwise
+        """
+        if not self.calibration_profiles:
+            return None
+        return CalibrationProfiles.from_dict(self.calibration_profiles)
+
+    def has_calibration_data(self) -> bool:
+        """
+        Check if this hardware has calibration data.
+
+        Returns:
+            True if calibration_summary is present with measured_peaks
+        """
+        if not self.calibration_summary:
+            return False
+        return bool(self.calibration_summary.get('measured_peaks'))
+
+    def get_efficiency(self, precision: str) -> Optional[float]:
+        """
+        Get efficiency ratio for a specific precision.
+
+        Args:
+            precision: Precision string (e.g., 'fp32', 'fp16', 'int8')
+
+        Returns:
+            Efficiency ratio (0.0-1.0+) or None if not calibrated
+        """
+        if not self.calibration_summary:
+            return None
+        efficiency = self.calibration_summary.get('efficiency', {})
+        return efficiency.get(precision)
+
+    def get_measured_peak(self, precision: str) -> Optional[float]:
+        """
+        Get measured peak performance for a specific precision.
+
+        Args:
+            precision: Precision string (e.g., 'fp32', 'fp16', 'int8')
+
+        Returns:
+            Measured GFLOPS/GIOPS or None if not calibrated
+        """
+        if not self.calibration_summary:
+            return None
+        measured = self.calibration_summary.get('measured_peaks', {})
+        return measured.get(precision)
 
     def has_heterogeneous_cores(self) -> bool:
         """
