@@ -919,10 +919,18 @@ class HardwareDetector:
                 parts = [p.strip() for p in line.split(',')]
                 if len(parts) >= 4:
                     model_name = parts[0]
-                    memory_mb = int(float(parts[1]))
-                    memory_gb = memory_mb // 1024
-                    cuda_capability = parts[2]
-                    driver_version = parts[3]
+
+                    # Handle [N/A] values from Jetson devices
+                    memory_gb = None
+                    if parts[1] and parts[1] not in ('[N/A]', 'N/A', ''):
+                        try:
+                            memory_mb = int(float(parts[1]))
+                            memory_gb = memory_mb // 1024
+                        except (ValueError, TypeError):
+                            pass
+
+                    cuda_capability = parts[2] if parts[2] not in ('[N/A]', 'N/A') else None
+                    driver_version = parts[3] if parts[3] not in ('[N/A]', 'N/A') else None
 
                     gpus.append(DetectedGPU(
                         model_name=model_name,
