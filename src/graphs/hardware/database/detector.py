@@ -1051,7 +1051,7 @@ class HardwareDetector:
 
         Args:
             detected_string: Detected hardware string
-            patterns: List of regex patterns from database
+            patterns: List of patterns from database (literal strings or regex)
 
         Returns:
             Confidence score (0.0 to 1.0)
@@ -1062,14 +1062,31 @@ class HardwareDetector:
         detected_lower = detected_string.lower()
 
         for pattern in patterns:
+            pattern_lower = pattern.lower()
+
+            # First try exact literal match (case-insensitive)
+            if pattern_lower == detected_lower:
+                return 1.0  # Exact match
+
+            # Then try substring match
+            if pattern_lower in detected_lower or detected_lower in pattern_lower:
+                return 0.95  # Substring match
+
+            # Finally try regex match (escape special chars for literal patterns)
             try:
-                # Try regex match
+                # First try pattern as-is (for actual regex patterns)
                 if re.search(pattern, detected_string, re.IGNORECASE):
-                    return 1.0  # Exact pattern match
+                    return 0.9  # Regex match
             except re.error:
-                # Not a regex, try substring match
-                if pattern.lower() in detected_lower:
-                    return 0.9  # Substring match
+                pass
+
+            # Try with escaped pattern (for patterns with special chars like "(R)")
+            try:
+                escaped = re.escape(pattern)
+                if re.search(escaped, detected_string, re.IGNORECASE):
+                    return 0.9  # Escaped regex match
+            except re.error:
+                pass
 
         # No match
         return 0.0
