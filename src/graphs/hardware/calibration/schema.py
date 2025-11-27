@@ -17,6 +17,7 @@ from pathlib import Path
 CANONICAL_PRECISION_ORDER = [
     'fp64',   # IEEE Double Precision
     'fp32',   # IEEE Single Precision
+    'tf32',   # NVIDIA TensorFloat-32 (19-bit, Tensor Cores only)
     'fp16',   # IEEE Half Precision
     'fp8',    # 8-bit floating point
     'fp4',    # 4-bit floating point
