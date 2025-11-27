@@ -578,18 +578,19 @@ def _check_gpu_power_state() -> CheckResult:
             # All known Jetson power profiles are valid for calibration
             # Each profile represents a specific power/performance envelope
             # - MAXN/MAX: Maximum performance (no power limit)
+            # - MAXN_SUPER: Maximum performance for Jetson Super variants (higher clocks)
             # - 7W, 10W, 15W, 25W, 30W, 50W, 60W: Power-limited profiles
             known_jetson_modes = {
-                'MAXN', 'MAX',  # Maximum performance modes
+                'MAXN', 'MAX', 'MAXN_SUPER',  # Maximum performance modes
                 '7W', '10W', '15W', '20W', '25W', '30W', '50W', '60W',  # Power profiles
             }
 
             if mode_upper in known_jetson_modes:
                 # Indicate if this is max performance or a power-limited profile
-                if mode_upper in ('MAXN', 'MAX'):
+                if mode_upper in ('MAXN', 'MAX', 'MAXN_SUPER'):
                     desc = "maximum performance"
                 else:
-                    desc = f"power-limited profile"
+                    desc = "power-limited profile"
                 return CheckResult(
                     name="GPU Power Mode",
                     status=CheckStatus.PASSED,
