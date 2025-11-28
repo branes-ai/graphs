@@ -34,6 +34,7 @@ from .schema import (
 )
 from .calibrator import load_calibration, calibrate_hardware
 from .precision_detector import get_precision_capabilities
+from .logging import CalibrationLogger, get_logger, set_logger, LogAdapter
 from .gpu_clock import (
     GPUClockInfo,
     get_gpu_clock_info,
@@ -54,6 +55,10 @@ __all__ = [
     'load_calibration',
     'calibrate_hardware',
     'get_precision_capabilities',
+    'CalibrationLogger',
+    'get_logger',
+    'set_logger',
+    'LogAdapter',
     'get_gpu_clock_info',
     'get_gpu_clock_under_load',
     'get_jetson_power_mode',
