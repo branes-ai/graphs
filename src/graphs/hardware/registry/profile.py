@@ -28,16 +28,16 @@ from ..calibration.schema import (
 )
 
 
-def _make_calibration_filename(calibration: HardwareCalibration) -> str:
+def _make_calibration_prefix(calibration: HardwareCalibration) -> str:
     """
-    Generate calibration filename from calibration metadata.
+    Generate calibration filename prefix from calibration metadata.
 
-    Format: {power_mode}_{frequency_mhz}MHz_{framework}.json
+    Format: {power_mode}_{frequency_mhz}MHz_{framework}
 
     Examples:
-        MAXN_625MHz_pytorch.json
-        7W_306MHz_pytorch.json
-        performance_4900MHz_numpy.json
+        MAXN_625MHz_pytorch
+        7W_306MHz_pytorch
+        performance_4900MHz_numpy
     """
     metadata = calibration.metadata
 
@@ -63,7 +63,16 @@ def _make_calibration_filename(calibration: HardwareCalibration) -> str:
     # Sanitize power mode (replace spaces, special chars)
     power_mode = re.sub(r'[^a-zA-Z0-9]', '', power_mode)
 
-    return f"{power_mode}_{freq_mhz}MHz_{framework}.json"
+    return f"{power_mode}_{freq_mhz}MHz_{framework}"
+
+
+def _make_calibration_filename(calibration: HardwareCalibration) -> str:
+    """
+    Generate calibration filename from calibration metadata.
+
+    Format: {power_mode}_{frequency_mhz}MHz_{framework}.json
+    """
+    return f"{_make_calibration_prefix(calibration)}.json"
 
 
 def _parse_calibration_filename(filename: str) -> Optional[Dict[str, Any]]:
@@ -142,6 +151,9 @@ class HardwareProfile:
 
     calibration_date: Optional[str] = None
     """When the calibration was performed (ISO format)."""
+
+    calibration_log: Optional[str] = None
+    """Log output from calibration run (saved alongside JSON)."""
 
     # Additional metadata
     platform: Optional[str] = None
@@ -293,6 +305,7 @@ class HardwareProfile:
         Creates:
         - spec.json: Hardware specification
         - calibrations/{power_mode}_{freq}MHz_{framework}.json: Calibration data (if available)
+        - calibrations/{power_mode}_{freq}MHz_{framework}.log: Calibration log (if available)
 
         Args:
             directory: Directory to save to (will be created if needed)
@@ -308,9 +321,17 @@ class HardwareProfile:
         if self.calibration:
             cal_dir = directory / 'calibrations'
             cal_dir.mkdir(parents=True, exist_ok=True)
-            cal_filename = _make_calibration_filename(self.calibration)
-            cal_path = cal_dir / cal_filename
+
+            # Save calibration JSON
+            cal_prefix = _make_calibration_prefix(self.calibration)
+            cal_path = cal_dir / f"{cal_prefix}.json"
             self.calibration.save(cal_path)
+
+            # Save calibration log if available
+            if self.calibration_log:
+                log_path = cal_dir / f"{cal_prefix}.log"
+                with open(log_path, 'w') as f:
+                    f.write(self.calibration_log)
 
     @classmethod
     def load(cls, directory: Path, calibration_filter: Optional[Dict[str, Any]] = None) -> 'HardwareProfile':

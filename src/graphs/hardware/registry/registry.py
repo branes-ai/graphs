@@ -527,6 +527,7 @@ class HardwareRegistry:
             RuntimeError: If pre-flight checks fail and force=False
         """
         from ..calibration.calibrator import calibrate_hardware
+        from ..calibration.logging import CalibrationLogger, get_logger
 
         profile = self.get(hardware_id)
         if not profile:
@@ -538,6 +539,9 @@ class HardwareRegistry:
         # Get theoretical peaks
         theoretical_peaks = profile.theoretical_peaks
         peak_gflops = theoretical_peaks.get('fp32', max(theoretical_peaks.values()) if theoretical_peaks else 100.0)
+
+        # Initialize logger with stdout capture to capture all print() output
+        logger = CalibrationLogger(capture_stdout=True)
 
         # Run calibration
         calibration = calibrate_hardware(
@@ -552,9 +556,14 @@ class HardwareRegistry:
             force=force,
         )
 
-        # Update profile with calibration
+        # Capture log content
+        log_content = logger.get_content()
+        logger.close()
+
+        # Update profile with calibration and log
         profile.calibration = calibration
         profile.calibration_date = calibration.metadata.calibration_date
+        profile.calibration_log = log_content
 
         # Save to registry (unless dry run)
         if not dry_run:
@@ -615,11 +624,16 @@ class HardwareRegistry:
             )
 
         # Create new profile for unknown hardware
+        from ..calibration.logging import CalibrationLogger
+
         print(f"Creating new profile for: {detection.detected_name}")
         profile = self._create_profile_from_detection(detection)
 
         # Determine device type
         device = 'cuda' if profile.device_type == 'gpu' else 'cpu'
+
+        # Initialize logger with stdout capture to capture all print() output
+        logger = CalibrationLogger(capture_stdout=True)
 
         # Run calibration
         calibration = calibrate_hardware(
@@ -634,9 +648,14 @@ class HardwareRegistry:
             force=force,
         )
 
-        # Update profile with calibration
+        # Capture log content
+        log_content = logger.get_content()
+        logger.close()
+
+        # Update profile with calibration and log
         profile.calibration = calibration
         profile.calibration_date = calibration.metadata.calibration_date
+        profile.calibration_log = log_content
 
         # Save to registry (unless dry run)
         if not dry_run:
