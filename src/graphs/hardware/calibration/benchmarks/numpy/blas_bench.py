@@ -13,7 +13,7 @@ BLAS Levels:
 
 import numpy as np
 import time
-import signal
+import multiprocessing as mp
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
@@ -26,26 +26,146 @@ class TimeoutError(Exception):
     pass
 
 
-def timeout_handler(signum, frame):
-    """Signal handler for timeout"""
-    raise TimeoutError("Benchmark trial exceeded timeout")
+# =============================================================================
+# Cross-Platform Benchmark Timeout using Multiprocessing
+# =============================================================================
+# The previous implementation used signal.SIGALRM which is Unix-only.
+# This implementation uses multiprocessing.Process which works on all platforms
+# (Linux, macOS, Windows) and can forcibly terminate stuck computations.
+# =============================================================================
+
+def _gemm_worker(size: int, dtype_name: str, num_trials: int, num_warmup: int,
+                 result_queue: mp.Queue):
+    """
+    Worker function for GEMM benchmark that runs in a separate process.
+    Results are sent back via a Queue.
+
+    Args:
+        size: Matrix dimension (N for NxN matrices)
+        dtype_name: NumPy dtype name as string (e.g., 'float32', 'int8')
+        num_trials: Number of benchmark trials
+        num_warmup: Number of warmup iterations
+        result_queue: Queue to send results back to parent process
+    """
+    # Map dtype name to actual dtype
+    dtype_map = {
+        'float64': np.float64,
+        'float32': np.float32,
+        'float16': np.float16,
+        'int64': np.int64,
+        'int32': np.int32,
+        'int16': np.int16,
+        'int8': np.int8,
+    }
+    dtype = dtype_map.get(dtype_name, np.float32)
+
+    try:
+        # Allocate matrices
+        alpha = 1.0 if not np.issubdtype(dtype, np.integer) else 1
+        beta = 0.0 if not np.issubdtype(dtype, np.integer) else 0
+
+        if np.issubdtype(dtype, np.integer):
+            A = np.random.randint(1, 100, size=(size, size), dtype=dtype)
+            B = np.random.randint(1, 100, size=(size, size), dtype=dtype)
+        else:
+            A = np.random.rand(size, size).astype(dtype)
+            B = np.random.rand(size, size).astype(dtype)
+        C = np.zeros((size, size), dtype=dtype)
+
+        # Warmup
+        for _ in range(num_warmup):
+            C[:] = alpha * (A @ B) + beta * C
+
+        # Benchmark
+        times = []
+        for _ in range(num_trials):
+            start = time.perf_counter()
+            C[:] = alpha * (A @ B) + beta * C
+            end = time.perf_counter()
+            times.append((end - start) * 1000)  # ms
+
+        # Calculate metrics
+        mean_time_ms = float(np.mean(times))
+        std_time_ms = float(np.std(times))
+        min_time_ms = float(np.min(times))
+
+        flops = 2 * size ** 3  # n³ multiplies + n³ adds
+        gflops = (flops / (mean_time_ms / 1000.0)) / 1e9
+
+        # Read A (n²), read B (n²), write C (n²)
+        bytes_transferred = 3 * size * size * dtype().itemsize
+        bandwidth_gbps = (bytes_transferred / (mean_time_ms / 1000.0)) / 1e9
+        arithmetic_intensity = flops / bytes_transferred
+
+        result_queue.put({
+            'success': True,
+            'operation': 'gemm',
+            'level': 3,
+            'size': size,
+            'mean_latency_ms': mean_time_ms,
+            'std_latency_ms': std_time_ms,
+            'min_latency_ms': min_time_ms,
+            'gflops': gflops,
+            'bandwidth_gbps': bandwidth_gbps,
+            'arithmetic_intensity': arithmetic_intensity,
+            'num_trials': num_trials,
+        })
+
+    except Exception as e:
+        result_queue.put({
+            'success': False,
+            'error': f"{type(e).__name__}: {str(e)}"
+        })
 
 
-class BenchmarkTimeout:
-    """Context manager for benchmark timeouts using SIGALRM"""
-    def __init__(self, seconds):
-        self.seconds = seconds
+def run_benchmark_with_timeout(worker_func, args: tuple, timeout_seconds: int = 5) -> Dict:
+    """
+    Run a benchmark in a separate process with a timeout circuit breaker.
 
-    def __enter__(self):
-        if self.seconds > 0:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(self.seconds)
-        return self
+    This is cross-platform and works on Linux, macOS, and Windows.
+    If the benchmark exceeds the timeout, the process is forcibly terminated.
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.seconds > 0:
-            signal.alarm(0)  # Cancel the alarm
-        return False  # Don't suppress exceptions
+    Args:
+        worker_func: The worker function to run (must accept result_queue as last arg)
+        args: Arguments to pass to worker_func (excluding result_queue)
+        timeout_seconds: Maximum seconds before killing the process
+
+    Returns:
+        Dict with 'success' key and either results or error info
+    """
+    result_queue = mp.Queue()
+
+    # Create and start the worker process
+    process = mp.Process(
+        target=worker_func,
+        args=args + (result_queue,)
+    )
+    process.start()
+
+    # Wait for completion or timeout
+    process.join(timeout=timeout_seconds)
+
+    if process.is_alive():
+        # Timeout - kill the process
+        process.terminate()
+        process.join(timeout=1)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        return {
+            'success': False,
+            'error': f'Timeout after {timeout_seconds}s',
+            'timed_out': True
+        }
+
+    # Process completed - get result from queue
+    if not result_queue.empty():
+        return result_queue.get()
+    else:
+        return {
+            'success': False,
+            'error': 'No result returned from worker process'
+        }
 
 
 # Precision to NumPy dtype mappings
@@ -293,64 +413,31 @@ def benchmark_blas3_gemm_numpy(
     For n×n matrices: 2n³ FLOPs
     Arithmetic intensity: ~n/2 FLOPs/byte (grows with n!)
 
+    This function uses a cross-platform circuit breaker that runs the benchmark
+    in a separate process. If the benchmark exceeds timeout_seconds, the process
+    is forcibly terminated. This works on Linux, macOS, and Windows.
+
     Args:
-        timeout_seconds: Maximum seconds per trial (0 = no timeout)
+        timeout_seconds: Maximum seconds for the entire benchmark (0 = no timeout)
     """
-    # Allocate matrices
-    alpha = 1.0 if not np.issubdtype(dtype, np.integer) else 1
-    beta = 0.0 if not np.issubdtype(dtype, np.integer) else 0
-    A = _generate_random_array((size, size), dtype)
-    B = _generate_random_array((size, size), dtype)
-    C = np.zeros((size, size), dtype=dtype)
+    # Convert dtype to string for pickling across process boundary
+    dtype_name = np.dtype(dtype).name
 
-    # Warmup (with timeout)
-    try:
-        with BenchmarkTimeout(timeout_seconds):
-            for _ in range(num_warmup):
-                C[:] = alpha * (A @ B) + beta * C
-    except TimeoutError:
-        # Warmup timed out - this precision/size is too slow
-        raise TimeoutError(f"Warmup exceeded {timeout_seconds}s timeout")
+    # Run benchmark in subprocess with timeout
+    result = run_benchmark_with_timeout(
+        _gemm_worker,
+        args=(size, dtype_name, num_trials, num_warmup),
+        timeout_seconds=timeout_seconds
+    )
 
-    # Benchmark
-    times = []
-    for trial_idx in range(num_trials):
-        try:
-            with BenchmarkTimeout(timeout_seconds):
-                start = time.perf_counter()
-                C[:] = alpha * (A @ B) + beta * C
-                end = time.perf_counter()
-                times.append((end - start) * 1000)
-        except TimeoutError:
-            # Trial timed out
-            raise TimeoutError(f"Trial {trial_idx+1}/{num_trials} exceeded {timeout_seconds}s timeout")
+    if not result['success']:
+        # Propagate timeout or error as exception
+        if result.get('timed_out'):
+            raise TimeoutError(f"GEMM benchmark exceeded {timeout_seconds}s timeout")
+        else:
+            raise RuntimeError(result.get('error', 'Unknown error in benchmark worker'))
 
-    # Statistics
-    mean_time_ms = np.mean(times)
-    std_time_ms = np.std(times)
-    min_time_ms = np.min(times)
-
-    # Calculate metrics
-    flops = 2 * size ** 3  # n³ multiplies + n³ adds
-    gflops = (flops / (mean_time_ms / 1000.0)) / 1e9
-
-    # Read A (n²), read B (n²), write C (n²)
-    bytes_transferred = 3 * size * size * dtype().itemsize
-    bandwidth_gbps = (bytes_transferred / (mean_time_ms / 1000.0)) / 1e9
-    arithmetic_intensity = flops / bytes_transferred
-
-    return {
-        'operation': 'gemm',
-        'level': 3,
-        'size': size,
-        'mean_latency_ms': mean_time_ms,
-        'std_latency_ms': std_time_ms,
-        'min_latency_ms': min_time_ms,
-        'gflops': gflops,
-        'bandwidth_gbps': bandwidth_gbps,
-        'arithmetic_intensity': arithmetic_intensity,
-        'num_trials': num_trials,
-    }
+    return result
 
 
 # ===================================
