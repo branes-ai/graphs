@@ -1,0 +1,539 @@
+================================================================================
+Hardware Calibration: AMD Ryzen 7 8845HS w/ Radeon 780M Graphics
+================================================================================
+
+Running pre-flight checks...
+
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+[-] CPU Governor: cpufreq not available (VM or container?)
+[OK] CPU Frequency: 3801 MHz (100% of max)
+    Current:  3801 MHz
+    Expected: >= 3421 MHz (90%)
+[-] Turbo Boost: Could not determine (not Intel pstate)
+[OK] System Load: 0.4% (idle)
+    Current:  0.4%
+    Expected: < 5%
+[-] Thermal State: Could not read temperature
+
+RESULT: PASSED
+  System is ready for calibration.======================================================================
+System Information:
+  CPU: AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD
+  Cores: 8 physical, 16 logical
+  Memory: 27.8 GB
+  Python: 3.11.9
+  NumPy: 2.3.5
+  PyTorch: 2.9.1+cpu
+
+Target Device: CPU
+Framework:     PYTORCH
+
+Querying CPU clock frequencies...
+  CPU Freq: 3801 MHz (100% of max 3801 MHz)
+  Governor: Balanced
+
+Running calibration benchmarks...
+
+1. STREAM Memory Bandwidth Benchmark
+--------------------------------------------------------------------------------
+Framework: PyTorch 2.9.1+cpu
+  Device: CPU
+
+STREAM Benchmark Suite:
+--------------------------------------------------------------------------------
+
+COPY (a[i] = b[i]):
+  Memory ops: 2, FLOPs/element: 0
+  Size     8 MB...   299.4 GB/s (334.1%)    0.06 ms
+  Size    16 MB...    50.2 GB/s  (56.0%)    0.67 ms
+  Size    32 MB...    39.8 GB/s  (44.4%)    1.69 ms
+  Size    64 MB...    35.6 GB/s  (39.7%)    3.77 ms
+  Size   128 MB...    36.4 GB/s  (40.6%)    7.37 ms
+  Size   256 MB...    36.6 GB/s  (40.9%)   14.65 ms
+  Size   512 MB...    36.5 GB/s  (40.7%)   29.41 ms
+
+SCALE (a[i] = q * b[i]):
+  Memory ops: 2, FLOPs/element: 1
+  Size     8 MB...   322.6 GB/s (360.1%)    0.05 ms  |  40.3 GFLOPS
+  Size    16 MB...    43.0 GB/s  (48.0%)    0.78 ms  |  5.4 GFLOPS
+  Size    32 MB...    40.6 GB/s  (45.3%)    1.65 ms  |  5.1 GFLOPS
+  Size    64 MB...    35.4 GB/s  (39.5%)    3.79 ms  |  4.4 GFLOPS
+  Size   128 MB...    36.2 GB/s  (40.4%)    7.41 ms  |  4.5 GFLOPS
+  Size   256 MB...    36.4 GB/s  (40.7%)   14.74 ms  |  4.6 GFLOPS
+  Size   512 MB...    36.2 GB/s  (40.4%)   29.65 ms  |  4.5 GFLOPS
+
+ADD (a[i] = b[i] + c[i]):
+  Memory ops: 3, FLOPs/element: 1
+  Size     8 MB...   113.5 GB/s (126.7%)    0.22 ms  |  9.5 GFLOPS
+  Size    16 MB...    47.9 GB/s  (53.5%)    1.05 ms  |  4.0 GFLOPS
+  Size    32 MB...    39.8 GB/s  (44.4%)    2.53 ms  |  3.3 GFLOPS
+  Size    64 MB...    40.9 GB/s  (45.6%)    4.92 ms  |  3.4 GFLOPS
+  Size   128 MB...    41.2 GB/s  (46.0%)    9.78 ms  |  3.4 GFLOPS
+  Size   256 MB...    41.1 GB/s  (45.9%)   19.60 ms  |  3.4 GFLOPS
+  Size   512 MB...    41.2 GB/s  (45.9%)   39.13 ms  |  3.4 GFLOPS
+
+TRIAD (a[i] = b[i] + q * c[i]):
+  Memory ops: 3, FLOPs/element: 2
+  Size     8 MB...    89.2 GB/s  (99.5%)    0.28 ms  |  14.9 GFLOPS
+  Size    16 MB...    39.9 GB/s  (44.5%)    1.26 ms  |  6.6 GFLOPS
+  Size    32 MB...    27.9 GB/s  (31.2%)    3.60 ms  |  4.7 GFLOPS
+  Size    64 MB...    27.1 GB/s  (30.3%)    7.42 ms  |  4.5 GFLOPS
+  Size   128 MB...    27.0 GB/s  (30.2%)   14.89 ms  |  4.5 GFLOPS
+  Size   256 MB...    27.1 GB/s  (30.2%)   29.75 ms  |  4.5 GFLOPS
+  Size   512 MB...    27.3 GB/s  (30.4%)   59.10 ms  |  4.5 GFLOPS
+
+================================================================================
+STREAM Summary:
+--------------------------------------------------------------------------------
+Kernel            Best BW    Latency   Efficiency Description
+------------------------------------------------------------------------------------------
+COPY              299.4 GB/s     0.06 ms      334.1%  a[i] = b[i]
+SCALE             322.6 GB/s     0.05 ms      360.1%  a[i] = q * b[i]
+ADD               113.5 GB/s     0.22 ms      126.7%  a[i] = b[i] + c[i]
+TRIAD              89.2 GB/s     0.28 ms       99.5%  a[i] = b[i] + q * c[i]
+
+STREAM Score (minimum): 27.0 GB/s
+================================================================================
+STREAM Score (minimum bandwidth): 27.0 GB/s
+
+2. BLAS Compute Benchmark Suite
+--------------------------------------------------------------------------------
+Testing precisions: fp64, fp32, tf32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+
+Framework: PyTorch 2.9.1+cpu
+  Device: CPU
+
+BLAS Benchmark Suite:
+==========================================================================================
+
+BLAS Level 1: DOT
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.7 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    fp32      [!] SLOW (   0.9 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    tf32      [!] SLOW (   0.9 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    fp16      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.9 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int32      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int16      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int8       [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10K:
+    fp64                                           6.1 GFLOPS    0.00ms
+    fp32                                           6.8 GFLOPS    0.00ms
+    tf32                                           6.7 GFLOPS    0.00ms
+    fp16                                           5.6 GFLOPS    0.00ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.7 GFLOPS < 1.0 GFLOPS threshold)    0.03ms
+    int64                                           5.7 GIOPS    0.00ms
+    int32                                           5.8 GIOPS    0.00ms
+    int16                                           4.0 GIOPS    0.01ms
+    int8                                            4.1 GIOPS    0.00ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size   100K:
+    fp64                                          36.1 GFLOPS    0.01ms
+    fp32                                          48.1 GFLOPS    0.00ms
+    tf32                                          47.1 GFLOPS    0.00ms
+    fp16                                          18.3 GFLOPS    0.01ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           1.1 GFLOPS    0.18ms
+    int64                                           8.1 GIOPS    0.02ms
+    int32                                           8.6 GIOPS    0.02ms
+    int16                                           5.3 GIOPS    0.04ms
+    int8                                            5.5 GIOPS    0.04ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1M:
+    fp64                                          43.9 GFLOPS    0.05ms
+    fp32                                          82.2 GFLOPS    0.02ms
+    tf32                                          83.6 GFLOPS    0.02ms
+    fp16                                          12.9 GFLOPS    0.15ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           1.1 GFLOPS    1.74ms
+    int64                                           8.0 GIOPS    0.25ms
+    int32                                           9.3 GIOPS    0.21ms
+    int16                                           5.2 GIOPS    0.38ms
+    int8                                            5.4 GIOPS    0.37ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10M:
+    fp64                                           7.3 GFLOPS    2.73ms
+    fp32                                          13.0 GFLOPS    1.54ms
+    tf32                                          13.1 GFLOPS    1.53ms
+    fp16                                          18.4 GFLOPS    1.08ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           1.2 GFLOPS   16.85ms
+    int64                                           6.2 GIOPS    3.21ms
+    int32                                           8.1 GIOPS    2.45ms
+    int16                                           4.6 GIOPS    4.33ms
+    int8                                            5.8 GIOPS    3.47ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+BLAS Level 1: AXPY
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp32      [!] SLOW (   0.2 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    tf32      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    int64      [!] SLOW (   0.4 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int32      [!] SLOW (   0.3 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int16      [!] SLOW (   0.3 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int8       [!] SLOW (   0.3 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10K:
+    fp64                                           2.3 GFLOPS    0.01ms
+    fp32                                           2.6 GFLOPS    0.01ms
+    tf32                                           2.6 GFLOPS    0.01ms
+    fp16                                           2.6 GFLOPS    0.01ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           2.3 GFLOPS    0.01ms
+    int64                                           1.2 GIOPS    0.02ms
+    int32                                           2.5 GIOPS    0.01ms
+    int16                                           2.0 GIOPS    0.01ms
+    int8                                            2.1 GIOPS    0.01ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size   100K:
+    fp64                                           6.2 GFLOPS    0.03ms
+    fp32                                          14.1 GFLOPS    0.01ms
+    tf32                                          14.2 GFLOPS    0.01ms
+    fp16                                          13.3 GFLOPS    0.02ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          11.3 GFLOPS    0.02ms
+    int64                                           4.3 GIOPS    0.05ms
+    int32                                          12.2 GIOPS    0.02ms
+    int16                                          14.5 GIOPS    0.01ms
+    int8                                           17.0 GIOPS    0.01ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1M:
+    fp64                                           2.2 GFLOPS    0.90ms
+    fp32                                          22.9 GFLOPS    0.09ms
+    tf32                                          22.5 GFLOPS    0.09ms
+    fp16                                          28.8 GFLOPS    0.07ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          39.7 GFLOPS    0.05ms
+    int64                                           2.0 GIOPS    0.99ms
+    int32                                          33.8 GIOPS    0.06ms
+    int16                                          63.5 GIOPS    0.03ms
+    int8                                          100.2 GIOPS    0.02ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10M:
+    fp64                                           1.4 GFLOPS   14.68ms
+    fp32                                           2.7 GFLOPS    7.48ms
+    tf32                                           2.7 GFLOPS    7.43ms
+    fp16                                           5.6 GFLOPS    3.59ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           5.6 GFLOPS    3.56ms
+    int64                                           1.3 GIOPS   14.97ms
+    int32                                           2.7 GIOPS    7.44ms
+    int16                                           5.5 GIOPS    3.67ms
+    int8                                           16.4 GIOPS    1.22ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+BLAS Level 2: GEMV
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64      [!] SLOW (   0.2 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp32      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    tf32      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    int64      [!] SLOW (   0.2 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int32      [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.02ms
+    int16      [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.02ms
+    int8       [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.02ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     64:
+    fp64      [!] SLOW (   0.7 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp32      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    tf32      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    fp16      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.02ms
+    int64      [!] SLOW (   0.6 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int32      [!] SLOW (   0.5 GIOPS < 1.0 GFLOPS threshold)    0.02ms
+    int16      [!] SLOW (   0.5 GIOPS < 1.0 GFLOPS threshold)    0.02ms
+    int8       [!] SLOW (   0.5 GIOPS < 1.0 GFLOPS threshold)    0.02ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    128:
+    fp64                                           2.4 GFLOPS    0.01ms
+    fp32                                           2.0 GFLOPS    0.02ms
+    tf32                                           2.0 GFLOPS    0.02ms
+    fp16                                           1.7 GFLOPS    0.02ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.04ms
+    int64                                           1.7 GIOPS    0.02ms
+    int32                                           1.2 GIOPS    0.03ms
+    int16                                           1.2 GIOPS    0.03ms
+    int8                                            1.2 GIOPS    0.03ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    256:
+    fp64                                           6.3 GFLOPS    0.02ms
+    fp32                                           6.5 GFLOPS    0.02ms
+    tf32                                           6.3 GFLOPS    0.02ms
+    fp16                                           6.2 GFLOPS    0.02ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           3.1 GFLOPS    0.04ms
+    int64                                           3.0 GIOPS    0.04ms
+    int32                                           2.0 GIOPS    0.06ms
+    int16                                           1.9 GIOPS    0.07ms
+    int8                                            2.1 GIOPS    0.06ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    512:
+    fp64                                          12.3 GFLOPS    0.04ms
+    fp32                                          18.2 GFLOPS    0.03ms
+    tf32                                          18.4 GFLOPS    0.03ms
+    fp16                                          22.2 GFLOPS    0.02ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           3.0 GFLOPS    0.17ms
+    int64                                           4.9 GIOPS    0.11ms
+    int32                                           4.0 GIOPS    0.13ms
+    int16                                           3.6 GIOPS    0.14ms
+    int8                                            3.2 GIOPS    0.16ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1K:
+    fp64                                          18.2 GFLOPS    0.12ms
+    fp32                                          29.3 GFLOPS    0.07ms
+    tf32                                          29.6 GFLOPS    0.07ms
+    fp16                                          43.4 GFLOPS    0.05ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          21.5 GFLOPS    0.10ms
+    int64                                           5.4 GIOPS    0.39ms
+    int32                                           4.5 GIOPS    0.47ms
+    int16                                           3.8 GIOPS    0.55ms
+    int8                                            3.4 GIOPS    0.62ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     2K:
+    fp64                                          10.0 GFLOPS    0.84ms
+    fp32                                          23.7 GFLOPS    0.35ms
+    tf32                                          24.2 GFLOPS    0.35ms
+    fp16                                          90.3 GFLOPS    0.09ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          44.5 GFLOPS    0.19ms
+    int64                                           4.6 GIOPS    1.83ms
+    int32                                           4.5 GIOPS    1.85ms
+    int16                                           4.0 GIOPS    2.11ms
+    int8                                            3.5 GIOPS    2.40ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+BLAS Level 3: GEMM
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64                                           5.4 GFLOPS    0.01ms
+    fp32                                           2.8 GFLOPS    0.02ms
+    tf32                                           3.3 GFLOPS    0.02ms
+    fp16                                           1.1 GFLOPS    0.06ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           2.3 GFLOPS    0.03ms
+    int64                                           3.3 GIOPS    0.02ms
+    int32                                           3.1 GIOPS    0.02ms
+    int16                                           2.7 GIOPS    0.02ms
+    int8                                            3.0 GIOPS    0.02ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     64:
+    fp64                                          24.6 GFLOPS    0.02ms
+    fp32                                          27.6 GFLOPS    0.02ms
+    tf32                                          30.0 GFLOPS    0.02ms
+    fp16                                           1.7 GFLOPS    0.31ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          16.0 GFLOPS    0.03ms
+    int64                                           6.1 GIOPS    0.09ms
+    int32                                           6.0 GIOPS    0.09ms
+    int16                                           5.5 GIOPS    0.09ms
+    int8                                            5.6 GIOPS    0.09ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    128:
+    fp64                                          87.1 GFLOPS    0.05ms
+    fp32                                         141.0 GFLOPS    0.03ms
+    tf32                                         148.7 GFLOPS    0.03ms
+    fp16                                           1.8 GFLOPS    2.27ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                         104.8 GFLOPS    0.04ms
+    int64                                           7.2 GIOPS    0.58ms
+    int32                                           7.5 GIOPS    0.56ms
+    int16                                           6.3 GIOPS    0.67ms
+    int8                                            6.2 GIOPS    0.67ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    256:
+    fp64                                         242.3 GFLOPS    0.14ms
+    fp32                                         502.4 GFLOPS    0.07ms
+    tf32                                         459.0 GFLOPS    0.07ms
+    fp16                                           1.7 GFLOPS   19.22ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                         352.7 GFLOPS    0.10ms
+    int64                                           7.3 GIOPS    4.60ms
+    int32                                           7.0 GIOPS    4.78ms
+    int16                                           6.2 GIOPS    5.38ms
+    int8                                            6.0 GIOPS    5.56ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    512:
+    fp64                                         320.0 GFLOPS    0.84ms
+    fp32                                         898.6 GFLOPS    0.30ms
+    tf32                                         896.1 GFLOPS    0.30ms
+    fp16                                           1.8 GFLOPS  149.00ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                        1390.7 GFLOPS    0.19ms
+    int64                                           7.3 GIOPS   36.82ms
+    int32                                           7.6 GIOPS   35.33ms
+    int16                                           6.1 GIOPS   43.83ms
+    int8                                            6.0 GIOPS   44.87ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1K:
+    fp64                                         204.3 GFLOPS   10.51ms
+    fp32                                         539.3 GFLOPS    3.98ms
+    tf32                                         716.5 GFLOPS    3.00ms
+    fp16                                              SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                        1983.4 GFLOPS    1.08ms
+    int64                                             SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int32                                             SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int16                                             SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int8                                              SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     2K:
+    fp64                                         274.8 GFLOPS   62.52ms
+    fp32                                         604.2 GFLOPS   28.43ms
+    tf32                                         646.5 GFLOPS   26.58ms
+    fp16                                              SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                        1371.9 GFLOPS   12.52ms
+    int64                                             SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    int32                                             SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    int16                                             SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    int8                                              SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+==========================================================================================
+BLAS Suite Complete: 24 calibrations
+==========================================================================================
+
+Building precision capability matrix...
+
+================================================================================
+Hardware Calibration: AMD Ryzen 7 8845HS w/ Radeon 780M Graphics
+Date: 2025-11-28T10:40:46.507418
+================================================================================
+
+Framework: PYTORCH
+Device:    CPU
+
+Theoretical Specifications:
+  Peak GFLOPS (FP32): 1305.6
+  Peak Bandwidth:     89.6 GB/s
+
+STREAM Memory Bandwidth Benchmark:
+  Kernel           Size (MB)    Bandwidth    Latency   Efficiency Description
+  -----------------------------------------------------------------------------------------------
+  COPY                     8      299.4 GB/s     0.06 ms      334.1%  a[i] = b[i]
+  SCALE                    8      322.6 GB/s     0.05 ms      360.1%  a[i] = q * b[i]
+  ADD                      8      113.5 GB/s     0.22 ms      126.7%  a[i] = b[i] + c[i]
+  TRIAD                    8       89.2 GB/s     0.28 ms       99.5%  a[i] = b[i] + q * c[i]
+
+  STREAM Score (minimum): 27.0 GB/s
+
+BLAS Performance Summary (Highest Throughput by Precision):
+  Operation          fp64       fp32       tf32       fp16        fp8        fp4       bf16      int64      int32      int16       int8       int4   Best Precision
+  ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  AXPY                6.2       22.9       22.5       28.8        N/A        N/A       39.7        4.3       33.8       63.5      100.2        N/A             int8
+  DOT                43.9       82.2       83.6       18.4        N/A        N/A        1.2        8.1        9.3        5.3        5.8        N/A             tf32
+  GEMV               18.2       29.3       29.6       90.3        N/A        N/A       44.5        5.4        4.5        4.0        3.5        N/A             fp16
+  GEMM              320.0      898.6      896.1        1.8        N/A        N/A     1983.4        7.3        7.6        6.3        6.2        N/A             bf16
+
+BLAS Compute Performance (by Operation and Precision):
+========================================================================================================================
+
+Level 1: Vector-Vector (O(n))
+------------------------------------------------------------------------------------------------------------------------
+
+AXPY:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64             100K         6.2 GFLOPS     0.03ms     0.33        0.9%
+  fp32               1M        22.9 GFLOPS     0.09ms     0.17        1.8%
+  tf32               1M        22.5 GFLOPS     0.09ms     0.17        0.0%
+  fp16               1M        28.8 GFLOPS     0.07ms     0.33        0.0%
+  bf16               1M        39.7 GFLOPS     0.05ms     0.33        0.0%
+  int64            100K          4.3 GIOPS     0.05ms     0.33        0.0%
+  int32              1M         33.8 GIOPS     0.06ms     0.33        0.0%
+  int16              1M         63.5 GIOPS     0.03ms     0.33        0.0%
+  int8               1M        100.2 GIOPS     0.02ms     0.33        0.0%
+
+DOT:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               1M        43.9 GFLOPS     0.05ms     0.50        6.7%
+  fp32               1M        82.2 GFLOPS     0.02ms     0.25        6.3%
+  tf32               1M        83.6 GFLOPS     0.02ms     0.25        0.0%
+  fp16              10M        18.4 GFLOPS     1.08ms     0.50        0.0%
+  bf16              10M         1.2 GFLOPS    16.85ms     0.50        0.0%
+  int64            100K          8.1 GIOPS     0.02ms     0.50        0.0%
+  int32              1M          9.3 GIOPS     0.21ms     0.50        0.0%
+  int16            100K          5.3 GIOPS     0.04ms     0.50        0.0%
+  int8              10M          5.8 GIOPS     3.47ms     0.50        0.0%
+
+Level 2: Matrix-Vector (O(n²))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMV:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               1K        18.2 GFLOPS     0.12ms     1.00        2.8%
+  fp32               1K        29.3 GFLOPS     0.07ms     0.50        2.2%
+  tf32               1K        29.6 GFLOPS     0.07ms     0.50        0.0%
+  fp16               2K        90.3 GFLOPS     0.09ms     1.00        0.0%
+  bf16               2K        44.5 GFLOPS     0.19ms     1.00        0.0%
+  int64              1K          5.4 GIOPS     0.39ms     1.00        0.0%
+  int32              2K          4.5 GIOPS     1.85ms     1.00        0.0%
+  int16              2K          4.0 GIOPS     2.11ms     1.00        0.0%
+  int8               2K          3.5 GIOPS     2.40ms     1.00        0.0%
+
+Level 3: Matrix-Matrix (O(n³))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMM:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64              512       320.0 GFLOPS     0.84ms    42.67       49.0%
+  fp32              512       898.6 GFLOPS     0.30ms    85.33       68.8%
+  tf32              512       896.1 GFLOPS     0.30ms    85.33        0.0%
+  fp16              128         1.8 GFLOPS     2.27ms    42.67        0.0%
+  bf16               1K      1983.4 GFLOPS     1.08ms   341.33        0.0%
+  int64             512          7.3 GIOPS    36.82ms    42.67        0.0%
+  int32             512          7.6 GIOPS    35.33ms    85.33        0.0%
+  int16             128          6.3 GIOPS     0.67ms    42.67        0.0%
+  int8              128          6.2 GIOPS     0.67ms    85.33        0.0%
+
+Precision Support Summary:
+  Supported:   fp64, fp32, tf32, fp16, bf16, int64, int32, int16, int8
+  Unsupported: fp8, fp4, int4
+
