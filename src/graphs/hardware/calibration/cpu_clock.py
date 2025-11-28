@@ -239,6 +239,39 @@ def _query_macos_sysctl() -> Optional[CPUClockInfo]:
         )
 
 
+def _query_windows_power_plan() -> Optional[str]:
+    """
+    Query Windows power plan name.
+
+    Returns power plan name like 'High performance', 'Balanced', 'Power saver'.
+    """
+    if platform.system() != 'Windows':
+        return None
+
+    try:
+        # Use powercfg to get active power plan
+        result = subprocess.run(
+            ['powercfg', '/getactivescheme'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode == 0 and result.stdout:
+            # Output format: "Power Scheme GUID: <guid>  (High performance)"
+            # Extract the name in parentheses
+            import re
+            match = re.search(r'\(([^)]+)\)', result.stdout)
+            if match:
+                plan_name = match.group(1)
+                # Normalize: "High performance" -> "HighPerformance"
+                return plan_name.replace(' ', '')
+
+        return None
+    except Exception:
+        return None
+
+
 def _query_psutil() -> Optional[CPUClockInfo]:
     """
     Query CPU frequencies using psutil (cross-platform fallback).
@@ -260,6 +293,12 @@ def _query_psutil() -> Optional[CPUClockInfo]:
         per_cpu_freq = psutil.cpu_freq(percpu=True)
         if per_cpu_freq:
             info.per_core_freq_mhz = [f.current for f in per_cpu_freq]
+
+        # On Windows, try to get power plan as "governor" equivalent
+        if platform.system() == 'Windows' and info.governor is None:
+            power_plan = _query_windows_power_plan()
+            if power_plan:
+                info.governor = power_plan
 
         return info if info.query_success else None
 
