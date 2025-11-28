@@ -766,10 +766,10 @@ class ArchitectureComparator:
             lines.append(f"  • {insight}")
 
         lines.append("")
-        lines.append("→ Use --level detailed to see per-architecture breakdowns")
-        lines.append("→ Use --level subgraph to see per-layer analysis")
-        lines.append("→ Use generate_subgraph_edp_report(<arch>) to see per-subgraph EDP breakdown")
-        lines.append("→ Use --explain <arch1> <arch2> to understand differences")
+        lines.append("-> Use --level detailed to see per-architecture breakdowns")
+        lines.append("-> Use --level subgraph to see per-layer analysis")
+        lines.append("-> Use generate_subgraph_edp_report(<arch>) to see per-subgraph EDP breakdown")
+        lines.append("-> Use --explain <arch1> <arch2> to understand differences")
         lines.append("")
 
         return "\n".join(lines)
@@ -1021,10 +1021,10 @@ class ArchitectureComparator:
             model_edp = self.metrics[arch_name].edp
             diff_pct = abs(total_edp - model_edp) / model_edp * 100 if model_edp > 0 else 0
             if diff_pct > 1.0:
-                lines.append(f"⚠ Warning: Subgraph EDP sum ({total_edp*1e9:.2f} nJ·s) differs from model EDP "
-                           f"({model_edp*1e9:.2f} nJ·s) by {diff_pct:.1f}%")
+                lines.append(f"[!] Warning: Subgraph EDP sum ({total_edp*1e9:.2f} nJ*s) differs from model EDP "
+                           f"({model_edp*1e9:.2f} nJ*s) by {diff_pct:.1f}%")
             else:
-                lines.append(f"✓ Validation: Subgraph EDPs sum to model EDP (within {diff_pct:.2f}%)")
+                lines.append(f"[OK] Validation: Subgraph EDPs sum to model EDP (within {diff_pct:.2f}%)")
             lines.append("")
 
         # Show top N subgraphs
@@ -1081,8 +1081,8 @@ class ArchitectureComparator:
         lines.append("Optimization Insight:")
         if subgraph_edps:
             top3_pct = sum(sg.edp_fraction for sg in subgraph_edps[:3]) * 100
-            lines.append(f"  → Focus optimization efforts on top 3 subgraphs ({top3_pct:.1f}% of total EDP)")
-            lines.append(f"  → Top subgraph: {subgraph_edps[0].subgraph_name} ({subgraph_edps[0].edp_fraction*100:.1f}%)")
+            lines.append(f"  -> Focus optimization efforts on top 3 subgraphs ({top3_pct:.1f}% of total EDP)")
+            lines.append(f"  -> Top subgraph: {subgraph_edps[0].subgraph_name} ({subgraph_edps[0].edp_fraction*100:.1f}%)")
 
         lines.append("")
         return "\n".join(lines)
@@ -1521,11 +1521,11 @@ class ArchitectureComparator:
 
             Top 10 Operators by EDP:
 
-            Rank  Operator   Subgraph  EDP (nJ·s)  % Subgraph  % Model  Modifier  Fused
+            Rank  Operator   Subgraph  EDP (nJ*s)  % Subgraph  % Model  Modifier  Fused
             ------------------------------------------------------------------------------
-            1 ⭐  Linear     fc1       0.48        95.0%       76.0%    1.00×     Yes
-            2     Linear     fc2       0.12        95.0%       19.0%    1.00×     Yes
-            3     Bias       fc1       0.01         2.5%        2.0%    0.05×     Yes ✓
+            1 *   Linear     fc1       0.48        95.0%       76.0%    1.00x     Yes
+            2     Linear     fc2       0.12        95.0%       19.0%    1.00x     Yes
+            3     Bias       fc1       0.01         2.5%        2.0%    0.05x     Yes [OK]
             ...
         """
         from graphs.analysis.architectural_modifiers import explain_modifier
@@ -1561,14 +1561,14 @@ class ArchitectureComparator:
         # Top N operators
         lines.append(f"Top {min(top_n, len(operator_edps))} Operators by EDP:")
         lines.append("")
-        lines.append(f"{'Rank':<5} {'Operator':<15} {'Subgraph':<25} {'EDP (nJ·s)':<12} {'% Subgraph':<12} {'% Model':<10} {'Modifier':<10} {'Fused':<8}")
+        lines.append(f"{'Rank':<5} {'Operator':<15} {'Subgraph':<25} {'EDP (nJ*s)':<12} {'% Subgraph':<12} {'% Model':<10} {'Modifier':<10} {'Fused':<8}")
         lines.append("-" * 140)
 
         for i, op in enumerate(operator_edps[:top_n], 1):
-            marker = " ⭐" if i == 1 else ""
+            marker = " *" if i == 1 else ""
             fused_str = "Yes" if op.is_fused else "No"
             if op.is_fused and op.fusion_benefit and op.fusion_benefit > 5.0:
-                fused_str += " ✓"  # High fusion benefit
+                fused_str += " [OK]"  # High fusion benefit
 
             lines.append(
                 f"{i:<5} "
@@ -1677,18 +1677,18 @@ class ArchitectureComparator:
         # Top operator
         if operator_edps:
             top_op = operator_edps[0]
-            lines.append(f"  → Top operator: {top_op.operator_type} in {top_op.subgraph_name} ({top_op.edp_fraction_of_model*100:.1f}% of model)")
+            lines.append(f"  -> Top operator: {top_op.operator_type} in {top_op.subgraph_name} ({top_op.edp_fraction_of_model*100:.1f}% of model)")
 
         # High fusion benefit ops
         high_benefit_ops = [op for op in operator_edps if op.is_fused and op.fusion_benefit and op.fusion_benefit > 10.0]
         if high_benefit_ops:
-            lines.append(f"  → {len(high_benefit_ops)} operators show high fusion benefit (>10×)")
+            lines.append(f"  -> {len(high_benefit_ops)} operators show high fusion benefit (>10x)")
             lines.append(f"    Types: {', '.join(set(op.operator_type for op in high_benefit_ops[:5]))}")
 
         # Low-modifier ops (architectural optimization opportunities)
         low_modifier_ops = [op for op in operator_edps if op.is_fused and op.architectural_modifier < 0.2]
         if low_modifier_ops:
-            lines.append(f"  → {len(low_modifier_ops)} operators hidden in dataflow (modifier < 0.2)")
+            lines.append(f"  -> {len(low_modifier_ops)} operators hidden in dataflow (modifier < 0.2)")
             total_hidden_pct = sum(op.edp_fraction_of_model for op in low_modifier_ops) * 100
             lines.append(f"    Total EDP: {total_hidden_pct:.1f}% of model (effectively 'free' due to fusion)")
 
@@ -2319,11 +2319,11 @@ class ArchitectureComparator:
     </div>
 
     <div class="recommendations">
-        <h2>🎯 Recommendations</h2>
-        <div class="rec-item">✓ Best for Energy: <strong>{self.summary.energy_winner}</strong></div>
-        <div class="rec-item">✓ Best for Latency: <strong>{self.summary.latency_winner}</strong></div>
-        <div class="rec-item">✓ Best for Throughput: <strong>{self.summary.throughput_winner}</strong></div>
-        <div class="rec-item">✓ Best Balance: <strong>{self.summary.balance_winner}</strong></div>
+        <h2>Recommendations</h2>
+        <div class="rec-item">[OK] Best for Energy: <strong>{self.summary.energy_winner}</strong></div>
+        <div class="rec-item">[OK] Best for Latency: <strong>{self.summary.latency_winner}</strong></div>
+        <div class="rec-item">[OK] Best for Throughput: <strong>{self.summary.throughput_winner}</strong></div>
+        <div class="rec-item">[OK] Best Balance: <strong>{self.summary.balance_winner}</strong></div>
     </div>
 
     <div class="chart-row">

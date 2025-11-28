@@ -242,12 +242,16 @@ class HardwareRegistry:
 
         return results
 
-    def detect_hardware(self) -> DetectionResult:
+    def detect_hardware(self, prefer_cpu: bool = False) -> DetectionResult:
         """
         Auto-detect current hardware and match to registry.
 
         For ARM/embedded devices, uses board detection (device-tree) for more
         accurate matching since CPU model names are often generic (e.g., "ARMv8").
+
+        Args:
+            prefer_cpu: If True, prefer CPU profiles over GPU profiles.
+                       Useful when framework is 'numpy' (CPU-only).
 
         Returns:
             DetectionResult with matched profile information
@@ -262,11 +266,11 @@ class HardwareRegistry:
         # For ARM devices, try board detection first (more reliable than CPU name)
         board = detection.get('board')
         if board and board.family:
-            board_match = self._match_board_to_profile(board, detection.get('cpu'))
+            board_match = self._match_board_to_profile(board, detection.get('cpu'), prefer_cpu=prefer_cpu)
             if board_match:
                 return board_match
 
-        # Try to match CPU
+        # Try to match CPU (always try CPU first if prefer_cpu is True)
         if detection.get('cpu'):
             cpu = detection['cpu']
             detected_name = cpu.model_name
@@ -290,16 +294,20 @@ class HardwareRegistry:
                     profile=best_profile
                 )
 
-            # Return partial result with no match
-            return DetectionResult(
-                profile_id='',
-                confidence=0.0,
-                detected_name=detected_name,
-                profile=None
-            )
+            # If prefer_cpu is True, return no match rather than falling through to GPU
+            if prefer_cpu:
+                return DetectionResult(
+                    profile_id='',
+                    confidence=0.0,
+                    detected_name=detected_name,
+                    profile=None
+                )
 
-        # Try to match GPU
-        if detection.get('gpus'):
+            # Return partial result with no match (will fall through to GPU detection)
+            # Note: We continue to try GPU detection below
+
+        # Try to match GPU (skip if prefer_cpu is True and we have CPU info)
+        if detection.get('gpus') and not prefer_cpu:
             gpu = detection['gpus'][0]
             detected_name = gpu.model_name
 
@@ -320,22 +328,26 @@ class HardwareRegistry:
                 profile=None
             )
 
+        # No match found
+        detected_name = detection['cpu'].model_name if detection.get('cpu') else 'Unknown'
         return DetectionResult(
             profile_id='',
             confidence=0.0,
-            detected_name='Unknown',
+            detected_name=detected_name,
             profile=None
         )
 
-    def _match_board_to_profile(self, board, cpu) -> Optional[DetectionResult]:
+    def _match_board_to_profile(self, board, cpu, prefer_cpu: bool = False) -> Optional[DetectionResult]:
         """
-        Match detected board to a CPU profile in the registry.
+        Match detected board to a profile in the registry.
 
         Uses device-tree model string to identify specific hardware like Jetson.
+        For SoCs with both CPU and GPU (like Jetson), can select based on preference.
 
         Args:
             board: DetectedBoard from hardware detection
             cpu: DetectedCPU (optional, for additional context)
+            prefer_cpu: If True, prefer CPU profiles; if False, prefer GPU profiles
 
         Returns:
             DetectionResult if a match is found, None otherwise
@@ -348,48 +360,62 @@ class HardwareRegistry:
 
         # Jetson matching based on device tree
         if board.vendor == "NVIDIA" and board.family == "Jetson":
-            # Match specific Jetson models
-            jetson_profiles = {
+            # Match specific Jetson models - try both CPU and GPU profiles
+            # The mapping has both _cpu and _gpu variants
+            jetson_base_names = {
                 # Orin family
-                'orin nano': 'jetson_orin_nano_cpu',
-                'orin nx': 'jetson_orin_nx_cpu',
-                'agx orin': 'jetson_orin_agx_cpu',
-                'orin agx': 'jetson_orin_agx_cpu',
+                'orin nano': 'jetson_orin_nano',
+                'orin nx': 'jetson_orin_nx',
+                'agx orin': 'jetson_orin_agx',
+                'orin agx': 'jetson_orin_agx',
                 # Xavier family
-                'xavier nx': 'jetson_xavier_nx_cpu',
-                'agx xavier': 'jetson_xavier_agx_cpu',
-                'xavier agx': 'jetson_xavier_agx_cpu',
+                'xavier nx': 'jetson_xavier_nx',
+                'agx xavier': 'jetson_xavier_agx',
+                'xavier agx': 'jetson_xavier_agx',
                 # Older models
-                'nano': 'jetson_nano_cpu',
-                'tx2': 'jetson_tx2_cpu',
-                'tx1': 'jetson_tx1_cpu',
+                'nano': 'jetson_nano',
+                'tx2': 'jetson_tx2',
+                'tx1': 'jetson_tx1',
             }
 
-            for pattern, profile_id in jetson_profiles.items():
+            for pattern, base_name in jetson_base_names.items():
                 if pattern in dt_lower:
-                    profile = self._cache.get(profile_id)
-                    if profile:
-                        return DetectionResult(
-                            profile_id=profile_id,
-                            confidence=0.95,  # High confidence from device-tree
-                            detected_name=detected_name,
-                            profile=profile
-                        )
+                    # Determine which suffix to try first based on preference
+                    if prefer_cpu:
+                        profile_ids = [f'{base_name}_cpu', f'{base_name}_gpu']
+                    else:
+                        profile_ids = [f'{base_name}_gpu', f'{base_name}_cpu']
 
-            # Fallback: try to match any Jetson CPU profile by SoC
-            if board.soc:
-                soc_lower = board.soc.lower()
-                for profile in self._cache.values():
-                    if profile.device_type == 'cpu' and 'jetson' in profile.id.lower():
-                        # Check if profile notes mention the SoC
-                        notes = getattr(profile, 'notes', '') or ''
-                        if soc_lower in notes.lower():
+                    for profile_id in profile_ids:
+                        profile = self._cache.get(profile_id)
+                        if profile:
                             return DetectionResult(
-                                profile_id=profile.id,
-                                confidence=0.85,
+                                profile_id=profile_id,
+                                confidence=0.95,  # High confidence from device-tree
                                 detected_name=detected_name,
                                 profile=profile
                             )
+
+            # Fallback: try to match any Jetson profile by SoC
+            if board.soc:
+                soc_lower = board.soc.lower()
+                # Determine device type preference
+                preferred_type = 'cpu' if prefer_cpu else 'gpu'
+                fallback_type = 'gpu' if prefer_cpu else 'cpu'
+
+                # Try preferred type first
+                for device_type in [preferred_type, fallback_type]:
+                    for profile in self._cache.values():
+                        if profile.device_type == device_type and 'jetson' in profile.id.lower():
+                            # Check if profile notes mention the SoC
+                            notes = getattr(profile, 'notes', '') or ''
+                            if soc_lower in notes.lower():
+                                return DetectionResult(
+                                    profile_id=profile.id,
+                                    confidence=0.85,
+                                    detected_name=detected_name,
+                                    profile=profile
+                                )
 
         # Raspberry Pi matching
         elif board.vendor == "Raspberry Pi Foundation":
@@ -588,7 +614,7 @@ class HardwareRegistry:
         Args:
             quick: Run quick calibration
             operations: Operations to calibrate
-            framework: Framework override
+            framework: Framework override ('numpy' prefers CPU, 'pytorch' can use either)
             create_if_missing: If True, create new profile for unknown hardware
             force: Force calibration even if pre-flight checks fail
             dry_run: If True, run calibration but don't save to registry
@@ -603,8 +629,10 @@ class HardwareRegistry:
         from ..calibration.calibrator import calibrate_hardware
         from ..database import HardwareDetector
 
-        # Detect hardware
-        detection = self.detect_hardware()
+        # Detect hardware with preference based on framework
+        # numpy is CPU-only, so prefer CPU profiles
+        prefer_cpu = (framework == 'numpy')
+        detection = self.detect_hardware(prefer_cpu=prefer_cpu)
 
         if detection.profile:
             # Found in registry - calibrate existing profile

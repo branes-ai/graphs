@@ -227,7 +227,7 @@ class ExecutionPlan:
         # Low utilization warning
         if self.average_utilization < 0.2:
             self.bottleneck_warnings.append(
-                f"⚠ Low hardware utilization (avg {self.average_utilization*100:.1f}%) - "
+                f"[!] Low hardware utilization (avg {self.average_utilization*100:.1f}%) - "
                 f"insufficient parallelism to utilize {self.hardware_name}"
             )
             self.optimization_suggestions.append(
@@ -240,7 +240,7 @@ class ExecutionPlan:
         # Memory-bound workload
         if self.memory_bound_subgraphs > self.compute_bound_subgraphs * 2:
             self.bottleneck_warnings.append(
-                f"⚠ Memory-bound workload ({self.memory_bound_subgraphs}/{self.num_subgraphs} subgraphs)"
+                f"[!] Memory-bound workload ({self.memory_bound_subgraphs}/{self.num_subgraphs} subgraphs)"
             )
             self.optimization_suggestions.append(
                 "• Optimize data layout for better cache locality"
@@ -252,7 +252,7 @@ class ExecutionPlan:
         # Low efficiency warning
         if self.hardware_efficiency < 0.1:
             self.bottleneck_warnings.append(
-                f"⚠ Low hardware efficiency ({self.hardware_efficiency*100:.1f}% of peak FLOPS)"
+                f"[!] Low hardware efficiency ({self.hardware_efficiency*100:.1f}% of peak FLOPS)"
             )
             self.optimization_suggestions.append(
                 "• Profile individual kernels to identify bottlenecks"
@@ -266,7 +266,7 @@ class ExecutionPlan:
             util_variance = self.peak_utilization - self.min_utilization
             if util_variance > 0.5:
                 self.bottleneck_warnings.append(
-                    f"⚠ High variance in utilization ({self.min_utilization*100:.1f}% - {self.peak_utilization*100:.1f}%)"
+                    f"[!] High variance in utilization ({self.min_utilization*100:.1f}% - {self.peak_utilization*100:.1f}%)"
                 )
                 self.optimization_suggestions.append(
                     "• Balance workload across operations (some ops under-utilizing hardware)"

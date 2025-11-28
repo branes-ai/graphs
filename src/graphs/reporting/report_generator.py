@@ -136,9 +136,9 @@ class ReportGenerator:
                            f"weights: {result.memory_report.weight_memory_bytes/1e6:.1f} MB)")
 
                 if result.memory_report.fits_in_l2_cache:
-                    lines.append(f"                         ✓ Fits in L2 cache ({result.memory_report.l2_cache_size_bytes/1e6:.1f} MB)")
+                    lines.append(f"                         [OK] Fits in L2 cache ({result.memory_report.l2_cache_size_bytes/1e6:.1f} MB)")
                 else:
-                    lines.append(f"                         ✗ Does not fit in L2 cache ({result.memory_report.l2_cache_size_bytes/1e6:.1f} MB)")
+                    lines.append(f"                         [X] Does not fit in L2 cache ({result.memory_report.l2_cache_size_bytes/1e6:.1f} MB)")
 
             lines.append("")
 
@@ -207,8 +207,8 @@ class ReportGenerator:
 
                 # Hardware fit
                 lines.append("Hardware Fit:")
-                lines.append(f"  L2 Cache ({result.memory_report.l2_cache_size_bytes/1e6:.1f} MB):       {'✓ Fits' if result.memory_report.fits_in_l2_cache else '✗ Does not fit'}")
-                lines.append(f"  Device Memory ({result.memory_report.device_memory_bytes/1e9:.1f} GB):  {'✓ Fits' if result.memory_report.fits_on_device else '✗ Does not fit'}")
+                lines.append(f"  L2 Cache ({result.memory_report.l2_cache_size_bytes/1e6:.1f} MB):       {'[OK] Fits' if result.memory_report.fits_in_l2_cache else '[X] Does not fit'}")
+                lines.append(f"  Device Memory ({result.memory_report.device_memory_bytes/1e9:.1f} GB):  {'[OK] Fits' if result.memory_report.fits_on_device else '[X] Does not fit'}")
                 lines.append("")
 
         # Recommendations
@@ -226,7 +226,7 @@ class ReportGenerator:
             lines.append("VALIDATION WARNINGS")
             lines.append("-" * 79)
             for warning in result.validation_warnings:
-                lines.append(f"  ⚠ {warning}")
+                lines.append(f"  [!] {warning}")
             lines.append("")
 
         return "\n".join(lines)

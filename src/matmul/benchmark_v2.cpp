@@ -138,13 +138,13 @@ int main(int argc, char** argv) {
         std::cout << "Peak Efficiency:  " << best_efficiency << "%\n";
 
         if (best_efficiency > 80) {
-            std::cout << "Status: ✓ EXCELLENT - Near peak performance!\n";
+            std::cout << "Status: [OK] EXCELLENT - Near peak performance!\n";
         } else if (best_efficiency > 60) {
-            std::cout << "Status: ✓ GOOD - Well optimized\n";
+            std::cout << "Status: [OK] GOOD - Well optimized\n";
         } else if (best_efficiency > 40) {
-            std::cout << "Status: ⚠ FAIR - Room for improvement\n";
+            std::cout << "Status: [!] FAIR - Room for improvement\n";
         } else {
-            std::cout << "Status: ✗ POOR - Likely memory-bound\n";
+            std::cout << "Status: [X] POOR - Likely memory-bound\n";
         }
     }
 

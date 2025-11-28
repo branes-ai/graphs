@@ -216,13 +216,13 @@ class MemoryReport:
 
         # Hardware fit
         lines.append("Hardware Fit Analysis:")
-        lines.append(f"  {'✓' if self.fits_on_device else '✗'} Fits on device "
+        lines.append(f"  {'[OK]' if self.fits_on_device else '[X]'} Fits on device "
                     f"({self.device_memory_bytes/1024**3:.0f} GB available)")
         if self.l2_cache_size_bytes > 0:
-            lines.append(f"  {'✓' if self.fits_in_l2_cache else '✗'} Fits in L2 cache "
+            lines.append(f"  {'[OK]' if self.fits_in_l2_cache else '[X]'} Fits in L2 cache "
                         f"({self.l2_cache_size_bytes/1024**2:.0f} MB available)")
         if hasattr(self, 'shared_memory_size_bytes') and self.shared_memory_size_bytes > 0:
-            lines.append(f"  {'✓' if self.fits_in_shared_memory else '✗'} Fits in shared memory "
+            lines.append(f"  {'[OK]' if self.fits_in_shared_memory else '[X]'} Fits in shared memory "
                         f"({self.shared_memory_size_bytes/1024:.0f} KB available)")
         lines.append("")
 
@@ -690,7 +690,7 @@ class MemoryEstimator:
             # Recompute 60% of activations → save 60% of activation memory
             checkpoint_savings = int(total_activation_memory * 0.6)
             suggestions.append(
-                f"✓ Activation checkpointing: Save ~{checkpoint_savings/1024**2:.0f} MB "
+                f"[OK] Activation checkpointing: Save ~{checkpoint_savings/1024**2:.0f} MB "
                 f"by recomputing 60% of activations (33% more compute)"
             )
 
@@ -702,8 +702,8 @@ class MemoryEstimator:
             # FP32 (4 bytes) → INT8 (1 byte) = 75% reduction
             quantization_savings = int(total_weight_memory * 0.75)
             suggestions.append(
-                f"✓ INT8 quantization: Save ~{quantization_savings/1024**2:.0f} MB "
-                f"in weights (4× compression)"
+                f"[OK] INT8 quantization: Save ~{quantization_savings/1024**2:.0f} MB "
+                f"in weights (4x compression)"
             )
 
         # 3. In-place operations
@@ -719,7 +719,7 @@ class MemoryEstimator:
         if inplace_ops:
             inplace_savings = sum(sg.total_output_bytes for sg in inplace_ops)
             suggestions.append(
-                f"✓ In-place ops: {len(inplace_ops)} ReLU/Dropout ops could save "
+                f"[OK] In-place ops: {len(inplace_ops)} ReLU/Dropout ops could save "
                 f"~{inplace_savings/1024**2:.0f} MB"
             )
 
@@ -730,7 +730,7 @@ class MemoryEstimator:
 
             if max_concurrent < total_tensors * 0.5:
                 suggestions.append(
-                    f"✓ Buffer reuse: Only {max_concurrent} tensors alive at once "
+                    f"[OK] Buffer reuse: Only {max_concurrent} tensors alive at once "
                     f"(out of {total_tensors} total) - good reuse potential"
                 )
 

@@ -282,7 +282,7 @@ class MermaidGenerator:
                 op_names = [op.split('.')[-1] for op in ops_list[:3]]  # First 3 ops
                 if len(ops_list) > 3:
                     op_names.append(f"... +{len(ops_list)-3} more")
-                header_parts.append(" → ".join(op_names))
+                header_parts.append(" -> ".join(op_names))
 
             # Add metrics if requested
             if show_metrics:
@@ -441,7 +441,7 @@ class MermaidGenerator:
                 op_names = [op.split('.')[-1] for op in ops_list[:2]]
                 if len(ops_list) > 2:
                     op_names.append(f"+{len(ops_list)-2}")
-                label_parts.append(" → ".join(op_names))
+                label_parts.append(" -> ".join(op_names))
 
             if show_allocation and allocated > 0:
                 label_parts.append(f"{allocated} units")
@@ -455,7 +455,7 @@ class MermaidGenerator:
 
             # Add bottleneck warning
             if hasattr(sg, 'memory_bound_pct') and sg.memory_bound_pct > 70:
-                label_parts.append("⚠️ Memory-bound")
+                label_parts.append("[!] Memory-bound")
 
             label = self._sanitize_label("<br/>".join(label_parts))
 
