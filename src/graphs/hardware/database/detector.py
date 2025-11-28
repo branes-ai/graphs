@@ -422,16 +422,28 @@ class HardwareDetector:
                 total_cpus = None
 
                 for line in lscpu_output.split('\n'):
-                    if line.startswith('Core(s) per socket:'):
-                        cores_per_socket = int(line.split(':')[1].strip())
-                    elif line.startswith('Socket(s):'):
-                        sockets = int(line.split(':')[1].strip())
-                    elif line.startswith('Thread(s) per core:'):
-                        threads_per_core = int(line.split(':')[1].strip())
-                    elif line.startswith('CPU(s):'):
-                        # First CPU(s) line is total logical CPUs
-                        if total_cpus is None:
-                            total_cpus = int(line.split(':')[1].strip())
+                    try:
+                        if line.startswith('Core(s) per socket:'):
+                            val = line.split(':')[1].strip()
+                            if val and val != '-':
+                                cores_per_socket = int(val)
+                        elif line.startswith('Socket(s):'):
+                            val = line.split(':')[1].strip()
+                            if val and val != '-':
+                                sockets = int(val)
+                        elif line.startswith('Thread(s) per core:'):
+                            val = line.split(':')[1].strip()
+                            if val and val != '-':
+                                threads_per_core = int(val)
+                        elif line.startswith('CPU(s):'):
+                            # First CPU(s) line is total logical CPUs
+                            if total_cpus is None:
+                                val = line.split(':')[1].strip()
+                                if val and val != '-':
+                                    total_cpus = int(val)
+                    except (ValueError, IndexError):
+                        # Skip malformed lines
+                        continue
 
                 if cores_per_socket and sockets:
                     cores = cores_per_socket * sockets
@@ -630,6 +642,50 @@ class HardwareDetector:
 
         return len(cores_seen)
 
+    def _parse_cache_size_to_bytes(self, value) -> Optional[int]:
+        """
+        Parse cache size value to bytes.
+
+        Args:
+            value: Integer (bytes) or string like "32 KB", "4 MiB", "1024"
+
+        Returns:
+            Size in bytes, or None if parsing fails
+        """
+        if value is None:
+            return None
+
+        # If it's already an integer, return as-is
+        if isinstance(value, int):
+            return value
+
+        # If it's a string, try to parse it
+        if isinstance(value, str):
+            value = value.strip()
+
+            # Try to parse as plain integer first
+            try:
+                return int(value)
+            except ValueError:
+                pass
+
+            # Parse with units (e.g., "32 KB", "4 MiB", "1 MB")
+            import re
+            match = re.match(r'^([\d.]+)\s*(KiB|KB|K|MiB|MB|M|GiB|GB|G|B)?$', value, re.IGNORECASE)
+            if match:
+                num = float(match.group(1))
+                unit = (match.group(2) or 'B').upper()
+
+                multipliers = {
+                    'B': 1,
+                    'K': 1024, 'KB': 1024, 'KIB': 1024,
+                    'M': 1024**2, 'MB': 1024**2, 'MIB': 1024**2,
+                    'G': 1024**3, 'GB': 1024**3, 'GIB': 1024**3,
+                }
+                return int(num * multipliers.get(unit, 1))
+
+        return None
+
     def _extract_cache_info(self, cpu_info: Dict) -> Dict[str, Optional[int]]:
         """
         Extract cache information from cpuinfo dictionary.
@@ -643,14 +699,23 @@ class HardwareDetector:
         cache_info = {}
 
         # Extract cache sizes (convert from bytes to KB)
+        # Handle both integer (bytes) and string formats ("32 KB", "4 MiB")
         if 'l1_data_cache_size' in cpu_info:
-            cache_info['l1_dcache_kb'] = cpu_info['l1_data_cache_size'] // 1024
+            size_bytes = self._parse_cache_size_to_bytes(cpu_info['l1_data_cache_size'])
+            if size_bytes:
+                cache_info['l1_dcache_kb'] = size_bytes // 1024
         if 'l1_instruction_cache_size' in cpu_info:
-            cache_info['l1_icache_kb'] = cpu_info['l1_instruction_cache_size'] // 1024
+            size_bytes = self._parse_cache_size_to_bytes(cpu_info['l1_instruction_cache_size'])
+            if size_bytes:
+                cache_info['l1_icache_kb'] = size_bytes // 1024
         if 'l2_cache_size' in cpu_info:
-            cache_info['l2_cache_kb'] = cpu_info['l2_cache_size'] // 1024
+            size_bytes = self._parse_cache_size_to_bytes(cpu_info['l2_cache_size'])
+            if size_bytes:
+                cache_info['l2_cache_kb'] = size_bytes // 1024
         if 'l3_cache_size' in cpu_info:
-            cache_info['l3_cache_kb'] = cpu_info['l3_cache_size'] // 1024
+            size_bytes = self._parse_cache_size_to_bytes(cpu_info['l3_cache_size'])
+            if size_bytes:
+                cache_info['l3_cache_kb'] = size_bytes // 1024
 
         # Extract cache line sizes (already in bytes from cpuinfo)
         # Note: cpuinfo typically only provides L2 cache line size
