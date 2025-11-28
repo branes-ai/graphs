@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-28] - Power Profile Comparison Tool
+
+### Added
+
+**New CLI Tool** (`cli/compare_power_profiles.py`)
+- Compare throughput and efficiency across different power profiles for hardware with multiple calibrations
+- Three-segment table organization: Speed of Light (theoretical), Measured (AXPY/GEMV/GEMM), Efficiency (Watts, GFLOPS/W)
+- Per-precision tables for FP32, TF32, BF16, FP16, INT8
+- Shows both throughput (GFLOPS/GOPS) and bandwidth (GB/s) for each workload
+- Power estimation for unknown modes (e.g., MAXN_SUPER) using frequency-proportional scaling
+- Scaling analysis showing performance vs power tradeoffs
+- CSV export support
+- Usage: `./cli/compare_power_profiles.py --id jetson_orin_nano_gpu`
+
+### Fixed
+
+**Header Alignment** (`cli/compare_power_profiles.py`)
+- Fixed table header alignment where segment labels didn't align with data columns
+- Headers now properly centered over their respective column groups
+
+### Technical Details
+
+- Extracts per-precision data from `precision_results` field in OperationCalibration
+- Each PrecisionResult contains `measured_gops` and `achieved_bandwidth_gbps`
+- Power modes parsed from names (e.g., "7W", "15W") or estimated from frequency ratio
+
+---
+
 ## [2025-11-27] - Jetson Calibration Fixes and GPU Clock-Under-Load
 
 ### Fixed
