@@ -263,9 +263,9 @@ class HardwareProfile:
         if self.notes:
             result['notes'] = self.notes
 
-        # Calibration is stored separately, not inlined
-        if self.calibration_date:
-            result['calibration_date'] = self.calibration_date
+        # Note: calibration_date is NOT included in spec.json
+        # It belongs in the calibration files (calibrations/*.json)
+        # The spec should remain constant - only calibrations change over time
 
         return result
 
