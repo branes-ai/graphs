@@ -14,6 +14,9 @@ Usage:
     # Quick calibration (fewer trials)
     ./cli/calibrate.py --quick
 
+    # Dry run - run benchmarks but don't save to registry
+    ./cli/calibrate.py --dry-run
+
     # List available hardware in registry
     ./cli/calibrate.py --list
 
@@ -81,9 +84,17 @@ def show_profile(registry, hardware_id: str):
 
 
 def calibrate_hardware(registry, hardware_id: str = None, quick: bool = False,
-                       operations: list = None, framework: str = None, force: bool = False):
-    """Calibrate hardware and save to registry."""
+                       operations: list = None, framework: str = None, force: bool = False,
+                       dry_run: bool = False):
+    """Calibrate hardware and optionally save to registry."""
     try:
+        if dry_run:
+            print()
+            print("=" * 60)
+            print("DRY RUN MODE - Results will NOT be saved to registry")
+            print("=" * 60)
+            print()
+
         if hardware_id:
             # Calibrate specific hardware
             profile = registry.calibrate(
@@ -92,6 +103,7 @@ def calibrate_hardware(registry, hardware_id: str = None, quick: bool = False,
                 operations=operations,
                 framework=framework,
                 force=force,
+                dry_run=dry_run,
             )
         else:
             # Auto-detect and calibrate
@@ -101,18 +113,29 @@ def calibrate_hardware(registry, hardware_id: str = None, quick: bool = False,
                 framework=framework,
                 create_if_missing=True,
                 force=force,
+                dry_run=dry_run,
             )
 
         print()
         print("=" * 60)
-        print("Calibration Complete!")
+        if dry_run:
+            print("Calibration Complete (DRY RUN - not saved)")
+        else:
+            print("Calibration Complete!")
         print("=" * 60)
         print()
-        print(f"Profile saved: {profile.id}")
-        print(f"Location:      {registry.path / profile.device_type / profile.id}")
-        print()
-        print("Use in analysis:")
-        print(f"  ./cli/analyze.py --model resnet18 --hardware {profile.id}")
+
+        if dry_run:
+            print(f"Profile: {profile.id}")
+            print()
+            print("To save these results, run without --dry-run:")
+            print(f"  ./cli/calibrate.py --id {profile.id}")
+        else:
+            print(f"Profile saved: {profile.id}")
+            print(f"Location:      {registry.path / profile.device_type / profile.id}")
+            print()
+            print("Use in analysis:")
+            print(f"  ./cli/analyze.py --model resnet18 --hardware {profile.id}")
         print()
 
         return 0
@@ -163,6 +186,11 @@ def main():
         '--force', '-f',
         action='store_true',
         help="Force calibration even if pre-flight checks fail (results flagged as non-representative)"
+    )
+    parser.add_argument(
+        '--dry-run', '-n',
+        action='store_true',
+        help="Run benchmarks but don't save results to registry (for testing)"
     )
     parser.add_argument(
         '--operations',
@@ -224,6 +252,7 @@ def main():
         operations=operations,
         framework=args.framework,
         force=args.force,
+        dry_run=args.dry_run,
     )
 
 

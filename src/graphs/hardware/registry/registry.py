@@ -506,9 +506,10 @@ class HardwareRegistry:
         operations: Optional[List[str]] = None,
         framework: Optional[str] = None,
         force: bool = False,
+        dry_run: bool = False,
     ) -> HardwareProfile:
         """
-        Calibrate hardware and save results to registry.
+        Calibrate hardware and optionally save results to registry.
 
         Args:
             hardware_id: Profile ID to calibrate
@@ -516,6 +517,7 @@ class HardwareRegistry:
             operations: Operations to calibrate (default: blas, stream)
             framework: Framework override ('numpy' or 'pytorch')
             force: Force calibration even if pre-flight checks fail
+            dry_run: If True, run calibration but don't save to registry
 
         Returns:
             Updated HardwareProfile with calibration data
@@ -554,8 +556,9 @@ class HardwareRegistry:
         profile.calibration = calibration
         profile.calibration_date = calibration.metadata.calibration_date
 
-        # Save to registry
-        self.save_profile(profile)
+        # Save to registry (unless dry run)
+        if not dry_run:
+            self.save_profile(profile)
 
         return profile
 
@@ -566,9 +569,10 @@ class HardwareRegistry:
         framework: Optional[str] = None,
         create_if_missing: bool = True,
         force: bool = False,
+        dry_run: bool = False,
     ) -> HardwareProfile:
         """
-        Auto-detect current hardware, calibrate it, and save to registry.
+        Auto-detect current hardware, calibrate it, and optionally save to registry.
 
         This is the simplified one-command workflow.
 
@@ -578,6 +582,7 @@ class HardwareRegistry:
             framework: Framework override
             create_if_missing: If True, create new profile for unknown hardware
             force: Force calibration even if pre-flight checks fail
+            dry_run: If True, run calibration but don't save to registry
 
         Returns:
             Calibrated HardwareProfile
@@ -600,6 +605,7 @@ class HardwareRegistry:
                 operations=operations,
                 framework=framework,
                 force=force,
+                dry_run=dry_run,
             )
 
         if not create_if_missing:
@@ -628,10 +634,13 @@ class HardwareRegistry:
             force=force,
         )
 
-        # Update and save profile
+        # Update profile with calibration
         profile.calibration = calibration
         profile.calibration_date = calibration.metadata.calibration_date
-        self.save_profile(profile)
+
+        # Save to registry (unless dry run)
+        if not dry_run:
+            self.save_profile(profile)
 
         return profile
 
