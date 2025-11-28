@@ -1,0 +1,533 @@
+================================================================================
+Hardware Calibration: Jetson Orin Nano (CPU)
+================================================================================
+
+Running pre-flight checks...
+
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+[OK] CPU Governor: schedutil (Jetson default)
+    Current:  schedutil
+    Expected: schedutil or performance
+[OK] CPU Frequency: 1242 MHz idle (DVFS will boost under load)
+    Current:  1242 MHz (idle)
+    Expected: Up to 1728 MHz under load
+[-] Turbo Boost: Could not determine (not Intel pstate)
+[OK] System Load: 3.4% (idle)
+    Current:  3.4%
+    Expected: < 5%
+[OK] Thermal State: 46°C (cool)
+    Current:  46°C
+    Expected: < 80°C
+
+RESULT: PASSED
+  System is ready for calibration.======================================================================
+System Information:
+  CPU: aarch64
+  Cores: 6 physical, 6 logical
+  Memory: 7.4 GB
+  Python: 3.10.12
+  NumPy: 1.26.4
+  PyTorch: 2.5.0a0+872d972e41.nv24.08
+
+Target Device: CPU
+Framework:     NUMPY
+
+Querying CPU clock frequencies...
+  CPU Freq: 730 MHz (42% of max 1728 MHz)
+  Governor: schedutil
+
+Running calibration benchmarks...
+
+1. STREAM Memory Bandwidth Benchmark
+--------------------------------------------------------------------------------
+Framework: NumPy (CPU-only)
+
+STREAM Benchmark Suite:
+--------------------------------------------------------------------------------
+
+COPY (a[i] = b[i]):
+  Memory ops: 2, FLOPs/element: 0
+  Size     8 MB...    13.5 GB/s  (19.8%)    1.24 ms
+  Size    16 MB...    13.8 GB/s  (20.2%)    2.44 ms
+  Size    32 MB...    13.6 GB/s  (20.1%)    4.92 ms
+  Size    64 MB...    13.7 GB/s  (20.1%)    9.81 ms
+  Size   128 MB...    13.7 GB/s  (20.1%)   19.64 ms
+  Size   256 MB...    13.7 GB/s  (20.1%)   39.22 ms
+  Size   512 MB...    13.7 GB/s  (20.1%)   78.51 ms
+
+SCALE (a[i] = q * b[i]):
+  Memory ops: 2, FLOPs/element: 1
+  Size     8 MB...    14.4 GB/s  (21.2%)    1.16 ms  |  1.8 GFLOPS
+  Size    16 MB...    13.8 GB/s  (20.4%)    2.42 ms  |  1.7 GFLOPS
+  Size    32 MB...    13.6 GB/s  (19.9%)    4.95 ms  |  1.7 GFLOPS
+  Size    64 MB...    13.6 GB/s  (20.0%)    9.87 ms  |  1.7 GFLOPS
+  Size   128 MB...    13.6 GB/s  (20.0%)   19.69 ms  |  1.7 GFLOPS
+  Size   256 MB...    13.6 GB/s  (20.1%)   39.36 ms  |  1.7 GFLOPS
+  Size   512 MB...    13.7 GB/s  (20.1%)   78.62 ms  |  1.7 GFLOPS
+
+ADD (a[i] = b[i] + c[i]):
+  Memory ops: 3, FLOPs/element: 1
+  Size     8 MB...    12.0 GB/s  (17.7%)    2.09 ms  |  1.0 GFLOPS
+  Size    16 MB...    11.8 GB/s  (17.3%)    4.28 ms  |  1.0 GFLOPS
+  Size    32 MB...    11.6 GB/s  (17.1%)    8.65 ms  |  1.0 GFLOPS
+  Size    64 MB...    11.6 GB/s  (17.1%)   17.30 ms  |  1.0 GFLOPS
+  Size   128 MB...    11.6 GB/s  (17.1%)   34.61 ms  |  1.0 GFLOPS
+  Size   256 MB...    11.6 GB/s  (17.1%)   69.20 ms  |  1.0 GFLOPS
+  Size   512 MB...    11.7 GB/s  (17.2%)  137.43 ms  |  1.0 GFLOPS
+
+TRIAD (a[i] = b[i] + q * c[i]):
+  Memory ops: 3, FLOPs/element: 2
+  Size     8 MB...     6.3 GB/s   (9.3%)    3.99 ms  |  1.1 GFLOPS
+  Size    16 MB...     6.0 GB/s   (8.9%)    8.33 ms  |  1.0 GFLOPS
+  Size    32 MB...     4.6 GB/s   (6.8%)   21.73 ms  |  0.8 GFLOPS
+  Size    64 MB...     4.6 GB/s   (6.8%)   43.58 ms  |  0.8 GFLOPS
+  Size   128 MB...     4.7 GB/s   (6.9%)   85.99 ms  |  0.8 GFLOPS
+  Size   256 MB...     4.7 GB/s   (6.9%)  170.66 ms  |  0.8 GFLOPS
+  Size   512 MB...     4.7 GB/s   (7.0%)  340.05 ms  |  0.8 GFLOPS
+
+================================================================================
+STREAM Summary:
+--------------------------------------------------------------------------------
+Kernel            Best BW    Latency   Efficiency Description
+------------------------------------------------------------------------------------------
+COPY               13.8 GB/s     2.44 ms       20.2%  a[i] = b[i]
+SCALE              14.4 GB/s     1.16 ms       21.2%  a[i] = q * b[i]
+ADD                12.0 GB/s     2.09 ms       17.7%  a[i] = b[i] + c[i]
+TRIAD               6.3 GB/s     3.99 ms        9.3%  a[i] = b[i] + q * c[i]
+
+STREAM Score (minimum): 4.6 GB/s
+================================================================================
+STREAM Score (minimum bandwidth): 4.6 GB/s
+
+2. BLAS Compute Benchmark Suite
+--------------------------------------------------------------------------------
+Testing precisions: fp64, fp32, tf32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+
+Framework: NumPy (CPU-only)
+
+BLAS Benchmark Suite:
+==========================================================================================
+
+BLAS Level 1: DOT
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.9 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    fp32                                           1.3 GFLOPS    0.00ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int32      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int16      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int8       [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    10K:
+    fp64                                           2.5 GFLOPS    0.01ms
+    fp32                                           5.2 GFLOPS    0.00ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    0.05ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           1.6 GIOPS    0.01ms
+    int32                                           1.9 GIOPS    0.01ms
+    int16                                           1.8 GIOPS    0.01ms
+    int8                                            2.2 GIOPS    0.01ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size   100K:
+    fp64                                           2.8 GFLOPS    0.07ms
+    fp32                                           5.7 GFLOPS    0.03ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    0.45ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           2.3 GIOPS    0.09ms
+    int32                                           2.4 GIOPS    0.08ms
+    int16                                           2.2 GIOPS    0.09ms
+    int8                                            2.8 GIOPS    0.07ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     1M:
+    fp64                                           1.3 GFLOPS    1.48ms
+    fp32                                           3.4 GFLOPS    0.58ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    4.46ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           1.4 GIOPS    1.39ms
+    int32                                           2.4 GIOPS    0.85ms
+    int16                                           2.3 GIOPS    0.88ms
+    int8                                            2.9 GIOPS    0.68ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    10M:
+    fp64                                           1.1 GFLOPS   17.88ms
+    fp32                                           2.4 GFLOPS    8.35ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)   44.49ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           1.2 GIOPS   17.07ms
+    int32                                           2.3 GIOPS    8.86ms
+    int16                                           2.3 GIOPS    8.77ms
+    int8                                            2.9 GIOPS    6.80ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+
+BLAS Level 1: AXPY
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp32      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.03ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.3 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int32      [!] SLOW (   0.4 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int16      [!] SLOW (   0.4 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int8       [!] SLOW (   0.5 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    10K:
+    fp64      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.03ms
+    fp32                                           1.6 GFLOPS    0.01ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.21ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.03ms
+    int32                                           1.6 GIOPS    0.01ms
+    int16                                           2.4 GIOPS    0.01ms
+    int8                                            3.3 GIOPS    0.01ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size   100K:
+    fp64      [!] SLOW (   0.9 GFLOPS < 1.0 GFLOPS threshold)    0.23ms
+    fp32                                           1.6 GFLOPS    0.13ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    2.09ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.24ms
+    int32                                           1.6 GIOPS    0.13ms
+    int16                                           2.5 GIOPS    0.08ms
+    int8                                            5.7 GIOPS    0.04ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     1M:
+    fp64      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    3.67ms
+    fp32                                           1.3 GFLOPS    1.56ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)   20.83ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.6 GIOPS < 1.0 GFLOPS threshold)    3.63ms
+    int32                                           1.3 GIOPS    1.56ms
+    int16                                           3.3 GIOPS    0.60ms
+    int8                                            7.1 GIOPS    0.28ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    10M:
+    fp64      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)   51.51ms
+    fp32      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)   25.91ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)  208.91ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.4 GIOPS < 1.0 GFLOPS threshold)   51.41ms
+    int32      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)   25.78ms
+    int16                                           2.0 GIOPS    9.92ms
+    int8                                            4.3 GIOPS    4.68ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+
+BLAS Level 2: GEMV
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp32      [!] SLOW (   0.2 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.2 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int32      [!] SLOW (   0.2 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int16      [!] SLOW (   0.2 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int8       [!] SLOW (   0.2 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     64:
+    fp64      [!] SLOW (   0.9 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    fp32      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.01ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.2 GFLOPS < 1.0 GFLOPS threshold)    0.03ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int32      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int16      [!] SLOW (   0.6 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int8       [!] SLOW (   0.6 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    128:
+    fp64                                           2.7 GFLOPS    0.01ms
+    fp32                                           2.6 GFLOPS    0.01ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.10ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   1.0 GIOPS < 1.0 GFLOPS threshold)    0.03ms
+    int32                                           1.4 GIOPS    0.02ms
+    int16      [!] SLOW (   0.9 GIOPS < 1.0 GFLOPS threshold)    0.03ms
+    int8       [!] SLOW (   1.0 GIOPS < 1.0 GFLOPS threshold)    0.03ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    256:
+    fp64                                           6.8 GFLOPS    0.02ms
+    fp32                                           7.6 GFLOPS    0.02ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    0.32ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           1.9 GIOPS    0.07ms
+    int32                                           1.8 GIOPS    0.07ms
+    int16                                           1.1 GIOPS    0.12ms
+    int8                                            1.1 GIOPS    0.12ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    512:
+    fp64                                           8.4 GFLOPS    0.06ms
+    fp32                                          11.6 GFLOPS    0.05ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    1.24ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           2.0 GIOPS    0.27ms
+    int32                                           2.1 GIOPS    0.25ms
+    int16                                           1.1 GIOPS    0.46ms
+    int8                                            1.1 GIOPS    0.46ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     1K:
+    fp64                                           1.8 GFLOPS    1.18ms
+    fp32                                          19.3 GFLOPS    0.11ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)    4.87ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           2.2 GIOPS    0.96ms
+    int32                                           2.2 GIOPS    0.95ms
+    int16                                           1.1 GIOPS    1.83ms
+    int8                                            1.2 GIOPS    1.82ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     2K:
+    fp64                                           5.7 GFLOPS    1.48ms
+    fp32                                          12.8 GFLOPS    0.66ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)   19.16ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           2.2 GIOPS    3.83ms
+    int32                                           2.3 GIOPS    3.72ms
+    int16                                           1.1 GIOPS    7.32ms
+    int8                                            1.1 GIOPS    7.30ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+
+BLAS Level 3: GEMM
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64                                           1.7 GFLOPS    0.04ms
+    fp32                                           1.8 GFLOPS    0.04ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.21ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           1.2 GIOPS    0.06ms
+    int32                                           1.0 GIOPS    0.06ms
+    int16                                           1.0 GIOPS    0.06ms
+    int8       [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.08ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     64:
+    fp64                                           4.6 GFLOPS    0.11ms
+    fp32                                           5.1 GFLOPS    0.10ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    1.71ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                           1.4 GIOPS    0.38ms
+    int32                                           1.4 GIOPS    0.39ms
+    int16      [!] SLOW (   1.0 GIOPS < 1.0 GFLOPS threshold)    0.54ms
+    int8       [!] SLOW (   0.9 GIOPS < 1.0 GFLOPS threshold)    0.57ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    128:
+    fp64                                           5.7 GFLOPS    0.74ms
+    fp32                                          20.0 GFLOPS    0.21ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)   10.27ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    5.37ms
+    int32                                           1.8 GIOPS    2.37ms
+    int16                                           1.1 GIOPS    3.80ms
+    int8                                            1.1 GIOPS    3.79ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    256:
+    fp64                                          19.0 GFLOPS    1.76ms
+    fp32                                          49.5 GFLOPS    0.68ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16      [!] SLOW (   0.4 GFLOPS < 1.0 GFLOPS threshold)   79.91ms
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)   44.33ms
+    int32      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)   40.80ms
+    int16      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)   39.78ms
+    int8                                            1.2 GIOPS   28.70ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size    512:
+    fp64                                          50.4 GFLOPS    5.33ms
+    fp32                                          90.3 GFLOPS    2.97ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16                                              SKIPPED  (Skipped (poor performance at size 256: 0.4 GFLOPS < 1.0 GFLOPS))
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int32                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int16                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int8       [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)  317.16ms
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     1K:
+    fp64                                          54.1 GFLOPS   39.66ms
+    fp32                                         114.7 GFLOPS   18.73ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16                                              SKIPPED  (Skipped (poor performance at size 256: 0.4 GFLOPS < 1.0 GFLOPS))
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int32                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int16                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int8                                              SKIPPED  (Skipped (poor performance at size 512: 0.8 GFLOPS < 1.0 GFLOPS))
+    int4                                              SKIPPED  (NumPy does not support this precision)
+  Size     2K:
+    fp64                                          61.5 GFLOPS  279.50ms
+    fp32                                         128.8 GFLOPS  133.43ms
+    tf32                                              SKIPPED  (NumPy does not support this precision)
+    fp16                                              SKIPPED  (Skipped (poor performance at size 256: 0.4 GFLOPS < 1.0 GFLOPS))
+    fp8                                               SKIPPED  (NumPy does not support this precision)
+    fp4                                               SKIPPED  (NumPy does not support this precision)
+    bf16                                              SKIPPED  (NumPy does not support this precision)
+    int64                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int32                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int16                                             SKIPPED  (Skipped (poor performance at size 256: 0.8 GFLOPS < 1.0 GFLOPS))
+    int8                                              SKIPPED  (Skipped (poor performance at size 512: 0.8 GFLOPS < 1.0 GFLOPS))
+    int4                                              SKIPPED  (NumPy does not support this precision)
+
+==========================================================================================
+BLAS Suite Complete: 24 calibrations
+==========================================================================================
+
+Building precision capability matrix...
+
+================================================================================
+Hardware Calibration: Jetson Orin Nano (CPU)
+Date: 2025-11-28T11:07:16.190236
+================================================================================
+
+Framework: NUMPY
+Device:    CPU
+
+Theoretical Specifications:
+  Peak GFLOPS (FP32): 182.4
+  Peak Bandwidth:     68.0 GB/s
+
+STREAM Memory Bandwidth Benchmark:
+  Kernel           Size (MB)    Bandwidth    Latency   Efficiency Description
+  -----------------------------------------------------------------------------------------------
+  COPY                    16       13.8 GB/s     2.44 ms       20.2%  a[i] = b[i]
+  SCALE                    8       14.4 GB/s     1.16 ms       21.2%  a[i] = q * b[i]
+  ADD                      8       12.0 GB/s     2.09 ms       17.7%  a[i] = b[i] + c[i]
+  TRIAD                    8        6.3 GB/s     3.99 ms        9.3%  a[i] = b[i] + q * c[i]
+
+  STREAM Score (minimum): 4.6 GB/s
+
+BLAS Performance Summary (Highest Throughput by Precision):
+  Operation          fp64       fp32       tf32       fp16        fp8        fp4       bf16      int64      int32      int16       int8       int4   Best Precision
+  ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  AXPY                0.9        1.6        N/A        0.1        N/A        N/A        N/A        0.8        1.6        3.3        7.1        N/A             int8
+  DOT                 2.8        5.7        N/A        0.4        N/A        N/A        N/A        2.3        2.4        2.3        2.9        N/A             fp32
+  GEMV                8.4       19.3        N/A        0.4        N/A        N/A        N/A        2.2        2.3        1.1        1.2        N/A             fp32
+  GEMM               61.5      128.8        N/A        0.4        N/A        N/A        N/A        1.4        1.8        1.1        1.2        N/A             fp32
+
+BLAS Compute Performance (by Operation and Precision):
+========================================================================================================================
+
+Level 1: Vector-Vector (O(n))
+------------------------------------------------------------------------------------------------------------------------
+
+AXPY:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64             100K         0.9 GFLOPS     0.23ms     0.08        1.0%
+  fp32             100K         1.6 GFLOPS     0.13ms     0.17        0.9%
+  fp16               1M         0.1 GFLOPS    20.83ms     0.33        0.0%
+  int64            100K          0.8 GIOPS     0.24ms     0.08        0.9%
+  int32            100K          1.6 GIOPS     0.13ms     0.17        1.7%
+  int16              1M          3.3 GIOPS     0.60ms     0.33        1.8%
+  int8               1M          7.1 GIOPS     0.28ms     0.67        2.0%
+
+DOT:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64             100K         2.8 GFLOPS     0.07ms     0.12        3.1%
+  fp32             100K         5.7 GFLOPS     0.03ms     0.25        3.2%
+  fp16              10M         0.4 GFLOPS    44.49ms     0.50        0.1%
+  int64            100K          2.3 GIOPS     0.09ms     0.12        2.5%
+  int32            100K          2.4 GIOPS     0.08ms     0.25        2.7%
+  int16             10M          2.3 GIOPS     8.77ms     0.50        1.3%
+  int8              10M          2.9 GIOPS     6.80ms     1.00        0.8%
+
+Level 2: Matrix-Vector (O(n²))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMV:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64              512         8.4 GFLOPS     0.06ms     0.25        9.2%
+  fp32               1K        19.3 GFLOPS     0.11ms     0.50       10.6%
+  fp16               2K         0.4 GFLOPS    19.16ms     1.00        0.1%
+  int64              1K          2.2 GIOPS     0.96ms     0.25        2.4%
+  int32              2K          2.3 GIOPS     3.72ms     0.50        2.5%
+  int16              2K          1.1 GIOPS     7.32ms     1.00        0.6%
+  int8               1K          1.2 GIOPS     1.82ms     2.00        0.3%
+
+Level 3: Matrix-Matrix (O(n³))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMM:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               2K        61.5 GFLOPS   279.50ms   170.67       67.4%
+  fp32               2K       128.8 GFLOPS   133.43ms   341.33       70.6%
+  fp16              256         0.4 GFLOPS    79.91ms    85.33        0.1%
+  int64              64          1.4 GIOPS     0.38ms     5.33        1.5%
+  int32             128          1.8 GIOPS     2.37ms    21.33        1.9%
+  int16             128          1.1 GIOPS     3.80ms    42.67        0.6%
+  int8              256          1.2 GIOPS    28.70ms   170.67        0.3%
+
+Precision Support Summary:
+  Supported:   fp64, fp32, fp16, int64, int32, int16, int8
+  Unsupported: tf32, fp8, fp4, bf16, int4
+
