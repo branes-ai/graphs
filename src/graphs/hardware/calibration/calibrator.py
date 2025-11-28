@@ -481,28 +481,39 @@ def calibrate_hardware(
                 'gemm': [32, 64, 128, 256, 512, 1024, 2048],
             }
 
-        # Determine which precisions to test from theoretical_peaks
+        # Determine which precisions to test
+        # Default precisions based on framework and device
+        # NumPy has poor support for fp16/bf16/fp8/fp4 on CPU (falls back to slow emulation)
+        # PyTorch has better support, especially on GPU
+        if selected_framework == 'numpy':
+            # NumPy: Only test native dtypes (fast)
+            default_precisions = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
+        else:
+            # PyTorch: Can test more precisions (especially on GPU)
+            if device == 'cuda':
+                # GPU: Test all supported precisions including TF32
+                # TF32 uses FP32 dtype but with Tensor Core truncation (19-bit mantissa)
+                default_precisions = ['fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'int64', 'int32', 'int16', 'int8']
+            else:
+                # CPU: Skip poorly-supported fp16/bf16 unless explicitly requested
+                default_precisions = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
+
+        # Merge with theoretical_peaks if provided (allows sparse specs)
+        # This ensures we test default precisions even if spec only lists a few
         if theoretical_peaks:
-            precisions_to_test = [
+            # Start with default precisions, add any extras from theoretical_peaks
+            precisions_from_spec = [
                 prec_name for prec_name in theoretical_peaks.keys()
                 if prec_name in [p.value for p in Precision]
             ]
+            # Use set to merge, then sort by canonical order
+            all_precisions = set(default_precisions) | set(precisions_from_spec)
+            precisions_to_test = sorted(
+                all_precisions,
+                key=lambda p: CANONICAL_PRECISION_ORDER.index(p) if p in CANONICAL_PRECISION_ORDER else 999
+            )
         else:
-            # Default: test well-supported precisions to avoid extremely slow benchmarks
-            # NumPy has poor support for fp16/bf16/fp8/fp4 on CPU (falls back to slow emulation)
-            # PyTorch has better support, especially on GPU
-            if selected_framework == 'numpy':
-                # NumPy: Only test native dtypes (fast)
-                precisions_to_test = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
-            else:
-                # PyTorch: Can test more precisions (especially on GPU)
-                if device == 'cuda':
-                    # GPU: Test all supported precisions including TF32
-                    # TF32 uses FP32 dtype but with Tensor Core truncation (19-bit mantissa)
-                    precisions_to_test = ['fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'int64', 'int32', 'int16', 'int8']
-                else:
-                    # CPU: Skip poorly-supported fp16/bf16 unless explicitly requested
-                    precisions_to_test = ['fp64', 'fp32', 'int64', 'int32', 'int16', 'int8']
+            precisions_to_test = default_precisions
 
         print(f"Testing precisions: {', '.join(precisions_to_test)}")
         print()
