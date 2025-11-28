@@ -94,7 +94,7 @@ class HardwareDatabase:
                 # Validate
                 errors = spec.validate()
                 if errors:
-                    print(f"⚠ Validation errors in {json_file}:")
+                    print(f"[!] Validation errors in {json_file}:")
                     for error in errors:
                         print(f"  - {error}")
                     continue
@@ -103,7 +103,7 @@ class HardwareDatabase:
                 self._cache[spec.id] = spec
 
             except Exception as e:
-                print(f"⚠ Error loading {json_file}: {e}")
+                print(f"[!] Error loading {json_file}: {e}")
                 continue
 
         self._loaded = True
@@ -249,7 +249,7 @@ class HardwareDatabase:
         vendor = self._get_system_field(spec, 'vendor')
 
         if not device_type or not vendor:
-            print(f"✗ Error: Hardware spec missing device_type or vendor")
+            print(f"[X] Error: Hardware spec missing device_type or vendor")
             return False
 
         vendor_dir = self.db_root / device_type / vendor.lower().replace(' ', '_')
@@ -262,10 +262,10 @@ class HardwareDatabase:
             spec.to_json(filepath)
             # Update cache
             self._cache[spec.id] = spec
-            print(f"✓ Added hardware: {spec.id} → {filepath}")
+            print(f"[OK] Added hardware: {spec.id} -> {filepath}")
             return True
         except Exception as e:
-            print(f"✗ Error saving hardware '{spec.id}': {e}")
+            print(f"[X] Error saving hardware '{spec.id}': {e}")
             return False
 
     def update(self, hardware_id: str, **updates) -> bool:
@@ -311,10 +311,10 @@ class HardwareDatabase:
         # Save
         try:
             spec.to_json(filepath)
-            print(f"✓ Updated hardware: {hardware_id}")
+            print(f"[OK] Updated hardware: {hardware_id}")
             return True
         except Exception as e:
-            print(f"✗ Error updating hardware '{hardware_id}': {e}")
+            print(f"[X] Error updating hardware '{hardware_id}': {e}")
             return False
 
     def delete(self, hardware_id: str) -> bool:
@@ -343,10 +343,10 @@ class HardwareDatabase:
         try:
             filepath.unlink()
             del self._cache[hardware_id]
-            print(f"✓ Deleted hardware: {hardware_id}")
+            print(f"[OK] Deleted hardware: {hardware_id}")
             return True
         except Exception as e:
-            print(f"✗ Error deleting hardware '{hardware_id}': {e}")
+            print(f"[X] Error deleting hardware '{hardware_id}': {e}")
             return False
 
     def _find_spec_file(self, hardware_id: str) -> Optional[Path]:
@@ -407,7 +407,7 @@ class HardwareDatabase:
                 if board_id:
                     boards[board_id] = spec
             except Exception as e:
-                print(f"⚠ Error loading board {json_file}: {e}")
+                print(f"[!] Error loading board {json_file}: {e}")
                 continue
 
         return boards

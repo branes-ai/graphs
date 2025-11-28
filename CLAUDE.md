@@ -447,3 +447,4 @@ iree-import-tflite model.tflite -o model_tosa.mlir
   - `transform/`: Graph transformations (partitioning, fusion, tiling)
   - `analysis/`: Performance analysis without graph modification
   - `hardware/`: Hardware modeling and architecture-specific mapping
+- don't use Unicode characters

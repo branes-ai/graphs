@@ -531,7 +531,7 @@ class UnifiedAnalyzer:
             if result.validation_warnings and self.verbose:
                 print("\nValidation warnings:")
                 for warning in result.validation_warnings:
-                    print(f"  ⚠ {warning}")
+                    print(f"  [!] {warning}")
 
         if self.verbose:
             print("\nAnalysis complete!")
@@ -573,10 +573,10 @@ class UnifiedAnalyzer:
             exported_program = torch.export.export(model, (input_tensor,))
             fx_graph = exported_program.module()
             if self.verbose:
-                print("    ✓ Dynamo export successful")
+                print("    [OK] Dynamo export successful")
         except Exception as e:
             if self.verbose:
-                print(f"    ✗ Dynamo export failed: {e}")
+                print(f"    [X] Dynamo export failed: {e}")
             raise RuntimeError(f"Failed to trace model with Dynamo: {e}")
 
         # Shape propagation

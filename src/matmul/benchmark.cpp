@@ -72,13 +72,13 @@ void print_cache_analysis(const BenchmarkResult& result) {
     std::cout << "  Total memory: " << memory_mb << " MB\n";
 
     if (memory_bytes <= 48 * 1024) {
-        std::cout << "  ✓ Fits in L1 cache (48 KB)\n";
+        std::cout << "  [OK] Fits in L1 cache (48 KB)\n";
     } else if (memory_bytes <= 1280 * 1024) {
-        std::cout << "  ✓ Fits in L2 cache (1.25 MB)\n";
+        std::cout << "  [OK] Fits in L2 cache (1.25 MB)\n";
     } else if (memory_bytes <= 25 * 1024 * 1024) {
-        std::cout << "  ✓ Fits in L3 cache (25 MB)\n";
+        std::cout << "  [OK] Fits in L3 cache (25 MB)\n";
     } else {
-        std::cout << "  ⚠ Exceeds L3 cache - using DRAM\n";
+        std::cout << "  [!] Exceeds L3 cache - using DRAM\n";
     }
 
     std::cout << "  Tile sizes: L1=" << L1_TILE << "x" << L1_TILE
@@ -100,13 +100,13 @@ void print_performance_analysis(double gflops) {
     std::cout << "  Efficiency:    " << efficiency << "%\n";
 
     if (efficiency > 80) {
-        std::cout << "  Status: ✓ Excellent - near peak performance\n";
+        std::cout << "  Status: [OK] Excellent - near peak performance\n";
     } else if (efficiency > 60) {
-        std::cout << "  Status: ✓ Good - well optimized\n";
+        std::cout << "  Status: [OK] Good - well optimized\n";
     } else if (efficiency > 40) {
-        std::cout << "  Status: ⚠ Fair - room for improvement\n";
+        std::cout << "  Status: [!] Fair - room for improvement\n";
     } else {
-        std::cout << "  Status: ✗ Poor - likely memory-bound\n";
+        std::cout << "  Status: [X] Poor - likely memory-bound\n";
     }
     std::cout << "\n";
 }

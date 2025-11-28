@@ -121,13 +121,13 @@ def main():
           f"{best['efficiency_all']:.1f}% (all cores)")
 
     if best['efficiency_all'] > 80:
-        print("Status: ✓ EXCELLENT")
+        print("Status: [OK] EXCELLENT")
     elif best['efficiency_all'] > 60:
-        print("Status: ✓ GOOD")
+        print("Status: [OK] GOOD")
     elif best['efficiency_all'] > 40:
-        print("Status: ⚠ FAIR")
+        print("Status: [!] FAIR")
     else:
-        print("Status: ✗ POOR")
+        print("Status: [X] POOR")
 
     print("\nComparison with C++ implementation:")
     print(f"  Target for our code: ~{best['gflops'] * 0.7:.0f}-{best['gflops'] * 0.9:.0f} GFLOPS")
