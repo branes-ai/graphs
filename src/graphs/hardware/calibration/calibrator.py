@@ -116,7 +116,7 @@ def select_framework(device: str, framework_override: Optional[str] = None) -> s
         if NUMPY_AVAILABLE:
             return 'numpy'
         elif PYTORCH_AVAILABLE:
-            print("⚠ NumPy not available, falling back to PyTorch for CPU benchmarks")
+            print("[!] NumPy not available, falling back to PyTorch for CPU benchmarks")
             return 'pytorch'
         else:
             raise RuntimeError("Neither NumPy nor PyTorch is installed")
@@ -201,12 +201,12 @@ def calibrate_hardware(
 
         if not preflight_report.passed and force:
             print()
-            print("⚠ WARNING: Proceeding with calibration despite failed pre-flight checks.")
+            print("[!] WARNING: Proceeding with calibration despite failed pre-flight checks.")
             print("  Results will be flagged as non-representative of peak performance.")
             print()
         elif preflight_report.has_warnings:
             print()
-            print("⚠ Note: Some pre-flight checks have warnings.")
+            print("[!] Note: Some pre-flight checks have warnings.")
             print("  Results may not represent absolute peak performance.")
             print()
 
@@ -233,7 +233,7 @@ def calibrate_hardware(
         print("Execution Device:")
         print(f"  Running on: {actual_device_info['device_name']}")
         if actual_device_info['fallback_occurred']:
-            print(f"  ⚠ FALLBACK from requested '{device}' to '{actual_device_info['actual_device']}'")
+            print(f"  [!] FALLBACK from requested '{device}' to '{actual_device_info['actual_device']}'")
             print(f"  Reason: {actual_device_info['fallback_reason']}")
         print(f"  Framework:  {selected_framework.upper()}")
         if selected_framework == 'numpy':

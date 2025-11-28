@@ -78,10 +78,10 @@ class CheckResult:
     @property
     def symbol(self) -> str:
         return {
-            CheckStatus.PASSED: "✓",
-            CheckStatus.WARNING: "⚠",
-            CheckStatus.FAILED: "✗",
-            CheckStatus.SKIPPED: "○",
+            CheckStatus.PASSED: "[OK]",
+            CheckStatus.WARNING: "[!]",
+            CheckStatus.FAILED: "[X]",
+            CheckStatus.SKIPPED: "[-]",
         }[self.status]
 
 

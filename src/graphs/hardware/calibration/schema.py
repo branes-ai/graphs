@@ -1106,7 +1106,7 @@ class HardwareCalibration:
 
                         # Format efficiency with warning if >110%
                         if efficiency > 1.10:
-                            eff_str = f"{efficiency*100:>10.1f}%  ⚠ ABOVE THEORETICAL"
+                            eff_str = f"{efficiency*100:>10.1f}%  [!] ABOVE THEORETICAL"
                         else:
                             eff_str = f"{efficiency*100:>10.1f}%"
 
@@ -1156,12 +1156,12 @@ class HardwareCalibration:
 
                 # Verdict based on speedup
                 if profile.speedup_factor >= 1.5:
-                    verdict = "✓ Strong fusion benefit"
+                    verdict = "[OK] Strong fusion benefit"
                 elif profile.speedup_factor >= 1.1:
-                    verdict = "✓ Moderate fusion benefit"
+                    verdict = "[OK] Moderate fusion benefit"
                 elif profile.speedup_factor >= 0.95:
-                    verdict = "⚠ Minimal benefit"
+                    verdict = "[!] Minimal benefit"
                 else:
-                    verdict = "✗ Fusion is slower!"
+                    verdict = "[X] Fusion is slower!"
 
                 print(f"    Verdict:  {verdict}")

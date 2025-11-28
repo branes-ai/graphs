@@ -510,7 +510,7 @@ def calibrate_blas_suite_numpy(
 
     for op_name in operations:
         if op_name not in benchmarks:
-            print(f"⚠ Warning: Unknown operation '{op_name}', skipping")
+            print(f"[!] Warning: Unknown operation '{op_name}', skipping")
             continue
 
         bench_fn, op_type, level = benchmarks[op_name]
@@ -694,7 +694,7 @@ def calibrate_blas_suite_numpy(
 
                     # Highlight if performance is poor
                     if gflops < min_useful_gflops:
-                        status = f"⚠ SLOW ({gflops:>6.1f} {unit} < {min_useful_gflops} GFLOPS threshold)"
+                        status = f"[!] SLOW ({gflops:>6.1f} {unit} < {min_useful_gflops} GFLOPS threshold)"
                     else:
                         status = f"{gflops:>6.1f} {unit}"
                     print(f"    {prec_name:<6} {status:>50}  {lat_str}")

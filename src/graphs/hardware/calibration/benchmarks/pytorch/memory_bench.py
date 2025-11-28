@@ -330,7 +330,7 @@ def calibrate_stream_bandwidth_pytorch(
 
     for kernel_name in kernels:
         if kernel_name not in kernel_functions:
-            print(f"⚠ Warning: Unknown kernel '{kernel_name}', skipping")
+            print(f"[!] Warning: Unknown kernel '{kernel_name}', skipping")
             continue
 
         kernel_spec = STREAM_KERNELS[kernel_name]

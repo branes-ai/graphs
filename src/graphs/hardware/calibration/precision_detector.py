@@ -258,12 +258,12 @@ def print_precision_capabilities(device: str = 'cpu'):
     if supported:
         print(f"\nSupported ({len(supported)}):")
         for p in supported:
-            print(f"  ✓ {p.value}")
+            print(f"  [OK] {p.value}")
 
     if unsupported:
         print(f"\nUnsupported ({len(unsupported)}):")
         for p in unsupported:
-            print(f"  ✗ {p.value}")
+            print(f"  [X] {p.value}")
 
 
 if __name__ == "__main__":
