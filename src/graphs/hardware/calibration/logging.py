@@ -265,15 +265,15 @@ class CalibrationLogger:
 
     def warning(self, message: str):
         """Log a warning message."""
-        self._write(f"⚠ WARNING: {message}")
+        self._write(f"[!] WARNING: {message}")
 
     def error(self, message: str):
         """Log an error message."""
-        self._write(f"✗ ERROR: {message}")
+        self._write(f"[X] ERROR: {message}")
 
     def success(self, message: str):
         """Log a success message."""
-        self._write(f"✓ {message}")
+        self._write(f"[OK]{message}")
 
     def section(self, title: str, level: int = 1):
         """

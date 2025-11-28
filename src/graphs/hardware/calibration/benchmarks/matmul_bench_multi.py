@@ -205,7 +205,7 @@ def calibrate_matmul_all_precisions(
             if torch.cuda.is_available():
                 # NOTE: Current implementation uses NumPy (CPU only)
                 # TODO: Add PyTorch/CUDA path for GPU benchmarks
-                print(f"⚠ NOTE: CUDA requested but benchmarks use NumPy (CPU-only)")
+                print(f"[!] NOTE: CUDA requested but benchmarks use NumPy (CPU-only)")
                 print(f"         Results will reflect CPU performance, not GPU")
                 print()
         except ImportError:
@@ -220,7 +220,7 @@ def calibrate_matmul_all_precisions(
         for precision in precisions:
             # Skip if this precision was too slow on smaller size
             if precision in skip_precisions:
-                print(f"  {precision.value:8s}... ⊘ SKIPPED (< {min_useful_throughput} GOPS on smaller size)")
+                print(f"  {precision.value:8s}... SKIPPED (< {min_useful_throughput} GOPS on smaller size)")
                 # Create skipped result
                 precision_results[precision.value] = PrecisionTestResult(
                     precision=precision.value,
@@ -254,7 +254,7 @@ def calibrate_matmul_all_precisions(
                 else:
                     latency_str = f"{latency_ms:6.1f}ms"
 
-                print(f"✓ {result.measured_gops:7.1f} {units} ({latency_str})", end="")
+                print(f"[OK] {result.measured_gops:7.1f} {units} ({latency_str})", end="")
                 if result.efficiency:
                     print(f" {result.efficiency*100:5.1f}% eff")
                 else:
@@ -264,13 +264,13 @@ def calibrate_matmul_all_precisions(
                 # Below 50 GOPS is not useful for Embodied AI applications
                 if result.measured_gops < min_useful_throughput:
                     skip_precisions.add(precision)
-                    print(f"    ⚠ Warning: Throughput <{min_useful_throughput} GOPS, will skip this precision for larger sizes")
+                    print(f"    [!] Warning: Throughput <{min_useful_throughput} GOPS, will skip this precision for larger sizes")
 
                 # Track FP32 for speedup calculations
                 if precision == Precision.FP32:
                     fp32_latency = result.mean_latency_ms
             else:
-                print(f"✗ FAIL: {result.failure_reason}")
+                print(f"[X] FAIL: {result.failure_reason}")
 
             precision_results[precision.value] = result
 

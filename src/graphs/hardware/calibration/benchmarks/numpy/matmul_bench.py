@@ -118,7 +118,7 @@ def calibrate_matmul_numpy(
         for precision in precisions:
             # Skip if this precision was too slow on smaller size
             if precision in skip_precisions:
-                print(f"  {precision.value:8s}... ⊘ SKIPPED (< {min_useful_throughput} GOPS on smaller size)")
+                print(f"  {precision.value:8s}... SKIPPED (< {min_useful_throughput} GOPS on smaller size)")
                 precision_results[precision.value] = PrecisionTestResult(
                     precision=precision.value,
                     supported=False,
@@ -130,7 +130,7 @@ def calibrate_matmul_numpy(
 
             # Check if NumPy supports this precision
             if precision not in NUMPY_DTYPE_MAP:
-                print(f"  {precision.value:8s}... ✗ UNSUPPORTED (not in NumPy)")
+                print(f"  {precision.value:8s}... [X] UNSUPPORTED (not in NumPy)")
                 precision_results[precision.value] = PrecisionTestResult(
                     precision=precision.value,
                     supported=False,
@@ -166,12 +166,12 @@ def calibrate_matmul_numpy(
                 else:
                     latency_str = f"{latency_ms:6.1f}ms"
 
-                print(f"✓ {result['gops']:7.1f} {units} ({latency_str})", end="")
+                print(f"[OK] {result['gops']:7.1f} {units} ({latency_str})", end="")
                 if efficiency:
                     print(f" {efficiency*100:5.1f}% eff", end="")
                     # Flag anomalous efficiency
                     if efficiency > 1.10:  # >110% indicates turbo boost or measurement issue
-                        print(" ⚠ ABOVE THEORETICAL")
+                        print(" [!] ABOVE THEORETICAL")
                     else:
                         print()
                 else:
@@ -180,11 +180,11 @@ def calibrate_matmul_numpy(
                 # Check if unusable throughput
                 if result['gops'] < min_useful_throughput:
                     skip_precisions.add(precision)
-                    print(f"    ⚠ Warning: Throughput <{min_useful_throughput} GOPS, will skip for larger sizes")
+                    print(f"    [!] Warning: Throughput <{min_useful_throughput} GOPS, will skip for larger sizes")
 
                 # Explain high efficiency
                 if efficiency and efficiency > 1.10:
-                    print(f"    ℹ Likely caused by: Turbo Boost, optimized BLAS, or conservative theoretical peak")
+                    print(f"    Note: Likely caused by Turbo Boost, optimized BLAS, or conservative theoretical peak")
 
                 # Track FP32 for speedup calculations
                 if precision == Precision.FP32:
@@ -208,7 +208,7 @@ def calibrate_matmul_numpy(
                 )
 
             except Exception as e:
-                print(f"✗ FAIL: {str(e)[:60]}")
+                print(f"[X] FAIL: {str(e)[:60]}")
                 precision_results[precision.value] = PrecisionTestResult(
                     precision=precision.value,
                     supported=False,
