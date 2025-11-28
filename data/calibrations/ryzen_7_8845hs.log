@@ -1,0 +1,239 @@
+λ python cli/calibrate.py
+Creating new profile for: AMD Ryzen 7 8845HS w/ Radeon 780M Graphics
+================================================================================
+Hardware Calibration: AMD Ryzen 7 8845HS w/ Radeon 780M Graphics
+================================================================================
+
+Running pre-flight checks...
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+○ CPU Governor: cpufreq not available (VM or container?)
+✓ CPU Frequency: 3801 MHz (100% of max)
+    Current:  3801 MHz
+    Expected: >= 3421 MHz (90%)
+○ Turbo Boost: Could not determine (not Intel pstate)
+⚠ System Load: 9.5% (some background activity)
+    Current:  9.5%
+    Expected: < 5%
+○ Thermal State: Could not read temperature
+
+RESULT: PASSED with warnings
+  Calibration will proceed, but results may not represent peak performance.
+======================================================================
+
+⚠ Note: Some pre-flight checks have warnings.
+  Results may not represent absolute peak performance.
+
+System Information:
+  CPU: AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD
+  Cores: 8 physical, 16 logical
+  Memory: 27.8 GB
+  Python: 3.11.9
+  NumPy: 2.3.5
+  PyTorch: 2.9.1+cpu
+
+Target Device: CPU
+Framework:     NUMPY
+
+Querying CPU clock frequencies...
+  CPU Freq: 3801 MHz (100% of max 3801 MHz)
+
+Running calibration benchmarks...
+
+1. STREAM Memory Bandwidth Benchmark
+--------------------------------------------------------------------------------
+Framework: NumPy (CPU-only)
+
+STREAM Benchmark Suite:
+--------------------------------------------------------------------------------
+
+COPY (a[i] = b[i]):
+  Memory ops: 2, FLOPs/element: 0
+  Size     8 MB...    87.2 GB/s (174.3%)    0.19 ms
+  Size    16 MB...    57.0 GB/s (114.1%)    0.59 ms
+  Size    32 MB...    43.3 GB/s  (86.6%)    1.55 ms
+  Size    64 MB...    51.8 GB/s (103.7%)    2.59 ms
+  Size   128 MB...    56.2 GB/s (112.4%)    4.78 ms
+  Size   256 MB...    54.5 GB/s (109.0%)    9.86 ms
+  Size   512 MB...    56.8 GB/s (113.6%)   18.90 ms
+
+SCALE (a[i] = q * b[i]):
+  Memory ops: 2, FLOPs/element: 1
+  Size     8 MB...    55.0 GB/s (109.9%)    0.31 ms  |  6.9 GFLOPS
+  Size    16 MB...    49.3 GB/s  (98.7%)    0.68 ms  |  6.2 GFLOPS
+  Size    32 MB...    39.2 GB/s  (78.5%)    1.71 ms  |  4.9 GFLOPS
+  Size    64 MB...    34.6 GB/s  (69.2%)    3.88 ms  |  4.3 GFLOPS
+  Size   128 MB...    34.9 GB/s  (69.9%)    7.68 ms  |  4.4 GFLOPS
+  Size   256 MB...    33.4 GB/s  (66.7%)   16.09 ms  |  4.2 GFLOPS
+  Size   512 MB...    34.9 GB/s  (69.9%)   30.74 ms  |  4.4 GFLOPS
+
+ADD (a[i] = b[i] + c[i]):
+  Memory ops: 3, FLOPs/element: 1
+  Size     8 MB...    58.0 GB/s (116.0%)    0.43 ms  |  4.8 GFLOPS
+  Size    16 MB...    43.9 GB/s  (87.8%)    1.15 ms  |  3.7 GFLOPS
+  Size    32 MB...    37.1 GB/s  (74.3%)    2.71 ms  |  3.1 GFLOPS
+  Size    64 MB...    37.5 GB/s  (74.9%)    5.38 ms  |  3.1 GFLOPS
+  Size   128 MB...    37.1 GB/s  (74.1%)   10.86 ms  |  3.1 GFLOPS
+  Size   256 MB...    36.9 GB/s  (73.8%)   21.83 ms  |  3.1 GFLOPS
+  Size   512 MB...    37.5 GB/s  (75.0%)   42.93 ms  |  3.1 GFLOPS
+
+TRIAD (a[i] = b[i] + q * c[i]):
+  Memory ops: 3, FLOPs/element: 2
+  Size     8 MB...     8.5 GB/s  (17.0%)    2.96 ms  |  1.4 GFLOPS
+  Size    16 MB...     8.8 GB/s  (17.6%)    5.70 ms  |  1.5 GFLOPS
+  Size    32 MB...     8.8 GB/s  (17.6%)   11.42 ms  |  1.5 GFLOPS
+  Size    64 MB...     8.7 GB/s  (17.5%)   23.03 ms  |  1.5 GFLOPS
+  Size   128 MB...     8.7 GB/s  (17.4%)   46.23 ms  |  1.5 GFLOPS
+  Size   256 MB...     8.5 GB/s  (17.0%)   94.60 ms  |  1.4 GFLOPS
+  Size   512 MB...     8.2 GB/s  (16.4%)  196.47 ms  |  1.4 GFLOPS
+
+================================================================================
+STREAM Summary:
+--------------------------------------------------------------------------------
+Kernel            Best BW    Latency   Efficiency Description
+------------------------------------------------------------------------------------------
+COPY               87.2 GB/s     0.19 ms      174.3%  a[i] = b[i]
+SCALE              55.0 GB/s     0.31 ms      109.9%  a[i] = q * b[i]
+ADD                58.0 GB/s     0.43 ms      116.0%  a[i] = b[i] + c[i]
+TRIAD               8.8 GB/s     5.70 ms       17.6%  a[i] = b[i] + q * c[i]
+
+STREAM Score (minimum): 8.2 GB/s
+================================================================================
+STREAM Score (minimum bandwidth): 8.2 GB/s
+
+2. BLAS Compute Benchmark Suite
+--------------------------------------------------------------------------------
+Testing precisions: fp32
+
+Framework: NumPy (CPU-only)
+
+BLAS Benchmark Suite:
+==========================================================================================
+
+BLAS Level 1: DOT
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp32                                           2.0 GFLOPS    0.00ms
+  Size    10K:
+    fp32                                          18.2 GFLOPS    0.00ms
+  Size   100K:
+    fp32                                          20.9 GFLOPS    0.01ms
+  Size     1M:
+    fp32                                          33.1 GFLOPS    0.06ms
+  Size    10M:
+    fp32                                          12.1 GFLOPS    1.65ms
+
+BLAS Level 1: AXPY
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp32        ⚠ SLOW (   0.7 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+  Size    10K:
+    fp32                                           3.7 GFLOPS    0.01ms
+  Size   100K:
+    fp32                                           7.3 GFLOPS    0.03ms
+  Size     1M:
+    fp32                                           1.6 GFLOPS    1.22ms
+  Size    10M:
+    fp32                                           1.5 GFLOPS   13.60ms
+
+BLAS Level 2: GEMV
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp32        ⚠ SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+  Size     64:
+    fp32                                           2.1 GFLOPS    0.00ms
+  Size    128:
+    fp32                                          10.8 GFLOPS    0.00ms
+  Size    256:
+    fp32                                          28.3 GFLOPS    0.00ms
+  Size    512:
+    fp32                                          43.1 GFLOPS    0.01ms
+  Size     1K:
+    fp32                                          18.7 GFLOPS    0.11ms
+  Size     2K:
+    fp32                                          57.6 GFLOPS    0.15ms
+
+BLAS Level 3: GEMM
+------------------------------------------------------------------------------------------
+  Size     32... ALL PRECISIONS FAILED
+  Size     64... ALL PRECISIONS FAILED
+  Size    128... ALL PRECISIONS FAILED
+  Size    256... ALL PRECISIONS FAILED
+  Size    512... ALL PRECISIONS FAILED
+  Size     1K... ALL PRECISIONS FAILED
+  Size     2K... ALL PRECISIONS FAILED
+
+==========================================================================================
+BLAS Suite Complete: 17 calibrations
+==========================================================================================
+
+Building precision capability matrix...
+
+================================================================================
+Hardware Calibration: AMD Ryzen 7 8845HS w/ Radeon 780M Graphics
+Date: 2025-11-28T08:00:40.538323
+================================================================================
+
+Framework: NUMPY
+Device:    CPU
+
+Theoretical Specifications:
+  Peak GFLOPS (FP32): 100.0
+  Peak Bandwidth:     50.0 GB/s
+
+STREAM Memory Bandwidth Benchmark:
+  Kernel           Size (MB)    Bandwidth    Latency   Efficiency Description
+  -----------------------------------------------------------------------------------------------
+  COPY                     8       87.2 GB/s     0.19 ms      174.3%  a[i] = b[i]
+  SCALE                    8       55.0 GB/s     0.31 ms      109.9%  a[i] = q * b[i]
+  ADD                      8       58.0 GB/s     0.43 ms      116.0%  a[i] = b[i] + c[i]
+  TRIAD                   16        8.8 GB/s     5.70 ms       17.6%  a[i] = b[i] + q * c[i]
+
+  STREAM Score (minimum): 8.2 GB/s
+
+BLAS Performance Summary (Highest Throughput by Precision):
+  Operation          fp32   Best Precision
+  -----------------------------------------
+  AXPY                7.3             fp32
+  DOT                33.1             fp32
+  GEMV               57.6             fp32
+
+BLAS Compute Performance (by Operation and Precision):
+========================================================================================================================
+
+Level 1: Vector-Vector (O(n))
+------------------------------------------------------------------------------------------------------------------------
+
+AXPY:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp32             100K         7.3 GFLOPS     0.03ms     0.17        7.3%
+
+DOT:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp32               1M        33.1 GFLOPS     0.06ms     0.25       33.1%
+
+Level 2: Matrix-Vector (O(n²))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMV:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp32               2K        57.6 GFLOPS     0.15ms     0.50       57.6%
+
+Precision Support Summary:
+  Supported:   fp32
+
+
+============================================================
+Calibration Complete!
+============================================================
+
+Profile saved: ryzen_7_8845hs_w_radeon_780m_graphics
+Location:      C:\Users\tomtz\dev\branes\clones\graphs\hardware_registry\cpu\ryzen_7_8845hs_w_radeon_780m_graphics
+
+Use in analysis:
+  ./cli/analyze.py --model resnet18 --hardware ryzen_7_8845hs_w_radeon_780m_graphics
