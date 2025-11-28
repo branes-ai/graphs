@@ -87,6 +87,7 @@ class TeeStream:
     A stream that writes to both the original stream and captures to a buffer.
 
     This allows capturing stdout while still displaying output in real-time.
+    Handles encoding errors gracefully for Windows compatibility.
     """
 
     def __init__(self, original_stream: TextIO, buffer: list):
@@ -94,8 +95,16 @@ class TeeStream:
         self.buffer = buffer
 
     def write(self, text: str):
-        self.original.write(text)
+        # Handle encoding errors for Windows console (cp1252 can't encode Unicode symbols)
+        try:
+            self.original.write(text)
+        except UnicodeEncodeError:
+            # Replace problematic Unicode with ASCII equivalents
+            safe_text = self._make_safe_for_console(text)
+            self.original.write(safe_text)
+
         # Split by newlines and add to buffer (excluding empty trailing newline)
+        # Buffer keeps original Unicode for log file (which uses UTF-8)
         if text:
             lines = text.split('\n')
             for i, line in enumerate(lines):
@@ -108,6 +117,36 @@ class TeeStream:
                         self.buffer[-1] += line
                     else:
                         self.buffer.append(line)
+
+    def _make_safe_for_console(self, text: str) -> str:
+        """Replace Unicode symbols with ASCII equivalents for Windows console."""
+        replacements = {
+            '✓': '[OK]',
+            '✗': '[X]',
+            '⚠': '[!]',
+            '○': 'o',
+            '●': '*',
+            '▪': '-',
+            '▸': '>',
+            '◦': 'o',
+            '─': '-',
+            '│': '|',
+            '┌': '+',
+            '┐': '+',
+            '└': '+',
+            '┘': '+',
+            '├': '+',
+            '┤': '+',
+            '┬': '+',
+            '┴': '+',
+            '┼': '+',
+            '═': '=',
+            '║': '|',
+        }
+        for unicode_char, ascii_char in replacements.items():
+            text = text.replace(unicode_char, ascii_char)
+        # For any remaining problematic characters, use 'replace' error handling
+        return text.encode('ascii', errors='replace').decode('ascii')
 
     def flush(self):
         self.original.flush()
