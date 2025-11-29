@@ -106,7 +106,13 @@ def build_tpu_cycle_energy(
     - Very efficient for large matrix operations
     - Inefficient for small/irregular operations
     """
-    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[mode]
+    # TPU has no L3 cache - L3 mode should behave like DRAM mode
+    # (SRAM misses go directly to HBM)
+    effective_mode = mode
+    if mode == OperatingMode.L3_RESIDENT:
+        effective_mode = OperatingMode.DRAM_RESIDENT
+
+    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[effective_mode]
     params = TPU_ENERGY_PARAMS
 
     breakdown = CycleEnergyBreakdown(
