@@ -123,7 +123,7 @@ def get_mode_description(mode: OperatingMode) -> str:
     descriptions = {
         OperatingMode.L1_RESIDENT: "L1-Resident (on-chip fast memory)",
         OperatingMode.L2_RESIDENT: "L2-Resident (L1 as cache)",
-        OperatingMode.L3_RESIDENT: "L3-Resident (L1+L2 as cache, CPU only)",
+        OperatingMode.L3_RESIDENT: "L3-Resident (L1+L2 as cache, CPU/KPU)",
         OperatingMode.DRAM_RESIDENT: "DRAM-Resident (off-chip streaming)",
     }
     return descriptions[mode]

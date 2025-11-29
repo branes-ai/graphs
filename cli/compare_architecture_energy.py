@@ -450,12 +450,13 @@ def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 4
     modes = [
         OperatingMode.L1_RESIDENT,
         OperatingMode.L2_RESIDENT,
+        OperatingMode.L3_RESIDENT,
         OperatingMode.DRAM_RESIDENT,
     ]
 
     # Header
-    print(f"  {'Mode':<15} {'CPU':<18} {'GPU':<18} {'TPU':<18} {'KPU':<18}")
-    print(f"  {'-'*15} {'-'*18} {'-'*18} {'-'*18} {'-'*18}")
+    print(f"  {'Mode':<15} {'CPU':<18} {'GPU':<18} {'TPU':<18} {'KPU':<18} {'Notes':<20}")
+    print(f"  {'-'*15} {'-'*18} {'-'*18} {'-'*18} {'-'*18} {'-'*20}")
 
     results = []
 
@@ -470,7 +471,17 @@ def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 4
         tpu_str = format_energy(tpu.total_energy_pj)
         kpu_str = format_energy(kpu.total_energy_pj)
 
-        print(f"  {mode.value:<15} {cpu_str:>16} {gpu_str:>16} {tpu_str:>16} {kpu_str:>16}")
+        # Notes about L3 availability
+        if mode == OperatingMode.L3_RESIDENT:
+            notes = "CPU/KPU only"
+        elif mode == OperatingMode.L1_RESIDENT:
+            notes = "On-chip SRAM"
+        elif mode == OperatingMode.L2_RESIDENT:
+            notes = "Cache hierarchy"
+        else:
+            notes = "Off-chip memory"
+
+        print(f"  {mode.value:<15} {cpu_str:>16} {gpu_str:>16} {tpu_str:>16} {kpu_str:>16} {notes:<20}")
 
         results.append({
             'mode': mode,
@@ -496,18 +507,25 @@ def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 4
 
   KEY INSIGHTS BY MODE:
   ---------------------
-  L1-Resident (On-chip SRAM):
-    - Accelerators (TPU/KPU) shine - designed for on-chip data reuse
+  L1-Resident (On-chip SRAM/Scratchpad):
+    - All architectures have fast on-chip memory
+    - KPU distributed scratchpads (256KB/tile) excel here
     - GPU shared memory competitive if used properly
 
   L2-Resident (Cache hierarchy):
     - GPU coherence overhead becomes significant
-    - CPU can be competitive for irregular access patterns
+    - CPU and KPU benefit from larger working sets
+
+  L3-Resident (CPU and KPU only):
+    - CPU: 8-64MB LLC filters DRAM accesses
+    - KPU: 4-16MB shared L3 filters LPDDR accesses
+    - GPU/TPU: No L3 - go directly to HBM from L2
+    - This mode shows CPU/KPU advantage for medium working sets
 
   DRAM-Resident (Off-chip streaming):
     - Memory bandwidth dominates energy
-    - HBM (GPU/TPU) more efficient per byte than DDR (CPU/KPU)
-    - But GPU SIMT overhead still hurts at small scales
+    - HBM (GPU/TPU) more efficient per byte than DDR/LPDDR
+    - But L3 filtering (CPU/KPU) reduces DRAM access frequency
 """)
 
 
@@ -641,8 +659,8 @@ Examples:
     parser.add_argument('--threads', type=int, default=200_000,
                         help='GPU concurrent threads (default: 200000)')
     parser.add_argument('--mode', type=str, default='dram',
-                        choices=['l1', 'l2', 'dram'],
-                        help='Operating mode (default: dram)')
+                        choices=['l1', 'l2', 'l3', 'dram'],
+                        help='Operating mode: l1, l2, l3 (CPU/KPU only), dram (default: dram)')
     parser.add_argument('--layers', type=int, default=1,
                         help='Number of neural network layers for KPU (default: 1)')
     parser.add_argument('--verbose', '-v', action='store_true',
@@ -658,10 +676,13 @@ Examples:
 
     args = parser.parse_args()
 
-    # Parse operating mode (no L3 for this comparison - accelerators don't have L3)
+    # Parse operating mode
+    # CPU and KPU have L3 caches that filter DRAM accesses
+    # GPU and TPU do not have L3 - they go directly to HBM from L2
     mode_map = {
         'l1': OperatingMode.L1_RESIDENT,
         'l2': OperatingMode.L2_RESIDENT,
+        'l3': OperatingMode.L3_RESIDENT,
         'dram': OperatingMode.DRAM_RESIDENT,
     }
     mode = mode_map[args.mode]
