@@ -242,43 +242,55 @@ def build_gpu_cycle_energy(
     # ==========================================================================
     # Phase 6: SIMT COHERENCE MACHINERY
     # ==========================================================================
+    # Memory requests scale with UNIQUE cache lines accessed, not with warps.
+    # Warps share data through caching - they don't each generate independent
+    # requests for all memory. Coalescing combines requests from threads in a warp.
+    #
+    # Model: Each unique cache line generates coherence overhead once.
+    # Additional overhead for warp-level coalescing decisions.
+
     cache_line_size = 128
-    num_memory_ops = max(1, bytes_transferred // cache_line_size)
-    num_memory_requests = num_warps * num_memory_ops
+    num_cache_lines = max(1, bytes_transferred // cache_line_size)
+
+    # Coalescing overhead: one decision per warp per memory instruction
+    # Estimate ~1 memory instruction per 10 ops
+    num_coalesce_decisions = max(1, num_warps * (num_ops // (num_warps * 10) + 1))
 
     is_l1_resident = (mode == OperatingMode.L1_RESIDENT)
 
     if is_l1_resident:
         # L1-Resident: Shared memory has minimal coherence overhead
+        # Bank conflict checks happen per-warp access
+        num_shared_accesses = max(1, num_cache_lines * 2)  # Read + write
         breakdown.add_event(
             CyclePhase.SIMT_COHERENCE,
             "Shared memory bank conflict check",
             params['bank_conflict_pj'],
-            num_memory_requests
+            num_shared_accesses
         )
     else:
-        # L2+ modes: Full coherence machinery engaged
+        # L2+ modes: Coherence machinery for unique cache lines
         breakdown.add_event(
             CyclePhase.SIMT_COHERENCE,
-            "Memory request queuing (per warp)",
+            "Memory request queuing",
             params['request_queue_pj'],
-            num_memory_requests
+            num_cache_lines
         )
         breakdown.add_event(
             CyclePhase.SIMT_COHERENCE,
-            "Address coalescing logic",
+            "Address coalescing logic (per warp)",
             params['coalesce_pj'],
-            num_memory_requests
+            num_coalesce_decisions
         )
         breakdown.add_event(
             CyclePhase.SIMT_COHERENCE,
             "L1 cache tag lookup",
             params['l1_tag_pj'],
-            num_memory_requests
+            num_cache_lines
         )
 
         l1_miss_rate = 1.0 - ratios.l1_hit
-        l2_directory_lookups = int(num_memory_requests * l1_miss_rate)
+        l2_directory_lookups = int(num_cache_lines * l1_miss_rate)
         if l2_directory_lookups > 0:
             breakdown.add_event(
                 CyclePhase.SIMT_COHERENCE,
@@ -287,7 +299,7 @@ def build_gpu_cycle_energy(
                 l2_directory_lookups
             )
 
-        num_ordering_checks = max(1, num_memory_requests // 4)
+        num_ordering_checks = max(1, num_cache_lines // 4)
         breakdown.add_event(
             CyclePhase.SIMT_COHERENCE,
             "Memory ordering/fence logic",
