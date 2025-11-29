@@ -121,7 +121,13 @@ def build_gpu_cycle_energy(
     - Coherence overhead depends on mode (minimal in L1/shared memory)
     - Memory access through Shared/L1 -> L2 -> HBM hierarchy
     """
-    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[mode]
+    # GPU has no L3 cache - L3 mode should behave like DRAM mode
+    # (L2 misses go directly to HBM)
+    effective_mode = mode
+    if mode == OperatingMode.L3_RESIDENT:
+        effective_mode = OperatingMode.DRAM_RESIDENT
+
+    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[effective_mode]
     params = GPU_ENERGY_PARAMS
 
     breakdown = CycleEnergyBreakdown(
