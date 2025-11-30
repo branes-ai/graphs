@@ -42,6 +42,10 @@ from .comparison import (
     run_mode_sweep,
     format_sweep_table,
     format_mode_comparison_table,
+    # Consistent-scale formatting
+    ENERGY_SCALES,
+    determine_common_scale,
+    format_energy_with_scale,
 )
 
 __all__ = [
@@ -69,4 +73,8 @@ __all__ = [
     'run_mode_sweep',
     'format_sweep_table',
     'format_mode_comparison_table',
+    # Consistent-scale formatting
+    'ENERGY_SCALES',
+    'determine_common_scale',
+    'format_energy_with_scale',
 ]

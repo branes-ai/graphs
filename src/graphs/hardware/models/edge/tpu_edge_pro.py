@@ -399,6 +399,10 @@ def tpu_edge_pro_resource_model() -> HardwareResourceModel:
     model.tile_energy_model = tile_energy_model
 
     # Attach architectural energy model (first-principles control overhead)
-    model.architecture_energy_model = SystolicArrayEnergyModel()
+    # Energy parameters derived from EDGE_8NM_LPDDR5 profile
+    from graphs.hardware.technology_profile import EDGE_8NM_LPDDR5
+    model.architecture_energy_model = SystolicArrayEnergyModel(
+        tech_profile=EDGE_8NM_LPDDR5
+    )
 
     return model

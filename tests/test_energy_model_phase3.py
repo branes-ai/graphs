@@ -10,6 +10,7 @@ from graphs.analysis.workload_characterization import (
     create_simple_workload
 )
 from graphs.hardware.architectural_energy import DataParallelEnergyModel
+from graphs.hardware.technology_profile import DEFAULT_PROFILE
 
 
 class TestEnergyModelPhase3:
@@ -17,7 +18,7 @@ class TestEnergyModelPhase3:
 
     def test_backward_compatibility(self):
         """Test that legacy interface still works"""
-        model = DataParallelEnergyModel()
+        model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
 
         # Old way: just pass ops
         breakdown = model.compute_architectural_energy(
@@ -32,7 +33,7 @@ class TestEnergyModelPhase3:
 
     def test_workload_characterization_path(self):
         """Test new path with WorkloadCharacterization"""
-        model = DataParallelEnergyModel()
+        model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
 
         # MLP 256×256 with bias + ReLU
         workload = WorkloadCharacterization(
@@ -66,7 +67,7 @@ class TestEnergyModelPhase3:
 
     def test_tensor_core_counting_fixed(self):
         """Test that Tensor Core operation counting is fixed"""
-        model = DataParallelEnergyModel()
+        model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
 
         # 65,536 MACs
         workload = WorkloadCharacterization(
@@ -101,7 +102,7 @@ class TestEnergyModelPhase3:
 
     def test_mac_vs_flop_separation(self):
         """Test that MACs and FLOPs are handled separately"""
-        model = DataParallelEnergyModel()
+        model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
 
         # Pure MACs (no bias)
         workload_macs = WorkloadCharacterization(
@@ -143,7 +144,7 @@ class TestEnergyModelPhase3:
 
     def test_mlp_example(self):
         """Test complete MLP 256×256 + bias + ReLU example"""
-        model = DataParallelEnergyModel()
+        model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
 
         # MLP 256×256 with bias + ReLU
         # MACs: 65,536 (matmul)
@@ -197,7 +198,7 @@ class TestEnergyModelPhase3:
 
     def test_explanation_text(self):
         """Test that explanation text shows correct breakdown"""
-        model = DataParallelEnergyModel()
+        model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
 
         workload = WorkloadCharacterization(
             macs=65536,

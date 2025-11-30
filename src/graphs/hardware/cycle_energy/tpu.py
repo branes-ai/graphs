@@ -30,7 +30,10 @@ Key characteristics:
 - Fixed-function (limited to matrix operations)
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphs.hardware.technology_profile import TechnologyProfile
 
 from .base import (
     CyclePhase,
@@ -41,37 +44,10 @@ from .base import (
 )
 
 
-# TPU Energy Parameters (based on Google TPU v4 / Coral Edge TPU)
-# Process: 7nm
-# Frequency: 1.0-1.5 GHz
-# Voltage: ~0.75V
-
-TPU_ENERGY_PARAMS = {
-    # Systolic array dimensions
-    'array_size': 128,                # 128x128 systolic array (TPU v4)
-
-    # Systolic compute (extremely efficient!)
-    'mac_pj': 0.1,                    # Per MAC in systolic array
-    'accumulator_pj': 0.05,           # Per accumulation
-    'activation_pj': 0.2,             # Per activation function
-
-    # Data loading overhead
-    'weight_load_pj_per_byte': 0.5,   # Loading weights into systolic array
-    'input_feed_pj_per_byte': 0.3,    # Feeding inputs (one edge)
-    'output_drain_pj_per_byte': 0.3,  # Draining outputs (one edge)
-
-    # Control overhead (minimal for systolic)
-    'control_pj_per_tile': 50.0,      # Control per matrix tile
-    'config_pj': 1000.0,              # Configuration overhead
-
-    # Memory hierarchy
-    'sram_pj_per_byte': 0.5,          # On-chip SRAM buffer
-    'hbm_pj_per_byte': 8.0,           # HBM (more efficient than GPU HBM)
-
-    # Utilization factors
-    'weight_reuse': 64,               # Weight reuse factor (batch size effect)
-    'input_reuse': 128,               # Input reuse (filter size effect)
-}
+# NOTE: Energy parameters are now REQUIRED via TechnologyProfile.
+# The hardcoded TPU_ENERGY_PARAMS dict has been removed to eliminate
+# dual sources of energy definitions. Use a TechnologyProfile instance
+# (e.g., DEFAULT_PROFILE from technology_profile.py) for all energy values.
 
 
 def build_tpu_cycle_energy(
@@ -80,6 +56,7 @@ def build_tpu_cycle_energy(
     mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     hit_ratios: Optional[HitRatios] = None,
     matrix_size: int = 128,
+    tech_profile: 'TechnologyProfile' = None,
     verbose: bool = False
 ) -> CycleEnergyBreakdown:
     """
@@ -91,6 +68,7 @@ def build_tpu_cycle_energy(
         mode: Operating mode (L1/SRAM or DRAM/HBM resident)
         hit_ratios: Custom hit ratios (uses defaults for mode if None)
         matrix_size: Systolic array size (default 128x128)
+        tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
 
     Returns:
@@ -105,7 +83,26 @@ def build_tpu_cycle_energy(
       - Output draining (one edge of array)
     - Very efficient for large matrix operations
     - Inefficient for small/irregular operations
+
+    Technology Profile (REQUIRED):
+        A TechnologyProfile must be provided to specify energy parameters.
+        Use DEFAULT_PROFILE for typical datacenter values.
+
+        Example:
+            from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3
+            breakdown = build_tpu_cycle_energy(
+                num_ops=1000,
+                tech_profile=DATACENTER_4NM_HBM3
+            )
+
+    Raises:
+        ValueError: If tech_profile is not provided.
     """
+    if tech_profile is None:
+        raise ValueError(
+            "tech_profile is required. Use DEFAULT_PROFILE from "
+            "graphs.hardware.technology_profile or provide a specific profile."
+        )
     # TPU has no L3 cache - L3 mode should behave like DRAM mode
     # (SRAM misses go directly to HBM)
     effective_mode = mode
@@ -113,7 +110,35 @@ def build_tpu_cycle_energy(
         effective_mode = OperatingMode.DRAM_RESIDENT
 
     ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[effective_mode]
-    params = TPU_ENERGY_PARAMS
+
+    # Derive all energy parameters from technology profile
+    process_scale = tech_profile.process_node_nm / 7.0  # 7nm is baseline for TPU
+    params = {
+        # Systolic array dimensions
+        'array_size': matrix_size,
+
+        # Systolic compute (uses systolic MAC energy from profile)
+        'mac_pj': tech_profile.systolic_mac_energy_pj,
+        'accumulator_pj': tech_profile.systolic_mac_energy_pj * 0.5,
+        'activation_pj': tech_profile.systolic_mac_energy_pj * 2.0,
+
+        # Data loading overhead (scales with process)
+        'weight_load_pj_per_byte': 0.5 * process_scale,
+        'input_feed_pj_per_byte': 0.3 * process_scale,
+        'output_drain_pj_per_byte': 0.3 * process_scale,
+
+        # Control overhead (scales with process)
+        'control_pj_per_tile': 50.0 * process_scale,
+        'config_pj': 1000.0 * process_scale,
+
+        # Memory hierarchy
+        'sram_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
+        'hbm_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
+
+        # Utilization factors (fixed)
+        'weight_reuse': 64,
+        'input_reuse': 128,
+    }
 
     breakdown = CycleEnergyBreakdown(
         architecture_name="TPU (Google TPU v4 / Coral)",

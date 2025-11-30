@@ -22,7 +22,10 @@ Architecture Classes:
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphs.hardware.technology_profile import TechnologyProfile
 
 
 class ArchitectureClass(Enum):
@@ -335,49 +338,62 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     Enhanced energy model for stored program architectures (CPU, DSP).
 
     Key energy events:
-    1. Instruction Pipeline (Fetch → Decode → Execute)
+    1. Instruction Pipeline (Fetch -> Decode -> Execute)
     2. Register File Operations (2 reads + 1 write per instruction)
-    3. 4-Stage Memory Hierarchy (L1 → L2 → L3 → DRAM)
+    3. 4-Stage Memory Hierarchy (L1 -> L2 -> L3 -> DRAM)
     4. ALU Operations
     5. Branch Prediction
 
     Classic Pipeline Stages:
 
-    Fetch → Decode → Dispatch → Execute → Writeback
-        ↑       ↑         ↑          ↑         ↑
+    Fetch -> Decode -> Dispatch -> Execute -> Writeback
+        |       |         |          |         |
     I-cache  Logic   Control    ALU ops   Register
     read             signals   (sep.)     writeback
     1.5 pJ   0.8 pJ   0.5 pJ    4.0 pJ    3.0 pJ
 
     The memory wall: Request/reply latency is significant AND energy intensive.
     Register file energy is comparable to ALU energy (~same for read/write as for compute).
+
+    Technology Profile:
+        All energy parameters are derived from the TechnologyProfile, enabling
+        cross-technology studies across process nodes and memory types.
+
+        Example:
+            from graphs.hardware.technology_profile import EDGE_8NM_LPDDR5, DEFAULT_PROFILE
+            model = StoredProgramEnergyModel(tech_profile=EDGE_8NM_LPDDR5)
+            model = StoredProgramEnergyModel(tech_profile=DEFAULT_PROFILE)  # 7nm DDR5
     """
 
     # ============================================================
-    # Instruction Pipeline Energy (Fetch → Decode → Dispatch)
+    # Technology Profile (REQUIRED - single source of energy parameters)
     # ============================================================
-    # Note: Dispatch writes control signals to datapath registers.
-    # Actual execution (ALU ops) is tracked separately in alu_energy_per_op.
-    instruction_fetch_energy: float = 1.5e-12      # ~1.5 pJ per instruction (I-cache read)
-    instruction_decode_energy: float = 0.8e-12     # ~0.8 pJ per instruction (decode logic)
-    instruction_dispatch_energy: float = 0.5e-12   # ~0.5 pJ per instruction (control signal dispatch)
+    tech_profile: 'TechnologyProfile'
+
+    # ============================================================
+    # Instruction Pipeline Energy (Fetch -> Decode -> Dispatch)
+    # Derived from tech_profile in __post_init__
+    # ============================================================
+    instruction_fetch_energy: float = field(init=False)
+    instruction_decode_energy: float = field(init=False)
+    instruction_dispatch_energy: float = field(init=False)
 
     # ============================================================
     # Register File Energy (CRITICAL: ~same as ALU energy!)
-    # HIGH FREQUENCY CPUs (2-4 GHz) need much more energy than low-freq accelerators
+    # Derived from tech_profile in __post_init__
     # ============================================================
-    register_file_read_energy: float = 2.5e-12     # ~2.5 pJ per read (high-freq, complex CPU)
-    register_file_write_energy: float = 3.0e-12    # ~3.0 pJ per write (write is more expensive)
-    register_ops_per_instruction: int = 3          # 2 reads + 1 write per instruction
+    register_file_read_energy: float = field(init=False)
+    register_file_write_energy: float = field(init=False)
+    register_ops_per_instruction: int = 3          # 2 reads + 1 write per instruction (fixed)
 
     # ============================================================
     # 4-Stage Memory Hierarchy Energy
-    # HIGH FREQUENCY = higher energy per access
+    # Derived from tech_profile in __post_init__
     # ============================================================
-    l1_cache_energy_per_byte: float = 1.0e-12      # ~1.0 pJ (32 KB, per-core, high freq)
-    l2_cache_energy_per_byte: float = 2.5e-12      # ~2.5 pJ (256 KB-1 MB, per-core or shared)
-    l3_cache_energy_per_byte: float = 5.0e-12      # ~5.0 pJ (8-64 MB, shared LLC)
-    dram_energy_per_byte: float = 20.0e-12         # ~20 pJ (DDR4/DDR5, off-chip)
+    l1_cache_energy_per_byte: float = field(init=False)
+    l2_cache_energy_per_byte: float = field(init=False)
+    l3_cache_energy_per_byte: float = field(init=False)
+    dram_energy_per_byte: float = field(init=False)
 
     # Cache hit rates (conservative for AI workloads with streaming data)
     l1_hit_rate: float = 0.85                      # 85% L1 hits
@@ -386,16 +402,41 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     # DRAM gets remaining misses
 
     # ============================================================
-    # ALU Energy (HIGH FREQUENCY = 3-5× more than low-freq accelerators!)
+    # ALU Energy - Derived from tech_profile in __post_init__
     # ============================================================
-    alu_energy_per_op: float = 4.0e-12             # ~4.0 pJ per FP operation (2.2 GHz, complex OOO design)
+    alu_energy_per_op: float = field(init=False)
 
     # ============================================================
     # Instruction Mix (for AI workloads)
     # ============================================================
-    instructions_per_op: float = 2.0               # ~2 instructions per FLOP (load, compute, store, etc.)
-    branches_per_1000_ops: int = 50                # ~50 branches per 1000 ops
-    branch_prediction_overhead: float = 0.4e-12    # ~0.4 pJ per branch
+    instructions_per_op: float = 2.0               # ~2 instructions per FLOP (fixed)
+    branches_per_1000_ops: int = 50                # ~50 branches per 1000 ops (fixed)
+    branch_prediction_overhead: float = field(init=False)
+
+    def __post_init__(self):
+        """Derive all energy parameters from the technology profile."""
+        tp = self.tech_profile
+
+        # Instruction pipeline energies (convert pJ to J)
+        self.instruction_fetch_energy = tp.instruction_fetch_energy_pj * 1e-12
+        self.instruction_decode_energy = tp.instruction_decode_energy_pj * 1e-12
+        self.instruction_dispatch_energy = tp.instruction_dispatch_energy_pj * 1e-12
+
+        # Register file energies
+        self.register_file_read_energy = tp.register_read_energy_pj * 1e-12
+        self.register_file_write_energy = tp.register_write_energy_pj * 1e-12
+
+        # Memory hierarchy energies
+        self.l1_cache_energy_per_byte = tp.l1_cache_energy_per_byte_pj * 1e-12
+        self.l2_cache_energy_per_byte = tp.l2_cache_energy_per_byte_pj * 1e-12
+        self.l3_cache_energy_per_byte = tp.l3_cache_energy_per_byte_pj * 1e-12
+        self.dram_energy_per_byte = tp.offchip_energy_per_byte_pj * 1e-12
+
+        # ALU energy (use base ALU for stored program machines)
+        self.alu_energy_per_op = tp.base_alu_energy_pj * 1e-12
+
+        # Branch prediction scales with process node
+        self.branch_prediction_overhead = tp.branch_mispredict_energy_pj * 1e-12
 
     def compute_architectural_energy(
         self,
@@ -646,53 +687,95 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     The coherence machinery needed to manage thousands of concurrent memory
     requests dominates energy consumption. This overhead is only amortized
     at large batch sizes.
+
+    Technology Profile:
+        All energy parameters are derived from the TechnologyProfile, enabling
+        cross-technology studies across process nodes and memory types.
+
+        Example:
+            from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3, DEFAULT_PROFILE
+            model = DataParallelEnergyModel(tech_profile=DATACENTER_4NM_HBM3)
+            model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)  # 7nm DDR5
     """
 
-    # Inherit CPU overheads
-    instruction_fetch_energy: float = 2.0e-12      # ~2 pJ per instruction
-    operand_fetch_overhead: float = 10.0e-12       # ~10 pJ per memory operation
-    instructions_per_op: float = 0.1               # ~1 instruction per 10 ops
+    # ============================================================
+    # Technology Profile (REQUIRED - single source of energy parameters)
+    # ============================================================
+    tech_profile: 'TechnologyProfile'
 
-    # GPU-specific SIMT overheads
-    coherence_energy_per_request: float = 5.0e-12  # ~5 pJ per memory request
-    thread_scheduling_overhead: float = 1.0e-12    # ~1 pJ per thread
-    warp_divergence_penalty: float = 3.0e-12       # ~3 pJ per divergent branch
-    memory_coalescing_overhead: float = 2.0e-12    # ~2 pJ per uncoalesced access
-    barrier_sync_energy: float = 10.0e-12          # ~10 pJ per barrier
+    # Instruction pipeline - derived from tech_profile
+    instruction_fetch_energy: float = field(init=False)
+    operand_fetch_overhead: float = field(init=False)
+    instructions_per_op: float = 0.1               # ~1 instruction per 10 ops (fixed)
 
-    # SIMT characteristics
+    # GPU-specific SIMT overheads - derived from tech_profile
+    coherence_energy_per_request: float = field(init=False)
+    thread_scheduling_overhead: float = field(init=False)
+    warp_divergence_penalty: float = field(init=False)
+    memory_coalescing_overhead: float = field(init=False)
+    barrier_sync_energy: float = field(init=False)
+
+    # SIMT characteristics (fixed)
     warp_divergence_rate: float = 0.05             # 5% of ops cause divergence
     uncoalesced_access_rate: float = 0.10          # 10% of memory accesses uncoalesced
     barriers_per_1000_ops: int = 5                 # ~5 barriers per 1000 ops
 
-    # NEW: Compute unit breakdown (CUDA cores vs Tensor Cores)
-    cuda_core_mac_energy: float = 0.8e-12          # ~0.8 pJ per MAC (FP32 on CUDA cores)
-    cuda_core_flop_energy: float = 0.8e-12         # ~0.8 pJ per FLOP (FP32 on CUDA cores)
-    int_alu_energy: float = 0.1e-12                # ~0.1 pJ per IntOp (integer operations)
-    tensor_core_mac_energy: float = 0.3e-12        # ~0.3 pJ per MAC (FP16/BF16/INT8 on Tensor Cores)
-    tensor_core_utilization: float = 0.80          # 80% of MACs can use tensor cores (GEMM-like)
-    register_file_energy_per_access: float = 0.6e-12  # ~0.6 pJ per register access (similar to ALU energy)
+    # Compute unit breakdown - derived from tech_profile
+    cuda_core_mac_energy: float = field(init=False)
+    cuda_core_flop_energy: float = field(init=False)
+    int_alu_energy: float = field(init=False)
+    tensor_core_mac_energy: float = field(init=False)
+    tensor_core_utilization: float = 0.80          # 80% of MACs can use tensor cores (fixed)
+    register_file_energy_per_access: float = field(init=False)
 
-    # Tensor Core characteristics
-    TENSOR_CORE_MACS_PER_OP: int = 64              # 4×4×4 FP16 matmul per Tensor Core operation
+    # Tensor Core characteristics (fixed)
+    TENSOR_CORE_MACS_PER_OP: int = 64              # 4x4x4 FP16 matmul per Tensor Core operation
 
-    # NEW: Memory hierarchy breakdown (NVIDIA Ampere nomenclature)
-    # Level 1: Register File (64K regs/SM, separate from cache)
-    # Level 2: Shared Memory / L1 Data Cache (UNIFIED, 128-192 KB configurable)
-    # Level 3: L2 Cache (shared across all SMs)
-    # Level 4: DRAM
-    shared_memory_l1_unified_energy_per_byte: float = 0.25e-12  # ~0.25 pJ (Shared Mem/L1 unified, on-chip)
-    l2_cache_energy_per_byte: float = 0.8e-12                   # ~0.8 pJ (shared L2, 4-40 MB)
-    dram_energy_per_byte: float = 10.0e-12                      # ~10 pJ (HBM2e or LPDDR5)
+    # Memory hierarchy - derived from tech_profile
+    shared_memory_l1_unified_energy_per_byte: float = field(init=False)
+    l2_cache_energy_per_byte: float = field(init=False)
+    dram_energy_per_byte: float = field(init=False)
 
-    # NEW: Memory access patterns (conservative estimates)
+    # Memory access patterns (fixed)
     shared_mem_l1_hit_rate: float = 0.95                        # 95% hit in Shared Mem/L1
     l2_hit_rate: float = 0.90                                   # 90% L2 hits (of Shared/L1 misses)
-    shared_mem_explicit_usage: float = 0.40                     # 40% explicitly use shared memory in kernel code
+    shared_mem_explicit_usage: float = 0.40                     # 40% explicitly use shared memory
 
-    # NEW: Instruction pipeline stages
-    instruction_decode_energy: float = 0.5e-12         # ~0.5 pJ per instruction decode
-    instruction_execute_energy: float = 0.3e-12        # ~0.3 pJ per instruction execute
+    # Instruction pipeline stages - derived from tech_profile
+    instruction_decode_energy: float = field(init=False)
+    instruction_execute_energy: float = field(init=False)
+
+    def __post_init__(self):
+        """Derive all energy parameters from the technology profile."""
+        tp = self.tech_profile
+
+        # Instruction pipeline energies
+        self.instruction_fetch_energy = tp.instruction_fetch_energy_pj * 1e-12
+        self.instruction_decode_energy = tp.instruction_decode_energy_pj * 1e-12
+        self.instruction_execute_energy = tp.instruction_dispatch_energy_pj * 1e-12
+        self.operand_fetch_overhead = tp.l1_cache_energy_per_byte_pj * 10 * 1e-12  # ~10 bytes per op
+
+        # Compute unit energies
+        self.cuda_core_mac_energy = tp.base_alu_energy_pj * 1e-12
+        self.cuda_core_flop_energy = tp.base_alu_energy_pj * 1e-12
+        self.tensor_core_mac_energy = tp.tensor_core_mac_energy_pj * 1e-12
+        self.int_alu_energy = tp.base_alu_energy_pj * 0.125 * 1e-12  # INT ops ~1/8 of FP32
+
+        # Register file energy
+        self.register_file_energy_per_access = tp.register_read_energy_pj * 0.25 * 1e-12  # GPU regs simpler
+
+        # Memory hierarchy energies
+        self.shared_memory_l1_unified_energy_per_byte = tp.sram_energy_per_byte_pj * 1e-12
+        self.l2_cache_energy_per_byte = tp.l2_cache_energy_per_byte_pj * 1e-12
+        self.dram_energy_per_byte = tp.offchip_energy_per_byte_pj * 1e-12
+
+        # SIMT control overhead (scales with process node)
+        process_scale = tp.process_node_nm / 7.0
+        self.coherence_energy_per_request = tp.coherence_energy_per_request_pj * 1e-12
+        self.barrier_sync_energy = tp.barrier_sync_energy_pj * 1e-12
+        self.warp_divergence_penalty = tp.warp_divergence_energy_pj * 1e-12
+        self.thread_scheduling_overhead = 1.0e-12 * process_scale
+        self.memory_coalescing_overhead = 2.0e-12 * process_scale
 
     def compute_architectural_energy(
         self,
@@ -971,48 +1054,95 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
     7. Instruction Decoder: Decode matrix multiply instruction
 
     Why TPU control is efficient vs CPU/GPU:
-    - CPU: 1 instruction per ~2 operations → high control:compute ratio
-    - GPU: Cache coherence per memory access → high control per byte
-    - TPU: 1 instruction per 16K MACs (systolic array) → low control:compute ratio
+    - CPU: 1 instruction per ~2 operations -> high control:compute ratio
+    - GPU: Cache coherence per memory access -> high control per byte
+    - TPU: 1 instruction per 16K MACs (systolic array) -> low control:compute ratio
 
     But: Control sequencers run at peak clock and consume real energy!
+
+    Technology Profile:
+        All energy parameters are derived from the TechnologyProfile, enabling
+        cross-technology studies across process nodes and memory types.
+
+        Example:
+            from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3, DEFAULT_PROFILE
+            model = SystolicArrayEnergyModel(tech_profile=DATACENTER_4NM_HBM3)
+            model = SystolicArrayEnergyModel(tech_profile=DEFAULT_PROFILE)  # 7nm DDR5
     """
 
     # ============================================================
-    # CONTROL ENERGY (First-Principles, per operation)
+    # Technology Profile (REQUIRED - single source of energy parameters)
+    # ============================================================
+    tech_profile: 'TechnologyProfile'
+
+    # ============================================================
+    # CONTROL ENERGY - derived from tech_profile
     # ============================================================
 
     # Instruction-level control (per matrix operation, not per MAC!)
-    instruction_decode_energy: float = 5.0e-12        # ~5 pJ per matrix op (not per MAC!)
+    instruction_decode_energy: float = field(init=False)
 
     # DMA Controller (setup per transfer, amortized over transfer size)
-    dma_descriptor_setup: float = 10.0e-9             # ~10 nJ per DMA transfer
-    dma_address_gen_per_cacheline: float = 0.1e-12    # ~0.1 pJ per cache line address
+    dma_descriptor_setup: float = field(init=False)
+    dma_address_gen_per_cacheline: float = field(init=False)
 
     # Weight Loading Sequencer (shift weights into systolic array)
-    weight_shift_control_per_element: float = 0.05e-12  # ~0.05 pJ per weight element
-    weight_column_select_per_cycle: float = 0.1e-12     # ~0.1 pJ per column per cycle
+    weight_shift_control_per_element: float = field(init=False)
+    weight_column_select_per_cycle: float = field(init=False)
 
     # Unified Buffer Controller (activation scratchpad management)
-    unified_buffer_address_gen: float = 0.1e-12      # ~0.1 pJ per address
-    unified_buffer_arbitration: float = 0.2e-12      # ~0.2 pJ per request
+    unified_buffer_address_gen: float = field(init=False)
+    unified_buffer_arbitration: float = field(init=False)
 
     # Accumulator Controller (partial sum management)
-    accumulator_read_control: float = 0.2e-12        # ~0.2 pJ per read
-    accumulator_write_control: float = 0.2e-12       # ~0.2 pJ per write
-    accumulator_address_gen: float = 0.1e-12         # ~0.1 pJ per address
+    accumulator_read_control: float = field(init=False)
+    accumulator_write_control: float = field(init=False)
+    accumulator_address_gen: float = field(init=False)
 
     # Tile Iteration Control (for tiled matrix operations)
-    tile_loop_control_per_tile: float = 1.0e-12      # ~1 pJ per tile iteration
+    tile_loop_control_per_tile: float = field(init=False)
 
     # Data injection/extraction (spatial array interface)
-    data_injection_per_element: float = 0.5e-12      # ~0.5 pJ per element
-    data_extraction_per_element: float = 0.5e-12     # ~0.5 pJ per element
+    data_injection_per_element: float = field(init=False)
+    data_extraction_per_element: float = field(init=False)
 
-    # Architectural efficiency multiplier (vs stored program baseline)
-    # These represent the SAVINGS from eliminating instruction fetch, contention, etc.
+    # Architectural efficiency multiplier (fixed)
     compute_efficiency: float = 0.15                 # 15% overhead (85% reduction!)
     memory_efficiency: float = 0.20                  # 20% overhead (80% reduction!)
+
+    def __post_init__(self):
+        """Derive all energy parameters from the technology profile."""
+        tp = self.tech_profile
+
+        # Process node scaling factor (7nm is baseline)
+        process_scale = tp.process_node_nm / 7.0
+
+        # Instruction decode energy (per matrix op)
+        self.instruction_decode_energy = tp.instruction_decode_energy_pj * 1e-12
+
+        # DMA controller energies scale with process
+        self.dma_descriptor_setup = 10.0e-9 * process_scale
+        self.dma_address_gen_per_cacheline = 0.1e-12 * process_scale
+
+        # Weight loading sequencer
+        self.weight_shift_control_per_element = 0.05e-12 * process_scale
+        self.weight_column_select_per_cycle = 0.1e-12 * process_scale
+
+        # Unified buffer controller
+        self.unified_buffer_address_gen = 0.1e-12 * process_scale
+        self.unified_buffer_arbitration = 0.2e-12 * process_scale
+
+        # Accumulator controller
+        self.accumulator_read_control = 0.2e-12 * process_scale
+        self.accumulator_write_control = 0.2e-12 * process_scale
+        self.accumulator_address_gen = 0.1e-12 * process_scale
+
+        # Tile iteration control
+        self.tile_loop_control_per_tile = 1.0e-12 * process_scale
+
+        # Data injection/extraction (uses systolic MAC energy as baseline)
+        self.data_injection_per_element = tp.systolic_mac_energy_pj * 0.5 * 1e-12
+        self.data_extraction_per_element = tp.systolic_mac_energy_pj * 0.5 * 1e-12
 
     def compute_architectural_energy(
         self,
@@ -1237,41 +1367,157 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
     """
     Energy model for Domain Flow Architectures (Stillwater KPU).
 
-    Programmable systolic processor with domain tracking.
+    Programmable systolic processor with domain tracking and EDDO memory management.
 
     Key characteristics:
     - SURE/SARE network overlay models variable dependencies
     - Domain checks track computation through N-dimensional space
     - Execution wavefronts can change dynamically without energy consumption
-    - Still eliminates instruction fetch per operation
+    - Eliminates instruction fetch per operation
     - More flexible than fixed systolic, more efficient than stored program
-    - Data is streamed through spatial domains with dynamic control
+
+    EDDO (Explicit Data Distribution and Orchestration):
+    =====================================================
+    Unlike CPU/GPU cache hierarchies which are hardware-managed and reactive,
+    Domain Flow processors use SOFTWARE-MANAGED SCRATCHPAD HIERARCHIES:
+
+    - Scratchpad Tiers: Directly-addressed SRAM banks (no tags, no coherence)
+    - Compiler-Directed: Data placement is determined at compile time
+    - Proactive Staging: Data is pre-fetched before needed (no misses)
+    - Explicit Handoff: Producer-consumer synchronization is explicit
+    - Zero Tag Energy: No associative lookups (direct addressing)
+    - No Coherence: Single-writer model with explicit data distribution
+
+    Memory Hierarchy (EDDO Scratchpads, NOT caches):
+    - PE Registers: Per-PE register files for operands
+    - Tile Scratchpad (L1): Local SRAM per tile cluster
+    - Global Scratchpad (L2): Shared SRAM across tile groups
+    - Streaming Buffer (L3): DMA staging area for off-chip transfers
+    - Off-chip DRAM: Bulk storage, accessed via DMA with double-buffering
+
+    Energy Advantage vs Caches:
+    - No tag lookup energy (scratchpads are directly addressed)
+    - No coherence protocol energy (explicit data distribution)
+    - No speculative fetching (compiler knows exactly what's needed)
+    - Deterministic timing (no variable cache miss latencies)
 
     Historical context: Evolved from Data Flow Machine concepts.
-    Modern innovation: x86 uses DFM concepts for register renaming.
+    The distributed CAM across PEs solves the scalability problem that
+    limited traditional dataflow machines.
+
+    Technology Profile:
+        All energy parameters are derived from the TechnologyProfile, enabling
+        cross-technology studies across process nodes and memory types.
+
+        Example:
+            from graphs.hardware.technology_profile import EDGE_8NM_LPDDR5, DEFAULT_PROFILE
+            model = DomainFlowEnergyModel(tech_profile=EDGE_8NM_LPDDR5)
+            model = DomainFlowEnergyModel(tech_profile=DEFAULT_PROFILE)  # 7nm DDR5
     """
 
-    # Domain flow management overhead: CAM-like tracking per operation
-    domainflow_tracking_per_op: float = 1.0e-12        # ~1 pJ per operation
-  
-    # Dataflow flexibility cost (more than fixed systolic, less than stored program)
-    dataflow_adaptation_energy: float = 50.0e-12   # ~50 pJ per schedule change
-    # if we model that, we would allocate that to the data token routing energy cost
+    # ============================================================
+    # Technology Profile (REQUIRED - single source of energy parameters)
+    # ============================================================
+    tech_profile: 'TechnologyProfile'
 
-    # Data movement of domains into the fabric
-    domain_data_injection: float = 0.5e-12         # ~0.5 pJ per element
-    domain_data_extraction: float = 0.5e-12        # ~0.5 pJ per element
-    # assume we tile which create some overfetching, typically on one domain
-    domain_data_overfetch_factor: float = 1.1      # 10% overfetching overhead: only on input domains
+    # ============================================================
+    # Domain Flow Control Overhead - derived from tech_profile
+    # ============================================================
+    # Domain tracking energy (distributed CAM across PEs)
+    domainflow_tracking_per_op: float = field(init=False)
 
-    # Efficiency vs stored program (less efficient than fixed systolic, but programmable)
-    compute_efficiency: float = 0.75               # 75% of peak
-    memory_efficiency: float = 0.75                # 75% of peak
+    # Domain program loading (when computation pattern changes)
+    domain_program_load_energy: float = field(init=False)
 
-    # Kernel update frequency (adaptive based on computation structure)
-    kernel_changes: int = 10                       # ~10 kernel changes per workload
-    # kernel programs get streamed into the array with very little energy cost
-    # so first order, we ignore the energy cost of loading new programs
+    # ============================================================
+    # EDDO Scratchpad Hierarchy Energy (NOT caches!)
+    # ============================================================
+    # These are software-managed, directly-addressed SRAM banks.
+    # No tag lookups, no coherence - just direct read/write.
+
+    # Tile Scratchpad (L1 equivalent) - per-tile local SRAM
+    tile_scratchpad_energy_per_byte: float = field(init=False)
+
+    # Global Scratchpad (L2 equivalent) - shared across tile groups
+    global_scratchpad_energy_per_byte: float = field(init=False)
+
+    # Streaming Buffer (L3 equivalent) - DMA staging for off-chip
+    streaming_buffer_energy_per_byte: float = field(init=False)
+
+    # Off-chip DRAM access (via DMA, double-buffered)
+    dram_dma_energy_per_byte: float = field(init=False)
+
+    # ============================================================
+    # Data Movement (EDDO orchestration)
+    # ============================================================
+    # Injection: Moving data from scratchpad into PE datapath
+    pe_injection_energy_per_element: float = field(init=False)
+
+    # Extraction: Moving results from PE datapath to scratchpad
+    pe_extraction_energy_per_element: float = field(init=False)
+
+    # DMA transfer setup (per transfer descriptor)
+    dma_setup_energy: float = field(init=False)
+
+    # ============================================================
+    # EDDO Efficiency Parameters
+    # ============================================================
+    # Scratchpad utilization (compiler quality)
+    scratchpad_utilization: float = 0.90          # 90% effective utilization
+
+    # Tiling overfetch factor (boundary effects)
+    tiling_overfetch_factor: float = 1.10         # 10% overfetch due to tiling
+
+    # Double-buffering overhead (overlapped compute/transfer)
+    double_buffer_overhead: float = 1.05          # 5% overhead for double-buffering
+
+    # ============================================================
+    # Efficiency vs Stored Program (fixed architectural advantage)
+    # ============================================================
+    compute_efficiency: float = 0.75               # 75% of baseline (25% overhead)
+    memory_efficiency: float = 0.70                # 70% of baseline (30% overhead)
+
+    def __post_init__(self):
+        """Derive all energy parameters from the technology profile."""
+        tp = self.tech_profile
+
+        # Process node scaling factor (7nm is baseline)
+        process_scale = tp.process_node_nm / 7.0
+
+        # Domain flow control energy (distributed CAM is efficient)
+        # Much lower than centralized CAM in traditional dataflow machines
+        self.domainflow_tracking_per_op = tp.domain_flow_mac_energy_pj * 0.1 * 1e-12
+
+        # Domain program loading (configuration memory write)
+        self.domain_program_load_energy = 100.0e-12 * process_scale
+
+        # ============================================================
+        # EDDO Scratchpad Energy (simpler than caches - no tags!)
+        # ============================================================
+        # Scratchpads are ~30-40% more efficient than caches at same size
+        # because they eliminate tag array access and comparators.
+
+        # Tile scratchpad: small, fast, per-tile (like L1 but no tags)
+        # ~0.6x of L1 cache energy (no tag lookup)
+        self.tile_scratchpad_energy_per_byte = tp.l1_cache_energy_per_byte_pj * 0.6 * 1e-12
+
+        # Global scratchpad: larger, shared (like L2 but no tags/coherence)
+        # ~0.5x of L2 cache energy (no tag lookup, no coherence)
+        self.global_scratchpad_energy_per_byte = tp.l2_cache_energy_per_byte_pj * 0.5 * 1e-12
+
+        # Streaming buffer: DMA staging area (like L3 but simpler)
+        # ~0.4x of L3 cache energy (no tag lookup, no coherence, FIFO access)
+        self.streaming_buffer_energy_per_byte = tp.l3_cache_energy_per_byte_pj * 0.4 * 1e-12
+
+        # DRAM access via DMA (same physical energy, but better utilization)
+        self.dram_dma_energy_per_byte = tp.offchip_energy_per_byte_pj * 1e-12
+
+        # PE injection/extraction (register file access)
+        self.pe_injection_energy_per_element = tp.domain_flow_mac_energy_pj * 0.3 * 1e-12
+        self.pe_extraction_energy_per_element = tp.domain_flow_mac_energy_pj * 0.3 * 1e-12
+
+        # DMA setup energy (per transfer descriptor)
+        self.dma_setup_energy = 5.0e-12 * process_scale
 
     def compute_architectural_energy(
         self,
@@ -1285,61 +1531,161 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
         if execution_context is None:
             execution_context = {}
 
-        # Domain tracking per operation
+        # ============================================================
+        # 1. DOMAIN FLOW CONTROL OVERHEAD
+        # ============================================================
+
+        # Domain tracking per operation (distributed CAM)
         domain_tracking_energy = ops * self.domainflow_tracking_per_op
 
-        # Kernel changes (when computation pattern changes)
-        num_kernel_changes = execution_context.get('kernel_changes', 1)
-        kernel_load_energy = num_kernel_changes * self.dataflow_adaptation_energy
+        # Domain program loading (when computation pattern changes)
+        num_domain_programs = execution_context.get('kernel_changes', 1)
+        domain_program_energy = num_domain_programs * self.domain_program_load_energy
 
-        # Data movement through domains
-        num_elements = max(1, bytes_transferred // 4)
-        injection_energy = num_elements * self.domain_data_injection
-        extraction_energy = num_elements * self.domain_data_extraction
+        # ============================================================
+        # 2. EDDO SCRATCHPAD HIERARCHY (software-managed, no misses!)
+        # ============================================================
+        # Unlike caches, scratchpads have NO MISSES - compiler pre-stages all data.
+        # Energy is purely from SRAM read/write, no tag lookups.
 
-        # Architectural benefit: Still eliminates instruction fetch
+        num_elements = max(1, bytes_transferred // 4)  # Assume 4-byte elements
+        total_bytes = bytes_transferred * self.tiling_overfetch_factor
+
+        # EDDO access pattern (compiler-determined, not hit-rate based):
+        # - All data flows through streaming buffer (DMA staging)
+        # - Working set cached in global scratchpad
+        # - Active tile data in tile scratchpad
+        # - PE registers for immediate operands
+
+        # Streaming buffer: ALL off-chip data passes through (double-buffered)
+        # But only data that doesn't fit in global scratchpad goes to DRAM
+        global_scratchpad_capacity = execution_context.get('global_scratchpad_kb', 256) * 1024
+        working_set_bytes = total_bytes
+
+        if working_set_bytes <= global_scratchpad_capacity:
+            # Working set fits in global scratchpad - minimal DRAM traffic
+            dram_bytes = total_bytes * 0.05  # Only 5% spills to DRAM
+            streaming_buffer_bytes = dram_bytes * self.double_buffer_overhead
+        else:
+            # Working set exceeds scratchpad - need DRAM streaming
+            dram_bytes = (working_set_bytes - global_scratchpad_capacity) * self.double_buffer_overhead
+            streaming_buffer_bytes = dram_bytes
+
+        global_scratchpad_bytes = min(working_set_bytes, global_scratchpad_capacity)
+        tile_scratchpad_bytes = total_bytes * 0.8  # 80% of data touches tile scratchpad
+
+        # Scratchpad energy (direct addressing, no tags!)
+        tile_scratchpad_energy = tile_scratchpad_bytes * self.tile_scratchpad_energy_per_byte
+        global_scratchpad_energy = global_scratchpad_bytes * self.global_scratchpad_energy_per_byte
+        streaming_buffer_energy = streaming_buffer_bytes * self.streaming_buffer_energy_per_byte
+        dram_energy = dram_bytes * self.dram_dma_energy_per_byte
+
+        # DMA setup (one descriptor per transfer block)
+        dma_block_size = execution_context.get('dma_block_size', 4096)
+        num_dma_transfers = max(1, int(dram_bytes / dma_block_size))
+        dma_setup_total = num_dma_transfers * self.dma_setup_energy
+
+        total_scratchpad_energy = (tile_scratchpad_energy + global_scratchpad_energy +
+                                   streaming_buffer_energy + dram_energy + dma_setup_total)
+
+        # ============================================================
+        # 3. PE DATA INJECTION/EXTRACTION
+        # ============================================================
+
+        injection_energy = num_elements * self.pe_injection_energy_per_element
+        extraction_energy = num_elements * self.pe_extraction_energy_per_element
+
+        # ============================================================
+        # 4. ARCHITECTURAL EFFICIENCY BENEFIT
+        # ============================================================
+
+        # Compute overhead reduction (no instruction fetch per op)
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
+
+        # Memory overhead reduction (EDDO vs cache hierarchy)
+        # EDDO scratchpads are more efficient than caches:
+        # - No tag energy (~30% of cache energy)
+        # - No coherence energy (~10% of cache energy)
+        # - No speculative prefetch waste
         data_movement_overhead_reduction = -data_movement_energy_baseline * (1.0 - self.memory_efficiency)
 
-        total_domain_overhead = domain_tracking_energy + kernel_load_energy
-        total_data_movement = injection_energy + extraction_energy
+        # ============================================================
+        # 5. AGGREGATE OVERHEAD CATEGORIES
+        # ============================================================
+
+        control_overhead = domain_tracking_energy + domain_program_energy
+        data_movement_overhead = (data_movement_overhead_reduction +
+                                  total_scratchpad_energy +
+                                  injection_energy + extraction_energy)
+
+        # ============================================================
+        # 6. EXPLANATION
+        # ============================================================
 
         explanation = (
-            f"Domain Flow Architecture Energy Events:\n"
-            f"  Domain Tracking:\n"
-            f"    - Operations: {ops:,}\n"
-            f"    - Energy: {domain_tracking_energy*1e12:.2f} pJ "
-            f"({ops:,} x {self.domainflow_tracking_per_op*1e12:.2f} pJ)\n"
-            f"  Schedule Adaptation:\n"
-            f"    - Schedule changes: {num_kernel_changes}\n"
-            f"    - Energy: {kernel_load_energy*1e12:.2f} pJ\n"
-            f"  Domain Data Movement:\n"
-            f"    - Elements: {num_elements:,}\n"
-            f"    - Injection: {injection_energy*1e12:.2f} pJ\n"
-            f"    - Extraction: {extraction_energy*1e12:.2f} pJ\n"
-            f"  Architectural Efficiency (vs Stored Program):\n"
-            f"    - Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"    - Memory overhead eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
-            f"  Efficiency vs Stored Program:\n"
-            f"    - Compute: {self.compute_efficiency*100:.0f}% overhead "
-            f"({(1-self.compute_efficiency)*100:.0f}% reduction)\n"
-            f"    - Memory: {self.memory_efficiency*100:.0f}% overhead "
-            f"({(1-self.memory_efficiency)*100:.0f}% reduction)\n"
+            f"Domain Flow Architecture (KPU) with EDDO Memory Management:\n"
             f"\n"
-            f"KEY: Programmable spatial scheduling with domain tracking.\n"
-            f"     More flexible than fixed systolic, still eliminates instruction fetch.\n"
-            f"     Systolic array is special case (all dynamic control → one function)."
+            f"  1. DOMAIN FLOW CONTROL:\n"
+            f"     Domain Tracking (distributed CAM): {domain_tracking_energy*1e12:.2f} pJ\n"
+            f"       ({ops:,} ops x {self.domainflow_tracking_per_op*1e12:.3f} pJ/op)\n"
+            f"     Domain Program Load: {domain_program_energy*1e12:.2f} pJ\n"
+            f"       ({num_domain_programs} programs x {self.domain_program_load_energy*1e12:.1f} pJ)\n"
+            f"\n"
+            f"  2. EDDO SCRATCHPAD HIERARCHY (software-managed, NO cache misses):\n"
+            f"     Tile Scratchpad:    {tile_scratchpad_energy*1e12:.2f} pJ "
+            f"({tile_scratchpad_bytes/1024:.1f} KB @ {self.tile_scratchpad_energy_per_byte*1e12:.2f} pJ/B)\n"
+            f"     Global Scratchpad:  {global_scratchpad_energy*1e12:.2f} pJ "
+            f"({global_scratchpad_bytes/1024:.1f} KB @ {self.global_scratchpad_energy_per_byte*1e12:.2f} pJ/B)\n"
+            f"     Streaming Buffer:   {streaming_buffer_energy*1e12:.2f} pJ "
+            f"({streaming_buffer_bytes/1024:.1f} KB @ {self.streaming_buffer_energy_per_byte*1e12:.2f} pJ/B)\n"
+            f"     DRAM (via DMA):     {dram_energy*1e12:.2f} pJ "
+            f"({dram_bytes/1024:.1f} KB @ {self.dram_dma_energy_per_byte*1e12:.1f} pJ/B)\n"
+            f"     DMA Setup:          {dma_setup_total*1e12:.2f} pJ ({num_dma_transfers} transfers)\n"
+            f"\n"
+            f"  3. PE DATA MOVEMENT:\n"
+            f"     Injection:  {injection_energy*1e12:.2f} pJ ({num_elements:,} elements)\n"
+            f"     Extraction: {extraction_energy*1e12:.2f} pJ ({num_elements:,} elements)\n"
+            f"\n"
+            f"  4. ARCHITECTURAL EFFICIENCY (vs Stored Program):\n"
+            f"     Compute overhead eliminated: {-compute_overhead_reduction*1e12:.2f} pJ\n"
+            f"     Memory overhead eliminated:  {-data_movement_overhead_reduction*1e12:.2f} pJ\n"
+            f"\n"
+            f"  EDDO vs CACHE ADVANTAGES:\n"
+            f"  - No tag lookup energy (scratchpads are directly addressed)\n"
+            f"  - No coherence protocol energy (explicit data distribution)\n"
+            f"  - No cache misses (compiler pre-stages all data)\n"
+            f"  - Deterministic timing (no variable miss latencies)\n"
+            f"  - Scratchpad energy is ~40-60% of equivalent cache energy\n"
         )
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
-            data_movement_overhead=data_movement_overhead_reduction + total_data_movement,
-            control_overhead=total_domain_overhead,
+            data_movement_overhead=data_movement_overhead,
+            control_overhead=control_overhead,
             extra_details={
+                # Domain flow control
                 'domain_tracking_energy': domain_tracking_energy,
-                'kernel_load_energy': kernel_load_energy,
+                'domain_program_energy': domain_program_energy,
+                'num_domain_programs': num_domain_programs,
+
+                # EDDO scratchpad hierarchy
+                'tile_scratchpad_energy': tile_scratchpad_energy,
+                'tile_scratchpad_bytes': tile_scratchpad_bytes,
+                'global_scratchpad_energy': global_scratchpad_energy,
+                'global_scratchpad_bytes': global_scratchpad_bytes,
+                'streaming_buffer_energy': streaming_buffer_energy,
+                'streaming_buffer_bytes': streaming_buffer_bytes,
+                'dram_energy': dram_energy,
+                'dram_bytes': dram_bytes,
+                'dma_setup_energy': dma_setup_total,
+                'num_dma_transfers': num_dma_transfers,
+
+                # PE data movement
                 'injection_energy': injection_energy,
                 'extraction_energy': extraction_energy,
+
+                # For consistent reporting
+                'bytes_transferred': bytes_transferred,
             },
             explanation=explanation
         )

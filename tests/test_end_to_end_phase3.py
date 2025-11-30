@@ -12,6 +12,7 @@ import torch.nn as nn
 
 from graphs.analysis.dynamo_characterizer import characterize_with_dynamo
 from graphs.hardware.architectural_energy import DataParallelEnergyModel
+from graphs.hardware.technology_profile import DEFAULT_PROFILE
 
 
 class TestEndToEndPhase3:
@@ -45,7 +46,7 @@ class TestEndToEndPhase3:
         print("\n" + "=" * 80)
         print("STEP 2: Energy Calculation")
         print("=" * 80)
-        energy_model = DataParallelEnergyModel()
+        energy_model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
         breakdown = energy_model.compute_architectural_energy(
             workload=workload,
             bytes_transferred=workload.bytes_transferred,
@@ -102,7 +103,7 @@ class TestEndToEndPhase3:
         assert workload.intops == 0
 
         # Calculate energy
-        energy_model = DataParallelEnergyModel()
+        energy_model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
         breakdown = energy_model.compute_architectural_energy(
             workload=workload,
             bytes_transferred=workload.bytes_transferred
@@ -132,7 +133,7 @@ class TestEndToEndPhase3:
         assert workload.flops == 2048
 
         # Calculate energy
-        energy_model = DataParallelEnergyModel()
+        energy_model = DataParallelEnergyModel(tech_profile=DEFAULT_PROFILE)
         breakdown = energy_model.compute_architectural_energy(
             workload=workload,
             bytes_transferred=workload.bytes_transferred

@@ -18,7 +18,10 @@ Key characteristics:
 - High frequency (3-4 GHz) but high per-op energy
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphs.hardware.technology_profile import TechnologyProfile
 
 from .base import (
     CyclePhase,
@@ -29,30 +32,10 @@ from .base import (
 )
 
 
-# CPU Energy Parameters (based on literature for modern server CPUs)
-# Process: 7nm (Intel 4 / AMD Zen 4)
-# Frequency: 3.0-4.0 GHz
-# Voltage: ~0.9V
-
-CPU_ENERGY_PARAMS = {
-    # Instruction overhead
-    'instruction_fetch_pj': 1.5,      # I-cache read (64B line)
-    'instruction_decode_pj': 0.8,     # x86-64 variable length decode
-    'instructions_per_op': 2.0,       # x86 CISC overhead (micro-ops)
-
-    # Register file (180 physical registers, 6-8 read ports, 3-4 write ports)
-    'register_read_pj': 2.5,          # Per read port access
-    'register_write_pj': 3.0,         # Per write port access
-
-    # Execution units
-    'alu_energy_pj': 4.0,             # Integer/FP ALU operation
-
-    # Memory hierarchy (per byte)
-    'l1_cache_pj_per_byte': 1.0,      # L1 D-cache
-    'l2_cache_pj_per_byte': 2.5,      # L2 cache
-    'l3_cache_pj_per_byte': 5.0,      # L3/LLC
-    'dram_pj_per_byte': 20.0,         # DDR4/DDR5
-}
+# NOTE: Energy parameters are now REQUIRED via TechnologyProfile.
+# The hardcoded CPU_ENERGY_PARAMS dict has been removed to eliminate
+# dual sources of energy definitions. Use a TechnologyProfile instance
+# (e.g., DEFAULT_PROFILE from technology_profile.py) for all energy values.
 
 
 def build_cpu_cycle_energy(
@@ -60,6 +43,7 @@ def build_cpu_cycle_energy(
     bytes_transferred: int = 4096,
     mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     hit_ratios: Optional[HitRatios] = None,
+    tech_profile: 'TechnologyProfile' = None,
     verbose: bool = False
 ) -> CycleEnergyBreakdown:
     """
@@ -70,6 +54,7 @@ def build_cpu_cycle_energy(
         bytes_transferred: Total bytes of data accessed
         mode: Operating mode (L1, L2, L3, or DRAM resident)
         hit_ratios: Custom hit ratios (uses defaults for mode if None)
+        tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
 
     Returns:
@@ -80,7 +65,26 @@ def build_cpu_cycle_energy(
     - Register file energy is significant (multi-port, high frequency)
     - Cache hierarchy provides energy filtering (hit ratios)
     - Memory access energy depends on operating mode
+
+    Technology Profile (REQUIRED):
+        A TechnologyProfile must be provided to specify energy parameters.
+        Use DEFAULT_PROFILE for typical datacenter values.
+
+        Example:
+            from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3
+            breakdown = build_cpu_cycle_energy(
+                num_ops=1000,
+                tech_profile=DATACENTER_4NM_HBM3
+            )
+
+    Raises:
+        ValueError: If tech_profile is not provided.
     """
+    if tech_profile is None:
+        raise ValueError(
+            "tech_profile is required. Use DEFAULT_PROFILE from "
+            "graphs.hardware.technology_profile or provide a specific profile."
+        )
     # Get hit ratios for this mode
     ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[mode]
 
@@ -89,7 +93,19 @@ def build_cpu_cycle_energy(
         architecture_class="Stored Program Machine (MIMD)"
     )
 
-    params = CPU_ENERGY_PARAMS
+    # Derive all energy parameters from technology profile
+    params = {
+        'instruction_fetch_pj': tech_profile.instruction_fetch_energy_pj,
+        'instruction_decode_pj': tech_profile.instruction_decode_energy_pj,
+        'instructions_per_op': 2.0,  # x86 CISC overhead (fixed)
+        'register_read_pj': tech_profile.register_read_energy_pj,
+        'register_write_pj': tech_profile.register_write_energy_pj,
+        'alu_energy_pj': tech_profile.base_alu_energy_pj,
+        'l1_cache_pj_per_byte': tech_profile.l1_cache_energy_per_byte_pj,
+        'l2_cache_pj_per_byte': tech_profile.l2_cache_energy_per_byte_pj,
+        'l3_cache_pj_per_byte': tech_profile.l3_cache_energy_per_byte_pj,
+        'dram_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
+    }
 
     # Calculate number of instructions (x86 CISC overhead)
     num_instructions = int(num_ops * params['instructions_per_op'])
