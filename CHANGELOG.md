@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-11-30] - EDDO Scratchpad Terminology & Consistent Energy Units
+
+### Changed
+
+**DomainFlowEnergyModel** (`src/graphs/hardware/architectural_energy.py`)
+- Refactored to use proper EDDO (Explicit Data Distribution and Orchestration) terminology
+- Replaced misleading cache terminology (L1/L2/L3) with scratchpad terminology:
+  - Tile Scratchpad (per-tile local SRAM)
+  - Global Scratchpad (shared SRAM across tile groups)
+  - Streaming Buffer (DMA staging area)
+- Added comprehensive docstring explaining EDDO vs cache differences:
+  - No tag lookup energy (directly addressed)
+  - No coherence protocol energy (explicit data distribution)
+  - No cache misses (compiler pre-stages all data)
+  - Deterministic timing (no variable miss latencies)
+- Scratchpad energy modeled at 40-60% of equivalent cache energy
+
+**KPU Cycle Energy Model** (`src/graphs/hardware/cycle_energy/kpu.py`)
+- Updated memory hierarchy section to use EDDO scratchpad terminology
+- Added detailed comments explaining software-managed vs hardware-managed memory
+
+**CyclePhase Enum** (`src/graphs/hardware/cycle_energy/base.py`)
+- Added new EDDO-specific phases:
+  - `EDDO_TILE_SCRATCHPAD`
+  - `EDDO_GLOBAL_SCRATCHPAD`
+  - `EDDO_STREAMING_BUFFER`
+  - `EDDO_DMA_SETUP`
+
+**Energy Formatting** (`src/graphs/hardware/cycle_energy/comparison.py`)
+- Added `determine_common_scale()` function to find best unit for a list of values
+- Added `format_energy_with_scale()` function for consistent unit formatting
+- Added `ENERGY_SCALES` constant (fJ, pJ, nJ, uJ, mJ, J)
+
+**Architecture Comparison CLI** (`cli/compare_architecture_energy.py`)
+- Fixed inconsistent units in comparison table (header said "pJ" but values showed "nJ", "uJ")
+- Now uses consistent units across all values in a column with unit in header
+- Added "KPU EDDO SCRATCHPADS" section to detailed phase breakdown
+- Fixed `NameError: name 'category' is not defined` in `--sweep` mode
+- Fixed `AttributeError: 'ArchitectureComparisonSet' object has no attribute 'category'`
+
+### Technical Details
+
+The key insight is that Domain Flow processors use **software-managed scratchpad hierarchies**,
+not hardware-managed cache hierarchies. The compiler determines data placement at compile time
+(EDDO), data is proactively staged before needed, and there are no cache misses or tag lookups.
+This is fundamentally different from CPU/GPU caches which are reactive and have tag/coherence overhead.
+
+---
+
 ## [2025-11-28] - Power Profile Comparison Tool
 
 ### Added
