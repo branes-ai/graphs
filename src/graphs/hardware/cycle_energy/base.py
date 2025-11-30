@@ -64,6 +64,14 @@ class CyclePhase(Enum):
     SPATIAL_COMPUTE = "spatial_compute"
     SPATIAL_INTERCONNECT = "spatial_interconnect"
 
+    # KPU EDDO Scratchpad Hierarchy (software-managed, NOT caches)
+    # These are directly-addressed SRAM banks with no tag lookups, no coherence.
+    # Data placement is compiler-directed (Explicit Data Distribution & Orchestration).
+    EDDO_TILE_SCRATCHPAD = "eddo_tile_scratchpad"      # Per-tile local SRAM (like L1)
+    EDDO_GLOBAL_SCRATCHPAD = "eddo_global_scratchpad"  # Shared SRAM (like L2)
+    EDDO_STREAMING_BUFFER = "eddo_streaming_buffer"    # DMA staging (like L3)
+    EDDO_DMA_SETUP = "eddo_dma_setup"                  # DMA descriptor setup
+
     # Memory hierarchy (all architectures)
     MEMORY_ACCESS = "memory_access"  # Parent category
     MEM_L1 = "mem_l1"

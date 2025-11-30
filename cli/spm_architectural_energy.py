@@ -66,6 +66,7 @@ from graphs.hardware.cycle_energy import (
     format_mode_comparison_table,
     SweepResult,
 )
+from graphs.hardware.technology_profile import DEFAULT_PROFILE
 
 
 def get_mode_memory_sizes():
@@ -384,9 +385,9 @@ def run_stored_program_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     for ops in scales:
         bytes_transferred = ops * bytes_per_op
 
-        cpu = build_cpu_cycle_energy(ops, bytes_transferred, mode=mode)
-        gpu = build_gpu_cycle_energy(ops, bytes_transferred, mode=mode)
-        dsp = build_dsp_cycle_energy(ops, bytes_transferred, mode=mode)
+        cpu = build_cpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=DEFAULT_PROFILE)
+        gpu = build_gpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=DEFAULT_PROFILE)
+        dsp = build_dsp_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=DEFAULT_PROFILE)
 
         results.append({
             'ops': ops,
@@ -469,9 +470,9 @@ def run_stored_program_mode_sweep(num_ops: int = 1000, bytes_transferred: int = 
     results = []
 
     for mode in modes:
-        cpu = build_cpu_cycle_energy(num_ops, bytes_transferred, mode=mode)
-        gpu = build_gpu_cycle_energy(num_ops, bytes_transferred, mode=mode)
-        dsp = build_dsp_cycle_energy(num_ops, bytes_transferred, mode=mode)
+        cpu = build_cpu_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=DEFAULT_PROFILE)
+        gpu = build_gpu_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=DEFAULT_PROFILE)
+        dsp = build_dsp_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=DEFAULT_PROFILE)
 
         notes = ""
         if mode == OperatingMode.L1_RESIDENT:
@@ -638,10 +639,13 @@ Examples:
         print(f"  Default hit ratios: L1={defaults.l1_hit:.0%}, L2={defaults.l2_hit:.0%}, L3={defaults.l3_hit:.0%}")
 
     # Build cycle energy breakdowns using shared code
-    cpu_breakdown = build_cpu_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios, verbose=args.verbose)
+    cpu_breakdown = build_cpu_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios,
+                                            tech_profile=DEFAULT_PROFILE, verbose=args.verbose)
     gpu_breakdown = build_gpu_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios,
-                                            concurrent_threads=args.threads, verbose=args.verbose)
-    dsp_breakdown = build_dsp_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios, verbose=args.verbose)
+                                            concurrent_threads=args.threads,
+                                            tech_profile=DEFAULT_PROFILE, verbose=args.verbose)
+    dsp_breakdown = build_dsp_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios,
+                                            tech_profile=DEFAULT_PROFILE, verbose=args.verbose)
 
     breakdowns = [cpu_breakdown, gpu_breakdown, dsp_breakdown]
 

@@ -27,7 +27,10 @@ Key characteristics:
   - Synchronization (barriers, divergence)
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphs.hardware.technology_profile import TechnologyProfile
 
 from .base import (
     CyclePhase,
@@ -38,59 +41,10 @@ from .base import (
 )
 
 
-# GPU Energy Parameters (based on NVIDIA H100 / modern datacenter GPUs)
-# Process: 4nm (TSMC)
-# Frequency: 1.8-2.0 GHz
-# Voltage: ~0.8V
-
-GPU_ENERGY_PARAMS = {
-    # Instruction overhead (amortized across warp)
-    'instruction_fetch_pj': 2.0,      # Per warp (shared by 32 threads)
-    'instruction_decode_pj': 0.5,     # SIMT decode + predication
-    'instructions_per_op': 0.1,       # Amortized across 32 threads
-
-    # Register file (256KB per SM, banked)
-    'register_access_pj': 0.6,        # Per access (banked structure)
-
-    # Execution units
-    'tensor_core_mac_pj': 0.3,        # Tensor Core MAC (FP16/BF16)
-    'cuda_core_mac_pj': 0.8,          # CUDA Core MAC (FP32)
-    'tensor_core_utilization': 0.8,   # Fraction using Tensor Cores
-
-    # SIMT Fixed Overhead (per kernel invocation)
-    'kernel_launch_pj': 100_000.0,    # ~100 nJ per kernel launch
-    'sm_activation_pj': 5_000.0,      # Per SM activation
-    'memory_controller_pj': 50_000.0, # Memory subsystem setup
-
-    # SIMT Variable Overhead
-    'warp_scheduler_pj': 0.5,         # Per scheduling decision
-    'thread_context_pj': 0.2,         # Per thread context access
-    'scoreboard_pj': 0.3,             # Per dependency check
-
-    # Coherence (L2+ modes only)
-    'request_queue_pj': 1.0,          # Per request enqueue
-    'coalesce_pj': 0.8,               # Address coalescing
-    'l1_tag_pj': 0.5,                 # L1 tag lookup
-    'l2_directory_pj': 1.5,           # L2 coherence directory
-    'ordering_pj': 0.3,               # Memory ordering
-
-    # Coherence (L1 mode - shared memory)
-    'bank_conflict_pj': 0.3,          # Bank conflict check
-
-    # Synchronization
-    'divergence_mask_pj': 1.0,        # Warp divergence
-    'reconverge_pj': 2.0,             # Reconvergence stack
-    'barrier_pj': 10.0,               # Thread block barrier
-    'atomic_pj': 5.0,                 # Atomic operation
-
-    # Memory hierarchy (per byte)
-    'shared_l1_pj_per_byte': 0.25,    # Shared memory / L1 unified
-    'l2_cache_pj_per_byte': 0.8,      # L2 cache
-    'hbm_pj_per_byte': 10.0,          # HBM2/HBM3
-
-    # Divergence rate
-    'warp_divergence_rate': 0.05,     # 5% of ops cause divergence
-}
+# NOTE: Energy parameters are now REQUIRED via TechnologyProfile.
+# The hardcoded GPU_ENERGY_PARAMS dict has been removed to eliminate
+# dual sources of energy definitions. Use a TechnologyProfile instance
+# (e.g., DEFAULT_PROFILE from technology_profile.py) for all energy values.
 
 
 def build_gpu_cycle_energy(
@@ -99,6 +53,7 @@ def build_gpu_cycle_energy(
     mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     hit_ratios: Optional[HitRatios] = None,
     concurrent_threads: int = 200_000,
+    tech_profile: 'TechnologyProfile' = None,
     verbose: bool = False
 ) -> CycleEnergyBreakdown:
     """
@@ -110,6 +65,7 @@ def build_gpu_cycle_energy(
         mode: Operating mode (L1, L2, or DRAM resident - GPU has no L3)
         hit_ratios: Custom hit ratios (uses defaults for mode if None)
         concurrent_threads: Number of concurrent GPU threads
+        tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
 
     Returns:
@@ -120,7 +76,26 @@ def build_gpu_cycle_energy(
     - SIMT overhead scales with thread count
     - Coherence overhead depends on mode (minimal in L1/shared memory)
     - Memory access through Shared/L1 -> L2 -> HBM hierarchy
+
+    Technology Profile (REQUIRED):
+        A TechnologyProfile must be provided to specify energy parameters.
+        Use DEFAULT_PROFILE for typical datacenter values.
+
+        Example:
+            from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3
+            breakdown = build_gpu_cycle_energy(
+                num_ops=1000,
+                tech_profile=DATACENTER_4NM_HBM3
+            )
+
+    Raises:
+        ValueError: If tech_profile is not provided.
     """
+    if tech_profile is None:
+        raise ValueError(
+            "tech_profile is required. Use DEFAULT_PROFILE from "
+            "graphs.hardware.technology_profile or provide a specific profile."
+        )
     # GPU has no L3 cache - L3 mode should behave like DRAM mode
     # (L2 misses go directly to HBM)
     effective_mode = mode
@@ -128,7 +103,55 @@ def build_gpu_cycle_energy(
         effective_mode = OperatingMode.DRAM_RESIDENT
 
     ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[effective_mode]
-    params = GPU_ENERGY_PARAMS
+
+    # Derive all energy parameters from technology profile
+    process_scale = tech_profile.process_node_nm / 4.0  # 4nm is baseline for GPU
+    params = {
+        # Instruction overhead (amortized across warp)
+        'instruction_fetch_pj': tech_profile.instruction_fetch_energy_pj,
+        'instruction_decode_pj': tech_profile.instruction_decode_energy_pj,
+        'instructions_per_op': 0.1,  # Fixed: amortized across 32 threads
+
+        # Register file
+        'register_access_pj': tech_profile.register_read_energy_pj * 0.25,  # GPU regs simpler
+
+        # Execution units
+        'tensor_core_mac_pj': tech_profile.tensor_core_mac_energy_pj,
+        'cuda_core_mac_pj': tech_profile.base_alu_energy_pj,
+        'tensor_core_utilization': 0.8,
+
+        # SIMT Fixed Overhead (scales with process)
+        'kernel_launch_pj': 100_000.0 * process_scale,
+        'sm_activation_pj': 5_000.0 * process_scale,
+        'memory_controller_pj': 50_000.0 * process_scale,
+
+        # SIMT Variable Overhead
+        'warp_scheduler_pj': 0.5 * process_scale,
+        'thread_context_pj': 0.2 * process_scale,
+        'scoreboard_pj': 0.3 * process_scale,
+
+        # Coherence
+        'request_queue_pj': tech_profile.coherence_energy_per_request_pj,
+        'coalesce_pj': 0.8 * process_scale,
+        'l1_tag_pj': 0.5 * process_scale,
+        'l2_directory_pj': 1.5 * process_scale,
+        'ordering_pj': 0.3 * process_scale,
+        'bank_conflict_pj': 0.3 * process_scale,
+
+        # Synchronization
+        'divergence_mask_pj': tech_profile.warp_divergence_energy_pj,
+        'reconverge_pj': 2.0 * process_scale,
+        'barrier_pj': tech_profile.barrier_sync_energy_pj,
+        'atomic_pj': 5.0 * process_scale,
+
+        # Memory hierarchy (per byte)
+        'shared_l1_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
+        'l2_cache_pj_per_byte': tech_profile.l2_cache_energy_per_byte_pj,
+        'hbm_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
+
+        # Divergence rate
+        'warp_divergence_rate': 0.05,
+    }
 
     breakdown = CycleEnergyBreakdown(
         architecture_name="GPU (NVIDIA H100 / Jetson)",

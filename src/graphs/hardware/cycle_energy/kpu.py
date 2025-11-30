@@ -55,7 +55,10 @@ Theoretical Foundation:
 - Uniform dependencies map to physical PE-to-PE distances
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphs.hardware.technology_profile import TechnologyProfile
 
 from .base import (
     CyclePhase,
@@ -66,56 +69,10 @@ from .base import (
 )
 
 
-# KPU Energy Parameters (based on Stillwater KPU-T64 / Domain Flow Architecture)
-# Process: 16nm (edge), moving to 7nm for higher tiers
-# Frequency: 900 MHz (T64), 1.4 GHz (T256)
-# Voltage: ~0.8V
-
-KPU_ENERGY_PARAMS = {
-    # Tile array configuration (T64 baseline)
-    'num_tiles': 64,                  # 8x8 heterogeneous tile array
-    'int8_tiles': 44,                 # 70% INT8 tiles
-    'bf16_tiles': 13,                 # 20% BF16 tiles
-    'matrix_tiles': 7,                # 10% Matrix tiles
-
-    # Domain Flow overhead (per inference / domain program execution)
-    # These are one-time costs, NOT per-operation
-    'domain_program_load_pj': 500.0,  # Load domain flow program (once per layer)
-    'domain_tracker_pj': 20.0,        # Domain tracking per tile activation
-    'network_overlay_pj': 100.0,      # Configure SURE network overlay
-
-    # Stream processing (continuous data flow)
-    'stream_setup_pj': 50.0,          # Stream buffer initialization
-    'stream_sync_pj': 10.0,           # Inter-tile synchronization
-    'stream_pj_per_byte': 0.15,       # Per-byte streaming (very efficient)
-
-    # Domain Flow compute (extremely efficient - no instruction fetch!)
-    'mac_int8_pj': 0.25,              # INT8 MAC in domain flow tile
-    'mac_bf16_pj': 0.40,              # BF16 MAC
-    'mac_fp32_pj': 0.80,              # FP32 MAC (less common)
-    'accumulator_pj': 0.08,           # Per accumulation
-    'activation_pj': 0.12,            # Per activation (ReLU/etc)
-
-    # Workload mix (typical AI inference)
-    'int8_fraction': 0.70,            # 70% INT8 ops
-    'bf16_fraction': 0.20,            # 20% BF16 ops
-    'fp32_fraction': 0.10,            # 10% FP32 ops
-
-    # Distributed scratchpad memory (256KB per tile - no cache tags!)
-    'scratchpad_read_pj_per_byte': 0.2,   # L1 scratchpad read
-    'scratchpad_write_pj_per_byte': 0.3,  # L1 scratchpad write
-    'l2_sram_pj_per_byte': 0.7,           # Tile-local L2 SRAM
-    'l3_sram_pj_per_byte': 1.5,           # Shared L3 SRAM
-    'dram_pj_per_byte': 12.0,             # LPDDR5 (edge devices)
-
-    # Efficiency factors (Domain Flow advantage)
-    'tile_utilization': 0.85,         # 85% typical (near 100% at batch=1!)
-    'pipeline_efficiency': 0.90,      # Minimal pipeline bubbles
-    'domain_flow_efficiency': 0.95,   # SURE execution efficiency
-
-    # Tiling overhead (when data doesn't fit in 256KB scratchpad)
-    'tiling_overhead_per_iteration': 0.10,  # 10% overhead per tiling iteration
-}
+# NOTE: Energy parameters are now REQUIRED via TechnologyProfile.
+# The hardcoded KPU_ENERGY_PARAMS dict has been removed to eliminate
+# dual sources of energy definitions. Use a TechnologyProfile instance
+# (e.g., DEFAULT_PROFILE from technology_profile.py) for all energy values.
 
 
 def build_kpu_cycle_energy(
@@ -124,6 +81,7 @@ def build_kpu_cycle_energy(
     mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     hit_ratios: Optional[HitRatios] = None,
     num_layers: int = 1,
+    tech_profile: 'TechnologyProfile' = None,
     verbose: bool = False
 ) -> CycleEnergyBreakdown:
     """
@@ -135,6 +93,7 @@ def build_kpu_cycle_energy(
         mode: Operating mode (L1/SRAM or DRAM resident)
         hit_ratios: Custom hit ratios (uses defaults for mode if None)
         num_layers: Number of neural network layers (affects domain program loads)
+        tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
 
     Returns:
@@ -158,9 +117,72 @@ def build_kpu_cycle_energy(
     - Near 100% utilization at batch=1 (TPU: 10-20%)
     - Overlapped compute/data movement (no fill/drain bubbles)
     - Programmable spatial schedule (not fixed function)
+
+    Technology Profile (REQUIRED):
+        A TechnologyProfile must be provided to specify energy parameters.
+        Use DEFAULT_PROFILE for typical datacenter values.
+
+        Example:
+            from graphs.hardware.technology_profile import EDGE_8NM_LPDDR5
+            breakdown = build_kpu_cycle_energy(
+                num_ops=1000,
+                tech_profile=EDGE_8NM_LPDDR5
+            )
+
+    Raises:
+        ValueError: If tech_profile is not provided.
     """
+    if tech_profile is None:
+        raise ValueError(
+            "tech_profile is required. Use DEFAULT_PROFILE from "
+            "graphs.hardware.technology_profile or provide a specific profile."
+        )
     ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[mode]
-    params = KPU_ENERGY_PARAMS
+
+    # Derive all energy parameters from technology profile
+    process_scale = tech_profile.process_node_nm / 16.0  # 16nm is baseline for KPU
+    params = {
+        # Tile array configuration (fixed)
+        'num_tiles': 64,
+        'int8_tiles': 44,
+        'bf16_tiles': 13,
+        'matrix_tiles': 7,
+
+        # Domain Flow overhead (scales with process)
+        'domain_program_load_pj': 500.0 * process_scale,
+        'domain_tracker_pj': 20.0 * process_scale,
+        'network_overlay_pj': 100.0 * process_scale,
+
+        # Stream processing
+        'stream_setup_pj': 50.0 * process_scale,
+        'stream_sync_pj': 10.0 * process_scale,
+        'stream_pj_per_byte': tech_profile.sram_energy_per_byte_pj * 0.5,
+
+        # Domain Flow compute (uses domain flow MAC energy from profile)
+        'mac_int8_pj': tech_profile.domain_flow_mac_energy_pj * 0.5,  # INT8 is cheaper
+        'mac_bf16_pj': tech_profile.domain_flow_mac_energy_pj * 0.8,
+        'mac_fp32_pj': tech_profile.domain_flow_mac_energy_pj * 1.6,
+        'accumulator_pj': tech_profile.domain_flow_mac_energy_pj * 0.16,
+        'activation_pj': tech_profile.domain_flow_mac_energy_pj * 0.24,
+
+        # Workload mix (fixed)
+        'int8_fraction': 0.70,
+        'bf16_fraction': 0.20,
+        'fp32_fraction': 0.10,
+
+        # Memory hierarchy
+        'scratchpad_read_pj_per_byte': tech_profile.sram_energy_per_byte_pj * 0.8,
+        'scratchpad_write_pj_per_byte': tech_profile.sram_energy_per_byte_pj * 1.2,
+        'l2_sram_pj_per_byte': tech_profile.l2_cache_energy_per_byte_pj,
+        'l3_sram_pj_per_byte': tech_profile.l3_cache_energy_per_byte_pj,
+        'dram_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
+
+        # Efficiency factors (fixed)
+        'tile_utilization': 0.85,
+        'pipeline_efficiency': 0.90,
+        'domain_flow_efficiency': 0.95,
+        'tiling_overhead_per_iteration': 0.10,
+    }
 
     breakdown = CycleEnergyBreakdown(
         architecture_name="KPU (Stillwater Domain Flow)",
@@ -329,57 +351,95 @@ def build_kpu_cycle_energy(
     )
 
     # ==========================================================================
-    # MEMORY ACCESS (Distributed Scratchpads + Shared SRAM)
+    # EDDO SCRATCHPAD HIERARCHY (Software-Managed, NOT caches!)
     # ==========================================================================
-    # KPU uses distributed scratchpads (256KB/tile) - NO cache tags!
-    # No coherence overhead like GPU
-    # No cache miss penalties like CPU
+    # EDDO = Explicit Data Distribution and Orchestration
+    #
+    # KPU uses SOFTWARE-MANAGED scratchpads - NOT hardware-managed caches:
+    # - Tile Scratchpad: 256KB per tile, directly addressed (no tags!)
+    # - Global Scratchpad: Shared SRAM across tile groups
+    # - Streaming Buffer: DMA staging for off-chip transfers
+    #
+    # Key differences from cache hierarchy:
+    # - No tag lookup energy (scratchpads are directly addressed)
+    # - No coherence protocol (explicit data distribution)
+    # - No cache misses (compiler pre-stages all data)
+    # - Deterministic timing (no variable miss latencies)
+    #
+    # The compiler determines data placement at compile time (EDDO).
+    # Data is proactively staged before it's needed - no reactive fetching.
 
-    scratchpad_bytes = int(bytes_transferred * ratios.l1_hit)
-    l2_bytes = int((bytes_transferred - scratchpad_bytes) * ratios.l2_hit)
-    remaining = bytes_transferred - scratchpad_bytes - l2_bytes
-    l3_bytes = int(remaining * ratios.l3_hit) if mode != OperatingMode.L1_RESIDENT else 0
-    dram_bytes = remaining - l3_bytes
+    # EDDO data distribution (compiler-determined, not hit-rate based)
+    # For modeling purposes, we use similar ratios but interpret them differently:
+    # - "l1_hit" -> fraction in tile scratchpad (pre-staged by compiler)
+    # - "l2_hit" -> fraction in global scratchpad
+    # - "l3_hit" -> fraction in streaming buffer
+    # - remainder -> DRAM via DMA
+
+    tile_scratchpad_bytes = int(bytes_transferred * ratios.l1_hit)
+    global_scratchpad_bytes = int((bytes_transferred - tile_scratchpad_bytes) * ratios.l2_hit)
+    remaining = bytes_transferred - tile_scratchpad_bytes - global_scratchpad_bytes
+    streaming_buffer_bytes = int(remaining * ratios.l3_hit) if mode != OperatingMode.L1_RESIDENT else 0
+    dram_bytes = remaining - streaming_buffer_bytes
 
     is_scratchpad_resident = (mode == OperatingMode.L1_RESIDENT)
 
-    if scratchpad_bytes > 0:
+    # Tile Scratchpad (per-tile local SRAM, 256KB/tile)
+    # Directly addressed - NO tag lookup energy!
+    if tile_scratchpad_bytes > 0:
         if is_scratchpad_resident:
-            desc = "Distributed scratchpads (256KB/tile, 100% resident)"
+            desc = "Tile scratchpad (256KB/tile, EDDO pre-staged)"
         else:
-            desc = f"Distributed scratchpads ({int(ratios.l1_hit * 100)}% hit)"
+            desc = f"Tile scratchpad (EDDO, {tile_scratchpad_bytes/1024:.1f}KB)"
 
-        # Split between read and write
-        read_bytes = scratchpad_bytes // 2
-        write_bytes = scratchpad_bytes - read_bytes
+        # Scratchpad energy: ~60% of cache energy (no tags, no coherence)
+        scratchpad_energy = (params['scratchpad_read_pj_per_byte'] +
+                           params['scratchpad_write_pj_per_byte']) / 2
 
         breakdown.add_event(
-            CyclePhase.MEM_SRAM,
+            CyclePhase.EDDO_TILE_SCRATCHPAD,
             desc,
-            (params['scratchpad_read_pj_per_byte'] + params['scratchpad_write_pj_per_byte']) / 2,
-            scratchpad_bytes
+            scratchpad_energy,
+            tile_scratchpad_bytes
         )
 
-    if l2_bytes > 0:
+    # Global Scratchpad (shared SRAM across tile groups)
+    # Software-managed, no coherence protocol
+    if global_scratchpad_bytes > 0:
         breakdown.add_event(
-            CyclePhase.MEM_L2,
-            f"Tile-local L2 SRAM ({l2_bytes} bytes)",
-            params['l2_sram_pj_per_byte'],
-            l2_bytes
+            CyclePhase.EDDO_GLOBAL_SCRATCHPAD,
+            f"Global scratchpad (EDDO, {global_scratchpad_bytes/1024:.1f}KB)",
+            params['l2_sram_pj_per_byte'] * 0.5,  # 50% of cache energy (no tags)
+            global_scratchpad_bytes
         )
 
-    if l3_bytes > 0:
+    # Streaming Buffer (DMA staging area for off-chip transfers)
+    # FIFO access pattern, no tag lookup needed
+    if streaming_buffer_bytes > 0:
         breakdown.add_event(
-            CyclePhase.MEM_L3,
-            f"Shared L3 SRAM ({l3_bytes} bytes)",
-            params['l3_sram_pj_per_byte'],
-            l3_bytes
+            CyclePhase.EDDO_STREAMING_BUFFER,
+            f"Streaming buffer (DMA staging, {streaming_buffer_bytes/1024:.1f}KB)",
+            params['l3_sram_pj_per_byte'] * 0.4,  # 40% of cache energy (FIFO, no tags)
+            streaming_buffer_bytes
         )
 
+    # DRAM access via DMA (double-buffered, overlapped with compute)
     if dram_bytes > 0:
+        # DMA descriptor setup (per 4KB block)
+        dma_block_size = 4096
+        num_dma_transfers = max(1, dram_bytes // dma_block_size)
+        dma_setup_energy = 5.0 * (tech_profile.process_node_nm / 7.0)  # pJ per descriptor
+
+        breakdown.add_event(
+            CyclePhase.EDDO_DMA_SETUP,
+            f"DMA setup ({num_dma_transfers} transfers)",
+            dma_setup_energy,
+            num_dma_transfers
+        )
+
         breakdown.add_event(
             CyclePhase.MEM_DRAM,
-            f"LPDDR5 ({dram_bytes} bytes)",
+            f"DRAM via DMA ({dram_bytes/1024:.1f}KB, double-buffered)",
             params['dram_pj_per_byte'],
             dram_bytes
         )

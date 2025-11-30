@@ -29,6 +29,12 @@ from graphs.hardware.architectural_energy import (
     DomainFlowEnergyModel,
     DataFlowMachineEnergyModel,
 )
+from graphs.hardware.technology_profile import (
+    DEFAULT_PROFILE,
+    DATACENTER_4NM_HBM3,
+    DATACENTER_7NM_DDR5,
+    EDGE_8NM_LPDDR5,
+)
 
 
 def demonstrate_architectural_energy_comparison():
@@ -77,10 +83,9 @@ def demonstrate_architectural_energy_comparison():
     print("-" * 80)
     print()
 
+    # Use DATACENTER_7NM_DDR5 profile for CPU (server-class)
     cpu_model = StoredProgramEnergyModel(
-        instruction_fetch_energy=2.0e-12,
-        operand_fetch_overhead=10.0e-12,
-        branch_prediction_overhead=0.3e-12,
+        tech_profile=DATACENTER_7NM_DDR5
     )
 
     cpu_context = {
@@ -112,13 +117,9 @@ def demonstrate_architectural_energy_comparison():
     print("-" * 80)
     print()
 
+    # Use DATACENTER_4NM_HBM3 profile for GPU (H100-class)
     gpu_model = DataParallelEnergyModel(
-        instruction_fetch_energy=2.0e-12,
-        operand_fetch_overhead=10.0e-12,
-        coherence_energy_per_request=5.0e-12,  # GPU-specific!
-        thread_scheduling_overhead=1.0e-12,
-        warp_divergence_penalty=3.0e-12,
-        memory_coalescing_overhead=2.0e-12,
+        tech_profile=DATACENTER_4NM_HBM3
     )
 
     gpu_context = {
@@ -152,12 +153,9 @@ def demonstrate_architectural_energy_comparison():
     print("-" * 80)
     print()
 
+    # Use DATACENTER_7NM_DDR5 profile for TPU (Google TPU v4)
     tpu_model = SystolicArrayEnergyModel(
-        schedule_setup_energy=100.0e-12,
-        data_injection_per_element=0.5e-12,
-        data_extraction_per_element=0.5e-12,
-        compute_efficiency=0.15,  # 85% reduction!
-        memory_efficiency=0.20,   # 80% reduction!
+        tech_profile=DATACENTER_7NM_DDR5
     )
 
     tpu_context = {}
@@ -187,15 +185,9 @@ def demonstrate_architectural_energy_comparison():
     print("-" * 80)
     print()
 
+    # Use EDGE_8NM_LPDDR5 profile for KPU (edge device class)
     kpu_model = DomainFlowEnergyModel(
-        domainflow_tracking_per_op=1.0e-12,
-
-        dataflow_adaptation_energy=50.0e-12,
-        domain_data_injection=0.5e-12,
-        domain_data_extraction=0.5e-12,
-        domain_data_overfetch_factor=1.1,
-        compute_efficiency=0.75,
-        memory_efficiency=0.75,
+        tech_profile=EDGE_8NM_LPDDR5
     )
 
     kpu_context = {

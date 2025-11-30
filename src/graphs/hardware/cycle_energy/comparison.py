@@ -23,7 +23,7 @@ COL_WIDTH = 22
 
 
 def format_energy(energy_pj: float, show_na: bool = True) -> str:
-    """Format energy value with appropriate unit."""
+    """Format energy value with appropriate unit (auto-scaling)."""
     if energy_pj == 0.0 and show_na:
         return "n/a"
     elif energy_pj < 1000:
@@ -34,6 +34,61 @@ def format_energy(energy_pj: float, show_na: bool = True) -> str:
         return f"{energy_pj/1_000_000:.2f} uJ"
     else:
         return f"{energy_pj/1_000_000_000:.2f} mJ"
+
+
+# Energy scale definitions (all relative to pJ)
+ENERGY_SCALES = [
+    ('fJ', 1e-3),      # femtojoules
+    ('pJ', 1.0),       # picojoules (base)
+    ('nJ', 1e3),       # nanojoules
+    ('uJ', 1e6),       # microjoules
+    ('mJ', 1e9),       # millijoules
+    ('J',  1e12),      # joules
+]
+
+
+def determine_common_scale(values_pj: List[float]) -> tuple:
+    """
+    Determine the best common scale for a list of energy values.
+
+    Returns:
+        Tuple of (unit_name, divisor) where divisor converts pJ to the unit.
+
+    Strategy: Find the scale where the smallest non-zero value is >= 1.0
+    and the largest value is reasonably displayed (< 10000 preferred).
+    """
+    # Filter out zeros and get min/max
+    non_zero = [v for v in values_pj if v > 0]
+    if not non_zero:
+        return ('pJ', 1.0)
+
+    min_val = min(non_zero)
+    max_val = max(non_zero)
+
+    # Find the scale where min_val >= 0.1 (so we get at least one significant digit)
+    best_scale = ('pJ', 1.0)
+    for unit_name, divisor in ENERGY_SCALES:
+        scaled_min = min_val / divisor
+        scaled_max = max_val / divisor
+        # We want min >= 0.1 and max < 100000 for readable output
+        if scaled_min >= 0.1 and scaled_max < 100000:
+            best_scale = (unit_name, divisor)
+            break
+
+    return best_scale
+
+
+def format_energy_with_scale(energy_pj: float, divisor: float, decimals: int = 2) -> str:
+    """Format energy value using a specific scale (no unit suffix)."""
+    if energy_pj == 0.0:
+        return "0"
+    scaled = energy_pj / divisor
+    if scaled >= 100:
+        return f"{scaled:.0f}"
+    elif scaled >= 10:
+        return f"{scaled:.1f}"
+    else:
+        return f"{scaled:.{decimals}f}"
 
 
 def format_phase_breakdown(

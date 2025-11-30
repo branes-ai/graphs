@@ -1136,35 +1136,15 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     """
     from ..models.datacenter.intel_xeon_platinum_8490h import intel_xeon_platinum_8490h_resource_model
     from ..architectural_energy import StoredProgramEnergyModel
+    from ..technology_profile import DATACENTER_7NM_DDR5
 
     model = intel_xeon_platinum_8490h_resource_model()
 
     # Configure architectural energy model for CPU (STORED_PROGRAM)
-    # High-performance datacenter CPU (2.0-3.5 GHz, 60 cores)
+    # Energy parameters derived from DATACENTER_7NM_DDR5 profile
+    # (Intel 4 process is approximately 7nm equivalent)
     model.architecture_energy_model = StoredProgramEnergyModel(
-        # Instruction Pipeline (Fetch → Decode → Dispatch)
-        instruction_fetch_energy=2.0e-12,       # ~2.0 pJ per instruction (I-cache read)
-        instruction_decode_energy=0.9e-12,      # ~0.9 pJ per instruction (complex decode)
-        instruction_dispatch_energy=0.5e-12,    # ~0.5 pJ per instruction (control signals)
-
-        # Register File (high-frequency datacenter CPU)
-        register_file_read_energy=2.8e-12,      # ~2.8 pJ per read (high-freq)
-        register_file_write_energy=3.2e-12,     # ~3.2 pJ per write
-
-        # 3-Stage Memory Hierarchy (no L3 LLC on some configs, uses shared L2)
-        l1_cache_energy_per_byte=1.2e-12,       # ~1.2 pJ (48 KB per core)
-        l2_cache_energy_per_byte=2.8e-12,       # ~2.8 pJ (2 MB per core)
-        l3_cache_energy_per_byte=6.0e-12,       # ~6.0 pJ (105 MB shared LLC)
-        dram_energy_per_byte=22.0e-12,          # ~22 pJ (DDR5-4800, 8-channel)
-
-        # Cache hit rates (AI workloads)
-        l1_hit_rate=0.82,                       # 82% L1 hits
-        l2_hit_rate=0.88,                       # 88% L2 hits (of L1 misses)
-        l3_hit_rate=0.94,                       # 94% L3 hits (of L2 misses)
-
-        # ALU and branch prediction
-        alu_energy_per_op=4.5e-12,              # ~4.5 pJ per FLOP (high-freq)
-        branch_prediction_overhead=0.3e-12,     # ~0.3 pJ per branch
+        tech_profile=DATACENTER_7NM_DDR5
     )
 
     return CPUMapper(model)
@@ -1607,39 +1587,14 @@ def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
     """
     from ..models.edge.jetson_orin_agx_cpu import jetson_orin_agx_cpu_resource_model
     from ..architectural_energy import StoredProgramEnergyModel
+    from ..technology_profile import EDGE_8NM_LPDDR5
 
     model = jetson_orin_agx_cpu_resource_model()
 
     # Configure enhanced Stored Program Architecture energy model for ARM CPU
-    # HIGH FREQUENCY (2.2 GHz) = MUCH HIGHER ENERGY than low-freq accelerators!
+    # Energy parameters derived from EDGE_8NM_LPDDR5 profile (Jetson Orin class)
     model.architecture_energy_model = StoredProgramEnergyModel(
-        # Instruction Pipeline (Fetch → Decode → Dispatch)
-        instruction_fetch_energy=1.5e-12,       # ~1.5 pJ per instruction (I-cache read)
-        instruction_decode_energy=0.8e-12,      # ~0.8 pJ per instruction (decode logic)
-        instruction_dispatch_energy=0.5e-12,    # ~0.5 pJ per instruction (control signals)
-
-        # Register File (CRITICAL: high-freq = 3-4× more energy!)
-        register_file_read_energy=2.5e-12,      # ~2.5 pJ per read (2.2 GHz operation)
-        register_file_write_energy=3.0e-12,     # ~3.0 pJ per write (write is more expensive)
-
-        # 4-Stage Memory Hierarchy (high-freq = higher energy per access)
-        l1_cache_energy_per_byte=1.0e-12,       # ~1.0 pJ (64 KB per core, high freq)
-        l2_cache_energy_per_byte=2.5e-12,       # ~2.5 pJ (512 KB per core)
-        l3_cache_energy_per_byte=5.0e-12,       # ~5.0 pJ (2 MB shared LLC)
-        dram_energy_per_byte=20.0e-12,          # ~20 pJ (LPDDR5)
-
-        # Cache hit rates (conservative for AI workloads)
-        l1_hit_rate=0.85,                       # 85% L1 hits
-        l2_hit_rate=0.90,                       # 90% L2 hits (of L1 misses)
-        l3_hit_rate=0.95,                       # 95% L3 hits (of L2 misses)
-
-        # ALU Energy (HIGH FREQUENCY = 3-5× GPU/KPU!)
-        alu_energy_per_op=4.0e-12,              # ~4.0 pJ per FP op (2.2 GHz, complex OOO)
-
-        # Instruction Mix (NEON SIMD-optimized)
-        instructions_per_op=2.0,                # ~2 instructions per FLOP (load, compute, store)
-        branches_per_1000_ops=50,               # ~50 branches per 1000 ops
-        branch_prediction_overhead=0.4e-12,     # ~0.4 pJ per branch
+        tech_profile=EDGE_8NM_LPDDR5
     )
 
     return CPUMapper(model, thermal_profile=thermal_profile)

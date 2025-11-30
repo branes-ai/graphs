@@ -29,7 +29,10 @@ DSP is NOT fundamentally more efficient per operation - it trades
 performance for power by running at lower voltage/frequency.
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphs.hardware.technology_profile import TechnologyProfile
 
 from .base import (
     CyclePhase,
@@ -40,35 +43,10 @@ from .base import (
 )
 
 
-# DSP Energy Parameters (based on Qualcomm Hexagon / TI C7x)
-# Process: 5-7nm
-# Frequency: 1.0-1.5 GHz
-# Voltage: ~0.7V
-
-DSP_ENERGY_PARAMS = {
-    # VLIW instruction overhead
-    'vliw_fetch_pj': 2.5,             # VLIW bundle (256-512 bit)
-    'vliw_decode_pj': 0.8,            # 4-wide parallel decode
-    'vliw_width': 4,                  # Operations per VLIW bundle
-
-    # Register file (VLIW needs many ports: 8+ read, 4 write)
-    'register_read_pj': 1.5,          # Per read (more ports than CPU!)
-    'register_write_pj': 1.8,         # Per write
-
-    # Execution units
-    'tensor_mac_pj': 0.4,             # Tensor/MAC unit (INT8/INT16)
-    'vector_op_pj': 0.8,              # Vector unit (SIMD)
-    'scalar_op_pj': 2.0,              # Scalar ALU
-
-    # Workload mix (typical AI workload)
-    'mac_fraction': 0.70,             # 70% MACs
-    'vector_fraction': 0.20,          # 20% vector ops
-    'scalar_fraction': 0.10,          # 10% scalar ops
-
-    # Memory (software-managed scratchpad)
-    'scratchpad_pj_per_byte': 0.8,    # SRAM scratchpad (no tag overhead!)
-    'dram_pj_per_byte': 15.0,         # LPDDR4/5
-}
+# NOTE: Energy parameters are now REQUIRED via TechnologyProfile.
+# The hardcoded DSP_ENERGY_PARAMS dict has been removed to eliminate
+# dual sources of energy definitions. Use a TechnologyProfile instance
+# (e.g., DEFAULT_PROFILE from technology_profile.py) for all energy values.
 
 
 def build_dsp_cycle_energy(
@@ -76,6 +54,7 @@ def build_dsp_cycle_energy(
     bytes_transferred: int = 4096,
     mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     hit_ratios: Optional[HitRatios] = None,
+    tech_profile: 'TechnologyProfile' = None,
     verbose: bool = False
 ) -> CycleEnergyBreakdown:
     """
@@ -86,6 +65,7 @@ def build_dsp_cycle_energy(
         bytes_transferred: Total bytes of data accessed
         mode: Operating mode (L1 or DRAM resident - DSP has no L2/L3)
         hit_ratios: Custom hit ratios (uses defaults for mode if None)
+        tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
 
     Returns:
@@ -97,9 +77,47 @@ def build_dsp_cycle_energy(
     - BUT VLIW needs more register ports
     - Software scratchpad eliminates tag lookup energy
     - No L2/L3 means DRAM penalty for large working sets
+
+    Technology Profile (REQUIRED):
+        A TechnologyProfile must be provided to specify energy parameters.
+        Use DEFAULT_PROFILE for typical datacenter values.
+
+    Raises:
+        ValueError: If tech_profile is not provided.
     """
+    if tech_profile is None:
+        raise ValueError(
+            "tech_profile is required. Use DEFAULT_PROFILE from "
+            "graphs.hardware.technology_profile or provide a specific profile."
+        )
     ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[mode]
-    params = DSP_ENERGY_PARAMS
+
+    # Derive all energy parameters from technology profile
+    process_scale = tech_profile.process_node_nm / 7.0  # 7nm is baseline for DSP
+    params = {
+        # VLIW instruction overhead
+        'vliw_fetch_pj': tech_profile.instruction_fetch_energy_pj * 1.25,  # Wider instruction
+        'vliw_decode_pj': tech_profile.instruction_decode_energy_pj,
+        'vliw_width': 4,  # Operations per VLIW bundle
+
+        # Register file (VLIW needs many ports: 8+ read, 4 write)
+        'register_read_pj': tech_profile.register_read_energy_pj * 0.6,  # Lower freq
+        'register_write_pj': tech_profile.register_write_energy_pj * 0.6,
+
+        # Execution units
+        'tensor_mac_pj': tech_profile.tensor_core_mac_energy_pj,
+        'vector_op_pj': tech_profile.simd_mac_energy_pj,
+        'scalar_op_pj': tech_profile.base_alu_energy_pj,
+
+        # Workload mix (typical AI workload)
+        'mac_fraction': 0.70,
+        'vector_fraction': 0.20,
+        'scalar_fraction': 0.10,
+
+        # Memory (software-managed scratchpad)
+        'scratchpad_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
+        'dram_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
+    }
 
     breakdown = CycleEnergyBreakdown(
         architecture_name="DSP (Qualcomm Hexagon / TI C7x)",

@@ -876,18 +876,16 @@ def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
     """
     from ...models.datacenter.tpu_v4 import tpu_v4_resource_model
     from ...architectural_energy import SystolicArrayEnergyModel
+    from ...technology_profile import DATACENTER_7NM_DDR5
 
     model = tpu_v4_resource_model()
 
     # Note: TPU v4 uses tile energy model (attached in resource model)
     # Legacy SystolicArrayEnergyModel kept for backward compatibility
+    # Energy parameters derived from DATACENTER_7NM_DDR5 profile
     if not hasattr(model, 'tile_energy_model'):
         model.architecture_energy_model = SystolicArrayEnergyModel(
-            schedule_setup_energy=100.0e-12,
-            data_injection_per_element=0.5e-12,
-            data_extraction_per_element=0.5e-12,
-            compute_efficiency=0.15,  # 85% reduction vs CPU
-            memory_efficiency=0.20,   # 80% reduction vs CPU
+            tech_profile=DATACENTER_7NM_DDR5
         )
 
     return TPUMapper(model, thermal_profile=thermal_profile)

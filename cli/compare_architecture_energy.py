@@ -58,7 +58,51 @@ from graphs.hardware.cycle_energy import (
     format_phase_breakdown,
     format_comparison_table,
     format_key_insights,
+    # Consistent-scale formatting
+    determine_common_scale,
+    format_energy_with_scale,
 )
+from graphs.hardware.technology_profile import (
+    DEFAULT_PROFILE,
+    TechnologyProfile,
+    ArchitectureComparisonSet,
+    get_architecture_comparison_set,
+    create_architecture_comparison_set,
+    ARCHITECTURE_COMPARISON_SETS,
+    CIRCUIT_TYPE_MULTIPLIER,
+    MemoryType,
+    # Legacy aliases
+    ProductCategoryProfiles,
+    get_product_category,
+    PRODUCT_CATEGORIES,
+)
+
+
+def format_comparison_set_header(comp_set: ArchitectureComparisonSet) -> str:
+    """Format header showing architecture comparison set details."""
+    cpu_mult = CIRCUIT_TYPE_MULTIPLIER.get(comp_set.cpu_circuit_type, 1.0)
+    lines = []
+    lines.append("=" * 100)
+    lines.append(f"  ARCHITECTURE COMPARISON: {comp_set.name}")
+    lines.append("=" * 100)
+    lines.append(f"  {comp_set.description}")
+    lines.append("")
+    lines.append(f"  Process Node: {comp_set.process_node_nm}nm")
+    lines.append(f"  Memory Type:  {comp_set.memory_type.value}")
+    lines.append(f"  Base ALU:     {comp_set.base_alu_energy_pj:.2f} pJ (standard cell @ {comp_set.process_node_nm}nm)")
+    lines.append("")
+    lines.append("  Circuit Type Multipliers (relative to base ALU):")
+    lines.append(f"    CPU ({comp_set.cpu_circuit_type}): {cpu_mult:.2f}x -> {comp_set.cpu_profile.base_alu_energy_pj:.2f} pJ/op")
+    lines.append(f"    GPU (tensor_core):    {CIRCUIT_TYPE_MULTIPLIER['tensor_core']:.2f}x -> {comp_set.gpu_profile.tensor_core_mac_energy_pj:.2f} pJ/op")
+    lines.append(f"    TPU (systolic_mac):   {CIRCUIT_TYPE_MULTIPLIER['systolic_mac']:.2f}x -> {comp_set.tpu_profile.systolic_mac_energy_pj:.2f} pJ/op")
+    lines.append(f"    KPU (domain_flow):    {CIRCUIT_TYPE_MULTIPLIER['domain_flow']:.2f}x -> {comp_set.kpu_profile.domain_flow_mac_energy_pj:.2f} pJ/op")
+    return "\n".join(lines)
+
+
+# Legacy alias
+def format_product_category_header(category: ProductCategoryProfiles) -> str:
+    """Legacy alias for format_comparison_set_header."""
+    return format_comparison_set_header(category)
 
 
 def format_architecture_comparison_table(
@@ -66,7 +110,7 @@ def format_architecture_comparison_table(
     mode: Optional[OperatingMode] = None,
     num_ops: int = 1000
 ) -> str:
-    """Format a comparison table for CPU/GPU/TPU/KPU."""
+    """Format a comparison table for CPU/GPU/TPU/KPU with consistent units."""
     lines = []
     lines.append("\n" + "="*100)
     if mode:
@@ -75,21 +119,35 @@ def format_architecture_comparison_table(
         lines.append("  ARCHITECTURE ENERGY COMPARISON")
     lines.append("="*100)
 
-    # Header
-    lines.append(f"\n  {'Architecture':<35} {'Total (pJ)':<15} {'Per Op':<15} {'Relative':<12}")
-    lines.append(f"  {'-'*35} {'-'*15} {'-'*15} {'-'*12}")
-
     # Find baseline (CPU) for relative comparison
     baseline_energy = breakdowns[0].total_energy_pj if breakdowns else 1.0
+
+    # Collect all energy values to determine common scale
+    total_energies = [b.total_energy_pj for b in breakdowns]
+    per_op_energies = [b.total_energy_pj / num_ops for b in breakdowns]
+
+    # Determine common scale for total energy column
+    total_unit, total_divisor = determine_common_scale(total_energies)
+
+    # Determine common scale for per-op energy column
+    per_op_unit, per_op_divisor = determine_common_scale(per_op_energies)
+
+    # Header with consistent units
+    lines.append(f"\n  {'Architecture':<35} {'Total (' + total_unit + ')':<15} {'Per Op (' + per_op_unit + ')':<15} {'Relative':<12}")
+    lines.append(f"  {'-'*35} {'-'*15} {'-'*15} {'-'*12}")
 
     for breakdown in breakdowns:
         total = breakdown.total_energy_pj
         per_op = total / num_ops
         relative = total / baseline_energy
 
+        # Format with consistent scale (no unit suffix, just the number)
+        total_str = format_energy_with_scale(total, total_divisor)
+        per_op_str = format_energy_with_scale(per_op, per_op_divisor)
+
         lines.append(f"  {breakdown.architecture_name[:35]:<35} "
-                    f"{format_energy(total):>12} "
-                    f"{format_energy(per_op):>12} "
+                    f"{total_str:>12} "
+                    f"{per_op_str:>12} "
                     f"{relative:>10.2f}x")
 
     # Add architecture class summary
@@ -140,6 +198,12 @@ def format_detailed_phase_comparison(
             ("Streaming", CyclePhase.SPATIAL_STREAM),
             ("Compute", CyclePhase.SPATIAL_COMPUTE),
             ("Interconnect", CyclePhase.SPATIAL_INTERCONNECT),
+        ]),
+        ("KPU EDDO SCRATCHPADS", [
+            ("Tile Scratchpad", CyclePhase.EDDO_TILE_SCRATCHPAD),
+            ("Global Scratchpad", CyclePhase.EDDO_GLOBAL_SCRATCHPAD),
+            ("Streaming Buffer", CyclePhase.EDDO_STREAMING_BUFFER),
+            ("DMA Setup", CyclePhase.EDDO_DMA_SETUP),
         ]),
         ("MEMORY ACCESS", [
             ("L1/SRAM", CyclePhase.MEM_L1),
@@ -209,11 +273,17 @@ def format_detailed_phase_comparison(
             if has_any:
                 lines.append(row)
 
-    # Total row
+    # Total row with consistent units across all architectures
     lines.append(f"\n  {'-'*25}" + (" " + "-"*COL_WIDTH) * len(breakdowns))
-    row = f"  {'TOTAL':<25}"
+
+    # Determine common scale for totals
+    totals = [bd.total_energy_pj for bd in breakdowns]
+    total_unit, total_divisor = determine_common_scale(totals)
+
+    row = f"  {'TOTAL (' + total_unit + ')':<25}"
     for bd in breakdowns:
-        row += f" {format_energy(bd.total_energy_pj):>{COL_WIDTH}}"
+        total_str = format_energy_with_scale(bd.total_energy_pj, total_divisor)
+        row += f" {total_str:>{COL_WIDTH}}"
     lines.append(row)
 
     return "\n".join(lines)
@@ -346,10 +416,22 @@ def format_architecture_insights(breakdowns: List[CycleEnergyBreakdown], num_ops
 
 
 def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
-                           verbose: bool = False) -> None:
+                           verbose: bool = False,
+                           category: ProductCategoryProfiles = None) -> None:
     """Run a sweep across different operation scales."""
+    # Get profiles from category or use defaults
+    if category:
+        cpu_profile = category.cpu_profile
+        gpu_profile = category.gpu_profile
+        tpu_profile = category.tpu_profile
+        kpu_profile = category.kpu_profile
+        cat_name = category.category.upper()
+    else:
+        cpu_profile = gpu_profile = tpu_profile = kpu_profile = DEFAULT_PROFILE
+        cat_name = "DEFAULT"
+
     print("\n" + "="*100)
-    print(f"  ENERGY SCALING ANALYSIS (All Architectures) - {mode.value.upper()} Mode")
+    print(f"  ENERGY SCALING ANALYSIS ({cat_name}) - {mode.value.upper()} Mode")
     print("="*100)
 
     scales = [100, 1000, 10000, 100000, 1000000]
@@ -359,10 +441,10 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     for ops in scales:
         bytes_transferred = ops * bytes_per_op
 
-        cpu = build_cpu_cycle_energy(ops, bytes_transferred, mode=mode)
-        gpu = build_gpu_cycle_energy(ops, bytes_transferred, mode=mode)
-        tpu = build_tpu_cycle_energy(ops, bytes_transferred, mode=mode)
-        kpu = build_kpu_cycle_energy(ops, bytes_transferred, mode=mode)
+        cpu = build_cpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=cpu_profile)
+        gpu = build_gpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=gpu_profile)
+        tpu = build_tpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=tpu_profile)
+        kpu = build_kpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=kpu_profile)
 
         results.append({
             'ops': ops,
@@ -439,10 +521,22 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
 
 
 def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 40960,
-                                 verbose: bool = False) -> None:
+                                 verbose: bool = False,
+                                 category: ProductCategoryProfiles = None) -> None:
     """Run a sweep across operating modes for all architectures."""
+    # Get profiles from category or use defaults
+    if category:
+        cpu_profile = category.cpu_profile
+        gpu_profile = category.gpu_profile
+        tpu_profile = category.tpu_profile
+        kpu_profile = category.kpu_profile
+        cat_name = category.category.upper()
+    else:
+        cpu_profile = gpu_profile = tpu_profile = kpu_profile = DEFAULT_PROFILE
+        cat_name = "All Architectures"
+
     print("\n" + "="*100)
-    print("  OPERATING MODE COMPARISON (All Architectures)")
+    print(f"  OPERATING MODE COMPARISON ({cat_name})")
     print("="*100)
     print(f"  Workload: {num_ops:,} ops, {bytes_transferred:,} bytes")
     print()
@@ -461,10 +555,10 @@ def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 4
     results = []
 
     for mode in modes:
-        cpu = build_cpu_cycle_energy(num_ops, bytes_transferred, mode=mode)
-        gpu = build_gpu_cycle_energy(num_ops, bytes_transferred, mode=mode)
-        tpu = build_tpu_cycle_energy(num_ops, bytes_transferred, mode=mode)
-        kpu = build_kpu_cycle_energy(num_ops, bytes_transferred, mode=mode)
+        cpu = build_cpu_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=cpu_profile)
+        gpu = build_gpu_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=gpu_profile)
+        tpu = build_tpu_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=tpu_profile)
+        kpu = build_kpu_cycle_energy(num_ops, bytes_transferred, mode=mode, tech_profile=kpu_profile)
 
         cpu_str = format_energy(cpu.total_energy_pj)
         gpu_str = format_energy(gpu.total_energy_pj)
@@ -620,35 +714,157 @@ def print_architecture_diagrams() -> None:
 """)
 
 
+def run_comparison_sweep(num_ops: int = 10000, bytes_transferred: int = 40960,
+                         mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
+                         verbose: bool = False) -> None:
+    """Compare energy across all predefined architecture comparison sets."""
+    print("\n" + "="*100)
+    print("  ARCHITECTURE COMPARISON SWEEP")
+    print("  Same workload, different process nodes and CPU types")
+    print("="*100)
+    print(f"  Workload: {num_ops:,} ops, {bytes_transferred:,} bytes")
+    print(f"  Mode: {mode.value}")
+    print()
+
+    # Collect results for each comparison set
+    results = {}
+    for set_name, comp_set in ARCHITECTURE_COMPARISON_SETS.items():
+        cpu = build_cpu_cycle_energy(num_ops, bytes_transferred, mode=mode,
+                                     tech_profile=comp_set.cpu_profile)
+        gpu = build_gpu_cycle_energy(num_ops, bytes_transferred, mode=mode,
+                                     tech_profile=comp_set.gpu_profile)
+        tpu = build_tpu_cycle_energy(num_ops, bytes_transferred, mode=mode,
+                                     tech_profile=comp_set.tpu_profile)
+        kpu = build_kpu_cycle_energy(num_ops, bytes_transferred, mode=mode,
+                                     tech_profile=comp_set.kpu_profile)
+
+        results[set_name] = {
+            'comp_set': comp_set,
+            'cpu': cpu.total_energy_pj,
+            'gpu': gpu.total_energy_pj,
+            'tpu': tpu.total_energy_pj,
+            'kpu': kpu.total_energy_pj,
+        }
+
+    # Print table
+    print(f"  {'Set':<18} {'Node':<6} {'CPU Type':<18} {'CPU':<14} {'GPU':<14} {'TPU':<14} {'KPU':<14} {'Best':<6}")
+    print(f"  {'-'*18} {'-'*6} {'-'*18} {'-'*14} {'-'*14} {'-'*14} {'-'*14} {'-'*6}")
+
+    for set_name, data in results.items():
+        cs = data['comp_set']
+        energies = {'CPU': data['cpu'], 'GPU': data['gpu'], 'TPU': data['tpu'], 'KPU': data['kpu']}
+        best = min(energies, key=energies.get)
+
+        print(f"  {set_name:<18} {cs.process_node_nm}nm    {cs.cpu_circuit_type:<18} "
+              f"{format_energy(data['cpu']):>12} "
+              f"{format_energy(data['gpu']):>12} "
+              f"{format_energy(data['tpu']):>12} "
+              f"{format_energy(data['kpu']):>12} "
+              f"{best:>4}")
+
+    # Summary table: Circuit multipliers
+    print()
+    print("  CIRCUIT TYPE MULTIPLIERS (relative to base ALU energy)")
+    print(f"  {'-'*90}")
+    print(f"  {'Set':<18} {'Base ALU':<10} {'CPU Mult':<10} {'GPU':<10} {'TPU':<10} {'KPU':<10}")
+    print(f"  {'-'*18} {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*10}")
+
+    for set_name, data in results.items():
+        cs = data['comp_set']
+        cpu_mult = CIRCUIT_TYPE_MULTIPLIER.get(cs.cpu_circuit_type, 1.0)
+        print(f"  {set_name:<18} "
+              f"{cs.base_alu_energy_pj:>8.2f}pJ "
+              f"{cpu_mult:>8.2f}x "
+              f"{CIRCUIT_TYPE_MULTIPLIER['tensor_core']:>8.2f}x "
+              f"{CIRCUIT_TYPE_MULTIPLIER['systolic_mac']:>8.2f}x "
+              f"{CIRCUIT_TYPE_MULTIPLIER['domain_flow']:>8.2f}x")
+
+    print(f"""
+
+  KEY INSIGHTS:
+  -------------
+  1. x86 performance CPUs (i7-class) use 2.5x more energy per op than baseline
+     due to aggressive 5GHz clocking and full IEEE-754 compliance.
+
+  2. ARM efficiency CPUs (Cortex-A class) use baseline energy (1.0x)
+     with simpler pipelines and lower voltage/frequency.
+
+  3. At the SAME process node, architecture rankings are consistent:
+     - KPU (domain_flow, 0.75x): Most efficient - no instruction fetch
+     - TPU (systolic_mac, 0.80x): Very efficient - weight-stationary
+     - GPU (tensor_core, 0.85x): Efficient MACs, but SIMT overhead
+     - CPU: Depends on circuit type (1.0x to 2.5x)
+
+  4. For embodied AI hw/sw design:
+     - 8nm-x86: Intel i7 NUC-class comparison
+     - 8nm-arm: ARM efficiency core comparison
+     - Use same process node for fair architectural comparison
+""")
+
+
+# Legacy alias
+def run_category_sweep(num_ops: int = 10000, bytes_transferred: int = 40960,
+                       mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
+                       verbose: bool = False) -> None:
+    """Legacy alias for run_comparison_sweep."""
+    run_comparison_sweep(num_ops, bytes_transferred, mode, verbose)
+
+
 def main():
+    # Build comparison set choices string for help
+    arch_set_choices = list(ARCHITECTURE_COMPARISON_SETS.keys())
+    arch_set_help = "\n".join([
+        f"    {k}: {v.description}"
+        for k, v in ARCHITECTURE_COMPARISON_SETS.items()
+    ])
+
+    # CPU circuit types
+    cpu_types = ['x86_performance', 'x86_efficiency', 'arm_performance', 'arm_efficiency']
+    cpu_type_help = ", ".join(cpu_types)
+
     parser = argparse.ArgumentParser(
         description='Compare energy across CPU, GPU, TPU, and KPU architectures',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
+Architecture Comparison Sets (fair comparison at same process node):
+{arch_set_help}
+
+CPU Circuit Types:
+    x86_performance: 2.50x - Intel i7/i9, AMD Ryzen 9 (5GHz, full IEEE-754)
+    x86_efficiency:  1.50x - Intel E-cores (lower clocks, simpler pipeline)
+    arm_performance: 1.80x - ARM Cortex-X4, Apple Firestorm
+    arm_efficiency:  1.00x - ARM Cortex-A520, Apple Icestorm (baseline)
+
 Examples:
-  # Basic comparison (DRAM-resident mode, default)
-  %(prog)s
+  # Fair comparison at 8nm with x86 performance CPU
+  %(prog)s --arch-comparison 8nm-x86
+
+  # Fair comparison at 8nm with ARM efficiency CPU
+  %(prog)s --arch-comparison 8nm-arm
+
+  # Custom comparison: 7nm with x86 efficiency CPU
+  %(prog)s --process-node 7 --cpu-type x86_efficiency --memory lpddr5
 
   # Compare in L1-resident mode (all data on-chip)
-  %(prog)s --mode l1
-
-  # Custom workload size
-  %(prog)s --ops 10000 --bytes 40960
+  %(prog)s --mode l1 --arch-comparison 8nm-x86
 
   # Show architecture diagrams
   %(prog)s --diagram
 
   # Detailed phase breakdown
-  %(prog)s --verbose
+  %(prog)s --verbose --arch-comparison 4nm-datacenter
 
   # Operation scaling sweep
-  %(prog)s --sweep
+  %(prog)s --sweep --arch-comparison 8nm-x86
 
   # Mode comparison (all modes side-by-side)
-  %(prog)s --mode-sweep
+  %(prog)s --mode-sweep --arch-comparison 8nm-arm
+
+  # Compare all predefined comparison sets
+  %(prog)s --comparison-sweep
 
   # JSON output
-  %(prog)s --output results.json
+  %(prog)s --output results.json --arch-comparison 8nm-x86
 """
     )
 
@@ -663,6 +879,29 @@ Examples:
                         help='Operating mode: l1, l2, l3 (CPU/KPU only), dram (default: dram)')
     parser.add_argument('--layers', type=int, default=1,
                         help='Number of neural network layers for KPU (default: 1)')
+
+    # Architecture comparison options
+    parser.add_argument('--arch-comparison', '-a', type=str,
+                        choices=arch_set_choices,
+                        help='Predefined architecture comparison set (8nm-x86, 8nm-arm, 4nm-datacenter, 4nm-mobile)')
+    parser.add_argument('--process-node', type=int,
+                        help='Custom process node in nm (requires --cpu-type)')
+    parser.add_argument('--cpu-type', type=str,
+                        choices=cpu_types,
+                        help='CPU circuit type (x86_performance, x86_efficiency, arm_performance, arm_efficiency)')
+    parser.add_argument('--memory', type=str,
+                        choices=['lpddr4', 'lpddr5', 'lpddr5x', 'ddr5', 'hbm3'],
+                        help='Memory type for custom comparison')
+    parser.add_argument('--comparison-sweep', action='store_true',
+                        help='Compare energy across all predefined comparison sets')
+
+    # Legacy (deprecated)
+    parser.add_argument('--product-category', '-p', type=str,
+                        choices=list(PRODUCT_CATEGORIES.keys()),
+                        help='(DEPRECATED) Use --arch-comparison instead')
+    parser.add_argument('--category-sweep', action='store_true',
+                        help='(DEPRECATED) Use --comparison-sweep instead')
+
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Show detailed phase breakdown')
     parser.add_argument('--diagram', '-d', action='store_true',
@@ -677,8 +916,6 @@ Examples:
     args = parser.parse_args()
 
     # Parse operating mode
-    # CPU and KPU have L3 caches that filter DRAM accesses
-    # GPU and TPU do not have L3 - they go directly to HBM from L2
     mode_map = {
         'l1': OperatingMode.L1_RESIDENT,
         'l2': OperatingMode.L2_RESIDENT,
@@ -687,31 +924,83 @@ Examples:
     }
     mode = mode_map[args.mode]
 
+    # Memory type mapping
+    memory_map = {
+        'lpddr4': MemoryType.LPDDR4,
+        'lpddr5': MemoryType.LPDDR5,
+        'lpddr5x': MemoryType.LPDDR5X,
+        'ddr5': MemoryType.DDR5,
+        'hbm3': MemoryType.HBM3,
+    }
+
+    # Determine comparison set
+    comp_set = None
+
+    # Priority 1: New --arch-comparison argument
+    if args.arch_comparison:
+        comp_set = get_architecture_comparison_set(args.arch_comparison)
+
+    # Priority 2: Custom comparison with --process-node and --cpu-type
+    elif args.process_node and args.cpu_type:
+        mem_type = memory_map.get(args.memory, MemoryType.LPDDR5)
+        comp_set = create_architecture_comparison_set(
+            process_node_nm=args.process_node,
+            memory_type=mem_type,
+            cpu_circuit_type=args.cpu_type,
+        )
+
+    # Priority 3: Legacy --product-category (deprecated)
+    elif args.product_category:
+        print("WARNING: --product-category is deprecated. Use --arch-comparison instead.")
+        comp_set = get_product_category(args.product_category)
+
     # Show diagrams if requested
     if args.diagram:
         print_architecture_diagrams()
 
-    # Run mode sweep if requested
-    if args.mode_sweep:
-        run_architecture_mode_sweep(args.ops, args.bytes, args.verbose)
+    # Run comparison sweep if requested
+    if args.comparison_sweep or args.category_sweep:
+        run_comparison_sweep(args.ops, args.bytes, mode, args.verbose)
         return
 
-    print("="*80)
-    print("  ARCHITECTURE ENERGY COMPARISON")
-    print("  CPU (MIMD) vs GPU (SIMT) vs TPU (Systolic) vs KPU (Domain Flow)")
-    print("="*80)
+    # Run mode sweep if requested
+    if args.mode_sweep:
+        run_architecture_mode_sweep(args.ops, args.bytes, args.verbose, category=comp_set)
+        return
+
+    # Get profiles from comparison set or use defaults
+    if comp_set:
+        cpu_profile = comp_set.cpu_profile
+        gpu_profile = comp_set.gpu_profile
+        tpu_profile = comp_set.tpu_profile
+        kpu_profile = comp_set.kpu_profile
+        print(format_comparison_set_header(comp_set))
+    else:
+        cpu_profile = gpu_profile = tpu_profile = kpu_profile = DEFAULT_PROFILE
+        print("="*100)
+        print("  ARCHITECTURE ENERGY COMPARISON")
+        print("  CPU (MIMD) vs GPU (SIMT) vs TPU (Systolic) vs KPU (Domain Flow)")
+        print("="*100)
+        print("  WARNING: Using DEFAULT_PROFILE for all architectures.")
+        print("  For FAIR comparison, use --arch-comparison to specify a comparison set.")
+        print("  Example: --arch-comparison 8nm-x86")
+
     print(f"\n  Workload: {args.ops:,} operations, {args.bytes:,} bytes")
     print(f"  Mode: {get_mode_description(mode)}")
     defaults = DEFAULT_HIT_RATIOS[mode]
     print(f"  Hit ratios: L1={defaults.l1_hit:.0%}, L2={defaults.l2_hit:.0%}")
 
     # Build cycle energy breakdowns
-    cpu_breakdown = build_cpu_cycle_energy(args.ops, args.bytes, mode=mode, verbose=args.verbose)
+    cpu_breakdown = build_cpu_cycle_energy(args.ops, args.bytes, mode=mode,
+                                            tech_profile=cpu_profile, verbose=args.verbose)
     gpu_breakdown = build_gpu_cycle_energy(args.ops, args.bytes, mode=mode,
-                                            concurrent_threads=args.threads, verbose=args.verbose)
-    tpu_breakdown = build_tpu_cycle_energy(args.ops, args.bytes, mode=mode, verbose=args.verbose)
+                                            concurrent_threads=args.threads,
+                                            tech_profile=gpu_profile, verbose=args.verbose)
+    tpu_breakdown = build_tpu_cycle_energy(args.ops, args.bytes, mode=mode,
+                                            tech_profile=tpu_profile, verbose=args.verbose)
     kpu_breakdown = build_kpu_cycle_energy(args.ops, args.bytes, mode=mode,
-                                            num_layers=args.layers, verbose=args.verbose)
+                                            num_layers=args.layers,
+                                            tech_profile=kpu_profile, verbose=args.verbose)
 
     breakdowns = [cpu_breakdown, gpu_breakdown, tpu_breakdown, kpu_breakdown]
 
@@ -731,7 +1020,7 @@ Examples:
 
     # Run sweep if requested
     if args.sweep:
-        run_architecture_sweep(mode=mode, verbose=args.verbose)
+        run_architecture_sweep(mode=mode, verbose=args.verbose, category=category)
 
     # Output JSON if requested
     if args.output:

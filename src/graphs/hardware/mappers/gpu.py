@@ -627,18 +627,15 @@ def create_h100_pcie_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     from ..models.datacenter.h100_pcie_80gb import h100_pcie_80gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
+    from ..technology_profile import DATACENTER_4NM_HBM3
 
     # Create resource model
     resource_model = h100_pcie_80gb_resource_model()
 
     # Configure architectural energy model for GPU (DATA_PARALLEL)
+    # Energy parameters derived from DATACENTER_4NM_HBM3 profile (H100 class)
     resource_model.architecture_energy_model = DataParallelEnergyModel(
-        instruction_fetch_energy=2.0e-12,
-        operand_fetch_overhead=10.0e-12,
-        coherence_energy_per_request=5.0e-12,  # GPU-specific coherence machinery
-        thread_scheduling_overhead=1.0e-12,
-        warp_divergence_penalty=3.0e-12,
-        memory_coalescing_overhead=2.0e-12,
+        tech_profile=DATACENTER_4NM_HBM3
     )
 
     return GPUMapper(resource_model, thermal_profile=thermal_profile)
@@ -659,18 +656,15 @@ def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     from ..models.datacenter.h100_sxm5_80gb import h100_sxm5_80gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
+    from ..technology_profile import DATACENTER_4NM_HBM3
 
     # Create resource model
     resource_model = h100_sxm5_80gb_resource_model()
 
     # Configure architectural energy model for GPU (DATA_PARALLEL)
+    # Energy parameters derived from DATACENTER_4NM_HBM3 profile (H100 class)
     resource_model.architecture_energy_model = DataParallelEnergyModel(
-        instruction_fetch_energy=2.0e-12,
-        operand_fetch_overhead=10.0e-12,
-        coherence_energy_per_request=5.0e-12,  # GPU-specific coherence machinery
-        thread_scheduling_overhead=1.0e-12,
-        warp_divergence_penalty=3.0e-12,
-        memory_coalescing_overhead=2.0e-12,
+        tech_profile=DATACENTER_4NM_HBM3
     )
 
     return GPUMapper(resource_model, thermal_profile=thermal_profile)
@@ -723,19 +717,15 @@ def create_b100_sxm6_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     from ..models.datacenter.b100_sxm6_192gb import b100_sxm6_192gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
+    from ..technology_profile import DATACENTER_4NM_HBM3E
 
     # Create resource model
     resource_model = b100_sxm6_192gb_resource_model()
 
     # Configure architectural energy model for GPU (DATA_PARALLEL)
-    # Blackwell improvements: 20% better energy efficiency from 4nm process
+    # Energy parameters derived from DATACENTER_4NM_HBM3E profile (B100 class)
     resource_model.architecture_energy_model = DataParallelEnergyModel(
-        instruction_fetch_energy=1.6e-12,  # 20% improvement from H100
-        operand_fetch_overhead=8.0e-12,  # 20% improvement from H100
-        coherence_energy_per_request=4.0e-12,  # GPU-specific coherence machinery
-        thread_scheduling_overhead=0.8e-12,  # 20% improvement from H100
-        warp_divergence_penalty=2.4e-12,  # 20% improvement from H100
-        memory_coalescing_overhead=1.6e-12,  # 20% improvement from H100
+        tech_profile=DATACENTER_4NM_HBM3E
     )
 
     return GPUMapper(resource_model, thermal_profile=thermal_profile)
@@ -873,41 +863,15 @@ def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None) -> GPUMapper
     """
     from ..models.edge.jetson_orin_agx_64gb import jetson_orin_agx_64gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
+    from ..technology_profile import EDGE_8NM_LPDDR5
 
     # Create resource model
     resource_model = jetson_orin_agx_64gb_resource_model()
 
     # Configure architectural energy model for GPU (DATA_PARALLEL)
-    # Jetson Orin AGX: Edge GPU with lower power than datacenter
+    # Energy parameters derived from EDGE_8NM_LPDDR5 profile (Jetson Orin class)
     resource_model.architecture_energy_model = DataParallelEnergyModel(
-        # Compute unit breakdown
-        cuda_core_mac_energy=0.8e-12,           # ~0.8 pJ per MAC (FP32)
-        tensor_core_mac_energy=0.3e-12,         # ~0.3 pJ per MAC (INT8/FP16)
-        tensor_core_utilization=0.80,           # 80% ops use Tensor Cores
-        register_file_energy_per_access=0.6e-12,  # ~0.6 pJ (similar to ALU energy)
-
-        # Memory hierarchy (NVIDIA Ampere nomenclature)
-        # Register File → Shared Memory/L1 (unified) → L2 → DRAM
-        shared_memory_l1_unified_energy_per_byte=0.25e-12,  # Unified Shared Mem/L1
-        l2_cache_energy_per_byte=0.8e-12,
-        dram_energy_per_byte=10.0e-12,
-
-        # Memory access patterns
-        shared_mem_l1_hit_rate=0.95,           # Unified Shared Mem/L1 hit rate
-        l2_hit_rate=0.90,
-
-        # Instruction pipeline stages
-        instruction_fetch_energy=1.5e-12,      # Edge: lower than datacenter
-        instruction_decode_energy=0.4e-12,
-        instruction_execute_energy=0.25e-12,
-
-        # SIMT control overheads (DATA_PARALLEL architecture)
-        operand_fetch_overhead=8.0e-12,        # Edge: lower than datacenter
-        coherence_energy_per_request=4.0e-12,  # GPU coherence machinery
-        thread_scheduling_overhead=0.8e-12,
-        warp_divergence_penalty=2.5e-12,
-        memory_coalescing_overhead=1.8e-12,
-        barrier_sync_energy=2.0e-12,
+        tech_profile=EDGE_8NM_LPDDR5
     )
 
     return GPUMapper(resource_model, thermal_profile=thermal_profile)
