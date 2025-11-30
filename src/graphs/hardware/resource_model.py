@@ -1004,7 +1004,7 @@ class HardwareMapper(ABC):
                 ops=ops,
                 bytes_transferred=bytes_transferred,
                 compute_energy_baseline=compute_energy,
-                memory_energy_baseline=memory_energy,
+                data_movement_energy_baseline=memory_energy,
                 execution_context=execution_context
             )
 

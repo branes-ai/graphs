@@ -361,7 +361,7 @@ class ArchitectureEnergyComparator:
 
         # Compute baseline energy (what pure ops and memory would cost)
         compute_energy_baseline = total_ops * mapper.resource_model.energy_per_flop_fp32
-        memory_energy_baseline = total_bytes * mapper.resource_model.energy_per_byte
+        data_movement_energy_baseline = total_bytes * mapper.resource_model.energy_per_byte
 
         # Build execution context for architectural model
         execution_context = {
@@ -397,7 +397,7 @@ class ArchitectureEnergyComparator:
                 ops=total_ops,
                 bytes_transferred=total_bytes,
                 compute_energy_baseline=compute_energy_baseline,
-                memory_energy_baseline=memory_energy_baseline,
+                data_movement_energy_baseline=data_movement_energy_baseline,
                 execution_context=execution_context,
             )
         else:

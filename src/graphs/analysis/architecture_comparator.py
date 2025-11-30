@@ -359,7 +359,7 @@ class ArchitectureComparator:
                         ops=total_ops,
                         bytes_transferred=total_bytes,
                         compute_energy_baseline=compute_baseline,
-                        memory_energy_baseline=memory_baseline,
+                        data_movement_energy_baseline=memory_baseline,
                         execution_context=execution_context
                     )
 
