@@ -91,7 +91,7 @@ def demonstrate_architectural_energy_comparison():
         ops=ops,
         bytes_transferred=bytes_transferred,
         compute_energy_baseline=baseline_compute,
-        memory_energy_baseline=baseline_memory,
+        data_movement_energy_baseline=baseline_memory,
         execution_context=cpu_context
     )
 
@@ -131,7 +131,7 @@ def demonstrate_architectural_energy_comparison():
         ops=ops,
         bytes_transferred=bytes_transferred,
         compute_energy_baseline=baseline_compute,
-        memory_energy_baseline=baseline_memory,
+        data_movement_energy_baseline=baseline_memory,
         execution_context=gpu_context
     )
 
@@ -166,7 +166,7 @@ def demonstrate_architectural_energy_comparison():
         ops=ops,
         bytes_transferred=bytes_transferred,
         compute_energy_baseline=baseline_compute,
-        memory_energy_baseline=baseline_memory,
+        data_movement_energy_baseline=baseline_memory,
         execution_context=tpu_context
     )
 
@@ -206,7 +206,7 @@ def demonstrate_architectural_energy_comparison():
         ops=ops,
         bytes_transferred=bytes_transferred,
         compute_energy_baseline=baseline_compute,
-        memory_energy_baseline=baseline_memory,
+        data_movement_energy_baseline=baseline_memory,
         execution_context=kpu_context
     )
 
@@ -242,7 +242,7 @@ def demonstrate_architectural_energy_comparison():
         ops=ops,
         bytes_transferred=bytes_transferred,
         compute_energy_baseline=baseline_compute,
-        memory_energy_baseline=baseline_memory,
+        data_movement_energy_baseline=baseline_memory,
         execution_context=dfm_context
     )
 

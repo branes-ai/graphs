@@ -233,8 +233,8 @@ class ArchitecturalEnergyBreakdown:
     New Design (Phase 1):
     - Separates MAC/FLOP/IntOp energy for accurate hardware mapping
     - MACs → Tensor Cores, Systolic Arrays, AMX
-    - FLOPs → CUDA cores, SIMD units
-    - IntOps → Integer ALUs, SFUs
+    - FLOPs → CUDA cores, SIMD units, SFUs
+    - IntOps → Integer ALUs, Indexing, Quantization
     """
     compute_overhead: float  # Additional compute energy (Joules)
     data_movement_overhead: float   # Energy cost of moving data through memory hierarchy (Joules)
@@ -293,7 +293,9 @@ class ArchitecturalEnergyBreakdown:
         """Total operations executed (MAC + FLOP + IntOp)"""
         return self.mac_ops_executed + self.flop_ops_executed + self.intop_ops_executed
 
-
+# ============================================================
+# Architectural Energy Model Base Class
+# ============================================================
 class ArchitecturalEnergyModel(ABC):
     """
     Base class for architecture-specific energy modeling.
@@ -308,7 +310,7 @@ class ArchitecturalEnergyModel(ABC):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
         """
@@ -318,7 +320,7 @@ class ArchitecturalEnergyModel(ABC):
             ops: Number of operations (FLOPs, MACs, etc.)
             bytes_transferred: Total bytes read/written
             compute_energy_baseline: Baseline compute energy (ops x energy_per_op)
-            memory_energy_baseline: Baseline memory energy (bytes x energy_per_byte)
+            data_movement_energy_baseline: Baseline data movement energy (bytes x energy_per_byte)
             execution_context: Additional context (threads, batch size, etc.)
 
         Returns:
@@ -400,7 +402,7 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
 
@@ -697,7 +699,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         ops: Optional[int] = None,
         bytes_transferred: int = 0,
         compute_energy_baseline: float = 0.0,
-        memory_energy_baseline: float = 0.0,
+        data_movement_energy_baseline: float = 0.0,
         execution_context: Optional[Dict] = None,
         workload: Optional['WorkloadCharacterization'] = None  # NEW: Phase 3
     ) -> ArchitecturalEnergyBreakdown:
@@ -708,7 +710,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             ops: (DEPRECATED) Total operations. Use workload parameter instead.
             bytes_transferred: Total bytes read/written
             compute_energy_baseline: Baseline compute energy
-            memory_energy_baseline: Baseline memory energy
+            data_movement_energy_baseline: Baseline memory energy
             execution_context: Additional context (threads, batch size, etc.)
             workload: (NEW) WorkloadCharacterization with MAC/FLOP/IntOp breakdown
 
@@ -1017,7 +1019,7 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
 
@@ -1144,7 +1146,7 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
 
         # Memory benefit: Spatial data flows eliminate contention overhead
-        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -data_movement_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_data_movement = injection_energy + extraction_energy
 
@@ -1276,7 +1278,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
 
@@ -1297,7 +1299,7 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit: Still eliminates instruction fetch
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -data_movement_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_domain_overhead = domain_tracking_energy + kernel_load_energy
         total_data_movement = injection_energy + extraction_energy
@@ -1381,7 +1383,7 @@ class DataFlowMachineEnergyModel(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
 
@@ -1405,7 +1407,7 @@ class DataFlowMachineEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit: No instruction fetch, but CAM limits savings
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -data_movement_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_dfm_overhead = cam_energy + matching_energy + queue_energy + traversal_energy
 
@@ -1498,7 +1500,7 @@ class SpatialPartitionEnergyModel(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
 
@@ -1540,7 +1542,7 @@ class SpatialPartitionEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -data_movement_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_compute = local_compute_energy
         total_memory = inter_partition_energy + local_memory_energy
@@ -1658,7 +1660,7 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
 
@@ -1677,7 +1679,7 @@ class AdaptiveDatapathEnergyModel(ArchitecturalEnergyModel):
 
         # Architectural benefit (runtime efficiency)
         compute_overhead_reduction = -compute_energy_baseline * (1.0 - self.compute_efficiency)
-        data_movement_overhead_reduction = -memory_energy_baseline * (1.0 - self.memory_efficiency)
+        data_movement_overhead_reduction = -data_movement_energy_baseline * (1.0 - self.memory_efficiency)
 
         total_runtime_overhead = routing_energy + macro_energy
 
@@ -2535,7 +2537,7 @@ class KPUTileEnergyAdapter(ArchitecturalEnergyModel):
         ops: int,
         bytes_transferred: int,
         compute_energy_baseline: float,
-        memory_energy_baseline: float,
+        data_movement_energy_baseline: float,
         execution_context: Optional[Dict] = None
     ) -> ArchitecturalEnergyBreakdown:
         """

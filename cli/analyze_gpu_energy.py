@@ -322,7 +322,7 @@ def main():
                 ops=int(total_ops),
                 bytes_transferred=int(total_bytes),
                 compute_energy_baseline=total_compute_energy,
-                memory_energy_baseline=total_memory_energy,
+                data_movement_energy_baseline=total_memory_energy,
                 execution_context=execution_context
             )
             # Extract events from extra_details
