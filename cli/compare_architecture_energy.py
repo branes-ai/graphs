@@ -417,7 +417,7 @@ def format_architecture_insights(breakdowns: List[CycleEnergyBreakdown], num_ops
 
 def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
                            verbose: bool = False,
-                           category: ProductCategoryProfiles = None) -> None:
+                           category: ArchitectureComparisonSet = None) -> None:
     """Run a sweep across different operation scales."""
     # Get profiles from category or use defaults
     if category:
@@ -425,7 +425,8 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
         gpu_profile = category.gpu_profile
         tpu_profile = category.tpu_profile
         kpu_profile = category.kpu_profile
-        cat_name = category.category.upper()
+        # Support both old ProductCategoryProfiles (.category) and new ArchitectureComparisonSet (.name)
+        cat_name = getattr(category, 'name', getattr(category, 'category', 'CUSTOM')).upper()
     else:
         cpu_profile = gpu_profile = tpu_profile = kpu_profile = DEFAULT_PROFILE
         cat_name = "DEFAULT"
@@ -522,7 +523,7 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
 
 def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 40960,
                                  verbose: bool = False,
-                                 category: ProductCategoryProfiles = None) -> None:
+                                 category: ArchitectureComparisonSet = None) -> None:
     """Run a sweep across operating modes for all architectures."""
     # Get profiles from category or use defaults
     if category:
@@ -530,7 +531,8 @@ def run_architecture_mode_sweep(num_ops: int = 10000, bytes_transferred: int = 4
         gpu_profile = category.gpu_profile
         tpu_profile = category.tpu_profile
         kpu_profile = category.kpu_profile
-        cat_name = category.category.upper()
+        # Support both old ProductCategoryProfiles (.category) and new ArchitectureComparisonSet (.name)
+        cat_name = getattr(category, 'name', getattr(category, 'category', 'CUSTOM')).upper()
     else:
         cpu_profile = gpu_profile = tpu_profile = kpu_profile = DEFAULT_PROFILE
         cat_name = "All Architectures"
@@ -1020,7 +1022,7 @@ Examples:
 
     # Run sweep if requested
     if args.sweep:
-        run_architecture_sweep(mode=mode, verbose=args.verbose, category=category)
+        run_architecture_sweep(mode=mode, verbose=args.verbose, category=comp_set)
 
     # Output JSON if requested
     if args.output:
