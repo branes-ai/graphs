@@ -1,0 +1,380 @@
+================================================================================
+Hardware Calibration: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+================================================================================
+
+Running pre-flight checks...
+
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+[-] CPU Governor: cpufreq not available (VM or container?)
+[OK] CPU Frequency: 4001 MHz (100% of max)
+    Current:  4001 MHz
+    Expected: >= 3601 MHz (90%)
+[-] Turbo Boost: Could not determine (not Intel pstate)
+[OK] System Load: 1.2% (idle)
+    Current:  1.2%
+    Expected: < 5%
+[-] Thermal State: Could not read temperature
+
+RESULT: PASSED
+  System is ready for calibration.======================================================================
+System Information:
+  CPU: AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD
+  Cores: 8 physical, 16 logical
+  Memory: 27.8 GB
+  Python: 3.11.9
+  NumPy: 2.2.6
+  PyTorch: 2.7.1+cpu
+
+Target Device: CPU
+Framework:     NUMPY
+
+Querying CPU clock frequencies...
+  CPU Freq: 4001 MHz (100% of max 4001 MHz)
+  Governor: Balanced
+
+Running calibration benchmarks...
+
+1. STREAM Memory Bandwidth Benchmark
+--------------------------------------------------------------------------------
+Framework: NumPy (CPU-only)
+
+STREAM Benchmark Suite:
+--------------------------------------------------------------------------------
+
+COPY (a[i] = b[i]):
+  Memory ops: 2, FLOPs/element: 0
+  Size     8 MB...    87.7 GB/s (175.3%)    0.19 ms
+  Size    16 MB...    56.6 GB/s (113.2%)    0.59 ms
+  Size    32 MB...    53.2 GB/s (106.4%)    1.26 ms
+  Size    64 MB...    52.8 GB/s (105.7%)    2.54 ms
+  Size   128 MB...    55.4 GB/s (110.8%)    4.84 ms
+  Size   256 MB...    52.5 GB/s (104.9%)   10.23 ms
+  Size   512 MB...    56.6 GB/s (113.2%)   18.97 ms
+
+SCALE (a[i] = q * b[i]):
+  Memory ops: 2, FLOPs/element: 1
+  Size     8 MB...    47.7 GB/s  (95.4%)    0.35 ms  |  6.0 GFLOPS
+  Size    16 MB...    17.6 GB/s  (35.2%)    1.91 ms  |  2.2 GFLOPS
+  Size    32 MB...    39.4 GB/s  (78.7%)    1.71 ms  |  4.9 GFLOPS
+  Size    64 MB...    33.2 GB/s  (66.3%)    4.05 ms  |  4.1 GFLOPS
+  Size   128 MB...    34.4 GB/s  (68.9%)    7.79 ms  |  4.3 GFLOPS
+  Size   256 MB...    33.6 GB/s  (67.2%)   15.97 ms  |  4.2 GFLOPS
+  Size   512 MB...    33.4 GB/s  (66.8%)   32.16 ms  |  4.2 GFLOPS
+
+ADD (a[i] = b[i] + c[i]):
+  Memory ops: 3, FLOPs/element: 1
+  Size     8 MB...    53.3 GB/s (106.5%)    0.47 ms  |  4.4 GFLOPS
+  Size    16 MB...    35.5 GB/s  (71.1%)    1.42 ms  |  3.0 GFLOPS
+  Size    32 MB...    37.3 GB/s  (74.6%)    2.70 ms  |  3.1 GFLOPS
+  Size    64 MB...    37.5 GB/s  (75.0%)    5.37 ms  |  3.1 GFLOPS
+  Size   128 MB...    37.3 GB/s  (74.6%)   10.80 ms  |  3.1 GFLOPS
+  Size   256 MB...    36.5 GB/s  (73.0%)   22.06 ms  |  3.0 GFLOPS
+  Size   512 MB...    36.8 GB/s  (73.6%)   43.78 ms  |  3.1 GFLOPS
+
+TRIAD (a[i] = b[i] + q * c[i]):
+  Memory ops: 3, FLOPs/element: 2
+  Size     8 MB...     6.7 GB/s  (13.3%)    3.77 ms  |  1.1 GFLOPS
+  Size    16 MB...     8.5 GB/s  (17.1%)    5.90 ms  |  1.4 GFLOPS
+  Size    32 MB...     8.8 GB/s  (17.6%)   11.47 ms  |  1.5 GFLOPS
+  Size    64 MB...     8.6 GB/s  (17.3%)   23.29 ms  |  1.4 GFLOPS
+  Size   128 MB...     8.3 GB/s  (16.6%)   48.54 ms  |  1.4 GFLOPS
+  Size   256 MB...     8.3 GB/s  (16.5%)   97.53 ms  |  1.4 GFLOPS
+  Size   512 MB...     8.1 GB/s  (16.2%)  198.57 ms  |  1.4 GFLOPS
+
+================================================================================
+STREAM Summary:
+--------------------------------------------------------------------------------
+Kernel            Best BW    Latency   Efficiency Description
+------------------------------------------------------------------------------------------
+COPY               87.7 GB/s     0.19 ms      175.3%  a[i] = b[i]
+SCALE              47.7 GB/s     0.35 ms       95.4%  a[i] = q * b[i]
+ADD                53.3 GB/s     0.47 ms      106.5%  a[i] = b[i] + c[i]
+TRIAD               8.8 GB/s    11.47 ms       17.6%  a[i] = b[i] + q * c[i]
+
+STREAM Score (minimum): 6.7 GB/s
+================================================================================
+STREAM Score (minimum bandwidth): 6.7 GB/s
+
+2. BLAS Compute Benchmark Suite
+--------------------------------------------------------------------------------
+Testing precisions: fp64, fp32, int64, int32, int16, int8
+
+Framework: NumPy (CPU-only)
+
+BLAS Benchmark Suite:
+==========================================================================================
+
+BLAS Level 1: DOT
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64                                           2.5 GFLOPS    0.00ms
+    fp32                                           3.7 GFLOPS    0.00ms
+    int64                                           1.9 GIOPS    0.00ms
+    int32                                           1.9 GIOPS    0.00ms
+    int16                                           1.7 GIOPS    0.00ms
+    int8                                            1.7 GIOPS    0.00ms
+  Size    10K:
+    fp64                                           8.4 GFLOPS    0.00ms
+    fp32                                          12.5 GFLOPS    0.00ms
+    int64                                           3.7 GIOPS    0.01ms
+    int32                                           3.8 GIOPS    0.01ms
+    int16                                           2.5 GIOPS    0.01ms
+    int8                                            2.5 GIOPS    0.01ms
+  Size   100K:
+    fp64                                           2.0 GFLOPS    0.10ms
+    fp32                                          34.3 GFLOPS    0.01ms
+    int64                                           6.9 GIOPS    0.03ms
+    int32                                           7.0 GIOPS    0.03ms
+    int16                                           4.2 GIOPS    0.05ms
+    int8                                            3.9 GIOPS    0.05ms
+  Size     1M:
+    fp64                                          18.0 GFLOPS    0.11ms
+    fp32                                          31.9 GFLOPS    0.06ms
+    int64                                           4.5 GIOPS    0.44ms
+    int32                                           7.0 GIOPS    0.29ms
+    int16                                           4.3 GIOPS    0.47ms
+    int8                                            4.3 GIOPS    0.46ms
+  Size    10M:
+    fp64                                           7.1 GFLOPS    2.80ms
+    fp32                                          11.8 GFLOPS    1.70ms
+    int64                                           5.8 GIOPS    3.44ms
+    int32                                           6.8 GIOPS    2.93ms
+    int16                                           4.3 GIOPS    4.67ms
+    int8                                            4.4 GIOPS    4.59ms
+
+BLAS Level 1: AXPY
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    fp32      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    int64      [!] SLOW (   0.6 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int32      [!] SLOW (   0.9 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int16                                           1.0 GIOPS    0.00ms
+    int8                                            1.1 GIOPS    0.00ms
+  Size    10K:
+    fp64                                           3.0 GFLOPS    0.01ms
+    fp32                                           4.5 GFLOPS    0.00ms
+    int64                                           1.6 GIOPS    0.01ms
+    int32                                           1.9 GIOPS    0.01ms
+    int16                                           1.9 GIOPS    0.01ms
+    int8                                            1.8 GIOPS    0.01ms
+  Size   100K:
+    fp64                                           3.6 GFLOPS    0.06ms
+    fp32                                           7.8 GFLOPS    0.03ms
+    int64                                           2.3 GIOPS    0.09ms
+    int32                                           2.9 GIOPS    0.07ms
+    int16                                           2.9 GIOPS    0.07ms
+    int8                                            2.7 GIOPS    0.07ms
+  Size     1M:
+    fp64      [!] SLOW (   0.6 GFLOPS < 1.0 GFLOPS threshold)    3.54ms
+    fp32                                           1.0 GFLOPS    1.96ms
+    int64      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    2.98ms
+    int32                                           1.3 GIOPS    1.55ms
+    int16                                           1.9 GIOPS    1.05ms
+    int8                                            2.7 GIOPS    0.74ms
+  Size    10M:
+    fp64      [!] SLOW (   0.7 GFLOPS < 1.0 GFLOPS threshold)   28.26ms
+    fp32                                           1.5 GFLOPS   13.58ms
+    int64      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)   30.14ms
+    int32                                           1.2 GIOPS   16.57ms
+    int16                                           1.8 GIOPS   10.94ms
+    int8                                            2.2 GIOPS    9.06ms
+
+BLAS Level 2: GEMV
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64      [!] SLOW (   0.7 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    fp32      [!] SLOW (   0.8 GFLOPS < 1.0 GFLOPS threshold)    0.00ms
+    int64      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int32      [!] SLOW (   0.8 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int16      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+    int8       [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.00ms
+  Size     64:
+    fp64                                           3.3 GFLOPS    0.00ms
+    fp32                                           3.2 GFLOPS    0.00ms
+    int64                                           2.1 GIOPS    0.00ms
+    int32                                           2.2 GIOPS    0.00ms
+    int16      [!] SLOW (   0.7 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+    int8       [!] SLOW (   0.9 GIOPS < 1.0 GFLOPS threshold)    0.01ms
+  Size    128:
+    fp64                                           6.2 GFLOPS    0.01ms
+    fp32                                           7.5 GFLOPS    0.00ms
+    int64                                           2.3 GIOPS    0.01ms
+    int32                                           2.8 GIOPS    0.01ms
+    int16                                           1.6 GIOPS    0.02ms
+    int8                                            1.2 GIOPS    0.03ms
+  Size    256:
+    fp64                                          17.1 GFLOPS    0.01ms
+    fp32                                          23.1 GFLOPS    0.01ms
+    int64                                           3.8 GIOPS    0.03ms
+    int32                                           4.1 GIOPS    0.03ms
+    int16                                           1.5 GIOPS    0.09ms
+    int8                                            1.7 GIOPS    0.08ms
+  Size    512:
+    fp64                                          16.1 GFLOPS    0.03ms
+    fp32                                          41.2 GFLOPS    0.01ms
+    int64                                           4.7 GIOPS    0.11ms
+    int32                                           5.9 GIOPS    0.09ms
+    int16                                           1.5 GIOPS    0.36ms
+    int8                                            1.6 GIOPS    0.32ms
+  Size     1K:
+    fp64                                          18.6 GFLOPS    0.11ms
+    fp32                                          20.7 GFLOPS    0.10ms
+    int64                                           4.5 GIOPS    0.46ms
+    int32                                           6.0 GIOPS    0.35ms
+    int16                                           1.4 GIOPS    1.45ms
+    int8                                            1.6 GIOPS    1.32ms
+  Size     2K:
+    fp64                                          16.6 GFLOPS    0.50ms
+    fp32                                          55.4 GFLOPS    0.15ms
+    int64                                           3.8 GIOPS    2.18ms
+    int32                                           5.9 GIOPS    1.43ms
+    int16                                           1.4 GIOPS    5.87ms
+    int8                                            1.6 GIOPS    5.35ms
+
+BLAS Level 3: GEMM
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64                                          11.4 GFLOPS    0.01ms
+    fp32                                          14.3 GFLOPS    0.00ms
+    int64                                           3.6 GIOPS    0.02ms
+    int32                                           4.1 GIOPS    0.02ms
+    int16                                           2.2 GIOPS    0.03ms
+    int8                                            2.1 GIOPS    0.03ms
+  Size     64:
+    fp64                                          44.5 GFLOPS    0.01ms
+    fp32                                          63.4 GFLOPS    0.01ms
+    int64                                           4.3 GIOPS    0.12ms
+    int32                                           5.3 GIOPS    0.10ms
+    int16                                           2.1 GIOPS    0.25ms
+    int8                                            2.0 GIOPS    0.26ms
+  Size    128:
+    fp64                                          31.0 GFLOPS    0.14ms
+    fp32                                          38.1 GFLOPS    0.11ms
+    int64                                           2.8 GIOPS    1.48ms
+    int32                                           4.2 GIOPS    0.99ms
+    int16                                           1.8 GIOPS    2.27ms
+    int8                                            1.8 GIOPS    2.38ms
+  Size    256:
+    fp64                                         124.0 GFLOPS    0.27ms
+    fp32                                         173.3 GFLOPS    0.19ms
+    int64                                           1.5 GIOPS   22.58ms
+    int32                                           2.8 GIOPS   12.09ms
+    int16                                           1.7 GIOPS   20.07ms
+    int8                                            1.6 GIOPS   20.39ms
+  Size    512:
+    fp64                                         108.7 GFLOPS    2.47ms
+    fp32                                         174.8 GFLOPS    1.54ms
+    int64                                             SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int32                                           1.4 GIOPS  195.92ms
+    int16                                           1.7 GIOPS  158.93ms
+    int8                                            1.6 GIOPS  163.31ms
+  Size     1K:
+    fp64                                         214.2 GFLOPS   10.02ms
+    fp32                                         405.1 GFLOPS    5.30ms
+    int64                                             SKIPPED  (Skipped (poor performance at size 512: Timeout (>5s)))
+    int32                                             SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int16                                             SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+    int8                                              SKIPPED  (Timeout: GEMM benchmark exceeded 5s timeout)
+  Size     2K:
+    fp64                                         306.8 GFLOPS   56.00ms
+    fp32                                         604.2 GFLOPS   28.43ms
+    int64                                             SKIPPED  (Skipped (poor performance at size 512: Timeout (>5s)))
+    int32                                             SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    int16                                             SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+    int8                                              SKIPPED  (Skipped (poor performance at size 1K: Timeout (>5s)))
+
+==========================================================================================
+BLAS Suite Complete: 24 calibrations
+==========================================================================================
+
+Building precision capability matrix...
+
+================================================================================
+Hardware Calibration: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+Date: 2025-12-01T07:56:10.769505
+================================================================================
+
+Framework: NUMPY
+Device:    CPU
+
+Theoretical Specifications:
+  Peak GFLOPS (FP32): 100.0
+  Peak Bandwidth:     50.0 GB/s
+
+STREAM Memory Bandwidth Benchmark:
+  Kernel           Size (MB)    Bandwidth    Latency   Efficiency Description
+  -----------------------------------------------------------------------------------------------
+  COPY                     8       87.7 GB/s     0.19 ms      175.3%  a[i] = b[i]
+  SCALE                    8       47.7 GB/s     0.35 ms       95.4%  a[i] = q * b[i]
+  ADD                      8       53.3 GB/s     0.47 ms      106.5%  a[i] = b[i] + c[i]
+  TRIAD                   32        8.8 GB/s    11.47 ms       17.6%  a[i] = b[i] + q * c[i]
+
+  STREAM Score (minimum): 6.7 GB/s
+
+BLAS Performance Summary (Highest Throughput by Precision):
+  Operation          fp64       fp32      int64      int32      int16       int8   Best Precision
+  ------------------------------------------------------------------------------------------------
+  AXPY                3.6        7.8        2.3        2.9        2.9        2.7             fp32
+  DOT                18.0       34.3        6.9        7.0        4.3        4.4             fp32
+  GEMV               18.6       55.4        4.7        6.0        1.6        1.7             fp32
+  GEMM              306.8      604.2        4.3        5.3        2.2        2.1             fp32
+
+BLAS Compute Performance (by Operation and Precision):
+========================================================================================================================
+
+Level 1: Vector-Vector (O(n))
+------------------------------------------------------------------------------------------------------------------------
+
+AXPY:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64             100K         3.6 GFLOPS     0.06ms     0.08        3.6%
+  fp32             100K         7.8 GFLOPS     0.03ms     0.17        7.8%
+  int64            100K          2.3 GIOPS     0.09ms     0.08        2.3%
+  int32            100K          2.9 GIOPS     0.07ms     0.17        2.9%
+  int16            100K          2.9 GIOPS     0.07ms     0.33        2.9%
+  int8               1M          2.7 GIOPS     0.74ms     0.67        2.7%
+
+DOT:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               1M        18.0 GFLOPS     0.11ms     0.12       18.0%
+  fp32             100K        34.3 GFLOPS     0.01ms     0.25       34.3%
+  int64            100K          6.9 GIOPS     0.03ms     0.12        6.9%
+  int32            100K          7.0 GIOPS     0.03ms     0.25        7.0%
+  int16              1M          4.3 GIOPS     0.47ms     0.50        4.3%
+  int8              10M          4.4 GIOPS     4.59ms     1.00        4.4%
+
+Level 2: Matrix-Vector (O(n²))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMV:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               1K        18.6 GFLOPS     0.11ms     0.25       18.6%
+  fp32               2K        55.4 GFLOPS     0.15ms     0.50       55.4%
+  int64             512          4.7 GIOPS     0.11ms     0.25        4.7%
+  int32              1K          6.0 GIOPS     0.35ms     0.50        6.0%
+  int16             128          1.6 GIOPS     0.02ms     0.98        1.6%
+  int8              256          1.7 GIOPS     0.08ms     1.98        1.7%
+
+Level 3: Matrix-Matrix (O(n³))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMM:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               2K       306.8 GFLOPS    56.00ms   170.67      306.8%
+  fp32               2K       604.2 GFLOPS    28.43ms   341.33      604.2%
+  int64              64          4.3 GIOPS     0.12ms     5.33        4.3%
+  int32              64          5.3 GIOPS     0.10ms    10.67        5.3%
+  int16              32          2.2 GIOPS     0.03ms    10.67        2.2%
+  int8               32          2.1 GIOPS     0.03ms    21.33        2.1%
+
+Precision Support Summary:
+  Supported:   fp64, fp32, int64, int32, int16, int8
+
