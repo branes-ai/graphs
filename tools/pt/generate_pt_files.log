@@ -1,0 +1,56 @@
+$ python pytorch_test_models.py                                                                            
+Created: simple_linear.pt                                                                                  
+Created: mlp_classifier.pt                                                                                 
+Created: simple_cnn.pt                                                                                     
+Created: complex_model.pt                                                                                  
+Created: state_dict_only.pt                                                                                
+Created: checkpoint.pt                                                                                     
+                                                                                                           
+Test models created in 'test_models/' directory:                                                           
+1. simple_linear.pt - Basic linear layer                                                                   
+2. mlp_classifier.pt - Multi-layer perceptron with dropout                                                 
+3. simple_cnn.pt - CNN with conv layers, batch norm, pooling                                               
+4. complex_model.pt - LSTM + attention model with embeddings                                               
+5. state_dict_only.pt - Just parameter tensors                                                             
+6. checkpoint.pt - Full training checkpoint with optimizer state                                           
+                                                                                                           
+Model architectures:                                                                                       
+                                                                                                           
+Simple Linear:                                                                                             
+SimpleLinear(                                                                                              
+  (linear): Linear(in_features=10, out_features=1, bias=True)                                              
+)                                                                                                          
+Parameters: 11                                                                                             
+                                                                                                           
+MLP Classifier:                                                                                            
+MLPModel(                                                                                                  
+  (fc1): Linear(in_features=784, out_features=128, bias=True)                                              
+  (fc2): Linear(in_features=128, out_features=64, bias=True)                                               
+  (fc3): Linear(in_features=64, out_features=10, bias=True)                                                
+  (dropout): Dropout(p=0.2, inplace=False)                                                                 
+)                                                                                                          
+Parameters: 109386                                                                                         
+                                                                                                           
+Simple CNN:                                                                                                
+SimpleCNN(                                                                                                 
+  (conv1): Conv2d(3, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))                                
+  (conv2): Conv2d(16, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))                               
+  (pool): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)                       
+  (fc1): Linear(in_features=2048, out_features=128, bias=True)                                             
+  (fc2): Linear(in_features=128, out_features=10, bias=True)                                               
+  (batch_norm1): BatchNorm2d(16, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)           
+  (batch_norm2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)           
+)                                                                                                          
+Parameters: 268746                                                                                         
+                                                                                                           
+Complex Model:                                                                                             
+ComplexModel(                                                                                              
+  (embedding): Embedding(1000, 64)                                                                         
+  (lstm): LSTM(64, 128, batch_first=True, bidirectional=True)                                              
+  (attention): MultiheadAttention(                                                                         
+    (out_proj): NonDynamicallyQuantizableLinear(in_features=256, out_features=256, bias=True)              
+  )                                                                                                        
+  (layer_norm): LayerNorm((256,), eps=1e-05, elementwise_affine=True)                                      
+  (classifier): Linear(in_features=256, out_features=5, bias=True)                                         
+)                                                                                                          
+Parameters: 527621                                                                                         
