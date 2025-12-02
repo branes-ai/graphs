@@ -38,9 +38,12 @@ if TYPE_CHECKING:
 from .base import (
     CyclePhase,
     OperatingMode,
+    OperatorType,
     HitRatios,
     DEFAULT_HIT_RATIOS,
+    TPU_L2_SRAM_SIZES,
     CycleEnergyBreakdown,
+    compute_cache_hit_ratio,
 )
 
 
@@ -57,7 +60,12 @@ def build_tpu_cycle_energy(
     hit_ratios: Optional[HitRatios] = None,
     matrix_size: int = 128,
     tech_profile: 'TechnologyProfile' = None,
-    verbose: bool = False
+    verbose: bool = False,
+    # New parameters for working-set-based SRAM (L2) modeling
+    operator_type: OperatorType = OperatorType.HIGH_REUSE,
+    working_set_bytes: Optional[int] = None,
+    sram_size_bytes: int = TPU_L2_SRAM_SIZES['default'],
+    sram_is_cold: bool = False,
 ) -> CycleEnergyBreakdown:
     """
     Build the TPU (systolic array) cycle energy breakdown.
@@ -70,6 +78,12 @@ def build_tpu_cycle_energy(
         matrix_size: Systolic array size (default 128x128)
         tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
+        operator_type: Type of operator (HIGH_REUSE, LOW_REUSE, STREAMING)
+                      Determines SRAM hit ratio based on data reuse pattern
+        working_set_bytes: Size of working set for SRAM hit ratio calculation
+                          If None, defaults to bytes_transferred
+        sram_size_bytes: Size of shared SRAM (L2 equivalent, default 32MB)
+        sram_is_cold: True if SRAM was flushed by previous streaming operator
 
     Returns:
         CycleEnergyBreakdown with detailed energy breakdown
@@ -84,6 +98,16 @@ def build_tpu_cycle_energy(
     - Very efficient for large matrix operations
     - Inefficient for small/irregular operations
 
+    SRAM (L2) Cache Model:
+        The TPU shared SRAM is implicit (hardware-managed). Hit ratio depends on:
+        - operator_type: MatMul (HIGH_REUSE) benefits from weight/activation reuse
+        - working_set_bytes: Whether tiles fit in SRAM
+        - sram_is_cold: Whether previous op flushed SRAM
+
+        Note: TPU is optimized for MatMul (HIGH_REUSE). Streaming ops like
+        activations are typically fused with MatMul and don't access SRAM
+        directly, so the "flush" problem is less severe than GPU/CPU.
+
     Technology Profile (REQUIRED):
         A TechnologyProfile must be provided to specify energy parameters.
         Use DEFAULT_PROFILE for typical datacenter values.
@@ -92,7 +116,9 @@ def build_tpu_cycle_energy(
             from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3
             breakdown = build_tpu_cycle_energy(
                 num_ops=1000,
-                tech_profile=DATACENTER_4NM_HBM3
+                tech_profile=DATACENTER_4NM_HBM3,
+                operator_type=OperatorType.HIGH_REUSE,
+                working_set_bytes=16*1024*1024,
             )
 
     Raises:
@@ -109,7 +135,36 @@ def build_tpu_cycle_energy(
     if mode == OperatingMode.L3_RESIDENT:
         effective_mode = OperatingMode.DRAM_RESIDENT
 
-    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[effective_mode]
+    # Compute SRAM (L2) hit ratio based on operator type and working set
+    # TPU uses shared SRAM similar to GPU L2
+    if hit_ratios is not None:
+        # User provided explicit hit ratios - use them
+        ratios = hit_ratios
+    elif effective_mode == OperatingMode.L1_RESIDENT:
+        # Data fits in VMEM (L1) - all hits
+        ratios = DEFAULT_HIT_RATIOS[effective_mode]
+    else:
+        # Compute SRAM hit ratio from operator type
+        ws_bytes = working_set_bytes if working_set_bytes is not None else bytes_transferred
+        sram_hit = compute_cache_hit_ratio(
+            operator_type=operator_type,
+            working_set_bytes=ws_bytes,
+            cache_size_bytes=sram_size_bytes,
+            cache_is_cold=sram_is_cold,
+            is_explicit_memory=False,
+        )
+        # For TPU, L1 hit ratio represents VMEM, L2 represents shared SRAM
+        # We use the SRAM hit ratio for L1 in our model since TPU memory
+        # hierarchy is VMEM -> SRAM -> HBM (no traditional L1/L2 split)
+        ratios = HitRatios(
+            l1_hit=sram_hit,  # SRAM hit ratio
+            l2_hit=0.0,       # No L2 in TPU (SRAM is the shared level)
+            l3_hit=0.0,       # No L3 - misses go to HBM
+        )
+        if verbose:
+            print(f"  SRAM hit ratio: {sram_hit:.1%} (operator={operator_type.value}, "
+                  f"ws={ws_bytes/1024/1024:.1f}MB, SRAM={sram_size_bytes/1024/1024:.0f}MB, "
+                  f"cold={sram_is_cold})")
 
     # Derive all energy parameters from technology profile
     process_scale = tech_profile.process_node_nm / 7.0  # 7nm is baseline for TPU
@@ -175,34 +230,40 @@ def build_tpu_cycle_energy(
     )
 
     # ==========================================================================
-    # SYSTOLIC WEIGHT LOADING
+    # SYSTOLIC DATA MOVEMENT (Internal - between SRAM buffers and systolic array)
     # ==========================================================================
-    # Weight-stationary: load weights once, reuse for many inputs
-    # Amortized across weight_reuse factor
+    # These represent ON-CHIP data movement within the TPU:
+    # - Weight buffers -> Systolic array columns
+    # - Input buffers -> Systolic array rows
+    # - Systolic array outputs -> Accumulator/output buffers
+    #
+    # This is SEPARATE from external memory access (SRAM vs HBM) which is
+    # modeled below. The internal data movement happens regardless of where
+    # the data originally came from.
+    #
+    # Energy values are lower than cache access (no tags, no arbitration)
+    # because these are dedicated datapaths in the systolic architecture.
+    # ==========================================================================
 
+    # WEIGHT LOADING (weight-stationary: load once, reuse for many inputs)
     weight_bytes_per_tile = array_size * array_size * 2  # INT16 weights
     total_weight_bytes = weight_bytes_per_tile * num_tiles
     amortized_weight_bytes = total_weight_bytes // params['weight_reuse']
 
     breakdown.add_event(
         CyclePhase.SYSTOLIC_WEIGHT_LOAD,
-        f"Weight load (amortized {params['weight_reuse']}x reuse)",
+        f"Weight buffer -> array (amortized {params['weight_reuse']}x)",
         params['weight_load_pj_per_byte'],
         amortized_weight_bytes
     )
 
-    # ==========================================================================
-    # SYSTOLIC DATA LOADING (Input feeding)
-    # ==========================================================================
-    # Inputs flow along one edge of systolic array
-    # Each tile needs array_size inputs per cycle for array_size cycles
-
+    # INPUT FEEDING (inputs flow along one edge of systolic array)
     input_bytes_per_tile = array_size * array_size * 2  # INT16 inputs
     total_input_bytes = input_bytes_per_tile * num_tiles
 
     breakdown.add_event(
         CyclePhase.SYSTOLIC_DATA_LOAD,
-        "Input data feeding (one edge)",
+        "Input buffer -> array (one edge)",
         params['input_feed_pj_per_byte'],
         total_input_bytes
     )
@@ -239,22 +300,29 @@ def build_tpu_cycle_energy(
         )
 
     # ==========================================================================
-    # SYSTOLIC DRAIN (Output)
+    # SYSTOLIC DRAIN (Output - array to output buffer)
     # ==========================================================================
     output_bytes_per_tile = array_size * 4  # FP32 outputs (accumulated)
     total_output_bytes = output_bytes_per_tile * num_tiles
 
     breakdown.add_event(
         CyclePhase.SYSTOLIC_DRAIN,
-        "Output drain (one edge)",
+        "Array -> output buffer (one edge)",
         params['output_drain_pj_per_byte'],
         total_output_bytes
     )
 
     # ==========================================================================
-    # MEMORY ACCESS
+    # EXTERNAL MEMORY ACCESS (SRAM vs HBM)
     # ==========================================================================
-    # TPU uses SRAM buffers + HBM (no traditional cache hierarchy)
+    # This models the energy to GET data into/out of the TPU chip.
+    # - SRAM: On-chip unified buffer (32MB on TPU v4)
+    # - HBM: Off-chip high-bandwidth memory
+    #
+    # The bytes_transferred parameter represents the EXTERNAL memory footprint,
+    # which is separate from the internal systolic data movement above.
+    # For L1_RESIDENT (data fits in SRAM), all accesses are from SRAM.
+    # For DRAM_RESIDENT, misses go to HBM.
 
     sram_bytes = int(bytes_transferred * ratios.l1_hit)
     hbm_bytes = bytes_transferred - sram_bytes

@@ -19,11 +19,27 @@ Each model breaks down energy into:
 from .base import (
     CyclePhase,
     OperatingMode,
+    OperatorType,
+    MemoryType,
     HitRatios,
     DEFAULT_HIT_RATIOS,
+    # Cache sizes by architecture
+    GPU_L2_CACHE_SIZES,
+    CPU_L3_CACHE_SIZES,
+    TPU_L2_SRAM_SIZES,
+    KPU_L1_STREAMING_BUFFER_SIZES,
+    KPU_L2_TILE_STAGING_SIZES,
+    KPU_L3_GLOBAL_SCRATCHPAD_SIZES,
+    DEFAULT_L2_CACHE_SIZES,  # backward compat
+    # Energy event classes
     EnergyEvent,
     CycleEnergyBreakdown,
     get_mode_description,
+    # Cache hit ratio computation
+    compute_cache_hit_ratio,
+    will_flush_cache,
+    compute_l2_hit_ratio,  # backward compat
+    will_flush_l2,  # backward compat
 )
 
 from .cpu import build_cpu_cycle_energy
@@ -46,17 +62,36 @@ from .comparison import (
     ENERGY_SCALES,
     determine_common_scale,
     format_energy_with_scale,
+    # 3-category energy breakdown
+    format_energy_categories_table,
+    format_energy_categories_per_op_table,
 )
 
 __all__ = [
     # Base classes
     'CyclePhase',
     'OperatingMode',
+    'OperatorType',
+    'MemoryType',
     'HitRatios',
     'DEFAULT_HIT_RATIOS',
+    # Cache sizes by architecture
+    'GPU_L2_CACHE_SIZES',
+    'CPU_L3_CACHE_SIZES',
+    'TPU_L2_SRAM_SIZES',
+    'KPU_L1_STREAMING_BUFFER_SIZES',
+    'KPU_L2_TILE_STAGING_SIZES',
+    'KPU_L3_GLOBAL_SCRATCHPAD_SIZES',
+    'DEFAULT_L2_CACHE_SIZES',
+    # Energy event classes
     'EnergyEvent',
     'CycleEnergyBreakdown',
     'get_mode_description',
+    # Cache hit ratio computation
+    'compute_cache_hit_ratio',
+    'will_flush_cache',
+    'compute_l2_hit_ratio',
+    'will_flush_l2',
     # Architecture models
     'build_cpu_cycle_energy',
     'build_gpu_cycle_energy',
@@ -77,4 +112,7 @@ __all__ = [
     'ENERGY_SCALES',
     'determine_common_scale',
     'format_energy_with_scale',
+    # 3-category energy breakdown
+    'format_energy_categories_table',
+    'format_energy_categories_per_op_table',
 ]

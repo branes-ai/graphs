@@ -44,6 +44,7 @@ from graphs.hardware.cycle_energy import (
     # Base classes
     CyclePhase,
     OperatingMode,
+    OperatorType,
     HitRatios,
     DEFAULT_HIT_RATIOS,
     CycleEnergyBreakdown,
@@ -61,6 +62,9 @@ from graphs.hardware.cycle_energy import (
     # Consistent-scale formatting
     determine_common_scale,
     format_energy_with_scale,
+    # 3-category energy breakdown
+    format_energy_categories_table,
+    format_energy_categories_per_op_table,
 )
 from graphs.hardware.technology_profile import (
     DEFAULT_PROFILE,
@@ -417,8 +421,18 @@ def format_architecture_insights(breakdowns: List[CycleEnergyBreakdown], num_ops
 
 def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
                            verbose: bool = False,
-                           category: ArchitectureComparisonSet = None) -> None:
-    """Run a sweep across different operation scales."""
+                           category: ArchitectureComparisonSet = None,
+                           operator_type: OperatorType = OperatorType.HIGH_REUSE,
+                           working_set_mb: float = 20.0) -> None:
+    """Run a sweep across different operation scales.
+
+    Args:
+        mode: Operating mode (L1, L2, L3, or DRAM resident)
+        verbose: Enable verbose output
+        category: Architecture comparison set (profiles for each arch)
+        operator_type: Type of operator (HIGH_REUSE, LOW_REUSE, STREAMING)
+        working_set_mb: Working set size in MB for cache hit ratio calculation
+    """
     # Get profiles from category or use defaults
     if category:
         cpu_profile = category.cpu_profile
@@ -431,21 +445,45 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
         cpu_profile = gpu_profile = tpu_profile = kpu_profile = DEFAULT_PROFILE
         cat_name = "DEFAULT"
 
+    working_set_bytes = int(working_set_mb * 1024 * 1024)
+    op_type_desc = {
+        OperatorType.HIGH_REUSE: "HIGH_REUSE (MatMul/Conv)",
+        OperatorType.LOW_REUSE: "LOW_REUSE (MatVec/Pool)",
+        OperatorType.STREAMING: "STREAMING (ReLU/BatchNorm)",
+    }
+
     print("\n" + "="*100)
     print(f"  ENERGY SCALING ANALYSIS ({cat_name}) - {mode.value.upper()} Mode")
     print("="*100)
+    print(f"  Operator Type: {op_type_desc.get(operator_type, operator_type.value)}")
+    print(f"  Working Set: {working_set_mb:.0f} MB")
+    print()
 
     scales = [100, 1000, 10000, 100000, 1000000]
     bytes_per_op = 4
+
+    # For streaming operators, cache is "cold" (flushed by previous streaming op)
+    cache_is_cold = (operator_type == OperatorType.STREAMING)
 
     results = []
     for ops in scales:
         bytes_transferred = ops * bytes_per_op
 
-        cpu = build_cpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=cpu_profile)
-        gpu = build_gpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=gpu_profile)
-        tpu = build_tpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=tpu_profile)
-        kpu = build_kpu_cycle_energy(ops, bytes_transferred, mode=mode, tech_profile=kpu_profile)
+        cpu = build_cpu_cycle_energy(
+            ops, bytes_transferred, mode=mode, tech_profile=cpu_profile,
+            operator_type=operator_type, working_set_bytes=working_set_bytes,
+            l3_is_cold=cache_is_cold)
+        gpu = build_gpu_cycle_energy(
+            ops, bytes_transferred, mode=mode, tech_profile=gpu_profile,
+            operator_type=operator_type, working_set_bytes=working_set_bytes,
+            l2_is_cold=cache_is_cold)
+        tpu = build_tpu_cycle_energy(
+            ops, bytes_transferred, mode=mode, tech_profile=tpu_profile,
+            operator_type=operator_type, working_set_bytes=working_set_bytes,
+            sram_is_cold=cache_is_cold)
+        kpu = build_kpu_cycle_energy(
+            ops, bytes_transferred, mode=mode, tech_profile=kpu_profile,
+            operator_type=operator_type, working_set_bytes=working_set_bytes)
 
         results.append({
             'ops': ops,
@@ -460,7 +498,7 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
         })
 
     # TABLE 1: AMORTIZED ENERGY PER OPERATION
-    print(f"\n  TABLE 1: AMORTIZED ENERGY PER OPERATION")
+    print(f"\n  TABLE 1: AMORTIZED ENERGY PER OPERATION ({operator_type.value})")
     print(f"  {'-'*100}")
     print(f"  {'Operations':<12} {'CPU':<14} {'GPU':<14} {'TPU':<14} {'KPU':<14} {'Best':<10}")
     print(f"  {'-'*12} {'-'*14} {'-'*14} {'-'*14} {'-'*14} {'-'*10}")
@@ -494,30 +532,66 @@ def run_architecture_sweep(mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
               f"{format_energy(r['tpu_total']):>14} "
               f"{format_energy(r['kpu_total']):>14}")
 
-    print(f"""
+    # Print operator-specific observations
+    if operator_type == OperatorType.HIGH_REUSE:
+        print(f"""
 
-  OBSERVATIONS:
-  -------------
-  1. GPU has HIGH energy/op at small scales due to fixed SIMT infrastructure
-     (kernel launch, SM activation, memory controllers)
+  OBSERVATIONS (HIGH_REUSE - MatMul/Conv operators):
+  --------------------------------------------------
+  High data reuse enables efficient caching. Results assume warm caches.
 
-  2. TPU has LOW energy/op due to:
-     - No instruction fetch per operation
-     - Systolic MACs are extremely efficient (0.1 pJ each)
-     - BUT: Fill/drain overhead, 10-20% utilization at batch=1
+  1. TPU excels at large MatMul due to systolic array efficiency
+     - Weight-stationary dataflow maximizes weight reuse
+     - Very efficient for batch > 1
 
-  3. KPU (Domain Flow) has LOWEST energy/op due to:
-     - No instruction fetch (SURE-based execution)
-     - Domain program loaded once per layer
+  2. GPU benefits from high L2 hit ratio (~95% with good tiling)
+     - Tensor cores provide efficient MACs
+     - Energy/op stabilizes once hardware is saturated
+
+  3. KPU provides consistent efficiency via explicit memory (EDDO)
+     - Compiler pre-stages data, no cache misses
      - Near 100% utilization even at batch=1
-     - Heterogeneous tiles (INT8/BF16/Matrix)
 
-  4. CPU has consistent energy/op across all scales (no fixed infrastructure)
+  4. CPU has highest control overhead (instruction fetch/decode per op)
+""")
+    elif operator_type == OperatorType.STREAMING:
+        print(f"""
 
-  CROSSOVER POINTS:
-  - GPU becomes competitive with CPU at ~100K+ ops (amortizes fixed overhead)
-  - TPU is efficient for large matrix operations (batch > 8)
-  - KPU dominates at all scales due to SURE execution model
+  OBSERVATIONS (STREAMING - ReLU/BatchNorm/Softmax operators):
+  ------------------------------------------------------------
+  Each element accessed once - no data reuse. Flushes implicit caches.
+
+  1. KPU wins for streaming ops due to explicit memory (EDDO)
+     - No cache flush penalty - compiler manages data placement
+     - Same energy regardless of operator sequence
+
+  2. TPU suffers because SRAM has low hit ratio (~5%)
+     - Streaming ops don't benefit from weight-stationary dataflow
+     - Data flows through without reuse
+
+  3. GPU L2 provides minimal benefit (~5% hit ratio)
+     - Static power becomes dominant overhead
+
+  4. CPU L3 similarly ineffective for streaming access patterns
+
+  KEY INSIGHT: Streaming operators between MatMuls flush caches,
+  causing "cold start" penalties for subsequent high-reuse operators.
+  KPU's explicit memory model avoids this problem entirely.
+""")
+    else:  # LOW_REUSE
+        print(f"""
+
+  OBSERVATIONS (LOW_REUSE - MatVec/Pooling operators):
+  ----------------------------------------------------
+  Limited data reuse. Moderate cache benefit when data fits.
+
+  1. Cache hit ratios depend on working set vs cache size
+     - ~60% hit if working set < 50% of cache
+     - ~10% hit if working set > cache size
+
+  2. KPU maintains consistent efficiency via explicit memory
+     - Binary behavior: data fits (100%) or spills (0%)
+     - No partial cache benefit, but predictable performance
 """)
 
 
@@ -844,6 +918,9 @@ Examples:
   # Fair comparison at 8nm with ARM efficiency CPU
   %(prog)s --arch-comparison 8nm-arm
 
+  # 3-category breakdown (compute, control, data movement) - RECOMMENDED
+  %(prog)s --categories --arch-comparison 8nm-x86
+
   # Custom comparison: 7nm with x86 efficiency CPU
   %(prog)s --process-node 7 --cpu-type x86_efficiency --memory lpddr5
 
@@ -856,8 +933,8 @@ Examples:
   # Detailed phase breakdown
   %(prog)s --verbose --arch-comparison 4nm-datacenter
 
-  # Operation scaling sweep
-  %(prog)s --sweep --arch-comparison 8nm-x86
+  # Operation scaling sweep with 3-category breakdown
+  %(prog)s --categories --sweep --arch-comparison 8nm-x86
 
   # Mode comparison (all modes side-by-side)
   %(prog)s --mode-sweep --arch-comparison 8nm-arm
@@ -865,7 +942,7 @@ Examples:
   # Compare all predefined comparison sets
   %(prog)s --comparison-sweep
 
-  # JSON output
+  # JSON output with categories
   %(prog)s --output results.json --arch-comparison 8nm-x86
 """
     )
@@ -874,8 +951,8 @@ Examples:
                         help='Number of operations (default: 10000)')
     parser.add_argument('--bytes', type=int, default=40960,
                         help='Bytes transferred (default: 40960)')
-    parser.add_argument('--threads', type=int, default=200_000,
-                        help='GPU concurrent threads (default: 200000)')
+    parser.add_argument('--tensor-core-util', type=float, default=0.8,
+                        help='GPU tensor core utilization 0.0-1.0 (default: 0.8)')
     parser.add_argument('--mode', type=str, default='dram',
                         choices=['l1', 'l2', 'l3', 'dram'],
                         help='Operating mode: l1, l2, l3 (CPU/KPU only), dram (default: dram)')
@@ -906,12 +983,20 @@ Examples:
 
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Show detailed phase breakdown')
+    parser.add_argument('--categories', '-c', action='store_true',
+                        help='Show clean 3-category breakdown (compute/control/data movement)')
     parser.add_argument('--diagram', '-d', action='store_true',
                         help='Show architecture diagrams')
     parser.add_argument('--sweep', action='store_true',
                         help='Run scaling sweep across operation counts')
     parser.add_argument('--mode-sweep', action='store_true',
                         help='Compare energy across all operating modes')
+    parser.add_argument('--operator', type=str, default='high_reuse',
+                        choices=['high_reuse', 'low_reuse', 'streaming', 'all'],
+                        help='Operator type for cache hit ratio calculation '
+                             '(high_reuse=MatMul, streaming=ReLU, all=compare both)')
+    parser.add_argument('--working-set', type=float, default=20.0,
+                        help='Working set size in MB (default: 20)')
     parser.add_argument('--output', '-o', type=str,
                         help='Output file (JSON format)')
 
@@ -996,7 +1081,7 @@ Examples:
     cpu_breakdown = build_cpu_cycle_energy(args.ops, args.bytes, mode=mode,
                                             tech_profile=cpu_profile, verbose=args.verbose)
     gpu_breakdown = build_gpu_cycle_energy(args.ops, args.bytes, mode=mode,
-                                            concurrent_threads=args.threads,
+                                            tensor_core_utilization=args.tensor_core_util,
                                             tech_profile=gpu_profile, verbose=args.verbose)
     tpu_breakdown = build_tpu_cycle_energy(args.ops, args.bytes, mode=mode,
                                             tech_profile=tpu_profile, verbose=args.verbose)
@@ -1011,18 +1096,42 @@ Examples:
         for breakdown in breakdowns:
             print(format_phase_breakdown(breakdown))
 
-    # Print comparison table
-    print(format_architecture_comparison_table(breakdowns, mode=mode, num_ops=args.ops))
+    # Print 3-category breakdown if requested (or by default when --categories is used)
+    if args.categories:
+        # Clean 3-category output - this is the main view when --categories is specified
+        print(format_energy_categories_table(breakdowns, num_ops=args.ops))
+        print(format_energy_categories_per_op_table(breakdowns, num_ops=args.ops))
+    else:
+        # Standard output with detailed phase breakdown
+        # Print comparison table
+        print(format_architecture_comparison_table(breakdowns, mode=mode, num_ops=args.ops))
 
-    # Print detailed phase comparison
-    print(format_detailed_phase_comparison(breakdowns, num_ops=args.ops))
+        # Print detailed phase comparison
+        print(format_detailed_phase_comparison(breakdowns, num_ops=args.ops))
 
-    # Print insights
-    print(format_architecture_insights(breakdowns, args.ops))
+        # Print insights
+        print(format_architecture_insights(breakdowns, args.ops))
 
     # Run sweep if requested
     if args.sweep:
-        run_architecture_sweep(mode=mode, verbose=args.verbose, category=comp_set)
+        # Parse operator type
+        operator_map = {
+            'high_reuse': OperatorType.HIGH_REUSE,
+            'low_reuse': OperatorType.LOW_REUSE,
+            'streaming': OperatorType.STREAMING,
+        }
+
+        if args.operator == 'all':
+            # Run sweep for both HIGH_REUSE and STREAMING to show contrast
+            for op_type in [OperatorType.HIGH_REUSE, OperatorType.STREAMING]:
+                run_architecture_sweep(
+                    mode=mode, verbose=args.verbose, category=comp_set,
+                    operator_type=op_type, working_set_mb=args.working_set)
+        else:
+            op_type = operator_map.get(args.operator, OperatorType.HIGH_REUSE)
+            run_architecture_sweep(
+                mode=mode, verbose=args.verbose, category=comp_set,
+                operator_type=op_type, working_set_mb=args.working_set)
 
     # Output JSON if requested
     if args.output:
@@ -1041,11 +1150,25 @@ Examples:
         }
 
         for breakdown in breakdowns:
+            # Get energy categories
+            categories = breakdown.get_energy_categories()
+
             arch_data = {
                 "name": breakdown.architecture_name,
                 "class": breakdown.architecture_class,
                 "total_energy_pj": breakdown.total_energy_pj,
                 "energy_per_op_pj": breakdown.total_energy_pj / args.ops,
+                "categories": {
+                    "compute_pj": categories['compute'],
+                    "control_pj": categories['control'],
+                    "data_movement_pj": categories['data_movement'],
+                    "compute_percent": (categories['compute'] / categories['total'] * 100)
+                                       if categories['total'] > 0 else 0,
+                    "control_percent": (categories['control'] / categories['total'] * 100)
+                                       if categories['total'] > 0 else 0,
+                    "data_movement_percent": (categories['data_movement'] / categories['total'] * 100)
+                                             if categories['total'] > 0 else 0,
+                },
                 "phases": {}
             }
 

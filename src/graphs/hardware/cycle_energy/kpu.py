@@ -63,9 +63,14 @@ if TYPE_CHECKING:
 from .base import (
     CyclePhase,
     OperatingMode,
+    OperatorType,
     HitRatios,
     DEFAULT_HIT_RATIOS,
+    KPU_L1_STREAMING_BUFFER_SIZES,
+    KPU_L2_TILE_STAGING_SIZES,
+    KPU_L3_GLOBAL_SCRATCHPAD_SIZES,
     CycleEnergyBreakdown,
+    compute_cache_hit_ratio,
 )
 
 
@@ -82,7 +87,11 @@ def build_kpu_cycle_energy(
     hit_ratios: Optional[HitRatios] = None,
     num_layers: int = 1,
     tech_profile: 'TechnologyProfile' = None,
-    verbose: bool = False
+    verbose: bool = False,
+    # New parameters for working-set-based memory modeling
+    operator_type: OperatorType = OperatorType.HIGH_REUSE,
+    working_set_bytes: Optional[int] = None,
+    l3_scratchpad_bytes: int = KPU_L3_GLOBAL_SCRATCHPAD_SIZES['default'],
 ) -> CycleEnergyBreakdown:
     """
     Build the KPU (Domain Flow Architecture) cycle energy breakdown.
@@ -95,6 +104,10 @@ def build_kpu_cycle_energy(
         num_layers: Number of neural network layers (affects domain program loads)
         tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
+        operator_type: Type of operator (for documentation, KPU uses explicit memory)
+        working_set_bytes: Size of working set
+                          If None, defaults to bytes_transferred
+        l3_scratchpad_bytes: Size of global scratchpad (L3 equivalent, default 8MB)
 
     Returns:
         CycleEnergyBreakdown with detailed energy breakdown
@@ -106,6 +119,18 @@ def build_kpu_cycle_energy(
     - Stream processing through heterogeneous tile array
     - Distributed scratchpads (256KB/tile) - no cache coherence overhead
     - Near 100% utilization even at batch=1 (unlike TPU/GPU)
+
+    Memory Model (EDDO - Explicit Data Distribution & Orchestration):
+        KPU uses SOFTWARE-MANAGED scratchpads, not hardware-managed caches:
+        - L1 = Streaming buffer: bridges data into compute fabric
+        - L2 = Tile staging area: bridges L3 and compute timing
+        - L3 = Global scratchpad: shared across all tiles
+
+        Unlike implicit caches (CPU L3, GPU L2), KPU memory is compiler-managed:
+        - Data either fits (100% hit) or doesn't (0% hit at that level)
+        - No "cache flush" problem from streaming operators
+        - Compiler handles data placement, no runtime surprises
+        - Deterministic memory access latencies
 
     Key advantages over stored program machines:
     - 2.5-4x more energy efficient than CPU
@@ -126,7 +151,9 @@ def build_kpu_cycle_energy(
             from graphs.hardware.technology_profile import EDGE_8NM_LPDDR5
             breakdown = build_kpu_cycle_energy(
                 num_ops=1000,
-                tech_profile=EDGE_8NM_LPDDR5
+                tech_profile=EDGE_8NM_LPDDR5,
+                operator_type=OperatorType.HIGH_REUSE,
+                working_set_bytes=4*1024*1024,  # 4MB working set
             )
 
     Raises:
@@ -137,7 +164,58 @@ def build_kpu_cycle_energy(
             "tech_profile is required. Use DEFAULT_PROFILE from "
             "graphs.hardware.technology_profile or provide a specific profile."
         )
-    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[mode]
+
+    # KPU uses EXPLICIT (software-managed) memory via EDDO
+    # Unlike implicit caches, data either fits or it doesn't - no probabilistic hits
+    ws_bytes = working_set_bytes if working_set_bytes is not None else bytes_transferred
+
+    if hit_ratios is not None:
+        # User provided explicit ratios - use them
+        ratios = hit_ratios
+    else:
+        # Compute placement using explicit memory model
+        # Data is placed by compiler, not cached by hardware
+        #
+        # KPU Memory Hierarchy:
+        #   L1 = Streaming buffer (64KB) - bridges into compute
+        #   L2 = Tile staging (256KB) - bridges L3/compute timing
+        #   L3 = Global scratchpad (8MB) - shared across tiles
+        #
+        # For explicit memory: hit ratio is 100% if data fits, 0% otherwise
+        l1_size = KPU_L1_STREAMING_BUFFER_SIZES['default']
+        l2_size = KPU_L2_TILE_STAGING_SIZES['default']
+        l3_size = l3_scratchpad_bytes
+
+        # Compute "hit ratios" for explicit memory (binary: fits or doesn't)
+        l1_hit = compute_cache_hit_ratio(
+            operator_type=operator_type,
+            working_set_bytes=ws_bytes,
+            cache_size_bytes=l1_size,
+            cache_is_cold=False,  # No cold penalty for explicit memory
+            is_explicit_memory=True,
+        )
+        l2_hit = compute_cache_hit_ratio(
+            operator_type=operator_type,
+            working_set_bytes=ws_bytes,
+            cache_size_bytes=l2_size,
+            cache_is_cold=False,
+            is_explicit_memory=True,
+        )
+        l3_hit = compute_cache_hit_ratio(
+            operator_type=operator_type,
+            working_set_bytes=ws_bytes,
+            cache_size_bytes=l3_size,
+            cache_is_cold=False,
+            is_explicit_memory=True,
+        )
+
+        ratios = HitRatios(l1_hit=l1_hit, l2_hit=l2_hit, l3_hit=l3_hit)
+
+        if verbose:
+            print(f"  EDDO memory placement (explicit, ws={ws_bytes/1024/1024:.1f}MB):")
+            print(f"    L1 (streaming buffer, {l1_size/1024:.0f}KB): {'fits' if l1_hit > 0 else 'spills'}")
+            print(f"    L2 (tile staging, {l2_size/1024:.0f}KB): {'fits' if l2_hit > 0 else 'spills'}")
+            print(f"    L3 (global scratchpad, {l3_size/1024/1024:.0f}MB): {'fits' if l3_hit > 0 else 'spills to DRAM'}")
 
     # Derive all energy parameters from technology profile
     process_scale = tech_profile.process_node_nm / 16.0  # 16nm is baseline for KPU
@@ -235,10 +313,19 @@ def build_kpu_cycle_energy(
     )
 
     # ==========================================================================
-    # DOMAIN FLOW STREAMING (Data-driven execution)
+    # DOMAIN FLOW STREAMING (Internal - between scratchpads and tile array)
     # ==========================================================================
-    # Data flows through the tile network driven by dependencies,
-    # not by instruction fetches
+    # These represent ON-CHIP data movement within the KPU:
+    # - Tile scratchpad -> Processing element inputs
+    # - Processing element outputs -> Next tile or output buffers
+    #
+    # This is SEPARATE from external memory access (EDDO hierarchy) which is
+    # modeled below. The internal streaming happens regardless of where
+    # the data originally came from.
+    #
+    # Unlike TPU (fixed systolic dataflow), KPU streaming follows SURE
+    # dependency vectors, so data movement is algorithm-dependent.
+    # ==========================================================================
 
     breakdown.add_event(
         CyclePhase.SPATIAL_STREAM,
@@ -256,22 +343,26 @@ def build_kpu_cycle_energy(
         max(1, sync_points)
     )
 
-    # Input data streaming
-    input_bytes = bytes_transferred // 2
+    # Internal streaming: data flows through tile network based on SURE dependencies
+    # This is the on-chip bus traffic, similar to TPU's systolic data movement.
+    # Estimate based on ops and tile geometry (not bytes_transferred which is external)
+    #
+    # Each op requires ~8 bytes of operand data flowing through the network
+    # (2 inputs x 4 bytes for FP32, less for INT8/BF16)
+    internal_stream_bytes = num_ops * 4  # Average ~4 bytes per op (mixed precision)
+
     breakdown.add_event(
         CyclePhase.SPATIAL_STREAM,
-        "Input data streaming",
+        "Scratchpad -> tile array (inputs)",
         params['stream_pj_per_byte'],
-        input_bytes
+        internal_stream_bytes // 2
     )
 
-    # Output data streaming
-    output_bytes = bytes_transferred // 2
     breakdown.add_event(
         CyclePhase.SPATIAL_STREAM,
-        "Output data streaming",
+        "Tile array -> output buffers",
         params['stream_pj_per_byte'],
-        output_bytes
+        internal_stream_bytes // 2
     )
 
     # ==========================================================================
@@ -351,14 +442,18 @@ def build_kpu_cycle_energy(
     )
 
     # ==========================================================================
-    # EDDO SCRATCHPAD HIERARCHY (Software-Managed, NOT caches!)
+    # EXTERNAL MEMORY ACCESS (EDDO Scratchpad Hierarchy)
     # ==========================================================================
+    # This models the energy to GET data into/out of the KPU chip.
     # EDDO = Explicit Data Distribution and Orchestration
     #
     # KPU uses SOFTWARE-MANAGED scratchpads - NOT hardware-managed caches:
     # - Tile Scratchpad: 256KB per tile, directly addressed (no tags!)
     # - Global Scratchpad: Shared SRAM across tile groups
     # - Streaming Buffer: DMA staging for off-chip transfers
+    #
+    # The bytes_transferred parameter represents the EXTERNAL memory footprint,
+    # which is separate from the internal streaming data movement above.
     #
     # Key differences from cache hierarchy:
     # - No tag lookup energy (scratchpads are directly addressed)
@@ -375,12 +470,38 @@ def build_kpu_cycle_energy(
     # - "l2_hit" -> fraction in global scratchpad
     # - "l3_hit" -> fraction in streaming buffer
     # - remainder -> DRAM via DMA
+    #
+    # However, we must respect the mode parameter for fair comparison:
+    # - L1_RESIDENT: All data fits in tile scratchpad
+    # - L2_RESIDENT: Data fits in tile+global scratchpad (no DRAM)
+    # - L3_RESIDENT: Data fits in on-chip hierarchy (no DRAM)
+    # - DRAM_RESIDENT: Data streams from DRAM
 
-    tile_scratchpad_bytes = int(bytes_transferred * ratios.l1_hit)
-    global_scratchpad_bytes = int((bytes_transferred - tile_scratchpad_bytes) * ratios.l2_hit)
-    remaining = bytes_transferred - tile_scratchpad_bytes - global_scratchpad_bytes
-    streaming_buffer_bytes = int(remaining * ratios.l3_hit) if mode != OperatingMode.L1_RESIDENT else 0
-    dram_bytes = remaining - streaming_buffer_bytes
+    # Use hit ratios to determine data placement (consistent with CPU/GPU models)
+    # Even in DRAM_RESIDENT mode, the scratchpad hierarchy filters accesses
+    # (just like CPU cache hierarchy filters DRAM accesses)
+    #
+    # The key difference: EDDO scratchpads are software-managed, so the
+    # compiler pre-stages data. But the hit ratio model still applies
+    # to capture how much of the working set fits at each level.
+
+    if mode == OperatingMode.L1_RESIDENT:
+        # All data fits in tile scratchpad (100% L1 hit)
+        tile_scratchpad_bytes = bytes_transferred
+        global_scratchpad_bytes = 0
+        streaming_buffer_bytes = 0
+        dram_bytes = 0
+    else:
+        # Use hit ratios to cascade through the hierarchy
+        # L1 = tile scratchpad, L2 = global scratchpad, L3 = streaming buffer
+        tile_scratchpad_bytes = int(bytes_transferred * ratios.l1_hit)
+        remaining_after_l1 = bytes_transferred - tile_scratchpad_bytes
+
+        global_scratchpad_bytes = int(remaining_after_l1 * ratios.l2_hit)
+        remaining_after_l2 = remaining_after_l1 - global_scratchpad_bytes
+
+        streaming_buffer_bytes = int(remaining_after_l2 * ratios.l3_hit)
+        dram_bytes = remaining_after_l2 - streaming_buffer_bytes
 
     is_scratchpad_resident = (mode == OperatingMode.L1_RESIDENT)
 

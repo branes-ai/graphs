@@ -574,8 +574,8 @@ Examples:
                         help='Number of operations (default: 1000)')
     parser.add_argument('--bytes', type=int, default=4096,
                         help='Bytes transferred (default: 4096)')
-    parser.add_argument('--threads', type=int, default=200_000,
-                        help='GPU concurrent threads (default: 200000)')
+    parser.add_argument('--tensor-core-util', type=float, default=0.8,
+                        help='GPU tensor core utilization 0.0-1.0 (default: 0.8)')
     parser.add_argument('--mode', type=str, default='dram',
                         choices=['l1', 'l2', 'l3', 'dram'],
                         help='Operating mode (default: dram)')
@@ -642,7 +642,7 @@ Examples:
     cpu_breakdown = build_cpu_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios,
                                             tech_profile=DEFAULT_PROFILE, verbose=args.verbose)
     gpu_breakdown = build_gpu_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios,
-                                            concurrent_threads=args.threads,
+                                            tensor_core_utilization=args.tensor_core_util,
                                             tech_profile=DEFAULT_PROFILE, verbose=args.verbose)
     dsp_breakdown = build_dsp_cycle_energy(args.ops, args.bytes, mode=mode, hit_ratios=hit_ratios,
                                             tech_profile=DEFAULT_PROFILE, verbose=args.verbose)
