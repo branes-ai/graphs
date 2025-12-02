@@ -78,17 +78,15 @@ def determine_common_scale(values_pj: List[float]) -> tuple:
     return best_scale
 
 
-def format_energy_with_scale(energy_pj: float, divisor: float, decimals: int = 2) -> str:
-    """Format energy value using a specific scale (no unit suffix)."""
+def format_energy_with_scale(energy_pj: float, divisor: float, decimals: int = 1) -> str:
+    """Format energy value using a specific scale (no unit suffix).
+
+    Always uses consistent decimal places for alignment in tables.
+    """
     if energy_pj == 0.0:
-        return "0"
+        return f"0.{'0' * decimals}"
     scaled = energy_pj / divisor
-    if scaled >= 100:
-        return f"{scaled:.0f}"
-    elif scaled >= 10:
-        return f"{scaled:.1f}"
-    else:
-        return f"{scaled:.{decimals}f}"
+    return f"{scaled:.{decimals}f}"
 
 
 def format_phase_breakdown(
@@ -495,5 +493,186 @@ def format_mode_comparison_table(
             else:
                 row += f"{'n/a':>{COL_WIDTH}}"
         lines.append(row)
+
+    return "\n".join(lines)
+
+
+def format_energy_categories_table(
+    breakdowns: List[CycleEnergyBreakdown],
+    num_ops: int = 1000,
+    title: str = "Energy Categories by Architecture"
+) -> str:
+    """
+    Format a clean 3-category energy breakdown table.
+
+    Shows energy split into three fundamental categories:
+    1. COMPUTE: Pure compute energy (ALU/MAC operations)
+    2. CONTROL: Control overhead (instruction handling, scheduling, config)
+    3. DATA MOVEMENT: Data movement (memory access, coherence, transfers)
+
+    This provides a cleaner view than the detailed phase breakdown,
+    making it easier to compare architectures.
+
+    Args:
+        breakdowns: List of CycleEnergyBreakdown objects to compare
+        num_ops: Number of operations (for per-op calculations)
+        title: Table title
+
+    Returns:
+        Formatted table string
+    """
+    lines = []
+    lines.append("\n" + "=" * 100)
+    lines.append(f"  {title}")
+    lines.append("=" * 100)
+
+    # Collect all energies for common scale determination
+    all_energies = []
+    for bd in breakdowns:
+        cats = bd.get_energy_categories()
+        all_energies.extend([cats['compute'], cats['control'], cats['data_movement'], cats['total']])
+
+    unit, divisor = determine_common_scale(all_energies)
+
+    # Header
+    arch_col = 25
+    cat_col = 14
+    lines.append("")
+    lines.append(f"  {'Architecture':<{arch_col}} "
+                 f"{'Compute':>{cat_col}} "
+                 f"{'Control':>{cat_col}} "
+                 f"{'Data Move':>{cat_col}} "
+                 f"{'Total':>{cat_col}} "
+                 f"{'Compute%':>9} "
+                 f"{'Control%':>9} "
+                 f"{'DataMov%':>9}")
+    lines.append(f"  {'-' * arch_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * 9} "
+                 f"{'-' * 9} "
+                 f"{'-' * 9}")
+
+    # Data rows
+    for bd in breakdowns:
+        cats = bd.get_energy_categories()
+        compute = cats['compute']
+        control = cats['control']
+        data_mov = cats['data_movement']
+        total = cats['total']
+
+        # Calculate percentages
+        compute_pct = (compute / total * 100) if total > 0 else 0
+        control_pct = (control / total * 100) if total > 0 else 0
+        data_mov_pct = (data_mov / total * 100) if total > 0 else 0
+
+        # Shorten architecture name
+        short_name = bd.architecture_name[:arch_col]
+
+        lines.append(f"  {short_name:<{arch_col}} "
+                     f"{format_energy_with_scale(compute, divisor):>{cat_col}} "
+                     f"{format_energy_with_scale(control, divisor):>{cat_col}} "
+                     f"{format_energy_with_scale(data_mov, divisor):>{cat_col}} "
+                     f"{format_energy_with_scale(total, divisor):>{cat_col}} "
+                     f"{compute_pct:>8.1f}% "
+                     f"{control_pct:>8.1f}% "
+                     f"{data_mov_pct:>8.1f}%")
+
+    lines.append(f"\n  Energy unit: {unit}")
+
+    # Add insights section
+    lines.append("\n" + "-" * 100)
+    lines.append("  CATEGORY DEFINITIONS:")
+    lines.append("-" * 100)
+    lines.append("  COMPUTE:     Pure compute energy - ALU/MAC operations (the useful work)")
+    lines.append("  CONTROL:     Instruction fetch/decode, scheduling, configuration overhead")
+    lines.append("  DATA MOVE:   Memory hierarchy access, coherence, data transfers")
+    lines.append("")
+    lines.append("  KEY INSIGHT: Lower Control% and Data Move% means more efficient architecture.")
+    lines.append("  - Stored program machines (CPU/GPU) have HIGH control overhead")
+    lines.append("  - Dataflow machines (TPU/KPU) have LOW control overhead (no per-op instruction fetch)")
+    lines.append("  - Memory-bound workloads show HIGH data movement percentage")
+
+    return "\n".join(lines)
+
+
+def format_energy_categories_per_op_table(
+    breakdowns: List[CycleEnergyBreakdown],
+    num_ops: int = 1000,
+    title: str = "Energy per Operation by Category"
+) -> str:
+    """
+    Format energy-per-operation breakdown by category.
+
+    Shows energy per operation split into three categories,
+    making it easy to compare architectures' efficiency.
+
+    Args:
+        breakdowns: List of CycleEnergyBreakdown objects to compare
+        num_ops: Number of operations
+        title: Table title
+
+    Returns:
+        Formatted table string
+    """
+    lines = []
+    lines.append("\n" + "=" * 100)
+    lines.append(f"  {title}")
+    lines.append("=" * 100)
+    lines.append(f"  Workload: {num_ops:,} operations")
+
+    # Collect per-op energies for common scale determination
+    all_energies = []
+    for bd in breakdowns:
+        cats = bd.get_energy_categories()
+        for val in cats.values():
+            all_energies.append(val / num_ops)
+
+    unit, divisor = determine_common_scale(all_energies)
+
+    # Header
+    arch_col = 25
+    cat_col = 12
+    lines.append("")
+    lines.append(f"  {'Architecture':<{arch_col}} "
+                 f"{'Compute':>{cat_col}} "
+                 f"{'Control':>{cat_col}} "
+                 f"{'Data Move':>{cat_col}} "
+                 f"{'Total':>{cat_col}} "
+                 f"{'vs Best':>10}")
+    lines.append(f"  {'-' * arch_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * cat_col} "
+                 f"{'-' * 10}")
+
+    # Find best total energy per op
+    best_total = min(bd.get_energy_categories()['total'] / num_ops for bd in breakdowns)
+
+    # Data rows
+    for bd in breakdowns:
+        cats = bd.get_energy_categories()
+        compute = cats['compute'] / num_ops
+        control = cats['control'] / num_ops
+        data_mov = cats['data_movement'] / num_ops
+        total = cats['total'] / num_ops
+
+        # Calculate relative to best
+        vs_best = total / best_total if best_total > 0 else 0
+
+        # Shorten architecture name
+        short_name = bd.architecture_name[:arch_col]
+
+        lines.append(f"  {short_name:<{arch_col}} "
+                     f"{format_energy_with_scale(compute, divisor):>{cat_col}} "
+                     f"{format_energy_with_scale(control, divisor):>{cat_col}} "
+                     f"{format_energy_with_scale(data_mov, divisor):>{cat_col}} "
+                     f"{format_energy_with_scale(total, divisor):>{cat_col}} "
+                     f"{vs_best:>9.2f}x")
+
+    lines.append(f"\n  Energy unit: {unit}/op")
 
     return "\n".join(lines)

@@ -1,30 +1,49 @@
 """
-GPU Cycle-Level Energy Model
+GPU Cycle-Level Energy Model (SM-Centric)
 
 Models energy consumption for SIMT (Single Instruction Multiple Thread)
 data parallel architectures like NVIDIA H100 or Jetson GPUs.
+
+SM-Centric Model:
+==================
+A GPU is a collection of Streaming Multiprocessors (SMs). The energy per
+operation is determined by what happens on a SINGLE SM. A bigger GPU (more
+SMs) increases throughput but NOT energy per op.
+
+Single SM Architecture (H100-class):
+  - 128 CUDA Cores (FP32)
+  - 4 Tensor Core units (4x4x4 matrix ops)
+  - 64 max resident warps (2048 threads)
+  - 256KB register file
+  - 192KB L1/Shared memory (configurable)
+
+Warp Execution Model:
+  - One warp = 32 threads executing in SIMT lockstep
+  - One instruction controls all 32 threads in a warp
+  - Instruction fetch/decode is amortized across 32 threads (like SIMD)
+  - Register access is per-instruction (vector register read)
+  - Compute energy is per-op (each lane does 1 MAC)
+
+Memory Hierarchy:
+  - L1/Shared Memory: 192KB per SM (configurable split)
+  - L2 Cache: Shared across all SMs (50MB on H100)
+  - HBM: Off-chip high-bandwidth memory (80GB on H100)
+
+Key insight: Energy per op is CONSTANT regardless of GPU size.
+The number of SMs only affects throughput (ops/second), not efficiency (pJ/op).
 
 GPU Basic Cycle (SIMT):
   INSTRUCTION FETCH -> DECODE -> WARP SCHEDULING -> REGISTER ACCESS
          |                            |
          v                            v
     (per warp)              COHERENCE MACHINERY
-                                    |
-                                    v
-                            EXECUTE (CUDA/Tensor)
-                                    |
-                                    v
-                            MEMORY ACCESS
-                        (Shared/L1 -> L2 -> HBM)
-
-Key characteristics:
-- One instruction controls 32 threads (warp)
-- Massive parallelism (thousands of concurrent threads)
-- SIMT overhead dominates for small workloads:
-  - Fixed infrastructure (kernel launch, SM activation)
-  - Thread management (warp scheduling, context)
-  - Coherence machinery (for L2+ modes)
-  - Synchronization (barriers, divergence)
+                                   |
+                                   v
+                           EXECUTE (CUDA/Tensor)
+                                   |
+                                   v
+                           MEMORY ACCESS
+                       (Shared/L1 -> L2 -> HBM)
 """
 
 from typing import Optional, TYPE_CHECKING
@@ -35,16 +54,35 @@ if TYPE_CHECKING:
 from .base import (
     CyclePhase,
     OperatingMode,
+    OperatorType,
     HitRatios,
     DEFAULT_HIT_RATIOS,
+    DEFAULT_L2_CACHE_SIZES,
     CycleEnergyBreakdown,
+    compute_l2_hit_ratio,
 )
 
 
-# NOTE: Energy parameters are now REQUIRED via TechnologyProfile.
-# The hardcoded GPU_ENERGY_PARAMS dict has been removed to eliminate
-# dual sources of energy definitions. Use a TechnologyProfile instance
-# (e.g., DEFAULT_PROFILE from technology_profile.py) for all energy values.
+# =============================================================================
+# SM Configuration Constants
+# =============================================================================
+# These define the fixed hardware resources of a single SM.
+# Energy per op is determined by these constants, not by workload size.
+
+SM_CONFIG = {
+    # Warp configuration
+    'warp_size': 32,              # Threads per warp (SIMT width)
+    'max_warps_per_sm': 64,       # Max resident warps
+    'max_threads_per_sm': 2048,   # Max resident threads (64 warps * 32)
+
+    # Compute resources per SM
+    'cuda_cores': 128,            # FP32 CUDA cores
+    'tensor_cores': 4,            # Tensor Core units
+
+    # Memory per SM
+    'register_file_kb': 256,      # Register file size
+    'l1_shared_kb': 192,          # L1/Shared memory (configurable)
+}
 
 
 def build_gpu_cycle_energy(
@@ -52,41 +90,66 @@ def build_gpu_cycle_energy(
     bytes_transferred: int = 4096,
     mode: OperatingMode = OperatingMode.DRAM_RESIDENT,
     hit_ratios: Optional[HitRatios] = None,
-    concurrent_threads: int = 200_000,
     tech_profile: 'TechnologyProfile' = None,
-    verbose: bool = False
+    verbose: bool = False,
+    # Working-set-based L2 modeling
+    operator_type: OperatorType = OperatorType.HIGH_REUSE,
+    working_set_bytes: Optional[int] = None,
+    l2_cache_bytes: int = DEFAULT_L2_CACHE_SIZES['default'],
+    l2_is_cold: bool = False,
+    # Tensor core utilization
+    tensor_core_utilization: float = 0.8,
 ) -> CycleEnergyBreakdown:
     """
-    Build the GPU basic cycle energy breakdown.
+    Build the GPU basic cycle energy breakdown using SM-centric model.
+
+    The model calculates energy based on a SINGLE SM's perspective:
+    - Instruction overhead is amortized across warp (32 threads)
+    - Register access is per-instruction (vector register operations)
+    - Compute energy is per-op (each CUDA/Tensor core lane)
+    - Memory energy depends on hierarchy (L1/Shared -> L2 -> HBM)
+
+    A larger GPU (more SMs) processes more ops in parallel but doesn't
+    change the energy per op - it only increases throughput.
 
     Args:
         num_ops: Number of operations to execute
         bytes_transferred: Total bytes of data accessed
         mode: Operating mode (L1, L2, or DRAM resident - GPU has no L3)
         hit_ratios: Custom hit ratios (uses defaults for mode if None)
-        concurrent_threads: Number of concurrent GPU threads
         tech_profile: REQUIRED TechnologyProfile for energy parameters
         verbose: Enable verbose output
+        operator_type: Type of operator (HIGH_REUSE, LOW_REUSE, STREAMING)
+                      Determines L2 hit ratio based on data reuse pattern
+        working_set_bytes: Size of working set for L2 hit ratio calculation
+        l2_cache_bytes: Size of L2 cache (default 50MB for H100-class)
+        l2_is_cold: True if L2 was flushed by previous streaming operator
+        tensor_core_utilization: Fraction of ops using tensor cores (0.0-1.0)
 
     Returns:
         CycleEnergyBreakdown with detailed energy breakdown
 
-    GPU Energy Model:
-    - Fixed infrastructure overhead (kernel launch, SM activation)
-    - SIMT overhead scales with thread count
-    - Coherence overhead depends on mode (minimal in L1/shared memory)
-    - Memory access through Shared/L1 -> L2 -> HBM hierarchy
+    SM-Centric Energy Model:
+        1. Instruction overhead: Amortized across warp (32 threads)
+           - num_instructions = num_ops / warp_size
+           - Each instruction fetch/decode serves 32 ops
 
-    Technology Profile (REQUIRED):
-        A TechnologyProfile must be provided to specify energy parameters.
-        Use DEFAULT_PROFILE for typical datacenter values.
+        2. Register access: Per-instruction (vector registers)
+           - 2 source vector register reads per instruction
+           - 1 destination vector register write per instruction
 
-        Example:
-            from graphs.hardware.technology_profile import DATACENTER_4NM_HBM3
-            breakdown = build_gpu_cycle_energy(
-                num_ops=1000,
-                tech_profile=DATACENTER_4NM_HBM3
-            )
+        3. Warp scheduling: Per-instruction
+           - Scheduler selects one warp per cycle per scheduler
+           - SM has 4 warp schedulers, but we model per-instruction
+
+        4. Compute: Per-op
+           - Each CUDA core lane or Tensor Core element does 1 MAC
+           - Energy scales linearly with num_ops
+
+        5. Memory: Per-byte with hierarchy
+           - L1/Shared: On-SM, very low latency
+           - L2: Shared across SMs, higher latency
+           - HBM: Off-chip, highest latency and energy
 
     Raises:
         ValueError: If tech_profile is not provided.
@@ -96,61 +159,74 @@ def build_gpu_cycle_energy(
             "tech_profile is required. Use DEFAULT_PROFILE from "
             "graphs.hardware.technology_profile or provide a specific profile."
         )
+
     # GPU has no L3 cache - L3 mode should behave like DRAM mode
-    # (L2 misses go directly to HBM)
     effective_mode = mode
     if mode == OperatingMode.L3_RESIDENT:
         effective_mode = OperatingMode.DRAM_RESIDENT
 
-    ratios = hit_ratios if hit_ratios else DEFAULT_HIT_RATIOS[effective_mode]
+    # Compute L2 hit ratio based on operator type and working set
+    if hit_ratios is not None:
+        ratios = hit_ratios
+    elif effective_mode == OperatingMode.L1_RESIDENT:
+        ratios = DEFAULT_HIT_RATIOS[effective_mode]
+    else:
+        ws_bytes = working_set_bytes if working_set_bytes is not None else bytes_transferred
+        l2_hit = compute_l2_hit_ratio(
+            operator_type=operator_type,
+            working_set_bytes=ws_bytes,
+            l2_cache_bytes=l2_cache_bytes,
+            l2_is_cold=l2_is_cold,
+        )
+        default_ratios = DEFAULT_HIT_RATIOS[effective_mode]
+        ratios = HitRatios(
+            l1_hit=default_ratios.l1_hit,
+            l2_hit=l2_hit,
+            l3_hit=0.0,  # GPU has no L3
+        )
+        if verbose:
+            print(f"  L2 hit ratio: {l2_hit:.1%} (operator={operator_type.value}, "
+                  f"ws={ws_bytes/1024/1024:.1f}MB, L2={l2_cache_bytes/1024/1024:.0f}MB, "
+                  f"cold={l2_is_cold})")
 
-    # Derive all energy parameters from technology profile
-    process_scale = tech_profile.process_node_nm / 4.0  # 4nm is baseline for GPU
+    # ==========================================================================
+    # Energy Parameters (from TechnologyProfile)
+    # ==========================================================================
+    process_scale = tech_profile.process_node_nm / 4.0  # 4nm baseline
+
+    # SM configuration
+    warp_size = SM_CONFIG['warp_size']
+
+    # Energy parameters
     params = {
-        # Instruction overhead (amortized across warp)
+        # Per-instruction costs (amortized across warp)
         'instruction_fetch_pj': tech_profile.instruction_fetch_energy_pj,
         'instruction_decode_pj': tech_profile.instruction_decode_energy_pj,
-        'instructions_per_op': 0.1,  # Fixed: amortized across 32 threads
+        'warp_schedule_pj': 0.5 * process_scale,  # Scheduler decision per instruction
 
-        # Register file
-        'register_access_pj': tech_profile.register_read_energy_pj * 0.25,  # GPU regs simpler
+        # Per-instruction register access (vector register, serves 32 threads)
+        # GPU register files are simpler than CPU (no renaming, in-order within warp)
+        'vector_register_read_pj': tech_profile.register_read_energy_pj * 0.25,
+        'vector_register_write_pj': tech_profile.register_write_energy_pj * 0.25,
 
-        # Execution units
+        # Per-op compute energy
+        # Tensor cores are ~0.85x energy of baseline ALU (specialized MAC array)
+        # CUDA cores run at baseline ALU energy
         'tensor_core_mac_pj': tech_profile.tensor_core_mac_energy_pj,
-        'cuda_core_mac_pj': tech_profile.base_alu_energy_pj,
-        'tensor_core_utilization': 0.8,
+        'cuda_core_mac_pj': tech_profile.base_alu_energy_pj * 0.85,  # GPU ALU is simpler than CPU
 
-        # SIMT Fixed Overhead (scales with process)
+        # Fixed overhead (one-time per kernel, amortizes with scale)
         'kernel_launch_pj': 100_000.0 * process_scale,
-        'sm_activation_pj': 5_000.0 * process_scale,
-        'memory_controller_pj': 50_000.0 * process_scale,
 
-        # SIMT Variable Overhead
-        'warp_scheduler_pj': 0.5 * process_scale,
-        'thread_context_pj': 0.2 * process_scale,
-        'scoreboard_pj': 0.3 * process_scale,
-
-        # Coherence
-        'request_queue_pj': tech_profile.coherence_energy_per_request_pj,
-        'coalesce_pj': 0.8 * process_scale,
-        'l1_tag_pj': 0.5 * process_scale,
-        'l2_directory_pj': 1.5 * process_scale,
-        'ordering_pj': 0.3 * process_scale,
-        'bank_conflict_pj': 0.3 * process_scale,
-
-        # Synchronization
-        'divergence_mask_pj': tech_profile.warp_divergence_energy_pj,
-        'reconverge_pj': 2.0 * process_scale,
-        'barrier_pj': tech_profile.barrier_sync_energy_pj,
-        'atomic_pj': 5.0 * process_scale,
-
-        # Memory hierarchy (per byte)
-        'shared_l1_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
+        # Per-byte memory costs
+        'l1_shared_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
         'l2_cache_pj_per_byte': tech_profile.l2_cache_energy_per_byte_pj,
         'hbm_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
 
-        # Divergence rate
-        'warp_divergence_rate': 0.05,
+        # Coherence/synchronization (minimal overhead)
+        'coalesce_pj': 0.8 * process_scale,  # Per memory instruction
+        'divergence_pj': tech_profile.warp_divergence_energy_pj,
+        'divergence_rate': 0.05,  # 5% of instructions have divergence
     }
 
     breakdown = CycleEnergyBreakdown(
@@ -159,10 +235,26 @@ def build_gpu_cycle_energy(
     )
 
     # ==========================================================================
-    # FIXED INFRASTRUCTURE OVERHEAD
+    # SM-CENTRIC CALCULATIONS
     # ==========================================================================
-    # GPUs have significant fixed costs that don't scale with workload
-    num_active_sms = min(132, max(1, num_ops // 100))
+    # Key insight: One instruction controls 32 threads (one warp).
+    # Instruction overhead is amortized across warp, just like CPU SIMD.
+    #
+    # num_instructions = num_ops / warp_size
+    # This is the GPU's "SIMD amortization" - identical concept to AVX-512.
+
+    num_instructions = max(1, num_ops // warp_size)
+
+    breakdown.num_cycles = num_instructions
+    breakdown.ops_per_cycle = warp_size  # Each instruction produces warp_size ops
+
+    # ==========================================================================
+    # FIXED OVERHEAD (One-time per kernel)
+    # ==========================================================================
+    # Kernel launch is the only true fixed cost. It amortizes with scale.
+    # We don't model "SM activation" separately because:
+    # - SMs are always powered when GPU is active
+    # - The per-op energy already accounts for SM power consumption
 
     breakdown.add_event(
         CyclePhase.SIMT_FIXED_OVERHEAD,
@@ -170,249 +262,151 @@ def build_gpu_cycle_energy(
         params['kernel_launch_pj'],
         1
     )
-    breakdown.add_event(
-        CyclePhase.SIMT_FIXED_OVERHEAD,
-        f"SM activation ({num_active_sms} SMs)",
-        params['sm_activation_pj'],
-        num_active_sms
-    )
-    breakdown.add_event(
-        CyclePhase.SIMT_FIXED_OVERHEAD,
-        "Memory controller infrastructure",
-        params['memory_controller_pj'],
-        1
-    )
-
-    # Calculate execution parameters
-    warp_size = 32
-    effective_threads = min(concurrent_threads, num_ops * 32)
-    num_warps = max(1, effective_threads // warp_size)
-    num_instructions = int(num_ops * params['instructions_per_op'])
-
-    breakdown.num_cycles = max(1, num_instructions)
-    breakdown.ops_per_cycle = concurrent_threads // max(1, num_warps)
 
     # ==========================================================================
-    # Phase 1: INSTRUCTION FETCH (shared across warp)
+    # INSTRUCTION FETCH (amortized across warp)
     # ==========================================================================
+    # One fetch serves 32 threads. This is GPU's SIMT amortization.
     breakdown.add_event(
         CyclePhase.INSTRUCTION_FETCH,
-        "I-cache read (per warp, shared by 32 threads)",
+        f"I-cache read (1 instr -> {warp_size} ops)",
         params['instruction_fetch_pj'],
-        max(1, num_instructions)
+        num_instructions
     )
 
     # ==========================================================================
-    # Phase 2: INSTRUCTION DECODE (SIMT logic)
+    # INSTRUCTION DECODE (amortized across warp)
     # ==========================================================================
     breakdown.add_event(
         CyclePhase.INSTRUCTION_DECODE,
-        "SIMT decode + predication",
+        f"SIMT decode + predication ({warp_size} threads)",
         params['instruction_decode_pj'],
-        max(1, num_instructions)
+        num_instructions
     )
 
     # ==========================================================================
-    # Phase 3: OPERAND FETCH (Register File)
+    # WARP SCHEDULING (per instruction)
     # ==========================================================================
-    num_register_accesses = num_ops * 2
+    # Each instruction dispatch requires a scheduling decision.
+    # The SM's warp schedulers select which warp to issue.
+    breakdown.add_event(
+        CyclePhase.SIMT_THREAD_MGMT,
+        "Warp scheduler decision",
+        params['warp_schedule_pj'],
+        num_instructions
+    )
+
+    # ==========================================================================
+    # REGISTER ACCESS (per instruction, vector registers)
+    # ==========================================================================
+    # Each instruction reads 2 source vector registers and writes 1 destination.
+    # A "vector register" holds 32 values (one per thread in warp).
+    # This is analogous to AVX-512 reading/writing 512-bit registers.
     breakdown.add_event(
         CyclePhase.OPERAND_FETCH,
-        "Register file access (256KB/SM)",
-        params['register_access_pj'],
-        num_register_accesses
-    )
-
-    # ==========================================================================
-    # Phase 4: EXECUTE (CUDA Cores + Tensor Cores)
-    # ==========================================================================
-    tensor_core_macs = int(num_ops * params['tensor_core_utilization'])
-    cuda_core_macs = num_ops - tensor_core_macs
-
-    breakdown.add_event(
-        CyclePhase.EXECUTE,
-        "Tensor Core MACs (FP16/BF16, 4x4x4)",
-        params['tensor_core_mac_pj'],
-        tensor_core_macs
+        f"Vector register read (src1, {warp_size}-wide)",
+        params['vector_register_read_pj'],
+        num_instructions
     )
     breakdown.add_event(
-        CyclePhase.EXECUTE,
-        "CUDA Core MACs (FP32)",
-        params['cuda_core_mac_pj'],
-        cuda_core_macs
+        CyclePhase.OPERAND_FETCH,
+        f"Vector register read (src2, {warp_size}-wide)",
+        params['vector_register_read_pj'],
+        num_instructions
     )
-
-    # ==========================================================================
-    # Phase 5: SIMT THREAD MANAGEMENT
-    # ==========================================================================
-    num_scheduling_decisions = num_warps * max(1, num_instructions // max(1, num_warps))
     breakdown.add_event(
-        CyclePhase.SIMT_THREAD_MGMT,
-        "Warp scheduler (select eligible warps)",
-        params['warp_scheduler_pj'],
-        num_scheduling_decisions
-    )
-
-    breakdown.add_event(
-        CyclePhase.SIMT_THREAD_MGMT,
-        "Thread context management",
-        params['thread_context_pj'],
-        effective_threads
-    )
-
-    num_dependency_checks = num_warps * 2
-    breakdown.add_event(
-        CyclePhase.SIMT_THREAD_MGMT,
-        "Scoreboard (dependency tracking)",
-        params['scoreboard_pj'],
-        num_dependency_checks
+        CyclePhase.WRITEBACK,
+        f"Vector register write (dst, {warp_size}-wide)",
+        params['vector_register_write_pj'],
+        num_instructions
     )
 
     # ==========================================================================
-    # Phase 6: SIMT COHERENCE MACHINERY
+    # COMPUTE (per op)
     # ==========================================================================
-    # Memory requests scale with UNIQUE cache lines accessed, not with warps.
-    # Warps share data through caching - they don't each generate independent
-    # requests for all memory. Coalescing combines requests from threads in a warp.
+    # Each of the 32 lanes does one MAC. Energy scales with actual ops.
+    tensor_core_ops = int(num_ops * tensor_core_utilization)
+    cuda_core_ops = num_ops - tensor_core_ops
+
+    if tensor_core_ops > 0:
+        breakdown.add_event(
+            CyclePhase.EXECUTE,
+            "Tensor Core MACs (FP16/BF16)",
+            params['tensor_core_mac_pj'],
+            tensor_core_ops
+        )
+
+    if cuda_core_ops > 0:
+        breakdown.add_event(
+            CyclePhase.EXECUTE,
+            "CUDA Core MACs (FP32)",
+            params['cuda_core_mac_pj'],
+            cuda_core_ops
+        )
+
+    # ==========================================================================
+    # SIMT OVERHEAD (minimal per-instruction costs)
+    # ==========================================================================
+    # Coalescing: Per memory instruction (not per op)
+    # Estimate 1 memory instruction per 10 compute instructions
+    num_mem_instructions = max(1, num_instructions // 10)
+    breakdown.add_event(
+        CyclePhase.SIMT_COHERENCE,
+        "Address coalescing (per mem instr)",
+        params['coalesce_pj'],
+        num_mem_instructions
+    )
+
+    # Divergence: Only for divergent instructions (5% default)
+    num_divergent = int(num_instructions * params['divergence_rate'])
+    if num_divergent > 0:
+        breakdown.add_event(
+            CyclePhase.SIMT_SYNC,
+            "Warp divergence handling",
+            params['divergence_pj'],
+            num_divergent
+        )
+
+    # ==========================================================================
+    # MEMORY ACCESS (per byte, through hierarchy)
+    # ==========================================================================
+    # Memory model: L1/Shared -> L2 -> HBM
+    # Energy is charged per byte at each level based on hit ratios.
     #
-    # Model: Each unique cache line generates coherence overhead once.
-    # Additional overhead for warp-level coalescing decisions.
-
-    cache_line_size = 128
-    num_cache_lines = max(1, bytes_transferred // cache_line_size)
-
-    # Coalescing overhead: one decision per warp per memory instruction
-    # Estimate ~1 memory instruction per 10 ops
-    num_coalesce_decisions = max(1, num_warps * (num_ops // (num_warps * 10) + 1))
+    # This is consistent with CPU/TPU/KPU models:
+    # - bytes_transferred is the external memory footprint
+    # - Hit ratios determine how much goes to each level
 
     is_l1_resident = (mode == OperatingMode.L1_RESIDENT)
 
-    if is_l1_resident:
-        # L1-Resident: Shared memory has minimal coherence overhead
-        # Bank conflict checks happen per-warp access
-        num_shared_accesses = max(1, num_cache_lines * 2)  # Read + write
-        breakdown.add_event(
-            CyclePhase.SIMT_COHERENCE,
-            "Shared memory bank conflict check",
-            params['bank_conflict_pj'],
-            num_shared_accesses
-        )
-    else:
-        # L2+ modes: Coherence machinery for unique cache lines
-        breakdown.add_event(
-            CyclePhase.SIMT_COHERENCE,
-            "Memory request queuing",
-            params['request_queue_pj'],
-            num_cache_lines
-        )
-        breakdown.add_event(
-            CyclePhase.SIMT_COHERENCE,
-            "Address coalescing logic (per warp)",
-            params['coalesce_pj'],
-            num_coalesce_decisions
-        )
-        breakdown.add_event(
-            CyclePhase.SIMT_COHERENCE,
-            "L1 cache tag lookup",
-            params['l1_tag_pj'],
-            num_cache_lines
-        )
+    # L1/Shared memory access
+    l1_bytes = int(bytes_transferred * ratios.l1_hit)
+    l2_bytes = int((bytes_transferred - l1_bytes) * ratios.l2_hit)
+    hbm_bytes = bytes_transferred - l1_bytes - l2_bytes
 
-        l1_miss_rate = 1.0 - ratios.l1_hit
-        l2_directory_lookups = int(num_cache_lines * l1_miss_rate)
-        if l2_directory_lookups > 0:
-            breakdown.add_event(
-                CyclePhase.SIMT_COHERENCE,
-                "L2 coherence directory lookup",
-                params['l2_directory_pj'],
-                l2_directory_lookups
-            )
-
-        num_ordering_checks = max(1, num_cache_lines // 4)
-        breakdown.add_event(
-            CyclePhase.SIMT_COHERENCE,
-            "Memory ordering/fence logic",
-            params['ordering_pj'],
-            num_ordering_checks
-        )
-
-    # ==========================================================================
-    # Phase 7: SIMT SYNCHRONIZATION
-    # ==========================================================================
-    num_divergent = int(num_ops * params['warp_divergence_rate'])
-    breakdown.add_event(
-        CyclePhase.SIMT_SYNC,
-        "Warp divergence (predication masks)",
-        params['divergence_mask_pj'],
-        num_divergent
-    )
-
-    num_reconverge = max(1, num_divergent // 2)
-    breakdown.add_event(
-        CyclePhase.SIMT_SYNC,
-        "Reconvergence stack operations",
-        params['reconverge_pj'],
-        num_reconverge
-    )
-
-    num_barriers = max(1, num_ops // 1000)
-    breakdown.add_event(
-        CyclePhase.SIMT_SYNC,
-        "Thread block barriers (__syncthreads)",
-        params['barrier_pj'],
-        num_barriers
-    )
-
-    num_atomics = max(1, num_ops // 100)
-    breakdown.add_event(
-        CyclePhase.SIMT_SYNC,
-        "Atomic operations (exclusive access)",
-        params['atomic_pj'],
-        num_atomics
-    )
-
-    # ==========================================================================
-    # Phase 8: MEMORY ACCESS
-    # ==========================================================================
-    num_accesses = max(1, bytes_transferred // 4)
-
-    l1_energy_per_access = params['shared_l1_pj_per_byte'] * 4
-    l2_energy_per_access = params['l2_cache_pj_per_byte'] * 4
-    hbm_energy_per_access = params['hbm_pj_per_byte'] * 4
-
-    l1_accesses = num_accesses
-    l1_hits = int(l1_accesses * ratios.l1_hit)
-    l1_misses = l1_accesses - l1_hits
-
-    l2_accesses = l1_misses
-    l2_hits = int(l2_accesses * ratios.l2_hit)
-    l2_misses = l2_accesses - l2_hits
-
-    hbm_accesses = l2_misses  # GPU has no L3
-
-    if l1_accesses > 0:
+    if l1_bytes > 0:
         mem_name = "Shared Memory" if is_l1_resident else "L1 cache"
         breakdown.add_event(
             CyclePhase.MEM_L1,
-            f"{mem_name} ({l1_hits} hits, {l1_misses} misses)",
-            l1_energy_per_access,
-            l1_accesses
+            f"{mem_name} ({l1_bytes} bytes)",
+            params['l1_shared_pj_per_byte'],
+            l1_bytes
         )
 
-    if l2_accesses > 0:
+    if l2_bytes > 0:
         breakdown.add_event(
             CyclePhase.MEM_L2,
-            f"L2 cache ({l2_hits} hits, {l2_misses} misses)",
-            l2_energy_per_access,
-            l2_accesses
+            f"L2 cache ({l2_bytes} bytes)",
+            params['l2_cache_pj_per_byte'],
+            l2_bytes
         )
 
-    if hbm_accesses > 0:
+    if hbm_bytes > 0:
         breakdown.add_event(
             CyclePhase.MEM_HBM,
-            f"HBM ({hbm_accesses} accesses)",
-            hbm_energy_per_access,
-            hbm_accesses
+            f"HBM ({hbm_bytes} bytes)",
+            params['hbm_pj_per_byte'],
+            hbm_bytes
         )
 
     return breakdown
