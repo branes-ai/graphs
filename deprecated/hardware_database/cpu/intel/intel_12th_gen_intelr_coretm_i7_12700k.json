@@ -96,15 +96,19 @@
     "fp4": 0.0,
     "bf16": 0.0,
     "tf32": 0.0,
-    "int64": 0.0,
-    "int32": 0.0,
-    "int16": 0.0,
-    "int8": 0.0,
+    "int64": 640.0,
+    "int32": 1280.0,
+    "int16": 2560.0,
+    "int8": 5120.0,
     "int4": 0.0
   },
   "theoretical_peaks_notes": {
-    "fp32": "8 P-cores × 5.0 GHz × 8 FP32/cycle (AVX2) × 2 (FMA) × 2 FMA units = 1280 GFLOPS. E-cores add ~243 GFLOPS but typically throttled. Using P-core only peak for conservative estimate.",
-    "fp64": "8 P-cores × 5.0 GHz × 4 FP64/cycle (AVX2) × 2 (FMA) × 2 FMA units = 640 GFLOPS"
+    "fp32": "8 P-cores x 5.0 GHz x 8 FP32/cycle (AVX2) x 2 (FMA) x 2 FMA units = 1280 GFLOPS. E-cores add ~243 GFLOPS but typically throttled. Using P-core only peak for conservative estimate.",
+    "fp64": "8 P-cores x 5.0 GHz x 4 FP64/cycle (AVX2) x 2 (FMA) x 2 FMA units = 640 GFLOPS",
+    "int8": "8 P-cores x 5.0 GHz x 32 INT8/cycle (AVX2 256-bit) x 2 x 2 FMA units = 5120 GOPS. VNNI (AVX512-VNNI on P-cores) can further accelerate INT8 dot products.",
+    "int16": "8 P-cores x 5.0 GHz x 16 INT16/cycle (AVX2) x 2 x 2 FMA units = 2560 GOPS",
+    "int32": "8 P-cores x 5.0 GHz x 8 INT32/cycle (AVX2) x 2 x 2 FMA units = 1280 GOPS",
+    "int64": "8 P-cores x 5.0 GHz x 4 INT64/cycle (AVX2) x 2 x 2 FMA units = 640 GOPS"
   },
   "onchip_memory_hierarchy": {
     "cache_levels": [
