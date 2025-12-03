@@ -3,9 +3,48 @@
   "vendor": "AMD",
   "model": "AMD Ryzen 9 8945HS w/ Radeon 780M Graphics",
   "device_type": "cpu",
-  "theoretical_peaks": {
-    "fp32": 100.0
+  "ops_per_clock": {
+    "fp64": 128,
+    "fp32": 256,
+    "fp16": 512,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 512,
+    "tf32": 0,
+    "int64": 128,
+    "int32": 256,
+    "int16": 512,
+    "int8": 1024,
+    "int4": 0
   },
-  "peak_bandwidth_gbps": 50.0,
-  "compute_units": 8
+  "ops_per_clock_notes": {
+    "fp32": "8 cores x 16 FP32/cycle (AVX-512) x 2 (FMA) = 256 FP32 ops/clock",
+    "fp64": "8 cores x 8 FP64/cycle (AVX-512) x 2 (FMA) = 128 FP64 ops/clock",
+    "bf16": "8 cores x 32 BF16/cycle (AVX-512 BF16) x 2 = 512 BF16 ops/clock",
+    "int8": "8 cores x 64 INT8/cycle (AVX-512 VNNI) x 2 = 1024 INT8 ops/clock"
+  },
+  "theoretical_peaks": {
+    "fp64": 691.2,
+    "fp32": 1382.4,
+    "fp16": 2764.8,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 2764.8,
+    "tf32": 0.0,
+    "int64": 691.2,
+    "int32": 1382.4,
+    "int16": 2764.8,
+    "int8": 5529.6,
+    "int4": 0.0
+  },
+  "theoretical_peaks_notes": "Calculated at boost_clock_mhz (5400 MHz). Use ops_per_clock x clock_mhz for accurate peaks.",
+  "peak_bandwidth_gbps": 89.6,
+  "architecture": "Zen 4",
+  "compute_units": 8,
+  "memory_gb": 32,
+  "tdp_watts": 45,
+  "base_clock_mhz": 4000.0,
+  "boost_clock_mhz": 5400.0,
+  "platform": "x86_64",
+  "notes": "Zen 4 mobile processor with AVX-512 (single 512-bit FMA per core). Higher boost clock than 8845HS. RDNA 3 integrated GPU (Radeon 780M)."
 }

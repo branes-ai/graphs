@@ -171,7 +171,14 @@ KNOWN_TDP_WATTS = {
     'ryzen_7_8845hs_w_radeon_780m_graphics': 45,    # Mobile
     'ryzen_9_8945hs_w_radeon_780m_graphics': 45,    # Mobile
 
-    # Jetson - use power mode
+    # ARM Server
+    'ampere_altra_max': 250,
+
+    # NVIDIA Datacenter
+    'h100_sxm5': 700,
+    'nvidia_geforce_gtx_1070': 150,
+
+    # Jetson Orin Nano - use power mode
     'jetson_orin_nano_cpu': {
         '7W': 7,
         '15W': 15,
@@ -184,6 +191,20 @@ KNOWN_TDP_WATTS = {
         '15W': 15,
         '25W': 25,
         'MAXNSUPER': 25,
+    },
+
+    # Jetson Orin AGX - use power mode
+    'jetson_orin_agx_cpu': {
+        '15W': 15,
+        '30W': 30,
+        '50W': 50,
+        'MAXN': 60,
+    },
+    'jetson_orin_agx_gpu': {
+        '15W': 15,
+        '30W': 30,
+        '50W': 50,
+        'MAXN': 60,
     },
 }
 
