@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Migrate old calibration.json files to new calibrations/ subdirectory structure.
 
