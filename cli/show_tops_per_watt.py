@@ -194,6 +194,11 @@ KNOWN_TDP_WATTS = {
 
     # ==== DATA CENTER ACCELERATORS ====
     'qualcomm_cloud_ai_100': 75,  # 75W PCIe card
+    'stillwater_kpu_t768': {
+        '30W': 30,
+        '60W': 60,
+        '100W': 100,
+    },
 
     # ==== DESKTOP/NUC (75-350W) ====
     'intel_12th_gen_intelr_coretm_i7_12700k': 125,  # PL1=125W, PL2=190W
@@ -251,6 +256,20 @@ KNOWN_TDP_WATTS = {
         '65W': 65,
         '100W': 100,
         '130W': 130,
+    },
+
+    # ==== EMBODIED AI - Stillwater KPU ====
+    'stillwater_kpu_t256': {
+        '15W': 15,
+        '30W': 30,
+        '50W': 50,
+    },
+
+    # ==== EDGE AI - Stillwater KPU ====
+    'stillwater_kpu_t64': {
+        '3W': 3,
+        '6W': 6,
+        '10W': 10,
     },
 
     # ==== MOBILE (1-15W) ====
@@ -576,6 +595,9 @@ def get_power_profiles_str(profile) -> str:
         'jetson_orin_agx_gpu': '15W/30W/50W/MAXN',
         'nvidia_jetson_thor_128gb': '30W/60W/100W',
         'qualcomm_snapdragon_ride': '65W/100W/130W',
+        'stillwater_kpu_t64': '3W/6W/10W',
+        'stillwater_kpu_t256': '15W/30W/50W',
+        'stillwater_kpu_t768': '30W/60W/100W',
     }
 
     return power_profiles.get(hw_id, '-')
@@ -711,6 +733,107 @@ def show_hardware_summary(registry):
             name = name[:31] + "..."
 
         print(f"{name:<35} {fp64:>8} {fp32:>8} {fp16:>8} {int8:>8} {bf16:>8}")
+
+    print()
+
+    # =========================================================================
+    # ENERGY EFFICIENCY TABLE (TOPS/W) - sorted by INT8 TOPS/W descending
+    # =========================================================================
+    print("=" * 95)
+    print("ENERGY EFFICIENCY (TOPS/W from Theoretical Peaks) - sorted by INT8 TOPS/W descending")
+    print("=" * 95)
+    print()
+    print(f"{'Hardware':<35} {'Category':<12} {'TDP':>6} {'INT8 TOPS':>10} {'INT8 TOPS/W':>12} {'BF16 TOPS':>10} {'BF16 TOPS/W':>12}")
+    print("-" * 95)
+
+    # Collect hardware with theoretical peaks and known TDP
+    efficiency_list = []
+    for hw_id in registry.list_all():
+        profile = registry.get(hw_id)
+        if not profile:
+            continue
+
+        # Get TDP - use max TDP for hardware with power profiles
+        tdp = get_max_tdp_watts(hw_id)
+        if not tdp or tdp <= 0:
+            continue
+
+        # Get theoretical peaks
+        peaks = profile.theoretical_peaks
+        if not peaks:
+            continue
+
+        # Get INT8 peak (in GOPS from theoretical_peaks)
+        int8_gops = peaks.get('int8', 0)
+        int8_tops = int8_gops / 1000 if int8_gops > 0 else 0
+
+        # Get BF16 peak (in GFLOPS from theoretical_peaks)
+        # BF16 is stored as GFLOPS, convert to TOPS (2 FLOPS per MAC)
+        bf16_gflops = peaks.get('bf16', 0)
+        bf16_tops = bf16_gflops / 1000 / 2 if bf16_gflops > 0 else 0
+
+        # Calculate TOPS/W
+        int8_tops_per_watt = int8_tops / tdp if int8_tops > 0 else 0
+        bf16_tops_per_watt = bf16_tops / tdp if bf16_tops > 0 else 0
+
+        # Get category
+        category, _ = get_product_category(profile)
+
+        efficiency_list.append({
+            'profile': profile,
+            'category': category,
+            'tdp': tdp,
+            'int8_tops': int8_tops,
+            'int8_tops_per_watt': int8_tops_per_watt,
+            'bf16_tops': bf16_tops,
+            'bf16_tops_per_watt': bf16_tops_per_watt,
+        })
+
+    # Sort by INT8 TOPS/W descending
+    efficiency_list.sort(key=lambda x: -x['int8_tops_per_watt'])
+
+    def fmt_tops(val):
+        if val == 0:
+            return "-"
+        elif val >= 1000:
+            return f"{val:.0f}"
+        elif val >= 100:
+            return f"{val:.0f}"
+        elif val >= 10:
+            return f"{val:.1f}"
+        elif val >= 1:
+            return f"{val:.2f}"
+        else:
+            return f"{val:.3f}"
+
+    def fmt_tpw(val):
+        if val == 0:
+            return "-"
+        elif val >= 10:
+            return f"{val:.1f}"
+        elif val >= 1:
+            return f"{val:.2f}"
+        else:
+            return f"{val:.3f}"
+
+    for item in efficiency_list:
+        profile = item['profile']
+
+        name = profile.model
+        if len(name) > 34:
+            name = name[:31] + "..."
+
+        category = item['category']
+        if len(category) > 11:
+            category = category[:8] + "..."
+
+        tdp_str = f"{int(item['tdp'])}W"
+        int8_tops_str = fmt_tops(item['int8_tops'])
+        int8_tpw_str = fmt_tpw(item['int8_tops_per_watt'])
+        bf16_tops_str = fmt_tops(item['bf16_tops'])
+        bf16_tpw_str = fmt_tpw(item['bf16_tops_per_watt'])
+
+        print(f"{name:<35} {category:<12} {tdp_str:>6} {int8_tops_str:>10} {int8_tpw_str:>12} {bf16_tops_str:>10} {bf16_tpw_str:>12}")
 
     print()
 
