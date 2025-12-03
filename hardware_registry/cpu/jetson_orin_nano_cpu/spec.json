@@ -3,6 +3,25 @@
   "vendor": "NVIDIA",
   "model": "Jetson Orin Nano (CPU)",
   "device_type": "cpu",
+  "ops_per_clock": {
+    "fp64": 48,
+    "fp32": 96,
+    "fp16": 192,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 0,
+    "tf32": 0,
+    "int64": 48,
+    "int32": 96,
+    "int16": 192,
+    "int8": 384,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "fp32": "6 cores x 4 FP32/cycle (NEON 128-bit) x 2 (FMA) x 2 pipes = 96 FP32 ops/clock",
+    "fp16": "6 cores x 8 FP16/cycle (NEON) x 2 (FMA) x 2 pipes = 192 FP16 ops/clock",
+    "int8": "6 cores x 16 INT8/cycle (NEON) x 2 x 2 = 384 INT8 ops/clock"
+  },
   "theoretical_peaks": {
     "fp64": 91.2,
     "fp32": 182.4,
@@ -17,12 +36,19 @@
     "int8": 364.8,
     "int4": 0.0
   },
+  "theoretical_peaks_notes": "Legacy field - calculated at ~1900 MHz. Use ops_per_clock x clock_mhz for accurate peaks.",
   "peak_bandwidth_gbps": 68.0,
   "architecture": "Cortex-A78AE",
   "compute_units": 6,
   "memory_gb": 8,
-  "base_clock_mhz": 1500.0,
-  "boost_clock_mhz": 2000.0,
+  "tdp_watts": 15,
+  "base_clock_mhz": 729.0,
+  "boost_clock_mhz": 1510.0,
   "platform": "aarch64",
-  "notes": "6-core ARM Cortex-A78AE cluster with NEON SIMD. Migrated from cli/calibrate_hardware.py preset. Part of Jetson Orin Nano SoC with integrated GPU."
+  "power_profiles": {
+    "7W": {"clock_mhz": 729, "power_limit_w": 7},
+    "15W": {"clock_mhz": 1190, "power_limit_w": 15},
+    "25W": {"clock_mhz": 1510, "power_limit_w": 25}
+  },
+  "notes": "6-core ARM Cortex-A78AE cluster with NEON SIMD (128-bit). Part of Jetson Orin Nano SoC sharing LPDDR5 memory with GPU."
 }

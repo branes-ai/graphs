@@ -3,26 +3,54 @@
   "vendor": "NVIDIA",
   "model": "Jetson Orin AGX (GPU)",
   "device_type": "gpu",
+  "ops_per_clock": {
+    "fp64": 128,
+    "fp32": 4096,
+    "fp16": 16384,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 16384,
+    "tf32": 8192,
+    "int64": 0,
+    "int32": 4096,
+    "int16": 16384,
+    "int8": 32768,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "fp32": "16 SMs x 128 CUDA cores/SM x 2 (FMA) = 4096 FP32 ops/clock",
+    "fp16": "16 SMs x 128 CUDA cores/SM x 2 (FMA) x 4 (packed FP16) = 16384 FP16 ops/clock",
+    "tf32": "16 SMs x 4 Tensor Cores/SM x 128 ops/TC/clock = 8192 TF32 ops/clock",
+    "int8": "16 SMs x 4 Tensor Cores/SM x 512 ops/TC/clock = 32768 INT8 ops/clock"
+  },
   "theoretical_peaks": {
     "fp64": 166.0,
     "fp32": 5325.0,
-    "fp16": 10650.0,
+    "fp16": 21300.0,
     "fp8": 0.0,
     "fp4": 0.0,
-    "bf16": 10650.0,
-    "tf32": 5325.0,
+    "bf16": 21300.0,
+    "tf32": 10650.0,
     "int64": 0.0,
     "int32": 5325.0,
-    "int16": 10650.0,
-    "int8": 21300.0,
+    "int16": 21300.0,
+    "int8": 42600.0,
     "int4": 0.0
   },
+  "theoretical_peaks_notes": "Legacy field - calculated at boost_clock_mhz (1300 MHz). Use ops_per_clock x clock_mhz for accurate peaks.",
   "peak_bandwidth_gbps": 204.8,
   "architecture": "Ampere",
   "compute_units": 16,
   "memory_gb": 64,
+  "tdp_watts": 60,
   "base_clock_mhz": 306.0,
   "boost_clock_mhz": 1300.0,
   "platform": "aarch64",
-  "notes": "Flagship Ampere GPU with 2048 CUDA cores (16 SMs) and 64 Tensor Cores (Gen 3). Shares unified memory with CPU in Jetson Orin AGX SoC. 2\u00d7 GPU performance vs Orin Nano."
+  "power_profiles": {
+    "15W": {"clock_mhz": 306, "power_limit_w": 15},
+    "30W": {"clock_mhz": 624, "power_limit_w": 30},
+    "50W": {"clock_mhz": 1020, "power_limit_w": 50},
+    "MAXN": {"clock_mhz": 1300, "power_limit_w": 60}
+  },
+  "notes": "Ampere GPU with 2048 CUDA cores (16 SMs) and 64 Tensor Cores (Gen 3). 2x GPU vs Orin Nano. Shares LPDDR5 memory with CPU."
 }

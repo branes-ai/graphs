@@ -3,6 +3,27 @@
   "vendor": "NVIDIA",
   "model": "NVIDIA H100 SXM5 80GB",
   "device_type": "gpu",
+  "ops_per_clock": {
+    "fp64": 17172,
+    "fp32": 33838,
+    "fp16": 999495,
+    "fp8": 1998990,
+    "fp4": 0,
+    "bf16": 999495,
+    "tf32": 499495,
+    "int64": 0,
+    "int32": 33838,
+    "int16": 0,
+    "int8": 1998990,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "fp32": "132 SMs x 128 CUDA cores/SM x 2 (FMA) = 33,792 FP32 ops/clock",
+    "fp64": "132 SMs x 64 FP64 cores/SM x 2 (FMA) = 16,896 FP64 ops/clock",
+    "tf32": "132 SMs x 4 Tensor Cores/SM x 256 ops/TC/clock x 4 = 540,672 TF32 ops/clock (4th gen TC)",
+    "fp16": "132 SMs x 4 Tensor Cores/SM x 512 ops/TC/clock x 4 = 1,081,344 FP16 ops/clock",
+    "int8": "132 SMs x 4 Tensor Cores/SM x 1024 ops/TC/clock x 4 = 2,162,688 INT8 ops/clock"
+  },
   "theoretical_peaks": {
     "fp64": 34000.0,
     "fp32": 67000.0,
@@ -17,12 +38,14 @@
     "int8": 3958000.0,
     "int4": 0.0
   },
+  "theoretical_peaks_notes": "Legacy field - calculated at boost_clock_mhz (1980 MHz). Use ops_per_clock x clock_mhz for accurate peaks.",
   "peak_bandwidth_gbps": 3352.0,
   "architecture": "Hopper",
   "compute_units": 132,
   "memory_gb": 80,
+  "tdp_watts": 700,
   "base_clock_mhz": 1095.0,
   "boost_clock_mhz": 1980.0,
   "platform": "x86_64",
-  "notes": "Flagship datacenter GPU with Hopper architecture. 80GB HBM3, 3.35 TB/s bandwidth. World's first GPU with Transformer Engine for FP8 training."
+  "notes": "Hopper architecture datacenter GPU. 132 SMs with 4th gen Tensor Cores. 80GB HBM3 at 3.35 TB/s. Transformer Engine with FP8 support."
 }

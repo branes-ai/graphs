@@ -3,6 +3,25 @@
   "vendor": "Intel",
   "model": "12th Gen Intel(R) Core(TM) i7-12700K",
   "device_type": "cpu",
+  "ops_per_clock": {
+    "fp64": 128,
+    "fp32": 256,
+    "fp16": 0,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 0,
+    "tf32": 0,
+    "int64": 128,
+    "int32": 256,
+    "int16": 512,
+    "int8": 1024,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "fp32": "8 P-cores x 8 FP32/cycle (AVX2 256-bit) x 2 (FMA) x 2 FMA units = 256 FP32 ops/clock",
+    "fp64": "8 P-cores x 4 FP64/cycle (AVX2) x 2 (FMA) x 2 FMA units = 128 FP64 ops/clock",
+    "int8": "8 P-cores x 32 INT8/cycle (AVX2) x 2 x 2 = 1024 INT8 ops/clock"
+  },
   "theoretical_peaks": {
     "fp64": 640.0,
     "fp32": 1280.0,
@@ -17,12 +36,14 @@
     "int8": 5120.0,
     "int4": 0.0
   },
+  "theoretical_peaks_notes": "Legacy field - calculated at boost_clock_mhz (5000 MHz). Use ops_per_clock x clock_mhz for accurate peaks.",
   "peak_bandwidth_gbps": 89.6,
   "architecture": "Alder Lake",
   "compute_units": 12,
   "memory_gb": 32,
+  "tdp_watts": 125,
   "base_clock_mhz": 3600.0,
   "boost_clock_mhz": 5000.0,
   "platform": "x86_64",
-  "notes": "Auto-detected on linux x86_64 | WARNING: L1 dcache line size (1280 bytes) seems unusually large - please verify | WARNING: L1 icache line size (1280 bytes) seems unusually large - please verify | WARNING: L2 line size (1280 bytes) seems unusually large - please verify | WARNING: L3 line size (1280 bytes) seems unusually large - please verify"
+  "notes": "8 Golden Cove P-cores + 4 Gracemont E-cores. P-cores have AVX2 (256-bit) with 2 FMA units. E-cores limited to 128-bit SIMD."
 }
