@@ -15,7 +15,8 @@ would be infeasible - the scheduling logic doesn't scale.
   |   Partition 0    |   Partition 1    |   Partition 2    |   Partition 3    |
   +------------------+------------------+------------------+------------------+
   | Warp Scheduler   | Warp Scheduler   | Warp Scheduler   | Warp Scheduler   |
-  | Dispatch Unit    | Dispatch Unit    | Dispatch Unit    | Dispatch Unit    |
+  | Scoreboard       | Scoreboard       | Scoreboard       | Scoreboard       |
+  | Operand Collector| Operand Collector| Operand Collector| Operand Collector|
   +------------------+------------------+------------------+------------------+
   | 32 CUDA Cores    | 32 CUDA Cores    | 32 CUDA Cores    | 32 CUDA Cores    |
   | 1 TensorCore     | 1 TensorCore     | 1 TensorCore     | 1 TensorCore     |
@@ -28,9 +29,30 @@ would be infeasible - the scheduling logic doesn't scale.
                               |
                     HBM (80GB)
 
-To fully utilize an SM:
-- CUDA mode: Need 4 warps active (one per partition) = 4 x 32 = 128 ops/cycle
-- TensorCore mode: Need 4 MMA instructions (one per partition) = 4 x 64 = 256 MACs/cycle
+GPU Request/Reply Execution Cycle (Stored Program Machine):
+===========================================================
+For EACH operation, the GPU must:
+  1. Scoreboard lookup - Check RAW/WAW/WAR hazards for this warp
+  2. Generate register addresses - Decode source/destination register IDs
+  3. Operand collector - Gather operands from banked register file
+  4. Bank arbitration - Resolve conflicts when multiple threads access same bank
+  5. Send operands to ALU - Route data through operand network
+  6. ALU execution - Perform the actual computation
+  7. Write result back - Route result back to register file
+
+This request/reply overhead is FUNDAMENTAL to stored program machines.
+Each instruction must explicitly specify WHERE its operands come from
+and WHERE its result goes.
+
+Contrast with KPU (Spatial Dataflow):
+=====================================
+In KPU, operands ARRIVE at the PE based on SURE dependency vectors:
+  1. Operands arrive from neighboring PE (no address lookup)
+  2. ALU executes (same as GPU)
+  3. Result written to LOCAL register (next PE's input, no arbitration)
+
+NO scoreboard, NO operand collector, NO register arbitration!
+The routing is determined at COMPILE TIME and baked into the spatial layout.
 
 Native Execution Units:
 -----------------------
@@ -43,11 +65,6 @@ Comparison with other architectures:
   GPU (TensorCore): 4 MMA instructions -> 256 MACs  <- Same as KPU tile!
   TPU (Systolic):  1 tile cycle        -> 16,384 MACs (128x128)
   KPU (Domain):    1 tile cycle        -> 256 MACs (16x16)
-
-Memory Hierarchy:
-  - L1/Shared Memory: 192KB per SM (configurable split)
-  - L2 Cache: Shared across all SMs (50MB on H100)
-  - HBM: Off-chip high-bandwidth memory (80GB on H100)
 """
 
 from typing import Optional, TYPE_CHECKING
@@ -93,8 +110,9 @@ SM_CONFIG = {
     'cuda_macs_per_sm_cycle': 128,    # 4 partitions x 32 cores
     'tc_macs_per_sm_cycle': 256,      # 4 partitions x 64 MACs
 
-    # Memory per SM
+    # Register file per SM
     'register_file_kb': 256,          # Register file size
+    'register_banks': 32,             # Number of banks (for conflict modeling)
     'l1_shared_kb': 192,              # L1/Shared memory (configurable)
 }
 
@@ -119,38 +137,30 @@ def build_gpu_cuda_cycle_energy(
     """
     Build the GPU CUDA Core cycle energy breakdown.
 
-    Models scalar/vector workloads executing on CUDA cores.
+    Models scalar/vector workloads executing on CUDA cores, including the
+    full request/reply cycle overhead inherent to stored program machines.
+
+    Request/Reply Cycle (per warp instruction):
+        1. Scoreboard lookup - Check dependencies (RAW/WAW/WAR hazards)
+        2. Register address generation - Decode src1, src2, dst addresses
+        3. Operand collector - Gather operands from banked register file
+        4. Bank arbitration - Resolve bank conflicts
+        5. Operand routing - Send operands to execution units
+        6. ALU execution - Perform computation
+        7. Result writeback - Route result back to register file
+
+    This overhead is UNAVOIDABLE in stored program machines. Each operation
+    must explicitly look up where its data comes from and goes to.
 
     SM Partition Model:
         The SM has 4 partitions, each with:
-        - 1 warp scheduler
+        - 1 warp scheduler + scoreboard
+        - 1 operand collector
         - 32 CUDA cores
-        - 1/4 of the register file
+        - 1/4 of the register file (banked)
 
         To fully utilize an SM, you need 4 warps active (one per partition).
         Native unit: 4 warp instructions = 4 x 32 = 128 MACs per SM-cycle.
-
-    Args:
-        num_ops: Number of FP32 operations to execute
-        bytes_transferred: Total bytes of data accessed
-        mode: Operating mode (L1, L2, or DRAM resident)
-        hit_ratios: Custom hit ratios (uses defaults for mode if None)
-        tech_profile: REQUIRED TechnologyProfile for energy parameters
-        verbose: Enable verbose output
-        operator_type: Type of operator (HIGH_REUSE, LOW_REUSE, STREAMING)
-        working_set_bytes: Size of working set for L2 hit ratio calculation
-        l2_cache_bytes: Size of L2 cache (default 50MB for H100-class)
-        l2_is_cold: True if L2 was flushed by previous streaming operator
-
-    Returns:
-        CycleEnergyBreakdown with detailed energy breakdown
-
-    Native Unit:
-        4 warp instructions (one per partition) = 128 MACs
-        - 4 instruction fetches (one per warp scheduler)
-        - 4 instruction decodes
-        - 4 warp scheduling decisions
-        - 128 CUDA core operations (32 per partition)
     """
     if tech_profile is None:
         raise ValueError(
@@ -180,7 +190,7 @@ def build_gpu_cuda_cycle_energy(
         ratios = HitRatios(
             l1_hit=default_ratios.l1_hit,
             l2_hit=l2_hit,
-            l3_hit=0.0,  # GPU has no L3
+            l3_hit=0.0,
         )
         if verbose:
             print(f"  L2 hit ratio: {l2_hit:.1%} (operator={operator_type.value}, "
@@ -192,34 +202,62 @@ def build_gpu_cuda_cycle_energy(
     # ==========================================================================
     process_scale = tech_profile.process_node_nm / 4.0  # 4nm baseline
 
-    # SM configuration
     num_partitions = SM_CONFIG['num_partitions']
     warp_size = SM_CONFIG['warp_size']
-    cuda_cores_per_partition = SM_CONFIG['cuda_cores_per_partition']
     macs_per_sm_cycle = SM_CONFIG['cuda_macs_per_sm_cycle']  # 128
 
     params = {
-        # Per-warp instruction costs (each partition has its own warp scheduler)
+        # === CONTROL OVERHEAD (per warp instruction) ===
         'instruction_fetch_pj': tech_profile.instruction_fetch_energy_pj,
         'instruction_decode_pj': tech_profile.instruction_decode_energy_pj,
         'warp_schedule_pj': 0.5 * process_scale,
 
-        # Per-instruction register access (vector register, serves 32 threads)
+        # === REQUEST/REPLY CYCLE OVERHEAD (per warp instruction) ===
+        # These are the costs of the stored-program execution model
+        #
+        # Scoreboard: Track dependencies for all active warps
+        # ~0.3 pJ per lookup at 4nm (CAM-like structure)
+        'scoreboard_lookup_pj': 0.3 * process_scale,
+
+        # Register address generation: Decode register IDs for 32 threads
+        # ~0.2 pJ per address at 4nm
+        'reg_addr_gen_pj': 0.2 * process_scale,
+
+        # Operand collector: Gather operands from banked register file
+        # This is the main cost - must buffer operands until all are ready
+        # ~0.8 pJ at 4nm (includes arbitration logic)
+        'operand_collector_pj': 0.8 * process_scale,
+
+        # Bank arbitration: Resolve conflicts when threads access same bank
+        # Average ~10% conflicts, but arbitration logic always runs
+        # ~0.3 pJ at 4nm
+        'bank_arbitration_pj': 0.3 * process_scale,
+
+        # Operand routing: Crossbar to route operands to execution units
+        # ~0.4 pJ at 4nm for 32-wide routing
+        'operand_routing_pj': 0.4 * process_scale,
+
+        # Result routing: Route results back to register file
+        # ~0.3 pJ at 4nm
+        'result_routing_pj': 0.3 * process_scale,
+
+        # === REGISTER FILE ACCESS (per warp instruction) ===
+        # Vector register read/write for 32 threads
         'vector_register_read_pj': tech_profile.register_read_energy_pj * 0.25,
         'vector_register_write_pj': tech_profile.register_write_energy_pj * 0.25,
 
-        # Per-op compute energy (CUDA cores)
-        'cuda_core_mac_pj': tech_profile.base_alu_energy_pj * 0.85,  # GPU ALU simpler than CPU
+        # === COMPUTE (per op) ===
+        'cuda_core_mac_pj': tech_profile.base_alu_energy_pj * 0.85,
 
-        # Fixed overhead (one-time per kernel)
+        # === FIXED OVERHEAD ===
         'kernel_launch_pj': 100_000.0 * process_scale,
 
-        # Per-byte memory costs
+        # === MEMORY (per byte) ===
         'l1_shared_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
         'l2_cache_pj_per_byte': tech_profile.l2_cache_energy_per_byte_pj,
         'hbm_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
 
-        # SIMT overhead
+        # === SIMT OVERHEAD ===
         'coalesce_pj': 0.8 * process_scale,
         'divergence_pj': tech_profile.warp_divergence_energy_pj,
         'divergence_rate': 0.05,
@@ -227,23 +265,17 @@ def build_gpu_cuda_cycle_energy(
 
     breakdown = CycleEnergyBreakdown(
         architecture_name="GPU CUDA (4 partitions x 32 cores)",
-        architecture_class="SIMT Data Parallel (CUDA Cores)"
+        architecture_class="SIMT Stored Program Machine"
     )
 
     # ==========================================================================
     # SM-CYCLE CALCULATIONS
     # ==========================================================================
-    # To fully utilize an SM, we need 4 warps (one per partition).
-    # Each SM-cycle: 4 warp instructions x 32 threads = 128 ops
-    #
-    # num_sm_cycles = num_ops / 128
-    # num_warp_instructions = num_sm_cycles * 4 (one per partition)
-
     num_sm_cycles = max(1, (num_ops + macs_per_sm_cycle - 1) // macs_per_sm_cycle)
-    num_warp_instructions = num_sm_cycles * num_partitions  # 4 warps per SM-cycle
+    num_warp_instructions = num_sm_cycles * num_partitions
 
     breakdown.num_cycles = num_sm_cycles
-    breakdown.ops_per_cycle = macs_per_sm_cycle  # 128 ops per SM-cycle
+    breakdown.ops_per_cycle = macs_per_sm_cycle
 
     # ==========================================================================
     # FIXED OVERHEAD (One-time per kernel)
@@ -256,18 +288,15 @@ def build_gpu_cuda_cycle_energy(
     )
 
     # ==========================================================================
-    # INSTRUCTION FETCH (per warp instruction, 4 per SM-cycle)
+    # INSTRUCTION FETCH/DECODE (per warp instruction)
     # ==========================================================================
     breakdown.add_event(
         CyclePhase.INSTRUCTION_FETCH,
-        f"I-cache read ({num_partitions} warps x {warp_size} threads)",
+        f"I-cache read ({num_partitions} warps)",
         params['instruction_fetch_pj'],
         num_warp_instructions
     )
 
-    # ==========================================================================
-    # INSTRUCTION DECODE (per warp instruction)
-    # ==========================================================================
     breakdown.add_event(
         CyclePhase.INSTRUCTION_DECODE,
         f"SIMT decode ({num_partitions} partitions)",
@@ -275,9 +304,6 @@ def build_gpu_cuda_cycle_energy(
         num_warp_instructions
     )
 
-    # ==========================================================================
-    # WARP SCHEDULING (4 schedulers per SM, one decision per warp)
-    # ==========================================================================
     breakdown.add_event(
         CyclePhase.SIMT_THREAD_MGMT,
         f"Warp scheduler ({num_partitions} per SM)",
@@ -286,35 +312,86 @@ def build_gpu_cuda_cycle_energy(
     )
 
     # ==========================================================================
-    # REGISTER ACCESS (per warp instruction)
+    # REQUEST/REPLY CYCLE OVERHEAD (per warp instruction)
+    # This is the fundamental cost of stored-program execution!
     # ==========================================================================
     breakdown.add_event(
-        CyclePhase.OPERAND_FETCH,
-        f"Vector register read (src1, {warp_size}-wide)",
-        params['vector_register_read_pj'],
+        CyclePhase.SIMT_THREAD_MGMT,
+        "Scoreboard lookup (RAW/WAW/WAR)",
+        params['scoreboard_lookup_pj'],
         num_warp_instructions
     )
+
+    # Register address generation for src1, src2, dst (3 addresses per instruction)
     breakdown.add_event(
         CyclePhase.OPERAND_FETCH,
-        f"Vector register read (src2, {warp_size}-wide)",
-        params['vector_register_read_pj'],
+        "Register address generation (3 regs)",
+        params['reg_addr_gen_pj'] * 3,
         num_warp_instructions
     )
+
     breakdown.add_event(
-        CyclePhase.WRITEBACK,
-        f"Vector register write (dst, {warp_size}-wide)",
-        params['vector_register_write_pj'],
+        CyclePhase.OPERAND_FETCH,
+        "Operand collector (gather operands)",
+        params['operand_collector_pj'],
+        num_warp_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        "Bank arbitration (conflict resolution)",
+        params['bank_arbitration_pj'],
+        num_warp_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        "Operand routing (crossbar to ALU)",
+        params['operand_routing_pj'],
         num_warp_instructions
     )
 
     # ==========================================================================
-    # COMPUTE (per op, 128 CUDA cores active per SM-cycle)
+    # REGISTER FILE ACCESS (per warp instruction)
+    # ==========================================================================
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        f"Register file read src1 ({warp_size}-wide)",
+        params['vector_register_read_pj'],
+        num_warp_instructions
+    )
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        f"Register file read src2 ({warp_size}-wide)",
+        params['vector_register_read_pj'],
+        num_warp_instructions
+    )
+
+    # ==========================================================================
+    # COMPUTE (per op)
     # ==========================================================================
     breakdown.add_event(
         CyclePhase.EXECUTE,
         f"CUDA Core MACs ({macs_per_sm_cycle}/SM-cycle)",
         params['cuda_core_mac_pj'],
         num_ops
+    )
+
+    # ==========================================================================
+    # WRITEBACK (per warp instruction)
+    # ==========================================================================
+    breakdown.add_event(
+        CyclePhase.WRITEBACK,
+        "Result routing (ALU to register file)",
+        params['result_routing_pj'],
+        num_warp_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.WRITEBACK,
+        f"Register file write ({warp_size}-wide)",
+        params['vector_register_write_pj'],
+        num_warp_instructions
     )
 
     # ==========================================================================
@@ -338,7 +415,7 @@ def build_gpu_cuda_cycle_energy(
         )
 
     # ==========================================================================
-    # MEMORY ACCESS
+    # EXTERNAL MEMORY ACCESS (L1/L2/HBM)
     # ==========================================================================
     is_l1_resident = (mode == OperatingMode.L1_RESIDENT)
 
@@ -396,48 +473,21 @@ def build_gpu_tensorcore_cycle_energy(
 
     Models matrix workloads executing on TensorCores (MMA operations).
 
-    SM Partition Model:
-        The SM has 4 partitions, each with:
-        - 1 warp scheduler
-        - 1 TensorCore (4x4x4 = 64 MACs per MMA instruction)
-        - 1/4 of the register file
+    TensorCores still have request/reply overhead, but it's more efficient:
+    - Matrix fragments are loaded in bulk (less address generation overhead)
+    - Operand collector handles 4x4 tiles instead of individual scalars
+    - Less bank conflicts due to structured access pattern
 
-        To fully utilize an SM, you need 4 warps issuing MMA instructions.
-        Native unit: 4 MMA instructions = 4 x 64 = 256 MACs per SM-cycle.
+    However, the fundamental stored-program overhead remains:
+    - Still need scoreboard for MMA instruction dependencies
+    - Still need operand collector to gather matrix fragments
+    - Still need to route results back to register file
 
     TensorCore Operation (H100):
         - Input: Two 4x4 matrices (FP16/BF16)
         - Output: One 4x4 matrix (FP32 accumulator)
         - MACs: 4 x 4 x 4 = 64 MACs per MMA instruction
         - Total: 4 TensorCores x 64 = 256 MACs per SM-cycle
-
-    Args:
-        num_ops: Number of MAC operations to execute
-        bytes_transferred: Total bytes of data accessed
-        mode: Operating mode (L1, L2, or DRAM resident)
-        hit_ratios: Custom hit ratios (uses defaults for mode if None)
-        tech_profile: REQUIRED TechnologyProfile for energy parameters
-        verbose: Enable verbose output
-        operator_type: Type of operator (HIGH_REUSE, LOW_REUSE, STREAMING)
-        working_set_bytes: Size of working set for L2 hit ratio calculation
-        l2_cache_bytes: Size of L2 cache (default 50MB for H100-class)
-        l2_is_cold: True if L2 was flushed by previous streaming operator
-
-    Returns:
-        CycleEnergyBreakdown with detailed energy breakdown
-
-    Native Unit:
-        4 MMA instructions (one per partition) = 256 MACs
-        - 4 instruction fetches
-        - 4 instruction decodes
-        - 4 warp scheduling decisions
-        - 4 TensorCore MMA operations (64 MACs each)
-
-    Comparison:
-        This 256 MACs/SM-cycle is identical to KPU's 16x16 tile (256 MACs).
-        The key difference is:
-        - GPU: 4 separate 4x4x4 operations, need 4 warp schedulers
-        - KPU: 1 unified 16x16 systolic array, 1 domain tracker
     """
     if tech_profile is None:
         raise ValueError(
@@ -484,55 +534,72 @@ def build_gpu_tensorcore_cycle_energy(
     macs_per_sm_cycle = SM_CONFIG['tc_macs_per_sm_cycle']  # 256 MACs per SM-cycle
 
     params = {
-        # Per-MMA instruction costs
+        # === CONTROL OVERHEAD (per MMA instruction) ===
         'instruction_fetch_pj': tech_profile.instruction_fetch_energy_pj,
         'instruction_decode_pj': tech_profile.instruction_decode_energy_pj,
         'warp_schedule_pj': 0.5 * process_scale,
 
-        # MMA instructions use matrix registers (larger than vector registers)
-        # But the access pattern is more efficient (bulk load)
+        # === REQUEST/REPLY CYCLE OVERHEAD (per MMA instruction) ===
+        # TensorCore has reduced overhead vs CUDA cores due to bulk access
+        #
+        # Scoreboard: Still need to track MMA dependencies
+        'scoreboard_lookup_pj': 0.3 * process_scale,
+
+        # Register address generation: Fewer addresses (matrix fragments vs scalars)
+        # ~0.15 pJ per MMA (vs 0.2 for CUDA)
+        'reg_addr_gen_pj': 0.15 * process_scale,
+
+        # Operand collector: Bulk load of 4x4 tiles is more efficient
+        # ~0.5 pJ at 4nm (vs 0.8 for CUDA)
+        'operand_collector_pj': 0.5 * process_scale,
+
+        # Bank arbitration: Structured access pattern reduces conflicts
+        # ~0.2 pJ at 4nm (vs 0.3 for CUDA)
+        'bank_arbitration_pj': 0.2 * process_scale,
+
+        # Operand routing: Route matrix tiles to TensorCore
+        # ~0.3 pJ at 4nm (vs 0.4 for CUDA)
+        'operand_routing_pj': 0.3 * process_scale,
+
+        # Result routing: Route 4x4 result tile back
+        # ~0.25 pJ at 4nm
+        'result_routing_pj': 0.25 * process_scale,
+
+        # === REGISTER FILE ACCESS ===
+        # Matrix registers (larger but more efficient access pattern)
         'matrix_register_read_pj': tech_profile.register_read_energy_pj * 0.4,
         'matrix_register_write_pj': tech_profile.register_write_energy_pj * 0.4,
 
-        # Per-op compute energy (TensorCore MAC)
-        # TensorCores are highly optimized for matrix multiply
+        # === COMPUTE (per op) ===
         'tensor_core_mac_pj': tech_profile.tensor_core_mac_energy_pj,
 
-        # Fixed overhead
+        # === FIXED OVERHEAD ===
         'kernel_launch_pj': 100_000.0 * process_scale,
 
-        # Per-byte memory costs
+        # === MEMORY (per byte) ===
         'l1_shared_pj_per_byte': tech_profile.sram_energy_per_byte_pj,
         'l2_cache_pj_per_byte': tech_profile.l2_cache_energy_per_byte_pj,
         'hbm_pj_per_byte': tech_profile.offchip_energy_per_byte_pj,
 
-        # Minimal SIMT overhead for TensorCore workloads
-        # (Less divergence since matrix ops are uniform)
+        # === SIMT OVERHEAD (minimal for matrix ops) ===
         'coalesce_pj': 0.8 * process_scale,
         'divergence_pj': tech_profile.warp_divergence_energy_pj,
-        'divergence_rate': 0.01,  # Much lower for matrix ops
+        'divergence_rate': 0.01,
     }
 
     breakdown = CycleEnergyBreakdown(
         architecture_name="GPU TensorCore (4 partitions x 64 MACs)",
-        architecture_class="SIMT Data Parallel (TensorCores)"
+        architecture_class="SIMT Stored Program Machine (TensorCores)"
     )
 
     # ==========================================================================
     # SM-CYCLE CALCULATIONS
     # ==========================================================================
-    # To fully utilize TensorCores, we need 4 MMA instructions per SM-cycle.
-    # Each MMA: 4x4x4 = 64 MACs
-    # Total: 4 x 64 = 256 MACs per SM-cycle
-    #
-    # num_sm_cycles = num_ops / 256
-    # num_mma_instructions = num_sm_cycles * 4
-
     num_sm_cycles = max(1, (num_ops + macs_per_sm_cycle - 1) // macs_per_sm_cycle)
     num_mma_instructions = num_sm_cycles * num_partitions
 
     breakdown.num_cycles = num_sm_cycles
-    breakdown.ops_per_cycle = macs_per_sm_cycle  # 256 MACs per SM-cycle
+    breakdown.ops_per_cycle = macs_per_sm_cycle
 
     # ==========================================================================
     # FIXED OVERHEAD
@@ -545,7 +612,7 @@ def build_gpu_tensorcore_cycle_energy(
     )
 
     # ==========================================================================
-    # INSTRUCTION FETCH (per MMA instruction, 4 per SM-cycle)
+    # INSTRUCTION FETCH/DECODE (per MMA instruction)
     # ==========================================================================
     breakdown.add_event(
         CyclePhase.INSTRUCTION_FETCH,
@@ -554,9 +621,6 @@ def build_gpu_tensorcore_cycle_energy(
         num_mma_instructions
     )
 
-    # ==========================================================================
-    # INSTRUCTION DECODE (per MMA instruction)
-    # ==========================================================================
     breakdown.add_event(
         CyclePhase.INSTRUCTION_DECODE,
         f"MMA decode ({num_partitions} partitions)",
@@ -564,9 +628,6 @@ def build_gpu_tensorcore_cycle_energy(
         num_mma_instructions
     )
 
-    # ==========================================================================
-    # WARP SCHEDULING (4 schedulers issue MMA instructions)
-    # ==========================================================================
     breakdown.add_event(
         CyclePhase.SIMT_THREAD_MGMT,
         f"Warp scheduler MMA ({num_partitions} per SM)",
@@ -575,10 +636,47 @@ def build_gpu_tensorcore_cycle_energy(
     )
 
     # ==========================================================================
-    # REGISTER ACCESS (matrix fragments for MMA)
+    # REQUEST/REPLY CYCLE OVERHEAD (per MMA instruction)
     # ==========================================================================
-    # MMA uses matrix fragments: A (4x4), B (4x4), C (4x4 accumulator)
-    # Each MMA reads 2 input matrices, writes 1 output matrix
+    breakdown.add_event(
+        CyclePhase.SIMT_THREAD_MGMT,
+        "Scoreboard lookup (MMA dependencies)",
+        params['scoreboard_lookup_pj'],
+        num_mma_instructions
+    )
+
+    # Register address generation for A, B, C fragments
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        "Register address gen (A, B, C fragments)",
+        params['reg_addr_gen_pj'] * 3,
+        num_mma_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        "Operand collector (matrix tiles)",
+        params['operand_collector_pj'],
+        num_mma_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        "Bank arbitration (tile access)",
+        params['bank_arbitration_pj'],
+        num_mma_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.OPERAND_FETCH,
+        "Operand routing (tiles to TensorCore)",
+        params['operand_routing_pj'],
+        num_mma_instructions
+    )
+
+    # ==========================================================================
+    # REGISTER FILE ACCESS (per MMA instruction)
+    # ==========================================================================
     breakdown.add_event(
         CyclePhase.OPERAND_FETCH,
         "Matrix register read (A fragment, 4x4)",
@@ -591,18 +689,10 @@ def build_gpu_tensorcore_cycle_energy(
         params['matrix_register_read_pj'],
         num_mma_instructions
     )
-    breakdown.add_event(
-        CyclePhase.WRITEBACK,
-        "Matrix register write (C accumulator, 4x4)",
-        params['matrix_register_write_pj'],
-        num_mma_instructions
-    )
 
     # ==========================================================================
     # COMPUTE (TensorCore MMA operations)
     # ==========================================================================
-    # Each TensorCore does 64 MACs per MMA instruction
-    # 4 TensorCores x 64 = 256 MACs per SM-cycle
     breakdown.add_event(
         CyclePhase.EXECUTE,
         f"TensorCore MACs ({tc_macs_per_op} per TC, {num_partitions} TCs)",
@@ -611,9 +701,26 @@ def build_gpu_tensorcore_cycle_energy(
     )
 
     # ==========================================================================
+    # WRITEBACK (per MMA instruction)
+    # ==========================================================================
+    breakdown.add_event(
+        CyclePhase.WRITEBACK,
+        "Result routing (TensorCore to regfile)",
+        params['result_routing_pj'],
+        num_mma_instructions
+    )
+
+    breakdown.add_event(
+        CyclePhase.WRITEBACK,
+        "Matrix register write (C accumulator, 4x4)",
+        params['matrix_register_write_pj'],
+        num_mma_instructions
+    )
+
+    # ==========================================================================
     # SIMT OVERHEAD (minimal for matrix ops)
     # ==========================================================================
-    num_mem_instructions = max(1, num_mma_instructions // 16)  # Less frequent
+    num_mem_instructions = max(1, num_mma_instructions // 16)
     breakdown.add_event(
         CyclePhase.SIMT_COHERENCE,
         "Address coalescing (matrix tiles)",
@@ -631,7 +738,7 @@ def build_gpu_tensorcore_cycle_energy(
         )
 
     # ==========================================================================
-    # MEMORY ACCESS
+    # EXTERNAL MEMORY ACCESS
     # ==========================================================================
     is_l1_resident = (mode == OperatingMode.L1_RESIDENT)
 
@@ -691,11 +798,10 @@ def build_gpu_cycle_energy(
     - build_gpu_cuda_cycle_energy() for scalar/vector workloads
     - build_gpu_tensorcore_cycle_energy() for matrix workloads
 
-    This function provides backwards compatibility by blending CUDA and TensorCore
+    This function provides backwards compatibility by selecting CUDA or TensorCore
     models based on tensor_core_utilization.
     """
     if tensor_core_utilization >= 0.5:
-        # Primarily matrix workload - use TensorCore model
         return build_gpu_tensorcore_cycle_energy(
             num_ops=num_ops,
             bytes_transferred=bytes_transferred,
@@ -709,7 +815,6 @@ def build_gpu_cycle_energy(
             l2_is_cold=l2_is_cold,
         )
     else:
-        # Primarily scalar/vector workload - use CUDA model
         return build_gpu_cuda_cycle_energy(
             num_ops=num_ops,
             bytes_transferred=bytes_transferred,
