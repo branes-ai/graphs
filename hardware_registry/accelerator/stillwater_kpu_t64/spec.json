@@ -1,0 +1,65 @@
+{
+  "id": "stillwater_kpu_t64",
+  "vendor": "Stillwater",
+  "model": "Stillwater KPU-T64",
+  "device_type": "kpu",
+  "product_category": "edge",
+  "ops_per_clock": {
+    "fp64": 0,
+    "fp32": 1664,
+    "fp16": 0,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 35136,
+    "tf32": 0,
+    "int64": 0,
+    "int32": 0,
+    "int16": 0,
+    "int8": 79872,
+    "int4": 89600
+  },
+  "ops_per_clock_notes": {
+    "int8": "44 INT8 tiles x 512 ops + 7 Matrix tiles x 8192 ops = 22,528 + 57,344 = 79,872 INT8 ops/clock",
+    "bf16": "13 BF16 tiles x 512 ops + 7 Matrix tiles x 4096 ops = 6,656 + 28,672 = 35,328 BF16 ops/clock",
+    "int4": "44 INT8 tiles x 1024 ops + 7 Matrix tiles x 8192 ops = 45,056 + 57,344 = 102,400 INT4 ops/clock",
+    "note": "64 heterogeneous tiles (44 INT8, 13 BF16, 7 Matrix). 8x8 checkerboard. 16nm TSMC."
+  },
+  "theoretical_peaks": {
+    "fp64": 0.0,
+    "fp32": 1500.0,
+    "fp16": 0.0,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 31622.4,
+    "tf32": 0.0,
+    "int64": 0.0,
+    "int32": 0.0,
+    "int16": 0.0,
+    "int8": 71884.8,
+    "int4": 92160.0
+  },
+  "theoretical_peaks_notes": "Peaks @ 900 MHz (6W mode). INT8: 79,872 ops/clock x 900 MHz = 71.9 TOPS. BF16: 35,136 ops/clock x 900 MHz = 31.6 TFLOPS.",
+  "peak_bandwidth_gbps": 64.0,
+  "architecture": "KPU Tile",
+  "compute_units": 64,
+  "memory_gb": 8,
+  "tdp_watts": 10,
+  "base_clock_mhz": 800.0,
+  "boost_clock_mhz": 1000.0,
+  "platform": "embedded",
+  "power_profiles": {
+    "3W": {
+      "clock_mhz": 850,
+      "power_limit_w": 3
+    },
+    "6W": {
+      "clock_mhz": 900,
+      "power_limit_w": 6
+    },
+    "10W": {
+      "clock_mhz": 950,
+      "power_limit_w": 10
+    }
+  },
+  "notes": "Entry-level KPU for edge AI. 64 heterogeneous tiles (70/20/10 INT8/BF16/Matrix). 16nm TSMC. 16MB distributed L3. LPDDR5 64 GB/s. For drones, robots, edge devices. 60-70% efficiency factor."
+}

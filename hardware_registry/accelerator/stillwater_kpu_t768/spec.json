@@ -1,0 +1,65 @@
+{
+  "id": "stillwater_kpu_t768",
+  "vendor": "Stillwater",
+  "model": "Stillwater KPU-T768",
+  "device_type": "kpu",
+  "product_category": "datacenter",
+  "ops_per_clock": {
+    "fp64": 0,
+    "fp32": 19712,
+    "fp16": 0,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 354816,
+    "tf32": 0,
+    "int64": 0,
+    "int32": 0,
+    "int16": 0,
+    "int8": 905728,
+    "int4": 1179648
+  },
+  "ops_per_clock_notes": {
+    "int8": "537 INT8 tiles x 512 ops + 77 Matrix tiles x 8192 ops = 274,944 + 630,784 = 905,728 INT8 ops/clock",
+    "bf16": "154 BF16 tiles x 256 ops + 77 Matrix tiles x 4096 ops = 39,424 + 315,392 = 354,816 BF16 ops/clock",
+    "int4": "537 INT8 tiles x 1024 ops + 77 Matrix tiles x 8192 ops = 549,888 + 630,784 = 1,180,672 INT4 ops/clock",
+    "note": "768 heterogeneous tiles (537 INT8, 154 BF16, 77 Matrix). 32x24 grid. 12nm/7nm TSMC."
+  },
+  "theoretical_peaks": {
+    "fp64": 0.0,
+    "fp32": 23654.4,
+    "fp16": 0.0,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 425779.2,
+    "tf32": 0.0,
+    "int64": 0.0,
+    "int32": 0.0,
+    "int16": 0.0,
+    "int8": 1086873.6,
+    "int4": 1415577.6
+  },
+  "theoretical_peaks_notes": "Peaks @ 1.2 GHz (60W mode). INT8: 905,728 ops/clock x 1.2 GHz = 1,086.9 TOPS. BF16: 354,816 ops/clock x 1.2 GHz = 425.8 TFLOPS.",
+  "peak_bandwidth_gbps": 1638.0,
+  "architecture": "KPU Tile",
+  "compute_units": 768,
+  "memory_gb": 64,
+  "tdp_watts": 100,
+  "base_clock_mhz": 1000.0,
+  "boost_clock_mhz": 1400.0,
+  "platform": "x86_64",
+  "power_profiles": {
+    "30W": {
+      "clock_mhz": 1100,
+      "power_limit_w": 30
+    },
+    "60W": {
+      "clock_mhz": 1200,
+      "power_limit_w": 60
+    },
+    "100W": {
+      "clock_mhz": 1350,
+      "power_limit_w": 100
+    }
+  },
+  "notes": "Datacenter KPU for AI inference. 768 heterogeneous tiles (70/20/10 INT8/BF16/Matrix). 7nm TSMC. 192MB distributed L3. HBM3 1.6 TB/s. For LLM inference, batch processing. 75-85% efficiency factor."
+}

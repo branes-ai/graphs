@@ -1,0 +1,65 @@
+{
+  "id": "stillwater_kpu_t256",
+  "vendor": "Stillwater",
+  "model": "Stillwater KPU-T256",
+  "device_type": "kpu",
+  "product_category": "embodied",
+  "ops_per_clock": {
+    "fp64": 0,
+    "fp32": 6528,
+    "fp16": 0,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 119552,
+    "tf32": 0,
+    "int64": 0,
+    "int32": 0,
+    "int16": 0,
+    "int8": 304640,
+    "int4": 396288
+  },
+  "ops_per_clock_notes": {
+    "int8": "179 INT8 tiles x 512 ops + 26 Matrix tiles x 8192 ops = 91,648 + 212,992 = 304,640 INT8 ops/clock",
+    "bf16": "51 BF16 tiles x 256 ops + 26 Matrix tiles x 4096 ops = 13,056 + 106,496 = 119,552 BF16 ops/clock",
+    "int4": "179 INT8 tiles x 1024 ops + 26 Matrix tiles x 8192 ops = 183,296 + 212,992 = 396,288 INT4 ops/clock",
+    "note": "256 heterogeneous tiles (179 INT8, 51 BF16, 26 Matrix). 16x16 checkerboard. 16nm TSMC."
+  },
+  "theoretical_peaks": {
+    "fp64": 0.0,
+    "fp32": 9139.2,
+    "fp16": 0.0,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 167372.8,
+    "tf32": 0.0,
+    "int64": 0.0,
+    "int32": 0.0,
+    "int16": 0.0,
+    "int8": 426496.0,
+    "int4": 554803.2
+  },
+  "theoretical_peaks_notes": "Peaks @ 1.4 GHz (30W mode). INT8: 304,640 ops/clock x 1.4 GHz = 426.5 TOPS. BF16: 119,552 ops/clock x 1.4 GHz = 167.4 TFLOPS.",
+  "peak_bandwidth_gbps": 256.0,
+  "architecture": "KPU Tile",
+  "compute_units": 256,
+  "memory_gb": 32,
+  "tdp_watts": 50,
+  "base_clock_mhz": 1000.0,
+  "boost_clock_mhz": 1750.0,
+  "platform": "aarch64",
+  "power_profiles": {
+    "15W": {
+      "clock_mhz": 1100,
+      "power_limit_w": 15
+    },
+    "30W": {
+      "clock_mhz": 1400,
+      "power_limit_w": 30
+    },
+    "50W": {
+      "clock_mhz": 1650,
+      "power_limit_w": 50
+    }
+  },
+  "notes": "Mid-range KPU for embodied AI. 256 heterogeneous tiles (70/20/10 INT8/BF16/Matrix). 16nm TSMC. 64MB distributed L3. LPDDR5 256 GB/s. For autonomous vehicles, high-end edge. 68-78% efficiency factor."
+}
