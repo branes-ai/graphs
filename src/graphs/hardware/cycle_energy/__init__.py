@@ -43,7 +43,12 @@ from .base import (
 )
 
 from .cpu import build_cpu_cycle_energy
-from .gpu import build_gpu_cycle_energy
+from .gpu import (
+    build_gpu_cycle_energy,  # Legacy API (deprecated)
+    build_gpu_cuda_cycle_energy,  # CUDA cores: 4 partitions x 32 = 128 MACs/SM
+    build_gpu_tensorcore_cycle_energy,  # TensorCores: 4 partitions x 64 = 256 MACs/SM
+    SM_CONFIG,  # SM configuration constants
+)
 from .dsp import build_dsp_cycle_energy
 from .tpu import build_tpu_cycle_energy
 from .kpu import build_kpu_cycle_energy
@@ -94,7 +99,10 @@ __all__ = [
     'will_flush_l2',
     # Architecture models
     'build_cpu_cycle_energy',
-    'build_gpu_cycle_energy',
+    'build_gpu_cycle_energy',  # Legacy API
+    'build_gpu_cuda_cycle_energy',  # CUDA cores
+    'build_gpu_tensorcore_cycle_energy',  # TensorCores
+    'SM_CONFIG',  # GPU SM configuration
     'build_dsp_cycle_energy',
     'build_tpu_cycle_energy',
     'build_kpu_cycle_energy',
