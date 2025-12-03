@@ -163,20 +163,62 @@ def get_alu_tops_per_watt(hw_id: str, precision: str) -> Optional[Tuple[float, s
 
 # Known TDP values for hardware (since not all profiles have TDP)
 KNOWN_TDP_WATTS = {
-    # Intel CPUs
-    'intel_12th_gen_intelr_coretm_i7_12700k': 125,  # PL1=125W, PL2=190W
+    # ==== DATA CENTER CPUs (350W+) ====
+    # Intel Xeon (Sapphire Rapids, Granite Rapids)
+    'intel_xeon_platinum_8490h': 350,
+    'intel_xeon_platinum_8592plus': 350,
+    'intel_xeon_granite_rapids': 500,  # Projected
 
-    # AMD CPUs
-    'amd_ryzen_7_2700x_eight_core_processor': 105,
-    'ryzen_7_8845hs_w_radeon_780m_graphics': 45,    # Mobile
-    'ryzen_9_8945hs_w_radeon_780m_graphics': 45,    # Mobile
+    # AMD EPYC (Genoa, Turin)
+    'amd_epyc_9654': 360,
+    'amd_epyc_9754': 360,
+    'amd_epyc_turin': 500,  # Projected
 
-    # ARM Server
+    # ARM Server (AmpereOne, Graviton)
+    'ampere_ampereone_192': 350,
+    'ampere_ampereone_128': 250,
+    'aws_graviton3': 200,
     'ampere_altra_max': 250,
 
-    # NVIDIA Datacenter
+    # ==== DATA CENTER GPUs (350W+) ====
+    'nvidia_b100_sxm6_192gb': 1000,
     'h100_sxm5': 700,
+    'nvidia_a100_sxm4_80gb': 400,
+    'nvidia_v100_sxm3_32gb': 350,
+
+    # ==== DATA CENTER TPUs ====
+    'google_tpu_v5p': 300,  # 250-300W per chip
+    'google_tpu_v4': 192,   # 90-192W max
+    'google_tpu_v3': 220,   # 220W average (liquid cooled)
+    'google_tpu_v1': 40,    # 28-40W TDP
+
+    # ==== DATA CENTER ACCELERATORS ====
+    'qualcomm_cloud_ai_100': 75,  # 75W PCIe card
+
+    # ==== DESKTOP/NUC (75-350W) ====
+    'intel_12th_gen_intelr_coretm_i7_12700k': 125,  # PL1=125W, PL2=190W
+    'amd_ryzen_7_2700x_eight_core_processor': 105,
     'nvidia_geforce_gtx_1070': 150,
+
+    # ==== EMBODIED AI (25-75W) ====
+    'nvidia_t4_pcie_16gb': 70,
+    'ryzen_7_8845hs_w_radeon_780m_graphics': 45,    # Mobile
+    'ryzen_9_8945hs_w_radeon_780m_graphics': 45,    # Mobile
+    'qualcomm_sa8775p': 45,  # Automotive
+
+    # Jetson Orin AGX - use power mode
+    'jetson_orin_agx_cpu': {
+        '15W': 15,
+        '30W': 30,
+        '50W': 50,
+        'MAXN': 60,
+    },
+    'jetson_orin_agx_gpu': {
+        '15W': 15,
+        '30W': 30,
+        '50W': 50,
+        'MAXN': 60,
+    },
 
     # Jetson Orin Nano - use power mode
     'jetson_orin_nano_cpu': {
@@ -193,19 +235,29 @@ KNOWN_TDP_WATTS = {
         'MAXNSUPER': 25,
     },
 
-    # Jetson Orin AGX - use power mode
-    'jetson_orin_agx_cpu': {
-        '15W': 15,
+    # Jetson Thor (100W max)
+    'nvidia_jetson_thor_128gb': {
         '30W': 30,
-        '50W': 50,
-        'MAXN': 60,
+        '60W': 60,
+        '100W': 100,
     },
-    'jetson_orin_agx_gpu': {
-        '15W': 15,
-        '30W': 30,
-        '50W': 50,
-        'MAXN': 60,
+
+    # ==== EDGE AI (15-25W) ====
+    'qualcomm_qcs6490': 15,
+
+    # ==== EMBODIED AI - Qualcomm DSPs ====
+    'qualcomm_qrb5165': 7,  # 7W robotics platform (Hexagon 698)
+    'qualcomm_snapdragon_ride': {
+        '65W': 65,
+        '100W': 100,
+        '130W': 130,
     },
+
+    # ==== MOBILE (1-15W) ====
+    'arm_mali_g78_mp20': 5,
+    'google_coral_edge_tpu': 2,
+    'hailo8': 2.5,
+    'hailo10h': 2.5,
 }
 
 
@@ -221,6 +273,24 @@ def get_tdp_watts(hw_id: str, power_mode: str = None) -> Optional[float]:
             return tdp[power_mode]
         # Return first available
         return list(tdp.values())[0] if tdp else None
+
+    return tdp
+
+
+def get_max_tdp_watts(hw_id: str) -> Optional[float]:
+    """Get maximum TDP in watts for hardware (system-level TDP constraint).
+
+    For hardware with power profiles, returns the maximum power limit.
+    This represents the thermal design power of the system.
+    """
+    tdp = KNOWN_TDP_WATTS.get(hw_id)
+
+    if tdp is None:
+        return None
+
+    if isinstance(tdp, dict):
+        # Return maximum value across all power modes
+        return max(tdp.values()) if tdp else None
 
     return tdp
 
@@ -447,6 +517,204 @@ def show_tops_per_watt(profile, calibration, power_mode: str = None, framework: 
         print()
 
 
+def get_isa_description(profile) -> str:
+    """Get ISA description from profile."""
+    arch = profile.architecture or ""
+    device_type = profile.device_type
+
+    # Map architecture to ISA
+    isa_map = {
+        # ==== x86 ====
+        'Alder Lake': 'AVX2/AVX-512',
+        'Zen+': 'AVX2',
+        'Zen 4': 'AVX-512',
+        'Zen 5': 'AVX-512',
+        'Sapphire Rapids': 'AMX/AVX-512',
+        'Granite Rapids': 'AMX/AVX-512',
+        # ==== ARM ====
+        'Cortex-A78AE': 'NEON',
+        'Neoverse N1': 'NEON',
+        'Neoverse V1': 'NEON',
+        'AmpereOne': 'NEON',
+        'Kryo 670': 'NEON',
+        'Kryo 780': 'NEON',
+        # ==== Mobile GPU ====
+        'Valhall': 'Mali Shader',
+        # ==== NVIDIA GPU - generations with Tensor Cores ====
+        'Blackwell': 'Tensor Core',
+        'Hopper': 'Tensor Core',
+        'Ampere': 'Tensor Core',
+        'Turing': 'Tensor Core',
+        'Volta': 'Tensor Core',
+        # ==== NVIDIA GPU - pre-Tensor Core ====
+        'Pascal': 'CUDA',
+        # ==== TPU ====
+        'TPU v1': 'Systolic Array',
+        'TPU v3': 'Systolic Array',
+        'TPU v4': 'Systolic Array',
+        'TPU v5p': 'Systolic Array',
+        'Edge TPU': 'Systolic Array',
+        # ==== Dataflow Accelerators ====
+        'Dataflow': 'Dataflow',
+        'Transformer Dataflow': 'Dataflow',
+    }
+
+    return isa_map.get(arch, arch or device_type)
+
+
+def get_power_profiles_str(profile) -> str:
+    """Get power profiles string from profile spec."""
+    # Check if profile has power_profiles attribute (loaded from JSON)
+    # We need to check the raw spec data
+    hw_id = profile.id
+
+    # Known power profiles from spec.json files
+    power_profiles = {
+        'jetson_orin_nano_cpu': '7W/15W/25W',
+        'jetson_orin_nano_gpu': '7W/15W/25W/MAXNSUPER',
+        'jetson_orin_agx_cpu': '15W/30W/50W/MAXN',
+        'jetson_orin_agx_gpu': '15W/30W/50W/MAXN',
+        'nvidia_jetson_thor_128gb': '30W/60W/100W',
+        'qualcomm_snapdragon_ride': '65W/100W/130W',
+    }
+
+    return power_profiles.get(hw_id, '-')
+
+
+# Product category display names and sort order
+PRODUCT_CATEGORY_DISPLAY = {
+    'datacenter': ('Data Center', 1),
+    'desktop': ('Desktop', 2),
+    'embodied': ('Embodied AI', 3),
+    'edge': ('Edge AI', 4),
+    'mobile': ('Mobile', 5),
+}
+
+
+def get_product_category(profile) -> tuple:
+    """
+    Get product category from hardware profile.
+
+    Returns:
+        Tuple of (category_display_name, sort_order) where lower sort_order = higher power
+    """
+    category = getattr(profile, 'product_category', None)
+    if category and category in PRODUCT_CATEGORY_DISPLAY:
+        return PRODUCT_CATEGORY_DISPLAY[category]
+    return ("Uncategorized", 99)
+
+
+def show_hardware_summary(registry):
+    """Show summary table of all hardware with ISA and power profiles, organized by product category."""
+    print()
+    print("=" * 95)
+    print("HARDWARE REGISTRY SUMMARY")
+    print("=" * 95)
+
+    # Collect all hardware with their categories
+    hardware_by_category = {}
+
+    for hw_id in registry.list_all():
+        profile = registry.get(hw_id)
+        if not profile:
+            continue
+
+        # Use product_category field from spec.json for categorization
+        category, sort_order = get_product_category(profile)
+        tdp = get_max_tdp_watts(hw_id)
+
+        if category not in hardware_by_category:
+            hardware_by_category[category] = []
+
+        hardware_by_category[category].append({
+            'hw_id': hw_id,
+            'profile': profile,
+            'tdp': tdp,
+            'sort_order': sort_order,
+        })
+
+    # Sort categories by sort_order
+    sorted_categories = sorted(hardware_by_category.keys(),
+                                key=lambda c: hardware_by_category[c][0]['sort_order'])
+
+    for category in sorted_categories:
+        hardware_list = hardware_by_category[category]
+        # Sort within category by TDP descending
+        hardware_list.sort(key=lambda h: -(h['tdp'] or 0))
+
+        print()
+        print(f"  {category}")
+        print(f"  {'-' * (len(category))}")
+        print(f"  {'Hardware':<43} {'ISA':<15} {'TDP':>6} {'Power Profiles':<20}")
+
+        for hw in hardware_list:
+            profile = hw['profile']
+            tdp = hw['tdp']
+
+            isa = get_isa_description(profile)
+            tdp_str = f"{int(tdp)}W" if tdp else "-"
+            power_profiles = get_power_profiles_str(profile)
+
+            name = profile.model
+            if len(name) > 42:
+                name = name[:39] + "..."
+
+            print(f"  {name:<43} {isa:<15} {tdp_str:>6} {power_profiles:<20}")
+
+    print()
+
+    # Show ops_per_clock summary sorted by INT8 performance (ascending)
+    print("=" * 95)
+    print("OPS PER CLOCK (Micro-architectural Throughput) - sorted by INT8 ascending")
+    print("=" * 95)
+    print()
+    print(f"{'Hardware':<35} {'FP64':>8} {'FP32':>8} {'FP16':>8} {'INT8':>8} {'BF16':>8}")
+    print("-" * 95)
+
+    # Collect hardware with ops_per_clock
+    opc_list = []
+    for hw_id in registry.list_all():
+        profile = registry.get(hw_id)
+        if not profile or not profile.ops_per_clock:
+            continue
+        opc_list.append({
+            'profile': profile,
+            'opc': profile.ops_per_clock,
+            'int8': profile.ops_per_clock.get('int8', 0),
+        })
+
+    # Sort by INT8 ops/clock ascending
+    opc_list.sort(key=lambda x: x['int8'])
+
+    def fmt_opc(val):
+        if val == 0:
+            return "-"
+        elif val >= 1000000:
+            return f"{val/1000000:.1f}M"
+        elif val >= 1000:
+            return f"{val/1000:.1f}K"
+        else:
+            return str(val)
+
+    for item in opc_list:
+        opc = item['opc']
+        profile = item['profile']
+
+        fp64 = fmt_opc(opc.get('fp64', 0))
+        fp32 = fmt_opc(opc.get('fp32', 0))
+        fp16 = fmt_opc(opc.get('fp16', 0))
+        int8 = fmt_opc(opc.get('int8', 0))
+        bf16 = fmt_opc(opc.get('bf16', 0))
+
+        name = profile.model
+        if len(name) > 34:
+            name = name[:31] + "..."
+
+        print(f"{name:<35} {fp64:>8} {fp32:>8} {fp16:>8} {int8:>8} {bf16:>8}")
+
+    print()
+
+
 def show_comparison(registry):
     """Show side-by-side TOPS/W comparison for all hardware."""
     print()
@@ -566,6 +834,8 @@ def main():
     parser.add_argument("--framework", "-f", help="Filter by framework")
     parser.add_argument("--compare", "-c", action="store_true",
                         help="Show side-by-side comparison")
+    parser.add_argument("--summary", "-s", action="store_true",
+                        help="Show hardware registry summary (ISA, TDP, power profiles)")
     parser.add_argument("--list", "-l", action="store_true",
                         help="List available hardware")
     parser.add_argument("--all", "-a", action="store_true",
@@ -589,6 +859,10 @@ def main():
 
     if args.compare:
         show_comparison(registry)
+        return 0
+
+    if args.summary:
+        show_hardware_summary(registry)
         return 0
 
     if not args.id and not args.all:

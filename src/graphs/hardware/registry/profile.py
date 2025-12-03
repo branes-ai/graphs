@@ -168,6 +168,9 @@ class HardwareProfile:
     notes: Optional[str] = None
     """Additional notes about this hardware."""
 
+    product_category: Optional[str] = None
+    """Product category: 'datacenter', 'desktop', 'embodied', 'edge', or 'mobile'."""
+
     @property
     def is_calibrated(self) -> bool:
         """Whether this profile has calibration data."""
@@ -269,6 +272,8 @@ class HardwareProfile:
             result['tags'] = self.tags
         if self.notes:
             result['notes'] = self.notes
+        if self.product_category:
+            result['product_category'] = self.product_category
 
         # Note: calibration_date is NOT included in spec.json
         # It belongs in the calibration files (calibrations/*.json)
@@ -304,6 +309,7 @@ class HardwareProfile:
             platform=data.get('platform'),
             tags=data.get('tags', []),
             notes=data.get('notes'),
+            product_category=data.get('product_category'),
         )
 
     def save(self, directory: Path):
