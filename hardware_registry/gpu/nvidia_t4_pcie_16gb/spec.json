@@ -1,0 +1,52 @@
+{
+  "id": "nvidia_t4_pcie_16gb",
+  "vendor": "NVIDIA",
+  "model": "NVIDIA T4 PCIe 16GB",
+  "device_type": "gpu",
+  "product_category": "datacenter",
+  "ops_per_clock": {
+    "fp64": 160,
+    "fp32": 5120,
+    "fp16": 81920,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 0,
+    "tf32": 0,
+    "int64": 0,
+    "int32": 5120,
+    "int16": 0,
+    "int8": 163840,
+    "int4": 327680
+  },
+  "ops_per_clock_notes": {
+    "fp64": "40 SMs x 2 FP64 cores/SM x 2 (FMA) = 160 FP64 ops/clock (1:32 ratio)",
+    "fp32": "40 SMs x 64 CUDA cores/SM x 2 (FMA) = 5,120 FP32 ops/clock",
+    "fp16": "40 SMs x 8 Tensor Cores/SM x 256 ops/TC/clock = 81,920 FP16 ops/clock (2nd gen TC)",
+    "int8": "40 SMs x 8 Tensor Cores/SM x 512 ops/TC/clock = 163,840 INT8 ops/clock (2x FP16, 2nd gen)",
+    "int4": "40 SMs x 8 Tensor Cores/SM x 1024 ops/TC/clock = 327,680 INT4 ops/clock (2x INT8)"
+  },
+  "theoretical_peaks": {
+    "fp64": 254.0,
+    "fp32": 8100.0,
+    "fp16": 65000.0,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 0.0,
+    "tf32": 0.0,
+    "int64": 0.0,
+    "int32": 8100.0,
+    "int16": 0.0,
+    "int8": 130000.0,
+    "int4": 260000.0
+  },
+  "theoretical_peaks_notes": "Legacy field - calculated at boost_clock_mhz (1590 MHz). Use ops_per_clock x clock_mhz for accurate peaks.",
+  "peak_bandwidth_gbps": 320.0,
+  "architecture": "Turing",
+  "compute_units": 40,
+  "memory_gb": 16,
+  "tdp_watts": 70,
+  "base_clock_mhz": 585.0,
+  "boost_clock_mhz": 1590.0,
+  "platform": "x86_64",
+  "notes": "Turing architecture. Inference-optimized GPU with extremely low 70W TDP. 2nd gen Tensor Cores with INT8/INT4 support. 40 SMs with 64 CUDA cores each. 16GB GDDR6 at 320 GB/s. No BF16/TF32 (pre-Ampere). Popular for cloud inference (AWS G4, GCP)."
+}
