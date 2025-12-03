@@ -191,6 +191,157 @@ def detect_actual_device(requested_device: str) -> dict:
         }
 
 
+def detect_platform() -> dict:
+    """
+    Detect comprehensive platform and software stack information.
+
+    Returns:
+        dict with keys:
+            - os: Operating system name (Linux, Windows, Darwin/macOS)
+            - os_version: OS version string
+            - kernel: Kernel version (Linux) or build (Windows/macOS)
+            - architecture: CPU architecture (x86_64, aarch64, arm64)
+            - hostname: Machine hostname
+            - python_version: Python version
+            - python_implementation: CPython, PyPy, etc.
+            - numpy_version: NumPy version if installed
+            - pytorch_version: PyTorch version if installed
+            - cuda_version: CUDA version if available
+            - cudnn_version: cuDNN version if available
+            - rocm_version: ROCm version if available (AMD)
+            - oneapi_version: oneAPI version if available (Intel)
+            - openblas_version: OpenBLAS version if detected
+            - mkl_version: Intel MKL version if detected
+    """
+    import os as os_module
+    import platform
+
+    info = {}
+
+    # Operating system
+    info['os'] = platform.system()
+    info['os_version'] = platform.version()
+    info['os_release'] = platform.release()
+    info['architecture'] = platform.machine()
+    info['hostname'] = platform.node()
+
+    # For Linux, get distribution info
+    if info['os'] == 'Linux':
+        try:
+            # Try to read /etc/os-release for distro info
+            if Path('/etc/os-release').exists():
+                with open('/etc/os-release') as f:
+                    os_release = {}
+                    for line in f:
+                        if '=' in line:
+                            key, value = line.strip().split('=', 1)
+                            os_release[key] = value.strip('"')
+                    info['distro_name'] = os_release.get('NAME', 'Unknown')
+                    info['distro_version'] = os_release.get('VERSION_ID', 'Unknown')
+                    info['distro_id'] = os_release.get('ID', 'unknown')
+        except Exception:
+            pass
+
+        # Get kernel version
+        try:
+            info['kernel'] = platform.release()
+        except Exception:
+            pass
+
+    # Python information
+    info['python_version'] = platform.python_version()
+    info['python_implementation'] = platform.python_implementation()
+    info['python_compiler'] = platform.python_compiler()
+
+    # NumPy
+    try:
+        import numpy as np
+        info['numpy_version'] = np.__version__
+
+        # Try to detect BLAS backend
+        try:
+            blas_info = np.show_config(mode='dicts')
+            if isinstance(blas_info, dict):
+                blas_libs = blas_info.get('Build Dependencies', {}).get('blas', {})
+                if blas_libs:
+                    info['numpy_blas'] = blas_libs.get('name', 'unknown')
+        except Exception:
+            # Fallback: try to detect from numpy config string
+            try:
+                import io
+                old_stdout = sys.stdout
+                sys.stdout = mystdout = io.StringIO()
+                np.show_config()
+                config_str = mystdout.getvalue()
+                sys.stdout = old_stdout
+
+                if 'openblas' in config_str.lower():
+                    info['numpy_blas'] = 'openblas'
+                elif 'mkl' in config_str.lower():
+                    info['numpy_blas'] = 'mkl'
+                elif 'blis' in config_str.lower():
+                    info['numpy_blas'] = 'blis'
+            except Exception:
+                pass
+    except ImportError:
+        info['numpy_version'] = None
+
+    # PyTorch and CUDA
+    try:
+        import torch
+        info['pytorch_version'] = torch.__version__
+
+        if torch.cuda.is_available():
+            info['cuda_available'] = True
+            info['cuda_version'] = torch.version.cuda
+            info['cudnn_version'] = str(torch.backends.cudnn.version()) if torch.backends.cudnn.is_available() else None
+            info['cuda_device_count'] = torch.cuda.device_count()
+        else:
+            info['cuda_available'] = False
+
+        # Check for ROCm (AMD)
+        if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+            info['rocm_version'] = torch.version.hip
+            info['rocm_available'] = True
+        else:
+            info['rocm_available'] = False
+
+        # Check for MPS (Apple Silicon)
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            info['mps_available'] = True
+        else:
+            info['mps_available'] = False
+
+    except ImportError:
+        info['pytorch_version'] = None
+        info['cuda_available'] = False
+
+    # Intel oneAPI / MKL detection
+    try:
+        mkl_path = os_module.environ.get('MKLROOT')
+        if mkl_path:
+            info['mkl_root'] = mkl_path
+        oneapi_root = os_module.environ.get('ONEAPI_ROOT')
+        if oneapi_root:
+            info['oneapi_root'] = oneapi_root
+    except Exception:
+        pass
+
+    # OpenBLAS detection (check environment)
+    try:
+        openblas_num_threads = os_module.environ.get('OPENBLAS_NUM_THREADS')
+        if openblas_num_threads:
+            info['openblas_num_threads'] = openblas_num_threads
+    except Exception:
+        pass
+
+    # Environment variables that affect performance
+    info['omp_num_threads'] = os_module.environ.get('OMP_NUM_THREADS')
+    info['mkl_num_threads'] = os_module.environ.get('MKL_NUM_THREADS')
+
+    return info
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Hardware Performance Calibration Tool",
