@@ -122,6 +122,9 @@ class HardwareProfile:
     theoretical_peaks: Dict[str, float] = field(default_factory=dict)
     """Theoretical peak GFLOPS/GIOPS by precision (e.g., {'fp32': 1000, 'fp16': 2000})."""
 
+    ops_per_clock: Dict[str, int] = field(default_factory=dict)
+    """Operations per clock cycle by precision. Use with clock_mhz for runtime theoretical calculation."""
+
     peak_bandwidth_gbps: float = 0.0
     """Theoretical peak memory bandwidth in GB/s."""
 
@@ -243,6 +246,10 @@ class HardwareProfile:
             'peak_bandwidth_gbps': self.peak_bandwidth_gbps,
         }
 
+        # Add ops_per_clock if set
+        if self.ops_per_clock:
+            result['ops_per_clock'] = self.ops_per_clock
+
         # Add optional fields if set
         if self.architecture:
             result['architecture'] = self.architecture
@@ -284,6 +291,7 @@ class HardwareProfile:
             model=data.get('model', data['id']),
             device_type=data.get('device_type', 'cpu'),
             theoretical_peaks=data.get('theoretical_peaks', {}),
+            ops_per_clock=data.get('ops_per_clock', {}),
             peak_bandwidth_gbps=data.get('peak_bandwidth_gbps', 0.0),
             architecture=data.get('architecture'),
             compute_units=data.get('compute_units'),

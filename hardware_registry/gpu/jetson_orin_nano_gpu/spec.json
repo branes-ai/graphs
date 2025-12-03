@@ -3,6 +3,26 @@
   "vendor": "NVIDIA",
   "model": "Jetson Orin Nano (GPU)",
   "device_type": "gpu",
+  "ops_per_clock": {
+    "fp64": 64,
+    "fp32": 2048,
+    "fp16": 8192,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 8192,
+    "tf32": 4096,
+    "int64": 0,
+    "int32": 2048,
+    "int16": 8192,
+    "int8": 16384,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "fp32": "8 SMs x 128 CUDA cores/SM x 2 (FMA) = 2048 FP32 ops/clock",
+    "fp16": "8 SMs x 128 CUDA cores/SM x 2 (FMA) x 4 (packed FP16) = 8192 FP16 ops/clock, or via Tensor Cores",
+    "tf32": "8 SMs x 4 Tensor Cores/SM x 128 ops/TC/clock = 4096 TF32 ops/clock",
+    "int8": "8 SMs x 4 Tensor Cores/SM x 512 ops/TC/clock = 16384 INT8 ops/clock"
+  },
   "theoretical_peaks": {
     "fp64": 60.0,
     "fp32": 1880.0,
@@ -17,12 +37,20 @@
     "int8": 15040.0,
     "int4": 0.0
   },
+  "theoretical_peaks_notes": "Legacy field - calculated at boost_clock_mhz. Use ops_per_clock x clock_mhz for accurate per-profile peaks.",
   "peak_bandwidth_gbps": 68.0,
   "architecture": "Ampere",
   "compute_units": 8,
   "memory_gb": 8,
+  "tdp_watts": 25,
   "base_clock_mhz": 306.0,
-  "boost_clock_mhz": 918.0,
+  "boost_clock_mhz": 1020.0,
   "platform": "aarch64",
-  "notes": "Ampere GPU with 1024 CUDA cores (8 SMs) and 32 Tensor Cores (Gen 3). Shares unified LPDDR5 memory with CPU in Jetson Orin Nano SoC (memory channels are shared between CPU and GPU)."
+  "power_profiles": {
+    "7W": {"clock_mhz": 306, "power_limit_w": 7},
+    "15W": {"clock_mhz": 612, "power_limit_w": 15},
+    "25W": {"clock_mhz": 918, "power_limit_w": 25},
+    "MAXNSUPER": {"clock_mhz": 1020, "power_limit_w": 25, "notes": "Boost clock, may hit thermal/current limits"}
+  },
+  "notes": "Ampere GPU with 1024 CUDA cores (8 SMs) and 32 Tensor Cores (Gen 3). Shares unified LPDDR5 memory with CPU in Jetson Orin Nano SoC."
 }
