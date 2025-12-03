@@ -1077,15 +1077,16 @@ class HardwareDetector:
 
     def _detect_amd_gpu(self) -> List[DetectedGPU]:
         """
-        Detect AMD GPUs via rocm-smi, lspci, or PyTorch ROCm.
+        Detect AMD GPUs via rocm-smi, lspci, WMI (Windows), or PyTorch ROCm.
 
         Supports:
         - ROCm-enabled datacenter GPUs (MI100, MI210, MI250, MI300)
         - Consumer GPUs (RX 6000/7000 series)
+        - Integrated GPUs (Radeon 780M, Vega, etc.)
         """
         gpus = []
 
-        # Try rocm-smi first (ROCm installed)
+        # Try rocm-smi first (ROCm installed - Linux)
         try:
             cmd = ['rocm-smi', '--showproductname', '--showmeminfo', 'vram', '--csv']
             output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
@@ -1117,7 +1118,7 @@ class HardwareDetector:
         except (subprocess.CalledProcessError, FileNotFoundError):
             pass
 
-        # Try rocminfo as fallback
+        # Try rocminfo as fallback (Linux)
         if not gpus:
             try:
                 cmd = ['rocminfo']
@@ -1169,6 +1170,10 @@ class HardwareDetector:
             except (subprocess.CalledProcessError, FileNotFoundError):
                 pass
 
+        # Try WMI on Windows (works without ROCm)
+        if not gpus and self.os_type == 'windows':
+            gpus.extend(self._detect_amd_gpu_windows())
+
         # Try PyTorch with ROCm
         if not gpus:
             try:
@@ -1188,9 +1193,121 @@ class HardwareDetector:
 
         return gpus
 
+    def _detect_amd_gpu_windows(self) -> List[DetectedGPU]:
+        """
+        Detect AMD GPUs on Windows via WMI.
+
+        Uses wmic or PowerShell to query Win32_VideoController.
+        """
+        gpus = []
+
+        # Try wmic first (available on older Windows)
+        try:
+            cmd = ['wmic', 'path', 'win32_VideoController', 'get',
+                   'Name,AdapterRAM,DriverVersion', '/format:csv']
+            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if not line or line.startswith('Node'):
+                    continue
+
+                parts = [p.strip() for p in line.split(',')]
+                # CSV format: Node,AdapterRAM,DriverVersion,Name
+                if len(parts) >= 4:
+                    adapter_ram = parts[1]
+                    driver_version = parts[2]
+                    name = parts[3]
+
+                    # Check if this is an AMD GPU
+                    if any(x in name.upper() for x in ['AMD', 'RADEON', 'ATI']):
+                        memory_gb = None
+                        if adapter_ram and adapter_ram.isdigit():
+                            # AdapterRAM is in bytes
+                            memory_bytes = int(adapter_ram)
+                            memory_gb = memory_bytes // (1024 ** 3)
+                            # Some integrated GPUs report 0 or very small values
+                            if memory_gb == 0:
+                                memory_gb = None
+
+                        gpus.append(DetectedGPU(
+                            model_name=name,
+                            vendor='AMD',
+                            memory_gb=memory_gb,
+                            cuda_capability=None,
+                            driver_version=driver_version if driver_version else None
+                        ))
+
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # Try PowerShell as fallback (more reliable on Windows 10/11)
+        if not gpus:
+            try:
+                cmd = [
+                    'powershell', '-NoProfile', '-Command',
+                    'Get-CimInstance Win32_VideoController | '
+                    'Select-Object Name,AdapterRAM,DriverVersion | '
+                    'ConvertTo-Csv -NoTypeInformation'
+                ]
+                output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+                lines = output.strip().split('\n')
+                for line in lines[1:]:  # Skip header
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Parse CSV (may have quoted fields)
+                    parts = self._parse_csv_line(line)
+                    if len(parts) >= 3:
+                        name = parts[0]
+                        adapter_ram = parts[1]
+                        driver_version = parts[2]
+
+                        # Check if this is an AMD GPU
+                        if any(x in name.upper() for x in ['AMD', 'RADEON', 'ATI']):
+                            memory_gb = None
+                            if adapter_ram and adapter_ram.isdigit():
+                                memory_bytes = int(adapter_ram)
+                                memory_gb = memory_bytes // (1024 ** 3)
+                                if memory_gb == 0:
+                                    memory_gb = None
+
+                            gpus.append(DetectedGPU(
+                                model_name=name,
+                                vendor='AMD',
+                                memory_gb=memory_gb,
+                                cuda_capability=None,
+                                driver_version=driver_version if driver_version else None
+                            ))
+
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        return gpus
+
+    def _parse_csv_line(self, line: str) -> List[str]:
+        """Parse a CSV line handling quoted fields."""
+        parts = []
+        current = []
+        in_quotes = False
+
+        for char in line:
+            if char == '"':
+                in_quotes = not in_quotes
+            elif char == ',' and not in_quotes:
+                parts.append(''.join(current).strip())
+                current = []
+            else:
+                current.append(char)
+
+        parts.append(''.join(current).strip())
+        return parts
+
     def _detect_intel_gpu(self) -> List[DetectedGPU]:
         """
-        Detect Intel GPUs via sycl-ls, lspci, or intel_gpu_top.
+        Detect Intel GPUs via sycl-ls, lspci, WMI (Windows), or intel_gpu_top.
 
         Supports:
         - Intel Arc discrete GPUs (A770, A750, A380)
@@ -1199,7 +1316,7 @@ class HardwareDetector:
         """
         gpus = []
 
-        # Try sycl-ls first (Intel oneAPI installed)
+        # Try sycl-ls first (Intel oneAPI installed - cross-platform)
         try:
             cmd = ['sycl-ls']
             output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
@@ -1222,8 +1339,8 @@ class HardwareDetector:
         except (subprocess.CalledProcessError, FileNotFoundError):
             pass
 
-        # Try intel_gpu_top (intel-gpu-tools package)
-        if not gpus:
+        # Try intel_gpu_top on Linux (intel-gpu-tools package)
+        if not gpus and self.os_type == 'linux':
             try:
                 # intel_gpu_top -L lists available GPUs
                 cmd = ['intel_gpu_top', '-L']
@@ -1305,6 +1422,10 @@ class HardwareDetector:
             except Exception:
                 pass
 
+        # Try WMI on Windows
+        if not gpus and self.os_type == 'windows':
+            gpus.extend(self._detect_intel_gpu_windows())
+
         # Deduplicate (lspci might show same GPU multiple times)
         seen = set()
         unique_gpus = []
@@ -1315,6 +1436,100 @@ class HardwareDetector:
                 unique_gpus.append(gpu)
 
         return unique_gpus
+
+    def _detect_intel_gpu_windows(self) -> List[DetectedGPU]:
+        """
+        Detect Intel GPUs on Windows via WMI.
+
+        Uses wmic or PowerShell to query Win32_VideoController.
+        """
+        gpus = []
+
+        # Try wmic first (available on older Windows)
+        try:
+            cmd = ['wmic', 'path', 'win32_VideoController', 'get',
+                   'Name,AdapterRAM,DriverVersion', '/format:csv']
+            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if not line or line.startswith('Node'):
+                    continue
+
+                parts = [p.strip() for p in line.split(',')]
+                # CSV format: Node,AdapterRAM,DriverVersion,Name
+                if len(parts) >= 4:
+                    adapter_ram = parts[1]
+                    driver_version = parts[2]
+                    name = parts[3]
+
+                    # Check if this is an Intel GPU
+                    if any(x in name.upper() for x in ['INTEL', 'UHD', 'IRIS', 'ARC']):
+                        memory_gb = None
+                        if adapter_ram and adapter_ram.isdigit():
+                            # AdapterRAM is in bytes
+                            memory_bytes = int(adapter_ram)
+                            memory_gb = memory_bytes // (1024 ** 3)
+                            # Integrated GPUs often report 0 or shared memory
+                            if memory_gb == 0:
+                                memory_gb = None
+
+                        gpus.append(DetectedGPU(
+                            model_name=name,
+                            vendor='Intel',
+                            memory_gb=memory_gb,
+                            cuda_capability=None,
+                            driver_version=driver_version if driver_version else None
+                        ))
+
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # Try PowerShell as fallback (more reliable on Windows 10/11)
+        if not gpus:
+            try:
+                cmd = [
+                    'powershell', '-NoProfile', '-Command',
+                    'Get-CimInstance Win32_VideoController | '
+                    'Select-Object Name,AdapterRAM,DriverVersion | '
+                    'ConvertTo-Csv -NoTypeInformation'
+                ]
+                output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+                lines = output.strip().split('\n')
+                for line in lines[1:]:  # Skip header
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Parse CSV (may have quoted fields)
+                    parts = self._parse_csv_line(line)
+                    if len(parts) >= 3:
+                        name = parts[0]
+                        adapter_ram = parts[1]
+                        driver_version = parts[2]
+
+                        # Check if this is an Intel GPU
+                        if any(x in name.upper() for x in ['INTEL', 'UHD', 'IRIS', 'ARC']):
+                            memory_gb = None
+                            if adapter_ram and adapter_ram.isdigit():
+                                memory_bytes = int(adapter_ram)
+                                memory_gb = memory_bytes // (1024 ** 3)
+                                if memory_gb == 0:
+                                    memory_gb = None
+
+                            gpus.append(DetectedGPU(
+                                model_name=name,
+                                vendor='Intel',
+                                memory_gb=memory_gb,
+                                cuda_capability=None,
+                                driver_version=driver_version if driver_version else None
+                            ))
+
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        return gpus
 
     # ========================================================================
     # Database Matching
