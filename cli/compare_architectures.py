@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Architecture Comparison Tool - Compare DNN models across hardware architectures
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Model Factory for DNN Energy Analysis Tools
 
