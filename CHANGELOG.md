@@ -6,6 +6,82 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-02] - GPU Request/Reply Cycle & KPU Spatial Dataflow Energy Models
+
+### Changed
+
+**GPU Cycle Energy Model** (`src/graphs/hardware/cycle_energy/gpu.py`)
+- Complete rewrite to properly model stored program machine execution
+- Added **request/reply cycle overhead** for each warp/MMA instruction:
+  - Scoreboard lookup (~0.3 pJ) - Check RAW/WAW/WAR hazards
+  - Register address generation (~0.6 pJ) - Decode src1, src2, dst
+  - Operand collector (~0.8 pJ) - Gather operands from banked register file
+  - Bank arbitration (~0.3 pJ) - Resolve bank conflicts
+  - Operand routing (~0.4 pJ) - Crossbar to route operands to ALUs
+  - Result routing (~0.3 pJ) - Route result back to register file
+- Total: ~2.7 pJ per warp instruction for request/reply cycle
+- Split into two models:
+  - `build_gpu_cuda_cycle_energy()` - CUDA cores: 4 partitions x 32 = 128 MACs/SM
+  - `build_gpu_tensorcore_cycle_energy()` - TensorCores: 4 partitions x 64 = 256 MACs/SM
+- Added SM partition documentation explaining why GPU needs 4 independent partitions
+- Updated architecture class to "SIMT Stored Program Machine"
+
+**KPU Cycle Energy Model** (`src/graphs/hardware/cycle_energy/kpu.py`)
+- Complete refactor to properly model spatial dataflow execution
+- Removed incorrect "internal streaming" costs that mimicked cache behavior
+- Added **SURE network costs** reflecting actual spatial dataflow:
+  - PE-to-PE transfer (~0.05 pJ) - Wire delay + local latch only
+  - Local register write (~0.02 pJ) - PE-local, no arbitration
+- Total: ~0.07 pJ per operation for internal data movement (50x less than GPU!)
+- Added comprehensive docstring contrasting GPU request/reply vs KPU spatial dataflow
+- Updated architecture class to "Spatial Dataflow (SURE)"
+
+**Energy Walkthrough Script** (`cli/energy_walkthrough.py`)
+- Added GPU CUDA and TensorCore models to comparison
+- Updated native operation table to include both GPU execution modes
+- Five-architecture comparison: CPU, GPU-CUDA, GPU-TC, TPU, KPU
+- Added SM partition explanation in insights section
+
+### Added
+
+**New GPU Model Exports** (`src/graphs/hardware/cycle_energy/__init__.py`)
+- `build_gpu_cuda_cycle_energy()` - For scalar/vector workloads
+- `build_gpu_tensorcore_cycle_energy()` - For matrix workloads
+- `SM_CONFIG` - SM configuration constants
+- Legacy `build_gpu_cycle_energy()` maintained for backwards compatibility
+
+### Technical Details
+
+The key architectural insight captured in these changes:
+
+**GPU (Stored Program Machine):**
+Each instruction must explicitly specify WHERE its operands come from. This requires:
+1. Scoreboard lookup (dependency tracking)
+2. Register address generation
+3. Operand collector (gather from banked register file)
+4. Bank arbitration (resolve conflicts)
+5. Crossbar routing (operands to ALUs, results back)
+
+**KPU (Spatial Dataflow):**
+Operands ARRIVE at each PE via the SURE network:
+1. Routing determined at compile time (not runtime)
+2. PE-to-PE transfer is just wire delay + local register latch
+3. NO scoreboard, NO operand collector, NO bank arbitration
+
+This 50x reduction in internal data movement energy is the fundamental source of
+KPU's energy efficiency over stored program machines.
+
+### Results
+
+300x300 MatMul (27M MACs) energy comparison:
+- KPU: 1.07 pJ/MAC (best)
+- GPU-CUDA: 1.67 pJ/MAC (1.56x worse)
+- GPU-TC: 1.77 pJ/MAC (1.65x worse)
+- TPU: 2.28 pJ/MAC (2.13x worse)
+- CPU: 6.64 pJ/MAC (6.21x worse)
+
+---
+
 ## [2025-11-30] - EDDO Scratchpad Terminology & Consistent Energy Units
 
 ### Changed
