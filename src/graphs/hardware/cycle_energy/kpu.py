@@ -16,11 +16,11 @@ equations, including:
 KPU Architecture (Domain Flow):
   +-----------+     +------------------+     +------------------+
   |  DOMAIN   |     |  TILE ARRAY      |     |  OUTPUT          |
-  |  PROGRAM  |---->|  (8x8 to 24x32)  |---->|  AGGREGATION     |
-  |  LOAD     |     |  Heterogeneous:  |     |                  |
-  +-----------+     |  INT8/BF16/Matrix|     +------------------+
-       ^            +------------------+              |
-       |                   ^                          v
+  |  PROGRAM  |---->|  (checkerboard)  |---->|  AGGREGATION     |
+  |  LOAD     |     |  64 tiles total  |     |                  |
+  +-----------+     +------------------+     +------------------+
+       ^                   ^                          |
+       |                   |                          v
   +----+----+        +-----+-----+          +--------+--------+
   |  DOMAIN |        |  STREAM   |          |  STREAM         |
   |  TRACKER|        |  INPUT    |          |  OUTPUT         |
@@ -30,6 +30,12 @@ KPU Architecture (Domain Flow):
   +--------------------------------------------------------+
   |   DISTRIBUTED SCRATCHPADS (256KB/tile) + SHARED SRAM   |
   +--------------------------------------------------------+
+
+Each tile is a 16x16 PROGRAMMABLE SYSTOLIC ARRAY:
+  - 256 MACs per tile per cycle
+  - Total: 64 tiles x 256 MACs = 16,384 MACs/cycle (same as TPU 128x128)
+  - But organized as 64 smaller tiles for better workload mapping
+  - Tiles are heterogeneous: INT8, BF16, Matrix variants in checkerboard
 
 Key characteristics (Domain Flow vs other architectures):
 - PROGRAMMABLE: Executes ANY system of uniform recurrence equations
@@ -220,23 +226,32 @@ def build_kpu_cycle_energy(
     # Derive all energy parameters from technology profile
     process_scale = tech_profile.process_node_nm / 16.0  # 16nm is baseline for KPU
     params = {
-        # Tile array configuration (fixed)
+        # Tile array configuration
+        # Each tile is a 16x16 programmable systolic array = 256 MACs/cycle
+        # 64 tiles total = 16,384 MACs/cycle (same as TPU 128x128, but finer granularity)
         'num_tiles': 64,
+        'tile_dim': 16,              # 16x16 systolic array per tile
+        'macs_per_tile': 256,        # 16 x 16 = 256 MACs per tile per cycle
+        'total_macs_per_cycle': 16384,  # 64 tiles x 256 MACs
+
+        # Tile type distribution (heterogeneous checkerboard)
         'int8_tiles': 44,
         'bf16_tiles': 13,
         'matrix_tiles': 7,
 
         # Domain Flow overhead (scales with process)
-        'domain_program_load_pj': 500.0 * process_scale,
-        'domain_tracker_pj': 20.0 * process_scale,
-        'network_overlay_pj': 100.0 * process_scale,
+        # These are one-time costs per layer/domain program
+        'domain_program_load_pj': 500.0 * process_scale,  # Load SURE program
+        'domain_tracker_pj': 20.0 * process_scale,        # Per-tile tracker update
+        'network_overlay_pj': 100.0 * process_scale,      # Configure tile interconnect
 
-        # Stream processing
+        # Stream processing (internal tile-to-tile movement)
         'stream_setup_pj': 50.0 * process_scale,
         'stream_sync_pj': 10.0 * process_scale,
         'stream_pj_per_byte': tech_profile.sram_energy_per_byte_pj * 0.5,
 
         # Domain Flow compute (uses domain flow MAC energy from profile)
+        # These are per-MAC energies for the systolic array
         'mac_int8_pj': tech_profile.domain_flow_mac_energy_pj * 0.5,  # INT8 is cheaper
         'mac_bf16_pj': tech_profile.domain_flow_mac_energy_pj * 0.8,
         'mac_fp32_pj': tech_profile.domain_flow_mac_energy_pj * 1.6,
@@ -268,19 +283,28 @@ def build_kpu_cycle_energy(
     )
 
     num_tiles = params['num_tiles']
+    macs_per_tile = params['macs_per_tile']  # 256 MACs per 16x16 tile
 
     # Calculate effective operations considering efficiency
     effective_ops = int(num_ops * params['tile_utilization'] *
                        params['pipeline_efficiency'] * params['domain_flow_efficiency'])
 
-    # Calculate tile invocations
-    ops_per_tile_cycle = 512  # Typical ops per tile per cycle
-    total_tile_ops = num_tiles * ops_per_tile_cycle
-    num_invocations = max(1, (num_ops + total_tile_ops - 1) // total_tile_ops)
+    # Calculate tile cycles needed
+    # Each tile is a 16x16 systolic array = 256 MACs per cycle
+    # With 64 tiles, we get 16,384 MACs per cycle (same total as TPU 128x128)
+    # But the finer granularity allows better mapping to irregular workloads
+    total_macs_per_cycle = params['total_macs_per_cycle']  # 64 * 256 = 16,384
+    num_tile_cycles = max(1, (num_ops + total_macs_per_cycle - 1) // total_macs_per_cycle)
+
+    # Operations per tile-cycle (for accumulation calculations)
+    ops_per_tile_cycle = total_macs_per_cycle
+
+    # For compatibility with existing code
+    num_invocations = num_tile_cycles
 
     # Cycles based on domain flow execution
     breakdown.num_cycles = num_invocations
-    breakdown.ops_per_cycle = min(total_tile_ops, num_ops)
+    breakdown.ops_per_cycle = min(total_macs_per_cycle, num_ops)
 
     # ==========================================================================
     # DOMAIN FLOW CONFIGURATION (One-time per layer, NOT per operation!)
