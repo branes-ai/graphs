@@ -6,10 +6,11 @@ This script demonstrates architectural energy differences through TWO analyses:
 
 PART 1: NATIVE OPERATION ENERGY
   Compare each architecture at its natural execution granularity:
-  - CPU:  1 AVX-512 instruction  ->  16 MACs
-  - GPU:  1 warp instruction     ->  32 MACs
-  - TPU:  1 systolic tile cycle  ->  16,384 MACs (128x128)
-  - KPU:  1 tile cycle           ->  256 MACs (16x16, but 64 tiles = 16,384 total)
+  - CPU:          1 AVX-512 instruction  ->  16 MACs
+  - GPU (CUDA):   4 warp instructions    -> 128 MACs (4 partitions x 32 cores)
+  - GPU (TC):     4 MMA instructions     -> 256 MACs (4 partitions x 64 MACs)
+  - TPU:          1 systolic tile cycle  -> 16,384 MACs (128x128)
+  - KPU:          1 tile cycle           -> 256 MACs (16x16, 64 tiles = 16,384 total)
 
   This answers: "What's the fundamental energy cost per native operation?"
 
@@ -21,9 +22,10 @@ PART 2: REAL WORKLOAD MAPPING
 
   This answers: "How efficiently can each architecture execute real workloads?"
 
-Key insight: TPU and KPU have the same total MACs/cycle (16,384), but:
-  - TPU: Single 128x128 array (poor mapping for 300x300)
-  - KPU: 64 x 16x16 tiles (better mapping for irregular sizes)
+Key insights:
+  - GPU TensorCore (256 MACs/SM) matches KPU tile (256 MACs) - direct comparison!
+  - TPU and KPU have same total MACs/cycle (16,384), but different granularity
+  - GPU SM has 4 partitions because a single warp scheduler for 128 cores is infeasible
 """
 
 import argparse
@@ -34,7 +36,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from graphs.hardware.cycle_energy import (
     build_cpu_cycle_energy,
-    build_gpu_cycle_energy,
+    build_gpu_cuda_cycle_energy,
+    build_gpu_tensorcore_cycle_energy,
     build_tpu_cycle_energy,
     build_kpu_cycle_energy,
 )
@@ -66,7 +69,7 @@ def format_energy_fixed(pj: float, width: int = 12) -> str:
         return f"{pj*1000:>{width-3}.2f} fJ"
 
 
-def print_header(title: str, width: int = 120):
+def print_header(title: str, width: int = 140):
     """Print a section header."""
     print()
     print("=" * width)
@@ -74,15 +77,16 @@ def print_header(title: str, width: int = 120):
     print("=" * width)
 
 
-def print_step_row(step: str, cpu_pj: float, gpu_pj: float, tpu_pj: float, kpu_pj: float,
-                   col_width: int = 18):
+def print_step_row(step: str, cpu_pj: float, gpu_cuda_pj: float, gpu_tc_pj: float,
+                   tpu_pj: float, kpu_pj: float, col_width: int = 15):
     """Print a row comparing energy across architectures."""
     cpu_str = format_energy_fixed(cpu_pj, col_width-2) if cpu_pj > 0 else "-".center(col_width-2)
-    gpu_str = format_energy_fixed(gpu_pj, col_width-2) if gpu_pj > 0 else "-".center(col_width-2)
+    gpu_cuda_str = format_energy_fixed(gpu_cuda_pj, col_width-2) if gpu_cuda_pj > 0 else "-".center(col_width-2)
+    gpu_tc_str = format_energy_fixed(gpu_tc_pj, col_width-2) if gpu_tc_pj > 0 else "-".center(col_width-2)
     tpu_str = format_energy_fixed(tpu_pj, col_width-2) if tpu_pj > 0 else "-".center(col_width-2)
     kpu_str = format_energy_fixed(kpu_pj, col_width-2) if kpu_pj > 0 else "-".center(col_width-2)
 
-    print(f"  {step:<40} {cpu_str:>{col_width}} {gpu_str:>{col_width}} {tpu_str:>{col_width}} {kpu_str:>{col_width}}")
+    print(f"  {step:<35} {cpu_str:>{col_width}} {gpu_cuda_str:>{col_width}} {gpu_tc_str:>{col_width}} {tpu_str:>{col_width}} {kpu_str:>{col_width}}")
 
 
 # =============================================================================
@@ -97,37 +101,40 @@ def part1_native_operation_energy(comparison, verbose: bool = False):
     "What's the fundamental energy cost of ONE native operation?"
 
     Native operations:
-      CPU:  1 AVX-512 instruction  = 16 FP32 MACs
-      GPU:  1 warp instruction     = 32 FP32 MACs
-      TPU:  1 systolic tile cycle  = 16,384 MACs (128x128 array)
-      KPU:  1 tile cycle           = 256 MACs (16x16 tile)
+      CPU:          1 AVX-512 instruction  = 16 FP32 MACs
+      GPU (CUDA):   4 warp instructions    = 128 MACs (4 partitions x 32 cores)
+      GPU (TC):     4 MMA instructions     = 256 MACs (4 partitions x 64 MACs)
+      TPU:          1 systolic tile cycle  = 16,384 MACs (128x128 array)
+      KPU:          1 tile cycle           = 256 MACs (16x16 tile)
 
-    Note: KPU has 64 tiles, so 1 "full cycle" = 64 x 256 = 16,384 MACs,
-    but we show SINGLE TILE to compare the fundamental execution units.
+    Key comparison: GPU TensorCore (256 MACs) = KPU tile (256 MACs)
     """
     print_header("PART 1: NATIVE OPERATION ENERGY (Apples-to-Apples Circuit Comparison)")
     print()
     print("  Each architecture has a NATIVE execution unit that amortizes control overhead:")
     print()
-    print("    Architecture    Native Unit               MACs/Unit    Notes")
-    print("    --------------- ------------------------- ------------ ---------------------------")
-    print("    CPU (AVX-512)   1 vector instruction      16           FP32, 512-bit registers")
-    print("    GPU (SIMT)      1 warp instruction        32           32 threads in lockstep")
-    print("    TPU (Systolic)  1 tile cycle (128x128)    16,384       Weight-stationary dataflow")
-    print("    KPU (Domain)    1 tile cycle (16x16)      256          Per-tile; 64 tiles total")
+    print("    Architecture      Native Unit                   MACs/Unit    Notes")
+    print("    ----------------  ----------------------------  ------------ ----------------------------------")
+    print("    CPU (AVX-512)     1 vector instruction          16           FP32, 512-bit registers")
+    print("    GPU (CUDA)        4 warp instructions (1 SM)    128          4 partitions x 32 CUDA cores")
+    print("    GPU (TensorCore)  4 MMA instructions (1 SM)     256          4 partitions x 64 MACs (4x4x4)")
+    print("    TPU (Systolic)    1 tile cycle (128x128)        16,384       Weight-stationary dataflow")
+    print("    KPU (Domain)      1 tile cycle (16x16)          256          Per-tile; 64 tiles total")
     print()
-    print("  Question: What's the fundamental energy cost per native operation?")
+    print("  Key insight: GPU TensorCore (256) = KPU tile (256) - direct comparison!")
     print()
 
     # Define native unit sizes
-    cpu_ops = 16       # AVX-512: 16 FP32 MACs per vector instruction
-    gpu_ops = 32       # Warp: 32 threads in lockstep
-    tpu_ops = 16384    # 128x128 systolic array
-    kpu_ops = 256      # Single 16x16 tile (not all 64 tiles)
+    cpu_ops = 16         # AVX-512: 16 FP32 MACs per vector instruction
+    gpu_cuda_ops = 128   # 4 partitions x 32 CUDA cores
+    gpu_tc_ops = 256     # 4 partitions x 64 MACs (TensorCores)
+    tpu_ops = 16384      # 128x128 systolic array
+    kpu_ops = 256        # Single 16x16 tile
 
     # Minimal bytes - just enough for the native operation (L1 resident)
-    cpu_bytes = cpu_ops * 8    # 2 operands x 4 bytes
-    gpu_bytes = gpu_ops * 8
+    cpu_bytes = cpu_ops * 8
+    gpu_cuda_bytes = gpu_cuda_ops * 8
+    gpu_tc_bytes = gpu_tc_ops * 8
     tpu_bytes = tpu_ops * 8
     kpu_bytes = kpu_ops * 8
 
@@ -138,8 +145,13 @@ def part1_native_operation_energy(comparison, verbose: bool = False):
         tech_profile=comparison.cpu_profile,
         simd_width=16
     )
-    gpu = build_gpu_cycle_energy(
-        num_ops=gpu_ops, bytes_transferred=gpu_bytes,
+    gpu_cuda = build_gpu_cuda_cycle_energy(
+        num_ops=gpu_cuda_ops, bytes_transferred=gpu_cuda_bytes,
+        mode=OperatingMode.L1_RESIDENT,
+        tech_profile=comparison.gpu_profile,
+    )
+    gpu_tc = build_gpu_tensorcore_cycle_energy(
+        num_ops=gpu_tc_ops, bytes_transferred=gpu_tc_bytes,
         mode=OperatingMode.L1_RESIDENT,
         tech_profile=comparison.gpu_profile,
     )
@@ -155,61 +167,72 @@ def part1_native_operation_energy(comparison, verbose: bool = False):
         num_layers=1,
     )
 
-    col_w = 18
-    print(f"  {'METRIC':<40} {'CPU (16 MACs)':>{col_w}} {'GPU (32 MACs)':>{col_w}} {'TPU (16K MACs)':>{col_w}} {'KPU (256 MACs)':>{col_w}}")
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    col_w = 15
+    print(f"  {'METRIC':<35} {'CPU (16)':>{col_w}} {'GPU-CUDA(128)':>{col_w}} {'GPU-TC (256)':>{col_w}} {'TPU (16K)':>{col_w}} {'KPU (256)':>{col_w}}")
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
 
     # Energy breakdown by category
     cpu_ctrl = cpu.get_control_overhead_energy()
-    gpu_ctrl = gpu.get_control_overhead_energy()
+    gpu_cuda_ctrl = gpu_cuda.get_control_overhead_energy()
+    gpu_tc_ctrl = gpu_tc.get_control_overhead_energy()
     tpu_ctrl = tpu.get_control_overhead_energy()
     kpu_ctrl = kpu.get_control_overhead_energy()
 
     cpu_compute = cpu.get_compute_energy()
-    gpu_compute = gpu.get_compute_energy()
+    gpu_cuda_compute = gpu_cuda.get_compute_energy()
+    gpu_tc_compute = gpu_tc.get_compute_energy()
     tpu_compute = tpu.get_compute_energy()
     kpu_compute = kpu.get_compute_energy()
 
     cpu_data = cpu.get_data_movement_energy()
-    gpu_data = gpu.get_data_movement_energy()
+    gpu_cuda_data = gpu_cuda.get_data_movement_energy()
+    gpu_tc_data = gpu_tc.get_data_movement_energy()
     tpu_data = tpu.get_data_movement_energy()
     kpu_data = kpu.get_data_movement_energy()
 
-    print_step_row("Control Overhead", cpu_ctrl, gpu_ctrl, tpu_ctrl, kpu_ctrl)
-    print_step_row("Compute (MACs)", cpu_compute, gpu_compute, tpu_compute, kpu_compute)
-    print_step_row("Data Movement (L1)", cpu_data, gpu_data, tpu_data, kpu_data)
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
-    print_step_row("TOTAL (native unit)", cpu.total_energy_pj, gpu.total_energy_pj, tpu.total_energy_pj, kpu.total_energy_pj)
+    print_step_row("Control Overhead", cpu_ctrl, gpu_cuda_ctrl, gpu_tc_ctrl, tpu_ctrl, kpu_ctrl)
+    print_step_row("Compute (MACs)", cpu_compute, gpu_cuda_compute, gpu_tc_compute, tpu_compute, kpu_compute)
+    print_step_row("Data Movement (L1)", cpu_data, gpu_cuda_data, gpu_tc_data, tpu_data, kpu_data)
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    print_step_row("TOTAL (native unit)", cpu.total_energy_pj, gpu_cuda.total_energy_pj,
+                   gpu_tc.total_energy_pj, tpu.total_energy_pj, kpu.total_energy_pj)
 
     # Per-MAC energy (the key metric!)
     print()
-    print(f"  {'ENERGY PER MAC (pJ)':<40} {'CPU':>{col_w}} {'GPU':>{col_w}} {'TPU':>{col_w}} {'KPU':>{col_w}}")
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    print(f"  {'ENERGY PER MAC (pJ)':<35} {'CPU':>{col_w}} {'GPU-CUDA':>{col_w}} {'GPU-TC':>{col_w}} {'TPU':>{col_w}} {'KPU':>{col_w}}")
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
     print_step_row("Total / num_MACs",
                    cpu.total_energy_pj / cpu_ops,
-                   gpu.total_energy_pj / gpu_ops,
+                   gpu_cuda.total_energy_pj / gpu_cuda_ops,
+                   gpu_tc.total_energy_pj / gpu_tc_ops,
                    tpu.total_energy_pj / tpu_ops,
                    kpu.total_energy_pj / kpu_ops)
     print_step_row("Control / num_MACs",
                    cpu_ctrl / cpu_ops,
-                   gpu_ctrl / gpu_ops,
+                   gpu_cuda_ctrl / gpu_cuda_ops,
+                   gpu_tc_ctrl / gpu_tc_ops,
                    tpu_ctrl / tpu_ops,
                    kpu_ctrl / kpu_ops)
     print_step_row("Compute / num_MACs",
                    cpu_compute / cpu_ops,
-                   gpu_compute / gpu_ops,
+                   gpu_cuda_compute / gpu_cuda_ops,
+                   gpu_tc_compute / gpu_tc_ops,
                    tpu_compute / tpu_ops,
                    kpu_compute / kpu_ops)
 
     # Show control overhead percentage
     print()
     print("  CONTROL OVERHEAD ANALYSIS:")
-    print(f"    CPU:  {cpu_ctrl/cpu.total_energy_pj*100:5.1f}% of energy is control (fetch/decode per 16 MACs)")
-    print(f"    GPU:  {gpu_ctrl/gpu.total_energy_pj*100:5.1f}% of energy is control (warp scheduler per 32 MACs)")
-    print(f"    TPU:  {tpu_ctrl/tpu.total_energy_pj*100:5.1f}% of energy is control (config per 16K MACs)")
-    print(f"    KPU:  {kpu_ctrl/kpu.total_energy_pj*100:5.1f}% of energy is control (domain tracker per 256 MACs)")
+    print(f"    CPU:        {cpu_ctrl/cpu.total_energy_pj*100:5.1f}% (1 fetch/decode per 16 MACs)")
+    print(f"    GPU-CUDA:   {gpu_cuda_ctrl/gpu_cuda.total_energy_pj*100:5.1f}% (4 warp schedulers per 128 MACs)")
+    print(f"    GPU-TC:     {gpu_tc_ctrl/gpu_tc.total_energy_pj*100:5.1f}% (4 warp schedulers per 256 MACs)")
+    print(f"    TPU:        {tpu_ctrl/tpu.total_energy_pj*100:5.1f}% (1 tile config per 16K MACs)")
+    print(f"    KPU:        {kpu_ctrl/kpu.total_energy_pj*100:5.1f}% (1 domain tracker per 256 MACs)")
     print()
-    print("  -> Systolic/Domain architectures amortize control over 100-1000x more ops!")
+    print("  KEY OBSERVATIONS:")
+    print("    1. GPU-TC and KPU have SAME native unit size (256 MACs) - direct comparison!")
+    print("    2. GPU needs 4 warp schedulers; KPU needs 1 domain tracker")
+    print("    3. TPU amortizes control over 16K MACs but has poor mapping for irregular sizes")
 
 
 # =============================================================================
@@ -218,25 +241,19 @@ def part1_native_operation_energy(comparison, verbose: bool = False):
 
 def calculate_tiling_efficiency(matrix_dim: int, tile_dim: int) -> dict:
     """Calculate tiling efficiency for a matrix operation."""
-    # How many full tiles fit?
     full_tiles = matrix_dim // tile_dim
     remainder = matrix_dim % tile_dim
 
-    # For matrix multiply C = A x B (MxN = MxK * KxN)
-    # We tile along all dimensions
     total_tiles_needed = full_tiles * full_tiles
     partial_tiles = 0
     if remainder > 0:
-        # Partial tiles on edges
-        partial_tiles = 2 * full_tiles + 1  # Two edges + corner
+        partial_tiles = 2 * full_tiles + 1
 
-    # Utilization within partial tiles
     if remainder > 0:
         partial_utilization = (remainder * remainder) / (tile_dim * tile_dim)
     else:
         partial_utilization = 1.0
 
-    # Average utilization across all tiles
     total_tiles = total_tiles_needed + partial_tiles
     if total_tiles > 0:
         full_tile_ops = total_tiles_needed * (tile_dim * tile_dim)
@@ -264,15 +281,9 @@ def part2_real_workload_mapping(comparison, matrix_dim: int = 300, verbose: bool
     This shows how each architecture handles a REAL workload:
     - Matrix multiply: C = A x B where A, B are (matrix_dim x matrix_dim)
     - Total MACs = matrix_dim^3 (for square matrix multiply)
-
-    Key insight: 300x300 doesn't map cleanly to:
-    - TPU 128x128 tiles (300 = 2*128 + 44, so ~35% of last tile is wasted)
-    - KPU 16x16 tiles (300 = 18*16 + 12, so ~75% of last tile is wasted)
-
-    But KPU's finer granularity (16x16 vs 128x128) wastes less total area.
     """
     total_macs = matrix_dim * matrix_dim * matrix_dim
-    bytes_transferred = 3 * matrix_dim * matrix_dim * 4  # A, B, C matrices in FP32
+    bytes_transferred = 3 * matrix_dim * matrix_dim * 4
 
     print_header(f"PART 2: REAL WORKLOAD MAPPING ({matrix_dim}x{matrix_dim} MatMul = {total_macs/1e6:.1f}M MACs)")
     print()
@@ -281,7 +292,7 @@ def part2_real_workload_mapping(comparison, matrix_dim: int = 300, verbose: bool
     print(f"  Data Size: {bytes_transferred/1024/1024:.1f} MB (3 matrices x 4 bytes)")
     print()
 
-    # Calculate tiling efficiency for each architecture
+    # Calculate tiling efficiency
     tpu_tile = 128
     kpu_tile = 16
 
@@ -293,13 +304,11 @@ def part2_real_workload_mapping(comparison, matrix_dim: int = 300, verbose: bool
     print(f"    TPU (128x128 tiles):")
     print(f"      {matrix_dim} = {matrix_dim // tpu_tile} x {tpu_tile} + {matrix_dim % tpu_tile} remainder")
     print(f"      Full tiles: {tpu_eff['full_tiles']}, Partial tiles: {tpu_eff['partial_tiles']}")
-    print(f"      Partial tile utilization: {tpu_eff['partial_utilization']*100:.1f}%")
     print(f"      Average utilization: {tpu_eff['avg_utilization']*100:.1f}%")
     print()
     print(f"    KPU (16x16 tiles):")
     print(f"      {matrix_dim} = {matrix_dim // kpu_tile} x {kpu_tile} + {matrix_dim % kpu_tile} remainder")
     print(f"      Full tiles: {kpu_eff['full_tiles']}, Partial tiles: {kpu_eff['partial_tiles']}")
-    print(f"      Partial tile utilization: {kpu_eff['partial_utilization']*100:.1f}%")
     print(f"      Average utilization: {kpu_eff['avg_utilization']*100:.1f}%")
     print()
 
@@ -311,7 +320,13 @@ def part2_real_workload_mapping(comparison, matrix_dim: int = 300, verbose: bool
         simd_width=16,
         operator_type=OperatorType.HIGH_REUSE,
     )
-    gpu = build_gpu_cycle_energy(
+    gpu_cuda = build_gpu_cuda_cycle_energy(
+        num_ops=total_macs, bytes_transferred=bytes_transferred,
+        mode=OperatingMode.DRAM_RESIDENT,
+        tech_profile=comparison.gpu_profile,
+        operator_type=OperatorType.HIGH_REUSE,
+    )
+    gpu_tc = build_gpu_tensorcore_cycle_energy(
         num_ops=total_macs, bytes_transferred=bytes_transferred,
         mode=OperatingMode.DRAM_RESIDENT,
         tech_profile=comparison.gpu_profile,
@@ -331,68 +346,76 @@ def part2_real_workload_mapping(comparison, matrix_dim: int = 300, verbose: bool
         num_layers=1,
     )
 
-    col_w = 18
-    print(f"  {'EXECUTION METRICS':<40} {'CPU (AVX-512)':>{col_w}} {'GPU (SIMT)':>{col_w}} {'TPU (128x128)':>{col_w}} {'KPU (16x16x64)':>{col_w}}")
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    col_w = 15
+    print(f"  {'EXECUTION METRICS':<35} {'CPU (AVX512)':>{col_w}} {'GPU (CUDA)':>{col_w}} {'GPU (TC)':>{col_w}} {'TPU (128x128)':>{col_w}} {'KPU (16x16)':>{col_w}}")
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
 
     # Show execution parameters
-    cpu_instrs = total_macs // 16  # AVX-512
-    gpu_instrs = total_macs // 32  # Warp
-    tpu_cycles = (total_macs + 16383) // 16384  # 128x128 tiles
-    kpu_cycles = (total_macs + 16383) // 16384  # 64 x 16x16 tiles = 16384 total
+    cpu_instrs = total_macs // 16
+    gpu_cuda_cycles = (total_macs + 127) // 128
+    gpu_tc_cycles = (total_macs + 255) // 256
+    tpu_cycles = (total_macs + 16383) // 16384
+    kpu_cycles = (total_macs + 16383) // 16384  # 64 tiles x 256 = 16384
 
-    print(f"  {'Total MACs':<40} {total_macs:>{col_w},} {total_macs:>{col_w},} {total_macs:>{col_w},} {total_macs:>{col_w},}")
-    print(f"  {'Instructions/Cycles needed':<40} {cpu_instrs:>{col_w},} {gpu_instrs:>{col_w},} {tpu_cycles:>{col_w},} {kpu_cycles:>{col_w},}")
-    print(f"  {'Tiling utilization':<40} {'100%':>{col_w}} {'100%':>{col_w}} {tpu_eff['avg_utilization']*100:>{col_w-1}.1f}% {kpu_eff['avg_utilization']*100:>{col_w-1}.1f}%")
+    print(f"  {'Total MACs':<35} {total_macs:>{col_w},} {total_macs:>{col_w},} {total_macs:>{col_w},} {total_macs:>{col_w},} {total_macs:>{col_w},}")
+    print(f"  {'Instructions/Cycles':<35} {cpu_instrs:>{col_w},} {gpu_cuda_cycles:>{col_w},} {gpu_tc_cycles:>{col_w},} {tpu_cycles:>{col_w},} {kpu_cycles:>{col_w},}")
+    print(f"  {'MACs per cycle':<35} {16:>{col_w}} {128:>{col_w}} {256:>{col_w}} {16384:>{col_w}} {16384:>{col_w}}")
     print()
 
     # Energy breakdown
-    print(f"  {'ENERGY BREAKDOWN':<40} {'CPU':>{col_w}} {'GPU':>{col_w}} {'TPU':>{col_w}} {'KPU':>{col_w}}")
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    print(f"  {'ENERGY BREAKDOWN':<35} {'CPU':>{col_w}} {'GPU-CUDA':>{col_w}} {'GPU-TC':>{col_w}} {'TPU':>{col_w}} {'KPU':>{col_w}}")
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
 
     cpu_ctrl = cpu.get_control_overhead_energy()
-    gpu_ctrl = gpu.get_control_overhead_energy()
+    gpu_cuda_ctrl = gpu_cuda.get_control_overhead_energy()
+    gpu_tc_ctrl = gpu_tc.get_control_overhead_energy()
     tpu_ctrl = tpu.get_control_overhead_energy()
     kpu_ctrl = kpu.get_control_overhead_energy()
 
     cpu_compute = cpu.get_compute_energy()
-    gpu_compute = gpu.get_compute_energy()
+    gpu_cuda_compute = gpu_cuda.get_compute_energy()
+    gpu_tc_compute = gpu_tc.get_compute_energy()
     tpu_compute = tpu.get_compute_energy()
     kpu_compute = kpu.get_compute_energy()
 
     cpu_data = cpu.get_data_movement_energy()
-    gpu_data = gpu.get_data_movement_energy()
+    gpu_cuda_data = gpu_cuda.get_data_movement_energy()
+    gpu_tc_data = gpu_tc.get_data_movement_energy()
     tpu_data = tpu.get_data_movement_energy()
     kpu_data = kpu.get_data_movement_energy()
 
-    print_step_row("Control Overhead", cpu_ctrl, gpu_ctrl, tpu_ctrl, kpu_ctrl)
-    print_step_row("Compute (MACs)", cpu_compute, gpu_compute, tpu_compute, kpu_compute)
-    print_step_row("Data Movement", cpu_data, gpu_data, tpu_data, kpu_data)
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
-    print_step_row("TOTAL ENERGY", cpu.total_energy_pj, gpu.total_energy_pj, tpu.total_energy_pj, kpu.total_energy_pj)
+    print_step_row("Control Overhead", cpu_ctrl, gpu_cuda_ctrl, gpu_tc_ctrl, tpu_ctrl, kpu_ctrl)
+    print_step_row("Compute (MACs)", cpu_compute, gpu_cuda_compute, gpu_tc_compute, tpu_compute, kpu_compute)
+    print_step_row("Data Movement", cpu_data, gpu_cuda_data, gpu_tc_data, tpu_data, kpu_data)
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    print_step_row("TOTAL ENERGY", cpu.total_energy_pj, gpu_cuda.total_energy_pj,
+                   gpu_tc.total_energy_pj, tpu.total_energy_pj, kpu.total_energy_pj)
 
     # Per-MAC efficiency
     print()
-    print(f"  {'EFFICIENCY METRICS':<40} {'CPU':>{col_w}} {'GPU':>{col_w}} {'TPU':>{col_w}} {'KPU':>{col_w}}")
-    print(f"  {'-'*40} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+    print(f"  {'EFFICIENCY METRICS':<35} {'CPU':>{col_w}} {'GPU-CUDA':>{col_w}} {'GPU-TC':>{col_w}} {'TPU':>{col_w}} {'KPU':>{col_w}}")
+    print(f"  {'-'*35} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
     print_step_row("Energy per MAC (pJ)",
                    cpu.total_energy_pj / total_macs,
-                   gpu.total_energy_pj / total_macs,
+                   gpu_cuda.total_energy_pj / total_macs,
+                   gpu_tc.total_energy_pj / total_macs,
                    tpu.total_energy_pj / total_macs,
                    kpu.total_energy_pj / total_macs)
 
-    best_total = min(cpu.total_energy_pj, gpu.total_energy_pj, tpu.total_energy_pj, kpu.total_energy_pj)
-    print(f"  {'vs Best':<40} {cpu.total_energy_pj/best_total:>{col_w}.2f}x {gpu.total_energy_pj/best_total:>{col_w}.2f}x {tpu.total_energy_pj/best_total:>{col_w}.2f}x {kpu.total_energy_pj/best_total:>{col_w}.2f}x")
-    print(f"  {'Control %':<40} {cpu_ctrl/cpu.total_energy_pj*100:>{col_w-1}.1f}% {gpu_ctrl/gpu.total_energy_pj*100:>{col_w-1}.1f}% {tpu_ctrl/tpu.total_energy_pj*100:>{col_w-1}.1f}% {kpu_ctrl/kpu.total_energy_pj*100:>{col_w-1}.1f}%")
-    print(f"  {'Data Movement %':<40} {cpu_data/cpu.total_energy_pj*100:>{col_w-1}.1f}% {gpu_data/gpu.total_energy_pj*100:>{col_w-1}.1f}% {tpu_data/tpu.total_energy_pj*100:>{col_w-1}.1f}% {kpu_data/kpu.total_energy_pj*100:>{col_w-1}.1f}%")
+    best_total = min(cpu.total_energy_pj, gpu_cuda.total_energy_pj, gpu_tc.total_energy_pj,
+                     tpu.total_energy_pj, kpu.total_energy_pj)
+    print(f"  {'vs Best':<35} {cpu.total_energy_pj/best_total:>{col_w}.2f}x {gpu_cuda.total_energy_pj/best_total:>{col_w}.2f}x {gpu_tc.total_energy_pj/best_total:>{col_w}.2f}x {tpu.total_energy_pj/best_total:>{col_w}.2f}x {kpu.total_energy_pj/best_total:>{col_w}.2f}x")
+    print(f"  {'Control %':<35} {cpu_ctrl/cpu.total_energy_pj*100:>{col_w-1}.1f}% {gpu_cuda_ctrl/gpu_cuda.total_energy_pj*100:>{col_w-1}.1f}% {gpu_tc_ctrl/gpu_tc.total_energy_pj*100:>{col_w-1}.1f}% {tpu_ctrl/tpu.total_energy_pj*100:>{col_w-1}.1f}% {kpu_ctrl/kpu.total_energy_pj*100:>{col_w-1}.1f}%")
+    print(f"  {'Data Movement %':<35} {cpu_data/cpu.total_energy_pj*100:>{col_w-1}.1f}% {gpu_cuda_data/gpu_cuda.total_energy_pj*100:>{col_w-1}.1f}% {gpu_tc_data/gpu_tc.total_energy_pj*100:>{col_w-1}.1f}% {tpu_data/tpu.total_energy_pj*100:>{col_w-1}.1f}% {kpu_data/kpu.total_energy_pj*100:>{col_w-1}.1f}%")
 
     print()
     print("  KEY OBSERVATIONS:")
     print(f"    1. Data movement dominates for DRAM-resident workloads ({bytes_transferred/1024/1024:.1f} MB)")
-    print(f"    2. TPU and KPU have same total throughput (16,384 MACs/cycle)")
-    print(f"    3. KPU's finer tiles ({kpu_tile}x{kpu_tile}) map better to {matrix_dim}x{matrix_dim}")
-    print(f"       - TPU waste: {(1-tpu_eff['avg_utilization'])*100:.1f}% of partial tiles")
-    print(f"       - KPU waste: {(1-kpu_eff['avg_utilization'])*100:.1f}% of partial tiles")
+    print(f"    2. GPU-TC has 2x throughput vs GPU-CUDA (256 vs 128 MACs/cycle)")
+    print(f"    3. TPU/KPU have same total throughput (16,384 MACs/cycle)")
+    print(f"    4. KPU's finer tiles ({kpu_tile}x{kpu_tile}) map better to {matrix_dim}x{matrix_dim}")
+    print(f"       - TPU waste: {(1-tpu_eff['avg_utilization'])*100:.1f}% of tiles underutilized")
+    print(f"       - KPU waste: {(1-kpu_eff['avg_utilization'])*100:.1f}% of tiles underutilized")
 
 
 # =============================================================================
@@ -400,9 +423,7 @@ def part2_real_workload_mapping(comparison, matrix_dim: int = 300, verbose: bool
 # =============================================================================
 
 def execution_trace(comparison, num_ops: int = 10000, verbose: bool = False):
-    """
-    Show detailed execution trace for each architecture.
-    """
+    """Show detailed execution trace for each architecture."""
     print_header(f"DETAILED EXECUTION TRACE: {num_ops:,} operations")
     print()
     print("  This shows every energy-consuming event in each architecture.")
@@ -416,7 +437,12 @@ def execution_trace(comparison, num_ops: int = 10000, verbose: bool = False):
         tech_profile=comparison.cpu_profile,
         simd_width=16,
     )
-    gpu = build_gpu_cycle_energy(
+    gpu_cuda = build_gpu_cuda_cycle_energy(
+        num_ops=num_ops, bytes_transferred=bytes_transferred,
+        mode=OperatingMode.L2_RESIDENT,
+        tech_profile=comparison.gpu_profile,
+    )
+    gpu_tc = build_gpu_tensorcore_cycle_energy(
         num_ops=num_ops, bytes_transferred=bytes_transferred,
         mode=OperatingMode.L2_RESIDENT,
         tech_profile=comparison.gpu_profile,
@@ -433,9 +459,8 @@ def execution_trace(comparison, num_ops: int = 10000, verbose: bool = False):
     )
 
     def print_trace(name: str, breakdown):
-        """Print execution trace for one architecture."""
         print(f"\n  {name}")
-        print(f"  {'-'*90}")
+        print(f"  {'-'*100}")
 
         total = 0
         for event in breakdown.events:
@@ -444,12 +469,13 @@ def execution_trace(comparison, num_ops: int = 10000, verbose: bool = False):
             desc = event.description[:55] if len(event.description) > 55 else event.description
             print(f"    {desc:<55} {event.count:>10,} x {event.energy_pj:>8.2f} pJ = {format_energy_fixed(event_total, 12)}")
 
-        print(f"  {'-'*90}")
+        print(f"  {'-'*100}")
         print(f"    {'TOTAL':<55} {'':>10} {'':>12}   {format_energy_fixed(total, 12)}")
         print(f"    {'Per operation':<55} {'':>10} {'':>12}   {format_energy_fixed(total/num_ops, 12)}")
 
     print_trace("CPU (AVX-512)", cpu)
-    print_trace("GPU (SIMT)", gpu)
+    print_trace("GPU CUDA (4 partitions x 32 cores = 128 MACs/SM)", gpu_cuda)
+    print_trace("GPU TensorCore (4 partitions x 64 MACs = 256 MACs/SM)", gpu_tc)
     print_trace("TPU (Systolic 128x128)", tpu)
     print_trace("KPU (Domain Flow 64x16x16)", kpu)
 
@@ -462,57 +488,57 @@ def print_insights(comparison):
     """Print key insights about architectural energy differences."""
     print_header("KEY INSIGHTS: Understanding Architectural Energy Differences")
     print()
-    print("  1. CONTROL OVERHEAD AMORTIZATION")
-    print("     " + "-"*70)
-    print("     Architecture     Control Amortization    Reason")
-    print("     --------------- ----------------------- -----------------------------")
-    print("     CPU (AVX-512)   1 fetch/decode per 16   Stored-program; every instr")
-    print("     GPU (SIMT)      1 fetch/decode per 32   Warp broadcasts instruction")
-    print("     TPU (Systolic)  1 config per 16,384     Load tile weights once")
-    print("     KPU (Domain)    1 program per layer     SURE program, not instructions")
+    print("  1. SM PARTITION ARCHITECTURE (Why GPU has 4 partitions)")
+    print("     " + "-"*90)
+    print("     A single warp scheduler for 128 CUDA cores would be infeasible.")
+    print("     Solution: Divide SM into 4 independent partitions, each with:")
+    print("       - 1 warp scheduler")
+    print("       - 32 CUDA cores OR 1 TensorCore")
+    print("       - 1/4 of register file")
     print()
-    print("     -> TPU/KPU amortize control over 500-1000x more MACs!")
-    print()
-
-    print("  2. NATIVE EXECUTION UNIT SIZE")
-    print("     " + "-"*70)
-    print("     Architecture     Native Unit     MACs      Silicon Efficiency")
-    print("     --------------- --------------- -------- -------------------------")
-    print("     CPU (AVX-512)   1 instruction   16       General-purpose, flexible")
-    print("     GPU (SIMT)      1 warp          32       SIMD + shared memory")
-    print("     TPU (Systolic)  1 tile 128x128  16,384   Fixed matrix dataflow")
-    print("     KPU (Domain)    1 tile 16x16    256      Programmable dataflow")
-    print()
-    print("     KPU has 64 tiles -> same 16,384 MACs/cycle as TPU")
-    print("     But finer granularity (16x16 vs 128x128) maps better to irregular sizes")
+    print("     Full SM utilization requires 4 active warps (one per partition).")
     print()
 
-    print("  3. WORKLOAD MAPPING EFFICIENCY")
-    print("     " + "-"*70)
-    print("     For 300x300 matrix multiply:")
-    print("       - CPU/GPU: No tiling waste (scalar or warp granularity)")
-    print("       - TPU: 300 = 2x128 + 44, so partial tiles are 34% utilized")
-    print("       - KPU: 300 = 18x16 + 12, so partial tiles are 56% utilized")
+    print("  2. NATIVE EXECUTION UNIT COMPARISON")
+    print("     " + "-"*90)
+    print("     Architecture      Native Unit                 MACs    Control Units")
+    print("     ----------------  --------------------------  ------  -----------------")
+    print("     CPU (AVX-512)     1 instruction               16      1 fetch/decode")
+    print("     GPU (CUDA)        4 warp instructions (SM)    128     4 warp schedulers")
+    print("     GPU (TensorCore)  4 MMA instructions (SM)     256     4 warp schedulers")
+    print("     TPU (Systolic)    1 tile cycle                16,384  1 tile config")
+    print("     KPU (Domain)      1 tile cycle (16x16)        256     1 domain tracker")
     print()
-    print("     For 1024x1024 matrix multiply:")
-    print("       - TPU: 1024 = 8x128, perfect fit!")
-    print("       - KPU: 1024 = 64x16, perfect fit!")
+    print("     GPU-TC (256) = KPU tile (256) -> Direct comparison!")
+    print("     GPU needs 4x control units; KPU needs 1 domain tracker")
     print()
-    print("     -> TPU excels at power-of-2 sizes; KPU handles irregular sizes better")
+
+    print("  3. CONTROL OVERHEAD AMORTIZATION")
+    print("     " + "-"*90)
+    print("     Architecture      MACs per control decision")
+    print("     ----------------  -------------------------")
+    print("     CPU (AVX-512)     16  (1 instruction -> 16 MACs)")
+    print("     GPU (CUDA)        32  (1 warp -> 32 MACs, but 4 warps needed)")
+    print("     GPU (TensorCore)  64  (1 MMA -> 64 MACs, but 4 MMA needed)")
+    print("     TPU (Systolic)    16,384 (1 tile config -> 16K MACs)")
+    print("     KPU (Domain)      256-millions (1 domain program -> entire layer)")
+    print()
+    print("     TPU/KPU amortize control over 100-1000x more MACs than GPU!")
     print()
 
     print("  4. WHEN EACH ARCHITECTURE WINS")
-    print("     " + "-"*70)
-    print("     CPU:  Small irregular workloads, branch-heavy code, single-threaded")
-    print("     GPU:  Large batches (>10K ops) where kernel launch amortizes")
-    print("     TPU:  Large power-of-2 matrices, batch inference, training")
-    print("     KPU:  Streaming workloads, irregular sizes, low-batch inference")
+    print("     " + "-"*90)
+    print("     CPU:       Small irregular workloads, branch-heavy code")
+    print("     GPU-CUDA:  Element-wise ops, reductions, non-matrix kernels")
+    print("     GPU-TC:    Matrix multiply, convolutions (when batch size is large)")
+    print("     TPU:       Large power-of-2 matrices, batch inference, training")
+    print("     KPU:       Streaming workloads, irregular sizes, batch=1 inference")
     print()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Energy Walkthrough: Two-Part Architecture Comparison",
+        description="Energy Walkthrough: Architecture Comparison with GPU CUDA/TensorCore Models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -536,15 +562,15 @@ Examples:
 
     args = parser.parse_args()
 
-    # Default to both parts if neither specified
     run_part1 = args.part1 or not (args.part1 or args.part2)
     run_part2 = args.part2 or not (args.part1 or args.part2)
 
     comparison = ARCH_COMPARISON_8NM_X86
 
-    print("=" * 120)
+    print("=" * 140)
     print("  ENERGY WALKTHROUGH: Understanding Architectural Energy Differences")
-    print("=" * 120)
+    print("  Including: GPU CUDA (128 MACs/SM) and GPU TensorCore (256 MACs/SM) Models")
+    print("=" * 140)
     print()
     print(f"  Technology: {comparison.name}")
     print(f"  Process: {comparison.process_node_nm}nm")
@@ -562,9 +588,9 @@ Examples:
     print_insights(comparison)
 
     print()
-    print("=" * 120)
+    print("=" * 140)
     print("  END OF WALKTHROUGH")
-    print("=" * 120)
+    print("=" * 140)
 
 
 if __name__ == "__main__":
