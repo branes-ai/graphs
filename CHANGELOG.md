@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-03] - Hardware Registry Expansion & Energy Efficiency Analysis
+
+### Added
+
+**Hardware Registry Expansion** (`hardware_registry/`)
+- Added `product_category` field to all 40+ spec.json files for market segment classification
+- Categories: `datacenter`, `desktop`, `embodied`, `edge`, `mobile`
+- New hardware entries:
+  - **Qualcomm Cloud AI 100** - Datacenter AI accelerator (400 TOPS INT8 @ 75W)
+  - **Qualcomm QRB5165** - Robotics platform with Hexagon 698 DSP (15 TOPS @ 7W)
+  - **Qualcomm Snapdragon Ride Flex** - Automotive L4/L5 platform (700 TOPS @ 130W)
+  - **Stillwater KPU-T64** - Edge AI (72 TOPS INT8 @ 10W, 7.2 TOPS/W)
+  - **Stillwater KPU-T256** - Embodied AI (426 TOPS INT8 @ 50W, 8.5 TOPS/W)
+  - **Stillwater KPU-T768** - Datacenter AI (1087 TOPS INT8 @ 100W, 10.9 TOPS/W)
+
+**Energy Efficiency Analysis** (`cli/show_tops_per_watt.py`)
+- New third summary table: ENERGY EFFICIENCY (TOPS/W) sorted by INT8 TOPS/W descending
+- Shows both INT8 TOPS/W and BF16 TOPS/W for AI workload comparison
+- Includes product category, TDP, and absolute TOPS values
+
+### Changed
+
+**Hardware Profile Schema** (`src/graphs/hardware/registry/profile.py`)
+- Added `product_category` field to `HardwareProfile` dataclass
+- Updated `to_dict()` and `from_dict()` for serialization
+
+**Hardware Summary Display** (`cli/show_tops_per_watt.py`)
+- Replaced TDP-based categorization with `product_category` field
+- Hardware now grouped by market segment instead of power class
+- Fixes incorrect classification (e.g., TPU v1 at 40W is datacenter, not edge)
+
+### Results
+
+Energy Efficiency Rankings (INT8 TOPS/W):
+1. Stillwater KPU-T768: 10.9 TOPS/W (datacenter leader)
+2. Hailo-8: 10.4 TOPS/W
+3. Stillwater KPU-T256: 8.5 TOPS/W
+4. Hailo-10H: 8.0 TOPS/W
+5. Stillwater KPU-T64: 7.2 TOPS/W
+6. NVIDIA H100: 5.7 TOPS/W
+7. Qualcomm Cloud AI 100: 5.3 TOPS/W
+
+BF16 Efficiency Rankings (TOPS/W):
+1. Stillwater KPU-T768: 2.13 TOPS/W
+2. Stillwater KPU-T256: 1.67 TOPS/W
+3. Stillwater KPU-T64: 1.58 TOPS/W
+4. NVIDIA H100: 1.41 TOPS/W
+
+---
+
 ## [2025-12-02] - GPU Request/Reply Cycle & KPU Spatial Dataflow Energy Models
 
 ### Changed
