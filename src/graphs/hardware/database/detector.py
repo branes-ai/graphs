@@ -966,21 +966,32 @@ class HardwareDetector:
         """
         Detect GPU information (cross-platform).
 
-        Supports NVIDIA GPUs via nvidia-smi and PyTorch CUDA.
+        Supports:
+        - NVIDIA GPUs via nvidia-smi and PyTorch CUDA
+        - AMD GPUs via rocm-smi and PyTorch ROCm
+        - Intel GPUs via intel_gpu_top and sycl-ls
 
         Returns:
             List of DetectedGPU instances (empty if no GPUs found)
         """
         gpus = []
 
-        # Try nvidia-smi first (works on Linux and Windows)
+        # NVIDIA GPUs
         nvidia_gpus = self._detect_nvidia_smi()
         gpus.extend(nvidia_gpus)
 
-        # Try PyTorch CUDA as fallback/supplement
-        if not gpus:
+        # Try PyTorch CUDA as fallback for NVIDIA
+        if not nvidia_gpus:
             torch_gpus = self._detect_pytorch_cuda()
             gpus.extend(torch_gpus)
+
+        # AMD GPUs
+        amd_gpus = self._detect_amd_gpu()
+        gpus.extend(amd_gpus)
+
+        # Intel GPUs
+        intel_gpus = self._detect_intel_gpu()
+        gpus.extend(intel_gpus)
 
         return gpus
 
@@ -1063,6 +1074,247 @@ class HardwareDetector:
             pass
 
         return gpus
+
+    def _detect_amd_gpu(self) -> List[DetectedGPU]:
+        """
+        Detect AMD GPUs via rocm-smi, lspci, or PyTorch ROCm.
+
+        Supports:
+        - ROCm-enabled datacenter GPUs (MI100, MI210, MI250, MI300)
+        - Consumer GPUs (RX 6000/7000 series)
+        """
+        gpus = []
+
+        # Try rocm-smi first (ROCm installed)
+        try:
+            cmd = ['rocm-smi', '--showproductname', '--showmeminfo', 'vram', '--csv']
+            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+            # Parse rocm-smi CSV output
+            lines = output.strip().split('\n')
+            for line in lines[1:]:  # Skip header
+                if not line.strip():
+                    continue
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 2:
+                    model_name = parts[1] if len(parts) > 1 else 'Unknown AMD GPU'
+                    memory_gb = None
+                    if len(parts) > 2:
+                        try:
+                            # Memory is typically in MB
+                            memory_mb = int(parts[2])
+                            memory_gb = memory_mb // 1024
+                        except (ValueError, TypeError):
+                            pass
+
+                    gpus.append(DetectedGPU(
+                        model_name=model_name,
+                        vendor='AMD',
+                        memory_gb=memory_gb,
+                        cuda_capability=None,
+                        driver_version=None
+                    ))
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # Try rocminfo as fallback
+        if not gpus:
+            try:
+                cmd = ['rocminfo']
+                output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+                # Parse rocminfo output for GPU agents
+                current_gpu = None
+                for line in output.split('\n'):
+                    line = line.strip()
+                    if 'Marketing Name:' in line:
+                        model_name = line.split(':', 1)[1].strip()
+                        if model_name and model_name != 'N/A':
+                            current_gpu = model_name
+                    elif 'Device Type:' in line and 'GPU' in line and current_gpu:
+                        gpus.append(DetectedGPU(
+                            model_name=current_gpu,
+                            vendor='AMD',
+                            memory_gb=None,
+                            cuda_capability=None,
+                            driver_version=None
+                        ))
+                        current_gpu = None
+
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        # Try lspci on Linux as fallback (works without ROCm)
+        if not gpus and self.os_type == 'linux':
+            try:
+                cmd = ['lspci', '-nn']
+                output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+                for line in output.split('\n'):
+                    # Look for AMD/ATI VGA or 3D controllers
+                    if ('VGA' in line or '3D controller' in line) and ('AMD' in line or 'ATI' in line):
+                        # Extract model name from lspci output
+                        # Example: "06:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 21 [Radeon RX 6800/6800 XT / 6900 XT] [1002:73bf]"
+                        match = re.search(r'\[AMD/ATI\]\s+(.+?)\s*\[', line)
+                        if match:
+                            model_name = match.group(1).strip()
+                            gpus.append(DetectedGPU(
+                                model_name=model_name,
+                                vendor='AMD',
+                                memory_gb=None,
+                                cuda_capability=None,
+                                driver_version=None
+                            ))
+
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        # Try PyTorch with ROCm
+        if not gpus:
+            try:
+                import torch
+                if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+                    for i in range(torch.cuda.device_count()):
+                        props = torch.cuda.get_device_properties(i)
+                        gpus.append(DetectedGPU(
+                            model_name=props.name,
+                            vendor='AMD',
+                            memory_gb=props.total_memory // (1024 ** 3),
+                            cuda_capability=None,
+                            driver_version=None
+                        ))
+            except (ImportError, RuntimeError):
+                pass
+
+        return gpus
+
+    def _detect_intel_gpu(self) -> List[DetectedGPU]:
+        """
+        Detect Intel GPUs via sycl-ls, lspci, or intel_gpu_top.
+
+        Supports:
+        - Intel Arc discrete GPUs (A770, A750, A380)
+        - Intel Data Center GPUs (Max 1550, Max 1100, Flex 170)
+        - Intel integrated graphics (Iris Xe, UHD)
+        """
+        gpus = []
+
+        # Try sycl-ls first (Intel oneAPI installed)
+        try:
+            cmd = ['sycl-ls']
+            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+            for line in output.split('\n'):
+                # sycl-ls output format: "[opencl:gpu:0] Intel(R) ... Graphics"
+                if 'Intel' in line and ('gpu' in line.lower() or 'Graphics' in line):
+                    # Extract GPU name
+                    match = re.search(r'Intel\(R\)\s+(.+?)(?:\s*\[|$)', line)
+                    if match:
+                        model_name = 'Intel ' + match.group(1).strip()
+                        gpus.append(DetectedGPU(
+                            model_name=model_name,
+                            vendor='Intel',
+                            memory_gb=None,
+                            cuda_capability=None,
+                            driver_version=None
+                        ))
+
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # Try intel_gpu_top (intel-gpu-tools package)
+        if not gpus:
+            try:
+                # intel_gpu_top -L lists available GPUs
+                cmd = ['intel_gpu_top', '-L']
+                output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=2)
+
+                for line in output.split('\n'):
+                    if 'Intel' in line or 'card' in line.lower():
+                        # Parse intel_gpu_top output
+                        gpus.append(DetectedGPU(
+                            model_name=line.strip() or 'Intel GPU',
+                            vendor='Intel',
+                            memory_gb=None,
+                            cuda_capability=None,
+                            driver_version=None
+                        ))
+
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        # Try lspci on Linux (works without Intel tools)
+        if not gpus and self.os_type == 'linux':
+            try:
+                cmd = ['lspci', '-nn']
+                output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+
+                for line in output.split('\n'):
+                    # Look for Intel VGA or Display controllers
+                    if ('VGA' in line or 'Display controller' in line or '3D controller' in line) and 'Intel' in line:
+                        # Extract model name
+                        # Example: "00:02.0 VGA compatible controller [0300]: Intel Corporation Alder Lake-P GT2 [Iris Xe Graphics] [8086:46a6]"
+                        match = re.search(r'Intel Corporation\s+(.+?)\s*\[', line)
+                        if match:
+                            model_name = 'Intel ' + match.group(1).strip()
+                        else:
+                            # Fallback: try to extract anything after "Intel"
+                            match = re.search(r'Intel\s+(.+?)(?:\s*\[|$)', line)
+                            model_name = 'Intel ' + match.group(1).strip() if match else 'Intel GPU'
+
+                        gpus.append(DetectedGPU(
+                            model_name=model_name,
+                            vendor='Intel',
+                            memory_gb=None,
+                            cuda_capability=None,
+                            driver_version=None
+                        ))
+
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        # Try reading from sysfs on Linux (for integrated GPUs)
+        if not gpus and self.os_type == 'linux':
+            try:
+                # Check for Intel GPU via DRM
+                drm_path = Path('/sys/class/drm')
+                if drm_path.exists():
+                    for card_dir in drm_path.iterdir():
+                        if card_dir.name.startswith('card') and not '-' in card_dir.name:
+                            device_path = card_dir / 'device'
+                            if device_path.exists():
+                                vendor_path = device_path / 'vendor'
+                                if vendor_path.exists():
+                                    vendor_id = vendor_path.read_text().strip()
+                                    if vendor_id == '0x8086':  # Intel vendor ID
+                                        # Try to get device name
+                                        model_name = 'Intel Integrated Graphics'
+                                        device_id_path = device_path / 'device'
+                                        if device_id_path.exists():
+                                            device_id = device_id_path.read_text().strip()
+                                            model_name = f'Intel GPU ({device_id})'
+
+                                        gpus.append(DetectedGPU(
+                                            model_name=model_name,
+                                            vendor='Intel',
+                                            memory_gb=None,
+                                            cuda_capability=None,
+                                            driver_version=None
+                                        ))
+
+            except Exception:
+                pass
+
+        # Deduplicate (lspci might show same GPU multiple times)
+        seen = set()
+        unique_gpus = []
+        for gpu in gpus:
+            key = (gpu.model_name, gpu.vendor)
+            if key not in seen:
+                seen.add(key)
+                unique_gpus.append(gpu)
+
+        return unique_gpus
 
     # ========================================================================
     # Database Matching
