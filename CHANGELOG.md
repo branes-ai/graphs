@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-04] - TDP Estimation & Model Efficiency Measurement
+
+### Added
+
+**TDP Estimation Tool** (`cli/estimate_tdp.py`)
+- Physics-based TDP estimation: `TDP = energy_per_mac x MACs_per_second`
+- Supports precision scaling (FP64, FP32, FP16, INT8, INT4)
+- Process nodes from 3nm to 28nm with calibrated base energies
+- Circuit type multipliers (systolic_mac, tensor_core, cuda_core, x86_performance)
+- 40% datapath overhead for register files, data distribution, control logic
+- Sweep capabilities with matplotlib visualization
+- `--compare-precisions`, `--compare-circuits`, `--compare-processes` flags
+
+**Hardware Registry TDP Comparison** (`cli/compare_tdp_registry.py`)
+- Compares physics-based TDP estimates against NVIDIA GPU spec TDP
+- Energy per MAC columns for CUDA cores and Tensor Cores
+- Sensitivity analysis: "At what pJ/MAC would compute exhaust TDP?"
+- Detailed per-precision breakdown for each GPU
+- Corrected Tensor Core accounting (TC = 4x4 systolic, NVIDIA packs multiple arrays per marketing "TC")
+
+**Model Efficiency Measurement** (`cli/measure_model_efficiency.py`)
+- Measures actual MAC throughput efficiency for neural networks
+- Traces models with fvcore to count theoretical FLOPs/MACs
+- Timed inference with proper warmup and CUDA synchronization
+- Compares delivered TFLOPS to peak (from spec or BLAS measurement)
+- Reports efficiency = delivered / peak
+- Supports batch size sweeps, multiple models, FP32/FP16/BF16 precision
+- Caches BLAS peak measurement to avoid CPU frequency scaling variability
+
+### Key Findings
+
+**T4 Inference GPU is Over-Spec'd:**
+- Physics-based compute estimate: 91W (Tensor Cores alone)
+- Spec TDP: 70W
+- Ratio: 1.36x - impossible to sustain peak INT8 throughput
+
+**Datacenter GPU Margins:**
+| GPU  | TC pJ/MAC | Max pJ/MAC to hit TDP | Margin |
+|------|-----------|----------------------|--------|
+| B100 | 1.34      | 1.76                 | 1.31x  |
+| H100 | 1.46      | 2.62                 | 1.80x  |
+| A100 | 2.02      | 2.57                 | 1.27x  |
+| V100 | 2.80      | 5.58                 | 1.99x  |
+| T4   | 2.80      | 2.15                 | OVER   |
+
+**Model Efficiency on CPU:**
+- BLAS GEMM peak: ~0.86 TFLOPS
+- Real models (ResNet50, ViT): 0.16-0.24 TFLOPS delivered
+- Efficiency: 19-28% depending on batch size
+- Larger batches improve efficiency by amortizing overhead
+
+### Technical Details
+
+**Tensor Core Accounting:**
+- H100: 528 TCs x 256 MACs/TC = 135,168 total MAC units
+- B100: 528 TCs x 512 MACs/TC = 270,336 total MAC units
+
+**Process Node Base Energies:**
+- 3nm: 1.2 pJ, 4nm: 1.3 pJ, 5nm: 1.5 pJ, 7nm: 1.8 pJ, 12nm: 2.5 pJ, 28nm: 4.0 pJ
+
+---
+
 ## [2025-12-03] - Hardware Registry Expansion & Energy Efficiency Analysis
 
 ### Added
