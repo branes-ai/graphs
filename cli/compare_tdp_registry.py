@@ -245,101 +245,45 @@ def estimate_combined_tdp(gpu: dict, tc_utilization: float = 1.0) -> float:
     return combined
 
 
-def estimate_full_chip_tdp(gpu: dict) -> dict:
-    """
-    Estimate full chip TDP including all power components.
+def get_cuda_energy_per_mac(gpu: dict, precision: str = 'FP32') -> float:
+    """Get energy per MAC for CUDA cores in pJ."""
+    base_energy_pj = get_process_base_energy_pj(gpu['process_nm'])
+    circuit_mult = CIRCUIT_TYPE_MULTIPLIER['standard_cell']
+    precision_scale = {'FP64': 2.0, 'FP32': 1.0, 'FP16': 0.5}.get(precision, 1.0)
+    # CUDA core does FMA = 2 ops, so energy per MAC = 2 * energy per op
+    return base_energy_pj * circuit_mult * precision_scale * 2
 
-    GPU power breakdown (typical):
-    - Compute (ALUs): 30-40% of TDP
-    - Memory subsystem (HBM/GDDR + controllers): 20-30%
-    - Interconnect (NoC, NVLink): 10-15%
-    - Static/leakage: 15-25%
-    - I/O, voltage regulators, misc: 5-10%
 
-    Returns dict with breakdown.
-    """
-    # Compute power (CUDA + Tensor cores)
-    cuda_power = estimate_cuda_core_tdp(gpu, 'FP32')
-    tc_power = estimate_tensor_core_tdp(gpu, 'FP16')
-
-    # Memory subsystem power estimate
-    # HBM: ~3-4 pJ/bit = 24-32 pJ/byte at full bandwidth
-    # Memory power = bandwidth * energy_per_byte
-    memory_bw_tb_s = {
-        'Blackwell': 8.0,  # 8 TB/s HBM3e
-        'Hopper': 3.35,    # 3.35 TB/s HBM3
-        'Ampere': 2.0,     # 2 TB/s HBM2e
-        'Volta': 0.9,      # 900 GB/s HBM2
-        'Turing': 0.32,    # 320 GB/s GDDR6
-    }.get(gpu['arch'], 1.0)
-
-    # Energy per byte varies by memory type
-    memory_pj_per_byte = {
-        'Blackwell': 5.0,   # HBM3e
-        'Hopper': 5.5,      # HBM3
-        'Ampere': 6.5,      # HBM2e
-        'Volta': 7.0,       # HBM2
-        'Turing': 15.0,     # GDDR6
-    }.get(gpu['arch'], 10.0)
-
-    # Memory power at full bandwidth utilization
-    memory_power = memory_bw_tb_s * 1e12 * memory_pj_per_byte * 1e-12  # W
-
-    # Static/leakage power (scales with transistor count and process node)
-    # Rough estimate: leakage is ~15-25% of TDP, higher for smaller nodes
-    leakage_fraction = {
-        3: 0.25,   # 3nm: high leakage
-        4: 0.22,
-        5: 0.20,
-        7: 0.18,
-        12: 0.15,
-        14: 0.15,
-    }.get(gpu['process_nm'], 0.18)
-
-    # Interconnect power (NoC, L2, register files, etc.)
-    # Roughly proportional to compute units
-    interconnect_power_per_sm = 0.5  # ~0.5W per SM for interconnect
-    num_sms = gpu['cuda_cores'] // (128 if gpu['arch'] in ['Ampere', 'Hopper', 'Blackwell'] else 64)
-    interconnect_power = num_sms * interconnect_power_per_sm
-
-    # I/O and misc (voltage regulators, PCIe/NVLink PHYs, etc.)
-    io_misc_power = 15.0  # ~15W baseline
-
-    # Total dynamic power
-    dynamic_power = cuda_power + tc_power + memory_power + interconnect_power + io_misc_power
-
-    # Add leakage (leakage_fraction of total, so total = dynamic / (1 - leakage_fraction))
-    total_power = dynamic_power / (1 - leakage_fraction)
-    leakage_power = total_power * leakage_fraction
-
-    return {
-        'cuda_power': cuda_power,
-        'tc_power': tc_power,
-        'memory_power': memory_power,
-        'interconnect_power': interconnect_power,
-        'io_misc_power': io_misc_power,
-        'leakage_power': leakage_power,
-        'total_power': total_power,
-    }
+def get_tc_energy_per_mac(gpu: dict, precision: str = 'FP16') -> float:
+    """Get energy per MAC for Tensor Cores in pJ (including datapath overhead)."""
+    base_energy_pj = get_process_base_energy_pj(gpu['process_nm'])
+    circuit_mult = CIRCUIT_TYPE_MULTIPLIER['systolic_mac']
+    precision_scale = {
+        'FP64': 2.0, 'FP32': 1.0, 'TF32': 0.6,
+        'BF16': 0.5, 'FP16': 0.5, 'FP8': 0.25, 'INT8': 0.25
+    }.get(precision, 0.5)
+    datapath_overhead = 1.4  # 40% overhead for register files, control
+    # MAC = 2 ops
+    return base_energy_pj * circuit_mult * precision_scale * 2 * datapath_overhead
 
 
 def print_comparison_table():
     """Print comparison of spec TDP vs estimated TDP."""
 
-    print("\n" + "="*155)
+    print("\n" + "="*175)
     print("HARDWARE REGISTRY TDP vs ESTIMATED TDP COMPARISON")
-    print("="*155)
+    print("="*175)
     print("\nPhysics Model: TDP = energy_per_mac x macs_per_second")
-    print("               energy_per_mac = 2 x base_energy(process) x circuit_multiplier x precision_scale")
+    print("               energy_per_mac = 2 x base_energy(process) x circuit_multiplier x precision_scale x overhead")
     print("               (MAC = multiply + accumulate = 2 ops)")
     print()
 
     # Header
     print(f"{'GPU':<22} {'Arch':<10} {'Node':>5} {'CUDA':>7} {'TC':>5} {'ALUs':>7} {'TC MACs':>9} "
-          f"{'Spec TDP':>10} {'CUDA Est':>10} {'TC Est':>10} {'Combined':>10} {'Ratio':>8}")
+          f"{'CUDA':>7} {'TC':>7} {'Spec TDP':>10} {'CUDA Est':>10} {'TC Est':>10} {'Combined':>10} {'Ratio':>8}")
     print(f"{'':22} {'':10} {'(nm)':>5} {'Cores':>7} {'':>5} {'per TC':>7} {'(total)':>9} "
-          f"{'(W)':>10} {'FP32 (W)':>10} {'FP16 (W)':>10} {'(W)':>10} {'Est/Spec':>8}")
-    print("-"*155)
+          f"{'pJ/MAC':>7} {'pJ/MAC':>7} {'(W)':>10} {'FP32 (W)':>10} {'FP16 (W)':>10} {'(W)':>10} {'Est/Spec':>8}")
+    print("-"*175)
 
     for gpu in NVIDIA_GPUS:
         cuda_est = estimate_cuda_core_tdp(gpu, 'FP32')
@@ -347,21 +291,71 @@ def print_comparison_table():
         combined = estimate_combined_tdp(gpu)
         ratio = combined / gpu['spec_tdp_w']
         total_tc_macs = get_total_tc_mac_units(gpu)
-        alus_per_tc = gpu['tc_macs_per_clock']  # Each MAC unit is an ALU
+        alus_per_tc = gpu['tc_macs_per_clock']
+
+        # Energy per MAC
+        cuda_pj_per_mac = get_cuda_energy_per_mac(gpu, 'FP32')
+        tc_pj_per_mac = get_tc_energy_per_mac(gpu, 'FP16')
 
         # Flag if estimated significantly exceeds spec
         flag = " ***" if ratio > 1.2 else " *" if ratio > 1.0 else ""
 
         print(f"{gpu['name']:<22} {gpu['arch']:<10} {gpu['process_nm']:>5} {gpu['cuda_cores']:>7,} "
-              f"{gpu['tensor_cores']:>5} {alus_per_tc:>7,} {total_tc_macs:>9,} {gpu['spec_tdp_w']:>10.0f} {cuda_est:>10.1f} "
+              f"{gpu['tensor_cores']:>5} {alus_per_tc:>7,} {total_tc_macs:>9,} "
+              f"{cuda_pj_per_mac:>7.2f} {tc_pj_per_mac:>7.2f} "
+              f"{gpu['spec_tdp_w']:>10.0f} {cuda_est:>10.1f} "
               f"{tc_est:>10.1f} {combined:>10.1f} {ratio:>7.2f}x{flag}")
 
-    print("-"*155)
+    print("-"*175)
     print("\nLegend:")
-    print("  ALUs per TC = MAC units per Tensor Core (each MAC = 1 multiply + 1 accumulate ALU)")
+    print("  ALUs per TC = MAC units per Tensor Core (systolic array size)")
     print("  TC MACs = Total MAC units in tensor core fabric (TC count x ALUs per TC)")
+    print("  CUDA pJ/MAC = Energy per FP32 MAC on CUDA cores")
+    print("  TC pJ/MAC = Energy per FP16 MAC on Tensor Cores (includes 40% datapath overhead)")
     print("  * = Estimated TDP exceeds Spec TDP (slight thermal constraint)")
     print("  *** = Estimated TDP significantly exceeds Spec TDP (>20% over)")
+
+    # Add the critical insight
+    print("\n" + "="*175)
+    print("ENERGY SENSITIVITY ANALYSIS")
+    print("="*175)
+    print("\nWhat if the actual energy per MAC is HIGHER than our model?")
+    print("At what energy would compute alone exhaust the TDP budget?\n")
+
+    print(f"{'GPU':<22} {'TC pJ/MAC':>10} {'TC TDP':>10} {'Spec TDP':>10} {'Headroom':>10} {'Max pJ/MAC':>12} {'Margin':>10}")
+    print(f"{'':22} {'(model)':>10} {'(W)':>10} {'(W)':>10} {'(W)':>10} {'(to hit TDP)':>12} {'':>10}")
+    print("-"*100)
+
+    for gpu in NVIDIA_GPUS:
+        tc_est = estimate_tensor_core_tdp(gpu, 'FP16')
+        tc_pj_per_mac = get_tc_energy_per_mac(gpu, 'FP16')
+        headroom = gpu['spec_tdp_w'] - tc_est
+        # What pJ/MAC would make TC power = spec TDP?
+        max_pj_per_mac = tc_pj_per_mac * (gpu['spec_tdp_w'] / tc_est)
+        margin = max_pj_per_mac / tc_pj_per_mac
+
+        status = "OVER" if headroom < 0 else f"{margin:.2f}x"
+
+        print(f"{gpu['name']:<22} {tc_pj_per_mac:>10.2f} {tc_est:>10.1f} {gpu['spec_tdp_w']:>10.0f} "
+              f"{headroom:>10.1f} {max_pj_per_mac:>12.2f} {status:>10}")
+
+    print("-"*100)
+    print("""
+INTERPRETATION:
+  'Max pJ/MAC' = The energy per MAC that would make TC power alone = Spec TDP
+  'Margin' = How much higher the actual energy could be before exceeding TDP
+             (with NO budget for memory, interconnect, leakage, or CUDA cores)
+
+  If actual silicon has higher energy than our model:
+    - T4 is ALREADY over budget (0.77x margin = needs 23% LOWER energy)
+    - B100 has only 1.28x margin - very tight
+    - H100 has 1.72x margin - more comfortable
+    - V100 has 1.93x margin - most headroom
+
+  This suggests NVIDIA may be designing to different efficiency targets per product:
+    - Inference GPUs (T4): Aggressive specs, thermal throttling expected
+    - Training GPUs (V100, H100): More conservative, sustainable throughput
+""")
     print()
 
     # Detailed analysis
@@ -405,30 +399,52 @@ def print_comparison_table():
 
     print()
     print("="*120)
-    print("OBSERVATIONS")
+    print("ANALYSIS: COMPUTE-ONLY TDP vs SPEC TDP")
     print("="*120)
     print("""
-1. CUDA Core Analysis:
-   - CUDA core-only TDP estimates are 9-35% of spec TDP
-   - CUDA cores alone consume a small fraction of the thermal budget
-   - This leaves significant headroom for tensor cores and memory
+This analysis compares PHYSICS-BASED compute power estimates against NVIDIA's spec TDP.
 
-2. Tensor Core Analysis:
-   - Datacenter GPUs (B100, H100, A100, V100): TC power is 50-79% of spec TDP
-   - This is well within thermal limits, leaving room for memory/interconnect/leakage
-   - T4 (inference GPU): TC power EXCEEDS spec TDP (130%), indicating thermal constraint
+The compute estimate includes ONLY:
+  - CUDA core power (FP32 ALUs)
+  - Tensor core power (systolic MAC arrays)
+  - 40% datapath overhead (register files, data distribution, control logic)
 
-3. Full Chip Analysis:
-   - H100 and V100 full-chip estimates are within 10% of spec TDP (good model fit)
-   - B100, A100, T4 estimates exceed spec TDP, suggesting:
-     * These chips cannot sustain full utilization of all compute units
-     * Power management throttles to stay within thermal limits
-     * Peak specs are theoretical, not sustained performance
+It does NOT include memory, interconnect, I/O, or leakage - we lack calibrated
+physics models for these components.
 
-4. Model Validation:
-   - Physics-based model produces reasonable estimates for most GPUs
-   - 40% datapath overhead (register files, control) is necessary for accuracy
-   - Inference GPUs (T4) show largest discrepancy due to aggressive thermal limits
+KEY QUESTION: Can the advertised ALUs actually run at full throughput within the TDP?
+
+If Compute TDP > Spec TDP:
+  -> The chip CANNOT sustain peak throughput - it must throttle
+  -> Peak TOPS/TFLOPS numbers are THEORETICAL, not achievable
+  -> Marketing specs may be inflated beyond what the power delivery supports
+
+If Compute TDP << Spec TDP:
+  -> Either our energy model is too low
+  -> Or there's significant headroom for memory/interconnect/leakage
+  -> Or the chip is over-provisioned with power delivery
+
+FINDINGS:
+  - T4: Compute alone (95W) EXCEEDS spec TDP (70W) by 1.36x
+    * This chip CANNOT run all tensor cores at full speed
+    * Peak INT8 TOPS is not achievable sustained
+
+  - H100: Compute (407W) is 58% of spec TDP (700W)
+    * Leaves 293W for memory, interconnect, leakage
+    * Seems plausible, but needs validation
+
+  - B100: Compute (780W) is 78% of spec TDP (1000W)
+    * Leaves only 220W for everything else
+    * Tighter margins than H100
+
+  - V100: Compute (183W) is only 52% of spec TDP (350W)
+    * Either our 12nm energy model is too low
+    * Or V100 has significant non-compute power draw
+
+CONCLUSION:
+  The T4 clearly shows that NVIDIA's peak specs exceed sustainable compute.
+  For datacenter GPUs, more investigation is needed to determine if the
+  remaining TDP headroom is sufficient for memory and other subsystems.
 """)
 
 
@@ -446,87 +462,6 @@ def print_process_node_energy():
     print()
 
 
-def print_full_chip_breakdown():
-    """Print full chip power breakdown."""
-    print("\n" + "="*130)
-    print("FULL CHIP TDP BREAKDOWN (Compute + Memory + Interconnect + Leakage)")
-    print("="*130)
-    print("\nThis model accounts for all major power consumers, not just ALUs.")
-    print()
-
-    # Header
-    print(f"{'GPU':<22} {'Spec':>6} {'CUDA':>7} {'TC':>7} {'Mem':>7} {'Intcon':>7} {'I/O':>6} "
-          f"{'Leak':>7} {'Total':>8} {'Ratio':>8}")
-    print(f"{'':22} {'TDP':>6} {'(W)':>7} {'(W)':>7} {'(W)':>7} {'(W)':>7} {'(W)':>6} "
-          f"{'(W)':>7} {'Est(W)':>8} {'Est/Spec':>8}")
-    print("-"*130)
-
-    for gpu in NVIDIA_GPUS:
-        breakdown = estimate_full_chip_tdp(gpu)
-        ratio = breakdown['total_power'] / gpu['spec_tdp_w']
-
-        flag = " ***" if ratio > 1.2 else " *" if ratio > 1.0 else ""
-
-        print(f"{gpu['name']:<22} {gpu['spec_tdp_w']:>6.0f} "
-              f"{breakdown['cuda_power']:>7.1f} "
-              f"{breakdown['tc_power']:>7.1f} "
-              f"{breakdown['memory_power']:>7.1f} "
-              f"{breakdown['interconnect_power']:>7.1f} "
-              f"{breakdown['io_misc_power']:>6.1f} "
-              f"{breakdown['leakage_power']:>7.1f} "
-              f"{breakdown['total_power']:>8.1f} "
-              f"{ratio:>7.2f}x{flag}")
-
-    print("-"*130)
-    print()
-
-    # Percentage breakdown
-    print("\nPERCENTAGE BREAKDOWN:")
-    print()
-    print(f"{'GPU':<22} {'CUDA':>8} {'TC':>8} {'Memory':>8} {'Intcon':>8} {'I/O':>8} {'Leakage':>8}")
-    print("-"*80)
-
-    for gpu in NVIDIA_GPUS:
-        breakdown = estimate_full_chip_tdp(gpu)
-        total = breakdown['total_power']
-
-        print(f"{gpu['name']:<22} "
-              f"{100*breakdown['cuda_power']/total:>7.1f}% "
-              f"{100*breakdown['tc_power']/total:>7.1f}% "
-              f"{100*breakdown['memory_power']/total:>7.1f}% "
-              f"{100*breakdown['interconnect_power']/total:>7.1f}% "
-              f"{100*breakdown['io_misc_power']/total:>7.1f}% "
-              f"{100*breakdown['leakage_power']/total:>7.1f}%")
-
-    print()
-    print("="*130)
-    print("ANALYSIS OF FULL-CHIP MODEL")
-    print("="*130)
-    print("""
-With the full-chip model including memory, interconnect, and leakage:
-
-1. Memory Subsystem Power:
-   - HBM memory at full bandwidth consumes 40-50W (HBM3e at 8 TB/s = 40W)
-   - This is a significant portion of total chip power
-   - Memory-bound workloads will see high memory power, low compute power
-
-2. Leakage Power:
-   - Smaller process nodes (3nm, 4nm) have higher leakage fractions (22-25%)
-   - This is "always on" power regardless of workload
-   - B100 at 3nm has ~150-200W just from leakage
-
-3. Implications for Our Model:
-   - Pure compute TDP (ALUs only) is ~30-50% of total chip TDP
-   - The remaining 50-70% goes to memory, interconnect, I/O, and leakage
-   - This explains why ALU-only estimates were well below spec TDP
-
-4. Accuracy Check:
-   - Our full-chip estimates should be closer to spec TDP
-   - If still significantly off, indicates our energy-per-op values may need calibration
-""")
-
-
 if __name__ == '__main__':
     print_process_node_energy()
     print_comparison_table()
-    print_full_chip_breakdown()
