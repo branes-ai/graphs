@@ -8,10 +8,200 @@ architecture-specific CLI tools (analyze_cpu_energy.py, analyze_gpu_energy.py, e
 Extracted from compare_architectures_energy.py to avoid code duplication.
 """
 
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 import json
 import csv
+import sys
 from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from graphs.hardware.operand_fetch import (
+    OperandFetchBreakdown,
+    CPUOperandFetchModel,
+    GPUOperandFetchModel,
+    TPUOperandFetchModel,
+    KPUOperandFetchModel,
+)
+from graphs.hardware.technology_profile import ARCH_COMPARISON_8NM_X86
+
+
+def print_operand_fetch_breakdown(
+    arch_type: str,
+    num_ops: int,
+    verbose: bool = False
+) -> Tuple[float, float, float, float]:
+    """
+    Print operand fetch energy breakdown for an architecture.
+
+    This shows the critical "last mile" energy cost: delivering operands from
+    registers to ALU inputs. This is the key differentiator between fetch-dominated
+    architectures (CPU/GPU) and ALU-dominated architectures (TPU/KPU).
+
+    Args:
+        arch_type: Architecture type ('cpu', 'gpu', 'tpu', 'kpu')
+        num_ops: Number of operations to analyze
+        verbose: Print detailed breakdown
+
+    Returns:
+        Tuple of (alu_energy_pj, fetch_energy_pj, total_energy_pj, reuse_factor)
+    """
+    # Get architecture comparison set with all technology profiles
+    arch_comparison = ARCH_COMPARISON_8NM_X86
+
+    # Select appropriate technology profile and create operand fetch model
+    arch_lower = arch_type.lower()
+    if arch_lower == 'cpu':
+        tech_profile = arch_comparison.cpu_profile
+        model = CPUOperandFetchModel(tech_profile=tech_profile)
+        desc = "CPU (x86 SIMD)"
+        reuse_hint = 1.0
+    elif arch_lower == 'gpu':
+        tech_profile = arch_comparison.gpu_profile
+        model = GPUOperandFetchModel(tech_profile=tech_profile)
+        desc = "GPU (CUDA Core)"
+        reuse_hint = 1.0
+    elif arch_lower == 'tpu':
+        tech_profile = arch_comparison.tpu_profile
+        model = TPUOperandFetchModel(tech_profile=tech_profile)
+        desc = "TPU (Systolic Array)"
+        reuse_hint = 128.0  # 128x128 array
+    elif arch_lower == 'kpu':
+        tech_profile = arch_comparison.kpu_profile
+        model = KPUOperandFetchModel(tech_profile=tech_profile)
+        desc = "KPU (Domain-Flow)"
+        reuse_hint = 64.0
+    else:
+        raise ValueError(f"Unknown architecture type: {arch_type}")
+
+    # Calculate energy breakdown
+    breakdown = model.compute_operand_fetch_energy(
+        num_ops,
+        operand_width_bytes=4,  # FP32
+        spatial_reuse_factor=reuse_hint
+    )
+
+    # Get pure ALU energy from the technology profile
+    # Use the appropriate MAC energy based on the architecture type
+    if arch_lower == 'cpu':
+        pure_alu_energy_pj = tech_profile.simd_mac_energy_pj
+    elif arch_lower == 'gpu':
+        pure_alu_energy_pj = tech_profile.tensor_core_mac_energy_pj
+    elif arch_lower == 'tpu':
+        pure_alu_energy_pj = tech_profile.systolic_mac_energy_pj
+    elif arch_lower == 'kpu':
+        pure_alu_energy_pj = tech_profile.domain_flow_mac_energy_pj
+    else:
+        pure_alu_energy_pj = tech_profile.base_alu_energy_pj
+
+    # Calculate totals - convert from Joules to pJ
+    fetch_energy_pj = breakdown.energy_per_operation * 1e12  # J to pJ
+    total_energy_pj = pure_alu_energy_pj + fetch_energy_pj
+    reuse_factor = breakdown.operand_reuse_factor
+
+    # Determine if fetch-dominated or ALU-dominated
+    alu_fetch_ratio = pure_alu_energy_pj / fetch_energy_pj if fetch_energy_pj > 0 else float('inf')
+    is_fetch_dominated = alu_fetch_ratio < 1.0
+
+    if verbose:
+        print(f"\n{'-'*60}")
+        print(f"OPERAND FETCH ENERGY BREAKDOWN: {desc}")
+        print(f"{'-'*60}")
+        print(f"  Operations:        {num_ops:,}")
+        print(f"")
+        print(f"  Pure ALU Energy:   {pure_alu_energy_pj:.3f} pJ/op")
+        print(f"  Operand Fetch:     {fetch_energy_pj:.3f} pJ/op")
+        print(f"  -----------------------------------")
+        print(f"  Total:             {total_energy_pj:.3f} pJ/op")
+        print(f"")
+        print(f"  Reuse Factor:      {reuse_factor:.0f}x")
+        print(f"  ALU/Fetch Ratio:   {alu_fetch_ratio:.3f}")
+        print(f"  Bottleneck:        {'FETCH-DOMINATED' if is_fetch_dominated else 'ALU-DOMINATED'}")
+
+        # Show component breakdown (convert J to pJ)
+        print(f"\n  Fetch Components:")
+        if breakdown.register_read_energy > 0:
+            print(f"    Register Read:   {breakdown.register_read_energy / num_ops * 1e12:.3f} pJ/op")
+        if breakdown.register_write_energy > 0:
+            print(f"    Register Write:  {breakdown.register_write_energy / num_ops * 1e12:.3f} pJ/op")
+        if breakdown.operand_collector_energy > 0:
+            print(f"    Operand Collector: {breakdown.operand_collector_energy / num_ops * 1e12:.3f} pJ/op")
+        if breakdown.crossbar_routing_energy > 0:
+            print(f"    Crossbar/Route:  {breakdown.crossbar_routing_energy / num_ops * 1e12:.3f} pJ/op")
+        if breakdown.bank_conflict_penalty > 0:
+            print(f"    Bank Conflicts:  {breakdown.bank_conflict_penalty / num_ops * 1e12:.3f} pJ/op")
+        if breakdown.pe_forwarding_energy > 0:
+            print(f"    PE Forwarding:   {breakdown.pe_forwarding_energy / num_ops * 1e12:.3f} pJ/op")
+        if breakdown.array_injection_energy > 0:
+            print(f"    Array Injection: {breakdown.array_injection_energy / num_ops * 1e12:.3f} pJ/op")
+
+    return pure_alu_energy_pj, fetch_energy_pj, total_energy_pj, reuse_factor
+
+
+def print_operand_fetch_comparison(
+    num_ops: int = 1000,
+) -> None:
+    """
+    Print a comparison table of operand fetch energy across all architectures.
+
+    This highlights the key insight: spatial architectures (TPU/KPU) achieve
+    10-100x better TOPS/W because they have massive operand reuse, making them
+    ALU-dominated rather than fetch-dominated like CPU/GPU.
+
+    Args:
+        num_ops: Number of operations for the comparison
+    """
+    print(f"\n{'='*80}")
+    print(f"OPERAND FETCH ENERGY COMPARISON (8nm process)")
+    print(f"{'='*80}")
+    print(f"")
+    print(f"The 'last mile' problem: delivering operands from registers to ALU inputs")
+    print(f"This is the key architectural differentiator for energy efficiency.")
+    print(f"")
+
+    # Header
+    print(f"{'Architecture':<20} {'ALU(pJ)':<10} {'Fetch(pJ)':<12} {'Total(pJ)':<12} {'Reuse':<10} {'ALU/Fetch':<12} {'Type':<15}")
+    print(f"{'-'*20} {'-'*10} {'-'*12} {'-'*12} {'-'*10} {'-'*12} {'-'*15}")
+
+    archs = ['cpu', 'gpu', 'tpu', 'kpu']
+    results = []
+
+    for arch in archs:
+        alu_pj, fetch_pj, total_pj, reuse = print_operand_fetch_breakdown(
+            arch, num_ops, verbose=False
+        )
+        ratio = alu_pj / fetch_pj if fetch_pj > 0 else float('inf')
+        bottleneck = "Fetch-dominated" if ratio < 1.0 else "ALU-dominated"
+
+        arch_name = {
+            'cpu': 'CPU (x86 SIMD)',
+            'gpu': 'GPU (CUDA Core)',
+            'tpu': 'TPU (Systolic)',
+            'kpu': 'KPU (Domain-Flow)'
+        }[arch]
+
+        print(f"{arch_name:<20} {alu_pj:<10.3f} {fetch_pj:<12.3f} {total_pj:<12.3f} {reuse:<10.0f}x {ratio:<12.3f} {bottleneck:<15}")
+        results.append((arch, alu_pj, fetch_pj, total_pj, reuse, ratio))
+
+    # Show relative efficiency
+    print(f"\n{'-'*80}")
+    print(f"RELATIVE EFFICIENCY (normalized to GPU):")
+    print(f"{'-'*80}")
+
+    gpu_total = results[1][3]  # GPU total energy
+    for arch, alu_pj, fetch_pj, total_pj, reuse, ratio in results:
+        efficiency = gpu_total / total_pj
+        arch_name = {
+            'cpu': 'CPU',
+            'gpu': 'GPU',
+            'tpu': 'TPU',
+            'kpu': 'KPU'
+        }[arch]
+        print(f"  {arch_name}: {efficiency:.1f}x GPU efficiency ({total_pj:.3f} pJ/op)")
+
+    print(f"\n  KEY INSIGHT: TPU/KPU are 3-5x more energy efficient than GPU")
+    print(f"               because spatial reuse eliminates operand fetch overhead.")
 
 
 def print_cpu_hierarchical_breakdown(

@@ -26,6 +26,7 @@ from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphs.hardware.technology_profile import TechnologyProfile
+    from graphs.hardware.operand_fetch import OperandFetchBreakdown
 
 
 class ArchitectureClass(Enum):
@@ -281,6 +282,28 @@ class ArchitecturalEnergyBreakdown:
     # Human-readable explanation
     explanation: str = ""
 
+    # ============================================================
+    # OPERAND FETCH ENERGY (NEW - Phase 2)
+    # ============================================================
+    # Operand fetch = register-to-ALU delivery (NOT memory hierarchy)
+    # This is the key differentiator between architectures:
+    # - CPU/GPU: Operand fetch dominates (90%+ of operation energy)
+    # - TPU/KPU: ALU dominates due to spatial reuse
+
+    # Pure ALU energy (just the arithmetic circuit)
+    pure_alu_energy: float = 0.0
+    """Energy from the actual ADD/MUL/FMA circuits in Joules.
+    This is nearly identical across architectures at the same process node."""
+
+    # Operand fetch energy (register-to-ALU delivery)
+    operand_fetch_energy: float = 0.0
+    """Energy to deliver operands from local storage to ALU inputs in Joules.
+    This is where architectures differ dramatically."""
+
+    # Detailed operand fetch breakdown (optional)
+    operand_fetch_breakdown: Optional['OperandFetchBreakdown'] = None
+    """Detailed breakdown of operand fetch energy components."""
+
     @property
     def total_overhead(self) -> float:
         """Total architectural overhead"""
@@ -295,6 +318,40 @@ class ArchitecturalEnergyBreakdown:
     def total_ops_executed(self) -> int:
         """Total operations executed (MAC + FLOP + IntOp)"""
         return self.mac_ops_executed + self.flop_ops_executed + self.intop_ops_executed
+
+    @property
+    def alu_to_fetch_ratio(self) -> float:
+        """Ratio of pure ALU energy to operand fetch energy.
+
+        Higher values indicate ALU-dominated architectures (spatial, efficient).
+        Lower values indicate fetch-dominated architectures (stored-program).
+
+        Returns:
+            Ratio of ALU energy to fetch energy, or inf if no fetch energy.
+        """
+        if self.operand_fetch_energy > 0:
+            return self.pure_alu_energy / self.operand_fetch_energy
+        return float('inf')
+
+    @property
+    def fetch_dominance(self) -> str:
+        """Describe whether operand fetch or ALU dominates energy consumption.
+
+        Returns:
+            Human-readable description of energy dominance.
+        """
+        ratio = self.alu_to_fetch_ratio
+        if ratio > 2.0:
+            return "ALU-dominated (spatial architecture)"
+        elif ratio > 0.5:
+            return "Balanced"
+        else:
+            return "Fetch-dominated (stored-program architecture)"
+
+    @property
+    def total_operation_energy(self) -> float:
+        """Total energy per operation including ALU and operand fetch."""
+        return self.pure_alu_energy + self.operand_fetch_energy
 
 # ============================================================
 # Architectural Energy Model Base Class
@@ -413,6 +470,11 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     branches_per_1000_ops: int = 50                # ~50 branches per 1000 ops (fixed)
     branch_prediction_overhead: float = field(init=False)
 
+    # ============================================================
+    # Operand Fetch Model (NEW - Phase 2)
+    # ============================================================
+    operand_fetch_model: Optional['CPUOperandFetchModel'] = field(init=False, default=None)
+
     def __post_init__(self):
         """Derive all energy parameters from the technology profile."""
         tp = self.tech_profile
@@ -437,6 +499,10 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
 
         # Branch prediction scales with process node
         self.branch_prediction_overhead = tp.branch_mispredict_energy_pj * 1e-12
+
+        # Initialize operand fetch model
+        from graphs.hardware.operand_fetch import CPUOperandFetchModel
+        self.operand_fetch_model = CPUOperandFetchModel(tech_profile=tp)
 
     def compute_architectural_energy(
         self,
@@ -646,19 +712,39 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
             'branch_prediction_success_rate': branch_prediction_success,
         }
 
+        # ============================================================
+        # 6. Operand Fetch Energy (NEW - Phase 2)
+        # ============================================================
+        # Compute operand fetch energy using the dedicated model
+        operand_fetch_breakdown = self.operand_fetch_model.compute_operand_fetch_energy(
+            num_operations=ops,
+            operand_width_bytes=4,  # FP32
+            spatial_reuse_factor=1.0,  # No spatial reuse in CPU
+            execution_context=execution_context
+        )
+        operand_fetch_energy_total = operand_fetch_breakdown.total_fetch_energy
+
+        # Pure ALU energy (just the arithmetic circuit)
+        pure_alu_energy = alu_energy_total
+
         explanation = (
             f"Stored Program Architecture (CPU) Energy Events:\n"
-            f"  1. Instruction Pipeline: {pipeline_energy_total*1e6:.3f} μJ "
+            f"  1. Instruction Pipeline: {pipeline_energy_total*1e6:.3f} uJ "
             f"({num_instructions:,} instructions)\n"
-            f"  2. Register File: {register_file_energy_total*1e6:.3f} μJ "
+            f"  2. Register File (Operand Fetch): {register_file_energy_total*1e6:.3f} uJ "
             f"({num_register_reads:,} reads + {num_register_writes:,} writes)\n"
-            f"  3. Memory Hierarchy: {memory_hierarchy_energy_total*1e6:.3f} μJ\n"
-            f"     - L1: {l1_energy*1e6:.3f} μJ ({l1_bytes/1024:.1f} KB)\n"
-            f"     - L2: {l2_energy*1e6:.3f} μJ ({l2_bytes/1024:.1f} KB)\n"
-            f"     - L3: {l3_energy*1e6:.3f} μJ ({l3_bytes/1024:.1f} KB)\n"
-            f"     - DRAM: {dram_energy*1e6:.3f} μJ ({dram_bytes/1024:.1f} KB)\n"
-            f"  4. ALU Operations: {alu_energy_total*1e6:.3f} μJ ({ops:,} ops)\n"
-            f"  5. Branch Prediction: {branch_energy*1e6:.3f} μJ ({num_branches:,} branches)\n"
+            f"  3. Memory Hierarchy: {memory_hierarchy_energy_total*1e6:.3f} uJ\n"
+            f"     - L1: {l1_energy*1e6:.3f} uJ ({l1_bytes/1024:.1f} KB)\n"
+            f"     - L2: {l2_energy*1e6:.3f} uJ ({l2_bytes/1024:.1f} KB)\n"
+            f"     - L3: {l3_energy*1e6:.3f} uJ ({l3_bytes/1024:.1f} KB)\n"
+            f"     - DRAM: {dram_energy*1e6:.3f} uJ ({dram_bytes/1024:.1f} KB)\n"
+            f"  4. ALU Operations: {alu_energy_total*1e6:.3f} uJ ({ops:,} ops)\n"
+            f"  5. Branch Prediction: {branch_energy*1e6:.3f} uJ ({num_branches:,} branches)\n"
+            f"\n"
+            f"  OPERAND FETCH ANALYSIS:\n"
+            f"    Pure ALU Energy: {pure_alu_energy*1e6:.3f} uJ\n"
+            f"    Operand Fetch Energy: {operand_fetch_energy_total*1e6:.3f} uJ\n"
+            f"    ALU/Fetch Ratio: {pure_alu_energy/operand_fetch_energy_total if operand_fetch_energy_total > 0 else 0:.2f} (< 1.0 = fetch-dominated)\n"
         )
 
         return ArchitecturalEnergyBreakdown(
@@ -666,7 +752,11 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
             data_movement_overhead=data_movement_overhead,
             control_overhead=control_overhead,
             extra_details=extra_details,
-            explanation=explanation
+            explanation=explanation,
+            # NEW: Operand fetch energy breakdown
+            pure_alu_energy=pure_alu_energy,
+            operand_fetch_energy=operand_fetch_energy_total,
+            operand_fetch_breakdown=operand_fetch_breakdown
         )
 
 
@@ -745,6 +835,11 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     instruction_decode_energy: float = field(init=False)
     instruction_execute_energy: float = field(init=False)
 
+    # ============================================================
+    # Operand Fetch Model (NEW - Phase 2)
+    # ============================================================
+    gpu_operand_fetch_model: Optional['GPUOperandFetchModel'] = field(init=False, default=None)
+
     def __post_init__(self):
         """Derive all energy parameters from the technology profile."""
         tp = self.tech_profile
@@ -776,6 +871,10 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         self.warp_divergence_penalty = tp.warp_divergence_energy_pj * 1e-12
         self.thread_scheduling_overhead = 1.0e-12 * process_scale
         self.memory_coalescing_overhead = 2.0e-12 * process_scale
+
+        # Initialize operand fetch model
+        from graphs.hardware.operand_fetch import GPUOperandFetchModel
+        self.gpu_operand_fetch_model = GPUOperandFetchModel(tech_profile=tp)
 
     def compute_architectural_energy(
         self,
@@ -958,8 +1057,23 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             f"\n"
             f"KEY INSIGHT: Coherence machinery dominates at small batch sizes!\n"
             f"             GPU burns massive energy managing thousands of concurrent memory requests.\n"
-            f"             Tensor Cores are 2.7× more efficient than CUDA cores (0.3 vs 0.8 pJ/MAC)."
+            f"             Tensor Cores are 2.7x more efficient than CUDA cores (0.3 vs 0.8 pJ/MAC)."
         )
+
+        # ============================================================
+        # Operand Fetch Energy (NEW - Phase 2)
+        # ============================================================
+        total_ops = macs + flops + intops
+        operand_fetch_breakdown = self.gpu_operand_fetch_model.compute_operand_fetch_energy(
+            num_operations=total_ops,
+            operand_width_bytes=4,  # FP32
+            spatial_reuse_factor=1.0,  # No spatial reuse in GPU
+            execution_context=execution_context
+        )
+        operand_fetch_energy_total = operand_fetch_breakdown.total_fetch_energy
+
+        # Pure ALU energy (just the arithmetic circuits)
+        pure_alu_energy = total_mac_energy + total_flop_energy + total_intop_energy
 
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_total,
@@ -975,6 +1089,11 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             mac_ops_executed=macs,
             flop_ops_executed=flops,
             intop_ops_executed=intops,
+
+            # NEW: Operand fetch energy breakdown (Phase 2)
+            pure_alu_energy=pure_alu_energy,
+            operand_fetch_energy=operand_fetch_energy_total,
+            operand_fetch_breakdown=operand_fetch_breakdown,
 
             extra_details={
                 # Compute units (detailed breakdown)
@@ -1110,6 +1229,11 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
     compute_efficiency: float = 0.15                 # 15% overhead (85% reduction!)
     memory_efficiency: float = 0.20                  # 20% overhead (80% reduction!)
 
+    # ============================================================
+    # Operand Fetch Model (NEW - Phase 2)
+    # ============================================================
+    tpu_operand_fetch_model: Optional['TPUOperandFetchModel'] = field(init=False, default=None)
+
     def __post_init__(self):
         """Derive all energy parameters from the technology profile."""
         tp = self.tech_profile
@@ -1143,6 +1267,10 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
         # Data injection/extraction (uses systolic MAC energy as baseline)
         self.data_injection_per_element = tp.systolic_mac_energy_pj * 0.5 * 1e-12
         self.data_extraction_per_element = tp.systolic_mac_energy_pj * 0.5 * 1e-12
+
+        # Initialize operand fetch model
+        from graphs.hardware.operand_fetch import TPUOperandFetchModel
+        self.tpu_operand_fetch_model = TPUOperandFetchModel(tech_profile=tp)
 
     def compute_architectural_energy(
         self,
@@ -1319,10 +1447,37 @@ class SystolicArrayEnergyModel(ArchitecturalEnergyModel):
             f"    - Memory contention eliminated: {-data_movement_overhead_reduction*1e12:.2f} pJ saved\n"
         )
 
+        # ============================================================
+        # Operand Fetch Energy (NEW - Phase 2)
+        # ============================================================
+        operand_fetch_breakdown = self.tpu_operand_fetch_model.compute_operand_fetch_energy(
+            num_operations=ops,
+            operand_width_bytes=4,  # FP32
+            spatial_reuse_factor=float(array_dimension),  # Reuse factor = array dimension
+            execution_context={
+                'weight_reuse': float(array_dimension),
+                'input_reuse': float(array_dimension),
+                'weight_elements': num_weight_elements,
+                'input_elements': num_elements,
+                'output_elements': num_tiles,
+            }
+        )
+        operand_fetch_energy_total = operand_fetch_breakdown.total_fetch_energy
+
+        # Pure ALU energy: systolic MAC energy * number of MACs
+        num_macs = ops // 2  # Each MAC = 2 ops (multiply + accumulate)
+        pure_alu_energy = num_macs * self.tech_profile.systolic_mac_energy_pj * 1e-12
+
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
             data_movement_overhead=data_movement_overhead_reduction + total_data_movement,
             control_overhead=control_overhead_total,
+
+            # NEW: Operand fetch energy breakdown (Phase 2)
+            pure_alu_energy=pure_alu_energy,
+            operand_fetch_energy=operand_fetch_energy_total,
+            operand_fetch_breakdown=operand_fetch_breakdown,
+
             extra_details={
                 'instruction_decode': instruction_decode,
                 'dma_setup': dma_setup,
@@ -1477,6 +1632,11 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
     compute_efficiency: float = 0.75               # 75% of baseline (25% overhead)
     memory_efficiency: float = 0.70                # 70% of baseline (30% overhead)
 
+    # ============================================================
+    # Operand Fetch Model (NEW - Phase 2)
+    # ============================================================
+    kpu_operand_fetch_model: Optional['KPUOperandFetchModel'] = field(init=False, default=None)
+
     def __post_init__(self):
         """Derive all energy parameters from the technology profile."""
         tp = self.tech_profile
@@ -1518,6 +1678,10 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
 
         # DMA setup energy (per transfer descriptor)
         self.dma_setup_energy = 5.0e-12 * process_scale
+
+        # Initialize operand fetch model
+        from graphs.hardware.operand_fetch import KPUOperandFetchModel
+        self.kpu_operand_fetch_model = KPUOperandFetchModel(tech_profile=tp)
 
     def compute_architectural_energy(
         self,
@@ -1658,10 +1822,34 @@ class DomainFlowEnergyModel(ArchitecturalEnergyModel):
             f"  - Scratchpad energy is ~40-60% of equivalent cache energy\n"
         )
 
+        # ============================================================
+        # Operand Fetch Energy (NEW - Phase 2)
+        # ============================================================
+        operand_fetch_breakdown = self.kpu_operand_fetch_model.compute_operand_fetch_energy(
+            num_operations=ops,
+            operand_width_bytes=4,  # FP32
+            spatial_reuse_factor=64.0,  # KPU default reuse factor
+            execution_context={
+                'reuse_factor': 64.0,  # Based on tile size
+                'output_elements': num_elements,
+            }
+        )
+        operand_fetch_energy_total = operand_fetch_breakdown.total_fetch_energy
+
+        # Pure ALU energy: domain flow MAC energy * number of MACs
+        num_macs = ops // 2  # Each MAC = 2 ops (multiply + accumulate)
+        pure_alu_energy = num_macs * self.tech_profile.domain_flow_mac_energy_pj * 1e-12
+
         return ArchitecturalEnergyBreakdown(
             compute_overhead=compute_overhead_reduction,
             data_movement_overhead=data_movement_overhead,
             control_overhead=control_overhead,
+
+            # NEW: Operand fetch energy breakdown (Phase 2)
+            pure_alu_energy=pure_alu_energy,
+            operand_fetch_energy=operand_fetch_energy_total,
+            operand_fetch_breakdown=operand_fetch_breakdown,
+
             extra_details={
                 # Domain flow control
                 'domain_tracking_energy': domain_tracking_energy,

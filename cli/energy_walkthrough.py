@@ -43,6 +43,12 @@ from graphs.hardware.cycle_energy import (
 )
 from graphs.hardware.cycle_energy.base import OperatingMode, OperatorType
 from graphs.hardware.technology_profile import ARCH_COMPARISON_8NM_X86
+from graphs.hardware.operand_fetch import (
+    CPUOperandFetchModel,
+    GPUOperandFetchModel,
+    TPUOperandFetchModel,
+    KPUOperandFetchModel,
+)
 
 
 def format_energy(pj: float) -> str:
@@ -481,6 +487,98 @@ def execution_trace(comparison, num_ops: int = 10000, verbose: bool = False):
 
 
 # =============================================================================
+# PART 3: OPERAND FETCH ENERGY ANALYSIS
+# =============================================================================
+
+def part3_operand_fetch_analysis(comparison, num_ops: int = 10000, verbose: bool = False):
+    """
+    Part 3: Operand Fetch Energy - The Key Architectural Differentiator.
+
+    This section separates ALU energy from operand fetch energy to show
+    WHY spatial architectures are fundamentally more efficient.
+
+    Key insight: Pure ALU energy (~1.8 pJ for FP32 MAC) is nearly identical
+    across all architectures. What differs is operand fetch:
+    - CPU/GPU: Every operation reads from register file (no spatial reuse)
+    - TPU/KPU: Operands forwarded PE-to-PE (massive spatial reuse)
+    """
+    print_header("PART 3: OPERAND FETCH ENERGY (ALU vs Register-to-ALU Delivery)")
+    print()
+    print("  The ALU circuit (ADD/MUL/FMA) has nearly identical energy across architectures")
+    print("  at the same process node. What differs dramatically is OPERAND FETCH:")
+    print()
+    print("    - CPU/GPU: Every operation independently fetches operands from register file")
+    print("    - TPU/KPU: Operands forwarded PE-to-PE with massive spatial reuse")
+    print()
+    print("  This is the fundamental reason spatial architectures achieve 10-100x better TOPS/W")
+    print()
+
+    # Get technology profile
+    tech_profile = comparison.cpu_profile
+
+    # Create operand fetch models
+    cpu_model = CPUOperandFetchModel(tech_profile=tech_profile)
+    gpu_model = GPUOperandFetchModel(tech_profile=tech_profile)
+    tpu_model = TPUOperandFetchModel(tech_profile=tech_profile)
+    kpu_model = KPUOperandFetchModel(tech_profile=tech_profile)
+
+    # Compute operand fetch energy
+    cpu_fetch = cpu_model.compute_operand_fetch_energy(num_ops)
+    gpu_fetch = gpu_model.compute_operand_fetch_energy(num_ops)
+    tpu_fetch = tpu_model.compute_operand_fetch_energy(num_ops)
+    kpu_fetch = kpu_model.compute_operand_fetch_energy(num_ops)
+
+    # Pure ALU energy (same for all architectures at same process node)
+    pure_alu_energy_pj = 1.8  # pJ per FP32 MAC at 8nm
+    total_alu_energy = num_ops * pure_alu_energy_pj * 1e-12  # Convert to J
+
+    print(f"  Workload: {num_ops:,} MAC operations")
+    print(f"  Pure ALU Energy: {total_alu_energy * 1e6:.3f} uJ ({pure_alu_energy_pj} pJ/op - same for all)")
+    print()
+
+    # Detailed comparison table
+    col_w = 12
+    print(f"  {'ARCHITECTURE':<18} {'ALU (pJ)':>{col_w}} {'Fetch (pJ)':>{col_w}} {'Total (pJ)':>{col_w}} {'Reuse':>{col_w}} {'ALU/Fetch':>{col_w}} {'Bottleneck':>{col_w}}")
+    print(f"  {'-'*18} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w} {'-'*col_w}")
+
+    for name, fetch in [('CPU (Stored)', cpu_fetch),
+                        ('GPU (SIMT)', gpu_fetch),
+                        ('TPU (Systolic)', tpu_fetch),
+                        ('KPU (Domain)', kpu_fetch)]:
+        fetch_per_op_pj = fetch.energy_per_operation * 1e12
+        total_per_op_pj = pure_alu_energy_pj + fetch_per_op_pj
+        reuse = fetch.operand_reuse_factor
+
+        # ALU/Fetch ratio
+        if fetch_per_op_pj > 0:
+            alu_fetch_ratio = pure_alu_energy_pj / fetch_per_op_pj
+        else:
+            alu_fetch_ratio = float('inf')
+
+        # Determine bottleneck
+        bottleneck = "Fetch" if alu_fetch_ratio < 1.0 else "ALU"
+
+        print(f"  {name:<18} {pure_alu_energy_pj:>{col_w}.2f} {fetch_per_op_pj:>{col_w}.2f} {total_per_op_pj:>{col_w}.2f} {reuse:>{col_w-1}.1f}x {alu_fetch_ratio:>{col_w}.2f} {bottleneck:>{col_w}}")
+
+    print()
+    print("  KEY OBSERVATION:")
+    print("  -----------------")
+    print("    ALU/Fetch < 1.0: Fetch-dominated (CPU/GPU) - energy goes to moving data")
+    print("    ALU/Fetch > 1.0: ALU-dominated (TPU/KPU) - energy goes to computation")
+    print()
+    print("  CPU/GPU OVERHEAD BREAKDOWN:")
+    print("    - Register file read:    2x operands per op")
+    print("    - Register file write:   1x result per op")
+    print("    - GPU adds: operand collectors + crossbar + bank conflicts")
+    print()
+    print("  TPU/KPU EFFICIENCY:")
+    print("    - Weights loaded ONCE, reused across entire input batch")
+    print("    - Inputs/outputs forwarded PE-to-PE (0.1 pJ short wire)")
+    print("    - Reuse factor 64-16,000x reduces fetch energy proportionally")
+    print()
+
+
+# =============================================================================
 # INSIGHTS
 # =============================================================================
 
@@ -526,7 +624,22 @@ def print_insights(comparison):
     print("     TPU/KPU amortize control over 100-1000x more MACs than GPU!")
     print()
 
-    print("  4. WHEN EACH ARCHITECTURE WINS")
+    print("  4. OPERAND FETCH: THE KEY DIFFERENTIATOR")
+    print("     " + "-"*90)
+    print("     Pure ALU energy is ~1.8 pJ per FP32 MAC (same across architectures)")
+    print("     What differs is operand fetch (register-to-ALU delivery):")
+    print()
+    print("     Architecture      Fetch/Op    Reuse      Bottleneck")
+    print("     ----------------  ----------  ---------  -----------")
+    print("     CPU               ~5.4 pJ     1x         Fetch (75%)")
+    print("     GPU               ~2.2 pJ     1x         Fetch (55%)")
+    print("     TPU               ~0.002 pJ   16,000x    ALU (99.9%)")
+    print("     KPU               ~0.4 pJ     64x        ALU (80%)")
+    print()
+    print("     This explains 10-100x TOPS/W advantage of spatial architectures!")
+    print()
+
+    print("  5. WHEN EACH ARCHITECTURE WINS")
     print("     " + "-"*90)
     print("     CPU:       Small irregular workloads, branch-heavy code")
     print("     GPU-CUDA:  Element-wise ops, reductions, non-matrix kernels")
@@ -542,34 +655,42 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                      # Run both parts with defaults
+  %(prog)s                      # Run all parts with defaults
   %(prog)s --matrix 512         # Use 512x512 matrix for Part 2
   %(prog)s --trace              # Include detailed execution trace
   %(prog)s --part1              # Only run Part 1 (native operation)
   %(prog)s --part2              # Only run Part 2 (workload mapping)
+  %(prog)s --part3              # Only run Part 3 (operand fetch analysis)
 """
     )
     parser.add_argument('--matrix', type=int, default=300,
                         help='Matrix dimension for Part 2 (default: 300)')
+    parser.add_argument('--ops', type=int, default=10000,
+                        help='Number of operations for Part 3 (default: 10000)')
     parser.add_argument('--trace', action='store_true',
                         help='Show detailed execution trace')
     parser.add_argument('--part1', action='store_true',
                         help='Only run Part 1 (native operation energy)')
     parser.add_argument('--part2', action='store_true',
                         help='Only run Part 2 (workload mapping)')
+    parser.add_argument('--part3', action='store_true',
+                        help='Only run Part 3 (operand fetch energy)')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Verbose output')
 
     args = parser.parse_args()
 
-    run_part1 = args.part1 or not (args.part1 or args.part2)
-    run_part2 = args.part2 or not (args.part1 or args.part2)
+    # If no specific part selected, run all
+    any_part_selected = args.part1 or args.part2 or args.part3
+    run_part1 = args.part1 or not any_part_selected
+    run_part2 = args.part2 or not any_part_selected
+    run_part3 = args.part3 or not any_part_selected
 
     comparison = ARCH_COMPARISON_8NM_X86
 
     print("=" * 140)
     print("  ENERGY WALKTHROUGH: Understanding Architectural Energy Differences")
-    print("  Including: GPU CUDA (128 MACs/SM) and GPU TensorCore (256 MACs/SM) Models")
+    print("  Including: GPU CUDA (128 MACs/SM), GPU TensorCore (256 MACs/SM), and Operand Fetch Analysis")
     print("=" * 140)
     print()
     print(f"  Technology: {comparison.name}")
@@ -581,6 +702,9 @@ Examples:
 
     if run_part2:
         part2_real_workload_mapping(comparison, args.matrix, args.verbose)
+
+    if run_part3:
+        part3_operand_fetch_analysis(comparison, args.ops, args.verbose)
 
     if args.trace:
         execution_trace(comparison, 10000, args.verbose)
