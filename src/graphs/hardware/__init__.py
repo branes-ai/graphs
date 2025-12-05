@@ -17,6 +17,18 @@ from .resource_model import (
     HardwareMapper,
 )
 
+from .operand_fetch import (
+    OperandFetchBreakdown,
+    OperandFetchEnergyModel,
+    CPUOperandFetchModel,
+    GPUOperandFetchModel,
+    TPUOperandFetchModel,
+    KPUOperandFetchModel,
+    create_operand_fetch_model,
+    compare_operand_fetch_energy,
+    format_comparison_table,
+)
+
 __all__ = [
     'HardwareType',
     'Precision',
@@ -27,4 +39,14 @@ __all__ = [
     'HardwareAllocation',
     'GraphHardwareAllocation',
     'HardwareMapper',
+    # Operand Fetch Energy Models
+    'OperandFetchBreakdown',
+    'OperandFetchEnergyModel',
+    'CPUOperandFetchModel',
+    'GPUOperandFetchModel',
+    'TPUOperandFetchModel',
+    'KPUOperandFetchModel',
+    'create_operand_fetch_model',
+    'compare_operand_fetch_energy',
+    'format_comparison_table',
 ]

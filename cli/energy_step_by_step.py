@@ -26,6 +26,14 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from graphs.hardware.technology_profile import ARCH_COMPARISON_8NM_X86
+from graphs.hardware.operand_fetch import (
+    CPUOperandFetchModel,
+    GPUOperandFetchModel,
+    TPUOperandFetchModel,
+    KPUOperandFetchModel,
+    compare_operand_fetch_energy,
+    format_comparison_table,
+)
 
 
 # =============================================================================
@@ -1167,6 +1175,113 @@ def print_comparison_summary(results: dict, num_macs: int):
     print("     - L1 cache:  ~0.5 pJ/byte")
     print("     - DRAM:      ~20 pJ/byte (200x more!)")
     print()
+    print("  4. OPERAND FETCH: Register-to-ALU delivery (the key differentiator!)")
+    print("     - Pure ALU energy: ~1.8 pJ per FP32 MAC (same for all architectures)")
+    print("     - CPU operand fetch: ~3.4 pJ per op (register file reads/writes)")
+    print("     - GPU operand fetch: ~2.7 pJ per op (operand collectors + crossbar)")
+    print("     - TPU operand fetch: ~0.002 pJ per op (PE forwarding with 16K reuse)")
+    print("     - KPU operand fetch: ~0.4 pJ per op (domain flow forwarding with 64x reuse)")
+    print()
+    print("     For CPU/GPU, operand fetch dominates (60-90% of operation energy)")
+    print("     For TPU/KPU, ALU dominates (operand fetch is amortized over spatial reuse)")
+    print()
+
+
+# =============================================================================
+# Operand Fetch Energy Analysis
+# =============================================================================
+
+def print_operand_fetch_comparison(num_macs: int):
+    """
+    Show operand fetch energy comparison across architectures.
+
+    This is THE key insight: the ALU energy is nearly identical (~1.8 pJ)
+    across all architectures at the same process node. What differs is
+    the energy to DELIVER operands to the ALU.
+    """
+    print()
+    print("=" * 110)
+    print("  OPERAND FETCH ENERGY: The Key Architectural Differentiator")
+    print("=" * 110)
+    print()
+    print("  The ALU circuit (ADD/MUL/FMA) consumes nearly identical energy across architectures")
+    print("  at the same process node (~1.8 pJ for FP32 MAC at 8nm).")
+    print()
+    print("  What differs dramatically is the OPERAND FETCH infrastructure:")
+    print("  - CPU/GPU: Every operation reads from register file (no spatial reuse)")
+    print("  - TPU/KPU: Operands forwarded PE-to-PE (massive spatial reuse)")
+    print()
+
+    # Get technology profile for energy values
+    comparison = ARCH_COMPARISON_8NM_X86
+    tech_profile = comparison.cpu_profile
+
+    # Create operand fetch models
+    cpu_model = CPUOperandFetchModel(tech_profile=tech_profile)
+    gpu_model = GPUOperandFetchModel(tech_profile=tech_profile)
+    tpu_model = TPUOperandFetchModel(tech_profile=tech_profile)
+    kpu_model = KPUOperandFetchModel(tech_profile=tech_profile)
+
+    # Compute operand fetch energy for each architecture
+    cpu_fetch = cpu_model.compute_operand_fetch_energy(num_macs)
+    gpu_fetch = gpu_model.compute_operand_fetch_energy(num_macs)
+    tpu_fetch = tpu_model.compute_operand_fetch_energy(num_macs)
+    kpu_fetch = kpu_model.compute_operand_fetch_energy(num_macs)
+
+    # Pure ALU energy (same for all architectures)
+    pure_alu_energy_pj = 1.8  # pJ per FP32 MAC at 8nm
+    total_alu_energy = num_macs * pure_alu_energy_pj * 1e-12  # J
+
+    # Print comparison table
+    print(f"  Workload: {num_macs:,} MAC operations")
+    print(f"  Pure ALU energy: {total_alu_energy * 1e6:.3f} uJ ({pure_alu_energy_pj} pJ/op)")
+    print()
+    print(f"  {'Architecture':<20} {'Fetch Energy':>14} {'pJ/op':>10} {'Reuse':>10} {'ALU/Fetch':>12} {'Bottleneck':<15}")
+    print(f"  {'-'*20} {'-'*14} {'-'*10} {'-'*10} {'-'*12} {'-'*15}")
+
+    for name, fetch in [('CPU (Stored Program)', cpu_fetch),
+                        ('GPU (SIMT)', gpu_fetch),
+                        ('TPU (Systolic)', tpu_fetch),
+                        ('KPU (Domain Flow)', kpu_fetch)]:
+        fetch_energy_j = fetch.total_fetch_energy
+        fetch_per_op_pj = fetch.energy_per_operation * 1e12
+
+        # Format fetch energy
+        if fetch_energy_j >= 1e-6:
+            fetch_str = f"{fetch_energy_j * 1e6:.3f} uJ"
+        elif fetch_energy_j >= 1e-9:
+            fetch_str = f"{fetch_energy_j * 1e9:.3f} nJ"
+        else:
+            fetch_str = f"{fetch_energy_j * 1e12:.3f} pJ"
+
+        reuse = fetch.operand_reuse_factor
+        reuse_str = f"{reuse:.1f}x"
+
+        # ALU/Fetch ratio
+        if fetch_energy_j > 0:
+            alu_fetch_ratio = total_alu_energy / fetch_energy_j
+        else:
+            alu_fetch_ratio = float('inf')
+
+        # Determine bottleneck
+        if alu_fetch_ratio < 1.0:
+            bottleneck = "Fetch-dominated"
+        else:
+            bottleneck = "ALU-dominated"
+
+        print(f"  {name:<20} {fetch_str:>14} {fetch_per_op_pj:>9.2f} {reuse_str:>10} {alu_fetch_ratio:>11.2f} {bottleneck:<15}")
+
+    print()
+    print("  KEY INSIGHT:")
+    print("  -----------")
+    print("    - ALU/Fetch < 1.0: Operand fetch energy EXCEEDS ALU energy (inefficient)")
+    print("    - ALU/Fetch > 1.0: ALU energy exceeds operand fetch (efficient)")
+    print()
+    print("    CPU/GPU are FETCH-DOMINATED: Most energy goes to moving data to/from registers")
+    print("    TPU/KPU are ALU-DOMINATED: Most energy goes to actual computation")
+    print()
+    print("    This is why spatial architectures achieve 10-100x better TOPS/W!")
+    print()
 
 
 # =============================================================================
@@ -1187,6 +1302,8 @@ def main():
                         help='Matrix dimension for NxN matmul (default: 4)')
     parser.add_argument('--ops', type=int, default=None,
                         help='Explicit number of MACs (overrides --size)')
+    parser.add_argument('--operand-fetch', action='store_true',
+                        help='Show operand fetch energy comparison (ALU vs operand delivery)')
 
     args = parser.parse_args()
 
@@ -1226,6 +1343,10 @@ def main():
 
     if len(results) > 1:
         print_comparison_summary(results, num_macs)
+
+    # Show operand fetch comparison if requested or always for 'all' architecture
+    if args.operand_fetch or args.arch == 'all':
+        print_operand_fetch_comparison(num_macs)
 
     print("=" * 90)
     print("  END OF WALKTHROUGH")

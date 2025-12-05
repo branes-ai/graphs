@@ -26,6 +26,13 @@ from graphs.hardware.registry import get_registry
 from graphs.hardware.technology_profile import (
     get_process_base_energy_pj,
     CIRCUIT_TYPE_MULTIPLIER,
+    ARCH_COMPARISON_8NM_X86,
+)
+from graphs.hardware.operand_fetch import (
+    CPUOperandFetchModel,
+    GPUOperandFetchModel,
+    TPUOperandFetchModel,
+    KPUOperandFetchModel,
 )
 
 
@@ -125,6 +132,62 @@ def calculate_theoretical_at_clock(profile, clock_mhz: float) -> Dict[str, float
     return profile.theoretical_peaks
 
 
+def get_operand_fetch_energy_pj(circuit_type: str, process_nm: int) -> Tuple[float, float, str]:
+    """
+    Calculate operand fetch energy for a circuit type.
+
+    Returns:
+        Tuple of (fetch_energy_pj, reuse_factor, description)
+    """
+    # Get technology profile (use 8nm baseline, will scale by process node)
+    tech_profile = ARCH_COMPARISON_8NM_X86.cpu_profile
+
+    # Map circuit types to operand fetch models
+    if circuit_type in ['x86_performance', 'x86_efficiency', 'arm_performance', 'arm_efficiency']:
+        model = CPUOperandFetchModel(tech_profile=tech_profile)
+        breakdown = model.compute_operand_fetch_energy(num_operations=1)
+        fetch_energy_pj = breakdown.energy_per_operation * 1e12
+        reuse_factor = 1.0
+        desc = "register file 2R+1W"
+
+    elif circuit_type in ['cuda_core', 'tensor_core']:
+        model = GPUOperandFetchModel(tech_profile=tech_profile)
+        breakdown = model.compute_operand_fetch_energy(num_operations=1)
+        fetch_energy_pj = breakdown.energy_per_operation * 1e12
+        reuse_factor = 1.0
+        desc = "operand collector + crossbar"
+
+    elif circuit_type == 'systolic_mac':
+        model = TPUOperandFetchModel(tech_profile=tech_profile)
+        # Systolic arrays have massive reuse (128x128 = 16K operations per tile)
+        breakdown = model.compute_operand_fetch_energy(num_operations=16384, spatial_reuse_factor=128.0)
+        fetch_energy_pj = breakdown.energy_per_operation * 1e12
+        reuse_factor = breakdown.operand_reuse_factor
+        desc = f"systolic PE-to-PE ({reuse_factor:.0f}x reuse)"
+
+    elif circuit_type == 'domain_flow':
+        model = KPUOperandFetchModel(tech_profile=tech_profile)
+        # Domain flow has moderate spatial reuse
+        breakdown = model.compute_operand_fetch_energy(num_operations=256, spatial_reuse_factor=64.0)
+        fetch_energy_pj = breakdown.energy_per_operation * 1e12
+        reuse_factor = breakdown.operand_reuse_factor
+        desc = f"domain flow ({reuse_factor:.0f}x reuse)"
+
+    else:
+        # Default to CPU-like for unknown circuit types
+        model = CPUOperandFetchModel(tech_profile=tech_profile)
+        breakdown = model.compute_operand_fetch_energy(num_operations=1)
+        fetch_energy_pj = breakdown.energy_per_operation * 1e12
+        reuse_factor = 1.0
+        desc = "register file (default)"
+
+    # Scale by process node (relative to 8nm baseline)
+    process_scale = process_nm / 8.0
+    fetch_energy_pj *= process_scale
+
+    return fetch_energy_pj, reuse_factor, desc
+
+
 def get_alu_tops_per_watt(hw_id: str, precision: str) -> Optional[Tuple[float, str]]:
     """
     Calculate theoretical ALU-only TOPS/W from first principles.
@@ -159,6 +222,47 @@ def get_alu_tops_per_watt(hw_id: str, precision: str) -> Optional[Tuple[float, s
                    f"* {prec_factor:.2f}x ({precision}) = {alu_energy_pj:.2f} pJ/MAC")
 
     return alu_tops_per_w, explanation
+
+
+def get_total_tops_per_watt(hw_id: str, precision: str) -> Optional[Tuple[float, float, float, str]]:
+    """
+    Calculate theoretical total TOPS/W including operand fetch energy.
+
+    Returns:
+        Tuple of (total_tops_per_watt, alu_energy_pj, fetch_energy_pj, explanation)
+        or None if unknown hardware
+    """
+    spec = HARDWARE_TECH_SPECS.get(hw_id)
+    if not spec:
+        return None
+
+    # Get base FP32 energy for this process node
+    base_energy_pj = get_process_base_energy_pj(spec['process_nm'])
+
+    # Apply circuit type multiplier
+    circuit_mult = CIRCUIT_TYPE_MULTIPLIER.get(spec['circuit_type'], 1.0)
+
+    # Apply precision scaling
+    prec_factor = PRECISION_ENERGY_FACTOR.get(precision, 1.0)
+
+    # ALU energy per MAC
+    alu_energy_pj = base_energy_pj * circuit_mult * prec_factor
+
+    # Operand fetch energy
+    fetch_energy_pj, reuse_factor, fetch_desc = get_operand_fetch_energy_pj(
+        spec['circuit_type'], spec['process_nm']
+    )
+
+    # Total energy = ALU + fetch
+    total_energy_pj = alu_energy_pj + fetch_energy_pj
+
+    # Convert to TOPS/W
+    total_tops_per_w = 1.0 / total_energy_pj
+
+    explanation = (f"ALU={alu_energy_pj:.2f}pJ + Fetch={fetch_energy_pj:.2f}pJ ({fetch_desc}) "
+                   f"= {total_energy_pj:.2f}pJ/MAC")
+
+    return total_tops_per_w, alu_energy_pj, fetch_energy_pj, explanation
 
 
 # Known TDP values for hardware (since not all profiles have TDP)
@@ -487,10 +591,10 @@ def show_tops_per_watt(profile, calibration, power_mode: str = None, framework: 
 
     print()
 
-    # Summary with ALU overhead analysis
+    # Summary with ALU vs Operand Fetch analysis
     if tdp_w:
-        print("Key Metrics:")
-        print("-" * 70)
+        print("Key Metrics (ALU vs Operand Fetch Energy):")
+        print("-" * 90)
 
         # Best FP32 TOPS/W
         fp32_meas = measured_peaks.get('fp32', 0)
@@ -500,11 +604,17 @@ def show_tops_per_watt(profile, calibration, power_mode: str = None, framework: 
             print(f"  FP32: {fp32_tops:.3f} TOPS @ {tdp_w}W = {fp32_tpw:.4f} TOPS/W (system)")
             if has_tech_specs:
                 alu_result = get_alu_tops_per_watt(hw_id, 'fp32')
-                if alu_result:
-                    alu_tpw, explanation = alu_result
+                total_result = get_total_tops_per_watt(hw_id, 'fp32')
+                if alu_result and total_result:
+                    alu_tpw, alu_explanation = alu_result
+                    total_tpw, alu_pj, fetch_pj, total_explanation = total_result
                     overhead = alu_tpw / fp32_tpw if fp32_tpw > 0 else 0
-                    print(f"         ALU-only: {alu_tpw:.2f} TOPS/W -> {overhead:.0f}x system overhead")
-                    print(f"         ({explanation})")
+                    total_pj = alu_pj + fetch_pj
+                    alu_pct = alu_pj / total_pj * 100 if total_pj > 0 else 0
+                    fetch_pct = fetch_pj / total_pj * 100 if total_pj > 0 else 0
+                    print(f"         Theoretical: ALU={alu_pj:.2f}pJ ({alu_pct:.0f}%) + Fetch={fetch_pj:.2f}pJ ({fetch_pct:.0f}%) = {total_pj:.2f}pJ/op")
+                    print(f"         Theoretical TOPS/W: {total_tpw:.2f} (ALU-only: {alu_tpw:.2f})")
+                    print(f"         System overhead: {overhead:.0f}x vs ALU-only (includes memory, control, etc.)")
 
         # Best FP16/BF16 TOPS/W
         fp16_meas = max(measured_peaks.get('fp16', 0), measured_peaks.get('bf16', 0))
@@ -515,10 +625,16 @@ def show_tops_per_watt(profile, calibration, power_mode: str = None, framework: 
             print(f"  {best_fp16_prec.upper()}: {fp16_tops:.3f} TOPS @ {tdp_w}W = {fp16_tpw:.4f} TOPS/W (system)")
             if has_tech_specs:
                 alu_result = get_alu_tops_per_watt(hw_id, best_fp16_prec)
-                if alu_result:
-                    alu_tpw, explanation = alu_result
+                total_result = get_total_tops_per_watt(hw_id, best_fp16_prec)
+                if alu_result and total_result:
+                    alu_tpw, _ = alu_result
+                    total_tpw, alu_pj, fetch_pj, _ = total_result
+                    total_pj = alu_pj + fetch_pj
+                    alu_pct = alu_pj / total_pj * 100 if total_pj > 0 else 0
+                    fetch_pct = fetch_pj / total_pj * 100 if total_pj > 0 else 0
                     overhead = alu_tpw / fp16_tpw if fp16_tpw > 0 else 0
-                    print(f"         ALU-only: {alu_tpw:.2f} TOPS/W -> {overhead:.0f}x system overhead")
+                    print(f"         Theoretical: ALU={alu_pj:.2f}pJ ({alu_pct:.0f}%) + Fetch={fetch_pj:.2f}pJ ({fetch_pct:.0f}%) = {total_pj:.2f}pJ/op")
+                    print(f"         Theoretical TOPS/W: {total_tpw:.2f} | System overhead: {overhead:.0f}x vs ALU-only")
 
         # Best INT8 TOPS/W
         int8_meas = measured_peaks.get('int8', 0)
@@ -528,10 +644,16 @@ def show_tops_per_watt(profile, calibration, power_mode: str = None, framework: 
             print(f"  INT8: {int8_tops:.3f} TOPS @ {tdp_w}W = {int8_tpw:.4f} TOPS/W (system)")
             if has_tech_specs:
                 alu_result = get_alu_tops_per_watt(hw_id, 'int8')
-                if alu_result:
-                    alu_tpw, explanation = alu_result
+                total_result = get_total_tops_per_watt(hw_id, 'int8')
+                if alu_result and total_result:
+                    alu_tpw, _ = alu_result
+                    total_tpw, alu_pj, fetch_pj, _ = total_result
+                    total_pj = alu_pj + fetch_pj
+                    alu_pct = alu_pj / total_pj * 100 if total_pj > 0 else 0
+                    fetch_pct = fetch_pj / total_pj * 100 if total_pj > 0 else 0
                     overhead = alu_tpw / int8_tpw if int8_tpw > 0 else 0
-                    print(f"         ALU-only: {alu_tpw:.2f} TOPS/W -> {overhead:.0f}x system overhead")
+                    print(f"         Theoretical: ALU={alu_pj:.2f}pJ ({alu_pct:.0f}%) + Fetch={fetch_pj:.2f}pJ ({fetch_pct:.0f}%) = {total_pj:.2f}pJ/op")
+                    print(f"         Theoretical TOPS/W: {total_tpw:.2f} | System overhead: {overhead:.0f}x vs ALU-only")
 
         print()
 

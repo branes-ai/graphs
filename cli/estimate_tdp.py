@@ -50,6 +50,14 @@ from graphs.hardware.technology_profile import (
     PROCESS_NODE_BASE_ENERGY_PJ,
     CIRCUIT_TYPE_MULTIPLIER,
     get_process_base_energy_pj,
+    TechnologyProfile,
+    ARCH_COMPARISON_8NM_X86,
+)
+from graphs.hardware.operand_fetch import (
+    CPUOperandFetchModel,
+    GPUOperandFetchModel,
+    TPUOperandFetchModel,
+    KPUOperandFetchModel,
 )
 
 
@@ -117,16 +125,30 @@ class TDPEstimate:
     base_energy_pj: float       # Base FP32 energy for this process node
     circuit_multiplier: float   # Circuit type energy multiplier
     precision_scale: float      # Precision energy scaling
-    energy_per_op_pj: float     # Final energy per operation
+    energy_per_op_pj: float     # Final energy per operation (ALU only)
 
-    ops_per_cycle: int          # Operations per cycle at this precision
-    ops_per_second: float       # Total ops/sec (TOPS)
+    # NEW: Operand fetch energy breakdown
+    pure_alu_energy_pj: float = 0.0         # Pure ALU circuit energy
+    operand_fetch_energy_pj: float = 0.0    # Operand fetch (reg-to-ALU) energy
+    operand_reuse_factor: float = 1.0       # Spatial reuse factor (1.0 for CPU/GPU, >1 for TPU/KPU)
+    total_energy_per_op_pj: float = 0.0     # ALU + operand fetch energy
 
-    tdp_watts: float            # Estimated TDP
+    ops_per_cycle: int = 1                  # Operations per cycle at this precision
+    ops_per_second: float = 0.0             # Total ops/sec (TOPS)
+
+    tdp_watts: float = 0.0                  # Estimated TDP
 
     # Efficiency metrics
-    tops: float                 # Tera-ops per second
-    tops_per_watt: float        # TOPS/W efficiency
+    tops: float = 0.0                       # Tera-ops per second
+    tops_per_watt: float = 0.0              # TOPS/W efficiency
+
+    # Derived property
+    @property
+    def alu_fetch_ratio(self) -> float:
+        """Ratio of ALU energy to operand fetch energy (>1 = ALU dominated = efficient)."""
+        if self.operand_fetch_energy_pj > 0:
+            return self.pure_alu_energy_pj / self.operand_fetch_energy_pj
+        return float('inf')
 
 
 def estimate_tdp(
@@ -135,6 +157,7 @@ def estimate_tdp(
     circuit_type: str,
     precision: str = 'FP32',
     frequency_ghz: Optional[float] = None,
+    include_operand_fetch: bool = True,
 ) -> TDPEstimate:
     """
     Estimate TDP for a given configuration.
@@ -145,9 +168,10 @@ def estimate_tdp(
         circuit_type: Circuit design approach (from CIRCUIT_TYPE_MULTIPLIER)
         precision: Compute precision (FP32, FP16, INT8, etc.)
         frequency_ghz: Clock frequency in GHz (defaults based on circuit type)
+        include_operand_fetch: Include operand fetch energy in TDP (default: True)
 
     Returns:
-        TDPEstimate with all derived values
+        TDPEstimate with all derived values including operand fetch breakdown
     """
     # Get base energy for process node
     base_energy_pj = get_process_base_energy_pj(process_node_nm)
@@ -166,8 +190,66 @@ def estimate_tdp(
     precision_scale = PRECISION_ENERGY_SCALE[precision]
     ops_per_cycle = PRECISION_OPS_PER_CYCLE[precision]
 
-    # Calculate energy per operation (pJ)
-    energy_per_op_pj = base_energy_pj * circuit_multiplier * precision_scale
+    # Calculate pure ALU energy per operation (pJ) - the circuit energy
+    pure_alu_energy_pj = base_energy_pj * circuit_multiplier * precision_scale
+
+    # Calculate operand fetch energy based on circuit type
+    # Use 8nm comparison profile as baseline (we scale by process node below)
+    tech_profile = ARCH_COMPARISON_8NM_X86.cpu_profile
+    operand_fetch_energy_pj = 0.0
+    operand_reuse_factor = 1.0
+
+    if include_operand_fetch:
+        # Map circuit types to operand fetch models
+        if circuit_type in ['x86_performance', 'x86_efficiency', 'arm_performance', 'arm_efficiency', 'simd_packed']:
+            # CPU-style architectures: no spatial reuse
+            model = CPUOperandFetchModel(tech_profile=tech_profile)
+            breakdown = model.compute_operand_fetch_energy(num_operations=1)
+            operand_fetch_energy_pj = breakdown.energy_per_operation * 1e12
+            operand_reuse_factor = 1.0
+
+        elif circuit_type in ['cuda_core', 'tensor_core']:
+            # GPU-style architectures: no spatial reuse (per-thread register files)
+            model = GPUOperandFetchModel(tech_profile=tech_profile)
+            breakdown = model.compute_operand_fetch_energy(num_operations=1)
+            operand_fetch_energy_pj = breakdown.energy_per_operation * 1e12
+            operand_reuse_factor = 1.0
+
+        elif circuit_type == 'systolic_mac':
+            # TPU-style systolic array: massive spatial reuse
+            model = TPUOperandFetchModel(tech_profile=tech_profile)
+            # For systolic arrays, assume 128x128 tile = 16,384 reuse factor
+            breakdown = model.compute_operand_fetch_energy(
+                num_operations=16384,
+                spatial_reuse_factor=128.0
+            )
+            operand_fetch_energy_pj = breakdown.energy_per_operation * 1e12
+            operand_reuse_factor = breakdown.operand_reuse_factor
+
+        elif circuit_type == 'domain_flow':
+            # KPU-style domain flow: moderate spatial reuse
+            model = KPUOperandFetchModel(tech_profile=tech_profile)
+            # For domain flow, assume 64x reuse (configurable)
+            breakdown = model.compute_operand_fetch_energy(
+                num_operations=256,
+                spatial_reuse_factor=64.0
+            )
+            operand_fetch_energy_pj = breakdown.energy_per_operation * 1e12
+            operand_reuse_factor = breakdown.operand_reuse_factor
+
+        else:
+            # Other circuit types: assume CPU-like operand fetch
+            model = CPUOperandFetchModel(tech_profile=tech_profile)
+            breakdown = model.compute_operand_fetch_energy(num_operations=1)
+            operand_fetch_energy_pj = breakdown.energy_per_operation * 1e12
+            operand_reuse_factor = 1.0
+
+        # Scale operand fetch energy by process node (relative to 8nm baseline)
+        process_scale = process_node_nm / 8.0
+        operand_fetch_energy_pj *= process_scale
+
+    # Total energy = ALU + operand fetch
+    total_energy_per_op_pj = pure_alu_energy_pj + operand_fetch_energy_pj
 
     # Get frequency
     if frequency_ghz is None:
@@ -178,9 +260,9 @@ def estimate_tdp(
     ops_per_second = num_alus * ops_per_cycle * frequency_ghz * 1e9  # ops/sec
     tops = ops_per_second / 1e12  # TOPS
 
-    # Calculate TDP
+    # Calculate TDP using TOTAL energy (ALU + operand fetch)
     # Power = Energy/time = energy_per_op * ops_per_second
-    energy_per_op_j = energy_per_op_pj * 1e-12  # Convert pJ to J
+    energy_per_op_j = total_energy_per_op_pj * 1e-12  # Convert pJ to J
     tdp_watts = energy_per_op_j * ops_per_second
 
     # Calculate efficiency
@@ -195,7 +277,11 @@ def estimate_tdp(
         base_energy_pj=base_energy_pj,
         circuit_multiplier=circuit_multiplier,
         precision_scale=precision_scale,
-        energy_per_op_pj=energy_per_op_pj,
+        energy_per_op_pj=pure_alu_energy_pj,  # For backward compat, this is ALU energy
+        pure_alu_energy_pj=pure_alu_energy_pj,
+        operand_fetch_energy_pj=operand_fetch_energy_pj,
+        operand_reuse_factor=operand_reuse_factor,
+        total_energy_per_op_pj=total_energy_per_op_pj,
         ops_per_cycle=ops_per_cycle,
         ops_per_second=ops_per_second,
         tdp_watts=tdp_watts,
@@ -731,9 +817,9 @@ def plot_full_matrix(
 
 def print_estimate(est: TDPEstimate):
     """Print a single TDP estimate."""
-    print("\n" + "="*60)
+    print("\n" + "="*70)
     print("TDP ESTIMATION RESULT")
-    print("="*60)
+    print("="*70)
     print(f"\nConfiguration:")
     print(f"  ALUs:           {est.num_alus:,}")
     print(f"  Process:        {est.process_node_nm}nm")
@@ -741,11 +827,22 @@ def print_estimate(est: TDPEstimate):
     print(f"  Precision:      {est.precision}")
     print(f"  Frequency:      {est.frequency_ghz:.2f} GHz")
 
-    print(f"\nEnergy Breakdown:")
+    print(f"\nALU Energy Breakdown:")
     print(f"  Base energy:    {est.base_energy_pj:.2f} pJ (from process node)")
     print(f"  x Circuit mult: {est.circuit_multiplier:.2f}x")
     print(f"  x Precision:    {est.precision_scale:.2f}x")
-    print(f"  = Energy/op:    {est.energy_per_op_pj:.3f} pJ")
+    print(f"  = ALU energy:   {est.pure_alu_energy_pj:.3f} pJ")
+
+    print(f"\nOperand Fetch Energy (register-to-ALU delivery):")
+    print(f"  Fetch energy:   {est.operand_fetch_energy_pj:.3f} pJ")
+    print(f"  Reuse factor:   {est.operand_reuse_factor:.1f}x")
+    print(f"  ALU/Fetch:      {est.alu_fetch_ratio:.2f} {'(ALU-dominated)' if est.alu_fetch_ratio > 1 else '(Fetch-dominated)'}")
+
+    print(f"\nTotal Energy per Operation:")
+    print(f"  ALU:            {est.pure_alu_energy_pj:.3f} pJ ({est.pure_alu_energy_pj/est.total_energy_per_op_pj*100:.1f}%)")
+    print(f"  Operand Fetch:  {est.operand_fetch_energy_pj:.3f} pJ ({est.operand_fetch_energy_pj/est.total_energy_per_op_pj*100:.1f}%)")
+    print(f"  -----------------------------------------")
+    print(f"  TOTAL:          {est.total_energy_per_op_pj:.3f} pJ")
 
     print(f"\nThroughput:")
     print(f"  Ops/cycle:      {est.ops_per_cycle}")
@@ -793,19 +890,24 @@ def print_process_comparison(results: Dict[int, TDPEstimate]):
 
 def print_circuit_comparison(results: Dict[str, TDPEstimate]):
     """Print circuit type comparison table."""
-    print("\n" + "="*80)
-    print("CIRCUIT TYPE COMPARISON")
-    print("="*80)
+    print("\n" + "="*110)
+    print("CIRCUIT TYPE COMPARISON (with Operand Fetch Energy)")
+    print("="*110)
     first = list(results.values())[0]
     print(f"\nALUs: {first.num_alus:,} | Process: {first.process_node_nm}nm | "
           f"Precision: {first.precision}")
     print()
-    print(f"{'Circuit':>18} {'Mult':>6} {'pJ/op':>8} {'TDP (W)':>10} "
-          f"{'TOPS':>10} {'TOPS/W':>10}")
-    print("-"*70)
-    for ct, r in sorted(results.items(), key=lambda x: x[1].circuit_multiplier, reverse=True):
-        print(f"{ct:>18} {r.circuit_multiplier:>6.2f} {r.energy_per_op_pj:>8.3f} "
-              f"{r.tdp_watts:>10.1f} {r.tops:>10.2f} {r.tops_per_watt:>10.2f}")
+    print(f"{'Circuit':>18} {'ALU(pJ)':>8} {'Fetch(pJ)':>10} {'Total(pJ)':>10} {'Reuse':>8} {'TDP (W)':>10} {'TOPS/W':>10}")
+    print("-"*90)
+    for ct, r in sorted(results.items(), key=lambda x: x[1].total_energy_per_op_pj, reverse=True):
+        reuse_str = f"{r.operand_reuse_factor:.0f}x" if r.operand_reuse_factor > 1 else "1x"
+        print(f"{ct:>18} {r.pure_alu_energy_pj:>8.3f} {r.operand_fetch_energy_pj:>10.3f} "
+              f"{r.total_energy_per_op_pj:>10.3f} {reuse_str:>8} {r.tdp_watts:>10.1f} {r.tops_per_watt:>10.2f}")
+
+    print()
+    print("KEY INSIGHT: ALU energy is similar across circuits; operand fetch makes the difference!")
+    print("  - CPU/GPU: Fetch-dominated (every op reads from register file)")
+    print("  - TPU/KPU: ALU-dominated (spatial reuse amortizes operand fetch)")
     print()
 
 
