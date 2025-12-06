@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-05] - Energy Per MAC Bounds Calibration
+
+### Changed
+
+**Energy Model Calibration** (`cli/sm_energy_breakdown.py`)
+- Recalibrated energy per MAC from 2.5 pJ to 1.65 pJ at 4nm
+- Added comprehensive energy bounds analysis in source comments
+- Three-model comparison: Component (1.15 pJ), Calibrated (1.65 pJ), External (2.5 pJ)
+
+### Key Insight: MFU Constrains Energy Model
+
+The original 2.5 pJ/MAC calibration was too high:
+- At 2.5 pJ: H100 (700W) sustains max 280 TFLOPS
+- Physics limit = 280 / 990 = 28%
+- But real MFU is 35-50% (CoreWeave achieves 49-52%)
+- Contradiction: measured efficiency cannot exceed physics limit
+
+**Corrected Analysis**:
+| Bound | Energy (pJ) | Physics Limit | Assessment |
+|-------|-------------|--------------|------------|
+| Component Model | 1.15 | 61% | Too low - missing overhead |
+| **Calibrated** | **1.65** | **43%** | Matches MFU constraint |
+| External | 2.5 | 28% | Too high - MFU exceeds |
+
+**Methodology**: Real-world MFU provides upper bound on energy:
+- If MFU is X%, physics limit must be > X%
+- Physics limit = TDP / (energy_per_mac x peak_tflops)
+- At 1.65 pJ: 700W / 1.65pJ = 424 TFLOPS = 43% of 990 TFLOPS
+- Real MFU (35-50%) fits below this ceiling with ~5-10% software overhead
+
+**Scaled Calibrated Values**:
+- 3nm: 1.4 pJ, 4nm: 1.65 pJ, 7nm: 2.3 pJ, 12nm: 3.3 pJ
+
+---
+
 ## [2025-12-04] - TDP Estimation & Model Efficiency Measurement
 
 ### Added
