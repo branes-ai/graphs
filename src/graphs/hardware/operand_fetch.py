@@ -712,6 +712,237 @@ class KPUOperandFetchModel(OperandFetchEnergyModel):
 
 
 # =============================================================================
+# TensorCore Operand Fetch Model (NVIDIA Tensor Cores)
+# =============================================================================
+
+@dataclass
+class TensorCoreOperandFetchModel(OperandFetchEnergyModel):
+    """
+    TensorCore operand fetch: Matrix fragments from register file to MMA units.
+
+    Architecture (H100-class):
+    - 4 TensorCores per SM (one per partition)
+    - Each TensorCore executes 4x4x4 MMA (64 MACs per instruction)
+    - Matrix fragments (A, B, C) stored in warp-wide registers
+    - Operand collector gathers fragments from banked register file
+
+    TensorCore vs CUDA Core Operand Delivery:
+    - CUDA: Each of 32 threads needs 2 scalar operands = 64 register reads
+    - TC: One MMA instruction needs 3 matrix fragments (A, B, C accumulators)
+    - TC fragments are larger but access pattern is more structured
+
+    Key Insight for TDP Analysis:
+    - TensorCores still use register file for operand storage
+    - Each MMA instruction requires operand collector to gather fragments
+    - This is MORE efficient than CUDA cores per-MAC, but NOT as efficient
+      as systolic arrays where operands flow between PEs
+
+    Energy Profile (per MMA instruction = 64 MACs):
+    - Register address generation: ~0.15 pJ (3 fragment addresses)
+    - Operand collector: ~0.5 pJ (gather A, B fragments)
+    - Bank arbitration: ~0.2 pJ (structured access reduces conflicts)
+    - Operand routing: ~0.3 pJ (route to TensorCore)
+    - Result routing: ~0.25 pJ (route C accumulator back)
+    - Register write: ~0.4 pJ (write C fragment)
+
+    Total per MMA: ~1.8 pJ for 64 MACs = ~0.028 pJ/MAC operand overhead
+    Compare to CUDA: ~3.0 pJ for 32 MACs = ~0.094 pJ/MAC operand overhead
+    Compare to TPU systolic: ~0.002 pJ/MAC (128x spatial reuse)
+    """
+
+    # TensorCore configuration
+    macs_per_mma: int = 64            # 4x4x4 MMA operation
+    partitions_per_sm: int = 4        # TensorCores per SM
+    fragment_size_elements: int = 16  # 4x4 matrix fragment
+
+    # Register file characteristics (shared with CUDA cores)
+    register_banks: int = 32          # Bank count for conflict modeling
+    bank_conflict_rate: float = 0.05  # Lower than CUDA due to structured access
+
+    # Derived energy values (set in __post_init__)
+    reg_addr_gen_energy_pj: float = field(init=False)
+    operand_collector_energy_pj: float = field(init=False)
+    bank_arbitration_energy_pj: float = field(init=False)
+    operand_routing_energy_pj: float = field(init=False)
+    result_routing_energy_pj: float = field(init=False)
+    register_read_energy_pj: float = field(init=False)
+    register_write_energy_pj: float = field(init=False)
+
+    def __post_init__(self):
+        tp = self.tech_profile
+        process_scale = tp.process_node_nm / 4.0  # 4nm baseline
+
+        # TensorCore has reduced overhead vs CUDA due to bulk matrix access
+        # These values match cycle_energy/gpu.py TensorCore model
+        self.reg_addr_gen_energy_pj = 0.15 * process_scale
+        self.operand_collector_energy_pj = 0.5 * process_scale
+        self.bank_arbitration_energy_pj = 0.2 * process_scale
+        self.operand_routing_energy_pj = 0.3 * process_scale
+        self.result_routing_energy_pj = 0.25 * process_scale
+
+        # Matrix register access (bulk access is more efficient)
+        self.register_read_energy_pj = tp.register_read_energy_pj * 0.4
+        self.register_write_energy_pj = tp.register_write_energy_pj * 0.4
+
+    @property
+    def architecture_name(self) -> str:
+        return "TensorCore (SIMT Matrix)"
+
+    def compute_operand_fetch_energy(
+        self,
+        num_operations: int,
+        operand_width_bytes: int = 2,  # FP16/BF16 default for TensorCores
+        spatial_reuse_factor: float = 1.0,  # No spatial reuse in TensorCores
+        execution_context: Optional[Dict] = None
+    ) -> OperandFetchBreakdown:
+        """
+        TensorCore operand fetch: Register file to MMA unit delivery.
+
+        TensorCores have NO spatial reuse - each MMA instruction independently
+        fetches its matrix fragments from the register file. The efficiency
+        comes from:
+        1. Bulk access (16 elements per fragment vs 1 for CUDA)
+        2. Structured access pattern (fewer bank conflicts)
+        3. Amortizing overhead over 64 MACs per instruction
+
+        This is fundamentally different from TPU systolic arrays where
+        weights stay in PE registers and inputs stream through spatially.
+        """
+        if execution_context is None:
+            execution_context = {}
+
+        # Number of MMA instructions needed
+        num_mma_instructions = max(1, (num_operations + self.macs_per_mma - 1)
+                                   // self.macs_per_mma)
+
+        # Per-MMA instruction overhead (convert pJ to J)
+        # Each MMA needs: 3 address generations (A, B, C fragments)
+        addr_gen_energy = num_mma_instructions * self.reg_addr_gen_energy_pj * 3 * 1e-12
+
+        # Operand collector gathers A and B fragments
+        collector_energy = num_mma_instructions * self.operand_collector_energy_pj * 1e-12
+
+        # Bank arbitration (structured access, low conflict rate)
+        arbitration_energy = num_mma_instructions * self.bank_arbitration_energy_pj * 1e-12
+
+        # Operand routing to TensorCore
+        routing_energy = num_mma_instructions * self.operand_routing_energy_pj * 1e-12
+
+        # Register file reads: A fragment + B fragment (C is read-modify-write)
+        read_energy = num_mma_instructions * self.register_read_energy_pj * 2 * 1e-12
+
+        # Result routing back to register file
+        result_routing = num_mma_instructions * self.result_routing_energy_pj * 1e-12
+
+        # Register file write: C accumulator fragment
+        write_energy = num_mma_instructions * self.register_write_energy_pj * 1e-12
+
+        # Total operands: 2 per MAC (A element, B element), but fetched in bulk
+        # We fetch 2 fragments (32 elements) per MMA for 64 MACs
+        operands_fetched = num_mma_instructions * 2 * self.fragment_size_elements
+
+        return OperandFetchBreakdown(
+            register_read_energy=read_energy + addr_gen_energy,
+            register_write_energy=write_energy + result_routing,
+            operand_collector_energy=collector_energy,
+            crossbar_routing_energy=routing_energy,
+            bank_conflict_penalty=arbitration_energy,
+            operands_from_registers=operands_fetched,
+            operands_from_forwarding=0,  # No spatial forwarding in TensorCores
+            operand_reuse_factor=1.0     # No spatial reuse
+        )
+
+    def get_energy_per_mac_pj(self, precision: str = 'FP16') -> float:
+        """
+        Get total energy per MAC including ALU and operand fetch.
+
+        This is the key metric for TDP validation:
+        energy_per_mac = ALU_energy + operand_fetch_energy
+
+        Returns energy in picojoules.
+        """
+        tp = self.tech_profile
+
+        # ALU energy: TensorCore MAC unit
+        # Use tensor_core_mac from technology profile
+        alu_energy_pj = tp.tensor_core_mac_energy_pj
+
+        # Precision scaling for ALU energy
+        precision_scale = {
+            'FP64': 4.0,    # 64-bit: 4x energy (TensorCores don't do FP64 well)
+            'FP32': 2.0,    # 32-bit: 2x energy
+            'TF32': 1.2,    # 19-bit effective
+            'BF16': 1.0,    # 16-bit: baseline
+            'FP16': 1.0,    # 16-bit: baseline
+            'FP8': 0.5,     # 8-bit: half energy
+            'INT8': 0.5,    # 8-bit: half energy
+        }.get(precision, 1.0)
+
+        alu_energy_pj = alu_energy_pj * precision_scale
+
+        # Operand fetch overhead per MAC
+        # Total overhead per MMA / MACs per MMA
+        overhead_per_mma_pj = (
+            self.reg_addr_gen_energy_pj * 3 +      # 3 fragment addresses
+            self.operand_collector_energy_pj +     # Gather fragments
+            self.bank_arbitration_energy_pj +      # Bank conflict resolution
+            self.operand_routing_energy_pj +       # Route to TensorCore
+            self.register_read_energy_pj * 2 +     # Read A, B fragments
+            self.result_routing_energy_pj +        # Route result back
+            self.register_write_energy_pj          # Write C fragment
+        )
+        fetch_energy_per_mac_pj = overhead_per_mma_pj / self.macs_per_mma
+
+        return alu_energy_pj + fetch_energy_per_mac_pj
+
+    def get_energy_breakdown_per_mac_pj(self, precision: str = 'FP16') -> Dict[str, float]:
+        """
+        Get detailed energy breakdown per MAC in picojoules.
+
+        Returns dict with:
+        - 'alu': Pure ALU/MAC circuit energy
+        - 'operand_fetch': Register reads + operand collector + routing
+        - 'result_writeback': Result routing + register write
+        - 'total': Sum of all components
+        """
+        tp = self.tech_profile
+
+        # ALU energy with precision scaling
+        precision_scale = {
+            'FP64': 4.0, 'FP32': 2.0, 'TF32': 1.2,
+            'BF16': 1.0, 'FP16': 1.0, 'FP8': 0.5, 'INT8': 0.5,
+        }.get(precision, 1.0)
+
+        alu_pj = tp.tensor_core_mac_energy_pj * precision_scale
+
+        # Operand fetch components (per MMA, then divide by MACs)
+        fetch_per_mma = (
+            self.reg_addr_gen_energy_pj * 3 +
+            self.operand_collector_energy_pj +
+            self.bank_arbitration_energy_pj +
+            self.operand_routing_energy_pj +
+            self.register_read_energy_pj * 2
+        )
+        fetch_pj = fetch_per_mma / self.macs_per_mma
+
+        # Writeback components (per MMA, then divide by MACs)
+        writeback_per_mma = (
+            self.result_routing_energy_pj +
+            self.register_write_energy_pj
+        )
+        writeback_pj = writeback_per_mma / self.macs_per_mma
+
+        total_pj = alu_pj + fetch_pj + writeback_pj
+
+        return {
+            'alu': alu_pj,
+            'operand_fetch': fetch_pj,
+            'result_writeback': writeback_pj,
+            'total': total_pj,
+        }
+
+
+# =============================================================================
 # Factory Function
 # =============================================================================
 
@@ -740,13 +971,15 @@ def create_operand_fetch_model(
         return CPUOperandFetchModel(tech_profile=tech_profile, **kwargs)
     elif arch_lower == 'gpu':
         return GPUOperandFetchModel(tech_profile=tech_profile, **kwargs)
+    elif arch_lower in ('tensorcore', 'tensor_core', 'tc'):
+        return TensorCoreOperandFetchModel(tech_profile=tech_profile, **kwargs)
     elif arch_lower == 'tpu':
         return TPUOperandFetchModel(tech_profile=tech_profile, **kwargs)
     elif arch_lower == 'kpu':
         return KPUOperandFetchModel(tech_profile=tech_profile, **kwargs)
     else:
         raise ValueError(f"Unknown architecture: {architecture}. "
-                         f"Supported: cpu, gpu, tpu, kpu")
+                         f"Supported: cpu, gpu, tensorcore, tpu, kpu")
 
 
 # =============================================================================
