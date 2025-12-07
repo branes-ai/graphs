@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-06] - TDP Model Validation & TOPS-Based Visualization
+
+### Changed
+
+**TDP Visualization** (`cli/estimate_tdp.py`)
+- Changed X-axis from "Number of ALUs" to "Peak Throughput (TOPS)" across all plots
+- Simplified 2x3 matrix to focused 2x2 matrix with user-meaningful metrics
+- Plots now show: TDP breakdown, TDP by circuit type, TOPS/W efficiency, Infrastructure overhead
+- Added H100 reference line (1980 TFLOPS FP32) for comparison
+- Generated precision-specific plots for FP32, FP16, BF16, and INT8
+
+**Self-Documenting Code** (`src/graphs/hardware/soc_infrastructure.py`)
+- Spelled out architecture acronyms: GPC (Graphics Processing Cluster), TPC (Texture Processing Cluster), SM (Streaming Multiprocessor), MXU (Matrix Multiply Unit), CCX (Core Complex), CCD (Core Chiplet Die), LLC (Last Level Cache), PE (Processing Element), ICI (Inter-Chip Interconnect)
+- Added `EMPIRICAL_COMPUTE_FRACTION` dictionary with calibration targets from real hardware
+
+### Added
+
+**TDP Model vs Reality Analysis** (`docs/analysis/TDP_MODEL_VS_REALITY_RCA.md`)
+- Root cause analysis comparing model predictions to NVIDIA Blackwell B200 and Google TPU v7
+- Analysis of peak theoretical vs sustained real-world performance
+- Documented 7.5x gap between model TDP predictions and published specs
+- Key finding: Real-world MFU is 35-45%, reducing effective gap to ~3x
+- Empirical data from arXiv microbenchmark study (96% GEMM utilization)
+- Recommendations for model improvements
+
+### Key Findings
+
+**Published Peak vs Sustained Performance:**
+| Chip | Published Peak | Sustained (40% MFU) | Our Model | Gap |
+|------|----------------|---------------------|-----------|-----|
+| B200 FP16 | 2,250 TFLOPS | ~900 TFLOPS | 2,250 TFLOPS | - |
+| B200 TDP | 1,000 W | 1,000 W | 7,479 W | 7.5x |
+| TPU v7 FP8 | 4,614 TFLOPS | ~1,850 TFLOPS | 4,614 TFLOPS | - |
+| TPU v7 TDP | 600 W | 600 W | 4,382 W | 7.3x |
+
+**Root Causes of Model Over-Prediction:**
+1. Energy per op 6x too high (0.55 pJ vs 0.09 pJ implied from specs)
+2. SRAM scales linearly but real chips use hierarchical caches
+3. Infrastructure overhead doesn't capture scale efficiency
+4. Idle/leakage power too pessimistic (missing power gating)
+
+**Mitigating Factor - Vendor Specs Are Optimistic:**
+- 96% utilization achieved only in synthetic GEMM microbenchmarks
+- Real LLM training achieves 35-45% MFU
+- Wide execution overhead (registers, warp control, coherence) is significant
+- Accounting for realistic MFU reduces gap from 7.5x to ~3x
+
+---
+
 ## [2025-12-05] - Energy Per MAC Bounds Calibration
 
 ### Changed
