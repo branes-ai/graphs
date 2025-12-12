@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-11] - Tile Reuse Framework - Memory-Constrained Blocking
+
+### Added
+
+**TileSizeOptimizer** (`src/graphs/research/tiling/tile_optimizer.py`)
+- Memory-constrained tile size optimization
+- Determines when blocking is required based on working set vs cache capacity
+- Hierarchical blocking scheme generation (L1, L2, L3 tiles)
+- Loop order aware optimization (output/weight/input stationary)
+
+**Integrated Analysis Function**
+- `analyze_with_memory_constraints()` - combines memory constraints, tile selection, and reuse statistics
+- Shows why blocking is needed at each level
+- Displays selected tile sizes and reuse factors
+
+### Key Concepts
+
+**2D Tile Representation** (from previous session):
+- A_tile: (Tm, Tk) - input activation tile
+- B_tile: (Tk, Tn) - weight tile
+- C_tile: (Tm, Tn) - output/accumulator tile
+- The (Tm, Tk, Tn) notation describes loop bounds, not a single 3D tile
+
+**Blocking Decision**:
+```
+working_set = A_tile + B_tile + C_tile
+if working_set > cache_capacity:
+    blocking is REQUIRED
+```
+
+### Usage
+
+```bash
+PYTHONPATH=src:$PYTHONPATH python3 -c "
+from graphs.research.tiling import analyze_with_memory_constraints, LoopOrder
+analyze_with_memory_constraints(M=4096, K=2048, N=4096, loop_order=LoopOrder.MNK)
+"
+```
+
+### Status
+
+Work in progress - output format needs refinement to show:
+- Per-level reuse tracking (L1 vs L2 vs L3)
+- Data movement between levels
+- Energy impact of blocking decisions
+
+---
+
 ## [2025-12-06] - TDP Model Validation & TOPS-Based Visualization
 
 ### Changed
