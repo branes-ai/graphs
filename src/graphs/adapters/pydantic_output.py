@@ -172,7 +172,8 @@ def convert_roofline_to_pydantic(
 
     # Use average arithmetic intensity from roofline points if available
     if hasattr(roofline, 'roofline_points') and roofline.roofline_points:
-        avg_ai = sum(p[0] for p in roofline.roofline_points) / len(roofline.roofline_points)
+        # RooflinePoint is a dataclass with arithmetic_intensity attribute
+        avg_ai = sum(p.arithmetic_intensity for p in roofline.roofline_points) / len(roofline.roofline_points)
     elif roofline.latencies:
         avg_ai = sum(lat.arithmetic_intensity for lat in roofline.latencies) / len(roofline.latencies)
     else:
@@ -358,11 +359,27 @@ def convert_to_pydantic(
                     else:
                         bn = Bottleneck.BALANCED
 
+                    # Get operation types from SubgraphDescriptor
+                    if hasattr(sg, 'operation_types') and sg.operation_types:
+                        op_types = [op.value if hasattr(op, 'value') else str(op) for op in sg.operation_types]
+                    elif hasattr(sg, 'fusion_pattern'):
+                        op_types = [sg.fusion_pattern]
+                    else:
+                        op_types = ["unknown"]
+
+                    # Get flops and memory from SubgraphDescriptor
+                    flops = sg.total_flops if hasattr(sg, 'total_flops') else 0
+                    bytes_transferred = (
+                        (sg.total_input_bytes + sg.total_output_bytes)
+                        if hasattr(sg, 'total_input_bytes')
+                        else 0
+                    )
+
                     subgraphs.append(SubgraphBreakdown(
                         subgraph_id=f"sg_{i}",
-                        op_types=sg.fused_ops if hasattr(sg, 'fused_ops') else [sg.dominant_op],
-                        flops=sg.flops,
-                        bytes_transferred=sg.memory_traffic,
+                        op_types=op_types,
+                        flops=flops,
+                        bytes_transferred=bytes_transferred,
                         latency_ms=lat.actual_latency * 1000,
                         energy_mj=eng.total_energy_j * 1000,
                         bottleneck=bn,
