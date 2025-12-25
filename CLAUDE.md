@@ -424,6 +424,43 @@ For TFLite/TOSA:
 iree-import-tflite model.tflite -o model_tosa.mlir
 ```
 
+## Related Repositories
+
+This project is part of a multi-repo architecture:
+
+```
+embodied-schemas (shared dependency)
+       ↑              ↑
+       │              │
+   graphs (this repo)      Embodied-AI-Architect
+```
+
+### embodied-schemas (`../embodied-schemas`)
+Shared Pydantic schemas and factual data catalog. This repo imports:
+- `HardwareEntry`, `ChipEntry` - Hardware platform specifications
+- `ModelEntry` - ML model specifications
+- Constraint tier definitions (latency, power classes)
+
+**Usage:**
+```python
+from embodied_schemas import HardwareEntry, Registry
+from embodied_schemas.hardware import HardwareCapability
+```
+
+### Embodied-AI-Architect (`../Embodied-AI-Architect`)
+LLM orchestration, agentic tools, CLI. Uses schemas and this repo's analysis tools.
+
+### Data Split with embodied-schemas
+| This Repo (graphs) | embodied-schemas |
+|-------------------|------------------|
+| `ops_per_clock` - Roofline params | Vendor specs (memory, TDP) |
+| `theoretical_peaks` - Computed ceilings | Physical specs (weight, dimensions) |
+| Calibration data - Measured performance | Environmental specs (temp, IP rating) |
+| Operation profiles - GEMM/CONV benchmarks | Interface specs (CSI, USB, PCIe) |
+| Efficiency curves | Power profiles and modes |
+
+The `hardware_registry/` directory in this repo contains analysis-specific data that references base hardware specs in `embodied-schemas` via `base_id`.
+
 ## Important Notes
 
 - **Shape Propagation**: Always run `ShapeProp` after FX tracing to populate tensor metadata
