@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-24] - Verdict-First Output for Agentic Workflows
+
+### Added
+
+**Pydantic Schemas** (`embodied-schemas/src/embodied_schemas/analysis.py`)
+- 9 new Pydantic models for graph analysis results
+- `GraphAnalysisResult` - Top-level verdict-first output
+- `RooflineResult`, `EnergyResult`, `MemoryResult` - Component breakdowns
+- `ComparisonResult`, `BatchSweepResult` - Multi-analysis results
+- `Bottleneck` enum (compute-bound, memory-bound, balanced)
+- 20 tests for schema validation
+
+**Pydantic Output Adapters** (`src/graphs/adapters/`)
+- NEW package: `adapters/` for format conversion
+- `convert_to_pydantic()` - Main entry point for verdict-first output
+- `convert_roofline_to_pydantic()`, `convert_energy_to_pydantic()`, `convert_memory_to_pydantic()`
+- `make_verdict()` - Determine PASS/FAIL with margin calculation
+- 19 tests for adapter validation
+
+**Verdict-First Tools** (`embodied-ai-architect/.../graphs_tools.py`)
+- `check_latency(model, hardware, latency_target_ms)` - Latency constraint check
+- `check_power(model, hardware, power_budget_w)` - Power budget check
+- `check_memory(model, hardware, memory_budget_mb)` - Memory constraint check
+- `full_analysis(model, hardware, constraint_metric, threshold)` - Comprehensive analysis
+- 27 integration tests across 4 hardware targets, 3 models
+
+### Changed
+
+**pyproject.toml**
+- Added optional `[schemas]` dependency for embodied-schemas integration
+
+### Purpose
+
+The verdict-first pattern enables LLMs to trust tool outputs without domain reasoning:
+```json
+{
+  "verdict": "PASS",
+  "confidence": "high",
+  "summary": "Latency of 0.4 meets 10.0 target with 96% headroom",
+  "constraint": {"metric": "latency", "threshold": 10.0, "actual": 0.43, "margin_pct": 95.7},
+  "suggestions": ["Increase batch size to amortize static energy"]
+}
+```
+
+### Cross-Repository Changes
+
+| Repository | Changes |
+|------------|---------|
+| embodied-schemas | +analysis.py (9 schemas), +test_analysis_schemas.py (20 tests) |
+| graphs | +adapters/ package, +test_pydantic_adapter.py (19 tests) |
+| embodied-ai-architect | +4 verdict-first tools, +test_graphs_integration.py (27 tests) |
+
+---
+
 ## [2025-12-11] - Tile Reuse Framework - Memory-Constrained Blocking
 
 ### Added
