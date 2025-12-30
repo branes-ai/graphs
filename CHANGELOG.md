@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-12-29] - CLI Verdict-First Integration
+
+### Added
+
+**CLI Constraint Checking** (`cli/analyze_comprehensive.py`)
+- `--check-latency MS` - Check if latency meets target (milliseconds)
+- `--check-power WATTS` - Check if average power meets budget (watts)
+- `--check-memory MB` - Check if peak memory meets limit (megabytes)
+- `--check-energy MJ` - Check if energy per inference meets limit (millijoules)
+- `--format verdict` - Explicit verdict-first JSON output format
+- Auto-switches to verdict format when constraint is specified
+- Graceful fallback when embodied-schemas not installed
+
+**CLI Tests** (`tests/cli/test_verdict_output.py`)
+- 11 new tests for verdict-first CLI output
+- Coverage: PASS/FAIL verdicts, all constraint types, margin calculation
+
+**Documentation** (`cli/README.md`)
+- New "Verdict-First Output (Agentic Workflows)" section
+- Usage examples, output format, Python API examples
+
+### Usage
+
+```bash
+# Check latency constraint
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --check-latency 10.0
+
+# Check power budget
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano --check-power 15.0
+```
+
+### Session Document
+
+See `docs/sessions/2025-12-29_cli_verdict_first_integration.md` for details.
+
+---
+
 ## [2025-12-24] - Verdict-First Output for Agentic Workflows
 
 ### Added
