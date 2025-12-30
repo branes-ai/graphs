@@ -19,22 +19,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Auto-switches to verdict format when constraint is specified
 - Graceful fallback when embodied-schemas not installed
 
-**CLI Tests** (`tests/cli/test_verdict_output.py`)
-- 11 new tests for verdict-first CLI output
-- Coverage: PASS/FAIL verdicts, all constraint types, margin calculation
+**Batch Sweep Verdict Output** (`cli/analyze_batch.py`)
+- Same constraint checking options as analyze_comprehensive.py
+- PASS/PARTIAL/FAIL verdicts for batch sweeps
+- Identifies which batch sizes meet constraints
+- Provides recommendations for latency, throughput, and energy efficiency
+- Groups results by model+hardware with per-group recommendations
+
+**CLI Tests**
+- `tests/cli/test_verdict_output.py` - 11 tests for comprehensive verdict output
+- `tests/cli/test_batch_verdict_output.py` - 11 tests for batch sweep verdict output
+- Coverage: PASS/PARTIAL/FAIL verdicts, all constraint types, margin calculation
 
 **Documentation** (`cli/README.md`)
 - New "Verdict-First Output (Agentic Workflows)" section
+- Batch Sweep Verdict Output subsection with examples
 - Usage examples, output format, Python API examples
 
 ### Usage
 
 ```bash
-# Check latency constraint
+# Check latency constraint (single analysis)
 ./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --check-latency 10.0
 
 # Check power budget
 ./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano --check-power 15.0
+
+# Batch sweep with constraint (find optimal batch sizes)
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+    --batch-size 1 2 4 8 16 32 --check-latency 5.0
 ```
 
 ### Session Document

@@ -477,6 +477,14 @@ Batch size impact analysis using the unified framework.
 # Quiet mode (no progress output)
 ./cli/analyze_batch.py --model resnet18 --hardware H100 \
   --batch-size 1 4 16 32 --output results.csv --quiet
+
+# Verdict-first: Find batch sizes meeting latency constraint
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+  --batch-size 1 2 4 8 16 32 --check-latency 5.0
+
+# Verdict-first: Find batch sizes meeting memory constraint
+./cli/analyze_batch.py --model resnet50 --hardware Jetson-Orin-AGX \
+  --batch-size 1 2 4 8 --check-memory 1000
 ```
 
 **Features:**
@@ -484,7 +492,8 @@ Batch size impact analysis using the unified framework.
 - **Model Comparison**: Compare different models with same hardware/batch sizes
 - **Hardware Comparison**: Compare different hardware with same model/batch sizes
 - **Intelligent Insights**: Automatic analysis and recommendations
-- **Multiple Formats**: CSV, JSON, text, markdown
+- **Multiple Formats**: CSV, JSON, text, markdown, verdict
+- **Verdict-First Output**: Constraint checking for agentic batch optimization
 - **Simplified Code**: 42% less code than v1 (329 lines vs 572 lines)
 
 **Key Insights Provided:**
@@ -1132,6 +1141,56 @@ print(f"Verdict: {pydantic_result.verdict}")
 print(f"Margin: {pydantic_result.constraint_margin_pct:.1f}%")
 ```
 
+### Batch Sweep Verdict Output
+
+**NEW (2025-12-29)**: The `analyze_batch.py` tool now supports verdict-first output for batch size optimization.
+
+```bash
+# Find batch sizes that meet latency constraint
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+    --batch-size 1 2 4 8 16 32 --check-latency 5.0
+
+# Find batch sizes that meet memory constraint
+./cli/analyze_batch.py --model resnet50 --hardware Jetson-Orin-AGX \
+    --batch-size 1 2 4 8 --check-memory 1000
+```
+
+**Batch Verdict Output Format:**
+
+```json
+{
+  "verdict": "PARTIAL",
+  "confidence": "high",
+  "summary": "4 of 6 configurations meet latency target of 5.0",
+  "constraint": { "metric": "latency", "threshold": 5.0 },
+  "passing_configs": [
+    { "batch_size": 1, "latency_ms": 0.43, "margin_pct": 91.4, ... },
+    { "batch_size": 4, "latency_ms": 0.67, "margin_pct": 86.6, ... }
+  ],
+  "failing_configs": [
+    { "batch_size": 32, "latency_ms": 5.8, "margin_pct": -16.0, ... }
+  ],
+  "group_summaries": [{
+    "model": "ResNet-18",
+    "hardware": "H100-SXM5-80GB",
+    "recommendations": {
+      "for_latency": { "batch_size": 1 },
+      "for_throughput": { "batch_size": 16 },
+      "for_energy_efficiency": { "batch_size": 16 }
+    }
+  }],
+  "suggestions": ["Maximum batch size meeting constraint: 16"]
+}
+```
+
+**Verdict Types for Batch Sweeps:**
+
+| Verdict | Meaning |
+|---------|---------|
+| **PASS** | All tested batch sizes meet the constraint |
+| **PARTIAL** | Some batch sizes meet the constraint |
+| **FAIL** | No batch sizes meet the constraint |
+
 ### Integration with embodied-ai-architect
 
 The verdict-first output is designed for use with the embodied-ai-architect agentic tools:
@@ -1148,7 +1207,8 @@ result = check_latency("resnet18", "H100", latency_target_ms=10.0)
 
 - **Adapter Implementation**: `src/graphs/adapters/pydantic_output.py`
 - **Pydantic Schemas**: `embodied-schemas/src/embodied_schemas/analysis.py`
-- **Tests**: `tests/cli/test_verdict_output.py` (11 tests)
+- **Comprehensive Tests**: `tests/cli/test_verdict_output.py` (11 tests)
+- **Batch Sweep Tests**: `tests/cli/test_batch_verdict_output.py` (11 tests)
 - **Integration Tests**: `tests/test_pydantic_adapter.py` (19 tests)
 
 ---
