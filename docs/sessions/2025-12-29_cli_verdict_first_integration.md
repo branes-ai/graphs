@@ -12,6 +12,7 @@
 2. Enable constraint checking (latency, power, memory, energy) from command line
 3. Create tests for the new CLI functionality
 4. Update CLI documentation
+5. Add batch sweep verdict output with PASS/PARTIAL/FAIL verdicts
 
 ---
 
@@ -38,7 +39,32 @@ Added verdict-first output capabilities with constraint checking:
 - Graceful fallback to built-in JSON generation when embodied-schemas is not available
 - Integrates with existing `UnifiedAnalyzer` infrastructure
 
-### New Test Suite
+### Batch Sweep Verdict Output
+
+**File**: `cli/analyze_batch.py`
+
+Added verdict-first output for batch size optimization:
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--check-latency MS` | Check if latency meets target | `--check-latency 5.0` |
+| `--check-power WATTS` | Check if power meets budget | `--check-power 15.0` |
+| `--check-memory MB` | Check if memory meets limit | `--check-memory 1000` |
+| `--check-energy MJ` | Check if energy meets limit | `--check-energy 100` |
+| `--format verdict` | Explicit verdict format | `--format verdict` |
+
+**Verdict Types for Batch Sweeps:**
+- **PASS**: All tested batch sizes meet the constraint
+- **PARTIAL**: Some batch sizes meet the constraint
+- **FAIL**: No batch sizes meet the constraint
+
+**Key Features:**
+- Groups results by model+hardware
+- Provides recommendations for latency, throughput, and energy efficiency
+- Suggests maximum batch size meeting constraint
+- Calculates margin percentage for each configuration
+
+### New Test Suites
 
 **File**: `tests/cli/test_verdict_output.py`
 
@@ -49,7 +75,17 @@ Created 11 comprehensive tests covering:
 | `TestVerdictOutput` | 9 | PASS/FAIL verdicts, all constraint types, output validation |
 | `TestEdgeCases` | 2 | Constraint priority, margin calculation accuracy |
 
-**Test Results**: 11/11 PASSED
+**File**: `tests/cli/test_batch_verdict_output.py`
+
+Created 11 batch sweep tests covering:
+
+| Test Class | Tests | Coverage |
+|------------|-------|----------|
+| `TestBatchVerdictOutput` | 7 | PASS/PARTIAL/FAIL verdicts, recommendations |
+| `TestBatchVerdictFormat` | 2 | Explicit format, all metrics present |
+| `TestBatchVerdictEdgeCases` | 2 | Single batch size, margin calculation |
+
+**Test Results**: 22/22 PASSED (11 comprehensive + 11 batch)
 
 ### Documentation Updates
 
@@ -122,6 +158,19 @@ for hw in H100 A100 Jetson-Orin-AGX KPU-T256; do
 done
 ```
 
+### Batch Size Optimization (Agentic Use Case)
+
+```bash
+# Find optimal batch sizes that meet latency constraint
+./cli/analyze_batch.py --model resnet18 --hardware H100 \
+    --batch-size 1 2 4 8 16 32 --check-latency 5.0
+
+# Output includes:
+# - Which batch sizes pass/fail
+# - Recommendations for latency vs throughput vs energy
+# - Maximum batch size meeting constraint
+```
+
 ---
 
 ## Test Results Summary
@@ -130,7 +179,8 @@ done
 |------------|-------|--------|
 | `tests/test_pydantic_adapter.py` | 19 | PASS |
 | `tests/cli/test_verdict_output.py` | 11 | PASS |
-| **Total** | **30** | **ALL PASS** |
+| `tests/cli/test_batch_verdict_output.py` | 11 | PASS |
+| **Total** | **41** | **ALL PASS** |
 
 ---
 
@@ -140,14 +190,17 @@ done
 
 | File | Description |
 |------|-------------|
-| `tests/cli/test_verdict_output.py` | 11 CLI tests for verdict output |
+| `tests/cli/test_verdict_output.py` | 11 CLI tests for comprehensive verdict output |
+| `tests/cli/test_batch_verdict_output.py` | 11 CLI tests for batch sweep verdict output |
 
 ### Modified
 
 | File | Changes |
 |------|---------|
 | `cli/analyze_comprehensive.py` | +120 lines: constraint options, verdict format handling, fallback generation |
-| `cli/README.md` | +140 lines: Verdict-First Output section with examples and documentation |
+| `cli/analyze_batch.py` | +200 lines: batch verdict generation, constraint options, recommendations |
+| `cli/README.md` | +190 lines: Verdict-First Output section, Batch Sweep subsection |
+| `CHANGELOG.md` | Updated with batch sweep verdict output |
 
 ---
 
