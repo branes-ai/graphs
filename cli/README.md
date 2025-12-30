@@ -416,7 +416,8 @@ Deep-dive comprehensive analysis using the unified framework.
 - **Energy Analysis**: Three-component model (compute, memory, static)
 - **Memory Analysis**: Peak memory, activation/weight breakdown, hardware fit
 - **Executive Summary**: Quick overview with recommendations
-- **Multiple Formats**: text, JSON, CSV, markdown (auto-detected from extension)
+- **Multiple Formats**: text, JSON, CSV, markdown, verdict (auto-detected from extension)
+- **Verdict-First Output**: Constraint checking for agentic workflows
 - **Selective Sections**: Choose which sections to include
 - **Simplified Code**: 73% less code than v1 (262 lines vs 962 lines)
 
@@ -1007,6 +1008,148 @@ static_energy = idle_power_per_unit × allocated × latency
 - **Design Document**: `docs/designs/functional_energy_composition.md`
 - **Validation Tests**: `validation/analysis/test_phase1_mapper_integration.py`
 - **Enhanced Reporting**: `validation/analysis/test_power_management_reporting.py`
+
+---
+
+## Verdict-First Output (Agentic Workflows)
+
+**NEW (2025-12-29)**: Verdict-first JSON output for constraint checking in agentic workflows.
+
+### Overview
+
+The verdict-first pattern enables LLMs and agents to trust tool outputs directly without domain reasoning. Results start with a clear PASS/FAIL verdict, making them suitable for automated decision-making.
+
+### Basic Usage
+
+```bash
+# Check latency constraint (10ms target)
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --check-latency 10.0
+
+# Check power budget (15W limit)
+./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano --check-power 15.0
+
+# Check memory constraint (500MB limit)
+./cli/analyze_comprehensive.py --model resnet50 --hardware KPU-T256 --check-memory 500
+
+# Check energy per inference (100mJ limit)
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware TPU-v4 --check-energy 100
+
+# Explicit verdict format (without constraint)
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --format verdict
+```
+
+### Output Format
+
+The verdict-first output is JSON with these key fields:
+
+```json
+{
+  "verdict": "PASS",
+  "confidence": "high",
+  "summary": "Latency 0.43ms meets 10.0ms target (96% headroom)",
+  "model_id": "resnet18",
+  "hardware_id": "H100-SXM5-80GB",
+  "batch_size": 1,
+  "precision": "fp32",
+  "latency_ms": 0.43,
+  "throughput_fps": 2316.3,
+  "energy_per_inference_mj": 97.1,
+  "peak_memory_mb": 6.1,
+  "constraint": {
+    "metric": "latency",
+    "threshold": 10.0,
+    "actual": 0.43,
+    "margin_pct": 95.7
+  },
+  "roofline": { ... },
+  "energy": { ... },
+  "memory": { ... },
+  "suggestions": ["Increase batch size to amortize static energy"]
+}
+```
+
+### Verdict Types
+
+| Verdict | Meaning |
+|---------|---------|
+| **PASS** | Constraint is satisfied (margin_pct > 0) |
+| **FAIL** | Constraint is violated (margin_pct < 0) |
+| **UNKNOWN** | Could not determine (missing data) |
+
+### Constraint Options
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--check-latency MS` | Check if latency < target | `--check-latency 10.0` |
+| `--check-power WATTS` | Check if avg power < budget | `--check-power 15.0` |
+| `--check-memory MB` | Check if peak memory < limit | `--check-memory 500` |
+| `--check-energy MJ` | Check if energy/inference < limit | `--check-energy 100` |
+
+### Use Cases
+
+**1. Hardware Selection (LLM-Driven)**
+```bash
+# Agent can iterate through hardware options
+for hw in H100 A100 Jetson-Orin-AGX KPU-T256; do
+    ./cli/analyze_comprehensive.py --model resnet50 --hardware $hw \
+        --check-latency 5.0 --quiet
+done
+```
+
+**2. Model Validation**
+```bash
+# Check if model fits deployment constraints
+./cli/analyze_comprehensive.py --model efficientnet_b0 --hardware Jetson-Orin-Nano \
+    --check-latency 33 --check-memory 512 --check-power 10
+```
+
+**3. Save to File**
+```bash
+# Save verdict output to JSON file
+./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
+    --check-latency 10.0 --output verdict_result.json --format verdict
+```
+
+### Python API
+
+For programmatic access, use the adapter directly:
+
+```python
+from graphs.analysis.unified_analyzer import UnifiedAnalyzer
+from graphs.adapters import convert_to_pydantic
+
+analyzer = UnifiedAnalyzer()
+result = analyzer.analyze_model('resnet18', 'H100')
+
+# Convert to verdict-first Pydantic model
+pydantic_result = convert_to_pydantic(
+    result,
+    constraint_metric='latency',
+    constraint_threshold=10.0
+)
+
+print(f"Verdict: {pydantic_result.verdict}")
+print(f"Margin: {pydantic_result.constraint_margin_pct:.1f}%")
+```
+
+### Integration with embodied-ai-architect
+
+The verdict-first output is designed for use with the embodied-ai-architect agentic tools:
+
+```python
+from embodied_ai_architect.llm.graphs_tools import check_latency
+
+# Agent can call this directly
+result = check_latency("resnet18", "H100", latency_target_ms=10.0)
+# Returns: {"verdict": "PASS", "margin_pct": 95.7, ...}
+```
+
+### Related Files
+
+- **Adapter Implementation**: `src/graphs/adapters/pydantic_output.py`
+- **Pydantic Schemas**: `embodied-schemas/src/embodied_schemas/analysis.py`
+- **Tests**: `tests/cli/test_verdict_output.py` (11 tests)
+- **Integration Tests**: `tests/test_pydantic_adapter.py` (19 tests)
 
 ---
 

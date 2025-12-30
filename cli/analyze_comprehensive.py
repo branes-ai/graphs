@@ -11,6 +11,7 @@ Provides complete performance analysis using all Phase 3 analyzers:
 Supports:
 - Single model, single hardware (comprehensive analysis)
 - Multiple output formats (text, JSON, markdown, CSV)
+- Verdict-first output for agentic workflows (constraint checking)
 
 Usage:
     # Comprehensive single-model analysis
@@ -31,9 +32,22 @@ Usage:
     # Different precision
     ./cli/analyze_comprehensive.py --model resnet50 --hardware Jetson-Orin-AGX \
         --precision fp16 --batch-size 32
+
+    # Verdict-first output with constraint checking
+    ./cli/analyze_comprehensive.py --model resnet18 --hardware H100 \
+        --check-latency 10.0 --format verdict
+
+    # Check power budget
+    ./cli/analyze_comprehensive.py --model mobilenet_v2 --hardware Jetson-Orin-Nano \
+        --check-power 15.0 --format verdict
+
+    # Check memory constraint
+    ./cli/analyze_comprehensive.py --model resnet50 --hardware KPU-T256 \
+        --check-memory 500 --format verdict
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -44,6 +58,119 @@ sys.path.insert(0, str(repo_root))
 from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.reporting import ReportGenerator
 from graphs.hardware.resource_model import Precision
+
+
+def generate_verdict_output(result, constraint_metric=None, constraint_threshold=None):
+    """Generate verdict-first JSON output for agentic workflows.
+
+    Args:
+        result: UnifiedAnalysisResult from analyzer
+        constraint_metric: Optional metric to check ('latency', 'power', 'memory', 'energy')
+        constraint_threshold: Required threshold for the constraint metric
+
+    Returns:
+        JSON string with verdict-first output
+    """
+    try:
+        from graphs.adapters import convert_to_pydantic
+        pydantic_result = convert_to_pydantic(
+            result,
+            constraint_metric=constraint_metric,
+            constraint_threshold=constraint_threshold
+        )
+        return pydantic_result.model_dump_json(indent=2)
+    except ImportError:
+        # Fallback if embodied-schemas not installed
+        return _generate_verdict_fallback(result, constraint_metric, constraint_threshold)
+
+
+def _generate_verdict_fallback(result, constraint_metric=None, constraint_threshold=None):
+    """Fallback verdict generation without embodied-schemas dependency."""
+    verdict = "UNKNOWN"
+    margin_pct = None
+    constraint_actual = None
+    summary = f"Analysis of {result.display_name} on {result.hardware_display_name}"
+    suggestions = []
+
+    if constraint_metric and constraint_threshold is not None:
+        if constraint_metric == 'latency':
+            constraint_actual = result.total_latency_ms
+            if constraint_actual <= constraint_threshold:
+                verdict = "PASS"
+                margin_pct = ((constraint_threshold - constraint_actual) / constraint_threshold) * 100
+                summary = f"Latency {constraint_actual:.2f}ms meets {constraint_threshold:.1f}ms target ({margin_pct:.0f}% headroom)"
+            else:
+                verdict = "FAIL"
+                margin_pct = -((constraint_actual - constraint_threshold) / constraint_threshold) * 100
+                summary = f"Latency {constraint_actual:.2f}ms exceeds {constraint_threshold:.1f}ms target by {abs(margin_pct):.0f}%"
+                suggestions.append("Consider faster hardware or smaller model")
+        elif constraint_metric == 'power':
+            constraint_actual = result.energy_report.average_power_w
+            if constraint_actual <= constraint_threshold:
+                verdict = "PASS"
+                margin_pct = ((constraint_threshold - constraint_actual) / constraint_threshold) * 100
+                summary = f"Power {constraint_actual:.1f}W meets {constraint_threshold:.1f}W budget ({margin_pct:.0f}% headroom)"
+            else:
+                verdict = "FAIL"
+                margin_pct = -((constraint_actual - constraint_threshold) / constraint_threshold) * 100
+                summary = f"Power {constraint_actual:.1f}W exceeds {constraint_threshold:.1f}W budget by {abs(margin_pct):.0f}%"
+                suggestions.append("Consider lower-power hardware or power gating")
+        elif constraint_metric == 'memory':
+            constraint_actual = result.peak_memory_mb
+            if constraint_actual <= constraint_threshold:
+                verdict = "PASS"
+                margin_pct = ((constraint_threshold - constraint_actual) / constraint_threshold) * 100
+                summary = f"Memory {constraint_actual:.1f}MB meets {constraint_threshold:.1f}MB limit ({margin_pct:.0f}% headroom)"
+            else:
+                verdict = "FAIL"
+                margin_pct = -((constraint_actual - constraint_threshold) / constraint_threshold) * 100
+                summary = f"Memory {constraint_actual:.1f}MB exceeds {constraint_threshold:.1f}MB limit by {abs(margin_pct):.0f}%"
+                suggestions.append("Consider gradient checkpointing or smaller batch size")
+        elif constraint_metric == 'energy':
+            constraint_actual = result.energy_per_inference_mj
+            if constraint_actual <= constraint_threshold:
+                verdict = "PASS"
+                margin_pct = ((constraint_threshold - constraint_actual) / constraint_threshold) * 100
+                summary = f"Energy {constraint_actual:.1f}mJ meets {constraint_threshold:.1f}mJ limit ({margin_pct:.0f}% headroom)"
+            else:
+                verdict = "FAIL"
+                margin_pct = -((constraint_actual - constraint_threshold) / constraint_threshold) * 100
+                summary = f"Energy {constraint_actual:.1f}mJ exceeds {constraint_threshold:.1f}mJ limit by {abs(margin_pct):.0f}%"
+                suggestions.append("Consider more efficient hardware or quantization")
+    else:
+        verdict = "PASS"
+        summary = (
+            f"{result.display_name} on {result.hardware_display_name}: "
+            f"{result.total_latency_ms:.2f}ms latency, "
+            f"{result.energy_per_inference_mj:.1f}mJ/inference"
+        )
+
+    output = {
+        "verdict": verdict,
+        "confidence": "medium",
+        "summary": summary,
+        "model_id": result.model_name,
+        "hardware_id": result.hardware_name,
+        "batch_size": result.batch_size,
+        "precision": result.precision.name.lower(),
+        "latency_ms": result.total_latency_ms,
+        "throughput_fps": result.throughput_fps,
+        "energy_per_inference_mj": result.energy_per_inference_mj,
+        "peak_memory_mb": result.peak_memory_mb,
+    }
+
+    if constraint_metric:
+        output["constraint"] = {
+            "metric": constraint_metric,
+            "threshold": constraint_threshold,
+            "actual": constraint_actual,
+            "margin_pct": margin_pct,
+        }
+
+    if suggestions:
+        output["suggestions"] = suggestions
+
+    return json.dumps(output, indent=2)
 
 
 # =============================================================================
@@ -80,6 +207,18 @@ Examples:
 
   # Disable hardware mapping (fallback to thread-based estimation)
   %(prog)s --model resnet18 --hardware Jetson-Orin-AGX --no-hardware-mapping
+
+  # Verdict-first output (for agentic workflows)
+  %(prog)s --model resnet18 --hardware H100 --check-latency 10.0
+
+  # Check power budget
+  %(prog)s --model mobilenet_v2 --hardware Jetson-Orin-Nano --check-power 15.0
+
+  # Check memory constraint
+  %(prog)s --model resnet50 --hardware KPU-T256 --check-memory 500
+
+  # Verdict format with explicit format flag
+  %(prog)s --model resnet18 --hardware H100 --format verdict
 
 Supported models:
   ResNet: resnet18, resnet34, resnet50, resnet101, resnet152
@@ -131,12 +270,22 @@ Supported hardware:
     parser.add_argument('--no-hardware-mapping', action='store_true',
                        help='Disable hardware mapper integration (for comparison with old method)')
 
+    # Constraint checking (verdict-first output)
+    parser.add_argument('--check-latency', type=float, metavar='MS',
+                       help='Check if latency is under target (in milliseconds)')
+    parser.add_argument('--check-power', type=float, metavar='WATTS',
+                       help='Check if average power is under budget (in watts)')
+    parser.add_argument('--check-memory', type=float, metavar='MB',
+                       help='Check if peak memory is under limit (in megabytes)')
+    parser.add_argument('--check-energy', type=float, metavar='MJ',
+                       help='Check if energy per inference is under limit (in millijoules)')
+
     # Output configuration
     parser.add_argument('--output', '-o', type=str,
                        help='Output file path (format auto-detected from extension)')
     parser.add_argument('--format', '-f',
-                       choices=['text', 'json', 'csv', 'markdown', 'html'],
-                       help='Output format (auto-detected if --output provided)')
+                       choices=['text', 'json', 'csv', 'markdown', 'html', 'verdict'],
+                       help='Output format (verdict: verdict-first JSON for agentic workflows)')
 
     # Report options
     parser.add_argument('--sections', nargs='+',
@@ -214,6 +363,22 @@ Supported hardware:
         traceback.print_exc()
         return 1
 
+    # Determine constraint (if any)
+    constraint_metric = None
+    constraint_threshold = None
+    if args.check_latency is not None:
+        constraint_metric = 'latency'
+        constraint_threshold = args.check_latency
+    elif args.check_power is not None:
+        constraint_metric = 'power'
+        constraint_threshold = args.check_power
+    elif args.check_memory is not None:
+        constraint_metric = 'memory'
+        constraint_threshold = args.check_memory
+    elif args.check_energy is not None:
+        constraint_metric = 'energy'
+        constraint_threshold = args.check_energy
+
     # Generate report
     try:
         generator = ReportGenerator(style=args.style)
@@ -236,7 +401,11 @@ Supported hardware:
                 format_type = format_map.get(ext, 'text')
 
             # Generate and save report
-            if format_type == 'json':
+            if format_type == 'verdict':
+                content = generate_verdict_output(result, constraint_metric, constraint_threshold)
+                with open(args.output, 'w') as f:
+                    f.write(content)
+            elif format_type == 'json':
                 generator.save_report(result, args.output, format='json')
             elif format_type == 'csv':
                 content = generator.generate_csv_report(
@@ -277,7 +446,13 @@ Supported hardware:
             # Print to stdout
             format_type = args.format or 'text'
 
-            if format_type == 'json':
+            # Auto-switch to verdict format if constraint is specified
+            if constraint_metric and format_type == 'text':
+                format_type = 'verdict'
+
+            if format_type == 'verdict':
+                print(generate_verdict_output(result, constraint_metric, constraint_threshold))
+            elif format_type == 'json':
                 print(generator.generate_json_report(result))
             elif format_type == 'csv':
                 print(generator.generate_csv_report(
