@@ -85,7 +85,12 @@ def generate_verdict_output(result, constraint_metric=None, constraint_threshold
 
 
 def _generate_verdict_fallback(result, constraint_metric=None, constraint_threshold=None):
-    """Fallback verdict generation without embodied-schemas dependency."""
+    """Fallback verdict generation without embodied-schemas dependency.
+
+    Output schema matches the Pydantic adapter for consistency:
+    - Flat constraint keys: constraint_metric, constraint_threshold, etc.
+    - Breakdown sections: roofline, energy, memory
+    """
     verdict = "UNKNOWN"
     margin_pct = None
     constraint_actual = None
@@ -145,6 +150,33 @@ def _generate_verdict_fallback(result, constraint_metric=None, constraint_thresh
             f"{result.energy_per_inference_mj:.1f}mJ/inference"
         )
 
+    # Build roofline breakdown
+    roofline_report = result.roofline_report
+    roofline = {
+        "bottleneck": roofline_report.bottleneck if roofline_report else "unknown",
+        "utilization_pct": roofline_report.utilization * 100 if roofline_report else 0.0,
+        "arithmetic_intensity": roofline_report.arithmetic_intensity if roofline_report else 0.0,
+        "peak_gflops": roofline_report.peak_gflops if roofline_report else 0.0,
+        "achieved_gflops": roofline_report.achieved_gflops if roofline_report else 0.0,
+    }
+
+    # Build energy breakdown
+    energy_report = result.energy_report
+    energy = {
+        "compute_energy_mj": energy_report.compute_energy_j * 1000 if energy_report else 0.0,
+        "memory_energy_mj": energy_report.memory_energy_j * 1000 if energy_report else 0.0,
+        "static_energy_mj": energy_report.static_energy_j * 1000 if energy_report else 0.0,
+        "total_energy_mj": energy_report.total_energy_j * 1000 if energy_report else 0.0,
+    }
+
+    # Build memory breakdown
+    memory_report = result.memory_report
+    memory = {
+        "peak_memory_mb": result.peak_memory_mb,
+        "activation_memory_mb": memory_report.peak_activation_memory_bytes / (1024 * 1024) if memory_report else 0.0,
+        "weight_memory_mb": memory_report.total_weight_memory_bytes / (1024 * 1024) if memory_report else 0.0,
+    }
+
     output = {
         "verdict": verdict,
         "confidence": "medium",
@@ -157,15 +189,18 @@ def _generate_verdict_fallback(result, constraint_metric=None, constraint_thresh
         "throughput_fps": result.throughput_fps,
         "energy_per_inference_mj": result.energy_per_inference_mj,
         "peak_memory_mb": result.peak_memory_mb,
+        # Breakdown sections
+        "roofline": roofline,
+        "energy": energy,
+        "memory": memory,
     }
 
+    # Flat constraint keys (matching Pydantic adapter schema)
     if constraint_metric:
-        output["constraint"] = {
-            "metric": constraint_metric,
-            "threshold": constraint_threshold,
-            "actual": constraint_actual,
-            "margin_pct": margin_pct,
-        }
+        output["constraint_metric"] = constraint_metric
+        output["constraint_threshold"] = constraint_threshold
+        output["constraint_actual"] = constraint_actual
+        output["constraint_margin_pct"] = margin_pct
 
     if suggestions:
         output["suggestions"] = suggestions
