@@ -1,26 +1,34 @@
 #!/usr/bin/env python
 """
-Benchmark Sweep CLI Tool
+Benchmark Sweep CLI Tool - Self-Organizing Hardware Calibration
 
-Comprehensive benchmarking tool that collects empirical performance data
-across three layers (micro-kernels, proxy workloads, full models) and stores
-results in a normalized SQLite database for agentic tool queries.
+Comprehensive benchmarking tool that:
+1. Auto-detects hardware and software stack (NO user-provided IDs)
+2. Collects empirical performance data across multiple layers
+3. Stores results in append-only, versioned database
+4. Enables post-silicon dynamics tracking
 
 Usage:
-    # Quick micro-kernel sweep (10 minutes)
-    ./cli/benchmark_sweep.py --layers micro --quick
+    # Run calibration (hardware auto-detected)
+    ./cli/benchmark_sweep.py
 
-    # Full sweep with all layers (2+ hours)
+    # Quick calibration with force (skip preflight checks)
+    ./cli/benchmark_sweep.py --quick --force
+
+    # Run all benchmark layers
     ./cli/benchmark_sweep.py --layers micro,proxy,models
 
-    # GPU calibration with multiple precisions
-    ./cli/benchmark_sweep.py --hardware-id h100_sxm5 --precisions fp32,fp16,int8
-
-    # Import existing calibrations into database
-    ./cli/benchmark_sweep.py --import-registry
+    # View database summary
+    ./cli/benchmark_sweep.py --summary
 
     # Query for similar hardware
     ./cli/benchmark_sweep.py --find-similar --target-gops 100 --target-bw 200
+
+    # Check for regressions
+    ./cli/benchmark_sweep.py --detect-regressions
+
+    # Show efficiency trajectory for current hardware
+    ./cli/benchmark_sweep.py --show-trajectory
 
 Layers:
     micro:  BLAS + STREAM micro-kernels (10-30 min)
@@ -28,22 +36,26 @@ Layers:
     models: Full model benchmarks - ResNet18, MobileNetV2 (30+ min)
 
 Output:
-    Results are stored in SQLite database (default: calibrations.db)
-    with normalized schema for fast queries and similarity matching.
+    Results are stored in append-only SQLite database with complete
+    provenance (hardware fingerprint, software stack, timestamp).
+    Every run creates a NEW record - no updates, no overwrites.
 """
 
 import argparse
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from graphs.hardware.calibration.auto_detect import (
+    CalibrationContext, HardwareIdentity, SoftwareStack, detect_all
+)
 from graphs.hardware.calibration.calibration_db import (
-    CalibrationDB, CalibrationPoint, HypotheticalArchitecture
+    CalibrationDB, CalibrationRun, RegressionAlert
 )
 
 
@@ -52,13 +64,13 @@ from graphs.hardware.calibration.calibration_db import (
 # =============================================================================
 
 def run_micro_kernel_layer(
-    hardware_id: str,
+    context: CalibrationContext,
     precisions: List[str],
     device: str,
     quick: bool = False,
     force: bool = False,
     db: Optional[CalibrationDB] = None
-) -> List[CalibrationPoint]:
+) -> List[CalibrationRun]:
     """
     Run micro-kernel benchmarks (BLAS + STREAM).
 
@@ -68,35 +80,37 @@ def run_micro_kernel_layer(
     - Multi-precision performance (FP32, FP16, INT8, etc.)
 
     Returns:
-        List of CalibrationPoint objects with results.
+        List of CalibrationRun objects with results.
     """
-    from graphs.hardware.calibration.calibrator import calibrate_hardware, select_framework
+    from graphs.hardware.calibration.calibrator import calibrate_hardware
 
     print()
-    print("=" * 80)
+    print("=" * 70)
     print("LAYER 1: Micro-Kernel Benchmarks")
-    print("=" * 80)
+    print("=" * 70)
     print()
 
-    # Use hardware_id as the name (spec lookup disabled due to schema issues)
-    # TODO: Re-enable when hardware_registry schema is updated
-    hardware_spec = None
-    hardware_name = hardware_id
-    vendor = _detect_vendor(hardware_id)
-    theoretical_peaks = {}
-    peak_bandwidth = 100.0  # Default estimate (will be measured)
-    peak_gflops = 100.0     # Default estimate (will be measured)
+    hw = context.hardware
+    sw = context.software
 
-    print(f"Hardware: {hardware_name}" + (f" ({vendor})" if vendor != "Unknown" else ""))
-    print(f"Device:   {device.upper()}")
+    print(f"Hardware: {hw.cpu.model}")
+    print(f"HW Fingerprint: {hw.fingerprint}")
+    print(f"SW Fingerprint: {sw.fingerprint}")
+    print(f"Device: {device.upper()}")
     print(f"Precisions: {', '.join(precisions)}")
-    print(f"Note: Using measured peaks (empirical calibration)")
     print()
+
+    # Default theoretical peaks (will be measured empirically)
+    theoretical_peaks = {}
+    peak_bandwidth = 100.0
+    peak_gflops = 100.0
+
+    runs = []
 
     # Run calibration
     try:
         calibration = calibrate_hardware(
-            hardware_name=hardware_name,
+            hardware_name=hw.cpu.model,
             theoretical_peak_gflops=peak_gflops,
             theoretical_bandwidth_gbps=peak_bandwidth,
             theoretical_peaks=theoretical_peaks,
@@ -106,53 +120,81 @@ def run_micro_kernel_layer(
             skip_preflight=force,
         )
 
-        # Convert to CalibrationPoints
-        points = []
-        device_type = (hardware_spec.device_type if hardware_spec else None) or ('gpu' if device == 'cuda' else 'cpu')
+        # Extract STREAM results
+        stream_results = {
+            'copy_gbps': 0.0,
+            'scale_gbps': 0.0,
+            'add_gbps': 0.0,
+            'triad_gbps': 0.0,
+            'stream_best_gbps': calibration.measured_bandwidth_gbps,
+        }
 
-        # Extract BLAS results
         for op_key, op_cal in calibration.operation_profiles.items():
-            if 'blas' in op_cal.operation_type:
-                if op_cal.precision_results:
-                    for prec, result in op_cal.precision_results.items():
-                        if result.supported and result.measured_gops:
-                            point = CalibrationPoint(
-                                hardware_id=hardware_id,
-                                vendor=vendor,
-                                architecture=_detect_architecture(hardware_id),
-                                device_type=device_type,
-                                precision=prec,
-                                power_mode=_get_power_mode(calibration),
-                                clock_mhz=_get_clock_mhz(calibration),
-                                gemm_peak_gops=result.measured_gops,
-                                gemm_efficiency=result.efficiency or 0.0,
-                                bandwidth_gbps=calibration.measured_bandwidth_gbps,
-                                bandwidth_efficiency=calibration.bandwidth_efficiency,
-                                theoretical_peak_gops=theoretical_peaks.get(prec, peak_gflops),
-                                theoretical_bandwidth_gbps=peak_bandwidth,
-                                arithmetic_intensity_transition=(
-                                    theoretical_peaks.get(prec, peak_gflops) / peak_bandwidth
-                                    if peak_bandwidth > 0 else 0.0
-                                ),
-                                blas1_gops=_get_blas_level_gops(calibration, 1, prec),
-                                blas2_gops=_get_blas_level_gops(calibration, 2, prec),
-                                blas3_gops=_get_blas_level_gops(calibration, 3, prec),
-                                calibration_date=calibration.metadata.calibration_date,
-                                framework=calibration.metadata.framework,
-                                framework_version=(
-                                    calibration.metadata.numpy_version or
-                                    calibration.metadata.pytorch_version or ""
-                                ),
-                            )
-                            points.append(point)
+            if 'stream' in op_cal.operation_type:
+                kernel = op_cal.extra_params.get('kernel', '')
+                bw = op_cal.achieved_bandwidth_gbps or 0
+                if kernel == 'copy':
+                    stream_results['copy_gbps'] = max(stream_results['copy_gbps'], bw)
+                elif kernel == 'scale':
+                    stream_results['scale_gbps'] = max(stream_results['scale_gbps'], bw)
+                elif kernel == 'add':
+                    stream_results['add_gbps'] = max(stream_results['add_gbps'], bw)
+                elif kernel == 'triad':
+                    stream_results['triad_gbps'] = max(stream_results['triad_gbps'], bw)
 
-                            # Add to database
-                            if db:
-                                db.add_calibration(point)
+        # Extract BLAS results per precision
+        for precision in precisions:
+            blas_results = {
+                'blas1_gops': 0.0,
+                'blas2_gops': 0.0,
+                'blas3_gops': 0.0,
+            }
+
+            for op_key, op_cal in calibration.operation_profiles.items():
+                if 'blas' in op_cal.operation_type:
+                    blas_level = op_cal.extra_params.get('blas_level', 0)
+
+                    # Check precision results
+                    if op_cal.precision_results:
+                        prec_result = op_cal.precision_results.get(precision)
+                        if prec_result and prec_result.supported and prec_result.measured_gops:
+                            gops = prec_result.measured_gops
+                            if blas_level == 1:
+                                blas_results['blas1_gops'] = max(blas_results['blas1_gops'], gops)
+                            elif blas_level == 2:
+                                blas_results['blas2_gops'] = max(blas_results['blas2_gops'], gops)
+                            elif blas_level == 3:
+                                blas_results['blas3_gops'] = max(blas_results['blas3_gops'], gops)
+
+            # Create CalibrationRun for this precision
+            run = CalibrationRun.from_context_and_results(
+                context=context,
+                precision=precision,
+                device=device,
+                stream_results=stream_results,
+                blas_results=blas_results,
+                theoretical_peak=calibration.theoretical_peak_gflops,
+                preflight_passed=calibration.metadata.preflight.passed if calibration.metadata.preflight else True,
+                forced=force,
+                notes=f"Quick={quick}" if quick else "",
+            )
+
+            runs.append(run)
+
+            # Add to database
+            if db:
+                db.add_run(run)
 
         print()
-        print(f"Micro-kernel layer complete: {len(points)} calibration points collected")
-        return points
+        print(f"Micro-kernel layer complete: {len(runs)} calibration runs recorded")
+
+        # Show summary
+        for run in runs:
+            print(f"  {run.precision}: {run.peak_measured_gops:.1f} GOPS, "
+                  f"{run.stream_best_gbps:.1f} GB/s, "
+                  f"{run.efficiency*100:.1f}% efficiency")
+
+        return runs
 
     except Exception as e:
         print(f"[!] Error in micro-kernel layer: {e}")
@@ -162,7 +204,7 @@ def run_micro_kernel_layer(
 
 
 def run_proxy_workload_layer(
-    hardware_id: str,
+    context: CalibrationContext,
     device: str,
     quick: bool = False,
     db: Optional[CalibrationDB] = None
@@ -170,32 +212,24 @@ def run_proxy_workload_layer(
     """
     Run proxy workload benchmarks (MLP sweep).
 
-    This layer measures real-world performance on small neural networks
-    with varying configurations to capture:
-    - Batch size scaling
-    - Memory hierarchy effects (L1/L2/L3/DRAM)
-    - Efficiency factor calibration
-
     Returns:
         Dictionary with summary statistics.
     """
     print()
-    print("=" * 80)
+    print("=" * 70)
     print("LAYER 2: Proxy Workload Benchmarks")
-    print("=" * 80)
+    print("=" * 70)
     print()
 
     try:
-        # Import MLP sweep functionality
         sys.path.insert(0, str(Path(__file__).parent.parent / "validation" / "empirical"))
         from sweep_mlp import run_sweep, QUICK_SWEEP, FULL_SWEEP
 
         sweep_params = QUICK_SWEEP if quick else FULL_SWEEP
 
-        # Run the sweep
         output_dir = Path(__file__).parent.parent / "results" / "proxy_workloads"
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"mlp_sweep_{hardware_id}_{device}.csv"
+        output_file = output_dir / f"mlp_sweep_{context.hardware.fingerprint}_{device}.csv"
 
         results = run_sweep(
             sweep_params=sweep_params,
@@ -204,18 +238,12 @@ def run_proxy_workload_layer(
         )
 
         if results:
-            # Compute summary statistics
             errors = [r['time_error_pct'] for r in results]
-            empirical_times = [r['empirical_time_ms'] for r in results]
-            analytical_times = [r['analytical_time_ms'] for r in results]
-
             summary = {
                 'num_configs': len(results),
                 'mape': sum(errors) / len(errors),
                 'min_error': min(errors),
                 'max_error': max(errors),
-                'mean_empirical_ms': sum(empirical_times) / len(empirical_times),
-                'mean_analytical_ms': sum(analytical_times) / len(analytical_times),
             }
 
             print()
@@ -228,7 +256,6 @@ def run_proxy_workload_layer(
 
     except ImportError as e:
         print(f"[!] Proxy workload layer requires sweep_mlp: {e}")
-        print("    Run from repo root or check PYTHONPATH")
     except Exception as e:
         print(f"[!] Error in proxy workload layer: {e}")
         import traceback
@@ -238,7 +265,7 @@ def run_proxy_workload_layer(
 
 
 def run_full_model_layer(
-    hardware_id: str,
+    context: CalibrationContext,
     device: str,
     batch_sizes: List[int],
     db: Optional[CalibrationDB] = None
@@ -246,32 +273,25 @@ def run_full_model_layer(
     """
     Run full model benchmarks (ResNet18, MobileNetV2, etc.).
 
-    This layer measures end-to-end performance on production models
-    to validate analytical estimates against real execution.
-
     Returns:
         Dictionary of {model_name: {batch_size: latency_ms}}.
     """
     import torch
-    import torch.nn as nn
 
     print()
-    print("=" * 80)
+    print("=" * 70)
     print("LAYER 3: Full Model Benchmarks")
-    print("=" * 80)
+    print("=" * 70)
     print()
 
     results = {}
 
-    # Check for torchvision
     try:
         import torchvision.models as models
-        TORCHVISION_AVAILABLE = True
     except ImportError:
         print("[!] torchvision not available. Skipping full model layer.")
         return {}
 
-    # Models to benchmark
     model_configs = [
         ('resnet18', lambda: models.resnet18(weights=None), (3, 224, 224)),
         ('mobilenet_v2', lambda: models.mobilenet_v2(weights=None), (3, 224, 224)),
@@ -289,7 +309,6 @@ def run_full_model_layer(
             for batch_size in batch_sizes:
                 input_tensor = torch.randn(batch_size, *input_shape).to(device)
 
-                # Warmup
                 with torch.no_grad():
                     for _ in range(5):
                         _ = model(input_tensor)
@@ -297,7 +316,6 @@ def run_full_model_layer(
                 if device == 'cuda':
                     torch.cuda.synchronize()
 
-                # Benchmark
                 times = []
                 with torch.no_grad():
                     for _ in range(20):
@@ -324,87 +342,95 @@ def run_full_model_layer(
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# ANALYSIS FUNCTIONS
 # =============================================================================
 
-def _detect_vendor(hardware_id: str) -> str:
-    """Detect vendor from hardware ID."""
-    id_lower = hardware_id.lower()
-    if 'intel' in id_lower or 'i7' in id_lower or 'i9' in id_lower or 'xeon' in id_lower:
-        return 'Intel'
-    elif 'amd' in id_lower or 'ryzen' in id_lower or 'epyc' in id_lower:
-        return 'AMD'
-    elif 'nvidia' in id_lower or 'h100' in id_lower or 'a100' in id_lower or 'jetson' in id_lower:
-        return 'NVIDIA'
-    elif 'ampere' in id_lower:
-        return 'Ampere Computing'
-    elif 'qualcomm' in id_lower:
-        return 'Qualcomm'
-    elif 'arm' in id_lower or 'mali' in id_lower:
-        return 'ARM'
-    elif 'google' in id_lower or 'tpu' in id_lower:
-        return 'Google'
-    elif 'hailo' in id_lower:
-        return 'Hailo'
-    return 'Unknown'
+def show_trajectory(db: CalibrationDB, hardware_fingerprint: str, precision: str = "fp32"):
+    """Show efficiency trajectory for hardware."""
+    trajectory = db.get_trajectory(hardware_fingerprint, precision)
+
+    if not trajectory:
+        print(f"No calibration history for hardware {hardware_fingerprint}")
+        return
+
+    print()
+    print("=" * 70)
+    print(f"EFFICIENCY TRAJECTORY: {hardware_fingerprint[:8]}...")
+    print("=" * 70)
+    print()
+
+    print(f"{'Date':<20} {'SW Stack':<12} {'GOPS':<12} {'BW (GB/s)':<12} {'Efficiency':<10}")
+    print("-" * 70)
+
+    for run in trajectory:
+        date = run.timestamp[:10]
+        sw = run.software_fingerprint[:8]
+        print(f"{date:<20} {sw:<12} {run.peak_measured_gops:>10.1f}  {run.stream_best_gbps:>10.1f}  {run.efficiency*100:>8.1f}%")
+
+    # Show improvement rate
+    rate = db.get_improvement_rate(hardware_fingerprint, precision)
+    if rate:
+        print()
+        print(f"Improvement rate: {rate:+.1f}% per month")
+
+    # Show time to 90% efficiency
+    time_to_90 = db.get_time_to_milestone(hardware_fingerprint, 0.9, precision)
+    if time_to_90:
+        print(f"Time to 90% efficiency: {time_to_90.days} days")
+    else:
+        latest = trajectory[-1] if trajectory else None
+        if latest and latest.efficiency < 0.9:
+            print(f"Current efficiency: {latest.efficiency*100:.1f}% (90% not yet reached)")
 
 
-def _detect_architecture(hardware_id: str) -> str:
-    """Detect architecture from hardware ID."""
-    id_lower = hardware_id.lower()
-    if 'h100' in id_lower:
-        return 'hopper'
-    elif 'a100' in id_lower:
-        return 'ampere'
-    elif 'v100' in id_lower:
-        return 'volta'
-    elif 'jetson' in id_lower and 'orin' in id_lower:
-        return 'ampere'
-    elif '12700' in id_lower or '12th' in id_lower:
-        return 'alder_lake'
-    elif 'ryzen' in id_lower:
-        return 'zen4' if '8' in id_lower else 'zen3'
-    elif 'xeon' in id_lower:
-        return 'sapphire_rapids'
-    return 'unknown'
+def show_regressions(db: CalibrationDB, threshold: float = 5.0):
+    """Show detected regressions."""
+    alerts = db.detect_regressions(threshold)
+
+    print()
+    print("=" * 70)
+    print(f"REGRESSION DETECTION (threshold: {threshold}%)")
+    print("=" * 70)
+    print()
+
+    if not alerts:
+        print("No regressions detected.")
+        return
+
+    for alert in alerts:
+        print(alert.summary())
+        print()
 
 
-def _get_power_mode(calibration) -> str:
-    """Extract power mode from calibration."""
-    if calibration.metadata.gpu_clock and calibration.metadata.gpu_clock.power_mode_name:
-        return calibration.metadata.gpu_clock.power_mode_name
-    elif calibration.metadata.cpu_clock and calibration.metadata.cpu_clock.governor:
-        return calibration.metadata.cpu_clock.governor
-    return "default"
+def find_similar_hardware(
+    db: CalibrationDB,
+    target_gops: float,
+    target_bw: float,
+    device: str = "cpu",
+    n: int = 5
+):
+    """Find and display similar hardware."""
+    similar = db.find_comparable(target_gops, target_bw, device=device, n=n)
 
+    print()
+    print("=" * 70)
+    print("SIMILAR HARDWARE SEARCH RESULTS")
+    print("=" * 70)
+    print()
+    print(f"Target: {target_gops:.1f} GOPS, {target_bw:.1f} GB/s")
+    print()
 
-def _get_clock_mhz(calibration) -> int:
-    """Extract clock MHz from calibration."""
-    if calibration.metadata.gpu_clock and calibration.metadata.gpu_clock.sm_clock_mhz:
-        return calibration.metadata.gpu_clock.sm_clock_mhz
-    elif calibration.metadata.cpu_clock and calibration.metadata.cpu_clock.current_freq_mhz:
-        return int(calibration.metadata.cpu_clock.current_freq_mhz)
-    return 0
+    if not similar:
+        print("No similar hardware found in database.")
+        print("Run benchmark sweeps to populate the database.")
+        return
 
+    print(f"{'Rank':<6} {'HW Fingerprint':<18} {'CPU Model':<30} {'Sim':<8} {'GOPS':<10} {'BW':<10}")
+    print("-" * 90)
 
-def _get_blas_level_gops(calibration, level: int, precision: str) -> float:
-    """Extract BLAS level GOPS from calibration."""
-    best_gops = 0.0
-    level_ops = {
-        1: ['dot', 'axpy'],
-        2: ['gemv'],
-        3: ['gemm'],
-    }
-
-    for op_key, op_cal in calibration.operation_profiles.items():
-        blas_level = op_cal.extra_params.get('blas_level', 0)
-        if blas_level == level:
-            if op_cal.precision_results:
-                result = op_cal.precision_results.get(precision)
-                if result and result.supported and result.measured_gops:
-                    best_gops = max(best_gops, result.measured_gops)
-
-    return best_gops
+    for i, (run, similarity) in enumerate(similar, 1):
+        cpu_short = run.cpu_model[:28] if len(run.cpu_model) > 28 else run.cpu_model
+        print(f"{i:<6} {run.hardware_fingerprint:<18} {cpu_short:<30} {similarity:>6.3f}  {run.peak_measured_gops:>8.1f}  {run.stream_best_gbps:>8.1f}")
 
 
 def print_summary_table(db: CalibrationDB):
@@ -412,18 +438,23 @@ def print_summary_table(db: CalibrationDB):
     summary = db.get_summary()
 
     print()
-    print("=" * 80)
+    print("=" * 70)
     print("CALIBRATION DATABASE SUMMARY")
-    print("=" * 80)
+    print("=" * 70)
     print()
-    print(f"Total calibrations:  {summary['total_calibrations']}")
+    print(f"Total runs:          {summary['total_runs']}")
     print(f"Unique hardware:     {summary['unique_hardware']}")
+    print(f"Unique SW stacks:    {summary['unique_software']}")
+
+    if summary.get('date_range'):
+        print(f"Date range:          {summary['date_range'].get('first', 'N/A')[:10]} to {summary['date_range'].get('last', 'N/A')[:10]}")
+
     print()
 
-    if summary['by_device_type']:
-        print("By device type:")
-        for device_type, count in sorted(summary['by_device_type'].items()):
-            print(f"  {device_type:15s} {count:5d}")
+    if summary['by_device']:
+        print("By device:")
+        for device, count in sorted(summary['by_device'].items()):
+            print(f"  {device:15s} {count:5d}")
         print()
 
     if summary['by_precision']:
@@ -432,55 +463,10 @@ def print_summary_table(db: CalibrationDB):
             print(f"  {prec:15s} {count:5d}")
         print()
 
-    if summary['by_vendor']:
-        print("By vendor:")
-        for vendor, count in sorted(summary['by_vendor'].items()):
+    if summary['by_cpu_vendor']:
+        print("By CPU vendor:")
+        for vendor, count in sorted(summary['by_cpu_vendor'].items()):
             print(f"  {vendor:15s} {count:5d}")
-
-
-def find_similar_hardware(
-    db: CalibrationDB,
-    target_gops: float,
-    target_bw: float,
-    target_tdp: float = 0.0,
-    device_type: Optional[str] = None,
-    n: int = 5
-):
-    """Find and display similar hardware."""
-    target = HypotheticalArchitecture(
-        peak_gops=target_gops,
-        bandwidth_gbps=target_bw,
-        tdp_watts=target_tdp,
-        device_type=device_type or "",
-    )
-
-    similar = db.find_comparable(target, n=n)
-
-    print()
-    print("=" * 80)
-    print("SIMILAR HARDWARE SEARCH RESULTS")
-    print("=" * 80)
-    print()
-    print(f"Target: {target_gops:.1f} GOPS, {target_bw:.1f} GB/s" +
-          (f", {target_tdp:.0f}W" if target_tdp > 0 else ""))
-    print()
-
-    if not similar:
-        print("No similar hardware found in database.")
-        print("Run benchmark sweeps to populate the database.")
-        return
-
-    print(f"{'Rank':<6} {'Hardware ID':<35} {'Similarity':<12} {'GOPS':<10} {'BW (GB/s)':<10} {'Eff':<8}")
-    print("-" * 85)
-
-    for i, (cal, similarity) in enumerate(similar, 1):
-        print(f"{i:<6} {cal.hardware_id:<35} {similarity:>10.3f}  {cal.gemm_peak_gops:>8.1f}  {cal.bandwidth_gbps:>8.1f}  {cal.gemm_efficiency:>6.1%}")
-
-    # Show efficiency estimate
-    mean_eff, std_eff, sources = db.get_efficiency_estimate(target, n_samples=n)
-    print()
-    print(f"Estimated efficiency factor: {mean_eff:.2f} +/- {std_eff:.2f}")
-    print(f"Based on: {', '.join(sources[:3])}{'...' if len(sources) > 3 else ''}")
 
 
 # =============================================================================
@@ -489,46 +475,46 @@ def find_similar_hardware(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Benchmark Sweep CLI - Collect and query hardware calibration data",
+        description="Benchmark Sweep CLI - Self-Organizing Hardware Calibration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
 
-    # Hardware specification
-    parser.add_argument("--hardware-id", type=str,
-                       help="Hardware ID from database (e.g., intel_12th_gen_intelr_coretm_i7_12700k)")
+    # Benchmark options (NO --hardware-id!)
     parser.add_argument("--device", type=str, choices=['cpu', 'cuda'], default='cpu',
                        help="Device type (default: cpu)")
-
-    # Benchmark layers
     parser.add_argument("--layers", type=str, default="micro",
                        help="Comma-separated layers to run: micro,proxy,models (default: micro)")
     parser.add_argument("--quick", action="store_true",
                        help="Run quick benchmarks (fewer sizes/configs)")
+    parser.add_argument("--force", action="store_true",
+                       help="Force benchmarks even if preflight checks fail")
     parser.add_argument("--precisions", type=str, default="fp32",
                        help="Comma-separated precisions to test (default: fp32)")
     parser.add_argument("--batch-sizes", type=str, default="1,8,64",
                        help="Comma-separated batch sizes for full model layer")
-    parser.add_argument("--force", action="store_true",
-                       help="Force benchmarks even if pre-flight checks fail")
 
     # Database options
-    parser.add_argument("--db", type=str, default="calibrations.db",
-                       help="SQLite database path (default: calibrations.db)")
-    parser.add_argument("--import-registry", action="store_true",
-                       help="Import existing calibrations from hardware_registry/")
+    parser.add_argument("--db", type=str, default="calibrations_v2.db",
+                       help="SQLite database path (default: calibrations_v2.db)")
 
     # Query options
+    parser.add_argument("--summary", action="store_true",
+                       help="Show database summary")
+    parser.add_argument("--show-trajectory", action="store_true",
+                       help="Show efficiency trajectory for current hardware")
+    parser.add_argument("--detect-regressions", action="store_true",
+                       help="Detect performance regressions")
+    parser.add_argument("--regression-threshold", type=float, default=5.0,
+                       help="Regression threshold percentage (default: 5.0)")
+
+    # Similarity search
     parser.add_argument("--find-similar", action="store_true",
                        help="Find similar hardware (requires --target-gops and --target-bw)")
     parser.add_argument("--target-gops", type=float, default=0.0,
                        help="Target GOPS for similarity search")
     parser.add_argument("--target-bw", type=float, default=0.0,
                        help="Target bandwidth (GB/s) for similarity search")
-    parser.add_argument("--target-tdp", type=float, default=0.0,
-                       help="Target TDP (watts) for similarity search")
-    parser.add_argument("--target-device-type", type=str,
-                       help="Filter similarity search by device type")
     parser.add_argument("--n-similar", type=int, default=5,
                        help="Number of similar hardware to return")
 
@@ -537,46 +523,54 @@ def main():
                        help="Export database to JSON file")
     parser.add_argument("--export-parquet", type=str,
                        help="Export database to Parquet file")
-    parser.add_argument("--summary", action="store_true",
-                       help="Show database summary")
+
+    # Info
+    parser.add_argument("--show-context", action="store_true",
+                       help="Show auto-detected hardware/software context and exit")
 
     args = parser.parse_args()
 
-    # Determine database path
+    # Database setup
     db_dir = Path(__file__).parent.parent / "results" / "calibration_db"
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = db_dir / args.db
 
-    print(f"Calibration database: {db_path}")
+    # Auto-detect context FIRST (before any operations)
+    print("Auto-detecting hardware and software stack...")
+    context = detect_all()
+
+    # Show context and exit if requested
+    if args.show_context:
+        print(context.summary())
+        return 0
+
+    print(f"Hardware fingerprint: {context.hardware.fingerprint}")
+    print(f"Software fingerprint: {context.software.fingerprint}")
+    print(f"Database: {db_path}")
 
     # Open database
     db = CalibrationDB(str(db_path))
 
-    # Handle import from hardware_registry
-    if args.import_registry:
-        registry_path = Path(__file__).parent.parent / "hardware_registry"
-        print(f"Importing from: {registry_path}")
-        imported = db.import_from_hardware_registry(registry_path)
-        print(f"Imported {imported} calibration points")
+    # Handle query-only operations
+    if args.summary:
         print_summary_table(db)
         return 0
 
-    # Handle similarity search
+    if args.show_trajectory:
+        show_trajectory(db, context.hardware.fingerprint)
+        return 0
+
+    if args.detect_regressions:
+        show_regressions(db, args.regression_threshold)
+        return 0
+
     if args.find_similar:
         if args.target_gops <= 0 or args.target_bw <= 0:
             print("Error: --find-similar requires --target-gops and --target-bw")
             return 1
-        find_similar_hardware(
-            db,
-            args.target_gops,
-            args.target_bw,
-            args.target_tdp,
-            args.target_device_type,
-            args.n_similar
-        )
+        find_similar_hardware(db, args.target_gops, args.target_bw, args.device, args.n_similar)
         return 0
 
-    # Handle exports
     if args.export_json:
         if db.export_json(args.export_json):
             print(f"Exported to: {args.export_json}")
@@ -587,55 +581,35 @@ def main():
             print(f"Exported to: {args.export_parquet}")
         return 0
 
-    # Handle summary
-    if args.summary:
-        print_summary_table(db)
-        return 0
-
-    # Require hardware-id for benchmark runs
-    if not args.hardware_id:
-        # Try to generate a hardware ID from system info
-        try:
-            import platform
-            import psutil
-
-            # Generate a descriptive hardware ID
-            cpu_model = platform.processor() or "unknown_cpu"
-            # Clean up the model name to make a valid ID
-            args.hardware_id = cpu_model.lower().replace(' ', '_').replace('(r)', '').replace('(tm)', '')
-            args.hardware_id = ''.join(c for c in args.hardware_id if c.isalnum() or c == '_')
-
-            print(f"Auto-generated hardware ID: {args.hardware_id}")
-            print(f"(Use --hardware-id for a specific name)")
-
-        except Exception as e:
-            print("Error: --hardware-id required")
-            print(f"Could not auto-detect: {e}")
-            print("Example: --hardware-id my_test_system")
-            return 1
-
-    # Parse options
+    # Parse benchmark options
     layers = [l.strip() for l in args.layers.split(',')]
     precisions = [p.strip() for p in args.precisions.split(',')]
     batch_sizes = [int(b.strip()) for b in args.batch_sizes.split(',')]
 
+    # Print benchmark configuration
     print()
-    print("=" * 80)
+    print("=" * 70)
     print("BENCHMARK SWEEP")
-    print("=" * 80)
-    print(f"Hardware:    {args.hardware_id}")
+    print("=" * 70)
+    print()
+    print(f"Run ID:      {context.run_id}")
+    print(f"Timestamp:   {context.timestamp.isoformat()}")
+    print(f"Hardware:    {context.hardware.cpu.model}")
+    print(f"HW Finger:   {context.hardware.fingerprint}")
+    print(f"SW Finger:   {context.software.fingerprint}")
     print(f"Device:      {args.device}")
     print(f"Layers:      {', '.join(layers)}")
     print(f"Precisions:  {', '.join(precisions)}")
     print(f"Quick mode:  {args.quick}")
-    print("=" * 80)
+    print(f"Force mode:  {args.force}")
+    print("=" * 70)
 
     start_time = time.time()
 
     # Run requested layers
     if 'micro' in layers:
         run_micro_kernel_layer(
-            args.hardware_id,
+            context,
             precisions,
             args.device,
             args.quick,
@@ -645,7 +619,7 @@ def main():
 
     if 'proxy' in layers:
         run_proxy_workload_layer(
-            args.hardware_id,
+            context,
             args.device,
             args.quick,
             db
@@ -653,7 +627,7 @@ def main():
 
     if 'models' in layers:
         run_full_model_layer(
-            args.hardware_id,
+            context,
             args.device,
             batch_sizes,
             db
@@ -670,13 +644,16 @@ def main():
     print()
     print("Next steps:")
     print(f"  # View summary")
-    print(f"  ./cli/benchmark_sweep.py --db {args.db} --summary")
+    print(f"  ./cli/benchmark_sweep.py --summary")
     print()
-    print(f"  # Find similar hardware for a new target")
-    print(f"  ./cli/benchmark_sweep.py --db {args.db} --find-similar --target-gops 100 --target-bw 200")
+    print(f"  # Show efficiency trajectory for this hardware")
+    print(f"  ./cli/benchmark_sweep.py --show-trajectory")
     print()
-    print(f"  # Export to JSON for analysis")
-    print(f"  ./cli/benchmark_sweep.py --db {args.db} --export-json calibrations.json")
+    print(f"  # Find similar hardware for a target spec")
+    print(f"  ./cli/benchmark_sweep.py --find-similar --target-gops 100 --target-bw 200")
+    print()
+    print(f"  # Detect regressions")
+    print(f"  ./cli/benchmark_sweep.py --detect-regressions")
 
     db.close()
     return 0
