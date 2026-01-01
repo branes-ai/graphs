@@ -152,13 +152,32 @@ def _generate_verdict_fallback(result, constraint_metric=None, constraint_thresh
 
     # Build roofline breakdown
     roofline_report = result.roofline_report
-    roofline = {
-        "bottleneck": roofline_report.bottleneck if roofline_report else "unknown",
-        "utilization_pct": roofline_report.utilization * 100 if roofline_report else 0.0,
-        "arithmetic_intensity": roofline_report.arithmetic_intensity if roofline_report else 0.0,
-        "peak_gflops": roofline_report.peak_gflops if roofline_report else 0.0,
-        "achieved_gflops": roofline_report.achieved_gflops if roofline_report else 0.0,
-    }
+    if roofline_report:
+        # Determine dominant bottleneck from counts
+        if roofline_report.num_compute_bound > roofline_report.num_memory_bound:
+            bottleneck = "compute"
+        elif roofline_report.num_memory_bound > roofline_report.num_compute_bound:
+            bottleneck = "memory"
+        else:
+            bottleneck = "balanced"
+        # Calculate achieved GFLOPS from total FLOPs and latency
+        total_flops = sum(lat.attained_flops * lat.actual_latency for lat in roofline_report.latencies) if roofline_report.latencies else 0
+        achieved_gflops = total_flops / roofline_report.total_latency / 1e9 if roofline_report.total_latency > 0 else 0
+        roofline = {
+            "bottleneck": bottleneck,
+            "utilization_pct": roofline_report.average_flops_utilization * 100,
+            "arithmetic_intensity": roofline_report.arithmetic_intensity_breakpoint,
+            "peak_gflops": roofline_report.peak_flops / 1e9,
+            "achieved_gflops": achieved_gflops,
+        }
+    else:
+        roofline = {
+            "bottleneck": "unknown",
+            "utilization_pct": 0.0,
+            "arithmetic_intensity": 0.0,
+            "peak_gflops": 0.0,
+            "achieved_gflops": 0.0,
+        }
 
     # Build energy breakdown
     energy_report = result.energy_report
