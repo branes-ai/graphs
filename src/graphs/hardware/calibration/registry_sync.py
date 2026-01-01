@@ -84,7 +84,8 @@ class HardwareEntry:
     def get_calibrated_peak(
         self,
         precision: str = "fp32",
-        power_mode: Optional[str] = None
+        power_mode: Optional[str] = None,
+        skip_suspicious: bool = True
     ) -> float:
         """
         Get peak performance, preferring calibrated over theoretical.
@@ -92,16 +93,33 @@ class HardwareEntry:
         Args:
             precision: Precision to get peak for.
             power_mode: Optional power mode filter.
+            skip_suspicious: If True, skip calibrations with efficiency > 100%
+                (likely contaminated by iGPU or measurement error).
 
         Returns:
             Peak GFLOPS (calibrated if available, otherwise theoretical).
         """
-        # Try to find calibration for this precision/power mode
+        # Try to find valid calibration for this precision/power mode
+        # Prefer non-suspicious calibrations first
+        candidates = []
         for cal in self.calibrations:
             if cal.precision == precision:
                 if power_mode is None or cal.power_mode == power_mode:
                     if cal.peak_measured_gops > 0:
-                        return cal.peak_measured_gops
+                        candidates.append(cal)
+
+        # Sort: non-suspicious first, then by timestamp (newest first)
+        if candidates:
+            if skip_suspicious:
+                valid = [c for c in candidates if not c.is_suspicious]
+                if valid:
+                    # Return newest valid calibration
+                    return max(valid, key=lambda c: c.timestamp).peak_measured_gops
+                # No valid calibrations - fall back to theoretical
+                # (don't use suspicious calibrations as they're unreliable)
+            else:
+                # Return any calibration when skip_suspicious=False
+                return max(candidates, key=lambda c: c.timestamp).peak_measured_gops
 
         # Fall back to theoretical
         return self.theoretical_peaks.get(precision, 0.0)
@@ -123,19 +141,37 @@ class HardwareEntry:
     def get_efficiency(
         self,
         precision: str = "fp32",
-        power_mode: Optional[str] = None
+        power_mode: Optional[str] = None,
+        skip_suspicious: bool = True
     ) -> float:
         """
         Get measured efficiency (0-1) if calibrated.
 
+        Args:
+            precision: Precision to get efficiency for.
+            power_mode: Optional power mode filter.
+            skip_suspicious: If True, skip calibrations with efficiency > 100%.
+
         Returns:
-            Efficiency ratio, or 1.0 if not calibrated.
+            Efficiency ratio (0-1), or 1.0 if not calibrated.
         """
+        candidates = []
         for cal in self.calibrations:
             if cal.precision == precision:
                 if power_mode is None or cal.power_mode == power_mode:
                     if cal.efficiency > 0:
-                        return min(cal.efficiency, 1.0)  # Cap at 100%
+                        candidates.append(cal)
+
+        if candidates:
+            if skip_suspicious:
+                valid = [c for c in candidates if not c.is_suspicious]
+                if valid:
+                    # Return efficiency from newest valid calibration
+                    best = max(valid, key=lambda c: c.timestamp)
+                    return best.validated_efficiency
+            # Fall back to any calibration, but cap at 100%
+            best = max(candidates, key=lambda c: c.timestamp)
+            return best.validated_efficiency
 
         return 1.0  # No calibration = assume theoretical
 
@@ -213,37 +249,64 @@ class CalibrationData:
     framework: str
     notes: str = ""
 
+    # Validation flags
+    is_suspicious: bool = False  # True if efficiency > 100% (likely iGPU contamination)
+
+    @property
+    def validated_efficiency(self) -> float:
+        """Return efficiency capped at 100% for safety."""
+        return min(self.efficiency, 1.0) if self.efficiency > 0 else 0.0
+
     @classmethod
     def from_calibration_run(cls, run: CalibrationRun) -> 'CalibrationData':
         """Create from CalibrationRun."""
+        efficiency = run.efficiency
+        is_suspicious = efficiency > 1.0  # Flag if > 100%
         return cls(
             timestamp=datetime.fromisoformat(run.timestamp),
             precision=run.precision,
             power_mode=run.power_mode,
             peak_measured_gops=run.peak_measured_gops,
             stream_best_gbps=run.stream_best_gbps,
-            efficiency=run.efficiency,
+            efficiency=efficiency,
             software_fingerprint=run.software_fingerprint,
             framework=run.blas_library,
             notes=run.notes,
+            is_suspicious=is_suspicious,
         )
 
     @classmethod
     def from_legacy_json(cls, data: Dict[str, Any]) -> 'CalibrationData':
         """Create from legacy calibration JSON."""
         metadata = data.get("metadata", {})
+
+        # Get measured and theoretical peaks
+        measured = data.get("best_measured_gflops", 0.0)
+        theoretical = data.get("theoretical_peak_gflops", 0.0)
+
+        # Recalculate efficiency from measured/theoretical
+        # (the stored efficiency may use a different theoretical baseline)
+        if theoretical > 0 and measured > 0:
+            efficiency = measured / theoretical
+        else:
+            efficiency = data.get("best_efficiency", 0.0)
+
+        # Flag as suspicious if measured exceeds theoretical
+        is_suspicious = efficiency > 1.0
+
         return cls(
             timestamp=datetime.fromisoformat(
                 metadata.get("calibration_date", "2020-01-01T00:00:00")
             ),
             precision="fp32",  # Legacy files are typically FP32
             power_mode=metadata.get("cpu_clock", {}).get("governor", "unknown"),
-            peak_measured_gops=data.get("best_measured_gflops", 0.0),
+            peak_measured_gops=measured,
             stream_best_gbps=data.get("measured_bandwidth_gbps", 0.0),
-            efficiency=data.get("best_efficiency", 0.0),
+            efficiency=efficiency,
             software_fingerprint="legacy",
             framework=metadata.get("framework", "unknown"),
             notes=f"Legacy calibration from {metadata.get('calibration_date', 'unknown')}",
+            is_suspicious=is_suspicious,
         )
 
 
