@@ -276,16 +276,30 @@ class CalibrationData:
         )
 
     @classmethod
-    def from_legacy_json(cls, data: Dict[str, Any]) -> 'CalibrationData':
-        """Create from legacy calibration JSON."""
+    def from_legacy_json(
+        cls,
+        data: Dict[str, Any],
+        registry_theoretical_peak: float = 0.0
+    ) -> 'CalibrationData':
+        """
+        Create from legacy calibration JSON.
+
+        Args:
+            data: Calibration JSON data
+            registry_theoretical_peak: Theoretical peak from hardware registry spec.
+                Used for accurate suspicious detection (calibration files may have
+                incorrect theoretical values from early runs).
+        """
         metadata = data.get("metadata", {})
 
-        # Get measured and theoretical peaks
+        # Get measured peak
         measured = data.get("best_measured_gflops", 0.0)
-        theoretical = data.get("theoretical_peak_gflops", 0.0)
 
-        # Recalculate efficiency from measured/theoretical
-        # (the stored efficiency may use a different theoretical baseline)
+        # Use registry theoretical if available, otherwise fall back to file's value
+        theoretical = registry_theoretical_peak if registry_theoretical_peak > 0 else \
+                      data.get("theoretical_peak_gflops", 0.0)
+
+        # Calculate efficiency using the best available theoretical peak
         if theoretical > 0 and measured > 0:
             efficiency = measured / theoretical
         else:
@@ -414,11 +428,17 @@ class HardwareRegistry:
         # Load legacy calibrations
         calibrations_dir = hw_dir / "calibrations"
         if calibrations_dir.exists():
+            # Get registry's theoretical peak for accurate suspicious detection
+            registry_theoretical = entry.theoretical_peaks.get("fp32", 0.0)
+
             for cal_file in calibrations_dir.glob("*.json"):
                 try:
                     with open(cal_file) as f:
                         cal_data = json.load(f)
-                    cal = CalibrationData.from_legacy_json(cal_data)
+                    cal = CalibrationData.from_legacy_json(
+                        cal_data,
+                        registry_theoretical_peak=registry_theoretical
+                    )
                     entry.calibrations.append(cal)
                 except Exception:
                     pass
