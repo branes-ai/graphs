@@ -7,16 +7,23 @@ Comprehensive benchmarking tool that:
 2. Collects empirical performance data across multiple layers
 3. Stores results in append-only, versioned database
 4. Enables post-silicon dynamics tracking
+5. Supports both CPU and CUDA GPU calibration
 
 Usage:
-    # Run calibration (hardware auto-detected)
+    # Run CPU calibration (hardware auto-detected)
     ./cli/benchmark_sweep.py
+
+    # Run GPU calibration
+    ./cli/benchmark_sweep.py --device cuda
 
     # Quick calibration with force (skip preflight checks)
     ./cli/benchmark_sweep.py --quick --force
 
     # Run all benchmark layers
     ./cli/benchmark_sweep.py --layers micro,proxy,models
+
+    # Show detected hardware context
+    ./cli/benchmark_sweep.py --show-context
 
     # View database summary
     ./cli/benchmark_sweep.py --summary
@@ -29,6 +36,10 @@ Usage:
 
     # Show efficiency trajectory for current hardware
     ./cli/benchmark_sweep.py --show-trajectory
+
+Devices:
+    cpu:   Calibrate CPU using NumPy/BLAS (default)
+    cuda:  Calibrate NVIDIA GPU using PyTorch CUDA
 
 Layers:
     micro:  BLAS + STREAM micro-kernels (10-30 min)
@@ -93,29 +104,48 @@ def run_micro_kernel_layer(
     hw = context.hardware
     sw = context.software
 
-    print(f"Hardware: {hw.cpu.model}")
+    # Select hardware target based on device
+    if device == 'cuda' and hw.gpu:
+        hardware_name = hw.gpu.model
+        print(f"GPU: {hw.gpu.model}")
+        print(f"  CUDA Cores: {hw.gpu.cuda_cores}, Tensor Cores: {hw.gpu.tensor_cores}")
+        print(f"  Compute Capability: {hw.gpu.compute_capability}")
+        print(f"  Memory: {hw.gpu.memory_mb} MB")
+
+        # Estimate theoretical peaks from GPU specs
+        peak_gflops = hw.gpu.estimate_theoretical_peak_gflops("fp32")
+        peak_bandwidth = hw.gpu.estimate_theoretical_bandwidth_gbps()
+
+        # Build per-precision theoretical peaks for GPU
+        theoretical_peaks = {}
+        for prec in precisions:
+            theoretical_peaks[prec] = hw.gpu.estimate_theoretical_peak_gflops(prec)
+    else:
+        hardware_name = hw.cpu.model
+        print(f"CPU: {hw.cpu.model}")
+
+        # Estimate theoretical peaks from CPU specs
+        peak_gflops = hw.cpu.estimate_theoretical_peak_gflops("fp32")
+        peak_bandwidth = hw.cpu.estimate_theoretical_bandwidth_gbps()
+
+        # Build per-precision theoretical peaks for CPU
+        theoretical_peaks = {}
+        for prec in precisions:
+            theoretical_peaks[prec] = hw.cpu.estimate_theoretical_peak_gflops(prec)
+
     print(f"HW Fingerprint: {hw.fingerprint}")
     print(f"SW Fingerprint: {sw.fingerprint}")
     print(f"Device: {device.upper()}")
     print(f"Precisions: {', '.join(precisions)}")
-
-    # Estimate theoretical peaks from CPU specs
-    peak_gflops = hw.cpu.estimate_theoretical_peak_gflops("fp32")
-    peak_bandwidth = hw.cpu.estimate_theoretical_bandwidth_gbps()
     print(f"Theoretical Peak: {peak_gflops:.1f} GFLOPS (FP32), {peak_bandwidth:.1f} GB/s")
     print()
-
-    # Build per-precision theoretical peaks
-    theoretical_peaks = {}
-    for prec in precisions:
-        theoretical_peaks[prec] = hw.cpu.estimate_theoretical_peak_gflops(prec)
 
     runs = []
 
     # Run calibration
     try:
         calibration = calibrate_hardware(
-            hardware_name=hw.cpu.model,
+            hardware_name=hardware_name,
             theoretical_peak_gflops=peak_gflops,
             theoretical_bandwidth_gbps=peak_bandwidth,
             theoretical_peaks=theoretical_peaks,
@@ -601,7 +631,16 @@ def main():
     print()
     print(f"Run ID:      {context.run_id}")
     print(f"Timestamp:   {context.timestamp.isoformat()}")
-    print(f"Hardware:    {context.hardware.cpu.model}")
+
+    # Show target hardware based on device
+    if args.device == 'cuda' and context.hardware.gpu:
+        gpu = context.hardware.gpu
+        print(f"GPU:         {gpu.model}")
+        print(f"  CUDA Cores: {gpu.cuda_cores}, Tensor Cores: {gpu.tensor_cores}")
+        print(f"  Memory:    {gpu.memory_mb} MB, Compute: {gpu.compute_capability}")
+    else:
+        print(f"CPU:         {context.hardware.cpu.model}")
+
     print(f"HW Finger:   {context.hardware.fingerprint}")
     print(f"SW Finger:   {context.software.fingerprint}")
     print(f"Device:      {args.device}")
