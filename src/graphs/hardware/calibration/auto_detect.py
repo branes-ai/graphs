@@ -295,6 +295,9 @@ class GPUIdentity:
     cuda_cores: int = 0             # CUDA cores (NVIDIA)
     tensor_cores: int = 0           # Tensor cores
     sm_count: int = 0               # Streaming multiprocessors
+    clock_mhz: int = 0              # GPU clock (boost) in MHz
+    memory_clock_mhz: int = 0       # Memory clock in MHz
+    memory_bus_width: int = 0       # Memory bus width in bits
 
     @classmethod
     def detect(cls) -> Optional['GPUIdentity']:
@@ -320,9 +323,9 @@ class GPUIdentity:
     def _detect_nvidia(cls) -> Optional['GPUIdentity']:
         """Detect NVIDIA GPU using nvidia-smi."""
         try:
-            # Get basic info
+            # Get basic info including clocks and memory bus width
             result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=name,pci.bus_id,memory.total,driver_version,vbios_version',
+                ['nvidia-smi', '--query-gpu=name,pci.bus_id,memory.total,driver_version,vbios_version,clocks.max.graphics,clocks.max.memory,memory.bus_width',
                  '--format=csv,noheader,nounits'],
                 capture_output=True, text=True, timeout=10
             )
@@ -340,6 +343,26 @@ class GPUIdentity:
             driver_version = parts[3]
             vbios_version = parts[4]
 
+            # Parse clock and memory info (may not be available on all GPUs)
+            clock_mhz = 0
+            memory_clock_mhz = 0
+            memory_bus_width = 0
+            if len(parts) >= 6 and parts[5] not in ('[Not Supported]', '[N/A]', ''):
+                try:
+                    clock_mhz = int(float(parts[5]))
+                except ValueError:
+                    pass
+            if len(parts) >= 7 and parts[6] not in ('[Not Supported]', '[N/A]', ''):
+                try:
+                    memory_clock_mhz = int(float(parts[6]))
+                except ValueError:
+                    pass
+            if len(parts) >= 8 and parts[7] not in ('[Not Supported]', '[N/A]', ''):
+                try:
+                    memory_bus_width = int(float(parts[7]))
+                except ValueError:
+                    pass
+
             # Get PCI ID
             pci_id = cls._get_nvidia_pci_id(pci_bus)
 
@@ -347,7 +370,7 @@ class GPUIdentity:
             compute_cap = cls._get_nvidia_compute_capability()
 
             # Get CUDA cores and SM count
-            cuda_cores, sm_count = cls._get_nvidia_cuda_info()
+            cuda_cores, sm_count, tensor_cores = cls._get_nvidia_cuda_info()
 
             return cls(
                 model=model,
@@ -358,7 +381,11 @@ class GPUIdentity:
                 compute_capability=compute_cap,
                 driver_version=driver_version,
                 cuda_cores=cuda_cores,
+                tensor_cores=tensor_cores,
                 sm_count=sm_count,
+                clock_mhz=clock_mhz,
+                memory_clock_mhz=memory_clock_mhz,
+                memory_bus_width=memory_bus_width,
             )
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -409,25 +436,189 @@ class GPUIdentity:
         return "0.0"
 
     @staticmethod
-    def _get_nvidia_cuda_info() -> Tuple[int, int]:
-        """Get CUDA cores and SM count."""
+    def _get_nvidia_cuda_info() -> Tuple[int, int, int]:
+        """Get CUDA cores, SM count, and tensor cores."""
         try:
             import torch
             if torch.cuda.is_available():
                 props = torch.cuda.get_device_properties(0)
                 sm_count = props.multi_processor_count
-                # Estimate CUDA cores based on compute capability
+                # Estimate CUDA cores and tensor cores based on compute capability
                 major, minor = torch.cuda.get_device_capability(0)
-                cores_per_sm = {
-                    (8, 0): 64,   # Ampere GA100
-                    (8, 6): 128,  # Ampere GA10x
-                    (8, 9): 128,  # Ada Lovelace
-                    (9, 0): 128,  # Hopper
-                }.get((major, minor), 64)
-                return sm_count * cores_per_sm, sm_count
+
+                # CUDA cores per SM and tensor cores per SM by architecture
+                arch_info = {
+                    # (major, minor): (cuda_cores_per_sm, tensor_cores_per_sm)
+                    (7, 0): (64, 8),    # Volta V100
+                    (7, 5): (64, 8),    # Turing
+                    (8, 0): (64, 4),    # Ampere GA100 (A100)
+                    (8, 6): (128, 4),   # Ampere GA10x (RTX 30xx)
+                    (8, 7): (128, 4),   # Ampere GA10x (Jetson Orin)
+                    (8, 9): (128, 4),   # Ada Lovelace (RTX 40xx)
+                    (9, 0): (128, 4),   # Hopper (H100)
+                }
+                cores_per_sm, tc_per_sm = arch_info.get((major, minor), (64, 4))
+
+                cuda_cores = sm_count * cores_per_sm
+                tensor_cores = sm_count * tc_per_sm
+
+                return cuda_cores, sm_count, tensor_cores
         except Exception:
             pass
-        return 0, 0
+        return 0, 0, 0
+
+    def estimate_theoretical_peak_gflops(self, precision: str = "fp32") -> float:
+        """
+        Estimate theoretical peak GFLOPS/TOPS for GPU.
+
+        Uses CUDA cores, tensor cores, and clock frequency to estimate peak.
+
+        Args:
+            precision: Precision to estimate for ('fp32', 'fp16', 'bf16', 'tf32', 'int8', 'fp64')
+
+        Returns:
+            Estimated peak GFLOPS (or GOPS/TOPS for integer/tensor ops).
+        """
+        if self.vendor != 'NVIDIA':
+            # For non-NVIDIA GPUs, return conservative estimate
+            return 0.0
+
+        # Use detected clock or estimate from model
+        clock_ghz = self.clock_mhz / 1000.0 if self.clock_mhz > 0 else self._estimate_clock_ghz()
+
+        # Parse compute capability
+        try:
+            major, minor = map(int, self.compute_capability.split('.'))
+        except (ValueError, AttributeError):
+            major, minor = 8, 0  # Default to Ampere
+
+        # Calculate peak based on precision and architecture
+        if precision == 'fp64':
+            # FP64: 2 ops/cycle per CUDA core (FMA) but typically 1/2 or 1/32 rate
+            if major >= 8:
+                # Ampere/Ada/Hopper: 1/64 rate for consumer, 1/2 for datacenter (A100, H100)
+                if 'A100' in self.model or 'H100' in self.model or 'A30' in self.model:
+                    ops_per_cycle = self.cuda_cores * 1.0  # 1/2 rate with FMA
+                else:
+                    ops_per_cycle = self.cuda_cores * (2 / 64)  # 1/64 rate
+            else:
+                ops_per_cycle = self.cuda_cores * 0.5  # 1/2 rate typical
+
+        elif precision == 'fp32':
+            # FP32: 2 ops/cycle per CUDA core (FMA)
+            ops_per_cycle = self.cuda_cores * 2
+
+        elif precision in ('fp16', 'bf16'):
+            # FP16/BF16: 2x rate on CUDA cores + tensor cores
+            # Tensor cores: ~256 ops/cycle for FP16 per TC (4x4x4 matrix)
+            cuda_ops = self.cuda_cores * 4  # 2x rate with FMA
+            tensor_ops = self.tensor_cores * 256 if self.tensor_cores > 0 else 0
+            ops_per_cycle = cuda_ops + tensor_ops
+
+        elif precision == 'tf32':
+            # TF32 (Ampere+): Tensor cores only, ~128 ops/cycle per TC
+            if major >= 8 and self.tensor_cores > 0:
+                ops_per_cycle = self.tensor_cores * 128
+            else:
+                ops_per_cycle = self.cuda_cores * 2  # Fallback to FP32
+
+        elif precision == 'int8':
+            # INT8: 4x rate on CUDA cores + tensor cores
+            cuda_ops = self.cuda_cores * 8
+            tensor_ops = self.tensor_cores * 512 if self.tensor_cores > 0 else 0
+            ops_per_cycle = cuda_ops + tensor_ops
+
+        elif precision == 'int4':
+            # INT4: 8x rate, tensor cores only on newer architectures
+            if major >= 8 and self.tensor_cores > 0:
+                ops_per_cycle = self.tensor_cores * 1024
+            else:
+                ops_per_cycle = self.cuda_cores * 16
+
+        else:
+            # Default to FP32
+            ops_per_cycle = self.cuda_cores * 2
+
+        peak_gflops = ops_per_cycle * clock_ghz
+        return peak_gflops
+
+    def _estimate_clock_ghz(self) -> float:
+        """Estimate boost clock from model name if not detected."""
+        model_lower = self.model.lower()
+
+        # Common NVIDIA GPU clocks (boost clock in GHz)
+        clock_estimates = {
+            'h100': 1.98,
+            'h200': 1.98,
+            'a100': 1.41,
+            'a30': 1.44,
+            'v100': 1.53,
+            'rtx 4090': 2.52,
+            'rtx 4080': 2.51,
+            'rtx 4070': 2.48,
+            'rtx 3090': 1.70,
+            'rtx 3080': 1.71,
+            'rtx 3070': 1.73,
+            'rtx 2080': 1.80,
+            't4': 1.59,
+            'orin': 1.30,
+        }
+
+        for model_key, clock in clock_estimates.items():
+            if model_key in model_lower:
+                return clock
+
+        return 1.5  # Conservative default
+
+    def estimate_theoretical_bandwidth_gbps(self) -> float:
+        """
+        Estimate theoretical memory bandwidth in GB/s.
+
+        Uses memory clock and bus width if available, otherwise estimates from model.
+        """
+        if self.memory_clock_mhz > 0 and self.memory_bus_width > 0:
+            # Bandwidth = memory_clock * bus_width * 2 (DDR) / 8 (bits to bytes)
+            # For GDDR6X: effective rate is 2x (PAM4)
+            # For HBM: effective rate is already accounted for
+            if 'hbm' in self.model.lower() or 'a100' in self.model.lower() or 'h100' in self.model.lower():
+                # HBM memory: simpler calculation
+                bandwidth_gbps = (self.memory_clock_mhz * 2 * self.memory_bus_width) / (8 * 1000)
+            else:
+                # GDDR6/GDDR6X: 2x for DDR
+                bandwidth_gbps = (self.memory_clock_mhz * 2 * self.memory_bus_width) / (8 * 1000)
+            return bandwidth_gbps
+
+        # Estimate from model name
+        return self._estimate_bandwidth_gbps()
+
+    def _estimate_bandwidth_gbps(self) -> float:
+        """Estimate memory bandwidth from model name."""
+        model_lower = self.model.lower()
+
+        bandwidth_estimates = {
+            'h100 sxm': 3350,   # HBM3
+            'h100 pcie': 2000,  # HBM2e
+            'h200': 4800,       # HBM3e
+            'a100 sxm': 2039,   # HBM2e
+            'a100 pcie': 1935,  # HBM2e
+            'a30': 933,         # HBM2
+            'v100': 900,        # HBM2
+            'rtx 4090': 1008,   # GDDR6X
+            'rtx 4080': 717,    # GDDR6X
+            'rtx 4070': 504,    # GDDR6X
+            'rtx 3090': 936,    # GDDR6X
+            'rtx 3080': 760,    # GDDR6X
+            'rtx 3070': 448,    # GDDR6
+            't4': 320,          # GDDR6
+            'orin': 204,        # LPDDR5
+        }
+
+        for model_key, bw in bandwidth_estimates.items():
+            if model_key in model_lower:
+                return float(bw)
+
+        # Conservative default
+        return 500.0
 
     @classmethod
     def _detect_amd(cls) -> Optional['GPUIdentity']:
@@ -1181,11 +1372,24 @@ class CalibrationContext:
         ]
 
         if self.hardware.gpu:
+            gpu = self.hardware.gpu
             lines.extend([
-                f"GPU:         {self.hardware.gpu.model}",
-                f"  PCI ID:    {self.hardware.gpu.pci_id}",
-                f"  VBIOS:     {self.hardware.gpu.vbios_version}",
-                f"  Memory:    {self.hardware.gpu.memory_mb} MB",
+                f"GPU:         {gpu.model}",
+                f"  PCI ID:    {gpu.pci_id}",
+                f"  VBIOS:     {gpu.vbios_version}",
+                f"  Memory:    {gpu.memory_mb} MB",
+                f"  CUDA Cores: {gpu.cuda_cores}, Tensor Cores: {gpu.tensor_cores}",
+                f"  Compute:   {gpu.compute_capability}",
+                f"  Clock:     {gpu.clock_mhz} MHz",
+            ])
+            # Show estimated peaks
+            peak_fp32 = gpu.estimate_theoretical_peak_gflops("fp32")
+            peak_fp16 = gpu.estimate_theoretical_peak_gflops("fp16")
+            bandwidth = gpu.estimate_theoretical_bandwidth_gbps()
+            lines.extend([
+                f"  Peak FP32: {peak_fp32:.0f} GFLOPS",
+                f"  Peak FP16: {peak_fp16:.0f} GFLOPS",
+                f"  Bandwidth: {bandwidth:.0f} GB/s",
             ])
         else:
             lines.append("GPU:         None detected")
