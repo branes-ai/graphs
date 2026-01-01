@@ -16,6 +16,8 @@ from .roofline import (
     RooflinePoint,
     RooflineReport,
     RooflineAnalyzer,
+    create_calibrated_analyzer,
+    get_roofline_params_for_hardware,
 )
 from .energy import (
     EnergyDescriptor,
@@ -33,6 +35,8 @@ __all__ = [
     'RooflinePoint',
     'RooflineReport',
     'RooflineAnalyzer',
+    'create_calibrated_analyzer',
+    'get_roofline_params_for_hardware',
     'EnergyDescriptor',
     'EnergyReport',
     'EnergyAnalyzer',
