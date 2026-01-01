@@ -15,14 +15,22 @@ Arithmetic Intensity (AI) is the key metric:
 - AI_breakpoint = peak_FLOPS / peak_bandwidth
 - If AI < AI_breakpoint: memory-bound
 - If AI > AI_breakpoint: compute-bound
+
+Calibration Integration:
+- When calibration data is available, use empirical peaks instead of theoretical
+- This gives more realistic latency estimates based on actual hardware behavior
+- Falls back to theoretical peaks when no calibration exists
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from enum import Enum
 
 from ..ir.structures import SubgraphDescriptor, PartitionReport, BottleneckType
 from ..hardware.resource_model import HardwareResourceModel, Precision
+
+if TYPE_CHECKING:
+    from ..hardware.calibration.registry_sync import HardwareEntry
 
 
 @dataclass
@@ -226,29 +234,73 @@ class RooflineAnalyzer:
     2. Identify bottleneck (which time is larger)
     3. Calculate utilization (actual / peak)
     4. Generate roofline points for visualization
+
+    Calibration Support:
+    - Pass efficiency_factor (0-1) to scale theoretical peaks to empirical
+    - Or use create_calibrated_analyzer() factory for automatic calibration
     """
 
-    def __init__(self, resource_model: HardwareResourceModel, precision: Precision = Precision.FP32):
+    def __init__(
+        self,
+        resource_model: HardwareResourceModel,
+        precision: Precision = Precision.FP32,
+        efficiency_factor: Optional[float] = None,
+        calibrated_peak_flops: Optional[float] = None,
+        calibrated_bandwidth: Optional[float] = None
+    ):
         """
         Initialize roofline analyzer.
 
         Args:
             resource_model: Hardware specifications
             precision: Precision to use for analysis
+            efficiency_factor: Optional efficiency factor (0-1) to scale peaks.
+                If provided, multiplies theoretical peaks by this factor.
+            calibrated_peak_flops: Optional calibrated peak FLOPs/sec.
+                If provided, overrides resource_model peak.
+            calibrated_bandwidth: Optional calibrated bandwidth (bytes/sec).
+                If provided, overrides resource_model bandwidth.
         """
         self.resource_model = resource_model
         self.precision = precision
+        self.efficiency_factor = efficiency_factor
+        self.is_calibrated = (
+            efficiency_factor is not None or
+            calibrated_peak_flops is not None or
+            calibrated_bandwidth is not None
+        )
 
         # Get hardware characteristics for this precision
         if precision in resource_model.precision_profiles:
             profile = resource_model.precision_profiles[precision]
-            self.peak_flops = profile.peak_ops_per_sec
+            theoretical_peak_flops = profile.peak_ops_per_sec
         else:
             # Fallback: use default precision
             default_profile = resource_model.precision_profiles[resource_model.default_precision]
-            self.peak_flops = default_profile.peak_ops_per_sec
+            theoretical_peak_flops = default_profile.peak_ops_per_sec
 
-        self.peak_bandwidth = resource_model.peak_bandwidth
+        theoretical_bandwidth = resource_model.peak_bandwidth
+
+        # Apply calibration
+        if calibrated_peak_flops is not None:
+            # Direct calibrated value (in FLOPs/sec)
+            self.peak_flops = calibrated_peak_flops * 1e9  # Convert from GFLOPS
+        elif efficiency_factor is not None:
+            self.peak_flops = theoretical_peak_flops * efficiency_factor
+        else:
+            self.peak_flops = theoretical_peak_flops
+
+        if calibrated_bandwidth is not None:
+            # Direct calibrated value (in bytes/sec)
+            self.peak_bandwidth = calibrated_bandwidth * 1e9  # Convert from GB/s
+        elif efficiency_factor is not None:
+            self.peak_bandwidth = theoretical_bandwidth * efficiency_factor
+        else:
+            self.peak_bandwidth = theoretical_bandwidth
+
+        # Store theoretical for reference
+        self.theoretical_peak_flops = theoretical_peak_flops
+        self.theoretical_bandwidth = theoretical_bandwidth
 
         # Calculate arithmetic intensity breakpoint
         # AI_breakpoint = peak_FLOPS / peak_bandwidth
@@ -483,3 +535,115 @@ class RooflineAnalyzer:
             return (f"{op_name}: Balanced - "
                    f"compute time {compute_time*1e6:.1f}μs, "
                    f"memory time {memory_time*1e6:.1f}μs")
+
+
+# =============================================================================
+# FACTORY FUNCTIONS
+# =============================================================================
+
+def create_calibrated_analyzer(
+    resource_model: HardwareResourceModel,
+    hardware_id: str,
+    precision: str = "fp32",
+    registry_path: Optional[str] = None
+) -> RooflineAnalyzer:
+    """
+    Create a RooflineAnalyzer with calibrated peak values from the hardware registry.
+
+    This factory function looks up calibration data for the specified hardware
+    and creates an analyzer with empirical peaks instead of theoretical.
+
+    Args:
+        resource_model: Hardware specifications (for structure/overhead modeling)
+        hardware_id: Registry ID (e.g., "h100_sxm5", "i7_12700k")
+        precision: Precision for peaks ("fp32", "fp16", etc.)
+        registry_path: Optional custom registry path
+
+    Returns:
+        RooflineAnalyzer configured with calibrated peaks (if available)
+        or theoretical peaks (as fallback)
+
+    Example:
+        >>> from graphs.hardware.mappers.gpu import create_h100_sxm5_80gb_mapper
+        >>> mapper = create_h100_sxm5_80gb_mapper()
+        >>> analyzer = create_calibrated_analyzer(
+        ...     mapper.resource_model,
+        ...     hardware_id="h100_sxm5",
+        ...     precision="fp32"
+        ... )
+        >>> # analyzer now uses calibrated peaks if available
+    """
+    from pathlib import Path
+
+    # Import registry (deferred to avoid circular imports)
+    try:
+        from ..hardware.calibration.registry_sync import HardwareRegistry
+    except ImportError:
+        # Registry not available, use theoretical
+        prec = Precision.FP32 if precision == "fp32" else Precision(precision.upper())
+        return RooflineAnalyzer(resource_model, precision=prec)
+
+    # Load registry
+    reg_path = Path(registry_path) if registry_path else None
+    registry = HardwareRegistry(registry_path=reg_path)
+
+    # Look up hardware
+    entry = registry.get_hardware(hardware_id)
+
+    if entry is None:
+        # Hardware not in registry, use theoretical
+        prec = Precision.FP32 if precision == "fp32" else Precision(precision.upper())
+        return RooflineAnalyzer(resource_model, precision=prec)
+
+    # Get roofline params from registry
+    peak_gflops, bandwidth_gbps, _ = entry.get_roofline_params(precision)
+
+    # Map precision string to enum
+    prec = Precision.FP32 if precision == "fp32" else Precision(precision.upper())
+
+    # Create analyzer with calibrated values
+    return RooflineAnalyzer(
+        resource_model=resource_model,
+        precision=prec,
+        calibrated_peak_flops=peak_gflops,
+        calibrated_bandwidth=bandwidth_gbps
+    )
+
+
+def get_roofline_params_for_hardware(
+    hardware_id: str,
+    precision: str = "fp32",
+    use_calibrated: bool = True
+) -> Tuple[float, float, float]:
+    """
+    Get roofline parameters for a hardware target from the registry.
+
+    Convenience function that returns (peak_gflops, bandwidth_gbps, ridge_point)
+    for a hardware target, using calibrated values if available.
+
+    Args:
+        hardware_id: Registry ID (e.g., "h100_sxm5", "nvidia_a100_sxm4_80gb")
+        precision: Precision ("fp32", "fp16", etc.)
+        use_calibrated: Whether to prefer calibrated over theoretical
+
+    Returns:
+        Tuple of (peak_gflops, bandwidth_gbps, ridge_point)
+        Returns (0, 0, 0) if hardware not found
+
+    Example:
+        >>> peak, bw, ridge = get_roofline_params_for_hardware("h100_sxm5", "fp32")
+        >>> print(f"H100 peak: {peak:.0f} GFLOPS, ridge: {ridge:.1f}")
+        H100 peak: 67000 GFLOPS, ridge: 20.0
+    """
+    try:
+        from ..hardware.calibration.registry_sync import HardwareRegistry
+    except ImportError:
+        return (0.0, 0.0, 0.0)
+
+    registry = HardwareRegistry()
+    entry = registry.get_hardware(hardware_id)
+
+    if entry is None:
+        return (0.0, 0.0, 0.0)
+
+    return entry.get_roofline_params(precision, use_calibrated)
