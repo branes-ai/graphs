@@ -52,6 +52,8 @@ class CalibrationStatus:
     calibrated_peak_gflops: Optional[float]
     efficiency: Optional[float]  # calibrated / theoretical
     priority_score: float  # Higher = should calibrate sooner
+    is_suspicious: bool = False  # True if any calibration has efficiency > 100%
+    suspicious_count: int = 0  # Number of suspicious calibrations
 
 
 @dataclass
@@ -72,6 +74,9 @@ class CoverageReport:
 
     # Stale calibrations
     stale_calibrations: List[CalibrationStatus] = field(default_factory=list)
+
+    # Suspicious calibrations (efficiency > 100%)
+    suspicious_calibrations: List[CalibrationStatus] = field(default_factory=list)
 
     # Priority list
     priority_list: List[CalibrationStatus] = field(default_factory=list)
@@ -216,14 +221,20 @@ def analyze_coverage(
         calibrated_peak = None
         efficiency = None
         if is_calibrated:
-            calibrated_peak = entry.get_calibrated_peak("fp32")
+            calibrated_peak = entry.get_calibrated_peak("fp32", skip_suspicious=False)
             if theoretical_peak > 0 and calibrated_peak > 0:
                 efficiency = calibrated_peak / theoretical_peak
 
-        # Calculate priority
+        # Check for suspicious calibrations (efficiency > 100%)
+        suspicious_count = sum(1 for c in entry.calibrations if c.is_suspicious)
+        is_suspicious = suspicious_count > 0
+
+        # Calculate priority (suspicious calibrations need recalibration)
         priority = calculate_priority_score(
             entry, is_calibrated, days_since, stale_threshold_days
         )
+        if is_suspicious:
+            priority += 30  # Boost priority for suspicious calibrations
 
         status = CalibrationStatus(
             hardware_id=entry.id,
@@ -240,6 +251,8 @@ def analyze_coverage(
             calibrated_peak_gflops=calibrated_peak,
             efficiency=efficiency,
             priority_score=priority,
+            is_suspicious=is_suspicious,
+            suspicious_count=suspicious_count,
         )
         hardware_status.append(status)
 
@@ -252,8 +265,15 @@ def analyze_coverage(
     stale = [s for s in hardware_status if s.is_stale]
     stale.sort(key=lambda s: s.days_since_calibration or 0, reverse=True)
 
-    # Priority list (uncalibrated + stale, sorted by priority)
-    priority_list = [s for s in hardware_status if not s.is_calibrated or s.is_stale]
+    # Find suspicious calibrations (efficiency > 100%)
+    suspicious = [s for s in hardware_status if s.is_suspicious]
+    suspicious.sort(key=lambda s: (s.efficiency or 0), reverse=True)
+
+    # Priority list (uncalibrated + stale + suspicious, sorted by priority)
+    priority_list = [
+        s for s in hardware_status
+        if not s.is_calibrated or s.is_stale or s.is_suspicious
+    ]
     priority_list.sort(key=lambda s: s.priority_score, reverse=True)
 
     # Overall stats
@@ -271,6 +291,7 @@ def analyze_coverage(
         by_vendor=by_vendor,
         hardware_status=hardware_status,
         stale_calibrations=stale,
+        suspicious_calibrations=suspicious,
         priority_list=priority_list,
     )
 
@@ -347,6 +368,20 @@ def format_text_report(report: CoverageReport, show_all: bool = False) -> str:
         lines.append(f"  {cat:12s} {data['calibrated']:2d}/{data['total']:2d} {bar} {data['coverage_pct']:5.1f}%")
     lines.append("")
 
+    # Suspicious calibrations (efficiency > 100%)
+    if report.suspicious_calibrations:
+        lines.append("SUSPICIOUS CALIBRATIONS (efficiency > 100%)")
+        lines.append("-" * 40)
+        lines.append("  These calibrations likely used iGPU or have measurement errors.")
+        lines.append("  They are excluded from calibrated peak calculations.")
+        lines.append("")
+        for s in report.suspicious_calibrations[:10]:
+            eff_pct = (s.efficiency or 0) * 100
+            lines.append(f"  {s.hardware_id}: {eff_pct:.0f}% efficiency ({s.suspicious_count} bad runs)")
+        if len(report.suspicious_calibrations) > 10:
+            lines.append(f"  ... and {len(report.suspicious_calibrations) - 10} more")
+        lines.append("")
+
     # Stale calibrations
     if report.stale_calibrations:
         lines.append("STALE CALIBRATIONS")
@@ -362,7 +397,12 @@ def format_text_report(report: CoverageReport, show_all: bool = False) -> str:
     lines.append("CALIBRATION PRIORITY (Top 10)")
     lines.append("-" * 40)
     for i, s in enumerate(report.priority_list[:10], 1):
-        status = "STALE" if s.is_stale else "UNCALIBRATED"
+        if s.is_suspicious:
+            status = "SUSPICIOUS"
+        elif s.is_stale:
+            status = "STALE"
+        else:
+            status = "UNCALIBRATED"
         lines.append(f"  {i:2d}. {s.model[:40]:40s}")
         lines.append(f"      {s.device_type}/{s.category} [{status}] score={s.priority_score:.0f}")
     lines.append("")
