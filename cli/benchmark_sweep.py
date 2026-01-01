@@ -98,12 +98,17 @@ def run_micro_kernel_layer(
     print(f"SW Fingerprint: {sw.fingerprint}")
     print(f"Device: {device.upper()}")
     print(f"Precisions: {', '.join(precisions)}")
+
+    # Estimate theoretical peaks from CPU specs
+    peak_gflops = hw.cpu.estimate_theoretical_peak_gflops("fp32")
+    peak_bandwidth = hw.cpu.estimate_theoretical_bandwidth_gbps()
+    print(f"Theoretical Peak: {peak_gflops:.1f} GFLOPS (FP32), {peak_bandwidth:.1f} GB/s")
     print()
 
-    # Default theoretical peaks (will be measured empirically)
+    # Build per-precision theoretical peaks
     theoretical_peaks = {}
-    peak_bandwidth = 100.0
-    peak_gflops = 100.0
+    for prec in precisions:
+        theoretical_peaks[prec] = hw.cpu.estimate_theoretical_peak_gflops(prec)
 
     runs = []
 
@@ -167,13 +172,15 @@ def run_micro_kernel_layer(
                                 blas_results['blas3_gops'] = max(blas_results['blas3_gops'], gops)
 
             # Create CalibrationRun for this precision
+            # Use our estimated theoretical peak for this precision
+            prec_theoretical_peak = theoretical_peaks.get(precision, peak_gflops)
             run = CalibrationRun.from_context_and_results(
                 context=context,
                 precision=precision,
                 device=device,
                 stream_results=stream_results,
                 blas_results=blas_results,
-                theoretical_peak=calibration.theoretical_peak_gflops,
+                theoretical_peak=prec_theoretical_peak,
                 preflight_passed=calibration.metadata.preflight.passed if calibration.metadata.preflight else True,
                 forced=force,
                 notes=f"Quick={quick}" if quick else "",

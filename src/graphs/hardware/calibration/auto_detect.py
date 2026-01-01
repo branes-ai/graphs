@@ -205,6 +205,82 @@ class CPUIdentity:
 
         return result
 
+    def estimate_theoretical_peak_gflops(self, precision: str = "fp32") -> float:
+        """
+        Estimate theoretical peak GFLOPS based on CPU specs.
+
+        Uses core count, max frequency, and SIMD capabilities to estimate
+        the theoretical peak compute throughput.
+
+        Args:
+            precision: Precision to estimate for ('fp32', 'fp64', 'int8', etc.)
+
+        Returns:
+            Estimated peak GFLOPS (or GOPS for integer).
+        """
+        # Determine SIMD width from flags
+        # FMA = Fused Multiply-Add, counts as 2 ops (multiply + add)
+        # Most modern CPUs have 2 FMA units per core
+        flags_set = set(self.flags) if self.flags else set()
+
+        # FP32 ops per cycle per core
+        if 'avx512f' in flags_set:
+            # AVX-512: 512-bit = 16 FP32, x2 for FMA, x2 units = 64 ops/cycle
+            # But many CPUs downclock with AVX-512, use conservative estimate
+            fp32_ops_per_cycle = 32  # Conservative: 1 FMA unit
+        elif 'avx2' in flags_set and 'fma' in flags_set:
+            # AVX2 + FMA: 256-bit = 8 FP32, x2 for FMA, x2 units = 32 ops/cycle
+            fp32_ops_per_cycle = 32
+        elif 'avx2' in flags_set:
+            # AVX2 without FMA: 256-bit = 8 FP32, x2 units = 16 ops/cycle
+            fp32_ops_per_cycle = 16
+        elif 'avx' in flags_set:
+            # AVX: 256-bit = 8 FP32, typically 1 unit = 8 ops/cycle
+            fp32_ops_per_cycle = 8
+        elif 'sse4_1' in flags_set or 'sse4_2' in flags_set:
+            # SSE4: 128-bit = 4 FP32
+            fp32_ops_per_cycle = 4
+        else:
+            # Fallback: assume basic SSE (128-bit)
+            fp32_ops_per_cycle = 4
+
+        # Adjust for precision
+        if precision == 'fp64':
+            ops_per_cycle = fp32_ops_per_cycle // 2  # Half the width
+        elif precision in ('fp16', 'bf16'):
+            ops_per_cycle = fp32_ops_per_cycle * 2  # Double the width
+        elif precision == 'int8':
+            ops_per_cycle = fp32_ops_per_cycle * 4  # 4x the width
+        elif precision == 'int32':
+            ops_per_cycle = fp32_ops_per_cycle  # Same as FP32
+        else:
+            ops_per_cycle = fp32_ops_per_cycle  # Default to FP32
+
+        # Use max frequency if available, otherwise base
+        freq_ghz = (self.max_freq_mhz or self.base_freq_mhz or 3000) / 1000.0
+
+        # Calculate peak
+        # Note: Using physical cores only (logical cores share execution units)
+        peak_gflops = self.cores_physical * ops_per_cycle * freq_ghz
+
+        return peak_gflops
+
+    def estimate_theoretical_bandwidth_gbps(self) -> float:
+        """
+        Estimate theoretical memory bandwidth based on memory type.
+
+        This is a rough estimate - actual bandwidth depends on memory
+        configuration which we may not fully detect.
+
+        Returns:
+            Estimated memory bandwidth in GB/s.
+        """
+        # Common memory bandwidths (rough estimates)
+        # DDR4-3200: ~50 GB/s per channel, typically 2 channels = 100 GB/s
+        # DDR5-4800: ~75 GB/s per channel, typically 2 channels = 150 GB/s
+        # This is a conservative estimate for desktop systems
+        return 100.0  # Default to ~100 GB/s (DDR4 dual-channel)
+
 
 @dataclass
 class GPUIdentity:
