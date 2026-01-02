@@ -4,8 +4,51 @@
   "model": "Jetson AGX Orin Developer Kit",
   "device_type": "board",
   "product_category": "embodied",
-  "theoretical_peaks": {},
-  "peak_bandwidth_gbps": 0.0,
   "platform": "aarch64",
-  "notes": "High-end Jetson Orin module. 12-core ARM Cortex-A78AE CPU with 2048 CUDA core Ampere GPU. Unified LPDDR5 memory shared between CPU and GPU."
+  "memory_gb": 64,
+  "memory_type": "LPDDR5",
+  "memory_bandwidth_gbps": 204.8,
+  "tdp_watts": 60,
+  "power_profiles": ["15W", "30W", "50W", "60W"],
+  "compute_units": [
+    {
+      "id": "jetson_orin_agx_cpu",
+      "type": "cpu",
+      "count": 1,
+      "role": "host",
+      "notes": "12-core ARM Cortex-A78AE"
+    },
+    {
+      "id": "jetson_orin_agx_gpu",
+      "type": "gpu",
+      "count": 1,
+      "role": "accelerator",
+      "notes": "2048 CUDA cores, 16 SMs, Ampere architecture"
+    },
+    {
+      "id": "nvidia_dla_orin",
+      "type": "accelerator",
+      "count": 2,
+      "role": "accelerator",
+      "notes": "2x DLA 2.0 cores for CNN inference via TensorRT"
+    }
+  ],
+  "additional_units": [
+    {
+      "type": "video_encoder",
+      "capabilities": ["H.265", "H.264", "AV1"],
+      "notes": "NVENC hardware encoder, 2x 4K60"
+    },
+    {
+      "type": "video_decoder",
+      "capabilities": ["H.265", "H.264", "VP9", "AV1"],
+      "notes": "NVDEC hardware decoder, 2x 8K30"
+    },
+    {
+      "type": "isp",
+      "count": 2,
+      "notes": "Image Signal Processors for camera pipelines"
+    }
+  ],
+  "notes": "High-end Jetson Orin module. Heterogeneous compute with CPU, GPU, and 2x DLA accelerators. Unified LPDDR5 memory (204.8 GB/s) shared across all compute units. Use GPU for general ML, DLA for optimized CNN inference."
 }

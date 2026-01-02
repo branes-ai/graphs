@@ -1,0 +1,65 @@
+{
+  "id": "amd_xdna_npu",
+  "vendor": "AMD",
+  "model": "AMD XDNA NPU (Ryzen AI)",
+  "device_type": "accelerator",
+  "product_category": "mobile",
+  "ops_per_clock": {
+    "fp64": 0,
+    "fp32": 0,
+    "fp16": 4000,
+    "fp8": 8000,
+    "fp4": 0,
+    "bf16": 4000,
+    "tf32": 0,
+    "int64": 0,
+    "int32": 0,
+    "int16": 4000,
+    "int8": 8000,
+    "int4": 16000
+  },
+  "ops_per_clock_notes": {
+    "int8": "20 AIE tiles x 400 INT8 ops/tile/clock = 8,000 INT8 ops/clock",
+    "int4": "20 AIE tiles x 800 INT4 ops/tile/clock = 16,000 INT4 ops/clock",
+    "fp16": "20 AIE tiles x 200 FP16 ops/tile/clock = 4,000 FP16 ops/clock",
+    "note": "XDNA 1.1 architecture (Hawk Point / Ryzen 8040 series). AIE-ML tiles for neural network inference."
+  },
+  "theoretical_peaks": {
+    "fp64": 0.0,
+    "fp32": 0.0,
+    "fp16": 8000.0,
+    "fp8": 16000.0,
+    "fp4": 0.0,
+    "bf16": 8000.0,
+    "tf32": 0.0,
+    "int64": 0.0,
+    "int32": 0.0,
+    "int16": 8000.0,
+    "int8": 16000.0,
+    "int4": 32000.0
+  },
+  "theoretical_peaks_notes": "XDNA 1.1 rated at 16 TOPS INT8. Calculated at 2000 MHz. Peaks in GOPS (not GFLOPS for integer types).",
+  "peak_bandwidth_gbps": 50.0,
+  "architecture": "XDNA",
+  "compute_units": 20,
+  "memory_gb": 0,
+  "tdp_watts": 5,
+  "base_clock_mhz": 1800.0,
+  "boost_clock_mhz": 2000.0,
+  "platform": "x86_64",
+  "power_profiles": {
+    "low_power": {
+      "boost_clock_mhz": 1500,
+      "peak_int8_tops": 12
+    },
+    "balanced": {
+      "boost_clock_mhz": 1800,
+      "peak_int8_tops": 14.4
+    },
+    "performance": {
+      "boost_clock_mhz": 2000,
+      "peak_int8_tops": 16
+    }
+  },
+  "notes": "AMD XDNA 1.1 NPU in Ryzen 8040 series (Hawk Point). 16 TOPS INT8 peak. 20 AIE-ML tiles based on Xilinx Versal AI Engine architecture. Dedicated silicon for AI inference, separate from CPU/GPU. Supports ONNX via DirectML/Windows ML. Used for Windows Studio Effects, background AI tasks."
+}

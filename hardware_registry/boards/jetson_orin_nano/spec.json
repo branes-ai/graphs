@@ -4,8 +4,51 @@
   "model": "Jetson Orin Nano Developer Kit",
   "device_type": "board",
   "product_category": "edge",
-  "theoretical_peaks": {},
-  "peak_bandwidth_gbps": 0.0,
   "platform": "aarch64",
-  "notes": "Entry-level Jetson Orin module. 6-core ARM Cortex-A78AE CPU with 1024 CUDA core Ampere GPU. Unified LPDDR5 memory shared between CPU and GPU."
+  "memory_gb": 8,
+  "memory_type": "LPDDR5",
+  "memory_bandwidth_gbps": 68.0,
+  "tdp_watts": 15,
+  "power_profiles": ["7W", "15W"],
+  "compute_units": [
+    {
+      "id": "jetson_orin_nano_cpu",
+      "type": "cpu",
+      "count": 1,
+      "role": "host",
+      "notes": "6-core ARM Cortex-A78AE"
+    },
+    {
+      "id": "jetson_orin_nano_gpu",
+      "type": "gpu",
+      "count": 1,
+      "role": "accelerator",
+      "notes": "1024 CUDA cores, 8 SMs, Ampere architecture"
+    },
+    {
+      "id": "nvidia_dla_orin",
+      "type": "accelerator",
+      "count": 2,
+      "role": "accelerator",
+      "notes": "2x DLA 2.0 cores for CNN inference via TensorRT"
+    }
+  ],
+  "additional_units": [
+    {
+      "type": "video_encoder",
+      "capabilities": ["H.265", "H.264", "AV1"],
+      "notes": "NVENC hardware encoder"
+    },
+    {
+      "type": "video_decoder",
+      "capabilities": ["H.265", "H.264", "VP9", "AV1"],
+      "notes": "NVDEC hardware decoder"
+    },
+    {
+      "type": "isp",
+      "count": 2,
+      "notes": "Image Signal Processors for camera pipelines"
+    }
+  ],
+  "notes": "Entry-level Jetson Orin module. Heterogeneous compute with CPU, GPU, and 2x DLA accelerators. Unified LPDDR5 memory shared across all compute units. Use GPU for general ML, DLA for optimized CNN inference."
 }
