@@ -1,0 +1,67 @@
+{
+  "id": "nvidia_dla_orin",
+  "vendor": "NVIDIA",
+  "model": "NVIDIA DLA 2.0 (Orin)",
+  "device_type": "accelerator",
+  "product_category": "edge",
+  "ops_per_clock": {
+    "fp64": 0,
+    "fp32": 0,
+    "fp16": 2048,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 0,
+    "tf32": 0,
+    "int64": 0,
+    "int32": 0,
+    "int16": 0,
+    "int8": 4096,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "int8": "Single DLA core: 64x64 MAC array = 4,096 INT8 ops/clock",
+    "fp16": "Single DLA core: 64x32 MAC array = 2,048 FP16 ops/clock",
+    "note": "Orin has 2x DLA cores. This spec is for one DLA. Multiply by 2 for full chip. Optimized for CNN inference."
+  },
+  "theoretical_peaks": {
+    "fp64": 0.0,
+    "fp32": 0.0,
+    "fp16": 2662.4,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 0.0,
+    "tf32": 0.0,
+    "int64": 0.0,
+    "int32": 0.0,
+    "int16": 0.0,
+    "int8": 5324.8,
+    "int4": 0.0
+  },
+  "theoretical_peaks_notes": "Single DLA at 1.3 GHz. Jetson Orin Nano has 2x DLA for ~10.6 TOPS INT8 total (per-DLA: 5.3 TOPS).",
+  "peak_bandwidth_gbps": 68.0,
+  "architecture": "DLA",
+  "compute_units": 1,
+  "memory_gb": 0,
+  "tdp_watts": 3,
+  "base_clock_mhz": 1100.0,
+  "boost_clock_mhz": 1300.0,
+  "platform": "aarch64",
+  "power_profiles": {
+    "7W": {
+      "description": "Low power mode",
+      "dla_clock_mhz": 614,
+      "peak_int8_tops": 2.5
+    },
+    "15W": {
+      "description": "Balanced mode",
+      "dla_clock_mhz": 1100,
+      "peak_int8_tops": 4.5
+    },
+    "25W_MAXN": {
+      "description": "Maximum performance",
+      "dla_clock_mhz": 1300,
+      "peak_int8_tops": 5.3
+    }
+  },
+  "notes": "NVIDIA Deep Learning Accelerator (DLA) 2.0 in Orin SoC. Jetson Orin Nano has 2x DLA cores. Each DLA has 64x64 INT8 MAC array. Fixed-function accelerator for CNN inference via TensorRT. Supports Conv2D, pooling, batch norm, ReLU. Does not support all CUDA operations - use GPU for unsupported ops."
+}
