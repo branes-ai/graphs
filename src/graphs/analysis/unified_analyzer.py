@@ -71,6 +71,7 @@ from graphs.hardware.mappers.gpu import (
     create_a100_sxm4_80gb_mapper,
     create_v100_sxm3_32gb_mapper,
     create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nx_16gb_mapper,
     create_jetson_orin_nano_8gb_mapper,
     create_jetson_thor_128gb_mapper,
 )
@@ -1009,6 +1010,8 @@ class UnifiedAnalyzer:
             'jetson-orin-agx': create_jetson_orin_agx_64gb_mapper,
             'jetson-orin': create_jetson_orin_agx_64gb_mapper,
             'jetson-orin-agx-64gb': create_jetson_orin_agx_64gb_mapper,
+            'jetson-orin-nx': create_jetson_orin_nx_16gb_mapper,
+            'jetson-orin-nx-16gb': create_jetson_orin_nx_16gb_mapper,
             'jetson-orin-nano': create_jetson_orin_nano_8gb_mapper,
             'jetson-nano': create_jetson_orin_nano_8gb_mapper,
             'jetson-orin-nano-8gb': create_jetson_orin_nano_8gb_mapper,

@@ -894,6 +894,32 @@ def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None) -> GPUMapper
     return GPUMapper(jetson_orin_nano_8gb_resource_model(), thermal_profile=thermal_profile)
 
 
+def create_jetson_orin_nx_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
+    """
+    Create GPU mapper for NVIDIA Jetson Orin NX 16GB (mid-range edge AI platform).
+
+    MEMORY: 16 GB LPDDR5 @ 3200 MHz
+
+    The Jetson Orin NX sits between the Orin Nano and Orin AGX in NVIDIA's
+    edge AI lineup. It provides double the compute resources of the Nano
+    (2048 CUDA cores, 64 Tensor Cores) while maintaining a compact form factor.
+
+    PERFORMANCE:
+    - 100 TOPS INT8 (original), 157 TOPS INT8 (Super with JetPack 6.1+)
+    - 102 GB/s memory bandwidth
+    - Power modes: 10W, 15W, 25W, 40W (MAXN_SUPER)
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "10W", "15W", "25W", "40W")
+                        If None, uses default ("25W")
+
+    Returns:
+        GPUMapper configured for Jetson Orin NX 16GB
+    """
+    from ..models.edge.jetson_orin_nx_16gb import jetson_orin_nx_16gb_resource_model
+    return GPUMapper(jetson_orin_nx_16gb_resource_model(), thermal_profile=thermal_profile)
+
+
 def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Thor 128GB (next-gen edge AI).
