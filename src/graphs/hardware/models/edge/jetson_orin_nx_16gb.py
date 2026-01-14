@@ -73,13 +73,16 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
     References:
     - Jetson Orin NX Super Specs: 157 TOPS, 102 GB/s, 10-40W
     - Jetson Orin NX 16GB Specs: 100 TOPS, 102 GB/s, 10-25W
-    - TechPowerUp GPU Database: 2048 CUDA cores, 64 Tensor cores
+    - NVIDIA Official: 1024 CUDA cores, 32 Tensor Cores
+    - https://connecttech.com/orin-module-comparison/
     """
-    # Physical hardware specs (NX has double the SMs of Nano)
-    num_sms = 16  # 2048 CUDA cores / 128 cores per SM
+    # Physical hardware specs (NX has same SMs as Nano, half of AGX)
+    # Per NVIDIA specs: Orin NX 16GB has 1024 CUDA cores, 32 Tensor Cores
+    # Reference: https://connecttech.com/orin-module-comparison/
+    num_sms = 8  # 1024 CUDA cores / 128 cores per SM
     cuda_cores_per_sm = 128  # Ampere SM: 128 CUDA cores
     tensor_cores_per_sm = 4  # NX has 4 TCs/SM like other Orins
-    total_tensor_cores = num_sms * tensor_cores_per_sm  # 64 TCs
+    total_tensor_cores = num_sms * tensor_cores_per_sm  # 32 TCs
     # ops are flops, so MACs count as 2 ops
     fp32_ops_per_sm_per_clock = 256  # 128 CUDA cores x 1 FMA = 128 MACs/clock/SM
     # Tensor Core throughput
@@ -400,22 +403,23 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
         default_thermal_profile="25W",  # Balanced default for edge AI
 
         # Legacy precision profiles (backward compatibility)
+        # NX has 8 SMs (half of AGX's 16 SMs)
         precision_profiles={
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=5.324e12,  # 16 SMs x 512 ops/clock x 650 MHz (realistic peak)
+                peak_ops_per_sec=2.662e12,  # 8 SMs x 512 ops/clock x 650 MHz (realistic peak)
                 tensor_core_supported=True,
                 bytes_per_element=1,
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=2.662e12,  # Half of INT8
+                peak_ops_per_sec=1.331e12,  # Half of INT8
                 tensor_core_supported=True,
                 bytes_per_element=2,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=1.331e12,  # Standard CUDA cores
+                peak_ops_per_sec=0.666e12,  # Standard CUDA cores
                 tensor_core_supported=False,
                 bytes_per_element=4,
             ),
@@ -424,7 +428,7 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
 
         peak_bandwidth=102e9,  # 102 GB/s (LPDDR5 @ 3200 MHz)
         l1_cache_per_unit=128 * 1024,  # 128 KB per SM
-        l2_cache_total=4 * 1024 * 1024,  # 4 MB (double Nano)
+        l2_cache_total=2 * 1024 * 1024,  # 2 MB (same as Nano, half of AGX)
         main_memory=16 * 1024**3,  # 16 GB
         energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.9 pJ (8nm Samsung, CUDA cores)
         energy_per_byte=18e-12,  # 18 pJ/byte

@@ -367,6 +367,7 @@ class UnifiedAnalyzer:
         batch_size: int = 1,
         precision: Precision = Precision.FP32,
         config: Optional[AnalysisConfig] = None,
+        thermal_profile: Optional[str] = None,
     ) -> UnifiedAnalysisResult:
         """
         Run comprehensive analysis on a model.
@@ -380,6 +381,9 @@ class UnifiedAnalyzer:
             batch_size: Batch size for analysis
             precision: Precision to use (FP32, FP16, INT8)
             config: Analysis configuration (uses defaults if None)
+            thermal_profile: Thermal/power profile to use (e.g., '15W', '30W').
+                           If None, uses the hardware's default profile.
+                           Use this for fair comparisons across different devices.
 
         Returns:
             UnifiedAnalysisResult with all analysis reports
@@ -397,8 +401,9 @@ class UnifiedAnalyzer:
         model, input_tensor, display_name = self._create_model(model_name, batch_size)
 
         if self.verbose:
-            print(f"Creating hardware mapper: {hardware_name} (precision={precision.name})...")
-        hardware_mapper = self._create_hardware_mapper(hardware_name)
+            profile_str = f", thermal_profile={thermal_profile}" if thermal_profile else ""
+            print(f"Creating hardware mapper: {hardware_name} (precision={precision.name}{profile_str})...")
+        hardware_mapper = self._create_hardware_mapper(hardware_name, thermal_profile=thermal_profile)
         hardware = hardware_mapper.resource_model
         hardware_display_name = hardware.name
 
@@ -478,20 +483,24 @@ class UnifiedAnalyzer:
                 print(f"  Average utilization: {result.hardware_allocation.average_utilization * 100:.1f}%")
 
         # Step 3: Run roofline analysis
+        # Extract thermal profile from mapper if available
+        thermal_profile = getattr(hardware_mapper, 'thermal_profile', None)
         if config.run_roofline:
             if self.verbose:
-                print("Running roofline analysis...")
+                profile_str = f" (thermal_profile={thermal_profile})" if thermal_profile else ""
+                print(f"Running roofline analysis{profile_str}...")
             result.roofline_report = self._run_roofline_analysis(
-                partition_report, hardware, precision
+                partition_report, hardware, precision, thermal_profile
             )
 
         # Step 4: Run energy analysis (depends on roofline for latencies, hardware mapping for allocation)
         if config.run_energy:
             if self.verbose:
-                print("Running energy analysis...")
+                profile_str = f" (thermal_profile={thermal_profile})" if thermal_profile else ""
+                print(f"Running energy analysis{profile_str}...")
             result.energy_report = self._run_energy_analysis(
                 partition_report, hardware, result.roofline_report,
-                result.hardware_allocation, precision, config
+                result.hardware_allocation, precision, config, thermal_profile
             )
 
         # Step 4: Run memory analysis
@@ -727,10 +736,23 @@ class UnifiedAnalyzer:
         self,
         partition_report: PartitionReport,
         hardware: HardwareResourceModel,
-        precision: Precision
+        precision: Precision,
+        thermal_profile: Optional[str] = None
     ) -> RooflineReport:
-        """Run roofline analysis for latency and bottlenecks"""
-        analyzer = RooflineAnalyzer(hardware, precision=precision)
+        """Run roofline analysis for latency and bottlenecks.
+
+        Args:
+            partition_report: Model partitioning information
+            hardware: Hardware resource model
+            precision: Target precision
+            thermal_profile: Thermal/power profile (e.g., '15W', '30W').
+                           Uses thermal_operating_points for realistic performance.
+        """
+        analyzer = RooflineAnalyzer(
+            hardware,
+            precision=precision,
+            thermal_profile=thermal_profile
+        )
         return analyzer.analyze(partition_report.subgraphs, partition_report)
 
     def _run_energy_analysis(
@@ -740,13 +762,15 @@ class UnifiedAnalyzer:
         roofline_report: Optional[RooflineReport],
         hardware_allocation: Optional[GraphHardwareAllocation],
         precision: Precision,
-        config: AnalysisConfig
+        config: AnalysisConfig,
+        thermal_profile: Optional[str] = None
     ) -> EnergyReport:
         """Run energy analysis using roofline latencies and hardware allocation (NEW)"""
         analyzer = EnergyAnalyzer(
             hardware,
             precision=precision,
-            power_gating_enabled=config.power_gating_enabled  # NEW
+            power_gating_enabled=config.power_gating_enabled,
+            thermal_profile=thermal_profile
         )
 
         # Extract latencies from roofline if available
@@ -983,12 +1007,18 @@ class UnifiedAnalyzer:
                 f"deeplabv3_resnet50, fcn_resnet50"
             )
 
-    def _create_hardware_mapper(self, hardware_name: str) -> Any:
+    def _create_hardware_mapper(
+        self,
+        hardware_name: str,
+        thermal_profile: Optional[str] = None
+    ) -> Any:
         """
         Create hardware mapper by name.
 
         Args:
             hardware_name: Hardware name (e.g., 'H100', 'Jetson-Orin-AGX')
+            thermal_profile: Thermal/power profile to use (e.g., '15W', '30W').
+                           If None, uses the hardware's default profile.
 
         Returns:
             HardwareMapper instance
@@ -1078,4 +1108,8 @@ class UnifiedAnalyzer:
             available = ', '.join(sorted(hardware_map.keys()))
             raise ValueError(f"Unknown hardware: {hardware_name}. Available: {available}")
 
-        return hardware_map[hardware_key]()
+        # Create mapper with optional thermal profile
+        factory = hardware_map[hardware_key]
+        if thermal_profile is not None:
+            return factory(thermal_profile=thermal_profile)
+        return factory()
