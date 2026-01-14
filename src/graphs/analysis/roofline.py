@@ -246,7 +246,8 @@ class RooflineAnalyzer:
         precision: Precision = Precision.FP32,
         efficiency_factor: Optional[float] = None,
         calibrated_peak_flops: Optional[float] = None,
-        calibrated_bandwidth: Optional[float] = None
+        calibrated_bandwidth: Optional[float] = None,
+        thermal_profile: Optional[str] = None
     ):
         """
         Initialize roofline analyzer.
@@ -260,10 +261,14 @@ class RooflineAnalyzer:
                 If provided, overrides resource_model peak.
             calibrated_bandwidth: Optional calibrated bandwidth (bytes/sec).
                 If provided, overrides resource_model bandwidth.
+            thermal_profile: Optional thermal/power profile (e.g., '15W', '30W').
+                If provided, uses thermal_operating_points for realistic performance.
+                If None, uses default_thermal_profile or falls back to precision_profiles.
         """
         self.resource_model = resource_model
         self.precision = precision
         self.efficiency_factor = efficiency_factor
+        self.thermal_profile = thermal_profile
         self.is_calibrated = (
             efficiency_factor is not None or
             calibrated_peak_flops is not None or
@@ -271,13 +276,10 @@ class RooflineAnalyzer:
         )
 
         # Get hardware characteristics for this precision
-        if precision in resource_model.precision_profiles:
-            profile = resource_model.precision_profiles[precision]
-            theoretical_peak_flops = profile.peak_ops_per_sec
-        else:
-            # Fallback: use default precision
-            default_profile = resource_model.precision_profiles[resource_model.default_precision]
-            theoretical_peak_flops = default_profile.peak_ops_per_sec
+        # Priority: thermal_operating_points > precision_profiles
+        theoretical_peak_flops = self._get_effective_peak_ops(
+            resource_model, precision, thermal_profile
+        )
 
         theoretical_bandwidth = resource_model.peak_bandwidth
 
@@ -305,6 +307,65 @@ class RooflineAnalyzer:
         # Calculate arithmetic intensity breakpoint
         # AI_breakpoint = peak_FLOPS / peak_bandwidth
         self.ai_breakpoint = self.peak_flops / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
+
+    @staticmethod
+    def _get_effective_peak_ops(
+        resource_model: HardwareResourceModel,
+        precision: Precision,
+        thermal_profile: Optional[str] = None
+    ) -> float:
+        """
+        Get effective peak operations per second, respecting thermal constraints.
+
+        This method implements a fallback chain:
+        1. thermal_operating_points with specified thermal_profile
+        2. thermal_operating_points with default_thermal_profile
+        3. Legacy precision_profiles (theoretical peaks)
+
+        Args:
+            resource_model: Hardware specifications
+            precision: Target precision
+            thermal_profile: Specific thermal profile to use (e.g., '15W')
+
+        Returns:
+            Effective peak operations per second
+        """
+        # Try 1: thermal_operating_points with explicit thermal_profile
+        if (hasattr(resource_model, 'thermal_operating_points') and
+            resource_model.thermal_operating_points and thermal_profile):
+            thermal_point = resource_model.thermal_operating_points.get(thermal_profile)
+            if thermal_point and precision in thermal_point.performance_specs:
+                perf_spec = thermal_point.performance_specs[precision]
+                effective_ops = perf_spec.effective_ops_per_sec
+                if effective_ops > 0:
+                    return effective_ops
+
+        # Try 2: thermal_operating_points with default profile
+        if (hasattr(resource_model, 'thermal_operating_points') and
+            resource_model.thermal_operating_points and
+            hasattr(resource_model, 'default_thermal_profile') and
+            resource_model.default_thermal_profile):
+            thermal_point = resource_model.thermal_operating_points.get(
+                resource_model.default_thermal_profile
+            )
+            if thermal_point and precision in thermal_point.performance_specs:
+                perf_spec = thermal_point.performance_specs[precision]
+                effective_ops = perf_spec.effective_ops_per_sec
+                if effective_ops > 0:
+                    return effective_ops
+
+        # Try 3: Legacy precision_profiles
+        if precision in resource_model.precision_profiles:
+            profile = resource_model.precision_profiles[precision]
+            return profile.peak_ops_per_sec
+
+        # Try 4: Default precision fallback
+        if resource_model.default_precision in resource_model.precision_profiles:
+            default_profile = resource_model.precision_profiles[resource_model.default_precision]
+            return default_profile.peak_ops_per_sec
+
+        # Last resort: return 0 (will cause issues, but signals problem)
+        return 0.0
 
     def analyze(
         self,

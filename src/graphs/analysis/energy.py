@@ -264,7 +264,8 @@ class EnergyAnalyzer:
         resource_model: HardwareResourceModel,
         precision: Precision = Precision.FP32,
         latency_s: Optional[float] = None,
-        power_gating_enabled: bool = False  # NEW: Phase 1 integration
+        power_gating_enabled: bool = False,  # Phase 1 integration
+        thermal_profile: Optional[str] = None  # Thermal-aware analysis
     ):
         """
         Initialize energy analyzer.
@@ -273,12 +274,15 @@ class EnergyAnalyzer:
             resource_model: Hardware specifications
             precision: Precision to use for energy calculations
             latency_s: Optional total latency (if not provided, estimated from roofline)
-            power_gating_enabled: If True, unallocated units consume 0 idle power (NEW)
+            power_gating_enabled: If True, unallocated units consume 0 idle power
+            thermal_profile: Thermal/power profile (e.g., '15W', '30W').
+                           Uses thermal_operating_points for realistic TDP and performance.
         """
         self.resource_model = resource_model
         self.precision = precision
         self.latency_s = latency_s
-        self.power_gating_enabled = power_gating_enabled  # NEW
+        self.power_gating_enabled = power_gating_enabled
+        self.thermal_profile = thermal_profile
 
         # Get energy coefficients
         self.energy_per_flop = resource_model.energy_per_flop_fp32
@@ -290,28 +294,38 @@ class EnergyAnalyzer:
 
         self.energy_per_byte = resource_model.energy_per_byte
 
-        # Calculate TDP (thermal design power)
+        # Calculate TDP (thermal design power) - now thermal-aware
         self._estimate_tdp()
 
-        # NEW: Per-unit idle power for power gating calculations
+        # Per-unit idle power for power gating calculations
         self.total_compute_units = resource_model.compute_units
         self.idle_power_per_unit = self.idle_power_watts / max(1, self.total_compute_units)
 
     def _estimate_tdp(self):
-        """Estimate TDP from hardware specs"""
+        """
+        Estimate TDP from hardware specs.
+
+        Uses thermal_operating_points for thermal-aware TDP estimation:
+        1. If thermal_profile specified, use that profile's TDP
+        2. Else if default_thermal_profile exists, use that
+        3. Else fall back to legacy precision_profiles estimation
+        """
         if hasattr(self.resource_model, 'thermal_operating_points') and \
            self.resource_model.thermal_operating_points:
-            # Use default thermal profile
-            default_profile_name = getattr(self.resource_model, 'default_thermal_profile', None)
-            if default_profile_name and default_profile_name in self.resource_model.thermal_operating_points:
-                profile = self.resource_model.thermal_operating_points[default_profile_name]
+            # Determine which thermal profile to use
+            profile_name = self.thermal_profile
+            if profile_name is None:
+                profile_name = getattr(self.resource_model, 'default_thermal_profile', None)
+
+            if profile_name and profile_name in self.resource_model.thermal_operating_points:
+                profile = self.resource_model.thermal_operating_points[profile_name]
                 self.tdp_watts = profile.tdp_watts
             else:
                 # Use first available profile
                 first_profile = next(iter(self.resource_model.thermal_operating_points.values()))
                 self.tdp_watts = first_profile.tdp_watts
         else:
-            # Estimate from peak power
+            # Legacy fallback: Estimate from peak power
             # For GPUs: Peak power ~= 2× average, TDP ~= 1.5× average
             # Rough estimate: TDP = peak_FLOPs × energy_per_flop × 2
             peak_flops = self.resource_model.precision_profiles[self.precision].peak_ops_per_sec
@@ -529,9 +543,14 @@ class EnergyAnalyzer:
         )
 
     def _estimate_latencies(self, subgraphs: List[SubgraphDescriptor]) -> List[float]:
-        """Estimate latencies if not provided (simple roofline)"""
+        """
+        Estimate latencies if not provided (simple roofline).
+
+        Uses thermal-aware peak performance from thermal_operating_points
+        when available, falling back to legacy precision_profiles.
+        """
         latencies = []
-        peak_flops = self.resource_model.precision_profiles[self.precision].peak_ops_per_sec
+        peak_flops = self._get_effective_peak_ops()
         peak_bandwidth = self.resource_model.peak_bandwidth
 
         for sg in subgraphs:
@@ -546,6 +565,36 @@ class EnergyAnalyzer:
             latencies.append(latency)
 
         return latencies
+
+    def _get_effective_peak_ops(self) -> float:
+        """
+        Get effective peak ops/sec for the current thermal profile and precision.
+
+        Priority:
+        1. thermal_operating_points with explicit thermal_profile
+        2. thermal_operating_points with default_thermal_profile
+        3. Legacy precision_profiles
+        """
+        rm = self.resource_model
+
+        # Try thermal_operating_points first
+        if hasattr(rm, 'thermal_operating_points') and rm.thermal_operating_points:
+            # Determine which profile to use
+            profile_name = self.thermal_profile
+            if profile_name is None:
+                profile_name = getattr(rm, 'default_thermal_profile', None)
+
+            if profile_name and profile_name in rm.thermal_operating_points:
+                profile = rm.thermal_operating_points[profile_name]
+                if self.precision in profile.peak_ops_per_sec:
+                    return profile.peak_ops_per_sec[self.precision]
+
+        # Fall back to legacy precision_profiles
+        if self.precision in rm.precision_profiles:
+            return rm.precision_profiles[self.precision].peak_ops_per_sec
+
+        # Default fallback
+        return rm.precision_profiles.get(Precision.FP32, rm.precision_profiles[list(rm.precision_profiles.keys())[0]]).peak_ops_per_sec
 
     def _explain_energy(
         self,

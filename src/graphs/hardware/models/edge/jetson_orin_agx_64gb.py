@@ -335,11 +335,11 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
 
         # NEW: Thermal operating points with DVFS modeling
         thermal_operating_points={
-            "15W": thermal_15w,  # Realistic deployment
-            "30W": thermal_30w,  # Balanced
-            "60W": thermal_60w,  # Max performance (unrealistic)
+            "15W": thermal_15w,  # Battery-powered deployment
+            "30W": thermal_30w,  # Balanced (typical deployment)
+            "60W": thermal_60w,  # Max performance
         },
-        default_thermal_profile="15W",  # Most realistic for embodied AI
+        default_thermal_profile="30W",  # Balanced default for edge AI with active cooling
 
         # Legacy precision profiles (calculated from fabrics)
         precision_profiles={
