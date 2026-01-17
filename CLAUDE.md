@@ -14,8 +14,12 @@ This repository contains synthetic DNN graph models and characterization tools f
 graphs/
 ├── src/graphs/                 # Main Python package
 │   ├── models/                 # Synthetic DNN models (MLP, Conv2D, ResNet blocks)
-│   ├── ir/                     # Intermediate Representation
-│   │   ├── structures.py          # Core graph data structures
+│   ├── core/                   # Core graph data structures (NEW - was ir/)
+│   │   ├── structures.py          # Graph data structures (TensorDescriptor, SubgraphDescriptor, etc.)
+│   │   ├── confidence.py          # Confidence levels for estimates (CALIBRATED, INTERPOLATED, THEORETICAL)
+│   │   └── __init__.py
+│   ├── frontends/              # Model frontends (NEW)
+│   │   ├── dynamo.py              # PyTorch Dynamo/FX tracing
 │   │   └── __init__.py
 │   ├── transform/              # Graph Transformations
 │   │   ├── partitioning/          # Graph partitioning strategies
@@ -26,12 +30,21 @@ graphs/
 │   │   ├── tiling/                # Tiling transformations
 │   │   ├── visualization.py       # Graph visualization utilities
 │   │   └── __init__.py
-│   ├── analysis/               # Performance Analysis
+│   ├── estimation/             # Performance Estimation (NEW - was analysis/)
 │   │   ├── unified_analyzer.py    # Unified analysis orchestrator
-│   │   ├── roofline_analyzer.py   # Roofline model + latency estimation
-│   │   ├── energy_analyzer.py     # Three-component energy model
-│   │   ├── memory_estimator.py    # Peak memory + memory timeline
+│   │   ├── roofline.py            # Roofline model + latency estimation
+│   │   ├── energy.py              # Three-component energy model
+│   │   ├── memory.py              # Peak memory + memory timeline
 │   │   ├── concurrency.py         # Multi-level parallelism analysis
+│   │   └── __init__.py
+│   ├── calibration/            # Hardware Calibration (NEW - elevated from hardware/)
+│   │   ├── calibrator.py          # Calibration orchestrator
+│   │   ├── schema.py              # Calibration data structures
+│   │   ├── profiles/              # Pre-calibrated hardware profiles (JSON)
+│   │   └── __init__.py
+│   ├── benchmarks/             # Calibration Benchmarks (NEW - elevated from hardware/calibration/)
+│   │   ├── matmul_bench.py        # Matrix multiplication benchmarks
+│   │   ├── memory_bench.py        # Memory bandwidth benchmarks
 │   │   └── __init__.py
 │   ├── reporting/              # Report Generation
 │   │   ├── report_generator.py    # Multi-format report generation
@@ -52,6 +65,8 @@ graphs/
 │   │   │   │   └── __init__.py
 │   │   │   └── __init__.py
 │   │   └── __init__.py
+│   ├── ir/                     # DEPRECATED - use core/ instead (backward compat shim)
+│   ├── analysis/               # DEPRECATED - use estimation/ instead (backward compat shim)
 │   └── scripts/                # Entry point scripts
 │       └── run_characterization.py
 ├── cli/                        # Command-line tools
@@ -113,8 +128,15 @@ graphs/
 ```
 
 **Note**:
-- **2025-10-24**: Package structure reorganized. The `characterize/` package has been split into focused packages: `ir/` (intermediate representation), `transform/` (graph transformations), `analysis/` (performance analysis), and `hardware/` (hardware modeling and mapping). See `docs/sessions/2025-10-24_package_reorganization.md` for details.
+- **2026-01-17**: Milestone 1 package reorganization complete. Major changes:
+  - `ir/` -> `core/`: Core graph data structures with new confidence module
+  - `analysis/` -> `estimation/`: Performance estimation (roofline, energy, memory)
+  - `hardware/calibration/` -> `calibration/`: Elevated to top-level package
+  - `hardware/calibration/benchmarks/` -> `benchmarks/`: Elevated to top-level package
+  - New `frontends/` package: Model tracing (PyTorch Dynamo)
+  - Old paths (`ir/`, `analysis/`, `hardware/calibration/`) remain as backward-compat shims with deprecation warnings
 - **2025-10-28**: Phase 4.2 unified framework added. New `UnifiedAnalyzer` and `ReportGenerator` provide simplified API with 61.5% code reduction. Refactored CLI tools (`*_v2.py`) are production-ready. See `docs/UNIFIED_FRAMEWORK_API.md` and `docs/MIGRATION_GUIDE_PHASE4_2.md` for details.
+- **2025-10-24**: Package structure reorganized. The `characterize/` package has been split into focused packages: `ir/` (intermediate representation), `transform/` (graph transformations), `analysis/` (performance analysis), and `hardware/` (hardware modeling and mapping). See `docs/archive/sessions/2025-10-24_package_reorganization.md` for details.
 
 ## Common Development Commands
 
@@ -217,7 +239,7 @@ python tests/characterize/test_graph_partitioner.py
 
 **Python API (Unified Framework):**
 ```python
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.reporting import ReportGenerator
 
 # Single call for complete analysis
@@ -230,13 +252,26 @@ text_report = generator.generate_text_report(result)
 json_report = generator.generate_json_report(result)
 csv_report = generator.generate_csv_report(result)
 
-# Power management analysis (NEW 2025-11-03)
+# Power management analysis
 config = AnalysisConfig(
     run_hardware_mapping=True,
     power_gating_enabled=True
 )
 result_pg = analyzer.analyze_model('resnet18', 'H100', batch_size=1, config=config)
 print(f"Power Gating Savings: {result_pg.energy_report.total_power_gating_savings_j * 1000:.1f} mJ")
+
+# Trace models directly with frontends
+from graphs.frontends import trace_and_partition
+import torch
+from torchvision import models
+
+model = models.resnet18()
+input_tensor = torch.randn(1, 3, 224, 224)
+fx_graph, partition_report = trace_and_partition(model, input_tensor)
+
+# Confidence tracking for estimates
+from graphs.core import ConfidenceLevel, EstimationConfidence
+# Estimates now include confidence: CALIBRATED, INTERPOLATED, THEORETICAL, UNKNOWN
 
 # See docs/UNIFIED_FRAMEWORK_API.md for full API documentation
 ```
@@ -268,14 +303,14 @@ The characterization system works through these stages:
 
 ### Key Components
 
-**Phase 4.2: Unified Analysis Framework (Recommended)**
+**Unified Analysis Framework (Recommended)**
 
-**UnifiedAnalyzer** (`analysis/unified_analyzer.py`):
-- Single orchestrator for all Phase 3 analyzers
+**UnifiedAnalyzer** (`estimation/unified_analyzer.py`):
+- Single orchestrator for all estimators
 - Handles FX tracing, shape propagation, partitioning automatically
 - Configurable analysis (roofline, energy, memory, concurrency)
 - Returns UnifiedAnalysisResult with derived metrics
-- 6-10× code reduction compared to manual orchestration
+- 6-10x code reduction compared to manual orchestration
 
 **ReportGenerator** (`reporting/report_generator.py`):
 - Multi-format output (text, JSON, CSV, markdown)
@@ -286,39 +321,51 @@ The characterization system works through these stages:
 
 **UnifiedAnalysisResult**:
 - Metadata (model, hardware, batch size, precision)
-- Phase 3 reports (roofline, energy, memory, concurrency)
+- Estimation reports (roofline, energy, memory, concurrency)
 - Derived metrics (latency, throughput, energy/inference, memory)
 - Graph structure (partition report, subgraphs)
 
-**Phase 3 Analyzers:**
+**Estimation Modules** (`estimation/`):
 
-**Roofline Analyzer** (`analysis/roofline_analyzer.py`):
+**Roofline Analyzer** (`estimation/roofline.py`):
 - Latency estimation using roofline model
 - Bottleneck analysis (compute vs memory-bound)
 - Hardware utilization calculation
-- Per-subgraph latency breakdown
+- Per-subgraph latency breakdown with confidence
 
-**Energy Analyzer** (`analysis/energy_analyzer.py`):
+**Energy Analyzer** (`estimation/energy.py`):
 - Three-component energy model
   - Compute energy (from FLOPs)
   - Memory energy (from data transfers)
   - Static/leakage energy (from latency)
-- Per-subgraph energy breakdown
+- Per-subgraph energy breakdown with confidence
 - Total energy and energy per inference
 
-**Memory Estimator** (`analysis/memory_estimator.py`):
+**Memory Estimator** (`estimation/memory.py`):
 - Peak memory usage (activations + weights)
 - Memory timeline (live tensors over time)
 - Activation vs weight memory breakdown
 - Hardware fit analysis (L2 cache, total memory)
 
-**Core Infrastructure:**
+**Core Infrastructure** (`core/`):
 
-**Graph Data Structures** (`ir/structures.py`):
+**Graph Data Structures** (`core/structures.py`):
 - `TensorDescriptor`: Shape, dtype, memory footprint
 - `ParallelismDescriptor`: Thread/warp/block parallelism
 - `SubgraphDescriptor`: Fused operation metadata
 - `PartitionReport`: Complete graph partitioning results
+
+**Confidence Tracking** (`core/confidence.py`):
+- `ConfidenceLevel`: CALIBRATED, INTERPOLATED, THEORETICAL, UNKNOWN
+- `EstimationConfidence`: Score (0-1), source, calibration reference
+- All descriptors (Latency, Energy, Memory) include confidence fields
+
+**Model Frontends** (`frontends/`):
+
+**Dynamo Frontend** (`frontends/dynamo.py`):
+- `trace_and_partition()`: Trace PyTorch model and partition into subgraphs
+- Uses torch.export (Dynamo) for reliable tracing
+- Automatic shape propagation and fusion-based partitioning
 
 **Fusion Partitioner** (`transform/partitioning/fusion_partitioner.py`):
 - Fuses operations to minimize data movement
@@ -479,9 +526,14 @@ The `hardware_registry/` directory in this repo contains analysis-specific data 
   - DPU: Reconfigurable FPGA tiles (AIE)
   - CGRA: Spatial dataflow with reconfiguration overhead
 - **Roofline Model**: Latency estimation considers both compute-bound and memory-bound performance based on arithmetic intensity
-- **Package Organization**:
-  - `ir/`: Hardware-independent graph structures
+- **Package Organization** (Updated 2026-01-17):
+  - `core/`: Core graph data structures and confidence tracking (was `ir/`)
+  - `frontends/`: Model tracing frontends (PyTorch Dynamo)
   - `transform/`: Graph transformations (partitioning, fusion, tiling)
-  - `analysis/`: Performance analysis without graph modification
+  - `estimation/`: Performance estimation modules (was `analysis/`)
+  - `calibration/`: Hardware calibration framework (elevated from `hardware/calibration/`)
+  - `benchmarks/`: Calibration benchmarks (elevated from `hardware/calibration/benchmarks/`)
   - `hardware/`: Hardware modeling and architecture-specific mapping
-- don't use Unicode characters
+  - `reporting/`: Report generation (text, JSON, CSV, markdown)
+  - Old paths (`ir/`, `analysis/`, `hardware/calibration/`) have deprecation warnings
+- Do not use Unicode characters in code or output
