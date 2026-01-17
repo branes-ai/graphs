@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2025-01-16] - Documentation Reorganization and Roadmap
+## [2026-01-16] - Documentation Reorganization and Roadmap
 
 ### Added
 
@@ -45,7 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Session Document
 
-See `docs/archive/sessions/2025-01-16_documentation_reorganization_and_roadmap.md` for details.
+See `docs/archive/sessions/2026-01-16_documentation_reorganization_and_roadmap.md` for details.
 
 ---
 
