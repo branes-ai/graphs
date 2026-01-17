@@ -60,9 +60,9 @@ Average arithmetic intensity: 31  ← FLOPs per byte (higher = compute-bound)
 ```
 
 **Arithmetic Intensity (AI)** is crucial:
-- **AI > 40**: Compute-bound → Needs high-FLOPS hardware (H100, A100)
-- **AI 10-40**: Balanced → Standard GPUs work well
-- **AI < 10**: Memory-bound → High bandwidth critical (edge devices, mobile)
+- **AI > 40**: Compute-bound - benefits from high-FLOPS hardware
+- **AI 10-40**: Balanced - typical for most edge accelerators
+- **AI < 10**: Memory-bound - high bandwidth critical (common on edge devices)
 
 ### Operation Types
 
@@ -96,11 +96,11 @@ Parallelism Potential:
   - Thread-level: 110,267 avg threads per op
 ```
 
-**Critical insight**: With batch=1, ResNet-18 can only achieve **12× parallelism** from the graph structure. To fully utilize an H100 GPU (132 SMs), you need:
-- **Batch size ≥ 11** to saturate the hardware
+**Critical insight**: With batch=1, ResNet-18 can only achieve **12x parallelism** from the graph structure. To fully utilize hardware like Jetson Orin AGX (2048 CUDA cores), you need:
+- **Batch size >= 4** to better saturate the hardware
 - Or other forms of parallelism (multiple requests, pipelining)
 
-This is why our original H100 latency estimates were 1000× too optimistic!
+This is why naive latency estimates based on peak FLOPS are often too optimistic!
 
 ## Key Concepts
 
@@ -161,8 +161,8 @@ Look at:
 - **Memory footprint**: Total weights + activations
 
 **Example**:
-- ResNet-18 (AI=31, 12 parallel) → V100/A10 GPU, batch≥10
-- MobileNet-V2 (AI=14, 12 parallel) → Edge device or mobile
+- ResNet-18 (AI=31, 12 parallel) - Jetson Orin AGX, batch>=4
+- MobileNet-V2 (AI=14, 12 parallel) - Jetson Orin Nano or Coral Edge TPU
 
 ### Use Case 2: Understanding Why Model is Slow
 
@@ -258,10 +258,8 @@ for r in results:
 ```python
 import torch
 import torch.nn as nn
-from torch.fx import symbolic_trace
-from torch.fx.passes.shape_prop import ShapeProp
-from graphs.characterize.graph_partitioner import GraphPartitioner
-from graphs.characterize.concurrency_analyzer import ConcurrencyAnalyzer
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer
+from graphs.reporting import ReportGenerator
 
 # Your custom model
 class MyModel(nn.Module):
@@ -276,16 +274,21 @@ class MyModel(nn.Module):
         x = self.relu(self.conv2(x))
         return x
 
-# Analyze
+# Analyze using UnifiedAnalyzer
 model = MyModel()
-fx_graph = symbolic_trace(model)
-ShapeProp(fx_graph).propagate(torch.randn(1, 3, 224, 224))
+input_tensor = torch.randn(1, 3, 224, 224)
 
-partitioner = GraphPartitioner()
-report = partitioner.partition(fx_graph)
+analyzer = UnifiedAnalyzer()
+result = analyzer.analyze_graph(
+    model=model,
+    input_tensor=input_tensor,
+    model_name='MyCustomCNN',
+    hardware_name='Jetson-Orin-Nano'
+)
 
-print(f"FLOPs: {report.total_flops / 1e9:.2f} G")
-print(f"Arithmetic Intensity: {report.average_arithmetic_intensity:.1f}")
+# Generate report
+generator = ReportGenerator()
+print(generator.generate_text_report(result))
 ```
 
 ### Check Memory Budget
@@ -306,20 +309,18 @@ else:
 
 ## What's Next?
 
-### Phase 1 (Complete): Graph Partitioning ✅
-- GraphPartitioner decomposes models into subgraphs
-- ConcurrencyAnalyzer finds available parallelism
-- Validation framework ensures correctness
+### Milestone 1 (Complete): Foundation Consolidation
+- Package reorganization: `core/`, `estimation/`, `frontends/`, `calibration/`, `benchmarks/`
+- Confidence tracking for all estimates
+- UnifiedAnalyzer orchestrates all analysis components
 
-### Phase 2 (Next): Hardware Mapping
-- Map subgraphs to actual hardware resources (SMs, cores, tiles)
-- Estimate **real utilization** (not just peak)
-- Account for scheduling overhead, memory contention
-
-### Phase 3 (Future): Performance/Energy/Memory Estimation
-- Roofline modeling for realistic latency
-- Component-level energy breakdown
-- Peak memory estimation with allocation tracking
+### Current Capabilities
+- **Graph Partitioning**: FusionBasedPartitioner decomposes models into fused subgraphs
+- **Hardware Mapping**: Map subgraphs to hardware resources (SMs, cores, tiles, systolic arrays)
+- **Roofline Analysis**: Realistic latency estimation based on compute/memory bounds
+- **Energy Estimation**: Three-component model (compute, memory, static)
+- **Memory Analysis**: Peak memory, activation timeline, hardware fit checks
+- **Concurrency Analysis**: Graph-level parallelism and critical path
 
 ## Resources
 
@@ -328,7 +329,7 @@ else:
 - **Implementation Plan**: `docs/realistic_performance_modeling_plan.md` (Phase 1-3 roadmap)
 - **Examples**: `examples/` directory (quick start, comparison, custom analysis)
 - **Tests**: `tests/test_graph_partitioner*.py` (validation tests)
-- **Source Code**: `src/graphs/characterize/` (implementation details)
+- **Source Code**: `src/graphs/` (core/, estimation/, frontends/, hardware/)
 
 ## Troubleshooting
 
@@ -362,7 +363,7 @@ Remember:
 
 Start with the tutorial and examples. If you're still stuck:
 1. Check the validation tests to see expected behavior
-2. Examine source code in `src/graphs/characterize/`
+2. Examine source code in `src/graphs/` (core/, estimation/, frontends/, hardware/)
 3. Look at implementation plan for architecture overview
 
-Happy partitioning! 🚀
+Happy analyzing!
