@@ -19,7 +19,16 @@ from .structures import (
     PartitionReport,
 )
 
+from .confidence import (
+    ConfidenceLevel,
+    EstimationConfidence,
+    DEFAULT_CALIBRATED_SCORE,
+    DEFAULT_INTERPOLATED_SCORE,
+    DEFAULT_THEORETICAL_SCORE,
+)
+
 __all__ = [
+    # Graph structures
     'OperationType',
     'BottleneckType',
     'PartitionReason',
@@ -29,4 +38,10 @@ __all__ = [
     'SubgraphConcurrency',
     'ConcurrencyDescriptor',
     'PartitionReport',
+    # Confidence
+    'ConfidenceLevel',
+    'EstimationConfidence',
+    'DEFAULT_CALIBRATED_SCORE',
+    'DEFAULT_INTERPOLATED_SCORE',
+    'DEFAULT_THEORETICAL_SCORE',
 ]
