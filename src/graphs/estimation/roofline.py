@@ -26,8 +26,9 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from enum import Enum
 
-from ..ir.structures import SubgraphDescriptor, PartitionReport, BottleneckType
-from ..hardware.resource_model import HardwareResourceModel, Precision
+from graphs.core.structures import SubgraphDescriptor, PartitionReport, BottleneckType
+from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
+from graphs.hardware.resource_model import HardwareResourceModel, Precision
 
 if TYPE_CHECKING:
     from ..hardware.calibration.registry_sync import HardwareEntry
@@ -69,6 +70,11 @@ class LatencyDescriptor:
     peak_bandwidth: float = 0.0  # Hardware peak
     bandwidth_utilization: float = 0.0  # attained / peak
 
+    # Confidence (NEW - Phase 7)
+    confidence: EstimationConfidence = field(
+        default_factory=EstimationConfidence.unknown
+    )
+
     # Explanation
     explanation: str = ""
 
@@ -81,15 +87,17 @@ class LatencyDescriptor:
         """Detailed multi-line summary"""
         lines = []
         lines.append(f"Subgraph: {self.subgraph_name}")
-        lines.append(f"  Latency: {self.actual_latency * 1e6:.1f} μs")
-        lines.append(f"    Compute time: {self.compute_time * 1e6:.1f} μs")
-        lines.append(f"    Memory time:  {self.memory_time * 1e6:.1f} μs")
+        lines.append(f"  Latency: {self.actual_latency * 1e6:.1f} us")
+        lines.append(f"    Compute time: {self.compute_time * 1e6:.1f} us")
+        lines.append(f"    Memory time:  {self.memory_time * 1e6:.1f} us")
         if self.overhead > 0:
-            lines.append(f"    Overhead:     {self.overhead * 1e6:.1f} μs")
-        lines.append(f"  Bottleneck: {self.bottleneck.value} ({self.bottleneck_ratio:.1f}× slower)")
+            lines.append(f"    Overhead:     {self.overhead * 1e6:.1f} us")
+        lines.append(f"  Bottleneck: {self.bottleneck.value} ({self.bottleneck_ratio:.1f}x slower)")
         lines.append(f"  Arithmetic Intensity: {self.arithmetic_intensity:.2f} FLOPs/byte")
         lines.append(f"  FLOP Utilization: {self.flops_utilization * 100:.1f}%")
         lines.append(f"  Bandwidth Utilization: {self.bandwidth_utilization * 100:.1f}%")
+        if self.confidence.level != ConfidenceLevel.UNKNOWN:
+            lines.append(f"  Confidence: {self.confidence}")
         return "\n".join(lines)
 
 

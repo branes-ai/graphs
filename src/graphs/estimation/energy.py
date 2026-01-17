@@ -18,8 +18,9 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict
 from enum import Enum
 
-from ..ir.structures import SubgraphDescriptor, PartitionReport
-from ..hardware.resource_model import HardwareResourceModel, Precision
+from graphs.core.structures import SubgraphDescriptor, PartitionReport
+from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
+from graphs.hardware.resource_model import HardwareResourceModel, Precision
 
 
 @dataclass
@@ -63,6 +64,11 @@ class EnergyDescriptor:
     power_gating_savings_j: float = 0.0  # Energy saved by power gating
     power_gating_enabled: bool = False  # Whether power gating was modeled
 
+    # Confidence (NEW - Phase 7)
+    confidence: EstimationConfidence = field(
+        default_factory=EstimationConfidence.unknown
+    )
+
     # Explanation
     explanation: str = ""
 
@@ -76,23 +82,25 @@ class EnergyDescriptor:
         """Detailed multi-line summary"""
         lines = []
         lines.append(f"Subgraph: {self.subgraph_name}")
-        lines.append(f"  Total Energy: {self.total_energy_j * 1e6:.2f} μJ")
-        lines.append(f"    Compute:  {self.compute_energy_j * 1e6:.2f} μJ ({self.compute_energy_j / self.total_energy_j * 100:.1f}%)")
-        lines.append(f"    Memory:   {self.memory_energy_j * 1e6:.2f} μJ ({self.memory_energy_j / self.total_energy_j * 100:.1f}%)")
-        lines.append(f"    Static:   {self.static_energy_j * 1e6:.2f} μJ ({self.static_energy_j / self.total_energy_j * 100:.1f}%)")
+        lines.append(f"  Total Energy: {self.total_energy_j * 1e6:.2f} uJ")
+        lines.append(f"    Compute:  {self.compute_energy_j * 1e6:.2f} uJ ({self.compute_energy_j / self.total_energy_j * 100:.1f}%)")
+        lines.append(f"    Memory:   {self.memory_energy_j * 1e6:.2f} uJ ({self.memory_energy_j / self.total_energy_j * 100:.1f}%)")
+        lines.append(f"    Static:   {self.static_energy_j * 1e6:.2f} uJ ({self.static_energy_j / self.total_energy_j * 100:.1f}%)")
 
         # Power management details (NEW)
         if self.allocated_units > 0:
             lines.append(f"  Allocated Units: {self.allocated_units}")
-            lines.append(f"    Allocated idle:   {self.static_energy_allocated_j * 1e6:.2f} μJ")
-            lines.append(f"    Unallocated idle: {self.static_energy_unallocated_j * 1e6:.2f} μJ")
+            lines.append(f"    Allocated idle:   {self.static_energy_allocated_j * 1e6:.2f} uJ")
+            lines.append(f"    Unallocated idle: {self.static_energy_unallocated_j * 1e6:.2f} uJ")
             if self.power_gating_enabled and self.power_gating_savings_j > 0:
-                lines.append(f"    Power gating savings: {self.power_gating_savings_j * 1e6:.2f} μJ")
+                lines.append(f"    Power gating savings: {self.power_gating_savings_j * 1e6:.2f} uJ")
 
         lines.append(f"  Efficiency: {self.efficiency * 100:.1f}%")
         lines.append(f"  Utilization: {self.utilization * 100:.1f}%")
         if self.wasted_energy_j > 0:
-            lines.append(f"  Wasted Energy: {self.wasted_energy_j * 1e6:.2f} μJ")
+            lines.append(f"  Wasted Energy: {self.wasted_energy_j * 1e6:.2f} uJ")
+        if self.confidence.level != ConfidenceLevel.UNKNOWN:
+            lines.append(f"  Confidence: {self.confidence}")
         return "\n".join(lines)
 
 

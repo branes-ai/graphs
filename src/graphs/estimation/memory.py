@@ -17,6 +17,7 @@ Classes:
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 from graphs.core.structures import SubgraphDescriptor, PartitionReport, OperationType
+from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 from graphs.hardware.resource_model import HardwareResourceModel
 
 
@@ -97,7 +98,12 @@ class MemoryDescriptor:
     can_checkpoint: bool = False     # Can trade compute for memory?
     checkpoint_savings_bytes: int = 0  # Memory saved if checkpointed
     can_quantize: bool = False       # Can reduce precision?
-    quantization_savings_bytes: int = 0  # FP32→INT8 savings (4× for weights)
+    quantization_savings_bytes: int = 0  # FP32->INT8 savings (4x for weights)
+
+    # Confidence (NEW - Phase 7)
+    confidence: EstimationConfidence = field(
+        default_factory=EstimationConfidence.unknown
+    )
 
     explanation: str = ""            # Human-readable description
 
