@@ -37,14 +37,14 @@ This guide is organized into **5 progressive levels**, from complete beginner to
 **Step 1: Discover available models**
 ```bash
 cd /path/to/graphs
-./cli/discover_models.py --filter resnet
+./cli/discover_models.py
 ```
 
 You'll see a list of available models. We'll use ResNet-18.
 
 **Step 2: Run your first analysis**
 ```bash
-./cli/analyze_comprehensive.py --model resnet18 --hardware H100
+./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-Nano
 ```
 
 **Step 3: Understand the output**
@@ -54,22 +54,22 @@ You'll see something like:
 EXECUTIVE SUMMARY
 ─────────────────────────────────────────────────────
 Model:                   ResNet-18
-Hardware:                H100 SXM5 80GB
+Hardware:                Jetson-Orin-Nano-8GB
 Precision:               FP32
 Batch Size:              1
 
-Performance:             0.43 ms latency, 2318 fps
-Energy:                  48.9 mJ total (48.9 mJ/inference)
+Performance:             12.5 ms latency, 80 fps
+Energy:                  125 mJ total (125 mJ/inference)
 Memory:                  Peak 55.0 MB
 ```
 
 **What this means:**
-- **Latency**: How long one inference takes (0.43 milliseconds)
-- **FPS**: Frames/inferences per second (2318)
-- **Energy**: Power consumption per inference (48.9 millijoules)
+- **Latency**: How long one inference takes (12.5 milliseconds)
+- **FPS**: Frames/inferences per second (80)
+- **Energy**: Power consumption per inference (125 millijoules)
 - **Memory**: Peak memory usage (55 MB)
 
-**Congratulations!** You just analyzed a neural network's performance on H100 GPU hardware.
+**Congratulations!** You just analyzed a neural network's performance on Jetson Orin Nano edge hardware.
 
 ### What's Next?
 - **Level 1** if you want to understand what just happened
@@ -120,7 +120,7 @@ Key concepts to understand:
 ```bash
 ./cli/analyze_comprehensive.py \
     --model mobilenet_v2 \
-    --hardware H100 \
+    --hardware Jetson-Orin-Nano \
     --output mobilenet_analysis.md \
     --include-diagrams
 ```
@@ -137,9 +137,14 @@ Key concepts to understand:
 
 ### Step 4: Compare Two Models (10 minutes)
 
-**Compare ResNet-18 vs MobileNet-V2:**
+**Compare ResNet-18 on multiple hardware:**
 ```bash
-./cli/compare_models.py --models resnet18 mobilenet_v2 --hardware H100
+./cli/compare_models.py resnet18
+```
+
+**Or compare multiple models using batch analysis:**
+```bash
+./cli/analyze_batch.py --models resnet18 mobilenet_v2 --hardware Jetson-Orin-Nano --batch-size 1
 ```
 
 **Notice:**
@@ -172,7 +177,7 @@ Key concepts to understand:
 ```bash
 ./cli/analyze_batch.py \
     --model resnet18 \
-    --hardware H100 \
+    --hardware Jetson-Orin-Nano \
     --batch-size 1 2 4 8 16 32 \
     --output batch_sweep.csv
 ```
@@ -192,7 +197,7 @@ Key concepts to understand:
 ```bash
 ./cli/analyze_batch.py \
     --model resnet50 \
-    --hardware H100 Jetson-Orin-AGX KPU-T256 \
+    --hardware Jetson-Orin-AGX Jetson-Orin-Nano KPU-T256 \
     --batch-size 1 8 16 \
     --output hardware_comparison.csv
 ```
@@ -362,7 +367,7 @@ result = analyzer.analyze_graph(
     model=model,
     input_tensor=input_tensor,
     model_name='MyCustomCNN',
-    hardware_name='H100'
+    hardware_name='Jetson-Orin-Nano'
 )
 
 # Generate report
@@ -390,7 +395,7 @@ generator = ReportGenerator()
 # Sweep batch sizes
 results = []
 for batch_size in [1, 2, 4, 8, 16, 32]:
-    result = analyzer.analyze_model('resnet18', 'H100', batch_size=batch_size)
+    result = analyzer.analyze_model('resnet18', 'Jetson-Orin-Nano', batch_size=batch_size)
     results.append(result)
 
 # Generate comparison report
@@ -414,7 +419,7 @@ def find_best_hardware(model_name, batch_size, metric='energy'):
     """Find best hardware for a model based on a metric."""
 
     hardware_targets = [
-        'H100', 'Jetson-Orin-AGX', 'Jetson-Orin-Nano', 'KPU-T256'
+        'Jetson-Orin-AGX', 'Jetson-Orin-Nano', 'Coral-Edge-TPU', 'KPU-T256'
     ]
 
     analyzer = UnifiedAnalyzer(verbose=False)
@@ -543,7 +548,7 @@ def analyze_deployment(model_name, max_latency_ms, max_power_w):
     """Find best hardware/config for deployment constraints."""
 
     # Define search space
-    hardware_options = ['H100', 'Jetson-Orin-AGX', 'Jetson-Orin-Nano', 'KPU-T256']
+    hardware_options = ['Jetson-Orin-AGX', 'Jetson-Orin-Nano', 'Coral-Edge-TPU', 'KPU-T256']
     batch_sizes = [1, 2, 4, 8]
     precisions = [Precision.FP32, Precision.FP16]
 
@@ -716,7 +721,7 @@ how reliable each result is:
 from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 
 # Check confidence on analysis results
-result = analyzer.analyze_model('resnet18', 'H100')
+result = analyzer.analyze_model('resnet18', 'Jetson-Orin-Nano')
 
 # Access confidence from descriptors
 for lat_desc in result.roofline_report.latency_descriptors:
@@ -871,7 +876,7 @@ pip install -e .
 ### "Too much output, can't find what I need"
 Use the `--quiet` flag:
 ```bash
-./cli/analyze_comprehensive.py --model resnet18 --hardware H100 --quiet
+./cli/analyze_comprehensive.py --model resnet18 --hardware Jetson-Orin-Nano --quiet
 ```
 
 ### "I want to go deeper on a specific topic"
