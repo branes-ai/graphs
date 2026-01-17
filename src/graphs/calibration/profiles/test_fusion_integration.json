@@ -1,0 +1,209 @@
+{
+  "metadata": {
+    "hardware_name": "i7-12700K-fusion-test",
+    "calibration_date": "2025-11-05T20:57:53.792853",
+    "calibration_tool_version": "1.0.0",
+    "cpu_model": "x86_64",
+    "cpu_count": 12,
+    "total_memory_gb": 31.08944320678711,
+    "python_version": "3.11.14",
+    "pytorch_version": "2.7.1+cu126",
+    "numpy_version": "2.2.6",
+    "num_warmup_runs": 2,
+    "num_measurement_runs": 5
+  },
+  "theoretical_peak_gflops": 1000.0,
+  "theoretical_bandwidth_gbps": 50.0,
+  "best_measured_gflops": 764.564553148981,
+  "avg_measured_gflops": 729.9756549559277,
+  "worst_measured_gflops": 695.3867567628744,
+  "measured_bandwidth_gbps": 51.12945183509138,
+  "bandwidth_efficiency": 1.0225890367018275,
+  "best_efficiency": 0.764564553148981,
+  "avg_efficiency": 0.7299756549559278,
+  "worst_efficiency": 0.6953867567628744,
+  "operation_profiles": {
+    "add_operation=memory_copy_size_mb=128": {
+      "operation_type": "add",
+      "measured_gflops": 0.0,
+      "efficiency": 0.9119039965291401,
+      "achieved_bandwidth_gbps": 45.595199826457005,
+      "memory_bound": true,
+      "compute_bound": false,
+      "arithmetic_intensity": 0.0,
+      "batch_size": 1,
+      "input_shape": [
+        33554432
+      ],
+      "output_shape": [
+        33554432
+      ],
+      "mean_latency_ms": 5.887362200883217,
+      "std_latency_ms": 0.02852558144560858,
+      "min_latency_ms": 5.859370998223312,
+      "max_latency_ms": 5.927653000981081,
+      "num_trials": 5,
+      "extra_params": {
+        "size_mb": 128,
+        "operation": "memory_copy"
+      }
+    },
+    "add_operation=memory_copy_size_mb=256": {
+      "operation_type": "add",
+      "measured_gflops": 0.0,
+      "efficiency": 1.0225890367018275,
+      "achieved_bandwidth_gbps": 51.12945183509138,
+      "memory_bound": true,
+      "compute_bound": false,
+      "arithmetic_intensity": 0.0,
+      "batch_size": 1,
+      "input_shape": [
+        67108864
+      ],
+      "output_shape": [
+        67108864
+      ],
+      "mean_latency_ms": 10.500228199816775,
+      "std_latency_ms": 0.10617820977112401,
+      "min_latency_ms": 10.409884998807684,
+      "max_latency_ms": 10.702881001634523,
+      "num_trials": 5,
+      "extra_params": {
+        "size_mb": 256,
+        "operation": "memory_copy"
+      }
+    },
+    "matmul_cpp_gflops=None_implementation=numpy_blas_matrix_size=1024_medium": {
+      "operation_type": "matmul",
+      "measured_gflops": 695.3867567628744,
+      "efficiency": 0.6953867567628744,
+      "achieved_bandwidth_gbps": 4.074531777907467,
+      "memory_bound": false,
+      "compute_bound": true,
+      "arithmetic_intensity": 170.66666666666666,
+      "batch_size": 1,
+      "input_shape": [
+        1024,
+        1024
+      ],
+      "output_shape": [
+        1024,
+        1024
+      ],
+      "mean_latency_ms": 3.088186001696158,
+      "std_latency_ms": 0.339372311526721,
+      "min_latency_ms": 2.8799170031561516,
+      "max_latency_ms": 3.764293003769126,
+      "num_trials": 5,
+      "extra_params": {
+        "matrix_size": 1024,
+        "implementation": "numpy_blas",
+        "cpp_gflops": null
+      }
+    },
+    "matmul_cpp_gflops=None_implementation=numpy_blas_matrix_size=2048_medium": {
+      "operation_type": "matmul",
+      "measured_gflops": 764.564553148981,
+      "efficiency": 0.764564553148981,
+      "achieved_bandwidth_gbps": 2.2399352143036553,
+      "memory_bound": false,
+      "compute_bound": true,
+      "arithmetic_intensity": 341.3333333333333,
+      "batch_size": 1,
+      "input_shape": [
+        2048,
+        2048
+      ],
+      "output_shape": [
+        2048,
+        2048
+      ],
+      "mean_latency_ms": 22.470135599724017,
+      "std_latency_ms": 1.240021363379593,
+      "min_latency_ms": 21.75254999747267,
+      "max_latency_ms": 24.93670400144765,
+      "num_trials": 5,
+      "extra_params": {
+        "matrix_size": 2048,
+        "implementation": "numpy_blas",
+        "cpp_gflops": null
+      }
+    }
+  },
+  "fusion_profiles": {
+    "Linear_Bias": {
+      "fusion_pattern": "Linear_Bias",
+      "operators": [
+        "Linear",
+        "Bias"
+      ],
+      "num_operators": 2,
+      "unfused_latency_ms": 2.399144700029865,
+      "unfused_gflops": 447.77045419004,
+      "unfused_memory_bytes": 12587008,
+      "fused_latency_ms": 2.412526259868173,
+      "fused_gflops": 445.28680573147454,
+      "fused_memory_bytes": 8392704,
+      "speedup_factor": 0.9944532998206457,
+      "memory_reduction": 0.33322486169866583,
+      "gflops_improvement": -0.005546700179354371,
+      "input_shape": [
+        512,
+        1024,
+        1024
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Linear_Bias_ReLU": {
+      "fusion_pattern": "Linear_Bias_ReLU",
+      "operators": [
+        "Linear",
+        "Bias",
+        "ReLU"
+      ],
+      "num_operators": 3,
+      "unfused_latency_ms": 2.4609809200046584,
+      "unfused_gflops": 436.51948020709017,
+      "unfused_memory_bytes": 16781312,
+      "fused_latency_ms": 2.4576255401188973,
+      "fused_gflops": 437.1154573646025,
+      "fused_memory_bytes": 8392704,
+      "speedup_factor": 1.001365293382164,
+      "memory_reduction": 0.4998779594825482,
+      "gflops_improvement": 0.0013652933821638015,
+      "input_shape": [
+        512,
+        1024,
+        1024
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    },
+    "Linear_Bias_GELU": {
+      "fusion_pattern": "Linear_Bias_GELU",
+      "operators": [
+        "Linear",
+        "Bias",
+        "GELU"
+      ],
+      "num_operators": 3,
+      "unfused_latency_ms": 2.5416667200624943,
+      "unfused_gflops": 424.31228590563717,
+      "unfused_memory_bytes": 16781312,
+      "fused_latency_ms": 2.5393229800101835,
+      "fused_gflops": 424.7039169454825,
+      "fused_memory_bytes": 8392704,
+      "speedup_factor": 1.000922978317749,
+      "memory_reduction": 0.4998779594825482,
+      "gflops_improvement": 0.0009229783177487744,
+      "input_shape": [
+        512,
+        1024,
+        1024
+      ],
+      "extra_params": {},
+      "num_trials": 50
+    }
+  }
+}

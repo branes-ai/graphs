@@ -1,11 +1,24 @@
 """
 Graph Intermediate Representation
 
-This package provides data structures and utilities for representing
-computational graphs in a hardware-independent manner.
+DEPRECATED: This module has been renamed to graphs.core.
+Please update your imports:
+    from graphs.ir import ...  ->  from graphs.core import ...
+
+This shim will be removed in version 1.0.
 """
 
-from .structures import (
+import warnings
+
+warnings.warn(
+    "graphs.ir is deprecated. Use graphs.core instead. "
+    "This module will be removed in version 1.0.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Re-export everything from the new location
+from graphs.core import (
     OperationType,
     BottleneckType,
     PartitionReason,

@@ -1,25 +1,35 @@
 """
 Performance Analysis
 
-Analyzes computational graphs for performance characteristics without modifying them.
+DEPRECATED: This module has been renamed to graphs.estimation.
+Please update your imports:
+    from graphs.analysis import ...  ->  from graphs.estimation import ...
+
+This shim will be removed in version 1.0.
 """
 
-from .concurrency import ConcurrencyAnalyzer
-from .memory import (
+import warnings
+
+warnings.warn(
+    "graphs.analysis is deprecated. Use graphs.estimation instead. "
+    "This module will be removed in version 1.0.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Re-export everything from the new location
+from graphs.estimation import (
+    ConcurrencyAnalyzer,
     MemoryTimelineEntry,
     MemoryDescriptor,
     MemoryReport,
     MemoryEstimator,
-)
-from .roofline import (
     LatencyDescriptor,
     RooflinePoint,
     RooflineReport,
     RooflineAnalyzer,
     create_calibrated_analyzer,
     get_roofline_params_for_hardware,
-)
-from .energy import (
     EnergyDescriptor,
     EnergyReport,
     EnergyAnalyzer,
