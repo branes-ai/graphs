@@ -40,9 +40,8 @@ from torchvision import models
 # Graph structures
 from graphs.core.structures import PartitionReport, SubgraphDescriptor
 
-# Partitioning
-from graphs.transform.partitioning import GraphPartitioner
-from graphs.transform.partitioning.fusion_partitioner import FusionBasedPartitioner
+# Frontend for model tracing
+from graphs.frontends import trace_and_partition as frontend_trace_and_partition
 
 # Phase 3 Analyzers (use relative imports within estimation package)
 from .roofline import RooflineAnalyzer, RooflineReport
@@ -559,53 +558,11 @@ class UnifiedAnalyzer:
         config: AnalysisConfig
     ) -> Tuple[GraphModule, PartitionReport]:
         """
-        Trace model using PyTorch Dynamo export (state-of-the-art) and partition into subgraphs.
+        Trace model using PyTorch Dynamo export and partition into subgraphs.
 
-        Dynamo is more reliable than symbolic_trace for complex models like YOLO, transformers, etc.
+        Delegates to graphs.frontends.dynamo for the actual tracing.
         """
-        if self.verbose:
-            print("  Tracing model with PyTorch Dynamo export...")
-
-        # Set model to evaluation mode (CRITICAL for BatchNorm with batch=1)
-        # This prevents "Expected more than 1 value per channel" errors in models like DeepLabV3
-        model.eval()
-
-        # Warm-up model (important for lazy initialization)
-        with torch.no_grad():
-            try:
-                _ = model(input_tensor)
-            except Exception as e:
-                if self.verbose:
-                    print(f"    Note: Warm-up failed ({e}), continuing anyway...")
-
-        # Export with Dynamo (state-of-the-art tracing)
-        try:
-            exported_program = torch.export.export(model, (input_tensor,))
-            fx_graph = exported_program.module()
-            if self.verbose:
-                print("    [OK] Dynamo export successful")
-        except Exception as e:
-            if self.verbose:
-                print(f"    [X] Dynamo export failed: {e}")
-            raise RuntimeError(f"Failed to trace model with Dynamo: {e}")
-
-        # Shape propagation
-        shape_prop = ShapeProp(fx_graph)
-        shape_prop.propagate(input_tensor)
-
-        # Partition - use FusionBasedPartitioner (required for Dynamo export)
-        # FusionBasedPartitioner works better with Dynamo's flattened graph structure
-        if self.verbose:
-            print("  Running fusion-based partitioning...")
-
-        partitioner = FusionBasedPartitioner()
-        fusion_report = partitioner.partition(fx_graph)
-
-        if self.verbose:
-            print(f"    Partitioned into {len(fusion_report.fused_subgraphs)} fused subgraphs")
-            print(f"    Total FLOPs: {fusion_report.total_flops / 1e9:.2f} GFLOPs")
-
-        return fx_graph, fusion_report
+        return frontend_trace_and_partition(model, input_tensor, verbose=self.verbose)
 
     def _run_hardware_mapping(
         self,
