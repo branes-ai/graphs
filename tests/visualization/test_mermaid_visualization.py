@@ -6,11 +6,12 @@ This script validates Phases 1, 2, and 3 of the Mermaid visualization system by:
 1. Loading ResNet18 model
 2. Running FX tracing and partitioning
 3. Generating various Mermaid diagrams
-4. Saving results to markdown files
+4. Saving results to markdown files in a temp directory
 """
 
 import sys
 import os
+import tempfile
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -87,7 +88,7 @@ def partition_report(traced_model):
     return run_partitioning(traced_model, example_input)
 
 
-def test_fx_graph_visualization(traced_model):
+def test_fx_graph_visualization(traced_model, tmp_path):
     """Test Phase 1: FX graph visualization."""
     print("\n" + "="*80)
     print("TEST 1: FX Graph Visualization (Phase 1)")
@@ -105,8 +106,8 @@ def test_fx_graph_visualization(traced_model):
         show_types=True
     )
 
-    # Save to file
-    output_file = 'docs/test_fx_graph.md'
+    # Save to temp file
+    output_file = tmp_path / 'test_fx_graph.md'
     with open(output_file, 'w') as f:
         f.write("# ResNet18: FX Graph Visualization\n\n")
         f.write("This diagram shows the first 20 nodes of the ResNet18 FX graph.\n\n")
@@ -115,11 +116,15 @@ def test_fx_graph_visualization(traced_model):
         f.write("\n```\n")
         f.write(generator.generate_legend(ColorScheme.OP_TYPE))
 
-    print(f"✅ Saved to {output_file}")
+    print(f"Saved to {output_file}")
     print(f"   Lines: {len(diagram.split(chr(10)))}")
 
+    # Verify file was created and has content
+    assert output_file.exists()
+    assert output_file.stat().st_size > 0
 
-def test_partitioned_graph_visualization(partition_report):
+
+def test_partitioned_graph_visualization(partition_report, tmp_path):
     """Test Phase 1 & 2: Partitioned graph with color schemes."""
     print("\n" + "="*80)
     print("TEST 2: Partitioned Graph Visualization (Phases 1 & 2)")
@@ -137,7 +142,7 @@ def test_partitioned_graph_visualization(partition_report):
         max_subgraphs=15
     )
 
-    output_file = 'docs/test_partitioned_bottleneck.md'
+    output_file = tmp_path / 'test_partitioned_bottleneck.md'
     with open(output_file, 'w') as f:
         f.write("# ResNet18: Partitioned Graph (Bottleneck Analysis)\n\n")
         f.write("This diagram shows fused subgraphs colored by bottleneck type.\n\n")
@@ -146,7 +151,8 @@ def test_partitioned_graph_visualization(partition_report):
         f.write("\n```\n\n")
         f.write(generator.generate_legend(ColorScheme.BOTTLENECK))
 
-    print(f"✅ Saved to {output_file}")
+    print(f"Saved to {output_file}")
+    assert output_file.exists()
 
     # Test 2: Operation type color scheme
     print("Generating partitioned graph with operation type colors...")
@@ -159,7 +165,7 @@ def test_partitioned_graph_visualization(partition_report):
         max_subgraphs=15
     )
 
-    output_file2 = 'docs/test_partitioned_optype.md'
+    output_file2 = tmp_path / 'test_partitioned_optype.md'
     with open(output_file2, 'w') as f:
         f.write("# ResNet18: Partitioned Graph (Operation Types)\n\n")
         f.write("This diagram shows fused subgraphs colored by operation type.\n\n")
@@ -168,10 +174,11 @@ def test_partitioned_graph_visualization(partition_report):
         f.write("\n```\n\n")
         f.write(generator2.generate_legend(ColorScheme.OP_TYPE))
 
-    print(f"✅ Saved to {output_file2}")
+    print(f"Saved to {output_file2}")
+    assert output_file2.exists()
 
 
-def test_hardware_mapping_visualization(partition_report):
+def test_hardware_mapping_visualization(partition_report, tmp_path):
     """Test Phase 3: Hardware mapping visualization."""
     print("\n" + "="*80)
     print("TEST 3: Hardware Mapping Visualization (Phase 3)")
@@ -191,7 +198,7 @@ def test_hardware_mapping_visualization(partition_report):
         max_subgraphs=15
     )
 
-    output_file = 'docs/test_hardware_mapping_h100.md'
+    output_file = tmp_path / 'test_hardware_mapping_h100.md'
     with open(output_file, 'w') as f:
         f.write("# ResNet18: H100 GPU Hardware Mapping\n\n")
         f.write("This diagram shows how ResNet18 subgraphs map to H100 GPU resources.\n\n")
@@ -205,7 +212,8 @@ def test_hardware_mapping_visualization(partition_report):
         f.write("- Pink/Red: Low utilization (<40%) - underutilized hardware\n")
         f.write("- Red 'IDLE' box shows unused compute resources\n")
 
-    print(f"✅ Saved to {output_file}")
+    print(f"Saved to {output_file}")
+    assert output_file.exists()
 
     # Test TPU mapping
     print("Generating TPU-v4 hardware mapping...")
@@ -219,7 +227,7 @@ def test_hardware_mapping_visualization(partition_report):
         max_subgraphs=15
     )
 
-    output_file2 = 'docs/test_hardware_mapping_tpu.md'
+    output_file2 = tmp_path / 'test_hardware_mapping_tpu.md'
     with open(output_file2, 'w') as f:
         f.write("# ResNet18: TPU-v4 Hardware Mapping\n\n")
         f.write("This diagram shows how ResNet18 subgraphs map to TPU-v4 resources.\n\n")
@@ -232,10 +240,11 @@ def test_hardware_mapping_visualization(partition_report):
         f.write("- Small model shows severe underutilization\n")
         f.write("- Most operations can't saturate even 1 MXU\n")
 
-    print(f"✅ Saved to {output_file2}")
+    print(f"Saved to {output_file2}")
+    assert output_file2.exists()
 
 
-def test_architecture_comparison(partition_report):
+def test_architecture_comparison(partition_report, tmp_path):
     """Test Phase 3: Multi-architecture comparison."""
     print("\n" + "="*80)
     print("TEST 4: Architecture Comparison (Phase 3)")
@@ -262,7 +271,7 @@ def test_architecture_comparison(partition_report):
         max_subgraphs=8
     )
 
-    output_file = 'docs/test_architecture_comparison.md'
+    output_file = tmp_path / 'test_architecture_comparison.md'
     with open(output_file, 'w') as f:
         f.write("# ResNet18: CPU vs GPU vs TPU Comparison\n\n")
         f.write("This diagram shows how the same ResNet18 graph executes on 3 different architectures.\n\n")
@@ -275,10 +284,11 @@ def test_architecture_comparison(partition_report):
         f.write("- **GPU**: Lower utilization due to massive parallelism not fully used\n")
         f.write("- **TPU**: Severe underutilization with only 2 large MXUs\n")
 
-    print(f"✅ Saved to {output_file}")
+    print(f"Saved to {output_file}")
+    assert output_file.exists()
 
 
-def test_bottleneck_analysis(partition_report):
+def test_bottleneck_analysis(partition_report, tmp_path):
     """Test Phase 2: Bottleneck analysis visualization."""
     print("\n" + "="*80)
     print("TEST 5: Bottleneck Analysis (Phase 2)")
@@ -294,7 +304,7 @@ def test_bottleneck_analysis(partition_report):
         max_subgraphs=20
     )
 
-    output_file = 'docs/test_bottleneck_analysis.md'
+    output_file = tmp_path / 'test_bottleneck_analysis.md'
     with open(output_file, 'w') as f:
         f.write("# ResNet18: Bottleneck Analysis\n\n")
         f.write("This diagram highlights operations that dominate execution time.\n\n")
@@ -302,25 +312,32 @@ def test_bottleneck_analysis(partition_report):
         f.write(diagram)
         f.write("\n```\n\n")
         f.write("**Legend**:\n")
-        f.write("- 🔴 Red (thick border): Critical bottleneck (>20% of total time)\n")
-        f.write("- 🔴 Pink: Significant contributor (15-20% of time)\n")
-        f.write("- 🟡 Yellow: Moderate contributor (10-15% of time)\n")
-        f.write("- ⚪ Gray: Minor contributor (<10% of time)\n")
+        f.write("- Red (thick border): Critical bottleneck (>20% of total time)\n")
+        f.write("- Pink: Significant contributor (15-20% of time)\n")
+        f.write("- Yellow: Moderate contributor (10-15% of time)\n")
+        f.write("- Gray: Minor contributor (<10% of time)\n")
         f.write("\n\n**Optimization Priority**:\n")
-        f.write("Focus optimization efforts on the critical bottleneck operations (red with 🔥).\n")
+        f.write("Focus optimization efforts on the critical bottleneck operations.\n")
 
-    print(f"✅ Saved to {output_file}")
+    print(f"Saved to {output_file}")
+    assert output_file.exists()
 
 
-def create_comprehensive_report(traced_model, partition_report):
-    """Create a comprehensive markdown report with all visualizations."""
+def create_comprehensive_report(traced_model, partition_report, output_dir):
+    """Create a comprehensive markdown report with all visualizations.
+
+    Args:
+        traced_model: Traced FX model
+        partition_report: Partition report from FusionBasedPartitioner
+        output_dir: Directory to write output files (pathlib.Path or str)
+    """
     print("\n" + "="*80)
     print("CREATING COMPREHENSIVE REPORT")
     print("="*80)
 
     generator = MermaidGenerator(style='default')
 
-    output_file = 'docs/mermaid_visualization_demo.md'
+    output_file = os.path.join(output_dir, 'mermaid_visualization_demo.md')
 
     with open(output_file, 'w') as f:
         f.write("# Mermaid Visualization Demo: ResNet18\n\n")
@@ -383,17 +400,23 @@ def create_comprehensive_report(traced_model, partition_report):
         f.write("\n---\n\n")
         f.write("## Summary\n\n")
         f.write("This demo shows all visualization types implemented in Phases 1-3:\n\n")
-        f.write("- ✅ **Phase 1**: FX graph and partitioned graph visualization\n")
-        f.write("- ✅ **Phase 2**: Color schemes (bottleneck, utilization, op_type) and legends\n")
-        f.write("- ✅ **Phase 3**: Hardware mapping with resource allocation\n\n")
+        f.write("- **Phase 1**: FX graph and partitioned graph visualization\n")
+        f.write("- **Phase 2**: Color schemes (bottleneck, utilization, op_type) and legends\n")
+        f.write("- **Phase 3**: Hardware mapping with resource allocation\n\n")
         f.write("**Next Steps**: Test these visualizations with real analysis data from the unified analyzer.\n")
 
-    print(f"✅ Created comprehensive report: {output_file}")
+    print(f"Created comprehensive report: {output_file}")
 
 
 def main():
-    """Run all tests."""
-    print("🚀 Testing Mermaid Visualization (Phases 1-3)\n")
+    """Run all tests standalone (outputs to temp directory)."""
+    from pathlib import Path
+
+    print("Testing Mermaid Visualization (Phases 1-3)\n")
+
+    # Create temp directory for outputs
+    output_dir = Path(tempfile.mkdtemp(prefix='mermaid_viz_'))
+    print(f"Output directory: {output_dir}\n")
 
     # Trace model
     traced_model, example_input = trace_resnet18()
@@ -401,29 +424,23 @@ def main():
     # Run partitioning
     partition_report = run_partitioning(traced_model, example_input)
 
-    # Run tests
-    test_fx_graph_visualization(traced_model)
-    test_partitioned_graph_visualization(partition_report)
-    test_hardware_mapping_visualization(partition_report)
-    test_architecture_comparison(partition_report)
-    test_bottleneck_analysis(partition_report)
+    # Run tests (pass output_dir as tmp_path equivalent)
+    test_fx_graph_visualization(traced_model, output_dir)
+    test_partitioned_graph_visualization(partition_report, output_dir)
+    test_hardware_mapping_visualization(partition_report, output_dir)
+    test_architecture_comparison(partition_report, output_dir)
+    test_bottleneck_analysis(partition_report, output_dir)
 
     # Create comprehensive report
-    create_comprehensive_report(traced_model, partition_report)
+    create_comprehensive_report(traced_model, partition_report, output_dir)
 
     print("\n" + "="*80)
-    print("✅ ALL TESTS PASSED!")
+    print("ALL TESTS PASSED!")
     print("="*80)
-    print("\nGenerated files:")
-    print("  - docs/test_fx_graph.md")
-    print("  - docs/test_partitioned_bottleneck.md")
-    print("  - docs/test_partitioned_optype.md")
-    print("  - docs/test_hardware_mapping_h100.md")
-    print("  - docs/test_hardware_mapping_tpu.md")
-    print("  - docs/test_architecture_comparison.md")
-    print("  - docs/test_bottleneck_analysis.md")
-    print("  - docs/mermaid_visualization_demo.md (⭐ comprehensive demo)")
-    print("\nYou can view these files in GitHub or any markdown viewer that supports Mermaid.")
+    print(f"\nGenerated files in: {output_dir}")
+    for f in sorted(output_dir.iterdir()):
+        print(f"  - {f.name}")
+    print("\nYou can view these files in any markdown viewer that supports Mermaid.")
 
 
 if __name__ == '__main__':
