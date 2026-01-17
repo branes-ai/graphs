@@ -131,9 +131,9 @@ Key concepts to understand:
 - Recommendations
 
 **Colors mean:**
-- 🟢 Green: Compute-bound (good for GPUs)
-- 🔴 Red: Memory-bound (bandwidth limited)
-- 🟠 Orange: Balanced
+- Green: Compute-bound (good for GPUs)
+- Red: Memory-bound (bandwidth limited)
+- Orange: Balanced
 
 ### Step 4: Compare Two Models (10 minutes)
 
@@ -332,7 +332,7 @@ python cli/compare_datacenter_cpus.py
 #!/usr/bin/env python3
 import torch
 import torch.nn as nn
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer
 from graphs.reporting import ReportGenerator
 
 # Define your custom model
@@ -381,7 +381,7 @@ print(generator.generate_text_report(result))
 
 **Exercise 1: Batch size sweep**
 ```python
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer
 from graphs.reporting import ReportGenerator
 
 analyzer = UnifiedAnalyzer(verbose=False)
@@ -535,7 +535,7 @@ print(f"Energy reduction: {baseline['derived_metrics']['total_energy_mj'] / opti
 Deployment analyzer: Find best configuration for deployment constraints.
 """
 import argparse
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.reporting import ReportGenerator
 from graphs.hardware.resource_model import Precision
 
@@ -622,10 +622,13 @@ if __name__ == '__main__':
 3. `docs/realistic_performance_modeling_plan.md` - Design philosophy
 
 **Key subsystems:**
-- **IR (Intermediate Representation)**: `src/graphs/ir/structures.py`
+- **Core (Intermediate Representation)**: `src/graphs/core/structures.py` (also confidence tracking)
+- **Frontends**: `src/graphs/frontends/` (PyTorch Dynamo/FX tracing)
 - **Transform**: `src/graphs/transform/` (partitioning, fusion, tiling)
-- **Analysis**: `src/graphs/analysis/` (roofline, energy, memory)
+- **Estimation**: `src/graphs/estimation/` (roofline, energy, memory analyzers)
 - **Hardware**: `src/graphs/hardware/` (resource models, mappers)
+- **Calibration**: `src/graphs/calibration/` (hardware calibration profiles)
+- **Benchmarks**: `src/graphs/benchmarks/` (calibration benchmarks)
 
 **Exercise**: Draw a diagram of how data flows from a PyTorch model to final performance estimates.
 
@@ -678,7 +681,7 @@ python validation/hardware/test_custom_hardware.py
 
 **Example: Add a new analyzer**
 ```python
-# src/graphs/analysis/cache_analyzer.py
+# src/graphs/estimation/cache_analyzer.py
 
 class CacheAnalyzer:
     """Analyzes cache hit rates and locality."""
@@ -702,6 +705,32 @@ config = AnalysisConfig(
     run_memory=True,
     run_cache=True  # Your new analyzer
 )
+```
+
+**Working with Confidence Tracking:**
+
+The framework tracks confidence levels for all estimates, helping you understand
+how reliable each result is:
+
+```python
+from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
+
+# Check confidence on analysis results
+result = analyzer.analyze_model('resnet18', 'H100')
+
+# Access confidence from descriptors
+for lat_desc in result.roofline_report.latency_descriptors:
+    conf = lat_desc.confidence
+    print(f"Subgraph {lat_desc.subgraph_name}: "
+          f"{conf.level.value} confidence ({conf.score*100:.0f}%)")
+    if conf.calibration_id:
+        print(f"  Calibration: {conf.calibration_id}")
+
+# Confidence levels:
+# - CALIBRATED: Based on real benchmark measurements (highest confidence)
+# - INTERPOLATED: Derived from calibrated data points
+# - THEORETICAL: Based on vendor specs/theoretical peaks
+# - UNKNOWN: Confidence not tracked (default for backward compatibility)
 ```
 
 ### Topic 4: Contributing (Ongoing)
@@ -932,8 +961,8 @@ At its core, this framework:
 
 This is a **living guide**. As the framework evolves, so will this tour.
 
-**Current version**: Phase 4.2 (Unified Framework)
-**Last updated**: 2025-10-31
+**Current version**: Milestone 1 (Foundation Consolidation)
+**Last updated**: 2026-01-17
 
 **Your feedback matters!** If something in this guide is:
 - Unclear
@@ -943,4 +972,4 @@ This is a **living guide**. As the framework evolves, so will this tour.
 
 Please let us know.
 
-**Happy analyzing!** 🚀
+**Happy analyzing!**
