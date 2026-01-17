@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2025-01-16] - Documentation Reorganization and Roadmap
+
+### Added
+
+**Target Architecture** (`docs/architecture/target_architecture.md`)
+- Defined target software architecture for calibration-driven estimation
+- Four core CLI operations: analyze, benchmark, calibrate, validate
+- Elevated benchmarks to core component (peer to calibration)
+- EstimationResult with confidence levels (CALIBRATED, INTERPOLATED, THEORETICAL)
+- Three registries: hardware specs, calibration data, benchmark results
+- Package structure aligned to architecture
+
+**Roadmap** (`docs/architecture/ROADMAP.md`)
+- 8 milestones with actionable tasks
+- Milestone 1: Foundation Consolidation
+- Milestone 2: Benchmarking Infrastructure
+- Milestone 3: Calibration Framework
+- Milestone 4: Validation Pipeline
+- Milestone 5: Hardware Coverage Expansion (30+ platforms)
+- Milestone 6: Frontend Expansion (ONNX, TFLite)
+- Milestone 7: Advanced Analysis
+- Milestone 8: Production Readiness
+- Success metrics: <15% MAPE latency, <20% MAPE energy
+
+### Changed
+
+**Documentation Reorganization**
+- Reorganized 220+ files from flat structure to architecture-aligned categories
+- `docs/architecture/` (36 files) - System design documents
+- `docs/guides/` (31 files) - User-facing how-to documentation
+- `docs/reference/` (22 files) - API reference and specifications
+- `docs/hardware/` (16 files) - Hardware specifications
+- `docs/validation/` (24 files) - Accuracy reports and test results
+- `docs/archive/sessions/` (68 files) - Development session logs
+- `docs/archive/legacy/` (19 files) - Superseded/completed work
+- Removed 8 empty directories (analysis/, bugs/, design/, designs/, plans/, results/, sessions/)
+
+### Session Document
+
+See `docs/archive/sessions/2025-01-16_documentation_reorganization_and_roadmap.md` for details.
+
+---
+
 ## [2025-12-29] - CLI Verdict-First Integration
 
 ### Added
