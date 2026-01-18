@@ -1,7 +1,7 @@
 # Capability Tier CLI Tools - Design Specification
 
 **Date**: 2026-01-18
-**Status**: Phase 1 Foundation Implemented
+**Status**: Phase 2 Estimation Implemented
 **Purpose**: Tools for product designers to understand compute power impact on battery life and mission parameters
 
 ## Capability Tier Framework
@@ -666,11 +666,24 @@ class BatteryConfiguration:
 3. [x] `discover_platforms_by_tier.py` - Find platforms by tier using mapper registry
 4. [x] `explore_power_allocation.py` - Analyze power allocation strategies
 
-### Phase 2: Estimation - PENDING
-5. [ ] `estimate_power_consumption.py`
-6. [ ] `estimate_mission_duration.py`
-7. [ ] `estimate_battery_requirements.py`
-8. [ ] `explore_battery_life.py`
+### Phase 2: Estimation - COMPLETE
+5. [x] `estimate_power_consumption.py` - Estimate system power by subsystem
+   - Supports tier-specific and custom power allocations
+   - Integrates with UnifiedAnalyzer for model-specific estimates
+   - Visual breakdown of perception/control/movement/overhead
+6. [x] `estimate_mission_duration.py` - Estimate mission runtime
+   - Uses mission profiles for duty cycle adjustment
+   - Supports predefined and custom battery configurations
+   - Confidence scoring based on estimation quality
+7. [x] `estimate_battery_requirements.py` - Size batteries for missions
+   - Recommends batteries from database that meet requirements
+   - Estimates weight and volume for custom batteries
+   - Supports weight constraints for mobile platforms
+8. [x] `explore_battery_life.py` - Analyze battery life tradeoffs
+   - Power sensitivity analysis
+   - Model comparison for runtime impact
+   - Duty cycle impact analysis
+   - Optimization suggestions
 
 ### Phase 3: Comparison - PENDING
 9. [ ] `compare_tier_platforms.py`
