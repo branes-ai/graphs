@@ -1,15 +1,17 @@
 # Capability Tier CLI Tools - Design Specification
 
-**Date**: 2026-01-17
+**Date**: 2026-01-18
+**Status**: Phase 1 Foundation Implemented
 **Purpose**: Tools for product designers to understand compute power impact on battery life and mission parameters
 
 ## Capability Tier Framework
 
 | Tier | Power Envelope | Applications | Key Constraints |
 |------|----------------|--------------|-----------------|
+| **Wearable AI** | 0.1-1W | Smartwatches, AR glasses, health monitors | Skin-safe temp, all-day battery |
 | **Micro-Autonomy** | 1-10W | Drones, handheld scanners, smart IoT | Weight, battery size, thermal |
 | **Industrial Edge** | 10-30W | Factory AMRs, cobots, automated sorting | Continuous operation, reliability |
-| **Embodied AI** | 30-100W+ | Quadrupeds, humanoids, world-model sim | Dynamic movement, complex perception |
+| **Embodied AI** | 30-100W | Quadrupeds, humanoids, world-model sim | Dynamic movement, complex perception |
 | **Automotive AI** | 100-500W | L3/L3+/L4 autonomous driving | Safety margins, redundancy |
 
 ## Energy Allocation Model
@@ -30,10 +32,11 @@ Typical allocation ratios by tier:
 
 | Tier | Perception | Control | Movement | Overhead |
 |------|------------|---------|----------|----------|
-| Micro-Autonomy | 40-60% | 10-20% | 20-40% | 5-10% |
-| Industrial Edge | 30-50% | 15-25% | 20-40% | 10-15% |
-| Embodied AI | 25-40% | 20-30% | 30-45% | 5-10% |
-| Automotive AI | 50-70% | 15-25% | 5-15%* | 10-20% |
+| Wearable AI | 45-55% | 15-25% | 10-20% | 10-20% |
+| Micro-Autonomy | 40-50% | 10-20% | 25-35% | 5-15% |
+| Industrial Edge | 35-45% | 15-25% | 25-35% | 5-15% |
+| Embodied AI | 25-35% | 20-30% | 30-40% | 5-15% |
+| Automotive AI | 50-60% | 15-25% | 5-15%* | 10-20% |
 
 *Automotive "movement" is steering/braking assist, not propulsion
 
@@ -651,35 +654,55 @@ class BatteryConfiguration:
 
 ---
 
-## Implementation Priority
+## Implementation Status
 
-### Phase 1: Foundation (Week 1)
-1. Data models (CapabilityTier, PowerAllocation, MissionProfile)
-2. `discover_capability_tiers.py`
-3. `discover_platforms_by_tier.py`
-4. `explore_power_allocation.py`
+### Phase 1: Foundation - COMPLETE
+1. [x] Data models (CapabilityTier, PowerAllocation, MissionProfile, BatteryConfiguration)
+   - `src/graphs/mission/capability_tiers.py` - 5 tiers defined
+   - `src/graphs/mission/power_allocation.py` - Allocation models
+   - `src/graphs/mission/mission_profiles.py` - 11 mission profiles
+   - `src/graphs/mission/battery.py` - 10 battery configurations
+2. [x] `discover_capability_tiers.py` - List/explore capability tiers
+3. [x] `discover_platforms_by_tier.py` - Find platforms by tier using mapper registry
+4. [x] `explore_power_allocation.py` - Analyze power allocation strategies
 
-### Phase 2: Estimation (Week 2)
-5. `estimate_power_consumption.py`
-6. `estimate_mission_duration.py`
-7. `estimate_battery_requirements.py`
-8. `explore_battery_life.py`
+### Phase 2: Estimation - PENDING
+5. [ ] `estimate_power_consumption.py`
+6. [ ] `estimate_mission_duration.py`
+7. [ ] `estimate_battery_requirements.py`
+8. [ ] `explore_battery_life.py`
 
-### Phase 3: Comparison (Week 3)
-9. `compare_tier_platforms.py`
-10. `compare_power_allocations.py`
-11. `compare_mission_configurations.py`
-12. `discover_models_for_budget.py`
+### Phase 3: Comparison - PENDING
+9. [ ] `compare_tier_platforms.py`
+10. [ ] `compare_power_allocations.py`
+11. [ ] `compare_mission_configurations.py`
+12. [ ] `discover_models_for_budget.py`
 
-### Phase 4: Advanced (Week 4)
+### Phase 4: Advanced - PENDING
 13-25. Remaining tools
 
 ---
 
-## Questions for Review
+## Integration Notes
 
-1. Are the capability tier definitions and power ranges correct?
-2. Should we add more tiers (e.g., "Wearable AI" at 0.1-1W)?
-3. Are there other key tools needed for product designers?
-4. Should mission profiles be predefined or fully customizable?
-5. Integration with existing hardware registry in `embodied-schemas`?
+### Hardware Mapper Registry
+The `discover_platforms_by_tier.py` tool uses the hardware mapper registry at
+`src/graphs/hardware/mappers/__init__.py` which provides:
+- `list_all_mappers()` - List all 44 available hardware platforms
+- `get_mapper_info(name)` - Get TDP, memory, vendor, category without instantiating
+- `list_mappers_by_tdp_range(min_w, max_w)` - Filter by power envelope
+
+### embodied-schemas Integration
+The capability tier tools are designed to integrate with the `embodied-schemas`
+hardware registry. The mapper registry provides a bridge between the analysis
+framework and the hardware specifications in embodied-schemas.
+
+---
+
+## Questions Resolved
+
+1. Are the capability tier definitions and power ranges correct? **YES**
+2. Should we add more tiers (e.g., "Wearable AI" at 0.1-1W)? **YES - Added**
+3. Are there other key tools needed for product designers? **TBD in Phase 2-4**
+4. Should mission profiles be predefined or fully customizable? **Both - 11 predefined + custom support**
+5. Integration with existing hardware registry in `embodied-schemas`? **Planned via mapper registry**
