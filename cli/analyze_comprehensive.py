@@ -192,8 +192,8 @@ def _generate_verdict_fallback(result, constraint_metric=None, constraint_thresh
     memory_report = result.memory_report
     memory = {
         "peak_memory_mb": result.peak_memory_mb,
-        "activation_memory_mb": memory_report.peak_activation_memory_bytes / (1024 * 1024) if memory_report else 0.0,
-        "weight_memory_mb": memory_report.total_weight_memory_bytes / (1024 * 1024) if memory_report else 0.0,
+        "activation_memory_mb": memory_report.activation_memory_bytes / (1024 * 1024) if memory_report else 0.0,
+        "weight_memory_mb": memory_report.weight_memory_bytes / (1024 * 1024) if memory_report else 0.0,
     }
 
     output = {
