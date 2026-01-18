@@ -594,8 +594,10 @@ class EnergyAnalyzer:
 
             if profile_name and profile_name in rm.thermal_operating_points:
                 profile = rm.thermal_operating_points[profile_name]
-                if self.precision in profile.peak_ops_per_sec:
-                    return profile.peak_ops_per_sec[self.precision]
+                # Use the get_effective_ops method for ThermalOperatingPoint
+                effective_ops = profile.get_effective_ops(self.precision)
+                if effective_ops > 0:
+                    return effective_ops
 
         # Fall back to legacy precision_profiles
         if self.precision in rm.precision_profiles:
