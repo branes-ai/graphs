@@ -1,7 +1,7 @@
 # Capability Tier CLI Tools - Design Specification
 
 **Date**: 2026-01-18
-**Status**: Phase 3 Comparison Implemented
+**Status**: Phase 4 Advanced COMPLETE - All 25 tools implemented
 **Purpose**: Tools for product designers to understand compute power impact on battery life and mission parameters
 
 ## Capability Tier Framework
@@ -703,8 +703,55 @@ class BatteryConfiguration:
     - Power and FPS budget constraints
     - Efficiency and accuracy rankings
 
-### Phase 4: Advanced - PENDING
-13-25. Remaining tools
+### Phase 4: Advanced - COMPLETE
+13. [x] `discover_battery_configurations.py` - List battery options for missions
+    - Filter by tier, mission hours, max weight
+    - Capacity, weight, volume, runtime estimates
+    - Ranked options with recommendations
+14. [x] `explore_mission_profiles.py` - Explore mission profile details
+    - List all profiles with tier mapping
+    - Detailed duty cycle breakdown
+    - Compare profiles side-by-side
+15. [x] `explore_perception_control_tradeoff.py` - Analyze perception/control tradeoffs
+    - Generate tradeoff curves
+    - Find configurations meeting requirements
+    - Visual quality mapping
+16. [x] `explore_thermal_envelope.py` - Analyze thermal constraints
+    - Derating curves by ambient temperature
+    - Operating limit identification
+    - Platform thermal comparison
+17. [x] `estimate_perception_budget.py` - Estimate perception power budget
+    - Model complexity to power mapping
+    - Platform recommendations
+    - FPS achievability analysis
+18. [x] `estimate_operational_range.py` - Estimate operational range/coverage
+    - Ground/aerial/stationary modes
+    - Speed vs range tradeoffs
+    - Coverage area calculations
+19. [x] `compare_battery_strategies.py` - Compare battery selection strategies
+    - 5 strategies: minimum-weight, maximum-runtime, balanced, high-density, compact
+    - Constraint-aware scoring
+    - Visual strategy comparison
+20. [x] `compare_perception_pipelines.py` - Compare perception pipelines
+    - 14 models across classification, detection, segmentation, depth
+    - Accuracy vs efficiency tradeoffs
+    - Task-filtered comparisons
+21. [x] `benchmark_platform_power.py` - Benchmark platform power profiles
+    - 6 workload types: idle, light, inference, control, full, burst
+    - Power variance analysis
+    - Multi-platform comparison
+22. [x] `benchmark_mission_simulation.py` - Simulate mission execution
+    - Duty cycle-based state machine
+    - Battery depletion tracking
+    - State distribution analysis
+23. [x] `benchmark_battery_runtime.py` - Benchmark battery runtime
+    - Temperature derating model
+    - Chemistry-specific discharge curves
+    - Efficiency metrics (Wh/kg, h/kg)
+24. [x] `benchmark_thermal_sustained.py` - Benchmark sustained thermal performance
+    - Thermal buildup simulation
+    - Throttling detection
+    - Steady-state performance analysis
 
 ---
 
