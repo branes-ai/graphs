@@ -1,7 +1,7 @@
 # Capability Tier CLI Tools - Design Specification
 
 **Date**: 2026-01-18
-**Status**: Phase 2 Estimation Implemented
+**Status**: Phase 3 Comparison Implemented
 **Purpose**: Tools for product designers to understand compute power impact on battery life and mission parameters
 
 ## Capability Tier Framework
@@ -685,11 +685,23 @@ class BatteryConfiguration:
    - Duty cycle impact analysis
    - Optimization suggestions
 
-### Phase 3: Comparison - PENDING
-9. [ ] `compare_tier_platforms.py`
-10. [ ] `compare_power_allocations.py`
-11. [ ] `compare_mission_configurations.py`
-12. [ ] `discover_models_for_budget.py`
+### Phase 3: Comparison - COMPLETE
+9. [x] `compare_tier_platforms.py` - Compare platforms in a tier
+   - Efficiency rankings by TDP, memory, or performance
+   - Vendor breakdown and summary statistics
+   - Model-specific performance estimates
+10. [x] `compare_power_allocations.py` - Compare allocation strategies
+    - Visual power distribution comparison
+    - Capability estimates per strategy
+    - Mission suitability analysis
+11. [x] `compare_mission_configurations.py` - Compare configs for missions
+    - Auto-generate configurations from tier
+    - Score by runtime, weight, perception capability
+    - Ranked recommendations with warnings
+12. [x] `discover_models_for_budget.py` - Find models for budget
+    - 18 models across detection, classification, segmentation, depth, pose
+    - Power and FPS budget constraints
+    - Efficiency and accuracy rankings
 
 ### Phase 4: Advanced - PENDING
 13-25. Remaining tools
