@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-01-18] - Capability Tier CLI Tools Complete (All 25 Tools)
+
+### Added
+
+**Phase 2: Estimation Tools**
+- `estimate_power_consumption.py` - Estimate system power by subsystem with visual breakdown
+- `estimate_mission_duration.py` - Estimate mission runtime with duty cycle adjustment
+- `estimate_battery_requirements.py` - Size batteries for missions with recommendations
+- `explore_battery_life.py` - Analyze battery life tradeoffs and optimization
+
+**Phase 3: Comparison Tools**
+- `compare_tier_platforms.py` - Compare platforms within a tier with efficiency rankings
+- `compare_power_allocations.py` - Compare allocation strategies with visual bars
+- `compare_mission_configurations.py` - Compare configs for missions with scoring
+- `discover_models_for_budget.py` - Find models for power/FPS budget (18 models)
+
+**Phase 4: Advanced Tools**
+- `discover_battery_configurations.py` - List battery options for missions
+- `explore_mission_profiles.py` - Explore mission profile details and duty cycles
+- `explore_perception_control_tradeoff.py` - Analyze perception/control tradeoffs
+- `explore_thermal_envelope.py` - Analyze thermal constraints and derating curves
+- `estimate_perception_budget.py` - Estimate perception power budget by model complexity
+- `estimate_operational_range.py` - Estimate operational range for mobile platforms
+- `compare_battery_strategies.py` - Compare battery selection strategies (5 strategies)
+- `compare_perception_pipelines.py` - Compare perception pipelines (14 models)
+- `benchmark_platform_power.py` - Benchmark platform power profiles (6 workloads)
+- `benchmark_mission_simulation.py` - Simulate mission execution with state tracking
+- `benchmark_battery_runtime.py` - Benchmark battery runtime with temperature derating
+- `benchmark_thermal_sustained.py` - Benchmark sustained thermal performance
+
+### Fixed
+
+- ThermalOperatingPoint API mismatch in energy analyzer (use `get_effective_ops()` method)
+- MemoryReport attribute names in verdict output (`activation_memory_bytes`, `weight_memory_bytes`)
+
+### Documentation
+
+- Updated `docs/cli_capability_tier_tools.md` with Phase 4 completion status
+
+### Summary
+
+All 25 capability tier CLI tools are now implemented:
+- 4 `discover_` tools - Find platforms, models, batteries, tiers
+- 6 `explore_` tools - Understand tradeoffs, allocations, constraints
+- 6 `estimate_` tools - Calculate mission duration, power, battery needs
+- 5 `compare_` tools - Compare configurations, strategies, pipelines
+- 4 `benchmark_` tools - Measure power, runtime, thermal performance
+
+### Session Document
+
+See `docs/archive/sessions/2026-01-18_capability_tier_cli_complete.md` for details.
+
+---
+
 ## [2026-01-16] - Documentation Reorganization and Roadmap
 
 ### Added
