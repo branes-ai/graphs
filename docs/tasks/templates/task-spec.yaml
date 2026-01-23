@@ -1,0 +1,185 @@
+# Task Specification Template
+# Copy to docs/tasks/active/TASK-YYYY-NNN.yaml and fill in details
+#
+# Task specs enable delegation to multiple resources (human or AI) with
+# clear interfaces, acceptance criteria, and traceability.
+
+task_id: "TASK-YYYY-NNN"
+title: ""
+version: "1.0"
+created_at: "YYYY-MM-DDTHH:MM:SSZ"
+updated_at: "YYYY-MM-DDTHH:MM:SSZ"
+
+# ============================================================================
+# OWNERSHIP
+# ============================================================================
+ownership:
+  created_by: ""          # @handle or AI-Assistant-ID
+  assignee: ""            # @handle, AI-Assistant-ID, or "unassigned"
+  reviewer: ""            # @handle for code review
+  stakeholders: []        # Other interested parties
+
+# ============================================================================
+# CLASSIFICATION
+# ============================================================================
+classification:
+  type: "feature"         # feature | bugfix | refactor | documentation | calibration | test
+  priority: "medium"      # critical | high | medium | low
+  milestone: "M2"         # M1, M2, M3, etc.
+  target_version: "0.9.0"
+  estimated_effort: "4h"  # Hours or story points
+  complexity: "medium"    # trivial | low | medium | high | very_high
+
+# ============================================================================
+# OBJECTIVE
+# ============================================================================
+# Clear description of what needs to be accomplished
+objective: |
+  Multi-line description of the task objective.
+  Be specific about the desired outcome.
+
+# Why is this task needed?
+motivation: |
+  Explain the business/technical reason for this work.
+
+# ============================================================================
+# DELIVERABLES
+# ============================================================================
+# Concrete outputs that will be produced
+deliverables:
+  - path: "src/graphs/module/file.py"
+    type: "code"          # code | test | documentation | config | data
+    description: "New module implementing X"
+    acceptance: "Passes all unit tests, follows code style"
+
+  - path: "tests/module/test_file.py"
+    type: "test"
+    description: "Unit tests for new module"
+    acceptance: "Coverage >= 80%"
+
+# ============================================================================
+# INTERFACE CONTRACTS
+# ============================================================================
+# APIs and interfaces this task interacts with
+
+# External dependencies (consumed)
+dependencies:
+  - module: "graphs.core.structures"
+    classes: ["SubgraphDescriptor", "TensorDescriptor"]
+    version_constraint: ">=0.8.0"
+
+  - module: "graphs.hardware.mappers.base"
+    classes: ["HardwareMapper"]
+
+# Interfaces provided (produced)
+interfaces_provided:
+  - name: "new_function_name"
+    signature: "(arg1: Type1, arg2: Type2) -> ReturnType"
+    module: "graphs.module.file"
+    description: "What this function does"
+
+# Interfaces consumed (used)
+interfaces_consumed:
+  - name: "HardwareMapper.estimate_latency"
+    module: "graphs.hardware.mappers.base"
+    description: "Used for latency calculations"
+
+# ============================================================================
+# ACCEPTANCE CRITERIA
+# ============================================================================
+# Measurable criteria that must be met for task completion
+acceptance_criteria:
+  - criterion: "All unit tests pass"
+    verification: "pytest tests/module/"
+
+  - criterion: "No new type errors"
+    verification: "mypy src/graphs/module/"
+
+  - criterion: "Documentation complete"
+    verification: "All public functions have docstrings"
+
+  - criterion: "No new deprecation warnings"
+    verification: "pytest -W error::DeprecationWarning"
+
+# ============================================================================
+# CONSTRAINTS
+# ============================================================================
+# Limitations and requirements that must be respected
+constraints:
+  - "Must not modify public API signatures without approval"
+  - "Must maintain backward compatibility"
+  - "Must not add new external dependencies"
+  - "Must work on Python 3.9+"
+
+# ============================================================================
+# TESTING REQUIREMENTS
+# ============================================================================
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/module/"
+
+  integration_tests:
+    required: false
+    location: ""
+
+  validation_tests:
+    required: false
+    location: ""
+
+  manual_testing:
+    required: false
+    instructions: ""
+
+# ============================================================================
+# DOCUMENTATION
+# ============================================================================
+documentation:
+  code_comments: true     # Inline comments for complex logic
+  docstrings: true        # All public APIs
+  readme_update: false    # Update module README
+  user_guide: false       # Update user-facing docs
+  api_reference: false    # Update API reference
+
+# ============================================================================
+# STATE TRACKING
+# ============================================================================
+state:
+  status: "draft"         # draft | ready | assigned | in_progress | review | blocked | completed | cancelled
+  blocked_by: []          # List of blocking task IDs
+  blocks: []              # List of tasks this blocks
+  started_at: ""
+  completed_at: ""
+
+# Progress notes (append-only log)
+progress:
+  - date: "YYYY-MM-DD"
+    author: ""
+    note: "Task created"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  pull_request: ""        # PR URL when submitted
+  review_status: ""       # pending | approved | changes_requested | merged
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "issue"
+    url: ""
+    description: ""
+
+  - type: "documentation"
+    path: ""
+    description: ""
+
+  - type: "related_task"
+    task_id: ""
+    relationship: "depends_on"  # depends_on | blocks | related_to
