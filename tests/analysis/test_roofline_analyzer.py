@@ -16,9 +16,9 @@ import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.analysis.roofline import RooflineAnalyzer
+from graphs.estimation.roofline import RooflineAnalyzer
 from graphs.transform.partitioning import GraphPartitioner
-from graphs.ir.structures import BottleneckType
+from graphs.core.structures import BottleneckType
 from graphs.hardware.resource_model import (
     HardwareResourceModel,
     HardwareType,

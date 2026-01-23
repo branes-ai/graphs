@@ -11,7 +11,7 @@ import tempfile
 import os
 from io import StringIO
 
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.reporting import ReportGenerator
 from graphs.hardware.resource_model import Precision
 

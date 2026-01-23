@@ -14,7 +14,7 @@ import torch
 from torch.fx import GraphModule
 from collections import defaultdict
 
-from graphs.ir.structures import (
+from graphs.core.structures import (
     OperationType,
     BottleneckType,
     ParallelismDescriptor,
@@ -965,7 +965,7 @@ class FusionBasedPartitioner:
         max_fusion_size = max(fusion_sizes) if fusion_sizes else 1
 
         # Create unified PartitionReport
-        from graphs.ir.structures import PartitionReport
+        from graphs.core.structures import PartitionReport
         return PartitionReport(
             subgraphs=fused_subgraphs,  # Use standard name (not fused_subgraphs)
             total_subgraphs=len(fused_subgraphs),
@@ -2124,8 +2124,8 @@ class FusionBasedPartitioner:
 # Deprecated: Use SubgraphDescriptor from graphs.ir.structures instead
 FusedSubgraph = SubgraphDescriptor
 
-# Deprecated: Use PartitionReport from graphs.ir.structures instead  
-from graphs.ir.structures import PartitionReport as FusionReport
+# Deprecated: Use PartitionReport from graphs.core.structures instead
+from graphs.core.structures import PartitionReport as FusionReport
 
 # Note: The old @dataclass definitions have been removed. If you need them
 # for reference, see git history before the unification (2025-11-09).

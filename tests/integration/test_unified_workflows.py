@@ -15,14 +15,14 @@ import tempfile
 import os
 from io import StringIO
 
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig, UnifiedAnalysisResult
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig, UnifiedAnalysisResult
 from graphs.reporting import ReportGenerator
 from graphs.hardware.resource_model import Precision
 
 # For comparison with direct usage
-from graphs.analysis.roofline import RooflineAnalyzer
-from graphs.analysis.energy import EnergyAnalyzer
-from graphs.analysis.memory import MemoryEstimator
+from graphs.estimation.roofline import RooflineAnalyzer
+from graphs.estimation.energy import EnergyAnalyzer
+from graphs.estimation.memory import MemoryEstimator
 
 import torch
 from torch.fx.passes.shape_prop import ShapeProp

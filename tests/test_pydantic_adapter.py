@@ -28,9 +28,9 @@ from graphs.adapters.pydantic_output import (
     convert_memory_to_pydantic,
     convert_to_pydantic,
 )
-from graphs.analysis.roofline import RooflineReport, LatencyDescriptor
-from graphs.analysis.energy import EnergyReport, EnergyDescriptor
-from graphs.analysis.memory import MemoryReport
+from graphs.estimation.roofline import RooflineReport, LatencyDescriptor
+from graphs.estimation.energy import EnergyReport, EnergyDescriptor
+from graphs.estimation.memory import MemoryReport
 
 
 class TestMakeVerdict:

@@ -28,7 +28,7 @@ from graphs.visualization.mermaid_generator import MermaidGenerator, ColorScheme
 def trace_resnet18():
     """Trace ResNet18 model with FX."""
     print("📦 Loading ResNet18...")
-    model = resnet18(pretrained=False)
+    model = resnet18(weights=None)
     model.eval()
 
     print("🔍 Tracing with PyTorch FX...")

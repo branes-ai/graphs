@@ -5,7 +5,7 @@ Tests the updated DataParallelEnergyModel with WorkloadCharacterization.
 """
 
 import pytest
-from graphs.analysis.workload_characterization import (
+from graphs.estimation.workload_characterization import (
     WorkloadCharacterization,
     create_simple_workload
 )

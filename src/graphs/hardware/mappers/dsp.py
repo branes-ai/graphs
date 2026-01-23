@@ -63,7 +63,7 @@ from ..models.ip_cores.ceva_neupro_npm11 import ceva_neupro_npm11_resource_model
 from ..models.ip_cores.cadence_vision_q8 import cadence_vision_q8_resource_model
 from ..models.ip_cores.synopsys_arc_ev7x import synopsys_arc_ev7x_resource_model
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
-from graphs.ir.structures import SubgraphDescriptor, ParallelismDescriptor
+from graphs.core.structures import SubgraphDescriptor, ParallelismDescriptor
 
 
 class DSPMapper(HardwareMapper):

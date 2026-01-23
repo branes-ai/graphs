@@ -17,7 +17,7 @@ import sys
 sys.path.insert(0, '/home/stillwater/dev/branes/clones/graphs/src')
 
 from graphs.transform.partitioning import GraphPartitioner
-from graphs.analysis.concurrency import ConcurrencyAnalyzer
+from graphs.estimation.concurrency import ConcurrencyAnalyzer
 
 
 @dataclass

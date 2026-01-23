@@ -963,7 +963,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         # ============================================================
 
         cache_line_size = execution_context.get('cache_line_size', 128)  # H100 uses 128B
-        num_memory_accesses = max(1, int(bytes_transferred / 4))  # Assume 4-byte elements
+        num_memory_accesses = max(1, int(float(bytes_transferred) / 4))  # Assume 4-byte elements
 
         # Shared Memory / L1 unified (95% hit rate)
         # This is a single hardware structure with configurable carveout
@@ -989,7 +989,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         warp_size = execution_context.get('warp_size', 32)
         num_concurrent_warps = max(1, concurrent_threads // warp_size)
 
-        num_memory_ops = max(1, int(bytes_transferred / cache_line_size))
+        num_memory_ops = max(1, int(float(bytes_transferred) / cache_line_size))
         coherence_energy = num_concurrent_warps * self.coherence_energy_per_request * num_memory_ops
 
         # Thread scheduling overhead

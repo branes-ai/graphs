@@ -14,7 +14,7 @@ from torch.fx import GraphModule
 from typing import List, Dict, Tuple, Optional
 import networkx as nx
 
-from graphs.ir.structures import (
+from graphs.core.structures import (
     SubgraphDescriptor,
     ParallelismDescriptor,
     TensorDescriptor,

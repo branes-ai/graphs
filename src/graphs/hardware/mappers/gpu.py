@@ -30,7 +30,7 @@ from ..resource_model import (
     Precision,
 )
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
-from graphs.ir.structures import BottleneckType
+from graphs.core.structures import BottleneckType
 
 
 class GPUMapper(HardwareMapper):

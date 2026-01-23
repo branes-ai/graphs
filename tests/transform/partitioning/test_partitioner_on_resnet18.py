@@ -14,7 +14,7 @@ from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
 from graphs.transform.partitioning import GraphPartitioner
-from graphs.analysis.concurrency import ConcurrencyAnalyzer
+from graphs.estimation.concurrency import ConcurrencyAnalyzer
 
 
 def test_resnet18():

@@ -37,7 +37,7 @@ from ...resource_model import (
     BottleneckType,
 )
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
-from graphs.ir.structures import SubgraphDescriptor, ParallelismDescriptor
+from graphs.core.structures import SubgraphDescriptor, ParallelismDescriptor
 
 
 class HailoMapper(HardwareMapper):
