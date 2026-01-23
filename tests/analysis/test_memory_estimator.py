@@ -17,9 +17,9 @@ import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.analysis.memory import MemoryEstimator
+from graphs.estimation.memory import MemoryEstimator
 from graphs.transform.partitioning import GraphPartitioner
-from graphs.ir.structures import OperationType
+from graphs.core.structures import OperationType
 from graphs.hardware.resource_model import (
     HardwareResourceModel,
     HardwareType,

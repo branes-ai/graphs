@@ -7,12 +7,12 @@ and MemoryReport without requiring full execution simulation.
 """
 
 import pytest
-from graphs.analysis.memory import (
+from graphs.estimation.memory import (
     MemoryTimelineEntry,
     MemoryDescriptor,
     MemoryReport,
 )
-from graphs.ir.structures import OperationType
+from graphs.core.structures import OperationType
 
 
 def test_memory_timeline_entry_creation():

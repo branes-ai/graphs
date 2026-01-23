@@ -22,7 +22,7 @@ from .fusion_partitioner import (
     FusionReport,
 )
 
-from graphs.ir.structures import OperationType, BottleneckType
+from graphs.core.structures import OperationType, BottleneckType
 
 
 class AttentionFusionPartitioner(FusionBasedPartitioner):

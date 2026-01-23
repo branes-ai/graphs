@@ -17,8 +17,8 @@ Run: python tests/analysis/test_concurrency.py
 import sys
 sys.path.insert(0, 'src')
 
-from graphs.analysis.concurrency import ConcurrencyAnalyzer
-from graphs.ir.structures import (
+from graphs.estimation.concurrency import ConcurrencyAnalyzer
+from graphs.core.structures import (
     SubgraphDescriptor,
     ParallelismDescriptor,
     PartitionReport,

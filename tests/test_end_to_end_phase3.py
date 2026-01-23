@@ -10,7 +10,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from graphs.analysis.dynamo_characterizer import characterize_with_dynamo
+from graphs.estimation.dynamo_characterizer import characterize_with_dynamo
 from graphs.hardware.architectural_energy import DataParallelEnergyModel
 from graphs.hardware.technology_profile import DEFAULT_PROFILE
 

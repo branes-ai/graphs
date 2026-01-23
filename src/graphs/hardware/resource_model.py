@@ -20,7 +20,7 @@ from typing import List, Dict, Optional, Tuple, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from graphs.ir.structures import (
+from graphs.core.structures import (
     SubgraphDescriptor,
     ParallelismDescriptor,
     BottleneckType,

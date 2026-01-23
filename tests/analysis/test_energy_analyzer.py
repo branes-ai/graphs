@@ -16,7 +16,7 @@ import torchvision.models as models
 from torch.fx import symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
-from graphs.analysis.energy import EnergyAnalyzer
+from graphs.estimation.energy import EnergyAnalyzer
 from graphs.transform.partitioning import GraphPartitioner
 from graphs.hardware.resource_model import (
     HardwareResourceModel,

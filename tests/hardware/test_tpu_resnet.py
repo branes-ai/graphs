@@ -88,7 +88,7 @@ def test_resnet18_energy():
     print("=" * 70)
 
     # Load ResNet-18
-    model = models.resnet18(pretrained=False)
+    model = models.resnet18(weights=None)
     model.eval()
 
     # Count operations
@@ -180,7 +180,7 @@ def test_resnet50_energy():
     print("=" * 70)
 
     # Load ResNet-50
-    model = models.resnet50(pretrained=False)
+    model = models.resnet50(weights=None)
     model.eval()
 
     # Count operations
@@ -264,7 +264,7 @@ def test_batch_size_scaling():
     print("TEST: Batch Size Scaling (ResNet-18 BF16)")
     print("=" * 70)
 
-    model = models.resnet18(pretrained=False)
+    model = models.resnet18(weights=None)
     model.eval()
     mapper = create_tpu_v4_mapper()
 

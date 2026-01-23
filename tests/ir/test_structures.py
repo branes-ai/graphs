@@ -17,7 +17,7 @@ Run: python tests/ir/test_structures.py
 import sys
 sys.path.insert(0, 'src')
 
-from graphs.ir.structures import (
+from graphs.core.structures import (
     OperationType,
     BottleneckType,
     PartitionReason,

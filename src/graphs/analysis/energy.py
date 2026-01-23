@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict
 from enum import Enum
 
-from ..ir.structures import SubgraphDescriptor, PartitionReport
+from ..core.structures import SubgraphDescriptor, PartitionReport
 from ..hardware.resource_model import HardwareResourceModel, Precision
 
 

@@ -43,10 +43,10 @@ if TYPE_CHECKING:
         GraphAnalysisResult,
     )
 
-from graphs.analysis.unified_analyzer import UnifiedAnalysisResult
-from graphs.analysis.roofline import RooflineReport
-from graphs.analysis.energy import EnergyReport
-from graphs.analysis.memory import MemoryReport
+from graphs.estimation.unified_analyzer import UnifiedAnalysisResult
+from graphs.estimation.roofline import RooflineReport
+from graphs.estimation.energy import EnergyReport
+from graphs.estimation.memory import MemoryReport
 
 
 def _import_schemas():

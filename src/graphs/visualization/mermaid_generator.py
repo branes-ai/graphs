@@ -10,7 +10,7 @@ from typing import List, Dict, Optional, Tuple
 from enum import Enum
 import torch.fx as fx
 
-from ..ir.structures import PartitionReport, SubgraphDescriptor
+from ..core.structures import PartitionReport, SubgraphDescriptor
 
 
 class ColorScheme(Enum):

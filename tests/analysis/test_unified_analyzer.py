@@ -8,7 +8,7 @@ import unittest
 import torch
 import torch.nn as nn
 
-from graphs.analysis.unified_analyzer import (
+from graphs.estimation.unified_analyzer import (
     UnifiedAnalyzer,
     AnalysisConfig,
     UnifiedAnalysisResult,

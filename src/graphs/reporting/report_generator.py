@@ -38,7 +38,7 @@ from io import StringIO
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 
-from graphs.analysis.unified_analyzer import UnifiedAnalysisResult
+from graphs.estimation.unified_analyzer import UnifiedAnalysisResult
 from graphs.visualization.mermaid_generator import MermaidGenerator, ColorScheme
 
 

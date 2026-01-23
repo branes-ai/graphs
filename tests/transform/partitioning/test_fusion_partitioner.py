@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 import pytest
 
 from graphs.transform.partitioning import FusionBasedPartitioner
-from graphs.ir.structures import OperationType
+from graphs.core.structures import OperationType
 
 
 class ResultsTracker:

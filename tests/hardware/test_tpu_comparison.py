@@ -33,7 +33,7 @@ from graphs.hardware.resource_model import Precision
 
 def count_resnet18_operations():
     """Count operations for ResNet-18"""
-    model = models.resnet18(pretrained=False)
+    model = models.resnet18(weights=None)
     model.eval()
 
     # ResNet-18 characteristics (from previous test)
