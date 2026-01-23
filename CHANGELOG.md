@@ -2,11 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [2026-01-18] - Capability Tier CLI Tools Complete (All 25 Tools)
+## [Unreleased]
+
+### Added
+- SEMVER versioning strategy and governance framework (PROPOSAL-001)
+- Decision record template for AI governance
+- Task specification template for delegation
+
+---
+
+## [0.8.0] - 2026-01-23 - Milestone 1: Foundation Consolidation
+
+### Added
+- **Package Structure Consolidation** (Milestone 1 complete)
+  - `core/` package: Graph data structures (renamed from `ir/`)
+  - `estimation/` package: Performance estimation modules (renamed from `analysis/`)
+  - `calibration/` package: Hardware calibration framework (elevated from `hardware/calibration/`)
+  - `benchmarks/` package: Calibration benchmarks (elevated from `hardware/calibration/benchmarks/`)
+  - `frontends/` package: Model tracing (PyTorch Dynamo)
+- **Confidence Tracking** (`core/confidence.py`)
+  - `ConfidenceLevel` enum: CALIBRATED, INTERPOLATED, THEORETICAL, UNKNOWN
+  - `EstimationConfidence` dataclass with score (0-1), source, calibration reference
+  - All estimation descriptors (Latency, Energy, Memory) include confidence fields
+- Jetson Orin NX 16GB registry and remote calibration deployment package
+
+### Changed
+- All CLI tools updated to use new package paths (`graphs.core.*`, `graphs.estimation.*`)
+
+### Deprecated
+- `graphs.ir` module - use `graphs.core` instead (shim with warning remains)
+- `graphs.analysis` module - use `graphs.estimation` instead (shim with warning remains)
+- Old import paths will be removed in v2.0.0
+
+### Removed
+- Duplicate files from `ir/` directory (kept `__init__.py` shim only)
+- Duplicate files from `analysis/` directory (kept `__init__.py` shim only)
+- Deprecated `hw/` package
+
+---
+
+## [0.7.0] - 2026-01-18 - Capability Tier CLI Tools Complete (All 25 Tools)
 
 ### Added
 

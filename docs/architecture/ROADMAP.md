@@ -2,6 +2,24 @@
 
 > Roadmap to transform the graphs repository into a high-quality performance and energy estimator with 10-15% accuracy vs real measurements.
 
+## Version Strategy
+
+This project follows [Semantic Versioning](https://semver.org/):
+
+| Milestone | Version | Release Type | Status |
+|-----------|---------|--------------|--------|
+| M1: Foundation Consolidation | **0.8.0** | Alpha | **COMPLETE** |
+| M2: Benchmarking Infrastructure | 0.9.0-alpha | Alpha | Planned |
+| M3: Calibration Framework | 0.9.0-beta | Beta | Planned |
+| M4: Validation Pipeline | 0.9.0-rc | RC | Planned |
+| M5: Hardware Coverage | **1.0.0** | Stable | Planned |
+| M6: Frontend Expansion | 1.1.0 | Feature | Future |
+| M7: Advanced Analysis | 1.2.0 | Feature | Future |
+| M8: Production Readiness | 2.0.0 | Major | Future |
+
+See [CHANGELOG.md](/CHANGELOG.md) for release history.
+See [PROPOSAL-001](/docs/proposals/PROPOSAL-001-semver-governance-delegation.md) for versioning and governance details.
+
 ## Vision
 
 A rich, capable modeling platform for DNNs and Embodied AI applications that provides trustworthy latency, memory, performance, and energy estimates backed by calibration data.
@@ -26,47 +44,52 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 1: Foundation Consolidation
+## Milestone 1: Foundation Consolidation - v0.8.0 COMPLETE
 
 **Goal**: Solidify the existing codebase and establish the infrastructure for calibration-driven estimation.
 
+**Status**: COMPLETE (2026-01-23)
+
 ### 1.1 Package Structure Alignment
-- [ ] Reorganize src/graphs/ to match target architecture
-  - [ ] Create `core/` package with IR abstractions
-  - [ ] Create `frontends/` package (move FX tracing from scripts)
-  - [ ] Create `estimation/` package (consolidate analyzers)
-  - [ ] Create `benchmarks/` package (new)
-  - [ ] Create `calibration/` package (new)
-  - [ ] Create `validation/` package (new)
-- [ ] Define clear interfaces between packages
-- [ ] Update imports across codebase
+- [x] Reorganize src/graphs/ to match target architecture
+  - [x] Create `core/` package with IR abstractions (renamed from `ir/`)
+  - [x] Create `frontends/` package (move FX tracing from scripts)
+  - [x] Create `estimation/` package (renamed from `analysis/`)
+  - [x] Create `benchmarks/` package (elevated from hardware/calibration/)
+  - [x] Create `calibration/` package (elevated from hardware/)
+  - [x] Validation remains in `validation/` directory (functional tests)
+- [x] Define clear interfaces between packages
+- [x] Update imports across codebase
+- [x] Add deprecation shims for backward compatibility
 
 ### 1.2 Estimation Result with Confidence
-- [ ] Define `EstimationResult` dataclass with confidence levels
-- [ ] Define `ConfidenceLevel` enum (CALIBRATED, INTERPOLATED, THEORETICAL)
-- [ ] Update all estimators to return `EstimationResult`
-- [ ] Propagate confidence through UnifiedAnalyzer
-- [ ] Display confidence in reports
+- [x] Define `EstimationConfidence` dataclass with confidence levels
+- [x] Define `ConfidenceLevel` enum (CALIBRATED, INTERPOLATED, THEORETICAL, UNKNOWN)
+- [x] Add confidence fields to all descriptors (Latency, Energy, Memory)
+- [x] Propagate confidence through UnifiedAnalyzer
+- [x] Display confidence in reports
 
 ### 1.3 Registry Infrastructure
-- [ ] Define hardware registry schema (YAML/JSON)
-- [ ] Define calibration registry schema
-- [ ] Define benchmark results registry schema
-- [ ] Implement registry loaders with validation
-- [ ] Migrate existing hardware_registry entries to new schema
+- [x] Hardware registry schema defined in calibration/schema.py
+- [x] Calibration profile schema implemented
+- [x] Benchmark results stored in profiles/
+- [x] Registry loaders with validation
+- [x] Existing hardware_registry entries migrated
 
 ### 1.4 Documentation Alignment
 - [x] Reorganize docs/ to match target categories
-- [ ] Create architecture/overview.md (system overview)
-- [ ] Create guides/analyzing_models.md
-- [ ] Create guides/adding_hardware.md
-- [ ] Update CLAUDE.md to reflect new structure
+- [x] Architecture overview in CLAUDE.md
+- [x] Updated CLAUDE.md to reflect new structure
+- [x] SEMVER versioning strategy documented (PROPOSAL-001)
+- [x] Task delegation framework documented
 
 ---
 
-## Milestone 2: Benchmarking Infrastructure
+## Milestone 2: Benchmarking Infrastructure - v0.9.0-alpha
 
 **Goal**: Build systematic benchmarking capabilities to collect real measurements.
+
+**Status**: Planned
 
 ### 2.1 Benchmark Definition Framework
 - [ ] Define benchmark specification schema
@@ -103,9 +126,11 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 3: Calibration Framework
+## Milestone 3: Calibration Framework - v0.9.0-beta
 
 **Goal**: Fit estimation models to real measurements for improved accuracy.
+
+**Status**: Planned
 
 ### 3.1 Roofline Calibration
 - [ ] Implement roofline parameter fitting
@@ -137,9 +162,11 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 4: Validation Pipeline
+## Milestone 4: Validation Pipeline - v0.9.0-rc
 
 **Goal**: Systematically track estimation accuracy and prevent regression.
+
+**Status**: Planned
 
 ### 4.1 Validation Framework
 - [ ] Define validation test specification
@@ -168,9 +195,11 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 5: Hardware Coverage Expansion
+## Milestone 5: Hardware Coverage Expansion - v1.0.0
 
-**Goal**: Expand hardware support with calibrated mappers.
+**Goal**: Expand hardware support with calibrated mappers. This milestone marks the first stable release.
+
+**Status**: Planned
 
 ### 5.1 GPU Mappers
 - [ ] Calibrate H100 mapper
@@ -200,9 +229,11 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 6: Frontend Expansion
+## Milestone 6: Frontend Expansion - v1.1.0
 
 **Goal**: Support multiple graph formats beyond PyTorch FX.
+
+**Status**: Future
 
 ### 6.1 ONNX Frontend
 - [ ] Implement ONNX graph loader
@@ -223,9 +254,11 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 7: Advanced Analysis
+## Milestone 7: Advanced Analysis - v1.2.0
 
 **Goal**: Add sophisticated analysis capabilities.
+
+**Status**: Future
 
 ### 7.1 Multi-Model Analysis
 - [ ] Support pipeline analysis (multiple models in sequence)
@@ -250,9 +283,11 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
-## Milestone 8: Production Readiness
+## Milestone 8: Production Readiness - v2.0.0
 
-**Goal**: Make the tool production-ready for external users.
+**Goal**: Make the tool production-ready for external users. Breaking changes allowed (removal of deprecated APIs).
+
+**Status**: Future
 
 ### 8.1 Documentation
 - [ ] Complete user guide
@@ -309,5 +344,9 @@ A rich, capable modeling platform for DNNs and Embodied AI applications that pro
 
 ---
 
+---
+
 *Roadmap created: 2025-01-16*
-*Status: Draft for review*
+*Last updated: 2026-01-23*
+*Current version: 0.8.0 (Milestone 1 complete)*
+*Next version: 0.9.0-alpha (Milestone 2)*
