@@ -1,0 +1,136 @@
+# Task: Create Benchmark CLI Tool
+task_id: "TASK-2026-005"
+title: "Create benchmark CLI tool"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M2"
+  target_version: "0.9.0-alpha"
+  estimated_effort: "6h"
+  complexity: "medium"
+
+objective: |
+  Create a CLI tool for running benchmarks that supports:
+  - Running individual benchmarks by name
+  - Running benchmark suites (all GEMM, all Conv2d, etc.)
+  - Specifying device (cpu, cuda, cuda:0, etc.)
+  - Configuring iterations and warmup
+  - Output to JSON, CSV, or console table
+  - Saving results to benchmark registry
+
+motivation: |
+  A CLI tool enables:
+  - Easy benchmark execution by users
+  - Automated benchmark collection in CI/CD
+  - Consistent interface for all benchmark types
+  - Integration with calibration workflow
+
+deliverables:
+  - path: "cli/benchmark.py"
+    type: "code"
+    description: "Benchmark CLI tool"
+    acceptance: "Supports all required modes and outputs"
+
+  - path: "tests/cli/test_benchmark_cli.py"
+    type: "test"
+    description: "CLI tests"
+    acceptance: "Tests all major options"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkSpec", "BenchmarkResult"]
+  - module: "graphs.benchmarks.runner"
+    classes: ["PyTorchRunner"]
+  - module: "argparse"
+
+interfaces_provided:
+  - name: "cli/benchmark.py"
+    signature: "CLI entry point"
+    module: "cli"
+    description: "Benchmark command-line interface"
+
+interfaces_consumed:
+  - name: "BenchmarkRunner"
+    module: "graphs.benchmarks.runner"
+  - name: "get_gemm_specs"
+    module: "graphs.benchmarks.microbench.gemm"
+
+acceptance_criteria:
+  - criterion: "Can run single benchmark"
+    verification: "./cli/benchmark.py --benchmark gemm_1024x1024_fp32"
+
+  - criterion: "Can run benchmark suite"
+    verification: "./cli/benchmark.py --suite gemm"
+
+  - criterion: "Supports device selection"
+    verification: "./cli/benchmark.py --device cuda --benchmark gemm_1024x1024_fp32"
+
+  - criterion: "Outputs JSON format"
+    verification: "./cli/benchmark.py --output results.json --format json"
+
+  - criterion: "Shows progress for long runs"
+    verification: "Progress bar or percentage shown"
+
+  - criterion: "Saves to registry"
+    verification: "./cli/benchmark.py --save-to-registry"
+
+constraints:
+  - "Depends on TASK-2026-001, TASK-2026-002, TASK-2026-003"
+  - "Follow existing CLI patterns in cli/ directory"
+  - "Use argparse for argument parsing"
+  - "Graceful error handling for missing benchmarks"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/cli/test_benchmark_cli.py"
+  integration_tests:
+    required: true
+    location: "tests/cli/test_benchmark_cli.py"
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: true
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-001", "TASK-2026-002", "TASK-2026-003"]
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 2.3 - CLI Integration"
+  - type: "code"
+    path: "cli/analyze_comprehensive.py"
+    description: "Reference for CLI patterns"

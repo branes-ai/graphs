@@ -1,0 +1,102 @@
+# Decision Record: Milestone 1 Package Structure Consolidation
+decision_id: "DECISION-2026-01-23-001"
+timestamp: "2026-01-23T09:00:00Z"
+ai_model: "claude-opus-4-5-20251101"
+session_id: "70e70b3b-9e19-4492-8728-f471097888bc"
+
+summary: "Remove duplicate files from ir/ and analysis/, keeping only deprecation shims"
+
+trigger:
+  type: "user_request"
+  content: "definitely focus on completing milestone 1"
+  context: |
+    User reviewed ROADMAP.md showing package consolidation as M1 goal.
+    The codebase had duplicate files in both old (ir/, analysis/) and 
+    new (core/, estimation/) locations, causing confusion and maintenance burden.
+
+alternatives:
+  - option: "Keep duplicates, update imports gradually over time"
+    pros:
+      - "Lower immediate risk"
+      - "Incremental change"
+      - "No forced migration for users"
+    cons:
+      - "Two locations for same code causes confusion"
+      - "Bug fixes must be applied in two places"
+      - "Prolongs technical debt"
+    selected: false
+    rejected_reason: "Prolongs technical debt, conflicts with M1 completion goals"
+
+  - option: "Remove duplicates from old locations, keep deprecation shims"
+    pros:
+      - "Clean single source of truth"
+      - "Backward compatible via shims"
+      - "Clear migration path with warnings"
+      - "Matches roadmap target architecture"
+    cons:
+      - "Requires updating all CLI tool imports"
+      - "Submodule imports (from graphs.analysis.X import Y) need direct updates"
+    selected: true
+    selected_reason: "Best balance of cleanup and backward compatibility, aligns with roadmap"
+
+  - option: "Remove duplicates and shims immediately (breaking change)"
+    pros:
+      - "Cleanest result"
+      - "No deprecation maintenance"
+    cons:
+      - "Breaks existing imports immediately"
+      - "No migration path for external users"
+      - "Breaking change inappropriate before v1.0"
+    selected: false
+    rejected_reason: "Breaking change inappropriate in pre-1.0; need deprecation period"
+
+impact:
+  files_modified: 12
+  files_created: 0
+  files_deleted: 13
+  lines_added: 26
+  lines_removed: 9135
+  breaking_changes: false
+  deprecations_added: false  # Already existed from earlier work
+  new_dependencies: []
+  tests_affected: 0
+
+verification:
+  - action: "Ran full test suite"
+    result: "295 passed, 4 skipped"
+  - action: "Verified deprecation shims still work"
+    result: "Imports via old paths emit DeprecationWarning but function correctly"
+  - action: "Checked CLI tools work"
+    result: "All CLI tools execute without import errors"
+
+risks:
+  - risk: "External code using direct imports from analysis/*.py will break"
+    mitigation: "Package-level shim catches most cases; submodule imports documented in migration guide"
+    severity: "medium"
+    likelihood: "low"
+
+  - risk: "Some edge case imports may not be covered by shims"
+    mitigation: "Deprecation warnings guide users to correct imports"
+    severity: "low"
+    likelihood: "low"
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    section: "Milestone 1: Foundation Consolidation"
+  - type: "plan"
+    path: ".claude/plans/valiant-shimmying-abelson.md"
+    section: "Package Structure Changes"
+
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-01-23T10:00:00Z"
+  comments: "Commit approved and merged"
+  modifications_required: []
+
+follow_up:
+  - action: "Remove deprecated paths in v2.0.0"
+    owner: "TBD"
+    due_date: "v2.0.0 release"
+    status: "pending"

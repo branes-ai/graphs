@@ -1,0 +1,147 @@
+# Task: Define Benchmark Runner Interface
+task_id: "TASK-2026-003"
+title: "Define benchmark runner interface and base implementation"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M2"
+  target_version: "0.9.0-alpha"
+  estimated_effort: "4h"
+  complexity: "medium"
+
+objective: |
+  Define a clean interface for benchmark runners that supports:
+  - Multiple backends (CPU, CUDA, future accelerators)
+  - Configurable warmup and iteration counts
+  - Statistical aggregation (mean, std, percentiles)
+  - Optional power and memory measurement collection
+  - Consistent result format
+
+motivation: |
+  A well-defined runner interface enables:
+  - Easy addition of new hardware backends
+  - Consistent measurement methodology
+  - Pluggable measurement collectors (power, memory)
+  - Reproducible benchmarking across platforms
+
+deliverables:
+  - path: "src/graphs/benchmarks/runner.py"
+    type: "code"
+    description: "Runner interface and base implementation"
+    acceptance: "Abstract base class with PyTorch implementation"
+
+  - path: "src/graphs/benchmarks/collectors.py"
+    type: "code"
+    description: "Measurement collectors (timing, power, memory)"
+    acceptance: "At least timing collector implemented"
+
+  - path: "tests/benchmarks/test_runner.py"
+    type: "test"
+    description: "Runner interface tests"
+    acceptance: "Coverage >= 85%"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkSpec", "BenchmarkResult"]
+  - module: "torch"
+    classes: ["torch.cuda.Event"]
+
+interfaces_provided:
+  - name: "BenchmarkRunner"
+    signature: "class BenchmarkRunner(ABC)"
+    module: "graphs.benchmarks.runner"
+    description: "Abstract base class for all runners"
+
+  - name: "PyTorchRunner"
+    signature: "class PyTorchRunner(BenchmarkRunner)"
+    module: "graphs.benchmarks.runner"
+    description: "PyTorch-based runner for CPU/CUDA"
+
+  - name: "MeasurementCollector"
+    signature: "class MeasurementCollector(ABC)"
+    module: "graphs.benchmarks.collectors"
+    description: "Base class for measurement collectors"
+
+  - name: "TimingCollector"
+    signature: "class TimingCollector(MeasurementCollector)"
+    module: "graphs.benchmarks.collectors"
+    description: "Precise timing measurement"
+
+interfaces_consumed:
+  - name: "BenchmarkSpec"
+    module: "graphs.benchmarks.schema"
+  - name: "BenchmarkResult"
+    module: "graphs.benchmarks.schema"
+
+acceptance_criteria:
+  - criterion: "Runner can execute a simple benchmark"
+    verification: "Test with identity function benchmark"
+
+  - criterion: "GPU timing uses CUDA events for accuracy"
+    verification: "Code review confirms torch.cuda.Event usage"
+
+  - criterion: "Warmup iterations are configurable"
+    verification: "Constructor accepts warmup parameter"
+
+  - criterion: "Statistical aggregation is correct"
+    verification: "Unit tests verify mean, std, min, max calculations"
+
+  - criterion: "Results are serializable"
+    verification: "BenchmarkResult can be JSON serialized"
+
+constraints:
+  - "Depends on TASK-2026-001 (benchmark schema)"
+  - "Must work without CUDA installed"
+  - "Timing resolution should be sub-millisecond"
+  - "Memory collector may be stub for this task"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 85
+    location: "tests/benchmarks/test_runner.py"
+  integration_tests:
+    required: false
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-001"]
+  blocks: ["TASK-2026-004", "TASK-2026-005"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 2.2 - Benchmark Runners"

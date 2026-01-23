@@ -1,0 +1,142 @@
+# Task: Define Benchmark Specification Schema
+task_id: "TASK-2026-001"
+title: "Define benchmark specification schema"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M2"
+  target_version: "0.9.0-alpha"
+  estimated_effort: "4h"
+  complexity: "medium"
+
+objective: |
+  Define a comprehensive schema for benchmark specifications that can describe
+  both microbenchmarks (GEMM, Conv2d, etc.) and workload benchmarks (full models).
+  The schema should capture:
+  - Benchmark metadata (name, description, category)
+  - Input specifications (shapes, dtypes, ranges)
+  - Execution parameters (warmup, iterations, statistical methods)
+  - Expected outputs (latency, throughput, memory, power)
+
+motivation: |
+  A well-defined schema enables:
+  - Consistent benchmark definitions across the project
+  - Automated benchmark discovery and execution
+  - Reproducible measurements
+  - Easy addition of new benchmarks
+
+deliverables:
+  - path: "src/graphs/benchmarks/schema.py"
+    type: "code"
+    description: "Pydantic models for benchmark specifications"
+    acceptance: "All fields documented, validation tests pass"
+
+  - path: "src/graphs/benchmarks/specs/"
+    type: "data"
+    description: "Directory for benchmark spec YAML files"
+    acceptance: "At least one example spec that validates"
+
+  - path: "tests/benchmarks/test_schema.py"
+    type: "test"
+    description: "Schema validation tests"
+    acceptance: "Coverage >= 90% for schema.py"
+
+dependencies:
+  - module: "pydantic"
+    classes: ["BaseModel", "Field"]
+    version_constraint: ">=2.0"
+
+interfaces_provided:
+  - name: "BenchmarkSpec"
+    signature: "class BenchmarkSpec(BaseModel)"
+    module: "graphs.benchmarks.schema"
+    description: "Base class for all benchmark specifications"
+
+  - name: "MicrobenchmarkSpec"
+    signature: "class MicrobenchmarkSpec(BenchmarkSpec)"
+    module: "graphs.benchmarks.schema"
+    description: "Specification for operator-level benchmarks"
+
+  - name: "WorkloadBenchmarkSpec"
+    signature: "class WorkloadBenchmarkSpec(BenchmarkSpec)"
+    module: "graphs.benchmarks.schema"
+    description: "Specification for full model benchmarks"
+
+  - name: "BenchmarkResult"
+    signature: "class BenchmarkResult(BaseModel)"
+    module: "graphs.benchmarks.schema"
+    description: "Standard result format for benchmark outputs"
+
+interfaces_consumed: []
+
+acceptance_criteria:
+  - criterion: "Schema validates example benchmark specs"
+    verification: "pytest tests/benchmarks/test_schema.py"
+
+  - criterion: "Schema supports microbenchmark parameters (GEMM sizes, precisions)"
+    verification: "Can create valid MicrobenchmarkSpec for GEMM"
+
+  - criterion: "Schema supports workload parameters (model name, batch size)"
+    verification: "Can create valid WorkloadBenchmarkSpec for ResNet18"
+
+  - criterion: "BenchmarkResult captures all required metrics"
+    verification: "Result includes latency_ms, throughput, memory_bytes, power_watts"
+
+  - criterion: "All public classes have docstrings"
+    verification: "Manual review"
+
+constraints:
+  - "Use Pydantic v2 for schema definition"
+  - "Support YAML serialization for spec files"
+  - "Schema must be extensible for future benchmark types"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 90
+    location: "tests/benchmarks/test_schema.py"
+  integration_tests:
+    required: false
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: []
+  blocks: ["TASK-2026-002", "TASK-2026-003"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 2.1 - Benchmark Definition Framework"
