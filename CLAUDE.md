@@ -297,7 +297,7 @@ The characterization system works through these stages:
 1. **Model Definition** (`src/graphs/models/`): Synthetic DNNs with configurable parameters
 2. **FX Tracing**: PyTorch FX symbolic tracing with shape propagation
 3. **Graph Partitioning** (`transform/partitioning/`): Split graphs into fused subgraphs
-4. **Concurrency Analysis** (`analysis/concurrency.py`): Identify parallelism opportunities
+4. **Concurrency Analysis** (`estimation/concurrency.py`): Identify parallelism opportunities
 5. **Hardware Mapping** (`hardware/mappers/`): Map subgraphs to specific hardware architectures
 6. **Estimation**: Calculate FLOPs, memory, latency, and energy using roofline models
 

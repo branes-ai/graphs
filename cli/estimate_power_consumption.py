@@ -140,7 +140,7 @@ def estimate_model_power(
 
     # Try to use UnifiedAnalyzer for more accurate estimates
     try:
-        from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
+        from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 
         analyzer = UnifiedAnalyzer()
         config = AnalysisConfig(
