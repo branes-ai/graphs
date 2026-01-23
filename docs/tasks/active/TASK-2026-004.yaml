@@ -1,0 +1,134 @@
+# Task: Implement Power Measurement Collector
+task_id: "TASK-2026-004"
+title: "Implement NVIDIA GPU power measurement collector"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "medium"
+  milestone: "M2"
+  target_version: "0.9.0-alpha"
+  estimated_effort: "4h"
+  complexity: "medium"
+
+objective: |
+  Implement a power measurement collector for NVIDIA GPUs using nvidia-smi
+  or NVML library. The collector should:
+  - Sample GPU power draw during benchmark execution
+  - Calculate average, peak, and total energy consumption
+  - Handle multiple GPUs
+  - Provide configurable sampling rate
+
+motivation: |
+  Power measurement is essential for:
+  - Calibrating energy estimation models
+  - Validating energy predictions
+  - Understanding power efficiency across hardware
+  - Supporting embodied AI power budget analysis
+
+deliverables:
+  - path: "src/graphs/benchmarks/collectors/power.py"
+    type: "code"
+    description: "NVIDIA power measurement collector"
+    acceptance: "Works with nvidia-smi, outputs power metrics"
+
+  - path: "tests/benchmarks/test_power_collector.py"
+    type: "test"
+    description: "Power collector tests (mocked for CI)"
+    acceptance: "Tests pass without GPU, integration test with GPU"
+
+dependencies:
+  - module: "graphs.benchmarks.collectors"
+    classes: ["MeasurementCollector"]
+  - module: "subprocess"
+    description: "For nvidia-smi fallback"
+
+interfaces_provided:
+  - name: "NvidiaPowerCollector"
+    signature: "class NvidiaPowerCollector(MeasurementCollector)"
+    module: "graphs.benchmarks.collectors.power"
+    description: "NVIDIA GPU power measurement"
+
+  - name: "PowerMeasurement"
+    signature: "class PowerMeasurement(BaseModel)"
+    module: "graphs.benchmarks.collectors.power"
+    description: "Power measurement result"
+
+interfaces_consumed:
+  - name: "MeasurementCollector"
+    module: "graphs.benchmarks.collectors"
+
+acceptance_criteria:
+  - criterion: "Can measure power on NVIDIA GPU"
+    verification: "Manual test on GPU machine"
+
+  - criterion: "Gracefully handles missing GPU"
+    verification: "Returns None or raises clear error without GPU"
+
+  - criterion: "Sampling rate is configurable"
+    verification: "Constructor accepts sampling_interval_ms"
+
+  - criterion: "Calculates average and peak power"
+    verification: "PowerMeasurement includes avg_watts, peak_watts"
+
+  - criterion: "Calculates total energy"
+    verification: "PowerMeasurement includes energy_joules"
+
+constraints:
+  - "Depends on TASK-2026-003 (collector interface)"
+  - "Should use NVML if available, fall back to nvidia-smi"
+  - "Must not crash if nvidia-smi is missing"
+  - "Sampling should be in background thread"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 75
+    location: "tests/benchmarks/test_power_collector.py"
+  integration_tests:
+    required: true
+    location: "tests/benchmarks/test_power_collector_integration.py"
+  validation_tests:
+    required: false
+  manual_testing:
+    required: true
+    instructions: "Run on machine with NVIDIA GPU, verify power readings match nvidia-smi"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-003"]
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 2.2 - Power measurement collector"

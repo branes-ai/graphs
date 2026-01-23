@@ -1,0 +1,138 @@
+# Task: Implement GEMM Microbenchmark Suite
+task_id: "TASK-2026-002"
+title: "Implement GEMM microbenchmark suite"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M2"
+  target_version: "0.9.0-alpha"
+  estimated_effort: "6h"
+  complexity: "medium"
+
+objective: |
+  Create a comprehensive GEMM (General Matrix Multiply) microbenchmark suite
+  covering the matrix sizes and precisions commonly used in DNN inference:
+  - Square matrices: 128, 256, 512, 1024, 2048, 4096
+  - Rectangular matrices (typical layer shapes): 768x3072, 1024x4096, etc.
+  - Precisions: FP32, FP16, BF16, INT8
+  - Batch dimensions for batched GEMM
+
+motivation: |
+  GEMM operations dominate compute in transformer and CNN models.
+  Accurate GEMM benchmarks are essential for:
+  - Calibrating roofline model parameters
+  - Understanding hardware efficiency curves
+  - Validating latency estimates
+
+deliverables:
+  - path: "src/graphs/benchmarks/specs/gemm/"
+    type: "data"
+    description: "GEMM benchmark specification YAML files"
+    acceptance: "Covers all required sizes and precisions"
+
+  - path: "src/graphs/benchmarks/microbench/gemm.py"
+    type: "code"
+    description: "GEMM benchmark implementation"
+    acceptance: "Runs on CPU and CUDA, outputs BenchmarkResult"
+
+  - path: "tests/benchmarks/test_gemm_benchmark.py"
+    type: "test"
+    description: "Tests for GEMM benchmark"
+    acceptance: "Validates output format, handles edge cases"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["MicrobenchmarkSpec", "BenchmarkResult"]
+    version_constraint: ">=0.9.0-alpha"
+  - module: "torch"
+    classes: ["matmul", "mm"]
+
+interfaces_provided:
+  - name: "run_gemm_benchmark"
+    signature: "(spec: MicrobenchmarkSpec, device: str) -> BenchmarkResult"
+    module: "graphs.benchmarks.microbench.gemm"
+    description: "Execute a single GEMM benchmark"
+
+  - name: "get_gemm_specs"
+    signature: "() -> List[MicrobenchmarkSpec]"
+    module: "graphs.benchmarks.microbench.gemm"
+    description: "Load all GEMM benchmark specifications"
+
+interfaces_consumed:
+  - name: "MicrobenchmarkSpec"
+    module: "graphs.benchmarks.schema"
+  - name: "BenchmarkResult"
+    module: "graphs.benchmarks.schema"
+
+acceptance_criteria:
+  - criterion: "Benchmarks run successfully on CPU"
+    verification: "python -m graphs.benchmarks.microbench.gemm --device cpu"
+
+  - criterion: "Benchmarks run successfully on CUDA (if available)"
+    verification: "python -m graphs.benchmarks.microbench.gemm --device cuda"
+
+  - criterion: "Results include latency statistics (mean, std, min, max)"
+    verification: "BenchmarkResult contains all statistical fields"
+
+  - criterion: "Warmup iterations excluded from measurements"
+    verification: "Code review confirms warmup logic"
+
+  - criterion: "Multiple precisions supported"
+    verification: "Can run FP32 and FP16 benchmarks"
+
+constraints:
+  - "Depends on TASK-2026-001 (benchmark schema)"
+  - "Must handle missing CUDA gracefully"
+  - "Must synchronize GPU before timing"
+  - "Minimum 10 iterations for statistical validity"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_gemm_benchmark.py"
+  integration_tests:
+    required: false
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-001"]
+  blocks: ["TASK-2026-005"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 2.1 - GEMM microbenchmarks"

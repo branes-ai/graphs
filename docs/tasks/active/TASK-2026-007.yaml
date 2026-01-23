@@ -1,0 +1,136 @@
+# Task: Implement Conv2d Microbenchmark Suite
+task_id: "TASK-2026-007"
+title: "Implement Conv2d microbenchmark suite"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M2"
+  target_version: "0.9.0-alpha"
+  estimated_effort: "6h"
+  complexity: "medium"
+
+objective: |
+  Create a comprehensive Conv2d microbenchmark suite covering
+  convolution configurations common in DNN models:
+  - Standard convolutions (3x3, 5x5, 7x7 kernels)
+  - Depthwise separable convolutions
+  - Pointwise (1x1) convolutions
+  - Various channel counts (32, 64, 128, 256, 512, 1024)
+  - Various spatial sizes (7x7, 14x14, 28x28, 56x56, 112x112, 224x224)
+  - Stride and padding variations
+  - Precisions: FP32, FP16
+
+motivation: |
+  Convolutions are the dominant operation in CNNs and some vision transformers.
+  Accurate Conv2d benchmarks enable:
+  - Calibrating convolution-specific efficiency
+  - Understanding winograd vs direct convolution performance
+  - Validating latency estimates for CNNs
+
+deliverables:
+  - path: "src/graphs/benchmarks/specs/conv2d/"
+    type: "data"
+    description: "Conv2d benchmark specification YAML files"
+    acceptance: "Covers common configurations"
+
+  - path: "src/graphs/benchmarks/microbench/conv2d.py"
+    type: "code"
+    description: "Conv2d benchmark implementation"
+    acceptance: "Runs on CPU and CUDA, outputs BenchmarkResult"
+
+  - path: "tests/benchmarks/test_conv2d_benchmark.py"
+    type: "test"
+    description: "Tests for Conv2d benchmark"
+    acceptance: "Coverage >= 80%"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["MicrobenchmarkSpec", "BenchmarkResult"]
+  - module: "torch.nn"
+    classes: ["Conv2d"]
+
+interfaces_provided:
+  - name: "run_conv2d_benchmark"
+    signature: "(spec: MicrobenchmarkSpec, device: str) -> BenchmarkResult"
+    module: "graphs.benchmarks.microbench.conv2d"
+    description: "Execute a single Conv2d benchmark"
+
+  - name: "get_conv2d_specs"
+    signature: "() -> List[MicrobenchmarkSpec]"
+    module: "graphs.benchmarks.microbench.conv2d"
+    description: "Load all Conv2d benchmark specifications"
+
+interfaces_consumed:
+  - name: "MicrobenchmarkSpec"
+    module: "graphs.benchmarks.schema"
+  - name: "BenchmarkResult"
+    module: "graphs.benchmarks.schema"
+
+acceptance_criteria:
+  - criterion: "Benchmarks run successfully on CPU"
+    verification: "python -m graphs.benchmarks.microbench.conv2d --device cpu"
+
+  - criterion: "Benchmarks cover standard 3x3 convolutions"
+    verification: "Spec files include 3x3 kernel variants"
+
+  - criterion: "Benchmarks cover depthwise convolutions"
+    verification: "Spec files include groups=in_channels variants"
+
+  - criterion: "Results match torch.profiler measurements"
+    verification: "Within 10% of profiler timing"
+
+constraints:
+  - "Depends on TASK-2026-001 (benchmark schema)"
+  - "Must handle missing CUDA gracefully"
+  - "Include both inference and training modes"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_conv2d_benchmark.py"
+  integration_tests:
+    required: false
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-001"]
+  blocks: ["TASK-2026-005"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 2.1 - Conv2d microbenchmarks"

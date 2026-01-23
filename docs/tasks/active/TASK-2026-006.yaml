@@ -1,0 +1,149 @@
+# Task: Implement Roofline Parameter Fitting
+task_id: "TASK-2026-006"
+title: "Implement roofline parameter fitting from benchmarks"
+version: "1.0"
+created_at: "2026-01-23T11:00:00Z"
+updated_at: "2026-01-23T11:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M3"
+  target_version: "0.9.0-beta"
+  estimated_effort: "8h"
+  complexity: "high"
+
+objective: |
+  Implement a calibration module that fits roofline model parameters
+  from benchmark measurements:
+  - Achieved memory bandwidth (GB/s) from memory benchmarks
+  - Achieved compute throughput (GFLOPS) from GEMM benchmarks
+  - Efficiency curves by operation type and problem size
+  
+  The fitted parameters should improve latency estimation accuracy
+  from theoretical (30-50% error) to calibrated (<15% error).
+
+motivation: |
+  Theoretical roofline parameters (from datasheets) overestimate
+  actual performance. Calibration from real measurements provides:
+  - Accurate achieved bandwidth/throughput
+  - Operation-specific efficiency factors
+  - Problem-size-dependent scaling
+  - Hardware-specific characteristics
+
+deliverables:
+  - path: "src/graphs/calibration/roofline_fitter.py"
+    type: "code"
+    description: "Roofline parameter fitting from benchmarks"
+    acceptance: "Fits bandwidth and compute ceiling from data"
+
+  - path: "src/graphs/calibration/efficiency_curves.py"
+    type: "code"
+    description: "Efficiency curve fitting by operation type"
+    acceptance: "Fits piecewise linear or polynomial curves"
+
+  - path: "tests/calibration/test_roofline_fitter.py"
+    type: "test"
+    description: "Fitter tests with synthetic data"
+    acceptance: "Coverage >= 85%, validates fitting accuracy"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkResult"]
+  - module: "graphs.calibration.schema"
+    classes: ["CalibrationProfile"]
+  - module: "numpy"
+    description: "For curve fitting"
+
+interfaces_provided:
+  - name: "RooflineFitter"
+    signature: "class RooflineFitter"
+    module: "graphs.calibration.roofline_fitter"
+    description: "Fits roofline parameters from benchmark results"
+
+  - name: "fit_roofline"
+    signature: "(results: List[BenchmarkResult]) -> RooflineParameters"
+    module: "graphs.calibration.roofline_fitter"
+    description: "Main fitting function"
+
+  - name: "EfficiencyCurve"
+    signature: "class EfficiencyCurve"
+    module: "graphs.calibration.efficiency_curves"
+    description: "Represents efficiency vs problem size"
+
+interfaces_consumed:
+  - name: "BenchmarkResult"
+    module: "graphs.benchmarks.schema"
+  - name: "CalibrationProfile"
+    module: "graphs.calibration.schema"
+
+acceptance_criteria:
+  - criterion: "Fits memory bandwidth from memory benchmark results"
+    verification: "Test with synthetic memory benchmark data"
+
+  - criterion: "Fits compute ceiling from GEMM benchmark results"
+    verification: "Test with synthetic GEMM benchmark data"
+
+  - criterion: "Outputs CalibrationProfile compatible format"
+    verification: "Can save fitted params to calibration profile"
+
+  - criterion: "Handles insufficient data gracefully"
+    verification: "Returns partial fit or error with <3 data points"
+
+  - criterion: "Fitting improves over theoretical"
+    verification: "Fitted params closer to actual measurements"
+
+constraints:
+  - "Depends on M2 benchmark infrastructure"
+  - "Use least squares or similar robust fitting"
+  - "Handle outliers in benchmark data"
+  - "Support incremental updates as more data collected"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 85
+    location: "tests/calibration/test_roofline_fitter.py"
+  integration_tests:
+    required: true
+    location: "tests/calibration/test_roofline_fitter_integration.py"
+  validation_tests:
+    required: true
+    location: "validation/calibration/test_roofline_accuracy.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: true
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-002", "TASK-2026-005"]
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-23"
+    author: "claude-opus-4-5"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 3.1 - Roofline Calibration"
