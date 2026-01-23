@@ -21,9 +21,9 @@ import argparse
 from typing import List, Dict, Tuple
 
 from graphs.transform.partitioning import FusionBasedPartitioner
-from graphs.analysis.concurrency import ConcurrencyAnalyzer
+from graphs.estimation.concurrency import ConcurrencyAnalyzer
 from graphs.hardware.resource_model import Precision
-from graphs.ir.structures import OperationType
+from graphs.core.structures import OperationType
 
 # Hardware mapper imports
 from graphs.hardware.mappers.cpu import (

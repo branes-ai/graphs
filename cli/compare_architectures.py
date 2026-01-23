@@ -40,7 +40,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from graphs.hardware.resource_model import Precision, HardwareMapper
-from graphs.analysis.architecture_comparator import ArchitectureComparator, ComparisonLevel
+from graphs.estimation.architecture_comparator import ArchitectureComparator, ComparisonLevel
 
 # Import available mappers
 from graphs.hardware.mappers.cpu import create_intel_xeon_platinum_8490h_mapper

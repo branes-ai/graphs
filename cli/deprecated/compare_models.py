@@ -17,7 +17,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 import argparse
 
 from graphs.transform.partitioning import GraphPartitioner
-from graphs.analysis.concurrency import ConcurrencyAnalyzer
+from graphs.estimation.concurrency import ConcurrencyAnalyzer
 
 
 # Model definitions

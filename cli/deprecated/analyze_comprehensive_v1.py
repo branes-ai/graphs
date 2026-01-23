@@ -49,10 +49,10 @@ from torchvision import models
 
 # Graph analysis
 from graphs.transform.partitioning import GraphPartitioner
-from graphs.analysis.roofline import RooflineAnalyzer, RooflineReport
-from graphs.analysis.energy import EnergyAnalyzer, EnergyReport
-from graphs.analysis.memory import MemoryEstimator, MemoryReport
-from graphs.analysis.concurrency import ConcurrencyAnalyzer
+from graphs.estimation.roofline import RooflineAnalyzer, RooflineReport
+from graphs.estimation.energy import EnergyAnalyzer, EnergyReport
+from graphs.estimation.memory import MemoryEstimator, MemoryReport
+from graphs.estimation.concurrency import ConcurrencyAnalyzer
 from graphs.hardware.resource_model import Precision, HardwareResourceModel
 
 # Hardware mappers

@@ -55,7 +55,7 @@ from pathlib import Path
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig
 from graphs.reporting import ReportGenerator
 from graphs.hardware.resource_model import Precision
 

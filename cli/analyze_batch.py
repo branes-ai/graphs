@@ -45,7 +45,7 @@ from typing import List, Optional, Dict, Any
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
-from graphs.analysis.unified_analyzer import UnifiedAnalyzer, AnalysisConfig, UnifiedAnalysisResult
+from graphs.estimation.unified_analyzer import UnifiedAnalyzer, AnalysisConfig, UnifiedAnalysisResult
 from graphs.reporting import ReportGenerator
 from graphs.hardware.resource_model import Precision
 

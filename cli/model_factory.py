@@ -27,7 +27,7 @@ repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
 from graphs.transform.partitioning import FusionBasedPartitioner
-from graphs.ir.structures import PartitionReport
+from graphs.core.structures import PartitionReport
 
 
 # Built-in model definitions from torchvision

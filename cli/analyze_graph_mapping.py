@@ -63,16 +63,16 @@ from torchvision import models
 from typing import Tuple, List, Dict
 
 from graphs.transform.partitioning import FusionBasedPartitioner, GraphPartitioner
-from graphs.analysis.allocation import (
+from graphs.estimation.allocation import (
     SubgraphAllocation,
     ExecutionPlan,
     HardwareAllocation
 )
-from graphs.analysis.roofline import RooflineAnalyzer, RooflineReport
-from graphs.analysis.energy import EnergyAnalyzer, EnergyReport
-from graphs.analysis.memory import MemoryEstimator, MemoryReport
+from graphs.estimation.roofline import RooflineAnalyzer, RooflineReport
+from graphs.estimation.energy import EnergyAnalyzer, EnergyReport
+from graphs.estimation.memory import MemoryEstimator, MemoryReport
 from graphs.hardware.resource_model import Precision
-from graphs.ir.structures import BottleneckType
+from graphs.core.structures import BottleneckType
 
 # Import hardware mappers
 from graphs.hardware.mappers.gpu import (
@@ -791,7 +791,7 @@ def analyze_graph_mapping(
     for fused_sg in fusion_report.fused_subgraphs:
         # Create subgraph descriptor from fused subgraph
         # (We need to convert FusedSubgraph to SubgraphDescriptor format)
-        from graphs.ir.structures import SubgraphDescriptor, OperationType
+        from graphs.core.structures import SubgraphDescriptor, OperationType
 
         # Allocate hardware resources (STUB - Phase 2 will implement)
         hw_allocation = allocate_hardware_resources(fused_sg, hw_model, hw_type)
