@@ -1,0 +1,104 @@
+# GEMM Benchmark Specifications - Standard Sizes
+# These sizes cover common use cases in DNN inference
+
+# Small square matrices (embedding layers, small batches)
+---
+name: gemm_256x256_fp32
+description: Small square GEMM - typical embedding dimension
+category: microbenchmark
+tags: [gemm, compute, blas3, small]
+M: 256
+N: 256
+K: 256
+batch_size: 1
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+execution:
+  warmup_iterations: 10
+  measurement_iterations: 100
+  sync_before_timing: true
+
+---
+name: gemm_512x512_fp32
+description: Medium square GEMM
+category: microbenchmark
+tags: [gemm, compute, blas3, medium]
+M: 512
+N: 512
+K: 512
+batch_size: 1
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_1024x1024_fp32
+description: Standard square GEMM - common hidden dimension
+category: microbenchmark
+tags: [gemm, compute, blas3, standard]
+M: 1024
+N: 1024
+K: 1024
+batch_size: 1
+precisions: [fp32, fp16, bf16, int8]
+devices: [auto]
+
+---
+name: gemm_2048x2048_fp32
+description: Large square GEMM
+category: microbenchmark
+tags: [gemm, compute, blas3, large]
+M: 2048
+N: 2048
+K: 2048
+batch_size: 1
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_4096x4096_fp32
+description: Very large square GEMM - stress test
+category: microbenchmark
+tags: [gemm, compute, blas3, xlarge]
+M: 4096
+N: 4096
+K: 4096
+batch_size: 1
+precisions: [fp32, fp16]
+devices: [auto]
+
+# Transformer-typical shapes
+---
+name: gemm_768x3072_fp32
+description: BERT-base FFN first projection
+category: microbenchmark
+tags: [gemm, compute, blas3, transformer, bert]
+M: 768
+N: 3072
+K: 768
+batch_size: 1
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_1024x4096_fp32
+description: GPT-2 FFN first projection
+category: microbenchmark
+tags: [gemm, compute, blas3, transformer, gpt]
+M: 1024
+N: 4096
+K: 1024
+batch_size: 1
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_4096x16384_fp32
+description: LLaMA-7B FFN dimension
+category: microbenchmark
+tags: [gemm, compute, blas3, transformer, llm]
+M: 4096
+N: 16384
+K: 4096
+batch_size: 1
+precisions: [fp16, bf16]
+devices: [auto]

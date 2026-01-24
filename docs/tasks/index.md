@@ -19,13 +19,12 @@ This directory contains task specifications for delegatable work items.
 
 | ID | Title | Priority | Status | Blocked By | Target |
 |----|-------|----------|--------|------------|--------|
-| TASK-2026-001 | Define benchmark specification schema | high | ready | - | 0.9.0-alpha |
-| TASK-2026-002 | Implement GEMM microbenchmark suite | high | ready | 001 | 0.9.0-alpha |
-| TASK-2026-003 | Define benchmark runner interface | high | ready | 001 | 0.9.0-alpha |
+| TASK-2026-002 | Implement GEMM microbenchmark suite | high | ready | - | 0.9.0-alpha |
+| TASK-2026-003 | Define benchmark runner interface | high | ready | - | 0.9.0-alpha |
 | TASK-2026-004 | Implement NVIDIA power measurement collector | medium | ready | 003 | 0.9.0-alpha |
-| TASK-2026-005 | Create benchmark CLI tool | high | ready | 001,002,003 | 0.9.0-alpha |
+| TASK-2026-005 | Create benchmark CLI tool | high | ready | 002,003 | 0.9.0-alpha |
 | TASK-2026-006 | Implement roofline parameter fitting | high | ready | 002,005 | 0.9.0-beta |
-| TASK-2026-007 | Implement Conv2d microbenchmark suite | high | ready | 001 | 0.9.0-alpha |
+| TASK-2026-007 | Implement Conv2d microbenchmark suite | high | ready | - | 0.9.0-alpha |
 
 ## Task Dependency Graph
 
@@ -49,7 +48,7 @@ TASK-2026-001 (Benchmark Schema)
 
 | ID | Title | Completed | Version |
 |----|-------|-----------|---------|
-| - | No completed tasks yet | - | - |
+| TASK-2026-001 | Define benchmark specification schema | 2026-01-23 | 0.9.0-alpha |
 
 ## Templates
 
