@@ -1,0 +1,56 @@
+# Memory Bandwidth Benchmarks - STREAM patterns
+# Based on the standard STREAM benchmark suite
+
+---
+name: memory_copy_10M
+description: STREAM copy - a[i] = b[i]
+category: memory
+tags: [memory, bandwidth, stream, copy]
+array_size: 10000000
+pattern: copy
+precisions: [fp32, fp64]
+devices: [auto]
+
+---
+name: memory_scale_10M
+description: STREAM scale - a[i] = q * b[i]
+category: memory
+tags: [memory, bandwidth, stream, scale]
+array_size: 10000000
+pattern: scale
+precisions: [fp32, fp64]
+devices: [auto]
+
+---
+name: memory_add_10M
+description: STREAM add - a[i] = b[i] + c[i]
+category: memory
+tags: [memory, bandwidth, stream, add]
+array_size: 10000000
+pattern: add
+precisions: [fp32, fp64]
+devices: [auto]
+
+---
+name: memory_triad_10M
+description: STREAM triad - a[i] = b[i] + q * c[i]
+category: memory
+tags: [memory, bandwidth, stream, triad]
+array_size: 10000000
+pattern: triad
+precisions: [fp32, fp64]
+devices: [auto]
+
+# Large arrays for sustained bandwidth measurement
+---
+name: memory_triad_100M
+description: Large STREAM triad for sustained bandwidth
+category: memory
+tags: [memory, bandwidth, stream, triad, large]
+array_size: 100000000
+pattern: triad
+precisions: [fp32]
+devices: [auto]
+execution:
+  warmup_iterations: 5
+  measurement_iterations: 20

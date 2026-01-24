@@ -1,0 +1,119 @@
+# Conv2d Benchmark Specifications - Standard Sizes
+# These cover common convolution configurations in CNNs
+
+# ResNet-style convolutions
+---
+name: conv2d_3x3_64_56x56
+description: ResNet early stage 3x3 conv
+category: microbenchmark
+tags: [conv2d, compute, resnet]
+batch_size: 1
+in_channels: 64
+out_channels: 64
+height: 56
+width: 56
+kernel_size: 3
+stride: 1
+padding: 1
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_3x3_128_28x28
+description: ResNet mid stage 3x3 conv
+category: microbenchmark
+tags: [conv2d, compute, resnet]
+batch_size: 1
+in_channels: 128
+out_channels: 128
+height: 28
+width: 28
+kernel_size: 3
+stride: 1
+padding: 1
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_3x3_256_14x14
+description: ResNet late stage 3x3 conv
+category: microbenchmark
+tags: [conv2d, compute, resnet]
+batch_size: 1
+in_channels: 256
+out_channels: 256
+height: 14
+width: 14
+kernel_size: 3
+stride: 1
+padding: 1
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_3x3_512_7x7
+description: ResNet final stage 3x3 conv
+category: microbenchmark
+tags: [conv2d, compute, resnet]
+batch_size: 1
+in_channels: 512
+out_channels: 512
+height: 7
+width: 7
+kernel_size: 3
+stride: 1
+padding: 1
+precisions: [fp32, fp16]
+devices: [auto]
+
+# MobileNet-style depthwise convolutions
+---
+name: conv2d_dw_3x3_64_56x56
+description: MobileNet depthwise 3x3 conv
+category: microbenchmark
+tags: [conv2d, depthwise, mobilenet]
+batch_size: 1
+in_channels: 64
+out_channels: 64
+height: 56
+width: 56
+kernel_size: 3
+stride: 1
+padding: 1
+groups: 64  # Depthwise
+precisions: [fp32, fp16]
+devices: [auto]
+
+# Pointwise (1x1) convolutions
+---
+name: conv2d_1x1_64_to_256
+description: Pointwise expansion conv
+category: microbenchmark
+tags: [conv2d, pointwise, expansion]
+batch_size: 1
+in_channels: 64
+out_channels: 256
+height: 56
+width: 56
+kernel_size: 1
+stride: 1
+padding: 0
+precisions: [fp32, fp16]
+devices: [auto]
+
+# First layer (7x7 stride 2)
+---
+name: conv2d_7x7_3_224x224
+description: First layer 7x7 conv (ResNet stem)
+category: microbenchmark
+tags: [conv2d, compute, stem]
+batch_size: 1
+in_channels: 3
+out_channels: 64
+height: 224
+width: 224
+kernel_size: 7
+stride: 2
+padding: 3
+precisions: [fp32, fp16]
+devices: [auto]
