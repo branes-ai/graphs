@@ -1,6 +1,23 @@
 # GEMM Benchmark Specifications - Standard Sizes
 # These sizes cover common use cases in DNN inference
 
+# Very small square matrices (for overhead testing)
+---
+name: gemm_128x128_fp32
+description: Very small square GEMM - overhead dominated
+category: microbenchmark
+tags: [gemm, compute, blas3, tiny]
+M: 128
+N: 128
+K: 128
+batch_size: 1
+precisions: [fp32, fp16]
+devices: [auto]
+execution:
+  warmup_iterations: 10
+  measurement_iterations: 100
+  sync_before_timing: true
+
 # Small square matrices (embedding layers, small batches)
 ---
 name: gemm_256x256_fp32

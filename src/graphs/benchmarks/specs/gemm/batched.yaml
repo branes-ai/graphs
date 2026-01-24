@@ -1,0 +1,130 @@
+# GEMM Benchmark Specifications - Batched Operations
+# These specs cover batched matrix multiply for batch inference
+
+# Small batch, small matrix
+---
+name: gemm_256x256_batch4
+description: Small batched GEMM - 4 independent matrix multiplies
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, small]
+M: 256
+N: 256
+K: 256
+batch_size: 4
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+execution:
+  warmup_iterations: 10
+  measurement_iterations: 100
+  sync_before_timing: true
+
+---
+name: gemm_256x256_batch8
+description: Small batched GEMM - 8 independent matrix multiplies
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, small]
+M: 256
+N: 256
+K: 256
+batch_size: 8
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_256x256_batch16
+description: Small batched GEMM - 16 independent matrix multiplies
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, small]
+M: 256
+N: 256
+K: 256
+batch_size: 16
+precisions: [fp32, fp16]
+devices: [auto]
+
+# Medium batch, standard matrix
+---
+name: gemm_512x512_batch4
+description: Medium batched GEMM - typical attention batch
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, attention]
+M: 512
+N: 512
+K: 512
+batch_size: 4
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_512x512_batch8
+description: Medium batched GEMM - multi-head attention
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, attention]
+M: 512
+N: 512
+K: 512
+batch_size: 8
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+# Large batch, transformer attention
+---
+name: gemm_1024x1024_batch4
+description: Large batched GEMM - transformer self-attention
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, transformer]
+M: 1024
+N: 1024
+K: 1024
+batch_size: 4
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_1024x1024_batch12
+description: Large batched GEMM - 12-head attention (BERT-base)
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, transformer, bert]
+M: 1024
+N: 1024
+K: 64
+batch_size: 12
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_1024x1024_batch16
+description: Large batched GEMM - 16-head attention (BERT-large)
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, transformer, bert]
+M: 1024
+N: 1024
+K: 64
+batch_size: 16
+precisions: [fp32, fp16, bf16]
+devices: [auto]
+
+# Very large batch for batch inference
+---
+name: gemm_512x512_batch32
+description: High-batch GEMM - batch inference scenario
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, inference]
+M: 512
+N: 512
+K: 512
+batch_size: 32
+precisions: [fp16, bf16]
+devices: [auto]
+
+---
+name: gemm_256x256_batch64
+description: Very high-batch GEMM - throughput oriented
+category: microbenchmark
+tags: [gemm, compute, blas3, batched, throughput]
+M: 256
+N: 256
+K: 256
+batch_size: 64
+precisions: [fp16, bf16]
+devices: [auto]
