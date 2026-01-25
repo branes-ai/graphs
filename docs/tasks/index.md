@@ -21,7 +21,6 @@ This directory contains task specifications for delegatable work items.
 |----|-------|----------|--------|------------|--------|
 | TASK-2026-004 | Implement NVIDIA power measurement collector | medium | ready | - | 0.9.0-alpha |
 | TASK-2026-006 | Implement roofline parameter fitting | high | ready | - | 0.9.0-beta |
-| TASK-2026-007 | Implement Conv2d microbenchmark suite | high | ready | - | 0.9.0-alpha |
 
 ## Task Dependency Graph
 
@@ -49,6 +48,7 @@ TASK-2026-001 (Benchmark Schema)
 | TASK-2026-002 | Implement GEMM microbenchmark suite | 2026-01-23 | 0.9.0-alpha |
 | TASK-2026-003 | Define benchmark runner interface | 2026-01-23 | 0.9.0-alpha |
 | TASK-2026-005 | Create benchmark CLI tool | 2026-01-23 | 0.9.0-alpha |
+| TASK-2026-007 | Implement Conv2d microbenchmark suite | 2026-01-23 | 0.9.0-alpha |
 
 ## Templates
 

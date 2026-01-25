@@ -1,0 +1,141 @@
+# Conv2d Benchmark Specifications - Depthwise Separable Convolutions
+# These cover depthwise convolutions common in efficient networks
+
+# MobileNet/EfficientNet style depthwise at various spatial sizes
+---
+name: conv2d_dw_3x3_32_112x112
+description: Depthwise 3x3 early stage (MobileNet)
+category: microbenchmark
+tags: [conv2d, depthwise, mobilenet, efficientnet]
+batch_size: 1
+in_channels: 32
+out_channels: 32
+height: 112
+width: 112
+kernel_size: 3
+stride: 1
+padding: 1
+groups: 32
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_dw_3x3_96_56x56
+description: Depthwise 3x3 mid stage (MobileNet)
+category: microbenchmark
+tags: [conv2d, depthwise, mobilenet]
+batch_size: 1
+in_channels: 96
+out_channels: 96
+height: 56
+width: 56
+kernel_size: 3
+stride: 1
+padding: 1
+groups: 96
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_dw_3x3_192_28x28
+description: Depthwise 3x3 late stage
+category: microbenchmark
+tags: [conv2d, depthwise, mobilenet]
+batch_size: 1
+in_channels: 192
+out_channels: 192
+height: 28
+width: 28
+kernel_size: 3
+stride: 1
+padding: 1
+groups: 192
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_dw_3x3_384_14x14
+description: Depthwise 3x3 deep stage
+category: microbenchmark
+tags: [conv2d, depthwise, mobilenet, efficientnet]
+batch_size: 1
+in_channels: 384
+out_channels: 384
+height: 14
+width: 14
+kernel_size: 3
+stride: 1
+padding: 1
+groups: 384
+precisions: [fp32, fp16]
+devices: [auto]
+
+# 5x5 depthwise (EfficientNet uses these)
+---
+name: conv2d_dw_5x5_40_28x28
+description: Depthwise 5x5 conv (EfficientNet style)
+category: microbenchmark
+tags: [conv2d, depthwise, efficientnet, 5x5]
+batch_size: 1
+in_channels: 40
+out_channels: 40
+height: 28
+width: 28
+kernel_size: 5
+stride: 1
+padding: 2
+groups: 40
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_dw_5x5_112_14x14
+description: Depthwise 5x5 conv (EfficientNet B3+)
+category: microbenchmark
+tags: [conv2d, depthwise, efficientnet, 5x5]
+batch_size: 1
+in_channels: 112
+out_channels: 112
+height: 14
+width: 14
+kernel_size: 5
+stride: 1
+padding: 2
+groups: 112
+precisions: [fp32, fp16]
+devices: [auto]
+
+# Strided depthwise (for downsampling)
+---
+name: conv2d_dw_3x3_64_56x56_s2
+description: Depthwise 3x3 with stride 2
+category: microbenchmark
+tags: [conv2d, depthwise, strided]
+batch_size: 1
+in_channels: 64
+out_channels: 64
+height: 56
+width: 56
+kernel_size: 3
+stride: 2
+padding: 1
+groups: 64
+precisions: [fp32, fp16]
+devices: [auto]
+
+---
+name: conv2d_dw_3x3_128_28x28_s2
+description: Depthwise 3x3 with stride 2 mid stage
+category: microbenchmark
+tags: [conv2d, depthwise, strided]
+batch_size: 1
+in_channels: 128
+out_channels: 128
+height: 28
+width: 28
+kernel_size: 3
+stride: 2
+padding: 1
+groups: 128
+precisions: [fp32, fp16]
+devices: [auto]
