@@ -1,0 +1,148 @@
+# Task: Create Calibration CLI Tool
+task_id: "TASK-2026-010"
+title: "Create calibration CLI tool"
+version: "1.0"
+created_at: "2026-01-26T10:00:00Z"
+updated_at: "2026-01-26T10:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M3"
+  target_version: "0.9.0-beta"
+  estimated_effort: "6h"
+  complexity: "medium"
+
+objective: |
+  Create a CLI tool for running calibration workflows that:
+  - Fits roofline parameters from benchmark results
+  - Fits energy coefficients from power measurements
+  - Fits utilization curves from benchmark sweeps
+  - Generates calibration profiles for hardware
+  - Produces calibration quality reports
+
+motivation: |
+  A CLI tool enables:
+  - Automated calibration workflows
+  - Reproducible calibration procedures
+  - Integration with CI/CD for regression testing
+  - Easy calibration updates as new data collected
+  - Consistent interface for all calibration types
+
+deliverables:
+  - path: "cli/calibrate.py"
+    type: "code"
+    description: "Calibration CLI tool"
+    acceptance: "Supports all calibration modes and outputs"
+
+  - path: "tests/cli/test_calibrate_cli.py"
+    type: "test"
+    description: "CLI tests"
+    acceptance: "Tests all major options"
+
+dependencies:
+  - module: "graphs.calibration.roofline_fitter"
+    classes: ["RooflineFitter"]
+  - module: "graphs.calibration.energy_fitter"
+    classes: ["EnergyFitter"]
+  - module: "graphs.calibration.utilization_fitter"
+    classes: ["UtilizationFitter"]
+  - module: "graphs.calibration.schema"
+    classes: ["CalibrationProfile"]
+  - module: "argparse"
+
+interfaces_provided:
+  - name: "cli/calibrate.py"
+    signature: "CLI entry point"
+    module: "cli"
+    description: "Calibration command-line interface"
+
+interfaces_consumed:
+  - name: "RooflineFitter"
+    module: "graphs.calibration.roofline_fitter"
+  - name: "EnergyFitter"
+    module: "graphs.calibration.energy_fitter"
+  - name: "UtilizationFitter"
+    module: "graphs.calibration.utilization_fitter"
+  - name: "CalibrationProfile"
+    module: "graphs.calibration.schema"
+
+acceptance_criteria:
+  - criterion: "Can fit roofline from benchmark results"
+    verification: "./cli/calibrate.py --mode roofline --input results.json"
+
+  - criterion: "Can fit energy from power data"
+    verification: "./cli/calibrate.py --mode energy --input results.json"
+
+  - criterion: "Can fit utilization from benchmark sweep"
+    verification: "./cli/calibrate.py --mode utilization --input results.json"
+
+  - criterion: "Can run full calibration"
+    verification: "./cli/calibrate.py --mode all --input results.json"
+
+  - criterion: "Outputs calibration profile"
+    verification: "./cli/calibrate.py --output profile.yaml"
+
+  - criterion: "Generates quality report"
+    verification: "./cli/calibrate.py --report quality.md"
+
+  - criterion: "Supports incremental updates"
+    verification: "./cli/calibrate.py --update existing.yaml --input new_results.json"
+
+constraints:
+  - "Depends on TASK-2026-006, TASK-2026-008, TASK-2026-009"
+  - "Follow existing CLI patterns in cli/ directory"
+  - "Use argparse for argument parsing"
+  - "Support JSON and YAML output formats"
+  - "Graceful error handling for missing/invalid data"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/cli/test_calibrate_cli.py"
+  integration_tests:
+    required: true
+    location: "tests/cli/test_calibrate_cli.py"
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: true
+  user_guide: true
+  api_reference: false
+
+state:
+  status: "blocked"
+  blocked_by: ["TASK-2026-006", "TASK-2026-008", "TASK-2026-009"]
+  blocks: ["TASK-2026-011"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-26"
+    author: "claude-opus-4-5"
+    note: "Task created for M3 Calibration Framework"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 3.4 - CLI Integration"
+  - type: "code"
+    path: "cli/benchmark.py"
+    description: "Reference for CLI patterns"

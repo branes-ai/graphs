@@ -17,27 +17,48 @@ This directory contains task specifications for delegatable work items.
 
 ## Active Tasks
 
+### M2: Benchmarking Infrastructure (0.9.0-alpha)
+
 | ID | Title | Priority | Status | Blocked By | Target |
 |----|-------|----------|--------|------------|--------|
 | TASK-2026-004 | Implement NVIDIA power measurement collector | medium | ready | - | 0.9.0-alpha |
+
+### M3: Calibration Framework (0.9.0-beta)
+
+| ID | Title | Priority | Status | Blocked By | Target |
+|----|-------|----------|--------|------------|--------|
 | TASK-2026-006 | Implement roofline parameter fitting | high | ready | - | 0.9.0-beta |
+| TASK-2026-008 | Implement energy coefficient fitting | high | ready | - | 0.9.0-beta |
+| TASK-2026-009 | Implement utilization factor calibration | high | ready | - | 0.9.0-beta |
+| TASK-2026-010 | Create calibration CLI tool | high | blocked | 006,008,009 | 0.9.0-beta |
+| TASK-2026-011 | Run initial calibration on hardware | high | blocked | 010 | 0.9.0-beta |
 
 ## Task Dependency Graph
 
 ```
-TASK-2026-001 (Benchmark Schema)
+M2: Benchmarking Infrastructure (MOSTLY COMPLETE)
+==================================================
+TASK-2026-001 (Benchmark Schema) [DONE]
     |
-    +---> TASK-2026-002 (GEMM Benchmark)
+    +---> TASK-2026-002 (GEMM Benchmark) [DONE]
+    |
+    +---> TASK-2026-003 (Runner Interface) [DONE]
     |         |
-    |         +---> TASK-2026-006 (Roofline Fitting) [M3]
+    |         +---> TASK-2026-004 (Power Collector) [ready]
     |
-    +---> TASK-2026-003 (Runner Interface)
-    |         |
-    |         +---> TASK-2026-004 (Power Collector)
+    +---> TASK-2026-007 (Conv2d Benchmark) [DONE]
     |
-    +---> TASK-2026-007 (Conv2d Benchmark)
-    |
-    +---> TASK-2026-005 (Benchmark CLI) <-- depends on 001, 002, 003
+    +---> TASK-2026-005 (Benchmark CLI) [DONE]
+
+
+M3: Calibration Framework
+==================================================
+TASK-2026-006 (Roofline Fitting) --------+
+                                         |
+TASK-2026-008 (Energy Fitting) ----------+---> TASK-2026-010 (Calibrate CLI)
+                                         |              |
+TASK-2026-009 (Utilization Fitting) -----+              v
+                                              TASK-2026-011 (Initial Calibration)
 ```
 
 ## Completed Tasks
@@ -81,8 +102,8 @@ Examples:
 | Milestone | Target Version | Focus Area | Tasks |
 |-----------|----------------|------------|-------|
 | M1 | 0.8.0 | Foundation Consolidation | COMPLETE |
-| M2 | 0.9.0-alpha | Benchmarking Infrastructure | 001-005, 007 |
-| M3 | 0.9.0-beta | Calibration Framework | 006 |
+| M2 | 0.9.0-alpha | Benchmarking Infrastructure | 001-005, 007 (5/6 done) |
+| M3 | 0.9.0-beta | Calibration Framework | 006, 008-011 |
 | M4 | 0.9.0-rc | Validation Pipeline | TBD |
 | M5 | 1.0.0 | Hardware Coverage | TBD |
 | M6 | 1.1.0 | Frontend Expansion | TBD |

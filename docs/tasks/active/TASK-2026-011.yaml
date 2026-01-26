@@ -1,0 +1,144 @@
+# Task: Run Initial Calibration on Available Hardware
+task_id: "TASK-2026-011"
+title: "Run initial calibration on available hardware"
+version: "1.0"
+created_at: "2026-01-26T10:00:00Z"
+updated_at: "2026-01-26T10:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "calibration"
+  priority: "high"
+  milestone: "M3"
+  target_version: "0.9.0-beta"
+  estimated_effort: "4h"
+  complexity: "low"
+
+objective: |
+  Run the calibration workflow on available hardware to produce
+  initial calibration profiles:
+  - Run full benchmark suite with power measurement
+  - Fit roofline, energy, and utilization parameters
+  - Generate calibration profiles for each hardware platform
+  - Document calibration methodology and results
+  - Validate improved estimation accuracy
+
+motivation: |
+  With calibration infrastructure complete, we need to:
+  - Produce usable calibration data for at least one platform
+  - Validate the calibration workflow end-to-end
+  - Establish baseline accuracy improvements
+  - Identify any issues in the calibration pipeline
+  - Create reference profiles for testing
+
+deliverables:
+  - path: "hardware_registry/calibration_profiles/"
+    type: "data"
+    description: "Calibration profiles for available hardware"
+    acceptance: "At least one complete calibration profile"
+
+  - path: "docs/calibration/methodology.md"
+    type: "documentation"
+    description: "Calibration methodology documentation"
+    acceptance: "Documents process, parameters, and results"
+
+  - path: "docs/calibration/results/"
+    type: "documentation"
+    description: "Calibration results and accuracy reports"
+    acceptance: "Shows accuracy improvement vs theoretical"
+
+dependencies:
+  - module: "graphs.calibration"
+    description: "Calibration framework from TASK-2026-006,008,009"
+  - module: "cli.calibrate"
+    description: "Calibration CLI from TASK-2026-010"
+  - external: "Hardware access"
+    description: "Physical access to GPU or other hardware"
+
+interfaces_provided:
+  - name: "Calibration profiles"
+    signature: "YAML calibration profile files"
+    module: "hardware_registry/calibration_profiles/"
+    description: "Calibrated parameters for hardware platforms"
+
+interfaces_consumed:
+  - name: "cli/benchmark.py"
+    module: "cli"
+    description: "Benchmark runner"
+  - name: "cli/calibrate.py"
+    module: "cli"
+    description: "Calibration tool"
+
+acceptance_criteria:
+  - criterion: "At least one hardware platform fully calibrated"
+    verification: "Complete calibration profile exists"
+
+  - criterion: "Roofline parameters measured and fitted"
+    verification: "Profile contains fitted bandwidth and compute ceiling"
+
+  - criterion: "Energy coefficients fitted (if power available)"
+    verification: "Profile contains pJ/op and pJ/byte coefficients"
+
+  - criterion: "Utilization curves fitted"
+    verification: "Profile contains utilization vs size data"
+
+  - criterion: "Accuracy improvement documented"
+    verification: "Report shows < 15% MAPE vs > 30% theoretical"
+
+  - criterion: "Methodology documented"
+    verification: "Process is reproducible from documentation"
+
+constraints:
+  - "Depends on all calibration infrastructure tasks"
+  - "Requires physical hardware access"
+  - "Power measurement optional (depends on nvidia-smi/NVML)"
+  - "Results reproducible within measurement noise"
+  - "Document any hardware-specific quirks"
+
+testing:
+  unit_tests:
+    required: false
+  integration_tests:
+    required: false
+  validation_tests:
+    required: true
+    location: "validation/calibration/test_calibration_accuracy.py"
+
+documentation:
+  code_comments: false
+  docstrings: false
+  readme_update: true
+  user_guide: true
+  api_reference: false
+
+state:
+  status: "blocked"
+  blocked_by: ["TASK-2026-010"]
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-26"
+    author: "claude-opus-4-5"
+    note: "Task created for M3 Calibration Framework"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 3 success criteria"
+  - type: "data"
+    path: "hardware_registry/"
+    description: "Existing hardware registry structure"

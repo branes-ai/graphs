@@ -1,0 +1,157 @@
+# Task: Implement Energy Coefficient Fitting
+task_id: "TASK-2026-008"
+title: "Implement energy coefficient fitting from power measurements"
+version: "1.0"
+created_at: "2026-01-26T10:00:00Z"
+updated_at: "2026-01-26T10:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M3"
+  target_version: "0.9.0-beta"
+  estimated_effort: "8h"
+  complexity: "high"
+
+objective: |
+  Implement a calibration module that fits energy model coefficients
+  from power measurements collected during benchmarks:
+  - pJ/op for compute operations (by precision and operation type)
+  - pJ/byte for memory operations (DRAM, L2, L1)
+  - Static/leakage power from idle measurements
+
+  The fitted coefficients should improve energy estimation accuracy
+  from theoretical estimates to calibrated predictions.
+
+motivation: |
+  Theoretical energy coefficients (from datasheets or literature) are
+  often inaccurate for specific hardware. Calibration from real power
+  measurements provides:
+  - Hardware-specific energy per operation
+  - Memory hierarchy energy breakdown
+  - Accurate idle/leakage power
+  - Operation-specific energy profiles
+
+deliverables:
+  - path: "src/graphs/calibration/energy_fitter.py"
+    type: "code"
+    description: "Energy coefficient fitting from power measurements"
+    acceptance: "Fits pJ/op, pJ/byte, and static power from benchmark data"
+
+  - path: "src/graphs/calibration/power_model.py"
+    type: "code"
+    description: "Power model with calibrated coefficients"
+    acceptance: "Three-component model (compute, memory, static)"
+
+  - path: "tests/calibration/test_energy_fitter.py"
+    type: "test"
+    description: "Energy fitter tests"
+    acceptance: "Coverage >= 85%, validates fitting with synthetic data"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkResult"]
+  - module: "graphs.benchmarks.collectors"
+    classes: ["PowerMeasurement"]
+  - module: "graphs.calibration.schema"
+    classes: ["CalibrationProfile", "EnergyCoefficients"]
+  - module: "numpy"
+    description: "For linear regression"
+
+interfaces_provided:
+  - name: "EnergyFitter"
+    signature: "class EnergyFitter"
+    module: "graphs.calibration.energy_fitter"
+    description: "Fits energy coefficients from power measurements"
+
+  - name: "fit_energy_model"
+    signature: "(results: List[BenchmarkResult], power: List[PowerMeasurement]) -> EnergyCoefficients"
+    module: "graphs.calibration.energy_fitter"
+    description: "Main fitting function"
+
+  - name: "CalibratedPowerModel"
+    signature: "class CalibratedPowerModel"
+    module: "graphs.calibration.power_model"
+    description: "Power model using fitted coefficients"
+
+interfaces_consumed:
+  - name: "BenchmarkResult"
+    module: "graphs.benchmarks.schema"
+  - name: "PowerMeasurement"
+    module: "graphs.benchmarks.collectors"
+  - name: "CalibrationProfile"
+    module: "graphs.calibration.schema"
+
+acceptance_criteria:
+  - criterion: "Fits pJ/op from GEMM benchmarks with power data"
+    verification: "Test with synthetic GEMM + power measurement data"
+
+  - criterion: "Fits pJ/byte from memory benchmarks with power data"
+    verification: "Test with synthetic memory + power measurement data"
+
+  - criterion: "Estimates static power from idle measurements"
+    verification: "Test with idle power measurement data"
+
+  - criterion: "Outputs EnergyCoefficients compatible format"
+    verification: "Can save to calibration profile"
+
+  - criterion: "Handles missing power data gracefully"
+    verification: "Falls back to theoretical or partial fit"
+
+constraints:
+  - "Depends on M2 benchmark infrastructure"
+  - "Requires power measurement capability (nvidia-smi or NVML)"
+  - "Use linear regression for coefficient fitting"
+  - "Handle noise in power measurements"
+  - "Support per-precision coefficients (FP32, FP16, INT8)"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 85
+    location: "tests/calibration/test_energy_fitter.py"
+  integration_tests:
+    required: true
+    location: "tests/calibration/test_energy_fitter_integration.py"
+  validation_tests:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: true
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: []
+  blocks: ["TASK-2026-010"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-26"
+    author: "claude-opus-4-5"
+    note: "Task created for M3 Calibration Framework"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 3.2 - Energy Model Calibration"
+  - type: "code"
+    path: "src/graphs/estimation/energy.py"
+    description: "Current energy estimator to be enhanced"

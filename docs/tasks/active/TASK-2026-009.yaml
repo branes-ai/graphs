@@ -1,0 +1,162 @@
+# Task: Implement Utilization Factor Calibration
+task_id: "TASK-2026-009"
+title: "Implement utilization factor calibration from benchmarks"
+version: "1.0"
+created_at: "2026-01-26T10:00:00Z"
+updated_at: "2026-01-26T10:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-5"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M3"
+  target_version: "0.9.0-beta"
+  estimated_effort: "6h"
+  complexity: "medium"
+
+objective: |
+  Implement calibration of hardware utilization factors by measuring
+  actual vs theoretical performance across operation types and sizes:
+  - Compute utilization (actual GFLOPS / peak GFLOPS)
+  - Memory utilization (actual GB/s / peak GB/s)
+  - Utilization curves as function of problem size and batch size
+
+  This addresses the gap between theoretical peak performance and
+  achievable performance for real workloads.
+
+motivation: |
+  Hardware rarely achieves theoretical peak performance due to:
+  - Memory system inefficiencies
+  - Instruction scheduling overhead
+  - Kernel launch latency
+  - Tiling and blocking losses
+  - Small problem size effects
+
+  Calibrated utilization factors capture these real-world effects
+  and improve estimation accuracy significantly.
+
+deliverables:
+  - path: "src/graphs/calibration/utilization_fitter.py"
+    type: "code"
+    description: "Utilization factor fitting from benchmark data"
+    acceptance: "Fits utilization curves by operation type and size"
+
+  - path: "src/graphs/calibration/utilization_curves.py"
+    type: "code"
+    description: "Utilization curve models (piecewise linear, asymptotic)"
+    acceptance: "Supports multiple curve shapes"
+
+  - path: "tests/calibration/test_utilization_fitter.py"
+    type: "test"
+    description: "Utilization fitter tests"
+    acceptance: "Coverage >= 80%"
+
+dependencies:
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkResult", "GEMMSpec", "Conv2dSpec"]
+  - module: "graphs.calibration.schema"
+    classes: ["CalibrationProfile", "UtilizationProfile"]
+  - module: "numpy"
+    description: "For curve fitting"
+  - module: "scipy.optimize"
+    description: "For non-linear curve fitting"
+
+interfaces_provided:
+  - name: "UtilizationFitter"
+    signature: "class UtilizationFitter"
+    module: "graphs.calibration.utilization_fitter"
+    description: "Fits utilization curves from benchmark data"
+
+  - name: "fit_utilization"
+    signature: "(results: List[BenchmarkResult], peak_gflops: float) -> UtilizationProfile"
+    module: "graphs.calibration.utilization_fitter"
+    description: "Main fitting function"
+
+  - name: "UtilizationCurve"
+    signature: "class UtilizationCurve"
+    module: "graphs.calibration.utilization_curves"
+    description: "Represents utilization vs problem size"
+
+  - name: "AsymptoticCurve"
+    signature: "class AsymptoticCurve(UtilizationCurve)"
+    module: "graphs.calibration.utilization_curves"
+    description: "Asymptotic model: util = peak * (1 - exp(-size/scale))"
+
+interfaces_consumed:
+  - name: "BenchmarkResult"
+    module: "graphs.benchmarks.schema"
+  - name: "CalibrationProfile"
+    module: "graphs.calibration.schema"
+
+acceptance_criteria:
+  - criterion: "Fits compute utilization from GEMM results"
+    verification: "Test with GEMM benchmark sweep data"
+
+  - criterion: "Fits memory utilization from memory results"
+    verification: "Test with memory benchmark sweep data"
+
+  - criterion: "Captures size-dependent behavior"
+    verification: "Small problems show lower utilization"
+
+  - criterion: "Captures batch size effects"
+    verification: "Larger batches show higher utilization"
+
+  - criterion: "Outputs UtilizationProfile compatible format"
+    verification: "Can save to and load from calibration profile"
+
+constraints:
+  - "Depends on M2 benchmark infrastructure"
+  - "Support multiple curve fitting models"
+  - "Handle sparse data (not all sizes benchmarked)"
+  - "Interpolate for unmeasured sizes"
+  - "Extrapolate conservatively for very large/small sizes"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/calibration/test_utilization_fitter.py"
+  integration_tests:
+    required: false
+  validation_tests:
+    required: true
+    location: "validation/calibration/test_utilization_accuracy.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: []
+  blocks: ["TASK-2026-010"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-01-26"
+    author: "claude-opus-4-5"
+    note: "Task created for M3 Calibration Framework"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/architecture/ROADMAP.md"
+    description: "Milestone 3.3 - Utilization Factor Calibration"
+  - type: "external"
+    url: "https://www.cs.virginia.edu/~skadron/Papers/hong_ispass09.pdf"
+    description: "GPU performance modeling literature"
