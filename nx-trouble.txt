@@ -1,0 +1,75 @@
+(.venv) lanner@lanner-desktop:~/dev/branes/clones/graphs$ cli/calibrate_hardware.py 
+
+================================================================================
+Auto-Detecting Hardware
+================================================================================
+CPU:      Cortex-A78AE
+Vendor:   ARM
+Cores:    8 cores, 8 threads
+GPU #1:  Orin (nvgpu)
+Board:    NVIDIA Jetson Orin NX Engineering Reference Developer Kit
+SoC:      Tegra T234
+
+Matched to registry: jetson_orin_nx_16gb_gpu
+  Confidence: 95%
+  Device: GPU
+
+
+================================================================================
+EXECUTION DEVICE
+================================================================================
+  Requested device: CUDA
+  Actual device:    CPU (fallback)
+  Framework:        PYTORCH
+
+  ⚠ WARNING: Device Fallback Occurred!
+  Reason: CUDA requested but not available
+
+  This will produce INCORRECT calibration data for the requested hardware!
+  The calibration will reflect CPU performance, not GPU performance.
+
+  Continue anyway? (yes/no): yes
+
+================================================================================
+Hardware Calibration: Jetson Orin NX 16GB (GPU)
+================================================================================
+
+Running pre-flight checks...
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+[OK] CPU Governor: schedutil (Jetson default)
+    Current:  schedutil
+    Expected: schedutil or performance
+[OK] CPU Frequency: 1171 MHz idle (DVFS will boost under load)
+    Current:  1171 MHz (idle)
+    Expected: Up to 1498 MHz under load
+[-] Turbo Boost: Could not determine (not Intel pstate)
+[X] System Load: 29.4% (high - will affect results)
+    Current:  29.4%
+    Expected: < 5%
+    Fix: Close other applications or wait for background tasks
+[OK] Thermal State: 44°C (cool)
+    Current:  44°C
+    Expected: < 80°C
+[OK] GPU Power Mode: 25W (power-limited profile)
+
+RESULT: FAILED
+  Calibration aborted. Fix issues above or use --force to override.
+
+  Fix commands:
+    Close other applications or wait for background tasks
+======================================================================
+
+Error during calibration: Pre-flight checks failed. System is not in performance mode.
+Calibration results would not represent peak hardware capability.
+Use --force to override (results will be flagged as non-representative).
+Traceback (most recent call last):
+  File "/home/lanner/dev/branes/clones/graphs/cli/calibrate_hardware.py", line 481, in main
+    calibration = calibrate_hardware(
+  File "/home/lanner/dev/branes/clones/graphs/src/graphs/calibration/calibrator.py", line 197, in calibrate_hardware
+    raise RuntimeError(
+RuntimeError: Pre-flight checks failed. System is not in performance mode.
+Calibration results would not represent peak hardware capability.
+Use --force to override (results will be flagged as non-representative).
