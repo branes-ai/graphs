@@ -199,27 +199,72 @@ def show_summary_table(registry):
     print()
 
 
-def show_efficiency_table(registry):
-    """Display a compact efficiency table for all calibrated hardware."""
-    print()
-    print("Calibration Efficiency Summary")
-    print("=" * 130)
+def format_compute(value: float) -> str:
+    """Format compute value (GFLOPS/TFLOPS)."""
+    if value <= 0:
+        return "N/A"
+    elif value >= 1000:
+        return f"{value/1000:.2f}T"
+    elif value >= 100:
+        return f"{value:.0f}G"
+    else:
+        return f"{value:.1f}G"
 
-    # Header
+
+def format_bandwidth(value: float) -> str:
+    """Format bandwidth value (GB/s)."""
+    if value <= 0:
+        return "N/A"
+    elif value >= 1000:
+        return f"{value/1000:.2f}T"
+    else:
+        return f"{value:.0f}G"
+
+
+def format_efficiency(value: float) -> str:
+    """Format efficiency as percentage."""
+    if value is None or value <= 0:
+        return "N/A"
+    return f"{value*100:.1f}%"
+
+
+def show_efficiency_table(registry, precision_filter: str = None):
+    """Display a compact efficiency table for all calibrated hardware.
+
+    Args:
+        registry: Hardware registry
+        precision_filter: Optional precision to report on (e.g., 'fp32', 'fp16')
+    """
+    print()
+    if precision_filter:
+        print(f"Calibration Efficiency Summary (Precision: {precision_filter.upper()})")
+    else:
+        print("Calibration Efficiency Summary (Best Precision)")
+    print("=" * 160)
+
+    # Header - fixed width columns
     header = (
-        f"{'ID':<30} {'Power Mode':<12} "
-        f"{'Compute Eff':>11} {'Best Prec':<6} {'BW Eff':>8} "
-        f"{'Peak Measured':>14} {'Framework':<8}"
+        f"{'ID':<28} {'Mode':<11} {'Frmwk':<7} {'Prec':<5} "
+        f"{'Comp Peak':>9} {'Comp Meas':>9} {'Comp Eff':>8} "
+        f"{'BW Peak':>8} {'BW Meas':>8} {'BW Eff':>7}"
     )
     print(header)
-    print("-" * 130)
+    print("-" * 160)
 
     rows = []
 
     for hw_id in sorted(registry.list_all()):
+        profile = registry.get(hw_id)
+        if not profile:
+            continue
+
         calibrations = registry.list_calibrations(hw_id)
         if not calibrations:
             continue
+
+        # Get theoretical peaks from profile
+        theoretical_peaks = profile.theoretical_peaks or {}
+        theoretical_bw = profile.peak_bandwidth_gbps or 0
 
         for cal_info in calibrations:
             cal_filter = {
@@ -236,47 +281,70 @@ def show_efficiency_table(registry):
             pm = cal.precision_matrix
 
             # Power mode
-            power_mode = cal_info['power_mode'][:12] if cal_info['power_mode'] else "default"
-
-            # Compute efficiency
-            compute_eff = f"{cal.best_efficiency*100:.1f}%" if cal.best_efficiency else "N/A"
-
-            # Best precision from calibration
-            best_prec = "N/A"
-            best_meas = 0
-            if pm and pm.peak_gflops_by_precision:
-                for prec, val in pm.peak_gflops_by_precision.items():
-                    if val > best_meas:
-                        best_meas = val
-                        best_prec = prec
-
-            # Format peak measured
-            if best_meas >= 1000:
-                peak_str = f"{best_meas/1000:.2f} TFLOPS"
-            elif best_meas > 0:
-                peak_str = f"{best_meas:.0f} GFLOPS"
-            else:
-                peak_str = "N/A"
-
-            # Bandwidth efficiency
-            bw_eff = f"{cal.bandwidth_efficiency*100:.1f}%" if cal.bandwidth_efficiency else "N/A"
+            power_mode = cal_info['power_mode'][:11] if cal_info['power_mode'] else "default"
 
             # Framework
-            framework = cal_info['framework'][:8] if cal_info['framework'] else "?"
+            framework = cal_info['framework'][:7] if cal_info['framework'] else "?"
 
-            rows.append((
-                hw_id[:30], power_mode, compute_eff, best_prec[:6].upper(),
-                bw_eff, peak_str, framework
-            ))
+            # Determine which precision to report
+            if precision_filter:
+                # Use specified precision
+                target_prec = precision_filter.lower()
+                measured = pm.peak_gflops_by_precision.get(target_prec, 0) if pm and pm.peak_gflops_by_precision else 0
+                theoretical = theoretical_peaks.get(target_prec, 0)
+
+                # Skip if no data for this precision
+                if measured <= 0 and theoretical <= 0:
+                    continue
+            else:
+                # Find best measured precision
+                target_prec = None
+                measured = 0
+                if pm and pm.peak_gflops_by_precision:
+                    for prec, val in pm.peak_gflops_by_precision.items():
+                        if val > measured:
+                            measured = val
+                            target_prec = prec
+
+                theoretical = theoretical_peaks.get(target_prec, 0) if target_prec else 0
+
+            # Compute efficiency
+            comp_eff = measured / theoretical if theoretical > 0 and measured > 0 else 0
+
+            # Bandwidth values
+            measured_bw = cal.measured_bandwidth_gbps or 0
+            bw_eff = cal.bandwidth_efficiency or 0
+
+            rows.append({
+                'id': hw_id[:28],
+                'mode': power_mode,
+                'framework': framework,
+                'precision': target_prec.upper() if target_prec else "N/A",
+                'comp_peak': theoretical,
+                'comp_meas': measured,
+                'comp_eff': comp_eff,
+                'bw_peak': theoretical_bw,
+                'bw_meas': measured_bw,
+                'bw_eff': bw_eff,
+            })
 
     # Sort by ID then power mode
-    rows.sort(key=lambda x: (x[0], x[1]))
+    rows.sort(key=lambda x: (x['id'], x['mode']))
 
     for row in rows:
-        print(f"{row[0]:<30} {row[1]:<12} {row[2]:>11} {row[3]:<6} {row[4]:>8} {row[5]:>14} {row[6]:<8}")
+        line = (
+            f"{row['id']:<28} {row['mode']:<11} {row['framework']:<7} {row['precision']:<5} "
+            f"{format_compute(row['comp_peak']):>9} {format_compute(row['comp_meas']):>9} "
+            f"{format_efficiency(row['comp_eff']):>8} "
+            f"{format_bandwidth(row['bw_peak']):>8} {format_bandwidth(row['bw_meas']):>8} "
+            f"{format_efficiency(row['bw_eff']):>7}"
+        )
+        print(line)
 
-    print("-" * 130)
+    print("-" * 160)
     print(f"Total: {len(rows)} calibration records")
+    print()
+    print("Legend: G = GFLOPS or GB/s, T = TFLOPS or TB/s")
     print()
 
 
@@ -316,6 +384,10 @@ def main():
         action="store_true",
         help="Show compact efficiency table for calibrated hardware"
     )
+    parser.add_argument(
+        "--precision",
+        help="Precision to report on (e.g., fp32, fp16, bf16, int8). Default: best precision"
+    )
 
     args = parser.parse_args()
 
@@ -328,7 +400,7 @@ def main():
         return 0
 
     if args.table:
-        show_efficiency_table(registry)
+        show_efficiency_table(registry, precision_filter=args.precision)
         return 0
 
     if args.list:
