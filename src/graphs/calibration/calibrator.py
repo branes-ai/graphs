@@ -26,13 +26,13 @@ from graphs.hardware.resource_model import Precision
 
 # Framework-specific benchmark imports
 try:
-    from graphs.benchmarks.numpy import calibrate_matmul_numpy, calibrate_memory_bandwidth_numpy
+    from graphs.benchmarks.numpy_benchmarks import calibrate_matmul_numpy, calibrate_memory_bandwidth_numpy
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
 
 try:
-    from graphs.benchmarks.pytorch import calibrate_matmul_pytorch, calibrate_memory_bandwidth_pytorch
+    from graphs.benchmarks.pytorch_benchmarks import calibrate_matmul_pytorch, calibrate_memory_bandwidth_pytorch
     import torch
     PYTORCH_AVAILABLE = True
 except ImportError:
@@ -413,7 +413,7 @@ def calibrate_hardware(
 
         # Dispatch to framework-specific STREAM benchmark
         if selected_framework == 'numpy':
-            from graphs.benchmarks.numpy import calibrate_stream_bandwidth_numpy
+            from graphs.benchmarks.numpy_benchmarks import calibrate_stream_bandwidth_numpy
             mem_calibrations = calibrate_stream_bandwidth_numpy(
                 kernels=stream_kernels_requested,
                 sizes_mb=sizes,
@@ -421,7 +421,7 @@ def calibrate_hardware(
                 num_trials=metadata.num_measurement_runs
             )
         else:  # pytorch
-            from graphs.benchmarks.pytorch import calibrate_stream_bandwidth_pytorch
+            from graphs.benchmarks.pytorch_benchmarks import calibrate_stream_bandwidth_pytorch
             mem_calibrations = calibrate_stream_bandwidth_pytorch(
                 kernels=stream_kernels_requested,
                 sizes_mb=sizes,
@@ -521,7 +521,7 @@ def calibrate_hardware(
 
         # Dispatch to framework-specific BLAS benchmark
         if selected_framework == 'numpy':
-            from graphs.benchmarks.numpy import calibrate_blas_suite_numpy
+            from graphs.benchmarks.numpy_benchmarks import calibrate_blas_suite_numpy
             blas_calibrations = calibrate_blas_suite_numpy(
                 operations=blas_ops_requested,
                 sizes=blas_sizes,
@@ -532,7 +532,7 @@ def calibrate_hardware(
                 min_useful_gflops=min_useful_gflops
             )
         else:  # pytorch
-            from graphs.benchmarks.pytorch import calibrate_blas_suite_pytorch
+            from graphs.benchmarks.pytorch_benchmarks import calibrate_blas_suite_pytorch
             blas_calibrations = calibrate_blas_suite_pytorch(
                 operations=blas_ops_requested,
                 sizes=blas_sizes,
