@@ -44,8 +44,28 @@ from .gpu_clock import (
     estimate_theoretical_peak,
     print_gpu_clock_info,
 )
+from .roofline_fitter import (
+    RooflineFitter,
+    RooflineParameters,
+    FitMetrics,
+    FitQuality,
+    fit_roofline,
+)
+from .efficiency_curves import (
+    EfficiencyCurve,
+    AsymptoticCurve,
+    PiecewiseLinearCurve,
+    PolynomialCurve,
+    ConstantCurve,
+    EfficiencyProfile,
+    CurveType,
+    CurveFitResult,
+    fit_efficiency_curve,
+    auto_fit_efficiency_curve,
+)
 
 __all__ = [
+    # Schema
     'OperationCalibration',
     'HardwareCalibration',
     'CalibrationMetadata',
@@ -53,16 +73,36 @@ __all__ = [
     'PrecisionCapabilityMatrix',
     'GPUClockData',
     'GPUClockInfo',
+    # Calibration functions
     'load_calibration',
     'calibrate_hardware',
     'get_precision_capabilities',
+    # Logging
     'CalibrationLogger',
     'get_logger',
     'set_logger',
     'LogAdapter',
+    # GPU clock
     'get_gpu_clock_info',
     'get_gpu_clock_under_load',
     'get_jetson_power_mode',
     'estimate_theoretical_peak',
     'print_gpu_clock_info',
+    # Roofline fitting (TASK-2026-006)
+    'RooflineFitter',
+    'RooflineParameters',
+    'FitMetrics',
+    'FitQuality',
+    'fit_roofline',
+    # Efficiency curves (TASK-2026-006)
+    'EfficiencyCurve',
+    'AsymptoticCurve',
+    'PiecewiseLinearCurve',
+    'PolynomialCurve',
+    'ConstantCurve',
+    'EfficiencyProfile',
+    'CurveType',
+    'CurveFitResult',
+    'fit_efficiency_curve',
+    'auto_fit_efficiency_curve',
 ]
