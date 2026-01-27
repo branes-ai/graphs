@@ -370,7 +370,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
 
         # Get theoretical peaks from profile
         theoretical_peaks = profile.theoretical_peaks or {}
-        theoretical_bw = profile.peak_bandwidth_gbps or 0
+        # Note: theoretical_bw may be overridden per power mode below
 
         for cal_info in calibrations:
             cal_filter = {
@@ -446,7 +446,10 @@ def show_efficiency_table(registry, precision_filter: str = None):
             # Cache efficiency - calculate if we have theoretical peak
             cache_eff = cache_bw / cache_peak if cache_peak and cache_peak > 0 and cache_bw > 0 else None
 
-            # DRAM efficiency - compare against theoretical DRAM bandwidth
+            # DRAM efficiency - use power-mode-specific bandwidth if available
+            # Some hardware (e.g., Jetson) has different EMC frequencies per power mode
+            power_mode_raw = cal_info['power_mode'] if cal_info['power_mode'] else "default"
+            theoretical_bw = profile.get_bandwidth_for_power_mode(power_mode_raw)
             dram_eff = dram_bw / theoretical_bw if theoretical_bw > 0 and dram_bw > 0 else 0
 
             rows.append({
