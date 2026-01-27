@@ -44,28 +44,31 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from graphs.hardware.calibration.calibrator import calibrate_hardware, load_calibration
-from graphs.hardware.database import HardwareDatabase, HardwareDetector, get_database
+from graphs.calibration.calibrator import calibrate_hardware, load_calibration
+from graphs.hardware.registry import HardwareRegistry, HardwareProfile, get_registry
 
 
-def auto_detect_hardware(db: HardwareDatabase):
+def auto_detect_hardware(registry: HardwareRegistry):
     """
-    Auto-detect current hardware and match to database.
+    Auto-detect current hardware and match to registry.
 
     Returns:
-        tuple: (matched_spec, confidence) or (None, 0.0) if no match
+        tuple: (matched_profile, confidence) or (None, 0.0) if no match
     """
+    from graphs.hardware.database import HardwareDetector
+
     print()
     print("=" * 80)
     print("Auto-Detecting Hardware")
     print("=" * 80)
 
+    # Use the low-level detector to show detected hardware info
     detector = HardwareDetector()
-    results = detector.auto_detect(db)
+    detection = detector.detect_all()
 
     # Show detected hardware
-    if results['cpu']:
-        cpu = results['cpu']
+    if detection.get('cpu'):
+        cpu = detection['cpu']
         print(f"CPU:      {cpu.model_name}")
         print(f"Vendor:   {cpu.vendor}")
         print(f"Cores:    {cpu.cores} cores, {cpu.threads} threads")
@@ -75,63 +78,42 @@ def auto_detect_hardware(db: HardwareDatabase):
             p_cores = cpu.cores - cpu.e_cores
             print(f"          ({p_cores}P + {cpu.e_cores}E cores)")
 
-    if results['gpus']:
-        for i, gpu in enumerate(results['gpus']):
+    if detection.get('gpus'):
+        for i, gpu in enumerate(detection['gpus']):
             print(f"GPU #{i+1}:  {gpu.model_name}")
             if gpu.memory_gb:
                 print(f"Memory:   {gpu.memory_gb} GB")
 
     # Show board detection if available
-    board_match = results.get('board_match')
-    if results.get('board'):
-        board = results['board']
+    if detection.get('board'):
+        board = detection['board']
         print(f"Board:    {board.model}")
         if board.soc:
             print(f"SoC:      {board.soc}")
 
     print()
 
-    # Check for CPU match
-    if results['cpu_matches']:
-        best_match = results['cpu_matches'][0]
-        conf_pct = best_match.confidence * 100
-        spec = best_match.matched_spec
+    # Use registry's detect_hardware method for matching
+    result = registry.detect_hardware()
 
-        via_board = ""
-        if board_match and "via board:" in best_match.detected_string:
-            via_board = f" (via board: {board_match.board_id})"
+    if result.profile:
+        conf_pct = result.confidence * 100
+        profile = result.profile
 
-        print(f"✓ Matched to database: {spec.id}{via_board}")
+        print(f"Matched to registry: {profile.id}")
         print(f"  Confidence: {conf_pct:.0f}%")
-        print(f"  Device: {spec.device_type.upper()}")
+        print(f"  Device: {profile.device_type.upper()}")
         print()
 
-        return spec, best_match.confidence
-
-    # Check for GPU match
-    if results['gpu_matches'] and results['gpu_matches'][0]:
-        best_match = results['gpu_matches'][0][0]
-        conf_pct = best_match.confidence * 100
-        spec = best_match.matched_spec
-
-        via_board = ""
-        if board_match and "via board:" in best_match.detected_string:
-            via_board = f" (via board: {board_match.board_id})"
-
-        print(f"✓ Matched to database: {spec.id}{via_board}")
-        print(f"  Confidence: {conf_pct:.0f}%")
-        print(f"  Device: {spec.device_type.upper()}")
-        print()
-
-        return spec, best_match.confidence
+        return profile, result.confidence
 
     # No match found
-    print("✗ No hardware match found in database")
+    print("No hardware match found in registry")
     print()
     print("Options:")
-    print("  1. Add your hardware: python scripts/hardware_db/add_hardware.py")
+    print("  1. Add your hardware to hardware_registry/")
     print("  2. Use specific hardware: --id <hardware_id>")
-    print("  3. List available hardware: python scripts/hardware_db/list_hardware.py")
+    print("  3. List available hardware: --list")
     print()
 
     return None, 0.0
@@ -381,46 +363,47 @@ def main():
         calibration.print_summary()
         return 0
 
-    # Load hardware database
-    db = get_database()
-    db.load_all()
+    # Load hardware registry
+    registry = get_registry()
+    registry.load_all()
 
     # Determine which hardware to calibrate
-    hardware_spec = None
+    hardware_profile = None
 
     if args.id:
-        # Use specific hardware from database
-        hardware_spec = db.get(args.id)
-        if not hardware_spec:
-            print(f"✗ Hardware not found in database: {args.id}")
+        # Use specific hardware from registry
+        hardware_profile = registry.get(args.id)
+        if not hardware_profile:
+            print(f"Hardware not found in registry: {args.id}")
             print()
             print("Available hardware:")
-            for hw_id in sorted(db._cache.keys()):
-                spec = db._cache[hw_id]
-                print(f"  {hw_id:<30} {spec.vendor} {spec.model}")
+            for hw_id in sorted(registry.list_all()):
+                profile = registry.get(hw_id)
+                print(f"  {hw_id:<30} {profile.vendor} {profile.model}")
             print()
             return 1
 
         print()
         print("=" * 80)
-        print(f"Using Hardware from Database: {hardware_spec.id}")
+        print(f"Using Hardware from Registry: {hardware_profile.id}")
         print("=" * 80)
-        print(f"  Vendor:   {hardware_spec.vendor}")
-        print(f"  Model:    {hardware_spec.model}")
-        print(f"  Type:     {hardware_spec.device_type}")
-        print(f"  Platform: {hardware_spec.platform}")
+        print(f"  Vendor:   {hardware_profile.vendor}")
+        print(f"  Model:    {hardware_profile.model}")
+        print(f"  Type:     {hardware_profile.device_type}")
+        if hardware_profile.architecture:
+            print(f"  Arch:     {hardware_profile.architecture}")
         print()
 
     else:
         # Auto-detect hardware
-        hardware_spec, confidence = auto_detect_hardware(db)
+        hardware_profile, confidence = auto_detect_hardware(registry)
 
-        if not hardware_spec:
+        if not hardware_profile:
             print("Auto-detection failed. Please use --id to specify hardware.")
             return 1
 
         if confidence < 0.5:
-            print(f"⚠ WARNING: Low confidence match ({confidence*100:.0f}%)")
+            print(f"WARNING: Low confidence match ({confidence*100:.0f}%)")
             print("  Consider using --id to explicitly specify hardware")
             print()
             response = input("Continue with this hardware? (yes/no): ").strip().lower()
@@ -428,11 +411,11 @@ def main():
                 print("Calibration cancelled.")
                 return 1
 
-    # Extract calibration parameters from hardware spec
-    hardware_name = hardware_spec.model
-    device = 'cuda' if hardware_spec.device_type == 'gpu' else hardware_spec.device_type
-    theoretical_peaks = hardware_spec.theoretical_peaks
-    peak_bandwidth = hardware_spec.peak_bandwidth_gbps
+    # Extract calibration parameters from hardware profile
+    hardware_name = hardware_profile.model
+    device = 'cuda' if hardware_profile.device_type == 'gpu' else hardware_profile.device_type
+    theoretical_peaks = hardware_profile.theoretical_peaks
+    peak_bandwidth = hardware_profile.peak_bandwidth_gbps
 
     # Use FP32 as the default peak for backward compatibility
     peak_gflops = theoretical_peaks.get('fp32', max(theoretical_peaks.values()) if theoretical_peaks else 100.0)
@@ -446,7 +429,7 @@ def main():
     device_info = detect_actual_device(device)
 
     # Determine framework (need this for filename)
-    from graphs.hardware.calibration.calibrator import select_framework
+    from graphs.calibration.calibrator import select_framework
     try:
         selected_framework = select_framework(device, args.framework)
     except RuntimeError as e:
@@ -465,7 +448,7 @@ def main():
         # Default: profiles/<hardware_id>_<framework>.json
         # This prevents overwriting when running with different frameworks
         profiles_dir = Path(__file__).parent.parent / "src" / "graphs" / "hardware" / "calibration" / "profiles"
-        safe_id = hardware_spec.id.lower().replace(" ", "_").replace("-", "_")
+        safe_id = hardware_profile.id.lower().replace(" ", "_").replace("-", "_")
         output_path = profiles_dir / f"{safe_id}_{selected_framework}.json"
 
     # Show device information prominently
@@ -520,11 +503,11 @@ def main():
         print("  1. Review the calibration results above")
         print("  2. Use this calibration in your analysis:")
         print(f"     ./cli/analyze_comprehensive.py --model resnet18 \\")
-        print(f"         --hardware {hardware_spec.id} \\")
+        print(f"         --hardware {hardware_profile.id} \\")
         print(f"         --calibration {output_path}")
         print()
         print("  3. Or export calibration to database:")
-        print(f"     python scripts/hardware_db/update_hardware.py --id {hardware_spec.id} \\")
+        print(f"     python scripts/hardware_db/update_hardware.py --id {hardware_profile.id} \\")
         print(f"         --field calibration_file --value {output_path}")
         print()
 
