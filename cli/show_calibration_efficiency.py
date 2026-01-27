@@ -221,11 +221,93 @@ def format_bandwidth(value: float) -> str:
         return f"{value:.0f}G"
 
 
-def format_efficiency(value: float) -> str:
-    """Format efficiency as percentage."""
+def format_efficiency_pct(value: float) -> str:
+    """Format efficiency as percentage (for table display)."""
     if value is None or value <= 0:
         return "N/A"
     return f"{value*100:.1f}%"
+
+
+def format_compute_short(value: float) -> str:
+    """Format compute value in short form (for compact tables)."""
+    if value <= 0:
+        return "-"
+    elif value >= 1000:
+        return f"{value/1000:.1f}T"
+    elif value >= 100:
+        return f"{value:.0f}G"
+    else:
+        return f"{value:.0f}G"
+
+
+def format_bandwidth_short(value: float) -> str:
+    """Format bandwidth value in short form (for compact tables)."""
+    if value is None or value <= 0:
+        return "-"
+    elif value >= 1000:
+        return f"{value/1000:.0f}T"
+    else:
+        return f"{value:.0f}G"
+
+
+def format_eff_short(value: float) -> str:
+    """Format efficiency as short percentage (for compact tables)."""
+    if value is None or value <= 0:
+        return "-"
+    return f"{value*100:.0f}%"
+
+
+def extract_stream_bandwidth_by_size(calibration) -> dict:
+    """Extract STREAM bandwidth measurements grouped by buffer size.
+
+    Returns dict with:
+        - 'cache_bw': bandwidth from smallest buffer (cache-bound)
+        - 'dram_bw': bandwidth from largest buffer (DRAM-bound)
+        - 'min_size_mb': smallest buffer size tested
+        - 'max_size_mb': largest buffer size tested
+    """
+    if not calibration.operation_profiles:
+        return {'cache_bw': 0, 'dram_bw': 0, 'min_size_mb': 0, 'max_size_mb': 0}
+
+    # Collect all STREAM results with their sizes
+    stream_results = []
+    for key, profile in calibration.operation_profiles.items():
+        op_type = profile.operation_type
+        if op_type in ('stream_copy', 'stream_scale', 'stream_add', 'stream_triad'):
+            size_mb = profile.extra_params.get('size_mb', 0)
+            bw = profile.achieved_bandwidth_gbps or 0
+            if size_mb > 0 and bw > 0:
+                stream_results.append({
+                    'size_mb': size_mb,
+                    'bandwidth': bw,
+                    'kernel': profile.extra_params.get('kernel', op_type),
+                })
+
+    if not stream_results:
+        return {'cache_bw': 0, 'dram_bw': 0, 'min_size_mb': 0, 'max_size_mb': 0}
+
+    # Group by size and find min/max sizes
+    by_size = {}
+    for r in stream_results:
+        size = r['size_mb']
+        if size not in by_size:
+            by_size[size] = []
+        by_size[size].append(r['bandwidth'])
+
+    sizes = sorted(by_size.keys())
+    min_size = sizes[0]
+    max_size = sizes[-1]
+
+    # Use max bandwidth at each size (across all kernels)
+    cache_bw = max(by_size[min_size])
+    dram_bw = max(by_size[max_size])
+
+    return {
+        'cache_bw': cache_bw,
+        'dram_bw': dram_bw,
+        'min_size_mb': min_size,
+        'max_size_mb': max_size,
+    }
 
 
 def show_efficiency_table(registry, precision_filter: str = None):
@@ -240,30 +322,40 @@ def show_efficiency_table(registry, precision_filter: str = None):
         print(f"Calibration Efficiency Summary (Precision: {precision_filter.upper()})")
     else:
         print("Calibration Efficiency Summary (Best Precision)")
-    print("=" * 125)
 
-    # Header - two lines with group labels and column headers
-    # Column widths: ID=28, Mode=11, Freq=11, Frmwk=7, Prec=5, then separators and data columns
-    # First section: 28+1+11+1+11+1+7+1+5 = 66, plus " | " = 69
-    # Compute section: 9+1+9+1+8 = 28, plus " | " = 31
-    # Bandwidth section: 8+1+8+1+7 = 25
-    # Total: 69 + 31 + 25 = 125
+    # Column widths - ID must be full length (40 chars) to be usable with --id
+    # ID=40, Mode=11, Freq=11, Frmwk=7, Prec=4 = 73 + spaces = 77
+    # Compute: Peak=6, Meas=6, Effic=6 = 18 + spaces = 20
+    # On-Chip: Peak=4, Meas=5, Size=4, Effic=6 = 19 + spaces = 22
+    # Off-Chip: Peak=4, Meas=5, Size=4, Effic=6 = 19 + spaces = 22
+    # Separators: 3 x " | " = 9
+    # Total line width: 77 + 20 + 22 + 22 + 9 = 150
+
+    total_width = 150
+    id_section = 77      # ID through Prec
+    compute_section = 20
+    onchip_section = 22
+    offchip_section = 22
+
+    print("=" * total_width)
 
     # Line 1: Group labels
     header1 = (
-        f"{'ID':<28} {'Mode':<11} {'Freq MHz':<11} {'Frmwk':<7} {'Prec':<5} | "
-        f"{'Compute':^28} | "
-        f"{'Bandwidth':^25}"
+        f"{'ID':<40} {'Mode':<11} {'Freq MHz':<11} {'Frmwk':<7} {'Prec':<4}| "
+        f"{'Compute':^{compute_section}}| "
+        f"{'On-Chip BW (L3)':^{onchip_section}}| "
+        f"{'Off-Chip BW (DRAM)':^{offchip_section}}"
     )
     # Line 2: Column headers
     header2 = (
-        f"{'':<28} {'':<11} {'(cal/max)':<11} {'':<7} {'':<5} | "
-        f"{'Peak':>9} {'Measured':>9} {'Effic':>8} | "
-        f"{'Peak':>8} {'Measured':>8} {'Effic':>7}"
+        f"{'':<40} {'':<11} {'(cal/max)':<11} {'':<7} {'':<4}| "
+        f"{'Peak':>6} {'Meas':>6} {'Eff':>6}| "
+        f"{'Pk':>4} {'Meas':>5} {'Sz':>4} {'Eff':>6}| "
+        f"{'Pk':>4} {'Meas':>5} {'Sz':>4} {'Eff':>6}"
     )
     print(header1)
     print(header2)
-    print("-" * 67 + "+" + "-" * 30 + "+" + "-" * 26)
+    print("-" * id_section + "+" + "-" * (compute_section + 1) + "+" + "-" * (onchip_section + 1) + "+" + "-" * (offchip_section + 1))
 
     rows = []
 
@@ -341,41 +433,69 @@ def show_efficiency_table(registry, precision_filter: str = None):
             # Compute efficiency
             comp_eff = measured / theoretical if theoretical > 0 and measured > 0 else 0
 
-            # Bandwidth values
-            measured_bw = cal.measured_bandwidth_gbps or 0
-            bw_eff = cal.bandwidth_efficiency or 0
+            # Extract on-chip (cache) and off-chip (DRAM) bandwidth
+            stream_data = extract_stream_bandwidth_by_size(cal)
+            cache_bw = stream_data['cache_bw']
+            dram_bw = stream_data['dram_bw']
+            cache_size_mb = stream_data['min_size_mb']
+            dram_size_mb = stream_data['max_size_mb']
+
+            # Cache (L3) peak bandwidth - not in registry, so use None
+            # TODO: Add l3_cache_bandwidth_gbps to hardware registry
+            cache_peak = None
+
+            # Cache efficiency - can't calculate without theoretical peak
+            cache_eff = None
+
+            # DRAM efficiency - compare against theoretical DRAM bandwidth
+            dram_eff = dram_bw / theoretical_bw if theoretical_bw > 0 and dram_bw > 0 else 0
 
             rows.append({
-                'id': hw_id[:28],
-                'mode': power_mode,
+                'id': hw_id,  # Full ID - no truncation
+                'mode': power_mode[:11],
                 'freq': freq_str[:11],
-                'framework': framework,
+                'framework': framework[:7],
                 'precision': target_prec.upper() if target_prec else "N/A",
                 'comp_peak': theoretical,
                 'comp_meas': measured,
                 'comp_eff': comp_eff,
-                'bw_peak': theoretical_bw,
-                'bw_meas': measured_bw,
-                'bw_eff': bw_eff,
+                'cache_peak': cache_peak,
+                'cache_bw': cache_bw,
+                'cache_size_mb': cache_size_mb,
+                'cache_eff': cache_eff,
+                'dram_peak': theoretical_bw,
+                'dram_bw': dram_bw,
+                'dram_size_mb': dram_size_mb,
+                'dram_eff': dram_eff,
             })
 
     # Sort by ID then power mode
     rows.sort(key=lambda x: (x['id'], x['mode']))
 
     for row in rows:
+        # Format buffer sizes (compact)
+        cache_size_str = f"{row['cache_size_mb']}M" if row['cache_size_mb'] > 0 else "-"
+        dram_size_str = f"{row['dram_size_mb']}M" if row['dram_size_mb'] > 0 else "-"
+
+        # Format cache peak (N/A if not available)
+        cache_peak_str = format_bandwidth_short(row['cache_peak']) if row['cache_peak'] else "-"
+        cache_eff_str = format_eff_short(row['cache_eff']) if row['cache_eff'] else "-"
+
         line = (
-            f"{row['id']:<28} {row['mode']:<11} {row['freq']:<11} {row['framework']:<7} {row['precision']:<5} | "
-            f"{format_compute(row['comp_peak']):>9} {format_compute(row['comp_meas']):>9} "
-            f"{format_efficiency(row['comp_eff']):>8} | "
-            f"{format_bandwidth(row['bw_peak']):>8} {format_bandwidth(row['bw_meas']):>8} "
-            f"{format_efficiency(row['bw_eff']):>7}"
+            f"{row['id']:<40} {row['mode']:<11} {row['freq']:<11} {row['framework']:<7} {row['precision']:<4}| "
+            f"{format_compute_short(row['comp_peak']):>6} {format_compute_short(row['comp_meas']):>6} "
+            f"{format_eff_short(row['comp_eff']):>6}| "
+            f"{cache_peak_str:>4} {format_bandwidth_short(row['cache_bw']):>5} {cache_size_str:>4} {cache_eff_str:>6}| "
+            f"{format_bandwidth_short(row['dram_peak']):>4} {format_bandwidth_short(row['dram_bw']):>5} "
+            f"{dram_size_str:>4} {format_eff_short(row['dram_eff']):>6}"
         )
         print(line)
 
-    print("-" * 67 + "+" + "-" * 30 + "+" + "-" * 26)
+    print("-" * 77 + "+" + "-" * 21 + "+" + "-" * 23 + "+" + "-" * 23)
     print(f"Total: {len(rows)} calibration records")
     print()
     print("Legend: G = GFLOPS or GB/s, T = TFLOPS or TB/s")
+    print("        On-Chip BW = L3 cache (smallest buffer), Off-Chip BW = DRAM (largest buffer)")
     print()
 
 
