@@ -343,7 +343,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
     header1 = (
         f"{'ID':<40} {'Mode':<11} {'Freq MHz':<11} {'Frmwk':<7} {'Prec':<4}| "
         f"{'Compute':^{compute_section}}| "
-        f"{'On-Chip BW (L3)':^{onchip_section}}| "
+        f"{'On-Chip Cache BW':^{onchip_section}}| "
         f"{'Off-Chip BW (DRAM)':^{offchip_section}}"
     )
     # Line 2: Column headers
@@ -440,8 +440,8 @@ def show_efficiency_table(registry, precision_filter: str = None):
             cache_size_mb = stream_data['min_size_mb']
             dram_size_mb = stream_data['max_size_mb']
 
-            # Cache (L3) peak bandwidth from hardware profile
-            cache_peak = profile.l3_cache_bandwidth_gbps
+            # Cache peak bandwidth from hardware profile (L3 for CPUs, L2 for GPUs)
+            cache_peak = profile.last_cache_bandwidth_gbps
 
             # Cache efficiency - calculate if we have theoretical peak
             cache_eff = cache_bw / cache_peak if cache_peak and cache_peak > 0 and cache_bw > 0 else None
@@ -494,7 +494,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
     print(f"Total: {len(rows)} calibration records")
     print()
     print("Legend: G = GFLOPS or GB/s, T = TFLOPS or TB/s")
-    print("        On-Chip BW = L3 cache (smallest buffer), Off-Chip BW = DRAM (largest buffer)")
+    print("        On-Chip = Last cache in hierarchy (L3 for CPUs, L2 for GPUs), Off-Chip = DRAM")
     print()
 
 
