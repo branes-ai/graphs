@@ -1,0 +1,67 @@
+{
+  "id": "jetson_orin_nx_16gb_cpu",
+  "vendor": "NVIDIA",
+  "model": "Jetson Orin NX 16GB (CPU)",
+  "device_type": "cpu",
+  "product_category": "edge",
+  "ops_per_clock": {
+    "fp64": 64,
+    "fp32": 128,
+    "fp16": 256,
+    "fp8": 0,
+    "fp4": 0,
+    "bf16": 0,
+    "tf32": 0,
+    "int64": 64,
+    "int32": 128,
+    "int16": 256,
+    "int8": 512,
+    "int4": 0
+  },
+  "ops_per_clock_notes": {
+    "fp32": "8 cores x 4 FP32/cycle (NEON 128-bit) x 2 (FMA) x 2 pipes = 128 FP32 ops/clock",
+    "fp16": "8 cores x 8 FP16/cycle (NEON) x 2 (FMA) x 2 pipes = 256 FP16 ops/clock",
+    "int8": "8 cores x 16 INT8/cycle (NEON) x 2 x 2 = 512 INT8 ops/clock"
+  },
+  "theoretical_peaks": {
+    "fp64": 121.6,
+    "fp32": 243.2,
+    "fp16": 486.4,
+    "fp8": 0.0,
+    "fp4": 0.0,
+    "bf16": 0.0,
+    "tf32": 0.0,
+    "int64": 121.6,
+    "int32": 243.2,
+    "int16": 486.4,
+    "int8": 972.8,
+    "int4": 0.0
+  },
+  "theoretical_peaks_notes": "Calculated at boost_clock_mhz (1900 MHz). Use ops_per_clock x clock_mhz for accurate peaks.",
+  "peak_bandwidth_gbps": 102.0,
+  "l3_cache_size_mb": 4.0,
+  "l3_cache_bandwidth_gbps": 75.0,
+  "l3_cache_bandwidth_notes": "System Level Cache (SLC) shared across SoC. Estimated ~75 GB/s based on 8-core scaling.",
+  "architecture": "Cortex-A78AE",
+  "compute_units": 8,
+  "memory_gb": 16,
+  "tdp_watts": 25,
+  "base_clock_mhz": 729.0,
+  "boost_clock_mhz": 1900.0,
+  "platform": "aarch64",
+  "power_profiles": {
+    "10W": {
+      "clock_mhz": 729,
+      "power_limit_w": 10
+    },
+    "15W": {
+      "clock_mhz": 1190,
+      "power_limit_w": 15
+    },
+    "25W": {
+      "clock_mhz": 1900,
+      "power_limit_w": 25
+    }
+  },
+  "notes": "8-core ARM Cortex-A78AE cluster with NEON SIMD (128-bit). Part of Jetson Orin NX SoC sharing LPDDR5 memory (102 GB/s) with GPU."
+}
