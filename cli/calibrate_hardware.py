@@ -501,12 +501,37 @@ def main():
             force=args.force  # Force calibration despite failed pre-flight checks
         )
 
+        # Rename calibration file to proper convention if it was a pending file
+        final_output_path = output_path
+        if output_path.name.startswith("pending_") and calibration.metadata:
+            # Generate proper filename from calibration metadata
+            meta = calibration.metadata
+            if meta.gpu_clock and meta.gpu_clock.power_mode_name:
+                power_mode = meta.gpu_clock.power_mode_name
+                freq = meta.gpu_clock.sm_clock_mhz or 0
+            elif meta.cpu_clock:
+                power_mode = meta.cpu_clock.governor or "default"
+                freq = int(meta.cpu_clock.current_freq_mhz) if meta.cpu_clock.current_freq_mhz else 0
+            else:
+                power_mode = "default"
+                freq = 0
+
+            # Sanitize power mode name
+            import re
+            power_mode = re.sub(r'[^a-zA-Z0-9]', '', power_mode)
+            new_filename = f"{power_mode}_{freq}MHz_{selected_framework}.json"
+            final_output_path = output_path.parent / new_filename
+
+            # Rename the file
+            if output_path.exists():
+                output_path.rename(final_output_path)
+
         print()
         print("=" * 80)
         print("Calibration Complete!")
         print("=" * 80)
         print()
-        print(f"Calibration file: {output_path}")
+        print(f"Calibration file: {final_output_path}")
         print()
         print("Next steps:")
         print("  1. Review the calibration results above")
