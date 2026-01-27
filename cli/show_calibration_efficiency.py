@@ -240,16 +240,16 @@ def show_efficiency_table(registry, precision_filter: str = None):
         print(f"Calibration Efficiency Summary (Precision: {precision_filter.upper()})")
     else:
         print("Calibration Efficiency Summary (Best Precision)")
-    print("=" * 160)
+    print("=" * 56 + "=" * 31 + "=" * 28)
 
-    # Header - fixed width columns
+    # Header - fixed width columns with vertical dividers
     header = (
-        f"{'ID':<28} {'Mode':<11} {'Frmwk':<7} {'Prec':<5} "
-        f"{'Comp Peak':>9} {'Comp Meas':>9} {'Comp Eff':>8} "
+        f"{'ID':<28} {'Mode':<11} {'Frmwk':<7} {'Prec':<5} | "
+        f"{'Comp Peak':>9} {'Comp Meas':>9} {'Comp Eff':>8} | "
         f"{'BW Peak':>8} {'BW Meas':>8} {'BW Eff':>7}"
     )
     print(header)
-    print("-" * 160)
+    print("-" * 56 + "+" + "-" * 30 + "+" + "-" * 27)
 
     rows = []
 
@@ -333,15 +333,15 @@ def show_efficiency_table(registry, precision_filter: str = None):
 
     for row in rows:
         line = (
-            f"{row['id']:<28} {row['mode']:<11} {row['framework']:<7} {row['precision']:<5} "
+            f"{row['id']:<28} {row['mode']:<11} {row['framework']:<7} {row['precision']:<5} | "
             f"{format_compute(row['comp_peak']):>9} {format_compute(row['comp_meas']):>9} "
-            f"{format_efficiency(row['comp_eff']):>8} "
+            f"{format_efficiency(row['comp_eff']):>8} | "
             f"{format_bandwidth(row['bw_peak']):>8} {format_bandwidth(row['bw_meas']):>8} "
             f"{format_efficiency(row['bw_eff']):>7}"
         )
         print(line)
 
-    print("-" * 160)
+    print("-" * 56 + "+" + "-" * 30 + "+" + "-" * 27)
     print(f"Total: {len(rows)} calibration records")
     print()
     print("Legend: G = GFLOPS or GB/s, T = TFLOPS or TB/s")
