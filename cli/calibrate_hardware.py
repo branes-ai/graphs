@@ -353,6 +353,8 @@ def main():
                             "Precisions achieving less than this will be skipped for larger sizes.")
     parser.add_argument("--framework", type=str, choices=['numpy', 'pytorch'], default=None,
                        help="Override framework selection (default: numpy for CPU, pytorch for GPU)")
+    parser.add_argument("--force", action="store_true",
+                       help="Force calibration even if pre-flight checks fail (results flagged as non-representative)")
 
     args = parser.parse_args()
 
@@ -489,7 +491,8 @@ def main():
             output_path=output_path,
             operations=operations,
             quick=args.quick,
-            min_useful_gflops=args.min_gflops  # NEW: configurable early termination threshold
+            min_useful_gflops=args.min_gflops,  # NEW: configurable early termination threshold
+            force=args.force  # Force calibration despite failed pre-flight checks
         )
 
         print()
