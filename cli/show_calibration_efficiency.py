@@ -240,30 +240,30 @@ def show_efficiency_table(registry, precision_filter: str = None):
         print(f"Calibration Efficiency Summary (Precision: {precision_filter.upper()})")
     else:
         print("Calibration Efficiency Summary (Best Precision)")
-    print("=" * 113)
+    print("=" * 125)
 
     # Header - two lines with group labels and column headers
-    # Column widths: ID=28, Mode=11, Frmwk=7, Prec=5, then separators and data columns
-    # First section: 28+1+11+1+7+1+5 = 54, plus " | " = 57
+    # Column widths: ID=28, Mode=11, Freq=11, Frmwk=7, Prec=5, then separators and data columns
+    # First section: 28+1+11+1+11+1+7+1+5 = 66, plus " | " = 69
     # Compute section: 9+1+9+1+8 = 28, plus " | " = 31
     # Bandwidth section: 8+1+8+1+7 = 25
-    # Total: 57 + 31 + 25 = 113
+    # Total: 69 + 31 + 25 = 125
 
     # Line 1: Group labels
     header1 = (
-        f"{'ID':<28} {'Mode':<11} {'Frmwk':<7} {'Prec':<5} | "
+        f"{'ID':<28} {'Mode':<11} {'Freq MHz':<11} {'Frmwk':<7} {'Prec':<5} | "
         f"{'Compute':^28} | "
         f"{'Bandwidth':^25}"
     )
     # Line 2: Column headers
     header2 = (
-        f"{'':<28} {'':<11} {'':<7} {'':<5} | "
+        f"{'':<28} {'':<11} {'(cal/max)':<11} {'':<7} {'':<5} | "
         f"{'Peak':>9} {'Measured':>9} {'Effic':>8} | "
         f"{'Peak':>8} {'Measured':>8} {'Effic':>7}"
     )
     print(header1)
     print(header2)
-    print("-" * 55 + "+" + "-" * 30 + "+" + "-" * 26)
+    print("-" * 67 + "+" + "-" * 30 + "+" + "-" * 26)
 
     rows = []
 
@@ -296,6 +296,22 @@ def show_efficiency_table(registry, precision_filter: str = None):
 
             # Power mode
             power_mode = cal_info['power_mode'][:11] if cal_info['power_mode'] else "default"
+
+            # Frequency - get from calibration metadata
+            freq_str = "N/A"
+            if cal.metadata:
+                if cal.metadata.gpu_clock:
+                    gc = cal.metadata.gpu_clock
+                    cal_freq = gc.sm_clock_mhz or 0
+                    max_freq = gc.max_sm_clock_mhz or cal_freq
+                    if cal_freq > 0:
+                        freq_str = f"{cal_freq}/{max_freq}"
+                elif cal.metadata.cpu_clock:
+                    cc = cal.metadata.cpu_clock
+                    cal_freq = int(cc.current_freq_mhz) if cc.current_freq_mhz else 0
+                    max_freq = int(cc.max_freq_mhz) if cc.max_freq_mhz else cal_freq
+                    if cal_freq > 0:
+                        freq_str = f"{cal_freq}/{max_freq}"
 
             # Framework
             framework = cal_info['framework'][:7] if cal_info['framework'] else "?"
@@ -332,6 +348,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
             rows.append({
                 'id': hw_id[:28],
                 'mode': power_mode,
+                'freq': freq_str[:11],
                 'framework': framework,
                 'precision': target_prec.upper() if target_prec else "N/A",
                 'comp_peak': theoretical,
@@ -347,7 +364,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
 
     for row in rows:
         line = (
-            f"{row['id']:<28} {row['mode']:<11} {row['framework']:<7} {row['precision']:<5} | "
+            f"{row['id']:<28} {row['mode']:<11} {row['freq']:<11} {row['framework']:<7} {row['precision']:<5} | "
             f"{format_compute(row['comp_peak']):>9} {format_compute(row['comp_meas']):>9} "
             f"{format_efficiency(row['comp_eff']):>8} | "
             f"{format_bandwidth(row['bw_peak']):>8} {format_bandwidth(row['bw_meas']):>8} "
@@ -355,7 +372,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
         )
         print(line)
 
-    print("-" * 55 + "+" + "-" * 30 + "+" + "-" * 26)
+    print("-" * 67 + "+" + "-" * 30 + "+" + "-" * 26)
     print(f"Total: {len(rows)} calibration records")
     print()
     print("Legend: G = GFLOPS or GB/s, T = TFLOPS or TB/s")
