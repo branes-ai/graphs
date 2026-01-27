@@ -443,15 +443,21 @@ def main():
         print()
         return 1
 
-    # Determine output path (include framework to avoid overwriting)
+    # Determine output path
+    # New: Save to hardware_registry/<device_type>/<hardware_id>/calibrations/
     if args.output:
         output_path = Path(args.output)
     else:
-        # Default: profiles/<hardware_id>_<framework>.json
-        # This prevents overwriting when running with different frameworks
-        profiles_dir = Path(__file__).parent.parent / "src" / "graphs" / "hardware" / "calibration" / "profiles"
-        safe_id = hardware_profile.id.lower().replace(" ", "_").replace("-", "_")
-        output_path = profiles_dir / f"{safe_id}_{selected_framework}.json"
+        # Default: hardware_registry/<device_type>/<id>/calibrations/<mode>_<freq>MHz_<framework>.json
+        registry_dir = Path(__file__).parent.parent / "hardware_registry"
+        device_type = hardware_profile.device_type  # 'cpu', 'gpu', etc.
+        hw_id = hardware_profile.id
+        calibrations_dir = registry_dir / device_type / hw_id / "calibrations"
+        calibrations_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename from power mode and frequency (matches registry convention)
+        # Will be finalized by calibrator once actual clock speeds are known
+        output_path = calibrations_dir / f"pending_{selected_framework}.json"
 
     # Show device information prominently
     print()
@@ -504,14 +510,11 @@ def main():
         print()
         print("Next steps:")
         print("  1. Review the calibration results above")
-        print("  2. Use this calibration in your analysis:")
-        print(f"     ./cli/analyze_comprehensive.py --model resnet18 \\")
-        print(f"         --hardware {hardware_profile.id} \\")
-        print(f"         --calibration {output_path}")
+        print("  2. View calibration efficiency:")
+        print(f"     ./cli/show_calibration_efficiency.py --id {hardware_profile.id}")
         print()
-        print("  3. Or export calibration to database:")
-        print(f"     python scripts/hardware_db/update_hardware.py --id {hardware_profile.id} \\")
-        print(f"         --field calibration_file --value {output_path}")
+        print("  3. Use in analysis (calibration auto-loaded from registry):")
+        print(f"     ./cli/analyze_comprehensive.py --model resnet18 --hardware {hardware_profile.id}")
         print()
 
         return 0
