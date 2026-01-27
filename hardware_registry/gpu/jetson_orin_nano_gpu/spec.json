@@ -40,6 +40,7 @@
   },
   "theoretical_peaks_notes": "Legacy field - calculated at boost_clock_mhz. Use ops_per_clock x clock_mhz for accurate per-profile peaks.",
   "peak_bandwidth_gbps": 68.0,
+  "peak_bandwidth_notes": "68 GB/s at EMC 2133 MHz (7W/15W modes). Higher power modes boost EMC to 3199 MHz for ~102 GB/s.",
   "l2_cache_size_mb": 1.0,
   "l2_cache_bandwidth_gbps": 500.0,
   "l2_cache_bandwidth_notes": "Estimated based on Ampere L2 design. 8 SMs share ~1MB L2. Measured ~31-68 GB/s at 8MB (cache miss) confirms L2 is smaller.",
@@ -53,20 +54,29 @@
   "power_profiles": {
     "7W": {
       "clock_mhz": 306,
+      "emc_mhz": 2133,
+      "peak_bandwidth_gbps": 68.0,
       "power_limit_w": 7
     },
     "15W": {
       "clock_mhz": 612,
+      "emc_mhz": 2133,
+      "peak_bandwidth_gbps": 68.0,
       "power_limit_w": 15
     },
     "25W": {
       "clock_mhz": 918,
-      "power_limit_w": 25
+      "emc_mhz": 3199,
+      "peak_bandwidth_gbps": 102.0,
+      "power_limit_w": 25,
+      "notes": "JetPack 6.2+ Super Mode with boosted EMC"
     },
     "MAXNSUPER": {
       "clock_mhz": 1020,
+      "emc_mhz": 3199,
+      "peak_bandwidth_gbps": 102.0,
       "power_limit_w": 25,
-      "notes": "Boost clock, may hit thermal/current limits"
+      "notes": "JetPack 6.2+ MAXN_SUPER with boosted EMC. May hit thermal/current limits."
     }
   },
   "notes": "Ampere GPU with 1024 CUDA cores (8 SMs) and 32 Tensor Cores (Gen 3). Shares unified LPDDR5 memory with CPU in Jetson Orin Nano SoC."

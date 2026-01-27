@@ -183,6 +183,9 @@ class HardwareProfile:
     product_category: Optional[str] = None
     """Product category: 'datacenter', 'desktop', 'embodied', 'edge', or 'mobile'."""
 
+    power_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    """Power profiles with per-mode specs (clock_mhz, emc_mhz, peak_bandwidth_gbps, power_limit_w)."""
+
     @property
     def is_calibrated(self) -> bool:
         """Whether this profile has calibration data."""
@@ -283,6 +286,26 @@ class HardwareProfile:
         # Fall back to theoretical
         return self.theoretical_peaks.get(precision, 0.0)
 
+    def get_bandwidth_for_power_mode(self, power_mode: str) -> float:
+        """
+        Get peak bandwidth for a specific power mode.
+
+        Some hardware (e.g., Jetson) has different memory frequencies per power mode,
+        resulting in different peak bandwidths. This method returns the power-mode-specific
+        bandwidth if available, otherwise falls back to the device-level peak_bandwidth_gbps.
+
+        Args:
+            power_mode: Power mode name (e.g., '7W', '15W', '25W', 'MAXNSUPER')
+
+        Returns:
+            Peak bandwidth in GB/s for the power mode
+        """
+        if self.power_profiles and power_mode in self.power_profiles:
+            profile = self.power_profiles[power_mode]
+            if 'peak_bandwidth_gbps' in profile:
+                return profile['peak_bandwidth_gbps']
+        return self.peak_bandwidth_gbps
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
@@ -327,6 +350,8 @@ class HardwareProfile:
             result['notes'] = self.notes
         if self.product_category:
             result['product_category'] = self.product_category
+        if self.power_profiles:
+            result['power_profiles'] = self.power_profiles
 
         # Note: calibration_date is NOT included in spec.json
         # It belongs in the calibration files (calibrations/*.json)
@@ -367,6 +392,7 @@ class HardwareProfile:
             tags=data.get('tags', []),
             notes=data.get('notes'),
             product_category=data.get('product_category'),
+            power_profiles=data.get('power_profiles', {}),
         )
 
     def save(self, directory: Path):
