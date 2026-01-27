@@ -240,9 +240,15 @@ def show_efficiency_table(registry, precision_filter: str = None):
         print(f"Calibration Efficiency Summary (Precision: {precision_filter.upper()})")
     else:
         print("Calibration Efficiency Summary (Best Precision)")
-    print("=" * 56 + "=" * 31 + "=" * 28)
+    print("=" * 113)
 
     # Header - two lines with group labels and column headers
+    # Column widths: ID=28, Mode=11, Frmwk=7, Prec=5, then separators and data columns
+    # First section: 28+1+11+1+7+1+5 = 54, plus " | " = 57
+    # Compute section: 9+1+9+1+8 = 28, plus " | " = 31
+    # Bandwidth section: 8+1+8+1+7 = 25
+    # Total: 57 + 31 + 25 = 113
+
     # Line 1: Group labels
     header1 = (
         f"{'ID':<28} {'Mode':<11} {'Frmwk':<7} {'Prec':<5} | "
@@ -257,7 +263,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
     )
     print(header1)
     print(header2)
-    print("-" * 56 + "+" + "-" * 30 + "+" + "-" * 27)
+    print("-" * 55 + "+" + "-" * 30 + "+" + "-" * 26)
 
     rows = []
 
@@ -349,7 +355,7 @@ def show_efficiency_table(registry, precision_filter: str = None):
         )
         print(line)
 
-    print("-" * 56 + "+" + "-" * 30 + "+" + "-" * 27)
+    print("-" * 55 + "+" + "-" * 30 + "+" + "-" * 26)
     print(f"Total: {len(rows)} calibration records")
     print()
     print("Legend: G = GFLOPS or GB/s, T = TFLOPS or TB/s")
