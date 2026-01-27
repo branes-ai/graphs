@@ -440,12 +440,11 @@ def show_efficiency_table(registry, precision_filter: str = None):
             cache_size_mb = stream_data['min_size_mb']
             dram_size_mb = stream_data['max_size_mb']
 
-            # Cache (L3) peak bandwidth - not in registry, so use None
-            # TODO: Add l3_cache_bandwidth_gbps to hardware registry
-            cache_peak = None
+            # Cache (L3) peak bandwidth from hardware profile
+            cache_peak = profile.l3_cache_bandwidth_gbps
 
-            # Cache efficiency - can't calculate without theoretical peak
-            cache_eff = None
+            # Cache efficiency - calculate if we have theoretical peak
+            cache_eff = cache_bw / cache_peak if cache_peak and cache_peak > 0 and cache_bw > 0 else None
 
             # DRAM efficiency - compare against theoretical DRAM bandwidth
             dram_eff = dram_bw / theoretical_bw if theoretical_bw > 0 and dram_bw > 0 else 0

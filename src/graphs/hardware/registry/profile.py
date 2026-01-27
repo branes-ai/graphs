@@ -126,7 +126,13 @@ class HardwareProfile:
     """Operations per clock cycle by precision. Use with clock_mhz for runtime theoretical calculation."""
 
     peak_bandwidth_gbps: float = 0.0
-    """Theoretical peak memory bandwidth in GB/s."""
+    """Theoretical peak DRAM memory bandwidth in GB/s."""
+
+    l3_cache_bandwidth_gbps: Optional[float] = None
+    """Theoretical peak L3 cache bandwidth in GB/s (on-chip memory bandwidth)."""
+
+    l3_cache_size_mb: Optional[float] = None
+    """L3 cache size in MB. Data fitting within this size will hit cache, not DRAM."""
 
     # Architecture details
     architecture: Optional[str] = None
@@ -254,6 +260,10 @@ class HardwareProfile:
             result['ops_per_clock'] = self.ops_per_clock
 
         # Add optional fields if set
+        if self.l3_cache_bandwidth_gbps:
+            result['l3_cache_bandwidth_gbps'] = self.l3_cache_bandwidth_gbps
+        if self.l3_cache_size_mb:
+            result['l3_cache_size_mb'] = self.l3_cache_size_mb
         if self.architecture:
             result['architecture'] = self.architecture
         if self.compute_units:
@@ -298,6 +308,8 @@ class HardwareProfile:
             theoretical_peaks=data.get('theoretical_peaks', {}),
             ops_per_clock=data.get('ops_per_clock', {}),
             peak_bandwidth_gbps=data.get('peak_bandwidth_gbps', 0.0),
+            l3_cache_bandwidth_gbps=data.get('l3_cache_bandwidth_gbps'),
+            l3_cache_size_mb=data.get('l3_cache_size_mb'),
             architecture=data.get('architecture'),
             compute_units=data.get('compute_units'),
             memory_gb=data.get('memory_gb'),
