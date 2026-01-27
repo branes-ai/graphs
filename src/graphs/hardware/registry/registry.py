@@ -381,20 +381,25 @@ class HardwareRegistry:
             for pattern, base_name in jetson_base_names.items():
                 if pattern in dt_lower:
                     # Determine which suffix to try first based on preference
+                    # Try both with and without memory suffix (e.g., _16gb, _8gb)
                     if prefer_cpu:
-                        profile_ids = [f'{base_name}_cpu', f'{base_name}_gpu']
+                        suffix_order = ['_cpu', '_gpu']
                     else:
-                        profile_ids = [f'{base_name}_gpu', f'{base_name}_cpu']
+                        suffix_order = ['_gpu', '_cpu']
 
-                    for profile_id in profile_ids:
-                        profile = self._cache.get(profile_id)
-                        if profile:
-                            return DetectionResult(
-                                profile_id=profile_id,
-                                confidence=0.95,  # High confidence from device-tree
-                                detected_name=detected_name,
-                                profile=profile
-                            )
+                    # Try various profile ID patterns (with/without memory size)
+                    memory_variants = ['_16gb', '_8gb', '_32gb', '_64gb', '']
+                    for suffix in suffix_order:
+                        for mem in memory_variants:
+                            profile_id = f'{base_name}{mem}{suffix}'
+                            profile = self._cache.get(profile_id)
+                            if profile:
+                                return DetectionResult(
+                                    profile_id=profile_id,
+                                    confidence=0.95,  # High confidence from device-tree
+                                    detected_name=detected_name,
+                                    profile=profile
+                                )
 
             # Fallback: try to match any Jetson profile by SoC
             if board.soc:
