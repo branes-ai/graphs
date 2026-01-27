@@ -63,6 +63,19 @@ from .efficiency_curves import (
     fit_efficiency_curve,
     auto_fit_efficiency_curve,
 )
+from .energy_fitter import (
+    EnergyFitter,
+    EnergyCoefficients,
+    EnergyFitMetrics,
+    EnergyFitQuality,
+    fit_energy_model,
+)
+from .power_model import (
+    CalibratedPowerModel,
+    PowerSource,
+    PowerBreakdown,
+    EnergyBreakdown,
+)
 
 __all__ = [
     # Schema
@@ -105,4 +118,15 @@ __all__ = [
     'CurveFitResult',
     'fit_efficiency_curve',
     'auto_fit_efficiency_curve',
+    # Energy fitting (TASK-2026-008)
+    'EnergyFitter',
+    'EnergyCoefficients',
+    'EnergyFitMetrics',
+    'EnergyFitQuality',
+    'fit_energy_model',
+    # Power model (TASK-2026-008)
+    'CalibratedPowerModel',
+    'PowerSource',
+    'PowerBreakdown',
+    'EnergyBreakdown',
 ]
