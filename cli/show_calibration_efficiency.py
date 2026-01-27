@@ -135,6 +135,151 @@ def show_calibration_efficiency(profile, calibration, power_mode: str = None):
     print()
 
 
+def show_summary_table(registry):
+    """Display a compact summary table of all registry records."""
+    print()
+    print("Hardware Registry Summary")
+    print("=" * 120)
+
+    # Header
+    header = (
+        f"{'ID':<35} {'Type':<5} {'TDP':>6} "
+        f"{'Peak Compute':>14} {'Peak BW':>10} {'Best Prec':<8} {'Calibrated'}"
+    )
+    print(header)
+    print("-" * 120)
+
+    for hw_id in sorted(registry.list_all()):
+        profile = registry.get(hw_id)
+        if not profile:
+            continue
+
+        # Device type
+        dev_type = profile.device_type[:5].upper() if profile.device_type else "?"
+
+        # TDP
+        tdp = f"{profile.tdp_watts:.0f}W" if profile.tdp_watts else "N/A"
+
+        # Peak compute - find best precision
+        peaks = profile.theoretical_peaks or {}
+        best_prec = None
+        best_value = 0
+        for prec, val in peaks.items():
+            if val > best_value:
+                best_value = val
+                best_prec = prec
+
+        if best_value >= 1000:
+            compute_str = f"{best_value/1000:.1f} TFLOPS"
+        elif best_value > 0:
+            compute_str = f"{best_value:.0f} GFLOPS"
+        else:
+            compute_str = "N/A"
+
+        best_prec_str = best_prec.upper() if best_prec else "N/A"
+
+        # Peak bandwidth
+        bw = profile.peak_bandwidth_gbps
+        if bw and bw > 0:
+            bw_str = f"{bw:.0f} GB/s"
+        else:
+            bw_str = "N/A"
+
+        # Check if calibrated
+        calibrations = registry.list_calibrations(hw_id)
+        if calibrations:
+            cal_str = f"Yes ({len(calibrations)})"
+        else:
+            cal_str = "No"
+
+        print(f"{hw_id:<35} {dev_type:<5} {tdp:>6} {compute_str:>14} {bw_str:>10} {best_prec_str:<8} {cal_str}")
+
+    print("-" * 120)
+    print(f"Total: {len(registry.list_all())} hardware profiles")
+    print()
+
+
+def show_efficiency_table(registry):
+    """Display a compact efficiency table for all calibrated hardware."""
+    print()
+    print("Calibration Efficiency Summary")
+    print("=" * 130)
+
+    # Header
+    header = (
+        f"{'ID':<30} {'Power Mode':<12} "
+        f"{'Compute Eff':>11} {'Best Prec':<6} {'BW Eff':>8} "
+        f"{'Peak Measured':>14} {'Framework':<8}"
+    )
+    print(header)
+    print("-" * 130)
+
+    rows = []
+
+    for hw_id in sorted(registry.list_all()):
+        calibrations = registry.list_calibrations(hw_id)
+        if not calibrations:
+            continue
+
+        for cal_info in calibrations:
+            cal_filter = {
+                'power_mode': cal_info['power_mode'],
+                'freq_mhz': cal_info['freq_mhz'],
+                'framework': cal_info['framework'],
+            }
+            full_profile = registry.get(hw_id, calibration_filter=cal_filter)
+
+            if not full_profile or not full_profile.calibration:
+                continue
+
+            cal = full_profile.calibration
+            pm = cal.precision_matrix
+
+            # Power mode
+            power_mode = cal_info['power_mode'][:12] if cal_info['power_mode'] else "default"
+
+            # Compute efficiency
+            compute_eff = f"{cal.best_efficiency*100:.1f}%" if cal.best_efficiency else "N/A"
+
+            # Best precision from calibration
+            best_prec = "N/A"
+            best_meas = 0
+            if pm and pm.peak_gflops_by_precision:
+                for prec, val in pm.peak_gflops_by_precision.items():
+                    if val > best_meas:
+                        best_meas = val
+                        best_prec = prec
+
+            # Format peak measured
+            if best_meas >= 1000:
+                peak_str = f"{best_meas/1000:.2f} TFLOPS"
+            elif best_meas > 0:
+                peak_str = f"{best_meas:.0f} GFLOPS"
+            else:
+                peak_str = "N/A"
+
+            # Bandwidth efficiency
+            bw_eff = f"{cal.bandwidth_efficiency*100:.1f}%" if cal.bandwidth_efficiency else "N/A"
+
+            # Framework
+            framework = cal_info['framework'][:8] if cal_info['framework'] else "?"
+
+            rows.append((
+                hw_id[:30], power_mode, compute_eff, best_prec[:6].upper(),
+                bw_eff, peak_str, framework
+            ))
+
+    # Sort by ID then power mode
+    rows.sort(key=lambda x: (x[0], x[1]))
+
+    for row in rows:
+        print(f"{row[0]:<30} {row[1]:<12} {row[2]:>11} {row[3]:<6} {row[4]:>8} {row[5]:>14} {row[6]:<8}")
+
+    print("-" * 130)
+    print(f"Total: {len(rows)} calibration records")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Show calibration efficiency (percentage of theoretical peak)"
@@ -161,12 +306,30 @@ def main():
         action="store_true",
         help="List available hardware profiles"
     )
+    parser.add_argument(
+        "--summary", "-s",
+        action="store_true",
+        help="Show compact summary table of all registry records"
+    )
+    parser.add_argument(
+        "--table", "-t",
+        action="store_true",
+        help="Show compact efficiency table for calibrated hardware"
+    )
 
     args = parser.parse_args()
 
     # Load registry
     registry = get_registry()
     count = registry.load_all()
+
+    if args.summary:
+        show_summary_table(registry)
+        return 0
+
+    if args.table:
+        show_efficiency_table(registry)
+        return 0
 
     if args.list:
         print(f"Available hardware profiles ({count} loaded):\n")
