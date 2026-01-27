@@ -129,10 +129,16 @@ class HardwareProfile:
     """Theoretical peak DRAM memory bandwidth in GB/s."""
 
     l3_cache_bandwidth_gbps: Optional[float] = None
-    """Theoretical peak L3 cache bandwidth in GB/s (on-chip memory bandwidth)."""
+    """Theoretical peak L3 cache bandwidth in GB/s (CPUs: last-level cache)."""
 
     l3_cache_size_mb: Optional[float] = None
     """L3 cache size in MB. Data fitting within this size will hit cache, not DRAM."""
+
+    l2_cache_bandwidth_gbps: Optional[float] = None
+    """Theoretical peak L2 cache bandwidth in GB/s (GPUs: last-level on-chip cache)."""
+
+    l2_cache_size_mb: Optional[float] = None
+    """L2 cache size in MB. For GPUs, this is the shared L2 across all SMs."""
 
     # Architecture details
     architecture: Optional[str] = None
@@ -205,6 +211,39 @@ class HardwareProfile:
         return self.peak_bandwidth_gbps
 
     @property
+    def last_cache_bandwidth_gbps(self) -> Optional[float]:
+        """
+        Get the last (largest) on-chip cache bandwidth.
+
+        For CPUs: L3 cache bandwidth
+        For GPUs: L2 cache bandwidth (shared across SMs)
+
+        Returns None if no on-chip cache specs are available.
+        """
+        # Prefer L3 (CPUs) over L2 (GPUs) as L3 is typically the last level for CPUs
+        if self.l3_cache_bandwidth_gbps is not None:
+            return self.l3_cache_bandwidth_gbps
+        if self.l2_cache_bandwidth_gbps is not None:
+            return self.l2_cache_bandwidth_gbps
+        return None
+
+    @property
+    def last_cache_size_mb(self) -> Optional[float]:
+        """
+        Get the last (largest) on-chip cache size.
+
+        For CPUs: L3 cache size
+        For GPUs: L2 cache size
+
+        Returns None if no on-chip cache specs are available.
+        """
+        if self.l3_cache_size_mb is not None:
+            return self.l3_cache_size_mb
+        if self.l2_cache_size_mb is not None:
+            return self.l2_cache_size_mb
+        return None
+
+    @property
     def cpu_clock(self) -> Optional[CPUClockData]:
         """Get CPU clock data from calibration."""
         if self.calibration and self.calibration.metadata:
@@ -264,6 +303,10 @@ class HardwareProfile:
             result['l3_cache_bandwidth_gbps'] = self.l3_cache_bandwidth_gbps
         if self.l3_cache_size_mb:
             result['l3_cache_size_mb'] = self.l3_cache_size_mb
+        if self.l2_cache_bandwidth_gbps:
+            result['l2_cache_bandwidth_gbps'] = self.l2_cache_bandwidth_gbps
+        if self.l2_cache_size_mb:
+            result['l2_cache_size_mb'] = self.l2_cache_size_mb
         if self.architecture:
             result['architecture'] = self.architecture
         if self.compute_units:
@@ -310,6 +353,8 @@ class HardwareProfile:
             peak_bandwidth_gbps=data.get('peak_bandwidth_gbps', 0.0),
             l3_cache_bandwidth_gbps=data.get('l3_cache_bandwidth_gbps'),
             l3_cache_size_mb=data.get('l3_cache_size_mb'),
+            l2_cache_bandwidth_gbps=data.get('l2_cache_bandwidth_gbps'),
+            l2_cache_size_mb=data.get('l2_cache_size_mb'),
             architecture=data.get('architecture'),
             compute_units=data.get('compute_units'),
             memory_gb=data.get('memory_gb'),
