@@ -242,13 +242,21 @@ def show_efficiency_table(registry, precision_filter: str = None):
         print("Calibration Efficiency Summary (Best Precision)")
     print("=" * 56 + "=" * 31 + "=" * 28)
 
-    # Header - fixed width columns with vertical dividers
-    header = (
+    # Header - two lines with group labels and column headers
+    # Line 1: Group labels
+    header1 = (
         f"{'ID':<28} {'Mode':<11} {'Frmwk':<7} {'Prec':<5} | "
-        f"{'Comp Peak':>9} {'Comp Meas':>9} {'Comp Eff':>8} | "
-        f"{'BW Peak':>8} {'BW Meas':>8} {'BW Eff':>7}"
+        f"{'Compute':^28} | "
+        f"{'Bandwidth':^25}"
     )
-    print(header)
+    # Line 2: Column headers
+    header2 = (
+        f"{'':<28} {'':<11} {'':<7} {'':<5} | "
+        f"{'Peak':>9} {'Measured':>9} {'Effic':>8} | "
+        f"{'Peak':>8} {'Measured':>8} {'Effic':>7}"
+    )
+    print(header1)
+    print(header2)
     print("-" * 56 + "+" + "-" * 30 + "+" + "-" * 27)
 
     rows = []
