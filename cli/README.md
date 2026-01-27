@@ -18,6 +18,10 @@ Comprehensive how-to guides for each tool:
 - **[partition_analyzer.py](docs/partition_analyzer.md)** - Analyze and compare partitioning strategies
 - **[list_hardware_mappers.py](docs/list_hardware_mappers.md)** - Discover available hardware (35+ models)
 
+### Calibration & Benchmarking Tools
+- **[benchmark.py](docs/benchmark.md)** - Run microbenchmarks (GEMM, Conv2d, memory) on hardware
+- **[fit_calibration.py](#fit_calibrationpy)** - Fit calibration models from benchmark results
+
 ### Core Analysis Tools
 - **[compare_models.py](docs/compare_models.md)** - Compare models across hardware targets
 - **[analyze_graph_mapping.py](docs/analyze_graph_mapping.md)** - Complete guide to hardware mapping analysis
@@ -194,6 +198,160 @@ Model registry for torchvision 2.7 compatibility.
 from cli.model_registry_tv2dot7 import get_model
 
 model = get_model('resnet18')
+```
+
+---
+
+## Calibration Tools
+
+### `fit_calibration.py`
+Fit hardware performance models from benchmark measurements.
+
+This tool takes benchmark results (from `benchmark.py`) and fits:
+- **Roofline parameters**: bandwidth, compute ceilings, ridge point
+- **Energy coefficients**: pJ/op, pJ/byte, static power
+- **Utilization curves**: performance vs problem size
+
+**Usage:**
+```bash
+# Fit roofline from benchmark results
+./cli/fit_calibration.py --mode roofline --input results.json
+
+# Fit energy model from power measurements
+./cli/fit_calibration.py --mode energy --input results.json --peak-gflops 50000
+
+# Fit utilization curves
+./cli/fit_calibration.py --mode utilization --input results.json \
+    --peak-gflops 50000 --peak-bandwidth 2000
+
+# Run full calibration fitting
+./cli/fit_calibration.py --mode all --input results.json \
+    --peak-gflops 50000 --peak-bandwidth 2000 --device-name "NVIDIA H100"
+
+# Output calibration profile
+./cli/fit_calibration.py --mode all --input results.json --output profile.json
+
+# Generate quality report
+./cli/fit_calibration.py --mode all --input results.json --report quality.md
+
+# Update existing profile with new data
+./cli/fit_calibration.py --mode roofline --update existing.yaml --input new_results.json
+
+# YAML output format
+./cli/fit_calibration.py --mode all --input results.json --output profile.yaml
+```
+
+**Modes:**
+| Mode | Description |
+|------|-------------|
+| `roofline` | Fit bandwidth and compute ceilings from GEMM/memory benchmarks |
+| `energy` | Fit energy coefficients from power measurements |
+| `utilization` | Fit utilization curves vs problem size |
+| `all` | Run all calibration modes |
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--input, -i` | Input benchmark results (JSON) |
+| `--output, -o` | Output calibration profile (JSON or YAML) |
+| `--report, -r` | Generate quality report (Markdown) |
+| `--update, -u` | Update existing profile with new data |
+| `--peak-gflops` | Theoretical peak GFLOPS (FP32) |
+| `--peak-bandwidth` | Theoretical peak bandwidth (GB/s) |
+| `--device-name` | Hardware device name |
+| `--idle-power` | Idle power in watts |
+| `--peak-fp16` | Peak GFLOPS for FP16 |
+| `--peak-int8` | Peak GFLOPS for INT8 |
+| `--quiet, -q` | Suppress progress output |
+
+**Output Profile Format (JSON):**
+```json
+{
+  "metadata": {
+    "device_name": "NVIDIA H100",
+    "created_at": "2026-01-26T10:00:00",
+    "updated_at": "2026-01-26T12:00:00",
+    "peak_gflops": 50000,
+    "peak_bandwidth_gbps": 2000
+  },
+  "roofline": {
+    "achieved_bandwidth_gbps": 1600.0,
+    "achieved_compute_gflops": 42000.0,
+    "ridge_point": 26.25,
+    "bandwidth_efficiency": 0.80,
+    "compute_efficiency": 0.84
+  },
+  "energy": {
+    "compute_pj_per_op": 0.5,
+    "memory_pj_per_byte": 10.0,
+    "static_power_watts": 100.0
+  },
+  "utilization": {
+    "curves": {
+      "gemm": {
+        "fp32": {
+          "curve_type": "asymptotic",
+          "peak_utilization": 0.85,
+          "scale": 1e10,
+          "metrics": {
+            "r_squared": 0.95,
+            "num_data_points": 10
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**Quality Report Example:**
+```markdown
+# Calibration Quality Report
+
+Generated: 2026-01-26T12:00:00
+Device: NVIDIA H100
+
+## Roofline Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Achieved Bandwidth | 1600.0 GB/s |
+| Achieved Compute | 42000.0 GFLOPS |
+| Ridge Point | 26.25 FLOP/byte |
+| Bandwidth Efficiency | 80.0% |
+| Compute Efficiency | 84.0% |
+
+## Energy Coefficients
+
+| Parameter | Value |
+|-----------|-------|
+| Compute Energy | 0.500 pJ/op |
+| Memory Energy | 10.000 pJ/byte |
+| Static Power | 100.0 W |
+
+## Utilization Curves
+
+| Operation | Precision | Points | R^2 | Min Util | Max Util |
+|-----------|-----------|--------|-----|----------|----------|
+| gemm | fp32 | 10 | 0.950 | 0.35 | 0.85 |
+```
+
+**Workflow:**
+```bash
+# 1. Run benchmarks on hardware
+./cli/benchmark.py --suite gemm --device cuda:0 --output gemm_results.json
+./cli/benchmark.py --suite memory --device cuda:0 --output mem_results.json
+
+# 2. Combine results
+python -c "import json; d=json.load(open('gemm_results.json'))+json.load(open('mem_results.json')); json.dump(d,open('all_results.json','w'))"
+
+# 3. Fit calibration models
+./cli/fit_calibration.py --mode all --input all_results.json \
+    --peak-gflops 50000 --peak-bandwidth 2000 \
+    --output h100_calibration.yaml --report h100_quality.md
+
+# 4. Use calibration profile in analysis
+# (Calibration profiles are used by the estimation framework)
 ```
 
 ---
