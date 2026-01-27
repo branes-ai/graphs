@@ -29,8 +29,8 @@ This directory contains task specifications for delegatable work items.
 |----|-------|----------|--------|------------|--------|
 | TASK-2026-006 | Implement roofline parameter fitting | high | **completed** | - | 0.9.0-beta |
 | TASK-2026-008 | Implement energy coefficient fitting | high | **completed** | - | 0.9.0-beta |
-| TASK-2026-009 | Implement utilization factor calibration | high | ready | - | 0.9.0-beta |
-| TASK-2026-010 | Create calibration CLI tool | high | blocked | 009 | 0.9.0-beta |
+| TASK-2026-009 | Implement utilization factor calibration | high | **completed** | - | 0.9.0-beta |
+| TASK-2026-010 | Create calibration CLI tool | high | ready | - | 0.9.0-beta |
 | TASK-2026-011 | Run initial calibration on hardware | high | blocked | 010 | 0.9.0-beta |
 
 ## Task Dependency Graph
@@ -53,12 +53,12 @@ TASK-2026-001 (Benchmark Schema) [DONE]
 
 M3: Calibration Framework
 ==================================================
-TASK-2026-006 (Roofline Fitting) [DONE] -+
-                                         |
-TASK-2026-008 (Energy Fitting) [DONE] ---+---> TASK-2026-010 (Calibrate CLI)
-                                         |              |
-TASK-2026-009 (Utilization Fitting) -----+              v
-                                              TASK-2026-011 (Initial Calibration)
+TASK-2026-006 (Roofline Fitting) [DONE] -----+
+                                             |
+TASK-2026-008 (Energy Fitting) [DONE] -------+---> TASK-2026-010 (Calibrate CLI) [ready]
+                                             |              |
+TASK-2026-009 (Utilization Fitting) [DONE] --+              v
+                                                  TASK-2026-011 (Initial Calibration)
 ```
 
 ## Completed Tasks
@@ -72,6 +72,7 @@ TASK-2026-009 (Utilization Fitting) -----+              v
 | TASK-2026-005 | Create benchmark CLI tool | 2026-01-23 | 0.9.0-alpha |
 | TASK-2026-007 | Implement Conv2d microbenchmark suite | 2026-01-23 | 0.9.0-alpha |
 | TASK-2026-008 | Implement energy coefficient fitting | 2026-01-26 | 0.9.0-beta |
+| TASK-2026-009 | Implement utilization factor calibration | 2026-01-26 | 0.9.0-beta |
 
 ## Templates
 

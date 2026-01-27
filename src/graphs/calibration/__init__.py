@@ -76,6 +76,26 @@ from .power_model import (
     PowerBreakdown,
     EnergyBreakdown,
 )
+from .utilization_fitter import (
+    UtilizationFitter,
+    UtilizationFitQuality,
+    UtilizationFitMetrics,
+    UtilizationCurveResult,
+    UtilizationProfile,
+    fit_utilization,
+)
+from .utilization_curves import (
+    UtilizationCurve,
+    AsymptoticUtilizationCurve,
+    PiecewiseLinearUtilizationCurve,
+    PolynomialUtilizationCurve,
+    ConstantUtilizationCurve,
+    fit_utilization_curve,
+    auto_fit_utilization_curve,
+    create_typical_compute_curve,
+    create_typical_memory_curve,
+    interpolate_utilization,
+)
 
 __all__ = [
     # Schema
@@ -129,4 +149,22 @@ __all__ = [
     'PowerSource',
     'PowerBreakdown',
     'EnergyBreakdown',
+    # Utilization fitting (TASK-2026-009)
+    'UtilizationFitter',
+    'UtilizationFitQuality',
+    'UtilizationFitMetrics',
+    'UtilizationCurveResult',
+    'UtilizationProfile',
+    'fit_utilization',
+    # Utilization curves (TASK-2026-009)
+    'UtilizationCurve',
+    'AsymptoticUtilizationCurve',
+    'PiecewiseLinearUtilizationCurve',
+    'PolynomialUtilizationCurve',
+    'ConstantUtilizationCurve',
+    'fit_utilization_curve',
+    'auto_fit_utilization_curve',
+    'create_typical_compute_curve',
+    'create_typical_memory_curve',
+    'interpolate_utilization',
 ]
