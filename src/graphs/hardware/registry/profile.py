@@ -19,7 +19,7 @@ from pathlib import Path
 import json
 import re
 
-from ..calibration.schema import (
+from graphs.calibration.schema import (
     HardwareCalibration,
     CalibrationMetadata,
     CPUClockData,
