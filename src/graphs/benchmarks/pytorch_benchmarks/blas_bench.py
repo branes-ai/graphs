@@ -251,7 +251,7 @@ def _generate_random_tensor(shape, dtype, device='cpu'):
 def benchmark_blas1_dot_pytorch(
     size: int,
     device: str = 'cpu',
-    dtype=torch.float32,
+    dtype=None,
     num_trials: int = 10,
     num_warmup: int = 3
 ) -> Dict:
@@ -264,6 +264,8 @@ def benchmark_blas1_dot_pytorch(
     """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
+    if dtype is None:
+        dtype = torch.float32
 
     torch_device = torch.device(device)
 
@@ -324,7 +326,7 @@ def benchmark_blas1_dot_pytorch(
 def benchmark_blas1_axpy_pytorch(
     size: int,
     device: str = 'cpu',
-    dtype=torch.float32,
+    dtype=None,
     num_trials: int = 10,
     num_warmup: int = 3
 ) -> Dict:
@@ -337,6 +339,8 @@ def benchmark_blas1_axpy_pytorch(
     """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
+    if dtype is None:
+        dtype = torch.float32
 
     torch_device = torch.device(device)
 
@@ -402,7 +406,7 @@ def benchmark_blas1_axpy_pytorch(
 def benchmark_blas2_gemv_pytorch(
     size: int,
     device: str = 'cpu',
-    dtype=torch.float32,
+    dtype=None,
     num_trials: int = 10,
     num_warmup: int = 3
 ) -> Dict:
@@ -415,6 +419,8 @@ def benchmark_blas2_gemv_pytorch(
     """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
+    if dtype is None:
+        dtype = torch.float32
 
     torch_device = torch.device(device)
 
@@ -483,7 +489,7 @@ def benchmark_blas2_gemv_pytorch(
 def benchmark_blas3_gemm_pytorch(
     size: int,
     device: str = 'cpu',
-    dtype=torch.float32,
+    dtype=None,
     num_trials: int = 10,
     num_warmup: int = 3,
     timeout_seconds: int = 5,
@@ -506,6 +512,8 @@ def benchmark_blas3_gemm_pytorch(
     """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
+    if dtype is None:
+        dtype = torch.float32
 
     # Convert dtype to string for pickling across process boundary
     dtype_name = str(dtype).split('.')[-1]  # e.g., "torch.float32" -> "float32"
