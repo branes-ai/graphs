@@ -276,6 +276,8 @@ def calibrate_hardware(
         governor=cpu_clock_info.governor,
         driver=cpu_clock_info.driver,
         turbo_enabled=cpu_clock_info.turbo_enabled,
+        nvpmodel_mode=cpu_clock_info.nvpmodel_mode,
+        power_mode_name=cpu_clock_info.power_mode_name,
     )
 
     print(f"  CPU Freq: {cpu_clock_info.current_freq_mhz:.0f} MHz", end="")
@@ -286,6 +288,11 @@ def calibrate_hardware(
         print()
     if cpu_clock_info.governor:
         print(f"  Governor: {cpu_clock_info.governor}")
+    if cpu_clock_info.power_mode_name:
+        mode_str = cpu_clock_info.power_mode_name
+        if cpu_clock_info.nvpmodel_mode is not None:
+            mode_str += f" (nvpmodel {cpu_clock_info.nvpmodel_mode})"
+        print(f"  Power Mode: {mode_str}")
     if cpu_clock_info.turbo_enabled is not None:
         print(f"  Turbo:    {'Enabled' if cpu_clock_info.turbo_enabled else 'Disabled'}")
     print()
