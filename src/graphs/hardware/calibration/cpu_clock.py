@@ -18,6 +18,7 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 import platform
 from typing import Dict, List, Optional
@@ -55,6 +56,13 @@ class CPUClockInfo:
     # Turbo/boost state
     turbo_enabled: Optional[bool] = None
     """Whether turbo boost is enabled."""
+
+    # Jetson-specific (nvpmodel)
+    nvpmodel_mode: Optional[int] = None
+    """Jetson NVPModel power mode (0=MAXN, 1=15W, etc.)."""
+
+    power_mode_name: Optional[str] = None
+    """Human-readable power mode name (e.g., 'MAXN', '15W', '25W')."""
 
     # Query metadata
     query_method: str = "unknown"
@@ -312,6 +320,44 @@ def _query_psutil() -> Optional[CPUClockInfo]:
         )
 
 
+def _query_jetson_nvpmodel() -> Optional[Dict]:
+    """
+    Query Jetson power mode using nvpmodel.
+
+    On Jetson systems, nvpmodel controls both CPU and GPU power limits.
+    This function is duplicated from gpu_clock.py to avoid circular imports.
+
+    Returns:
+        Dict with nvpmodel_mode and power_mode_name, or None if not available.
+    """
+    try:
+        result = subprocess.run(
+            ['nvpmodel', '-q'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode != 0:
+            return None
+
+        # Parse output like: "NV Power Mode: MAXN" or "NV Power Mode: 15W"
+        output = result.stdout
+        mode_match = re.search(r'NV Power Mode:\s*(\S+)', output)
+        id_match = re.search(r'(\d+)', output)
+
+        if mode_match:
+            return {
+                'power_mode_name': mode_match.group(1),
+                'nvpmodel_mode': int(id_match.group(1)) if id_match else None
+            }
+
+        return None
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        return None
+
+
 def get_cpu_clock_info() -> CPUClockInfo:
     """
     Query current CPU clock frequencies.
@@ -321,6 +367,8 @@ def get_cpu_clock_info() -> CPUClockInfo:
     - macOS: sysctl -> psutil
     - Windows/Other: psutil
 
+    On Jetson systems, also queries nvpmodel for power mode info.
+
     Returns:
         CPUClockInfo with available clock data
 
@@ -329,37 +377,42 @@ def get_cpu_clock_info() -> CPUClockInfo:
         >>> print(f"Current: {info.current_freq_mhz:.0f} MHz")
         >>> print(f"Max: {info.max_freq_mhz:.0f} MHz")
         >>> print(f"Governor: {info.governor}")
+        >>> print(f"Power Mode: {info.power_mode_name}")  # On Jetson
     """
     system = platform.system()
+    info = None
 
     if system == 'Linux':
         # Try sysfs first (most detailed)
         info = _query_linux_sysfs()
-        if info and info.query_success:
-            return info
-
-        # Try /proc/cpuinfo
-        info = _query_linux_cpuinfo()
-        if info and info.query_success:
-            return info
+        if not (info and info.query_success):
+            # Try /proc/cpuinfo
+            info = _query_linux_cpuinfo()
 
     elif system == 'Darwin':
         # macOS
         info = _query_macos_sysctl()
-        if info and info.query_success:
-            return info
 
     # Fallback to psutil (cross-platform)
-    info = _query_psutil()
-    if info and info.query_success:
-        return info
+    if not (info and info.query_success):
+        info = _query_psutil()
 
-    # Return failure info
-    return CPUClockInfo(
-        query_method='none',
-        query_success=False,
-        error_message='No CPU clock query method available'
-    )
+    # If still no success, return failure
+    if not (info and info.query_success):
+        return CPUClockInfo(
+            query_method='none',
+            query_success=False,
+            error_message='No CPU clock query method available'
+        )
+
+    # On Linux, check for Jetson nvpmodel (controls both CPU and GPU power modes)
+    if system == 'Linux':
+        nvp = _query_jetson_nvpmodel()
+        if nvp:
+            info.nvpmodel_mode = nvp.get('nvpmodel_mode')
+            info.power_mode_name = nvp.get('power_mode_name')
+
+    return info
 
 
 def print_cpu_clock_info():
