@@ -519,8 +519,10 @@ def main():
 
             # Sanitize power mode name
             import re
+            from datetime import datetime, timezone
             power_mode = re.sub(r'[^a-zA-Z0-9]', '', power_mode)
-            new_filename = f"{power_mode}_{freq}MHz_{selected_framework}.json"
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            new_filename = f"{power_mode}_{freq}MHz_{selected_framework}_{timestamp}.json"
             final_output_path = output_path.parent / new_filename
 
             # Rename the file
