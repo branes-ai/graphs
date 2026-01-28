@@ -136,19 +136,20 @@ def show_calibration_efficiency(profile, calibration, power_mode: str = None):
 
 
 def show_summary_table(registry):
-    """Display a compact summary table of all registry records."""
+    """Display a compact summary table of all registry records, one row per power mode."""
     print()
     print("Hardware Registry Summary")
-    print("=" * 120)
+    print("=" * 130)
 
     # Header
     header = (
-        f"{'ID':<35} {'Type':<5} {'TDP':>6} "
+        f"{'ID':<35} {'Type':<5} {'Mode':<8} {'TDP':>5} "
         f"{'Peak Compute':>14} {'Peak BW':>10} {'Best Prec':<8} {'Calibrated'}"
     )
     print(header)
-    print("-" * 120)
+    print("-" * 130)
 
+    total_rows = 0
     for hw_id in sorted(registry.list_all()):
         profile = registry.get(hw_id)
         if not profile:
@@ -157,45 +158,99 @@ def show_summary_table(registry):
         # Device type
         dev_type = profile.device_type[:5].upper() if profile.device_type else "?"
 
-        # TDP
-        tdp = f"{profile.tdp_watts:.0f}W" if profile.tdp_watts else "N/A"
-
-        # Peak compute - find best precision
-        peaks = profile.theoretical_peaks or {}
-        best_prec = None
-        best_value = 0
-        for prec, val in peaks.items():
-            if val > best_value:
-                best_value = val
-                best_prec = prec
-
-        if best_value >= 1000:
-            compute_str = f"{best_value/1000:.1f} TFLOPS"
-        elif best_value > 0:
-            compute_str = f"{best_value:.0f} GFLOPS"
-        else:
-            compute_str = "N/A"
-
-        best_prec_str = best_prec.upper() if best_prec else "N/A"
-
-        # Peak bandwidth
-        bw = profile.peak_bandwidth_gbps
-        if bw and bw > 0:
-            bw_str = f"{bw:.0f} GB/s"
-        else:
-            bw_str = "N/A"
-
-        # Check if calibrated
+        # Get calibrations grouped by power mode
         calibrations = registry.list_calibrations(hw_id)
-        if calibrations:
-            cal_str = f"Yes ({len(calibrations)})"
-        else:
-            cal_str = "No"
+        cal_by_mode = {}
+        for cal in calibrations:
+            mode = cal.get('power_mode', 'default')
+            if mode not in cal_by_mode:
+                cal_by_mode[mode] = []
+            cal_by_mode[mode].append(cal)
 
-        print(f"{hw_id:<35} {dev_type:<5} {tdp:>6} {compute_str:>14} {bw_str:>10} {best_prec_str:<8} {cal_str}")
+        # Determine which power modes to show
+        # Use power_profiles if available, otherwise just show one row
+        power_modes = []
+        if profile.power_profiles and isinstance(profile.power_profiles, dict):
+            power_modes = list(profile.power_profiles.keys())
 
-    print("-" * 120)
-    print(f"Total: {len(registry.list_all())} hardware profiles")
+        # Also include any calibrated modes not in power_profiles
+        for mode in cal_by_mode.keys():
+            if mode not in power_modes:
+                power_modes.append(mode)
+
+        # If no power modes defined, show single row with "default"
+        if not power_modes:
+            power_modes = ['default']
+
+        # Sort power modes: numeric W values first, then named modes
+        def mode_sort_key(m):
+            # Try to extract numeric value (e.g., "15W" -> 15)
+            import re
+            match = re.match(r'(\d+)W?', m)
+            if match:
+                return (0, int(match.group(1)), m)
+            # Named modes like MAXN come after numeric
+            return (1, 0, m)
+
+        power_modes.sort(key=mode_sort_key)
+
+        # Base theoretical peaks (at boost clock)
+        base_peaks = profile.theoretical_peaks or {}
+        base_best_prec = None
+        base_best_value = 0
+        for prec, val in base_peaks.items():
+            if val > base_best_value:
+                base_best_value = val
+                base_best_prec = prec
+
+        boost_clock = profile.boost_clock_mhz or 1.0
+
+        for mode in power_modes:
+            # Get mode-specific values
+            mode_profile = {}
+            if profile.power_profiles and isinstance(profile.power_profiles, dict):
+                mode_profile = profile.power_profiles.get(mode, {})
+
+            # TDP for this mode
+            mode_tdp = mode_profile.get('power_limit_w', profile.tdp_watts)
+            tdp_str = f"{mode_tdp:.0f}W" if mode_tdp else "N/A"
+
+            # Peak compute scaled by clock ratio
+            mode_clock = mode_profile.get('clock_mhz', boost_clock)
+            clock_ratio = mode_clock / boost_clock if boost_clock else 1.0
+            scaled_peak = base_best_value * clock_ratio
+
+            if scaled_peak >= 1000:
+                compute_str = f"{scaled_peak/1000:.1f} TFLOPS"
+            elif scaled_peak > 0:
+                compute_str = f"{scaled_peak:.0f} GFLOPS"
+            else:
+                compute_str = "N/A"
+
+            best_prec_str = base_best_prec.upper() if base_best_prec else "N/A"
+
+            # Peak bandwidth (may vary by mode for some hardware like Jetson)
+            mode_bw = mode_profile.get('peak_bandwidth_gbps', profile.peak_bandwidth_gbps)
+            if mode_bw and mode_bw > 0:
+                bw_str = f"{mode_bw:.0f} GB/s"
+            else:
+                bw_str = "N/A"
+
+            # Calibration count for this mode
+            mode_cals = cal_by_mode.get(mode, [])
+            if mode_cals:
+                cal_str = f"Yes ({len(mode_cals)})"
+            else:
+                cal_str = "No"
+
+            # Mode display (truncate if needed)
+            mode_str = mode[:8] if mode else "default"
+
+            print(f"{hw_id:<35} {dev_type:<5} {mode_str:<8} {tdp_str:>5} {compute_str:>14} {bw_str:>10} {best_prec_str:<8} {cal_str}")
+            total_rows += 1
+
+    print("-" * 130)
+    print(f"Total: {len(registry.list_all())} hardware profiles, {total_rows} power mode configurations")
     print()
 
 
