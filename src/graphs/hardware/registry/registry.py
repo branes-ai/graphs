@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from .config import RegistryConfig, get_config
 from .profile import HardwareProfile
-from ..calibration.schema import HardwareCalibration
+from graphs.calibration.schema import HardwareCalibration
 
 
 # Global registry instance
@@ -557,8 +557,8 @@ class HardwareRegistry:
             ValueError: If hardware_id not found in registry
             RuntimeError: If pre-flight checks fail and force=False
         """
-        from ..calibration.calibrator import calibrate_hardware
-        from ..calibration.logging import CalibrationLogger, get_logger
+        from graphs.calibration.calibrator import calibrate_hardware
+        from graphs.calibration.logging import CalibrationLogger, get_logger
 
         profile = self.get(hardware_id)
         if not profile:
@@ -631,7 +631,7 @@ class HardwareRegistry:
             RuntimeError: If hardware not detected or not in registry
             RuntimeError: If pre-flight checks fail and force=False
         """
-        from ..calibration.calibrator import calibrate_hardware
+        from graphs.calibration.calibrator import calibrate_hardware
         from ..database import HardwareDetector
 
         # Detect hardware with preference based on framework
@@ -657,7 +657,7 @@ class HardwareRegistry:
             )
 
         # Create new profile for unknown hardware
-        from ..calibration.logging import CalibrationLogger
+        from graphs.calibration.logging import CalibrationLogger
 
         print(f"Creating new profile for: {detection.detected_name}")
         profile = self._create_profile_from_detection(detection)
