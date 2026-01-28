@@ -27,7 +27,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union, TextIO
+from typing import List, Optional, Union, TextIO
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -194,7 +194,7 @@ class CalibrationLogger:
 
         self._log_file: Optional[TextIO] = None
         self._log_path: Optional[Path] = None
-        self._lines: list[str] = []  # Buffer for log content
+        self._lines: List[str] = []  # Buffer for log content
         self._original_stdout: Optional[TextIO] = None
         self._tee_stream: Optional[TeeStream] = None
 
@@ -302,7 +302,7 @@ class CalibrationLogger:
         """Print a blank line."""
         self._write("")
 
-    def table_header(self, *columns: str, widths: Optional[list[int]] = None):
+    def table_header(self, *columns: str, widths: Optional[List[int]] = None):
         """
         Print a table header row.
 
@@ -317,7 +317,7 @@ class CalibrationLogger:
         self._write(header)
         self._write("-" * len(header))
 
-    def table_row(self, *values, widths: Optional[list[int]] = None):
+    def table_row(self, *values, widths: Optional[List[int]] = None):
         """
         Print a table row.
 
