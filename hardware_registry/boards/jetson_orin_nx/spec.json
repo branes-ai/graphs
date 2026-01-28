@@ -1,0 +1,54 @@
+{
+  "id": "jetson_orin_nx",
+  "vendor": "NVIDIA",
+  "model": "Jetson Orin NX Developer Kit",
+  "device_type": "board",
+  "product_category": "edge",
+  "platform": "aarch64",
+  "memory_gb": 16,
+  "memory_type": "LPDDR5",
+  "memory_bandwidth_gbps": 102.0,
+  "tdp_watts": 25,
+  "power_profiles": ["10W", "15W", "25W", "MAXN"],
+  "compute_units": [
+    {
+      "id": "jetson_orin_nx_16gb_cpu",
+      "type": "cpu",
+      "count": 1,
+      "role": "host",
+      "notes": "8-core ARM Cortex-A78AE"
+    },
+    {
+      "id": "jetson_orin_nx_16gb_gpu",
+      "type": "gpu",
+      "count": 1,
+      "role": "accelerator",
+      "notes": "1024 CUDA cores, 8 SMs, Ampere architecture"
+    },
+    {
+      "id": "nvidia_dla_orin",
+      "type": "accelerator",
+      "count": 2,
+      "role": "accelerator",
+      "notes": "2x DLA 2.0 cores for CNN inference via TensorRT"
+    }
+  ],
+  "additional_units": [
+    {
+      "type": "video_encoder",
+      "capabilities": ["H.265", "H.264", "AV1"],
+      "notes": "NVENC hardware encoder"
+    },
+    {
+      "type": "video_decoder",
+      "capabilities": ["H.265", "H.264", "VP9", "AV1"],
+      "notes": "NVDEC hardware decoder"
+    },
+    {
+      "type": "isp",
+      "count": 2,
+      "notes": "Image Signal Processors for camera pipelines"
+    }
+  ],
+  "notes": "Mid-range Jetson Orin module. 8-core CPU (vs 6 for Nano, 12 for AGX). Same GPU as Nano (1024 CUDA cores). Heterogeneous compute with CPU, GPU, and 2x DLA accelerators. Unified LPDDR5 memory (102 GB/s) shared across all compute units."
+}
