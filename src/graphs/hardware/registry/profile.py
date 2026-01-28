@@ -79,14 +79,29 @@ def _parse_calibration_filename(filename: str) -> Optional[Dict[str, Any]]:
     """
     Parse calibration filename to extract metadata.
 
-    Returns dict with power_mode, freq_mhz, framework or None if invalid.
+    Supports two formats:
+        {power_mode}_{freq}MHz_{framework}_{timestamp}.json  (new, preserves all runs)
+        {power_mode}_{freq}MHz_{framework}.json              (legacy, no timestamp)
+
+    Returns dict with power_mode, freq_mhz, framework, timestamp or None if invalid.
     """
+    # New format with UTC timestamp suffix
+    match = re.match(r'^([^_]+)_(\d+)MHz_([a-zA-Z]+)_(\d{8}T\d{6}Z)\.json$', filename)
+    if match:
+        return {
+            'power_mode': match.group(1),
+            'freq_mhz': int(match.group(2)),
+            'framework': match.group(3),
+            'timestamp': match.group(4),
+        }
+    # Legacy format without timestamp
     match = re.match(r'^([^_]+)_(\d+)MHz_([^.]+)\.json$', filename)
     if match:
         return {
             'power_mode': match.group(1),
             'freq_mhz': int(match.group(2)),
             'framework': match.group(3),
+            'timestamp': None,
         }
     return None
 
