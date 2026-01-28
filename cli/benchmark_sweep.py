@@ -62,10 +62,10 @@ from typing import Dict, List, Optional
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from graphs.hardware.calibration.auto_detect import (
+from graphs.calibration.auto_detect import (
     CalibrationContext, HardwareIdentity, SoftwareStack, detect_all
 )
-from graphs.hardware.calibration.calibration_db import (
+from graphs.calibration.calibration_db import (
     CalibrationDB, CalibrationRun, RegressionAlert
 )
 
@@ -93,7 +93,7 @@ def run_micro_kernel_layer(
     Returns:
         List of CalibrationRun objects with results.
     """
-    from graphs.hardware.calibration.calibrator import calibrate_hardware
+    from graphs.calibration.calibrator import calibrate_hardware
 
     print()
     print("=" * 70)
