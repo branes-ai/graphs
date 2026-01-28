@@ -311,7 +311,7 @@ def match_hardware_to_registry(device_info: Dict[str, Any], device_type: str = '
         RuntimeError: If graphs package not available or no match found
     """
     try:
-        from graphs.hardware.calibration.registry_sync import get_registry
+        from graphs.calibration.registry_sync import get_registry
     except ImportError:
         raise RuntimeError(
             "graphs package not installed. This script requires the graphs package for hardware auto-detection.\n"

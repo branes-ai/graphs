@@ -39,8 +39,8 @@ from typing import Dict, List, Optional, Tuple
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from graphs.hardware.calibration.calibration_db import CalibrationDB, CalibrationRun, RegressionAlert
-from graphs.hardware.calibration.auto_detect import detect_all, CalibrationContext
+from graphs.calibration.calibration_db import CalibrationDB, CalibrationRun, RegressionAlert
+from graphs.calibration.auto_detect import detect_all, CalibrationContext
 
 
 # =============================================================================

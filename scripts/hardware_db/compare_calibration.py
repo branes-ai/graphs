@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from graphs.hardware.database import HardwareDatabase, get_database
-from graphs.hardware.calibration.calibrator import load_calibration
+from graphs.calibration.calibrator import load_calibration
 
 
 def compare_theoretical_vs_calibrated(hw_spec, calibration, verbose=False):

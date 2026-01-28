@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from graphs.hardware.registry import get_registry, HardwareProfile
-from graphs.hardware.calibration.schema import HardwareCalibration
+from graphs.calibration.schema import HardwareCalibration
 
 
 @dataclass

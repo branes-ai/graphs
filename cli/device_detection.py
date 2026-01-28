@@ -31,8 +31,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from calibrate_hardware import detect_actual_device, detect_platform
 from graphs.hardware.database import HardwareDetector
-from graphs.hardware.calibration.gpu_clock import get_gpu_clock_info, GPUClockInfo
-from graphs.hardware.calibration.cpu_clock import get_cpu_clock_info, CPUClockInfo
+from graphs.calibration.gpu_clock import get_gpu_clock_info, GPUClockInfo
+from graphs.calibration.cpu_clock import get_cpu_clock_info, CPUClockInfo
 
 
 def format_size(size_kb: int) -> str:
