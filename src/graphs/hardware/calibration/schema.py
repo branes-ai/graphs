@@ -394,6 +394,13 @@ class CPUClockData:
     turbo_enabled: Optional[bool] = None
     """Whether turbo boost is enabled."""
 
+    # Jetson-specific (nvpmodel)
+    nvpmodel_mode: Optional[int] = None
+    """Jetson NVPModel power mode number (0=MAXN, etc.)."""
+
+    power_mode_name: Optional[str] = None
+    """Human-readable power mode name (e.g., 'MAXN', '15W', '25W')."""
+
     def to_dict(self) -> Dict:
         """Convert to dictionary, excluding None/empty values."""
         result = {}
