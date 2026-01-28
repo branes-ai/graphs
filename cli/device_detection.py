@@ -8,6 +8,7 @@ Detects and displays complete system information for characterization:
 - GPU: NVIDIA, AMD, and Intel GPUs with memory and driver info
 - Board: Embedded system detection (Jetson, Raspberry Pi, etc.)
 - Memory: System RAM and NUMA configuration
+- Runtime: Current clock frequencies, power modes, temperatures
 
 Usage:
     ./cli/device_detection.py              # Full detection report
@@ -17,6 +18,7 @@ Usage:
     ./cli/device_detection.py --section gpu       # Show only GPU info
     ./cli/device_detection.py --section board     # Show only board info
     ./cli/device_detection.py --section memory    # Show only memory info
+    ./cli/device_detection.py --section runtime   # Show only runtime state (clocks, power)
 """
 
 import argparse
@@ -29,6 +31,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from calibrate_hardware import detect_actual_device, detect_platform
 from graphs.hardware.database import HardwareDetector
+from graphs.hardware.calibration.gpu_clock import get_gpu_clock_info, GPUClockInfo
+from graphs.hardware.calibration.cpu_clock import get_cpu_clock_info, CPUClockInfo
 
 
 def format_size(size_kb: int) -> str:
@@ -255,6 +259,58 @@ def print_memory_info(memory):
             print(f"    {ch.name}: {' / '.join(details)}")
 
 
+def print_runtime_info(platform_info: dict):
+    """Print runtime state: current clocks, power modes, temperatures."""
+    print_section_header("RUNTIME STATE")
+
+    # CPU Runtime
+    print()
+    print("CPU:")
+    try:
+        cpu_clock = get_cpu_clock_info()
+        if cpu_clock.query_success:
+            if cpu_clock.current_freq_mhz:
+                print(f"  Current Frequency: {cpu_clock.current_freq_mhz:.0f} MHz")
+            if cpu_clock.min_freq_mhz and cpu_clock.max_freq_mhz:
+                print(f"  Frequency Range:   {cpu_clock.min_freq_mhz:.0f} - {cpu_clock.max_freq_mhz:.0f} MHz")
+            if cpu_clock.governor:
+                print(f"  Governor:          {cpu_clock.governor}")
+            if cpu_clock.driver:
+                print(f"  Scaling Driver:    {cpu_clock.driver}")
+            print(f"  Query Method:      {cpu_clock.query_method}")
+        else:
+            print(f"  Query failed: {cpu_clock.error_message or 'Unknown error'}")
+    except Exception as e:
+        print(f"  Query failed: {e}")
+
+    # GPU Runtime (only if CUDA available)
+    if platform_info.get('cuda_available'):
+        print()
+        print("GPU:")
+        try:
+            gpu_clock = get_gpu_clock_info()
+            if gpu_clock.query_success:
+                if gpu_clock.sm_clock_mhz:
+                    max_str = f" (max: {gpu_clock.max_sm_clock_mhz})" if gpu_clock.max_sm_clock_mhz else ""
+                    print(f"  SM Clock:          {gpu_clock.sm_clock_mhz} MHz{max_str}")
+                if gpu_clock.mem_clock_mhz:
+                    max_str = f" (max: {gpu_clock.max_mem_clock_mhz})" if gpu_clock.max_mem_clock_mhz else ""
+                    print(f"  Memory Clock:      {gpu_clock.mem_clock_mhz} MHz{max_str}")
+                if gpu_clock.power_mode_name:
+                    mode_num = f" (mode {gpu_clock.nvpmodel_mode})" if gpu_clock.nvpmodel_mode is not None else ""
+                    print(f"  Power Mode:        {gpu_clock.power_mode_name}{mode_num}")
+                if gpu_clock.power_draw_watts:
+                    limit_str = f" / {gpu_clock.power_limit_watts:.0f}W limit" if gpu_clock.power_limit_watts else ""
+                    print(f"  Power Draw:        {gpu_clock.power_draw_watts:.1f}W{limit_str}")
+                if gpu_clock.temperature_c:
+                    print(f"  Temperature:       {gpu_clock.temperature_c} C")
+                print(f"  Query Method:      {gpu_clock.query_method}")
+            else:
+                print(f"  Query failed: {gpu_clock.error_message or 'Unknown error'}")
+        except Exception as e:
+            print(f"  Query failed: {e}")
+
+
 def print_device_availability(platform_info: dict):
     """Print device availability summary for compute."""
     print_section_header("COMPUTE DEVICE AVAILABILITY")
@@ -352,6 +408,43 @@ def collect_all_info() -> dict:
             ] if memory.channels else [],
         }
 
+    # Runtime state (clocks, power modes)
+    runtime = {'cpu': None, 'gpu': None}
+    try:
+        cpu_clock = get_cpu_clock_info()
+        if cpu_clock.query_success:
+            runtime['cpu'] = {
+                'current_freq_mhz': cpu_clock.current_freq_mhz,
+                'min_freq_mhz': cpu_clock.min_freq_mhz,
+                'max_freq_mhz': cpu_clock.max_freq_mhz,
+                'governor': cpu_clock.governor,
+                'driver': cpu_clock.driver,
+                'query_method': cpu_clock.query_method,
+            }
+    except Exception:
+        pass
+
+    if platform_info.get('cuda_available'):
+        try:
+            gpu_clock = get_gpu_clock_info()
+            if gpu_clock.query_success:
+                runtime['gpu'] = {
+                    'sm_clock_mhz': gpu_clock.sm_clock_mhz,
+                    'max_sm_clock_mhz': gpu_clock.max_sm_clock_mhz,
+                    'mem_clock_mhz': gpu_clock.mem_clock_mhz,
+                    'max_mem_clock_mhz': gpu_clock.max_mem_clock_mhz,
+                    'power_mode_name': gpu_clock.power_mode_name,
+                    'nvpmodel_mode': gpu_clock.nvpmodel_mode,
+                    'power_draw_watts': gpu_clock.power_draw_watts,
+                    'power_limit_watts': gpu_clock.power_limit_watts,
+                    'temperature_c': gpu_clock.temperature_c,
+                    'query_method': gpu_clock.query_method,
+                }
+        except Exception:
+            pass
+
+    result['runtime'] = runtime
+
     return result
 
 
@@ -365,7 +458,7 @@ def main():
     parser.add_argument("--json", action="store_true",
                         help="Output in JSON format")
     parser.add_argument("--section", type=str,
-                        choices=['platform', 'cpu', 'gpu', 'board', 'memory', 'all'],
+                        choices=['platform', 'cpu', 'gpu', 'board', 'memory', 'runtime', 'all'],
                         default='all',
                         help="Show only specific section (default: all)")
 
@@ -407,6 +500,9 @@ def main():
 
     if args.section in ['all', 'memory']:
         print_memory_info(hardware.get('memory'))
+
+    if args.section in ['all', 'runtime']:
+        print_runtime_info(platform_info)
 
     if args.section == 'all':
         print_device_availability(platform_info)
