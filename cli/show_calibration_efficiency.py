@@ -433,6 +433,8 @@ def show_efficiency_table(registry, precision_filter: str = None):
                 'freq_mhz': cal_info['freq_mhz'],
                 'framework': cal_info['framework'],
             }
+            if cal_info.get('timestamp'):
+                cal_filter['timestamp'] = cal_info['timestamp']
             full_profile = registry.get(hw_id, calibration_filter=cal_filter)
 
             if not full_profile or not full_profile.calibration:
