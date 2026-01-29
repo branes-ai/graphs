@@ -524,6 +524,9 @@ class HardwareProfile:
                 if 'framework' in calibration_filter:
                     if c['framework'].lower() != calibration_filter['framework'].lower():
                         match = False
+                if 'timestamp' in calibration_filter:
+                    if c.get('timestamp') != calibration_filter['timestamp']:
+                        match = False
                 if match:
                     filtered.append(c)
             candidates = filtered
