@@ -1066,3 +1066,600 @@ Next steps:
   3. Use in analysis (calibration auto-loaded from registry):
      ./cli/analyze_comprehensive.py --model resnet18 --hardware jetson_orin_agx_gpu
 
+
+================================================================================
+Using Hardware from Registry: jetson_orin_agx_gpu
+================================================================================
+  Vendor:   NVIDIA
+  Model:    Jetson Orin AGX (GPU)
+  Type:     gpu
+  Arch:     Ampere
+
+
+================================================================================
+ERROR: Framework Selection Failed
+================================================================================
+  PyTorch framework requested but PyTorch is not installed
+
+
+================================================================================
+Using Hardware from Registry: jetson_orin_agx_gpu
+================================================================================
+  Vendor:   NVIDIA
+  Model:    Jetson Orin AGX (GPU)
+  Type:     gpu
+  Arch:     Ampere
+
+
+================================================================================
+EXECUTION DEVICE
+================================================================================
+  Requested device: CUDA
+  Actual device:    GPU (Orin)
+  Framework:        PYTORCH
+
+================================================================================
+Hardware Calibration: Jetson Orin AGX (GPU)
+================================================================================
+
+Running pre-flight checks...
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+[OK] CPU Governor: schedutil (Jetson default)
+    Current:  schedutil
+    Expected: schedutil or performance
+[OK] CPU Frequency: 1216 MHz idle (DVFS will boost under load)
+    Current:  1216 MHz (idle)
+    Expected: Up to 1728 MHz under load
+[-] Turbo Boost: Could not determine (not Intel pstate)
+[OK] System Load: 0.3% (idle)
+    Current:  0.3%
+    Expected: < 5%
+[OK] Thermal State: 41°C (cool)
+    Current:  41°C
+    Expected: < 80°C
+[!] GPU Power Mode: MODE_30W (unknown mode)
+    Current:  MODE_30W
+    Expected: Known mode (MAXN, 7W, 15W, 25W, etc.)
+
+RESULT: PASSED with warnings
+  Calibration will proceed, but results may not represent peak performance.
+======================================================================
+
+[!] Note: Some pre-flight checks have warnings.
+  Results may not represent absolute peak performance.
+
+System Information:
+  CPU: aarch64
+  Cores: 8 physical, 8 logical
+  Memory: 61.3 GB
+  Python: 3.8.10
+  NumPy: 1.24.4
+  PyTorch: 2.1.0a0+41361538.nv23.06
+
+Execution Device:
+  Running on: GPU (Orin)
+  Framework:  PYTORCH
+              (PyTorch DL framework, GPU-accelerated)
+
+Querying CPU clock frequencies...
+  CPU Freq: 1216 MHz (70% of max 1728 MHz)
+  Governor: schedutil
+  Power Mode: MODE_30W (nvpmodel 30)
+
+Querying GPU clock frequencies...
+  Running warmup to capture clock under load...
+  SM Clock: 612 MHz (100% of max 612 MHz)
+  Power Mode: MODE_30W
+
+Running calibration benchmarks...
+
+1. STREAM Memory Bandwidth Benchmark
+--------------------------------------------------------------------------------
+Framework: PyTorch 2.1.0a0+41361538.nv23.06
+  Device: Orin
+  CUDA:   11.4
+
+STREAM Benchmark Suite:
+--------------------------------------------------------------------------------
+
+COPY (a[i] = b[i]):
+  Memory ops: 2, FLOPs/element: 0
+  Size     8 MB...    61.9 GB/s  (30.2%)    0.27 ms
+  Size    16 MB...    71.3 GB/s  (34.8%)    0.47 ms
+  Size    32 MB...    76.9 GB/s  (37.5%)    0.87 ms
+  Size    64 MB...    80.2 GB/s  (39.2%)    1.67 ms
+  Size   128 MB...    80.8 GB/s  (39.5%)    3.32 ms
+  Size   256 MB...    70.4 GB/s  (34.4%)    7.63 ms
+  Size   512 MB...    70.7 GB/s  (34.5%)   15.20 ms
+
+SCALE (a[i] = q * b[i]):
+  Memory ops: 2, FLOPs/element: 1
+  Size     8 MB...    62.7 GB/s  (30.6%)    0.27 ms  |  7.8 GFLOPS
+  Size    16 MB...   102.1 GB/s  (49.9%)    0.33 ms  |  12.8 GFLOPS
+  Size    32 MB...   114.9 GB/s  (56.1%)    0.58 ms  |  14.4 GFLOPS
+  Size    64 MB...   123.5 GB/s  (60.3%)    1.09 ms  |  15.4 GFLOPS
+  Size   128 MB...   126.8 GB/s  (61.9%)    2.12 ms  |  15.8 GFLOPS
+  Size   256 MB...   115.8 GB/s  (56.6%)    4.64 ms  |  14.5 GFLOPS
+  Size   512 MB...   117.0 GB/s  (57.1%)    9.17 ms  |  14.6 GFLOPS
+
+ADD (a[i] = b[i] + c[i]):
+  Memory ops: 3, FLOPs/element: 1
+  Size     8 MB...    98.9 GB/s  (48.3%)    0.25 ms  |  8.2 GFLOPS
+  Size    16 MB...   114.0 GB/s  (55.7%)    0.44 ms  |  9.5 GFLOPS
+  Size    32 MB...   122.9 GB/s  (60.0%)    0.82 ms  |  10.2 GFLOPS
+  Size    64 MB...   128.0 GB/s  (62.5%)    1.57 ms  |  10.7 GFLOPS
+  Size   128 MB...   125.6 GB/s  (61.3%)    3.21 ms  |  10.5 GFLOPS
+  Size   256 MB...   126.9 GB/s  (61.9%)    6.35 ms  |  10.6 GFLOPS
+  Size   512 MB...   127.4 GB/s  (62.2%)   12.64 ms  |  10.6 GFLOPS
+
+TRIAD (a[i] = b[i] + q * c[i]):
+  Memory ops: 3, FLOPs/element: 2
+  Size     8 MB...    63.1 GB/s  (30.8%)    0.40 ms  |  10.5 GFLOPS
+  Size    16 MB...    70.5 GB/s  (34.4%)    0.71 ms  |  11.8 GFLOPS
+  Size    32 MB...    74.9 GB/s  (36.6%)    1.34 ms  |  12.5 GFLOPS
+  Size    64 MB...    77.1 GB/s  (37.6%)    2.61 ms  |  12.8 GFLOPS
+  Size   128 MB...    76.5 GB/s  (37.4%)    5.26 ms  |  12.7 GFLOPS
+  Size   256 MB...    74.4 GB/s  (36.3%)   10.82 ms  |  12.4 GFLOPS
+  Size   512 MB...    74.7 GB/s  (36.5%)   21.56 ms  |  12.5 GFLOPS
+
+================================================================================
+STREAM Summary:
+--------------------------------------------------------------------------------
+Kernel            Best BW    Latency   Efficiency Description
+------------------------------------------------------------------------------------------
+COPY               80.8 GB/s     3.32 ms       39.5%  a[i] = b[i]
+SCALE             126.8 GB/s     2.12 ms       61.9%  a[i] = q * b[i]
+ADD               128.0 GB/s     1.57 ms       62.5%  a[i] = b[i] + c[i]
+TRIAD              77.1 GB/s     2.61 ms       37.6%  a[i] = b[i] + q * c[i]
+
+STREAM Score (minimum): 61.9 GB/s
+================================================================================
+STREAM Score (minimum bandwidth): 61.9 GB/s
+
+2. BLAS Compute Benchmark Suite
+--------------------------------------------------------------------------------
+Testing precisions: fp64, fp32, tf32, fp16, fp8, fp4, bf16, int64, int32, int16, int8, int4
+
+Framework: PyTorch 2.1.0a0+41361538.nv23.06
+  Device: Orin
+  CUDA:   11.4
+
+BLAS Benchmark Suite:
+==========================================================================================
+
+BLAS Level 1: DOT
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.08ms
+    fp32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    tf32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    fp16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    int64                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "dot" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10K:
+    fp64      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    fp32      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    tf32      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.07ms
+    int64                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "dot" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size   100K:
+    fp64                                           2.6 GFLOPS    0.08ms
+    fp32                                           2.7 GFLOPS    0.07ms
+    tf32                                           2.7 GFLOPS    0.07ms
+    fp16                                           2.7 GFLOPS    0.07ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           2.8 GFLOPS    0.07ms
+    int64                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "dot" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1M:
+    fp64                                           9.1 GFLOPS    0.22ms
+    fp32                                          12.5 GFLOPS    0.16ms
+    tf32                                          12.5 GFLOPS    0.16ms
+    fp16                                          17.1 GFLOPS    0.12ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          14.9 GFLOPS    0.13ms
+    int64                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "dot" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10M:
+    fp64                                          14.4 GFLOPS    1.39ms
+    fp32                                          22.3 GFLOPS    0.90ms
+    tf32                                          22.4 GFLOPS    0.89ms
+    fp16                                          23.7 GFLOPS    0.84ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          23.6 GFLOPS    0.85ms
+    int64                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "dot" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "dot" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+BLAS Level 1: AXPY
+------------------------------------------------------------------------------------------
+  Size     1K:
+    fp64      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    fp32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    tf32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    fp16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    int64      [!] SLOW (   0.0 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int32      [!] SLOW (   0.0 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int16      [!] SLOW (   0.0 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int8       [!] SLOW (   0.0 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10K:
+    fp64      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    fp32      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    tf32      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.15ms
+    int64      [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int32      [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int16      [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int8       [!] SLOW (   0.1 GIOPS < 1.0 GFLOPS threshold)    0.15ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size   100K:
+    fp64                                           1.4 GFLOPS    0.15ms
+    fp32                                           1.3 GFLOPS    0.15ms
+    tf32                                           1.3 GFLOPS    0.15ms
+    fp16                                           1.3 GFLOPS    0.15ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           1.3 GFLOPS    0.15ms
+    int64                                           1.3 GIOPS    0.15ms
+    int32                                           1.3 GIOPS    0.15ms
+    int16                                           1.4 GIOPS    0.15ms
+    int8                                            1.3 GIOPS    0.15ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1M:
+    fp64                                           2.9 GFLOPS    0.70ms
+    fp32                                           5.7 GFLOPS    0.35ms
+    tf32                                           5.7 GFLOPS    0.35ms
+    fp16                                           8.9 GFLOPS    0.22ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           9.0 GFLOPS    0.22ms
+    int64                                           3.1 GIOPS    0.65ms
+    int32                                           5.8 GIOPS    0.35ms
+    int16                                           9.0 GIOPS    0.22ms
+    int8                                           13.2 GIOPS    0.15ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    10M:
+    fp64                                           3.3 GFLOPS    6.12ms
+    fp32                                           7.8 GFLOPS    2.58ms
+    tf32                                           7.8 GFLOPS    2.58ms
+    fp16                                          14.2 GFLOPS    1.41ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          14.2 GFLOPS    1.41ms
+    int64                                           3.4 GIOPS    5.92ms
+    int32                                           7.8 GIOPS    2.58ms
+    int16                                          14.2 GIOPS    1.41ms
+    int8                                           19.1 GIOPS    1.05ms
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+BLAS Level 2: GEMV
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    tf32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     64:
+    fp64      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.24ms
+    fp32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    tf32      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.0 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    128:
+    fp64      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp32      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    tf32      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.1 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    256:
+    fp64      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.24ms
+    fp32      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    tf32      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp16      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.26ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.5 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    512:
+    fp64                                           2.1 GFLOPS    0.25ms
+    fp32                                           2.1 GFLOPS    0.25ms
+    tf32                                           2.1 GFLOPS    0.25ms
+    fp16                                           2.1 GFLOPS    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           2.1 GFLOPS    0.25ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1K:
+    fp64                                           8.2 GFLOPS    0.26ms
+    fp32                                           8.5 GFLOPS    0.25ms
+    tf32                                           8.4 GFLOPS    0.25ms
+    fp16                                           8.4 GFLOPS    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           8.4 GFLOPS    0.25ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     2K:
+    fp64                                           9.4 GFLOPS    0.89ms
+    fp32                                          30.4 GFLOPS    0.28ms
+    tf32                                          30.8 GFLOPS    0.27ms
+    fp16                                          29.9 GFLOPS    0.28ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          27.8 GFLOPS    0.30ms
+    int64                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Long')
+    int32                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Int')
+    int16                                             SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Short')
+    int8                                              SKIPPED  (RuntimeError: "addmv_impl_cuda" not implemented for 'Char')
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+BLAS Level 3: GEMM
+------------------------------------------------------------------------------------------
+  Size     32:
+    fp64      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp32      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.26ms
+    tf32      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp16      [!] SLOW (   0.3 GFLOPS < 1.0 GFLOPS threshold)    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16      [!] SLOW (   0.2 GFLOPS < 1.0 GFLOPS threshold)    0.27ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     64:
+    fp64                                           2.0 GFLOPS    0.26ms
+    fp32                                           1.9 GFLOPS    0.27ms
+    tf32                                           2.0 GFLOPS    0.26ms
+    fp16                                           1.8 GFLOPS    0.30ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                           2.0 GFLOPS    0.26ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    128:
+    fp64                                          11.0 GFLOPS    0.38ms
+    fp32                                          14.4 GFLOPS    0.29ms
+    tf32                                          14.0 GFLOPS    0.30ms
+    fp16                                          11.5 GFLOPS    0.37ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                          11.0 GFLOPS    0.38ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    256:
+    fp64                                          13.9 GFLOPS    2.42ms
+    fp32                                         122.8 GFLOPS    0.27ms
+    tf32                                         121.1 GFLOPS    0.28ms
+    fp16                                         113.8 GFLOPS    0.29ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                         101.0 GFLOPS    0.33ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size    512:
+    fp64                                          16.3 GFLOPS   16.49ms
+    fp32                                         393.8 GFLOPS    0.68ms
+    tf32                                         761.3 GFLOPS    0.35ms
+    fp16                                        1055.1 GFLOPS    0.25ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                        1080.4 GFLOPS    0.25ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     1K:
+    fp64                                          16.6 GFLOPS  129.19ms
+    fp32                                         620.7 GFLOPS    3.46ms
+    tf32                                        2121.8 GFLOPS    1.01ms
+    fp16                                        2718.6 GFLOPS    0.79ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                        2609.3 GFLOPS    0.82ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+  Size     2K:
+    fp64                                          16.7 GFLOPS    1.03s
+    fp32                                         752.9 GFLOPS   22.82ms
+    tf32                                        3267.6 GFLOPS    5.26ms
+    fp16                                        5627.3 GFLOPS    3.05ms
+    fp8                                               SKIPPED  (PyTorch does not support this precision)
+    fp4                                               SKIPPED  (PyTorch does not support this precision)
+    bf16                                        5563.9 GFLOPS    3.09ms
+    int64                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Lo)
+    int32                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'In)
+    int16                                             SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Sh)
+    int8                                              SKIPPED  (RuntimeError: RuntimeError: "addmm_cuda" not implemented for 'Ch)
+    int4                                              SKIPPED  (PyTorch does not support this precision)
+
+==========================================================================================
+BLAS Suite Complete: 24 calibrations
+==========================================================================================
+
+Building precision capability matrix...
+
+Calibration saved to: hardware_registry/gpu/jetson_orin_agx_gpu/calibrations/pending_pytorch.json
+
+================================================================================
+Hardware Calibration: Jetson Orin AGX (GPU)
+Date: 2026-01-29T20:46:36.380214
+================================================================================
+
+Framework: PYTORCH
+Device:    CUDA
+
+Theoretical Specifications:
+  Peak GFLOPS (FP32): 5325.0
+  Peak Bandwidth:     204.8 GB/s
+
+STREAM Memory Bandwidth Benchmark:
+  Kernel           Size (MB)    Bandwidth    Latency   Efficiency Description
+  -----------------------------------------------------------------------------------------------
+  COPY                   128       80.8 GB/s     3.32 ms       39.5%  a[i] = b[i]
+  SCALE                  128      126.8 GB/s     2.12 ms       61.9%  a[i] = q * b[i]
+  ADD                     64      128.0 GB/s     1.57 ms       62.5%  a[i] = b[i] + c[i]
+  TRIAD                   64       77.1 GB/s     2.61 ms       37.6%  a[i] = b[i] + q * c[i]
+
+  STREAM Score (minimum): 61.9 GB/s
+
+BLAS Performance Summary (Highest Throughput by Precision):
+  Operation          fp64       fp32       tf32       fp16        fp8        fp4       bf16      int64      int32      int16       int8       int4   Best Precision
+  ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  AXPY                3.3        7.8        7.8       14.2        N/A        N/A       14.2        3.4        7.8       14.2       19.1        N/A             int8
+  DOT                14.4       22.3       22.4       23.7        N/A        N/A       23.6        N/A        N/A        N/A        N/A        N/A             fp16
+  GEMV                9.4       30.4       30.8       29.9        N/A        N/A       27.8        N/A        N/A        N/A        N/A        N/A             tf32
+  GEMM               16.7      752.9     3267.6     5627.3        N/A        N/A     5563.9        N/A        N/A        N/A        N/A        N/A             fp16
+
+BLAS Compute Performance (by Operation and Precision):
+========================================================================================================================
+
+Level 1: Vector-Vector (O(n))
+------------------------------------------------------------------------------------------------------------------------
+
+AXPY:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64              10M         3.3 GFLOPS     6.12ms     0.33        2.0%
+  fp32              10M         7.8 GFLOPS     2.58ms     0.17        0.1%
+  tf32              10M         7.8 GFLOPS     2.58ms     0.17        0.1%
+  fp16              10M        14.2 GFLOPS     1.41ms     0.33        0.1%
+  bf16              10M        14.2 GFLOPS     1.41ms     0.33        0.1%
+  int64             10M          3.4 GIOPS     5.92ms     0.33        0.0%
+  int32             10M          7.8 GIOPS     2.58ms     0.33        0.1%
+  int16             10M         14.2 GIOPS     1.41ms     0.33        0.1%
+  int8              10M         19.1 GIOPS     1.05ms     0.33        0.0%
+
+DOT:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64              10M        14.4 GFLOPS     1.39ms     0.50        8.7%
+  fp32              10M        22.3 GFLOPS     0.90ms     0.25        0.4%
+  tf32              10M        22.4 GFLOPS     0.89ms     0.25        0.2%
+  fp16              10M        23.7 GFLOPS     0.84ms     0.50        0.1%
+  bf16              10M        23.6 GFLOPS     0.85ms     0.50        0.1%
+
+Level 2: Matrix-Vector (O(n²))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMV:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               2K         9.4 GFLOPS     0.89ms     1.00        5.6%
+  fp32               2K        30.4 GFLOPS     0.28ms     0.50        0.6%
+  tf32               2K        30.8 GFLOPS     0.27ms     0.50        0.3%
+  fp16               2K        29.9 GFLOPS     0.28ms     1.00        0.1%
+  bf16               2K        27.8 GFLOPS     0.30ms     1.00        0.1%
+
+Level 3: Matrix-Matrix (O(n³))
+------------------------------------------------------------------------------------------------------------------------
+
+GEMM:
+  Precision   Best Size Highest Throughput    Latency       AI   Efficiency
+  --------------------------------------------------------------------------------
+  fp64               2K        16.7 GFLOPS      1.03s   170.67       10.1%
+  fp32               2K       752.9 GFLOPS    22.82ms   341.33       14.1%
+  tf32               2K      3267.6 GFLOPS     5.26ms   341.33       30.7%
+  fp16               2K      5627.3 GFLOPS     3.05ms   682.67       26.4%
+  bf16               2K      5563.9 GFLOPS     3.09ms   682.67       26.1%
+
+Precision Support Summary:
+  Supported:   fp64, fp32, tf32, fp16, bf16, int64, int32, int16, int8
+  Unsupported: fp8, fp4, int4
+
+
+================================================================================
+Calibration Complete!
+================================================================================
+
+Calibration file: hardware_registry/gpu/jetson_orin_agx_gpu/calibrations/MODE30W_612MHz_pytorch_20260129T205140Z.json
+
+Next steps:
+  1. Review the calibration results above
+  2. View calibration efficiency:
+     ./cli/show_calibration_efficiency.py --id jetson_orin_agx_gpu
+
+  3. Use in analysis (calibration auto-loaded from registry):
+     ./cli/analyze_comprehensive.py --model resnet18 --hardware jetson_orin_agx_gpu
+
