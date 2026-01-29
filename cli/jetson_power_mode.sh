@@ -51,7 +51,12 @@ get_current_mode() {
 }
 
 get_current_mode_id() {
-    sudo nvpmodel -q 2>/dev/null | grep -oP 'POWER_MODEL_ID=\K\d+' || echo "?"
+    # Try POWER_MODEL_ID= format first, then bare number on its own line
+    local output
+    output=$(sudo nvpmodel -q 2>/dev/null)
+    echo "$output" | grep -oP 'POWER_MODEL_ID=\K\d+' && return
+    echo "$output" | grep -oP '^\s*\K\d+\s*$' | head -1 && return
+    echo "?"
 }
 
 show_status() {
