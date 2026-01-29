@@ -688,9 +688,12 @@ def calibrate_blas_suite_pytorch(
                     tf32_for_gemm = (prec_name == 'tf32')
 
                     # Add timeout for GEMM (level 3) to avoid very slow integer matmuls
+                    # Jetson/ARM needs longer timeout due to slow subprocess CUDA init
                     if level == 3:
+                        import platform
+                        gemm_timeout = 30 if platform.machine() == 'aarch64' else 5
                         result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials,
-                                         timeout_seconds=5, tf32_enabled=tf32_for_gemm)
+                                         timeout_seconds=gemm_timeout, tf32_enabled=tf32_for_gemm)
                     else:
                         result = bench_fn(size, device=device, dtype=dtype, num_trials=num_trials)
 
