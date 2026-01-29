@@ -123,6 +123,32 @@ def select_framework(device: str, framework_override: Optional[str] = None) -> s
             raise RuntimeError("Neither NumPy nor PyTorch is installed")
 
 
+def _detect_cpu_clock_policy(clock_info) -> str:
+    """Detect whether CPU clocks are locked or under DVFS.
+
+    Returns 'locked' if governor is 'performance' or clocks are at max,
+    'dvfs' if governor is dynamic (schedutil, ondemand, etc.).
+    """
+    if clock_info.governor and clock_info.governor.lower() == 'performance':
+        return 'locked'
+    if (clock_info.current_freq_mhz and clock_info.max_freq_mhz
+            and clock_info.current_freq_mhz >= clock_info.max_freq_mhz * 0.98):
+        return 'locked'
+    return 'dvfs'
+
+
+def _detect_gpu_clock_policy(clock_info) -> str:
+    """Detect whether GPU clocks are locked or under DVFS.
+
+    Returns 'locked' if SM clock equals max (jetson_clocks or persistence mode),
+    'dvfs' if clocks are dynamically scaled.
+    """
+    if (clock_info.sm_clock_mhz and clock_info.max_sm_clock_mhz
+            and clock_info.sm_clock_mhz >= clock_info.max_sm_clock_mhz * 0.98):
+        return 'locked'
+    return 'dvfs'
+
+
 def calibrate_hardware(
     hardware_name: str,
     theoretical_peak_gflops: float,
@@ -278,6 +304,7 @@ def calibrate_hardware(
         turbo_enabled=cpu_clock_info.turbo_enabled,
         nvpmodel_mode=cpu_clock_info.nvpmodel_mode,
         power_mode_name=cpu_clock_info.power_mode_name,
+        clock_policy=_detect_cpu_clock_policy(cpu_clock_info),
     )
 
     print(f"  CPU Freq: {cpu_clock_info.current_freq_mhz:.0f} MHz", end="")
@@ -295,6 +322,7 @@ def calibrate_hardware(
         print(f"  Power Mode: {mode_str}")
     if cpu_clock_info.turbo_enabled is not None:
         print(f"  Turbo:    {'Enabled' if cpu_clock_info.turbo_enabled else 'Disabled'}")
+    print(f"  Clock Policy: {cpu_clock_data.clock_policy}")
     print()
 
     # Query GPU clock if using CUDA (required for GPU calibration)
@@ -336,6 +364,7 @@ def calibrate_hardware(
             temperature_c=gpu_clock_info.temperature_c,
             nvpmodel_mode=gpu_clock_info.nvpmodel_mode,
             power_mode_name=gpu_clock_info.power_mode_name,
+            clock_policy=_detect_gpu_clock_policy(gpu_clock_info),
         )
 
         # Show both idle and load clocks for transparency
@@ -352,6 +381,7 @@ def calibrate_hardware(
             print()
         if gpu_clock_info.power_mode_name:
             print(f"  Power Mode: {gpu_clock_info.power_mode_name}")
+        print(f"  Clock Policy: {gpu_clock_data.clock_policy}")
         print()
 
     # Create metadata
