@@ -336,6 +336,10 @@ class GPUClockData:
     power_mode_name: Optional[str] = None
     """Human-readable power mode (e.g., 'MAXN', '15W')."""
 
+    # Clock policy
+    clock_policy: Optional[str] = None
+    """Clock management during calibration: 'locked' (jetson_clocks) or 'dvfs' (dynamic)."""
+
     def to_dict(self) -> Dict:
         """Convert to dictionary, excluding None values."""
         result = {}
@@ -400,6 +404,10 @@ class CPUClockData:
 
     power_mode_name: Optional[str] = None
     """Human-readable power mode name (e.g., 'MAXN', '15W', '25W')."""
+
+    # Clock policy
+    clock_policy: Optional[str] = None
+    """Clock management during calibration: 'locked' (jetson_clocks/performance) or 'dvfs' (dynamic)."""
 
     def to_dict(self) -> Dict:
         """Convert to dictionary, excluding None/empty values."""
