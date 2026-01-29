@@ -1,0 +1,29 @@
+#  Troubleshooting checklist:
+
+1. What power mode is set?
+  sudo nvpmodel -q
+
+  # 2. What are the actual GPU clock limits in this mode?
+  cat /sys/devices/17000000.ga10b/devfreq/17000000.ga10b/max_freq
+  cat /sys/devices/17000000.ga10b/devfreq/17000000.ga10b/min_freq
+  cat /sys/devices/17000000.ga10b/devfreq/17000000.ga10b/cur_freq
+
+  # 3. Force max clocks to see if it's a DVFS issue
+  sudo jetson_clocks
+  # Then re-check:
+  cat /sys/devices/17000000.ga10b/devfreq/17000000.ga10b/cur_freq
+
+  # 4. What modes are available?
+  sudo nvpmodel -p --verbose
+
+  # 5. Try MAXN mode
+  sudo nvpmodel -m 0
+  sudo jetson_clocks
+
+  After setting MAXN + jetson_clocks, re-run:
+  cli/calibrate_hardware.py --id jetson_orin_agx_gpu --framework pytorch
+
+  The core issue is likely that MODE_30W on this AGX board caps the GPU at 612 MHz max, and without jetson_clocks the DVFS governor keeps it at idle
+  (306 MHz) because our benchmarks are too bursty for the governor to ramp up in time. The Nano/NX numbers at 918 MHz MAXN are with clocks fully
+  boosted.
+
