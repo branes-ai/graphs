@@ -427,6 +427,220 @@ class CPUClockData:
 
 
 @dataclass
+class DLALayerBenchmark:
+    """Result of benchmarking a single layer on DLA."""
+    layer_type: str          # "conv2d", "depthwise_conv", "fc"
+    config: str              # Human-readable config string
+    params: Dict[str, Any]   # Layer parameters
+    input_shape: List[int]
+    batch_size: int
+    flops: int               # Total FLOPs for this layer
+    precision: str           # "fp16" or "int8"
+    dla_core: int
+    status: str              # "success" or "failed"
+
+    # Timing (only if status == "success")
+    latency_ms: Optional[float] = None
+    mean_ms: Optional[float] = None
+    min_ms: Optional[float] = None
+    max_ms: Optional[float] = None
+    std_ms: Optional[float] = None
+    tflops: Optional[float] = None
+
+    # Layer placement
+    on_dla: bool = False
+    dla_layer_count: int = 0
+    gpu_layer_count: int = 0
+
+    # Error info (only if status == "failed")
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict:
+        result = asdict(self)
+        # Remove None values
+        return {k: v for k, v in result.items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'DLALayerBenchmark':
+        known_fields = set(cls.__dataclass_fields__.keys())
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered)
+
+
+@dataclass
+class DLAModelBenchmark:
+    """Result of benchmarking a complete model on DLA."""
+    model: str
+    precision: str
+    dla_core: int
+    gpu_fallback: bool
+    batch_size: int
+    input_shape: List[int]
+    approx_flops: float
+    status: str              # "success" or "failed"
+
+    # Timing (only if status == "success")
+    latency_ms: Optional[float] = None
+    mean_ms: Optional[float] = None
+    min_ms: Optional[float] = None
+    max_ms: Optional[float] = None
+    std_ms: Optional[float] = None
+    throughput_fps: Optional[float] = None
+    tflops: Optional[float] = None
+
+    # Layer placement breakdown
+    total_layers: int = 0
+    dla_layer_count: int = 0
+    gpu_layer_count: int = 0
+    dla_percentage: float = 0.0
+
+    # Error info
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict:
+        result = asdict(self)
+        return {k: v for k, v in result.items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'DLAModelBenchmark':
+        known_fields = set(cls.__dataclass_fields__.keys())
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered)
+
+
+@dataclass
+class DLACalibrationData:
+    """
+    Complete DLA calibration profile for a Jetson device.
+
+    Captures measured DLA performance from both synthetic layer
+    benchmarks and reference model benchmarks.
+    """
+    # Device identification
+    hardware_name: str
+    calibration_date: str
+    dla_core: int                    # 0 or 1
+    precision: str                   # "fp16" or "int8"
+    framework: str                   # "tensorrt"
+    tensorrt_version: str
+    gpu_fallback: bool
+
+    # System info
+    python_version: str
+    platform_architecture: str       # "aarch64"
+
+    # Power state during calibration
+    nvpmodel_mode: Optional[int] = None
+    power_mode_name: Optional[str] = None
+    clock_policy: Optional[str] = None
+
+    # Synthetic layer results
+    layer_benchmarks: List[DLALayerBenchmark] = field(default_factory=list)
+
+    # Reference model results
+    model_benchmarks: List[DLAModelBenchmark] = field(default_factory=list)
+
+    # Aggregate statistics
+    total_benchmarks: int = 0
+    successful_benchmarks: int = 0
+    failed_benchmarks: int = 0
+
+    def to_dict(self) -> Dict:
+        result = {
+            'hardware_name': self.hardware_name,
+            'calibration_date': self.calibration_date,
+            'dla_core': self.dla_core,
+            'precision': self.precision,
+            'framework': self.framework,
+            'tensorrt_version': self.tensorrt_version,
+            'gpu_fallback': self.gpu_fallback,
+            'python_version': self.python_version,
+            'platform_architecture': self.platform_architecture,
+            'total_benchmarks': self.total_benchmarks,
+            'successful_benchmarks': self.successful_benchmarks,
+            'failed_benchmarks': self.failed_benchmarks,
+            'layer_benchmarks': [lb.to_dict() for lb in self.layer_benchmarks],
+            'model_benchmarks': [mb.to_dict() for mb in self.model_benchmarks],
+        }
+        if self.nvpmodel_mode is not None:
+            result['nvpmodel_mode'] = self.nvpmodel_mode
+        if self.power_mode_name is not None:
+            result['power_mode_name'] = self.power_mode_name
+        if self.clock_policy is not None:
+            result['clock_policy'] = self.clock_policy
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'DLACalibrationData':
+        data = data.copy()
+        layer_benchmarks = [
+            DLALayerBenchmark.from_dict(lb)
+            for lb in data.pop('layer_benchmarks', [])
+        ]
+        model_benchmarks = [
+            DLAModelBenchmark.from_dict(mb)
+            for mb in data.pop('model_benchmarks', [])
+        ]
+        known_fields = set(cls.__dataclass_fields__.keys())
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        filtered['layer_benchmarks'] = layer_benchmarks
+        filtered['model_benchmarks'] = model_benchmarks
+        return cls(**filtered)
+
+    def save(self, filepath: Path):
+        """Save DLA calibration to JSON file."""
+        import json
+        with open(filepath, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    @classmethod
+    def load(cls, filepath: Path) -> 'DLACalibrationData':
+        """Load DLA calibration from JSON file."""
+        import json
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        return cls.from_dict(data)
+
+    def print_summary(self):
+        """Print human-readable DLA calibration summary."""
+        print("=" * 80)
+        print(f"DLA Calibration: {self.hardware_name}")
+        print(f"  Core: DLA {self.dla_core}  |  Precision: {self.precision.upper()}")
+        print(f"  Date: {self.calibration_date}")
+        print(f"  TensorRT: {self.tensorrt_version}")
+        if self.power_mode_name:
+            print(f"  Power Mode: {self.power_mode_name}")
+        if self.clock_policy:
+            print(f"  Clock Policy: {self.clock_policy}")
+        print("=" * 80)
+
+        # Synthetic layer results
+        successful_layers = [lb for lb in self.layer_benchmarks if lb.status == 'success']
+        failed_layers = [lb for lb in self.layer_benchmarks if lb.status == 'failed']
+
+        if successful_layers:
+            print(f"\nSynthetic Layer Benchmarks ({len(successful_layers)} succeeded, {len(failed_layers)} failed):")
+            print(f"  {'Layer':<35} {'Latency':>10} {'TFLOPS':>10} {'DLA':>5} {'GPU':>5}")
+            print("  " + "-" * 70)
+            for lb in successful_layers:
+                dla_str = str(lb.dla_layer_count)
+                gpu_str = str(lb.gpu_layer_count)
+                print(f"  {lb.config:<35} {lb.latency_ms:>8.3f}ms {lb.tflops:>10.3f} {dla_str:>5} {gpu_str:>5}")
+
+        # Reference model results
+        successful_models = [mb for mb in self.model_benchmarks if mb.status == 'success']
+        if successful_models:
+            print(f"\nReference Model Benchmarks:")
+            print(f"  {'Model':<20} {'Latency':>10} {'FPS':>10} {'DLA%':>8} {'DLA/Total':>12}")
+            print("  " + "-" * 65)
+            for mb in successful_models:
+                print(f"  {mb.model:<20} {mb.latency_ms:>8.2f}ms {mb.throughput_fps:>10.1f} "
+                      f"{mb.dla_percentage:>7.1f}% {mb.dla_layer_count:>4}/{mb.total_layers:<4}")
+
+        print()
+
+
+@dataclass
 class PreflightCheckResult:
     """Result of a single pre-flight check (stored in calibration data)."""
     name: str

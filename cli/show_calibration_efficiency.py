@@ -558,6 +558,40 @@ def show_efficiency_table(registry, precision_filter: str = None):
     print()
 
 
+def _show_dla_calibrations():
+    """Find and display all DLA calibration results."""
+    from pathlib import Path
+    try:
+        from graphs.calibration.schema import DLACalibrationData
+    except ImportError:
+        print("Error: Could not import DLA calibration schema")
+        return 1
+
+    profiles_dir = Path(__file__).parent.parent / 'src' / 'graphs' / 'calibration' / 'profiles'
+    if not profiles_dir.exists():
+        print("No calibration profiles directory found.")
+        return 1
+
+    # Find all DLA calibration JSON files
+    dla_files = sorted(profiles_dir.glob('**/dla/*.json'))
+    if not dla_files:
+        print("No DLA calibration files found.")
+        print(f"  Searched: {profiles_dir}/**/dla/*.json")
+        print("  Run: ./cli/calibrate_dla.py to generate DLA calibrations")
+        return 1
+
+    print(f"Found {len(dla_files)} DLA calibration file(s):\n")
+
+    for f in dla_files:
+        try:
+            cal = DLACalibrationData.load(f)
+            cal.print_summary()
+        except Exception as e:
+            print(f"Error loading {f}: {e}")
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Show calibration efficiency (percentage of theoretical peak)"
@@ -598,6 +632,11 @@ def main():
         "--precision",
         help="Precision to report on (e.g., fp32, fp16, bf16, int8). Default: best precision"
     )
+    parser.add_argument(
+        "--dla",
+        action="store_true",
+        help="Show DLA (Deep Learning Accelerator) calibration results"
+    )
 
     args = parser.parse_args()
 
@@ -612,6 +651,9 @@ def main():
     if args.table:
         show_efficiency_table(registry, precision_filter=args.precision)
         return 0
+
+    if args.dla:
+        return _show_dla_calibrations()
 
     if args.list:
         print(f"Available hardware profiles ({count} loaded):\n")
