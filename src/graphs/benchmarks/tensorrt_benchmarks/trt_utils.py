@@ -501,14 +501,22 @@ def export_pytorch_to_onnx(
     model.eval()
     dummy_input = torch.randn(*input_shape)
 
-    torch.onnx.export(
-        model,
-        dummy_input,
-        output_path,
-        opset_version=opset_version,
-        input_names=['input'],
-        output_names=['output'],
-        dynamic_axes=None,
-    )
+    # Suppress torch.onnx.export diagnostic banners
+    import logging
+    onnx_logger = logging.getLogger('torch.onnx')
+    prev_level = onnx_logger.level
+    onnx_logger.setLevel(logging.ERROR)
+    try:
+        torch.onnx.export(
+            model,
+            dummy_input,
+            output_path,
+            opset_version=opset_version,
+            input_names=['input'],
+            output_names=['output'],
+            dynamic_axes=None,
+        )
+    finally:
+        onnx_logger.setLevel(prev_level)
 
     return output_path
