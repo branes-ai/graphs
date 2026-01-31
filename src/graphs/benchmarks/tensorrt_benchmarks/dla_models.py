@@ -15,6 +15,7 @@ from .trt_utils import (
     time_engine,
     get_layer_info,
     export_pytorch_to_onnx,
+    get_dla_peak_gflops,
 )
 
 
@@ -154,6 +155,14 @@ def benchmark_model(
             'dla_layer_types': list(set(l['type'] for l in dla_layers)),
             'gpu_fallback_types': list(set(l['type'] for l in gpu_layers)),
         })
+
+        # XUE metrics
+        if timing['median_ms'] > 0:
+            attained_gflops = flops / (timing['median_ms'] / 1000.0) / 1e9
+            peak = get_dla_peak_gflops(precision)
+            result['attained_gflops'] = attained_gflops
+            result['peak_gflops'] = peak
+            result['efficiency'] = (attained_gflops / peak) if peak > 0 else 0.0
 
     except Exception as e:
         result.update({
