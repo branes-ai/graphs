@@ -452,6 +452,16 @@ class DLALayerBenchmark:
     dla_layer_count: int = 0
     gpu_layer_count: int = 0
 
+    # XUE metrics
+    attained_gflops: Optional[float] = None   # X: flops / latency
+    peak_gflops: Optional[float] = None       # Peak of target resource
+    efficiency: Optional[float] = None         # E: attained / peak
+
+    # Utilization (from nsys profiling, optional)
+    gpu_busy_ms: Optional[float] = None
+    dla_busy_ms: Optional[float] = None
+    utilization: Optional[float] = None        # U: busy / (latency * nResources)
+
     # Error info (only if status == "failed")
     error: Optional[str] = None
 
@@ -493,6 +503,16 @@ class DLAModelBenchmark:
     dla_layer_count: int = 0
     gpu_layer_count: int = 0
     dla_percentage: float = 0.0
+
+    # XUE metrics
+    attained_gflops: Optional[float] = None   # X: flops / latency
+    peak_gflops: Optional[float] = None       # Peak of target resource
+    efficiency: Optional[float] = None         # E: attained / peak
+
+    # Utilization (from nsys profiling, optional)
+    gpu_busy_ms: Optional[float] = None
+    dla_busy_ms: Optional[float] = None
+    utilization: Optional[float] = None        # U: busy / (latency * nResources)
 
     # Error info
     error: Optional[str] = None
@@ -620,22 +640,34 @@ class DLACalibrationData:
 
         if successful_layers:
             print(f"\nSynthetic Layer Benchmarks ({len(successful_layers)} succeeded, {len(failed_layers)} failed):")
-            print(f"  {'Layer':<35} {'Latency':>10} {'TFLOPS':>10} {'DLA':>5} {'GPU':>5}")
-            print("  " + "-" * 70)
+            print(f"  {'Layer':<35} {'Latency':>10} {'TFLOPS':>10} {'E(%)':>8} {'DLA':>5} {'GPU':>5}")
+            print("  " + "-" * 78)
             for lb in successful_layers:
                 dla_str = str(lb.dla_layer_count)
                 gpu_str = str(lb.gpu_layer_count)
-                print(f"  {lb.config:<35} {lb.latency_ms:>8.3f}ms {lb.tflops:>10.3f} {dla_str:>5} {gpu_str:>5}")
+                eff_str = f"{lb.efficiency*100:.1f}" if lb.efficiency is not None else "N/A"
+                print(f"  {lb.config:<35} {lb.latency_ms:>8.3f}ms {lb.tflops:>10.3f} {eff_str:>8} {dla_str:>5} {gpu_str:>5}")
 
         # Reference model results
         successful_models = [mb for mb in self.model_benchmarks if mb.status == 'success']
         if successful_models:
+            has_util = any(mb.utilization is not None for mb in successful_models)
             print(f"\nReference Model Benchmarks:")
-            print(f"  {'Model':<20} {'Latency':>10} {'FPS':>10} {'DLA%':>8} {'DLA/Total':>12}")
-            print("  " + "-" * 65)
+            hdr = f"  {'Model':<20} {'Latency':>10} {'FPS':>10} {'X(GFLOPS)':>12} {'E(%)':>8}"
+            if has_util:
+                hdr += f" {'U(%)':>8}"
+            hdr += f" {'DLA%':>8} {'DLA/Total':>12}"
+            print(hdr)
+            print("  " + "-" * (85 if has_util else 75))
             for mb in successful_models:
-                print(f"  {mb.model:<20} {mb.latency_ms:>8.2f}ms {mb.throughput_fps:>10.1f} "
-                      f"{mb.dla_percentage:>7.1f}% {mb.dla_layer_count:>4}/{mb.total_layers:<4}")
+                x_str = f"{mb.attained_gflops:.1f}" if mb.attained_gflops is not None else "N/A"
+                e_str = f"{mb.efficiency*100:.1f}" if mb.efficiency is not None else "N/A"
+                line = f"  {mb.model:<20} {mb.latency_ms:>8.2f}ms {mb.throughput_fps:>10.1f} {x_str:>12} {e_str:>8}"
+                if has_util:
+                    u_str = f"{mb.utilization*100:.1f}" if mb.utilization is not None else "N/A"
+                    line += f" {u_str:>8}"
+                line += f" {mb.dla_percentage:>7.1f}% {mb.dla_layer_count:>4}/{mb.total_layers:<4}"
+                print(line)
 
         print()
 

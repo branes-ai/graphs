@@ -589,3 +589,39 @@ def export_pytorch_to_onnx(
             logging.getLogger(name).setLevel(level)
 
     return output_path
+
+
+def get_dla_peak_gflops(precision: str = "fp16") -> float:
+    """Load DLA peak GFLOPS from hardware_registry spec.json.
+
+    Falls back to hardcoded values if spec file not found.
+
+    Args:
+        precision: "fp16" or "int8"
+
+    Returns:
+        Peak GFLOPS for a single DLA core.
+    """
+    import json
+
+    # Try to load from spec.json
+    spec_path = (
+        Path(__file__).parent.parent.parent.parent.parent
+        / 'hardware_registry' / 'accelerator' / 'nvidia_dla_orin' / 'spec.json'
+    )
+    try:
+        with open(spec_path, 'r') as f:
+            spec = json.load(f)
+        peaks = spec.get('theoretical_peaks', {})
+        peak = peaks.get(precision, 0.0)
+        if peak > 0:
+            return peak
+    except (IOError, json.JSONDecodeError, KeyError):
+        pass
+
+    # Hardcoded fallback (single DLA core at 1.3 GHz)
+    fallback = {
+        'fp16': 2662.4,   # 2048 ops/clock * 1.3 GHz
+        'int8': 5324.8,   # 4096 ops/clock * 1.3 GHz
+    }
+    return fallback.get(precision, 0.0)

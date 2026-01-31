@@ -78,6 +78,10 @@ Examples:
         '--output-dir', type=str, default=None,
         help='Output directory for results (auto-detected if not set).',
     )
+    parser.add_argument(
+        '--nsys', action='store_true',
+        help='Run nsys profiling for utilization (U) metrics. Requires nsys CLI.',
+    )
 
     args = parser.parse_args()
 
@@ -149,6 +153,7 @@ Examples:
                     warmup=args.warmup,
                     iterations=args.iterations,
                     output_dir=output_dir,
+                    run_nsys=args.nsys,
                 )
                 all_results.append(result)
             except Exception as e:

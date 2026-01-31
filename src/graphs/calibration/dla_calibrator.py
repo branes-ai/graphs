@@ -82,6 +82,7 @@ def calibrate_dla(
     warmup: int = 10,
     iterations: int = 100,
     output_dir: Optional[Path] = None,
+    run_nsys: bool = False,
 ) -> DLACalibrationData:
     """
     Run DLA calibration benchmarks and save results.
@@ -96,6 +97,7 @@ def calibrate_dla(
         warmup: Warmup iterations per benchmark.
         iterations: Timed iterations per benchmark.
         output_dir: Directory to save results (auto-detected if None).
+        run_nsys: Run nsys profiling for utilization (U) metrics.
 
     Returns:
         DLACalibrationData with all benchmark results.
@@ -185,6 +187,9 @@ def calibrate_dla(
                     on_dla=r.get('on_dla', False),
                     dla_layer_count=r.get('dla_layer_count', 0),
                     gpu_layer_count=r.get('gpu_layer_count', 0),
+                    attained_gflops=r.get('attained_gflops'),
+                    peak_gflops=r.get('peak_gflops'),
+                    efficiency=r.get('efficiency'),
                     error=r.get('error'),
                 )
                 cal_data.layer_benchmarks.append(lb)
@@ -233,6 +238,9 @@ def calibrate_dla(
                 dla_layer_count=r.get('dla_layer_count', 0),
                 gpu_layer_count=r.get('gpu_layer_count', 0),
                 dla_percentage=r.get('dla_percentage', 0),
+                attained_gflops=r.get('attained_gflops'),
+                peak_gflops=r.get('peak_gflops'),
+                efficiency=r.get('efficiency'),
                 error=r.get('error'),
             )
             cal_data.model_benchmarks.append(mb)
@@ -240,6 +248,61 @@ def calibrate_dla(
                 success += 1
             else:
                 failed += 1
+
+    # Optional nsys profiling for utilization (U)
+    if run_nsys and run_models:
+        try:
+            from ..benchmarks.tensorrt_benchmarks.nsys_profiler import (
+                check_nsys_available, profile_model_utilization,
+            )
+            if check_nsys_available():
+                print("\nRunning nsys profiling for utilization metrics...")
+                from ..benchmarks.tensorrt_benchmarks.dla_models import (
+                    _load_model, REFERENCE_MODELS,
+                )
+                from ..benchmarks.tensorrt_benchmarks.trt_utils import export_pytorch_to_onnx
+                import tempfile
+
+                for mb in cal_data.model_benchmarks:
+                    if mb.status != 'success' or mb.latency_ms is None:
+                        continue
+
+                    # Find model config for input shape
+                    input_shape = tuple(mb.input_shape)
+
+                    # Export model to ONNX for nsys profiling
+                    model = _load_model(mb.model)
+                    with tempfile.NamedTemporaryFile(suffix='.onnx', delete=False) as f:
+                        onnx_path = f.name
+
+                    try:
+                        export_pytorch_to_onnx(model, input_shape, onnx_path)
+                        print(f"  Profiling {mb.model}...")
+
+                        util_result = profile_model_utilization(
+                            onnx_path, input_shape,
+                            dla_core=dla_core, precision=precision,
+                            gpu_fallback=gpu_fallback,
+                            total_latency_ms=mb.latency_ms,
+                            iterations=50,
+                        )
+
+                        if util_result.get('utilization') is not None:
+                            mb.gpu_busy_ms = util_result['gpu_busy_ms']
+                            mb.dla_busy_ms = util_result['dla_busy_ms']
+                            mb.utilization = util_result['utilization']
+                            print(f"    GPU busy: {mb.gpu_busy_ms:.3f}ms, "
+                                  f"DLA busy: {mb.dla_busy_ms:.3f}ms, "
+                                  f"U: {mb.utilization*100:.1f}%")
+                        else:
+                            print(f"    {mb.model}: {util_result.get('error', 'unknown error')}")
+                    finally:
+                        if os.path.exists(onnx_path):
+                            os.unlink(onnx_path)
+            else:
+                print("\nnsys not available, skipping utilization profiling")
+        except ImportError as e:
+            print(f"\nCould not import nsys profiler: {e}")
 
     cal_data.total_benchmarks = total
     cal_data.successful_benchmarks = success
@@ -287,6 +350,7 @@ def calibrate_all_dla_cores(
     warmup: int = 10,
     iterations: int = 100,
     output_dir: Optional[Path] = None,
+    run_nsys: bool = False,
 ) -> List[DLACalibrationData]:
     """
     Run calibration on all available DLA cores.
@@ -311,7 +375,7 @@ def calibrate_all_dla_cores(
             gpu_fallback=gpu_fallback,
             run_synthetic=run_synthetic, run_models=run_models,
             batch_size=batch_size, warmup=warmup, iterations=iterations,
-            output_dir=output_dir,
+            output_dir=output_dir, run_nsys=run_nsys,
         )
         results.append(result)
 
