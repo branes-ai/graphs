@@ -8,6 +8,7 @@ Results are saved as timestamped JSON files in the calibration profiles
 directory, following the same conventions as GPU/CPU calibration.
 """
 
+import os
 import sys
 import platform
 import json
