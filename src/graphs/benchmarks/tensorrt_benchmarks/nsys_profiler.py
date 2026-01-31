@@ -133,6 +133,7 @@ def profile_with_nsys(
     cmd = [
         'nsys', 'profile',
         '--trace=cuda,nvtx',
+        '--sample=none',
         '--export=sqlite',
         f'--output={trace_base}',
         '--force-overwrite=true',
