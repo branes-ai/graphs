@@ -73,6 +73,46 @@ class LayerProfiler:
         return summary
 
 
+class RandomInt8Calibrator(trt.IInt8EntropyCalibrator2 if TRT_AVAILABLE else object):
+    """
+    INT8 calibrator that feeds random data for quantization scaling.
+
+    This produces scaling factors sufficient for benchmarking throughput.
+    NOT suitable for accuracy-sensitive inference - use real calibration
+    data for that.
+    """
+
+    def __init__(self, input_shape, num_batches=32):
+        if TRT_AVAILABLE:
+            super().__init__()
+        self.input_shape = input_shape
+        self.num_batches = num_batches
+        self.batch_idx = 0
+        self.nbytes = int(np.prod(input_shape) * 4)  # float32
+        self.device_input = None
+
+    def get_batch_size(self):
+        return self.input_shape[0]
+
+    def get_batch(self, names):
+        if self.batch_idx >= self.num_batches:
+            return None
+        if self.device_input is None:
+            self.device_input = cuda.mem_alloc(self.nbytes)
+        # Generate random calibration data
+        host_data = np.random.randn(*self.input_shape).astype(np.float32)
+        cuda.memcpy_htod(self.device_input, host_data)
+        self.batch_idx += 1
+        return [int(self.device_input)]
+
+    def read_calibration_cache(self):
+        return None
+
+    def write_calibration_cache(self, cache):
+        # Could save to disk for reuse, but not needed for benchmarking
+        pass
+
+
 def check_trt_available():
     """Check if TensorRT is available and raise if not."""
     if not TRT_AVAILABLE:
@@ -101,6 +141,7 @@ def build_engine_from_onnx(
     gpu_fallback: bool = True,
     workspace_mb: int = 256,
     logger: Optional[Any] = None,
+    input_shape: Optional[Tuple[int, ...]] = None,
 ) -> Any:
     """
     Build a TensorRT engine from an ONNX model.
@@ -112,6 +153,7 @@ def build_engine_from_onnx(
         gpu_fallback: Allow layers unsupported by DLA to run on GPU.
         workspace_mb: TensorRT workspace size in MB.
         logger: Optional TRT logger instance.
+        input_shape: Input tensor shape (required for INT8 calibration).
 
     Returns:
         TensorRT ICudaEngine.
@@ -156,6 +198,12 @@ def build_engine_from_onnx(
             raise RuntimeError("Platform does not support fast INT8")
         config.set_flag(trt.BuilderFlag.INT8)
         config.set_flag(trt.BuilderFlag.FP16)  # INT8 needs FP16 fallback
+        # INT8 requires a calibrator to compute scaling factors
+        if input_shape is None:
+            # Infer from network input
+            inp = network.get_input(0)
+            input_shape = tuple(inp.shape)
+        config.int8_calibrator = RandomInt8Calibrator(input_shape)
     else:
         raise ValueError(f"Unsupported precision: {precision}. Use 'fp16' or 'int8'.")
 
@@ -502,21 +550,42 @@ def export_pytorch_to_onnx(
     dummy_input = torch.randn(*input_shape)
 
     # Suppress torch.onnx.export diagnostic banners
+    # PyTorch 2.1 uses multiple logger names for ONNX diagnostics
     import logging
-    onnx_logger = logging.getLogger('torch.onnx')
-    prev_level = onnx_logger.level
-    onnx_logger.setLevel(logging.ERROR)
+    import warnings
+    import io
+    import sys
+
+    loggers_to_quiet = [
+        'torch.onnx',
+        'torch.onnx.utils',
+        'torch.onnx._internal',
+        'torch.onnx._internal.diagnostics',
+    ]
+    prev_levels = {}
+    for name in loggers_to_quiet:
+        lg = logging.getLogger(name)
+        prev_levels[name] = lg.level
+        lg.setLevel(logging.CRITICAL)
+
+    # Also redirect stderr to suppress C-level diagnostic output
+    old_stderr = sys.stderr
+    sys.stderr = io.StringIO()
     try:
-        torch.onnx.export(
-            model,
-            dummy_input,
-            output_path,
-            opset_version=opset_version,
-            input_names=['input'],
-            output_names=['output'],
-            dynamic_axes=None,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            torch.onnx.export(
+                model,
+                dummy_input,
+                output_path,
+                opset_version=opset_version,
+                input_names=['input'],
+                output_names=['output'],
+                dynamic_axes=None,
+            )
     finally:
-        onnx_logger.setLevel(prev_level)
+        sys.stderr = old_stderr
+        for name, level in prev_levels.items():
+            logging.getLogger(name).setLevel(level)
 
     return output_path

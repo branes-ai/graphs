@@ -180,7 +180,7 @@ def benchmark_conv2d(
             export_pytorch_to_onnx(model, input_shape, onnx_path)
             engine = build_engine_from_onnx(
                 onnx_path, dla_core=dla_core, precision=precision,
-                gpu_fallback=gpu_fallback,
+                gpu_fallback=gpu_fallback, input_shape=input_shape,
             )
 
             timing = time_engine(engine, warmup=warmup, iterations=iterations)
@@ -261,7 +261,7 @@ def benchmark_depthwise(
             export_pytorch_to_onnx(model, input_shape, onnx_path)
             engine = build_engine_from_onnx(
                 onnx_path, dla_core=dla_core, precision=precision,
-                gpu_fallback=gpu_fallback,
+                gpu_fallback=gpu_fallback, input_shape=input_shape,
             )
 
             timing = time_engine(engine, warmup=warmup, iterations=iterations)
@@ -342,7 +342,7 @@ def benchmark_fc(
             export_pytorch_to_onnx(model, input_shape, onnx_path)
             engine = build_engine_from_onnx(
                 onnx_path, dla_core=dla_core, precision=precision,
-                gpu_fallback=gpu_fallback,
+                gpu_fallback=gpu_fallback, input_shape=input_shape,
             )
 
             timing = time_engine(engine, warmup=warmup, iterations=iterations)
