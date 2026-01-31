@@ -363,30 +363,63 @@ def time_engine(
     }
 
 
-def get_layer_info(engine) -> List[Dict[str, Any]]:
+def get_layer_info(engine, verbose: bool = False) -> List[Dict[str, Any]]:
     """
     Get per-layer device placement and type info from an engine.
+
+    Uses engine inspector JSON and searches recursively for DLA indicators
+    since the JSON schema varies across TensorRT versions.
 
     Returns:
         List of dicts with keys: name, type, device (DLA or GPU), precision
     """
     check_trt_available()
+    import json
 
-    inspector = engine.create_engine_inspector()
+    try:
+        inspector = engine.create_engine_inspector()
+    except AttributeError:
+        # TRT versions before 8.2 don't have engine inspector
+        return [{'name': 'unknown', 'type': 'unknown', 'device': 'unknown', 'precision': 'unknown'}]
+
     layers = []
 
     for i in range(engine.num_layers):
-        layer_info_json = inspector.get_layer_information(i, trt.LayerInformationFormat.JSON)
         try:
-            import json
+            layer_info_json = inspector.get_layer_information(
+                i, trt.LayerInformationFormat.JSON
+            )
             info = json.loads(layer_info_json)
+
+            if verbose:
+                print(f"  Layer {i}: {json.dumps(info, indent=2)}")
+
+            # Extract name - try multiple fields
+            name = (info.get('Name') or info.get('name')
+                    or info.get('LayerName') or f'layer_{i}')
+
+            # Extract layer type
+            layer_type = (info.get('LayerType') or info.get('layerType')
+                         or info.get('Type') or 'unknown')
+
+            # Detect device: search entire JSON string for "DLA" indicator
+            info_str = layer_info_json.upper()
+            if 'DLA' in info_str:
+                device = 'DLA'
+            else:
+                device = 'GPU'
+
+            # Extract precision
+            precision = (info.get('Precision') or info.get('precision')
+                        or info.get('OutputPrecision') or 'unknown')
+
             layers.append({
-                'name': info.get('Name', f'layer_{i}'),
-                'type': info.get('LayerType', 'unknown'),
-                'device': info.get('TacticValue', {}).get('Device', 'GPU'),
-                'precision': info.get('Precision', 'unknown'),
+                'name': name,
+                'type': layer_type,
+                'device': device,
+                'precision': precision,
             })
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, AttributeError, RuntimeError):
             layers.append({
                 'name': f'layer_{i}',
                 'type': 'unknown',
