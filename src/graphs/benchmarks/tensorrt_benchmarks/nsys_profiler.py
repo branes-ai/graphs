@@ -63,10 +63,12 @@ def _write_inference_script(
 
     nsys profiles this script as a subprocess to capture GPU/DLA traces.
     """
+    # Resolve src/ path at generation time on the machine where this runs
+    src_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
     script = f'''#!/usr/bin/env python3
 """Auto-generated TRT inference script for nsys profiling."""
 import sys
-sys.path.insert(0, {str(Path(__file__).parent.parent.parent.parent)!r})
+sys.path.insert(0, {src_dir!r})
 
 from graphs.benchmarks.tensorrt_benchmarks.trt_utils import (
     build_engine_from_onnx, time_engine,
@@ -146,13 +148,25 @@ def profile_with_nsys(
             capture_output=True, text=True,
             timeout=300,  # 5 min max
         )
+        # Only treat as failure if returncode non-zero AND no output file produced
+        # nsys may emit warnings to stderr but still succeed
         if result.returncode != 0:
-            print(f"nsys profile failed: {result.stderr}")
-            return None
+            # Check if trace file was still created despite warnings
+            sqlite_path = trace_base + '.sqlite'
+            if not os.path.exists(sqlite_path):
+                # Also check for nsys-rep which we can convert
+                for candidate in Path(output_dir).glob('dla_trace*'):
+                    if candidate.suffix in ('.sqlite', '.nsys-rep'):
+                        break
+                else:
+                    print(f"nsys profile failed (rc={result.returncode}): "
+                          f"{result.stderr[:200]}", file=__import__('sys').stderr)
+                    return None
     except subprocess.TimeoutExpired:
-        print("nsys profile timed out (5 min)")
+        print("nsys profile timed out (5 min)", file=__import__('sys').stderr)
         return None
 
+    # Find the sqlite output file
     sqlite_path = trace_base + '.sqlite'
     if not os.path.exists(sqlite_path):
         # nsys may add a numeric suffix
@@ -163,6 +177,19 @@ def profile_with_nsys(
     if os.path.exists(sqlite_path):
         return sqlite_path
 
+    # If only .nsys-rep exists, try to export to sqlite
+    for rep_file in Path(output_dir).glob('dla_trace*.nsys-rep'):
+        try:
+            subprocess.run(
+                ['nsys', 'export', '--type=sqlite', f'--output={trace_base}.sqlite', str(rep_file)],
+                capture_output=True, timeout=60,
+            )
+            if os.path.exists(trace_base + '.sqlite'):
+                return trace_base + '.sqlite'
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    print(f"nsys: no trace file produced in {output_dir}", file=__import__('sys').stderr)
     return None
 
 
