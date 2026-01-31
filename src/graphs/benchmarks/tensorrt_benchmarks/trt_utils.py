@@ -36,7 +36,7 @@ class TRTLogger(trt.ILogger if TRT_AVAILABLE else object):
         if TRT_AVAILABLE:
             super().__init__()
             if min_severity is None:
-                min_severity = trt.ILogger.Severity.WARNING
+                min_severity = trt.ILogger.Severity.ERROR
             self.min_severity = min_severity
         self.messages = []
 
@@ -119,7 +119,11 @@ def build_engine_from_onnx(
     check_trt_available()
 
     if logger is None:
-        logger = TRTLogger()
+        # Use INFO when targeting DLA so TRT prints layer placement
+        if dla_core >= 0:
+            logger = TRTLogger(min_severity=trt.ILogger.Severity.INFO)
+        else:
+            logger = TRTLogger()
 
     builder = trt.Builder(logger)
     network = builder.create_network(
@@ -167,6 +171,9 @@ def build_engine_from_onnx(
         config.DLA_core = dla_core
         if gpu_fallback:
             config.set_flag(trt.BuilderFlag.GPU_FALLBACK)
+
+    # Enable detailed profiling so engine inspector returns layer metadata
+    config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED
 
     # Build engine
     serialized_engine = builder.build_serialized_network(network, config)
@@ -248,6 +255,9 @@ def build_engine_from_network_def(
         config.DLA_core = dla_core
         if gpu_fallback:
             config.set_flag(trt.BuilderFlag.GPU_FALLBACK)
+
+    # Enable detailed profiling for layer inspection
+    config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED
 
     serialized_engine = builder.build_serialized_network(network, config)
     if serialized_engine is None:
@@ -367,8 +377,17 @@ def get_layer_info(engine, verbose: bool = False) -> List[Dict[str, Any]]:
     """
     Get per-layer device placement and type info from an engine.
 
-    Uses engine inspector JSON and searches recursively for DLA indicators
-    since the JSON schema varies across TensorRT versions.
+    TensorRT 8.5 inspector returns either:
+    - JSON objects (when ProfilingVerbosity.DETAILED is set)
+    - Plain quoted strings (when LAYER_NAMES_ONLY, the default)
+
+    DLA layers are identified by:
+    - "ForeignNode" in the layer name (DLA ops are wrapped as foreign nodes)
+    - "DLA" appearing anywhere in the inspector output
+    - "device" field in JSON containing "DLA"
+
+    "Reformatting CopyNode" layers are GPU-side format conversions
+    between DLA and GPU memory layouts.
 
     Returns:
         List of dicts with keys: name, type, device (DLA or GPU), precision
@@ -379,39 +398,64 @@ def get_layer_info(engine, verbose: bool = False) -> List[Dict[str, Any]]:
     try:
         inspector = engine.create_engine_inspector()
     except AttributeError:
-        # TRT versions before 8.2 don't have engine inspector
         return [{'name': 'unknown', 'type': 'unknown', 'device': 'unknown', 'precision': 'unknown'}]
 
     layers = []
 
     for i in range(engine.num_layers):
         try:
-            layer_info_json = inspector.get_layer_information(
-                i, trt.LayerInformationFormat.JSON
-            )
-            info = json.loads(layer_info_json)
+            raw = inspector.get_layer_information(i, trt.LayerInformationFormat.JSON)
 
             if verbose:
-                print(f"  Layer {i}: {json.dumps(info, indent=2)}")
+                print(f"  Layer {i} raw: {raw[:200]}")
 
-            # Extract name - try multiple fields
+            # TRT 8.5 may return a plain quoted string instead of JSON object
+            try:
+                info = json.loads(raw)
+            except json.JSONDecodeError:
+                info = raw
+
+            # Handle plain string case (TRT 8.5 with LAYER_NAMES_ONLY)
+            if isinstance(info, str):
+                name = info.strip('"').strip()
+                # Detect device from layer name convention
+                if 'ForeignNode' in name:
+                    device = 'DLA'
+                    layer_type = 'DLA_fused'
+                elif 'Reformatting CopyNode' in name:
+                    device = 'GPU'
+                    layer_type = 'reformat'
+                else:
+                    device = 'GPU'
+                    layer_type = 'unknown'
+                layers.append({
+                    'name': name,
+                    'type': layer_type,
+                    'device': device,
+                    'precision': 'unknown',
+                })
+                continue
+
+            # JSON object case (DETAILED profiling)
             name = (info.get('Name') or info.get('name')
                     or info.get('LayerName') or f'layer_{i}')
 
-            # Extract layer type
             layer_type = (info.get('LayerType') or info.get('layerType')
                          or info.get('Type') or 'unknown')
 
-            # Detect device: search entire JSON string for "DLA" indicator
-            info_str = layer_info_json.upper()
-            if 'DLA' in info_str:
-                device = 'DLA'
-            else:
-                device = 'GPU'
-
-            # Extract precision
             precision = (info.get('Precision') or info.get('precision')
                         or info.get('OutputPrecision') or 'unknown')
+
+            # Detect device from multiple signals
+            raw_upper = raw.upper()
+            if 'FOREIGNNODE' in name.upper().replace(' ', ''):
+                device = 'DLA'
+            elif 'DLA' in raw_upper:
+                device = 'DLA'
+            elif 'Reformatting CopyNode' in name:
+                device = 'GPU'
+            else:
+                device = 'GPU'
 
             layers.append({
                 'name': name,
@@ -419,7 +463,8 @@ def get_layer_info(engine, verbose: bool = False) -> List[Dict[str, Any]]:
                 'device': device,
                 'precision': precision,
             })
-        except (json.JSONDecodeError, AttributeError, RuntimeError):
+
+        except (AttributeError, RuntimeError) as e:
             layers.append({
                 'name': f'layer_{i}',
                 'type': 'unknown',
