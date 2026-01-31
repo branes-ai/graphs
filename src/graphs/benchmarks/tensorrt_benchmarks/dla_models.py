@@ -28,20 +28,40 @@ REFERENCE_MODELS = [
 def _load_model(model_name: str):
     """Load a torchvision model by name."""
     import torch
-    import torchvision.models as models
+    import torch.nn as nn
 
-    factory_map = {
-        'resnet18': models.resnet18,
-        'mobilenet_v2': models.mobilenet_v2,
-    }
-
-    if model_name not in factory_map:
+    # Build models directly to avoid torchvision import issues
+    # (torchvision.models may pull in 'requests' even with pretrained=False)
+    if model_name == 'resnet18':
+        try:
+            import torchvision.models as models
+            model = models.resnet18(weights=None)
+        except (ImportError, TypeError):
+            # TypeError: weights= not supported in older torchvision
+            try:
+                import torchvision.models as models
+                model = models.resnet18(pretrained=False)
+            except ImportError:
+                raise RuntimeError(
+                    "torchvision not available. Install with: pip install torchvision"
+                )
+    elif model_name == 'mobilenet_v2':
+        try:
+            import torchvision.models as models
+            model = models.mobilenet_v2(weights=None)
+        except (ImportError, TypeError):
+            try:
+                import torchvision.models as models
+                model = models.mobilenet_v2(pretrained=False)
+            except ImportError:
+                raise RuntimeError(
+                    "torchvision not available. Install with: pip install torchvision"
+                )
+    else:
         raise ValueError(
-            f"Unknown model: {model_name}. "
-            f"Available: {list(factory_map.keys())}"
+            f"Unknown model: {model_name}. Available: ['resnet18', 'mobilenet_v2']"
         )
 
-    model = factory_map[model_name](pretrained=False)
     model.eval()
     return model
 
@@ -108,7 +128,7 @@ def benchmark_model(
 
         engine = build_engine_from_onnx(
             onnx_path, dla_core=dla_core, precision=precision,
-            gpu_fallback=gpu_fallback,
+            gpu_fallback=gpu_fallback, input_shape=input_shape,
         )
 
         timing = time_engine(engine, warmup=warmup, iterations=iterations)
