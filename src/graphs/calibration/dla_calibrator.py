@@ -268,21 +268,14 @@ def calibrate_dla(
 
 
 def _get_default_output_dir(hardware_name: str) -> Path:
-    """Get default output directory for DLA calibration profiles."""
-    # Follow same pattern as GPU/CPU calibration
-    base = Path(__file__).parent / 'profiles'
+    """Get default output directory for DLA calibration profiles.
 
-    # Normalize hardware name to directory-safe form
-    safe_name = hardware_name.lower()
-    for ch in [' ', '/', '\\', '(', ')', ',']:
-        safe_name = safe_name.replace(ch, '_')
-
-    # Remove consecutive underscores
-    while '__' in safe_name:
-        safe_name = safe_name.replace('__', '_')
-    safe_name = safe_name.strip('_')
-
-    return base / safe_name / 'dla'
+    Follows the hardware_registry convention:
+      hardware_registry/accelerator/nvidia_dla_orin/calibrations/
+    """
+    # Navigate from src/graphs/calibration/ up to repo root, then into hardware_registry
+    repo_root = Path(__file__).parent.parent.parent.parent
+    return repo_root / 'hardware_registry' / 'accelerator' / 'nvidia_dla_orin' / 'calibrations'
 
 
 def calibrate_all_dla_cores(

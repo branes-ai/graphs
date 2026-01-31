@@ -567,16 +567,17 @@ def _show_dla_calibrations():
         print("Error: Could not import DLA calibration schema")
         return 1
 
-    profiles_dir = Path(__file__).parent.parent / 'src' / 'graphs' / 'calibration' / 'profiles'
-    if not profiles_dir.exists():
-        print("No calibration profiles directory found.")
-        return 1
+    repo_root = Path(__file__).parent.parent
+    dla_dir = repo_root / 'hardware_registry' / 'accelerator' / 'nvidia_dla_orin' / 'calibrations'
 
     # Find all DLA calibration JSON files
-    dla_files = sorted(profiles_dir.glob('**/dla/*.json'))
+    if dla_dir.exists():
+        dla_files = sorted(dla_dir.glob('*.json'))
+    else:
+        dla_files = []
     if not dla_files:
         print("No DLA calibration files found.")
-        print(f"  Searched: {profiles_dir}/**/dla/*.json")
+        print(f"  Searched: {dla_dir}")
         print("  Run: ./cli/calibrate_dla.py to generate DLA calibrations")
         return 1
 
