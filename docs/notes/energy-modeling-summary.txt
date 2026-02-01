@@ -1,0 +1,300 @@
+  Energy Model Summary
+
+  CPU (cpu.py)
+
+  - Instruction amortization: 2 instructions per op (x86 CISC) - NO SIMD AMORTIZATION
+  - Control overhead: instruction_fetch_pj + instruction_decode_pj charged per instruction
+  - Register access: 2 reads + 1 write per instruction
+  - Compute: base_alu_energy_pj per op
+  - Memory: Cache hierarchy with hit ratios
+
+  Problem: The CPU model charges instruction overhead per scalar op. It doesn't model SIMD/AVX at all. A real x86 with AVX-512 would amortize instruction
+   fetch/decode across 16 FP32 ops (512 bits / 32 bits), giving 128x amortization similar to a warp.
+
+  GPU (gpu.py)
+
+  - Instruction amortization: instructions_per_op = 0.1 (fixed, amortized across 32 threads in warp) - but then charges per instruction anyway
+  - SIMT overhead: HUGE fixed overhead - kernel launch (100K pJ), SM activation (5K pJ), memory controller (50K pJ)
+  - Static power: Added a model that scales with execution time
+  - Thread management: warp scheduler, thread context, scoreboard - scales with warps/threads
+  - Coherence: scales with cache lines, not with warps
+
+  Problems:
+  1. The static power model is wrong - it charges per-op energy based on execution time, but this double-counts since ops already pay for their energy
+  2. The "fixed infrastructure" is modeled as one-time per kernel, but real GPU has overhead per SM per cycle
+
+  TPU (tpu.py)
+
+  - Instruction amortization: ONE instruction controls MxM (128x128 = 16,384) MACs per tile
+  - Control: config_pj once + control_pj_per_tile per tile (very low)
+  - Compute: systolic_mac_pj per MAC (0.80x base)
+  - Data movement: weight load, input feed, output drain - scales with bytes
+  - Memory: SRAM + HBM based on hit ratios
+
+  Looks reasonable - tile-level control amortization is correct.
+
+  KPU (kpu.py)
+
+  - Instruction amortization: Domain program loaded once per layer
+  - Configuration: domain_program_load_pj per layer, domain_tracker_pj per active tile, network_overlay_pj per layer
+  - Compute: mac_int8_pj/mac_bf16_pj/mac_fp32_pj per op (0.75x base for domain_flow)
+  - Streaming: stream_pj_per_byte for input/output
+  - Memory: EDDO scratchpads (explicit, no cache overhead)
+
+  Looks reasonable - but the compute energy seems too high (charging full mac energy per op without considering that ops are batched).
+
+  ---
+  Key Issues
+
+  1. CPU has NO SIMD amortization: Charges 2 instruction fetches per op, while real x86 with AVX-512 would amortize across 16 ops.
+  2. GPU has bizarre static power model: The static_energy_per_op calculation doesn't make physical sense - it creates a per-op overhead that adds to
+  actual compute energy.
+  3. All models have DIFFERENT approaches to "bytes_transferred":
+    - CPU: charges memory energy based on bytes_transferred and hit ratios
+    - GPU: charges memory energy based on bytes_transferred and hit ratios
+    - TPU: charges memory energy based on bytes_transferred AND charges data movement (input_feed, output_drain) based on tile geometry
+    - KPU: charges memory energy based on bytes_transferred AND charges streaming energy
+  4. The workload parameters are the same but interpreted differently:
+    - For high-reuse workload, all architectures should see similar external memory traffic (assuming data fits in L2/L3)
+    - But each model calculates internal data movement differently
+
+  The fundamental principle you stated is correct: for high-reuse workloads with similar cache sizes, all architectures should have equivalent external
+  memory behavior. The differences should be in:
+  - Instruction amortization (how many ops per instruction fetch)
+  - Control overhead (warp scheduling, tile control, domain tracking)
+  - MAC efficiency (circuit type multiplier)
+
+  The current models violate this by having completely different memory models and adding overhead in inconsistent ways.
+
+
++------
+
+ I don't think this is the right model. We should simply think about the energy events for a single SM. A bigger GPU is nothing more than a collection
+of SMs. Question: if we model a single SM, how would we capture the benefit of the shared L1 cache among SMs? Why are we trying to capture
+effective_threads and concurrent_threads as an external workload attribute? Why not look at the number of threads that a single SM can support and use
+that? We are trying to get to an accurate energy per op. As a bigger GPU is simply an accumulation of more SMs, we should have all the energy information
+ we need by looking at the energy events of a single SM, being supported by a shared L1, and a global L2, before going to external memory. How far off is
+ the current model from that approach?
+
+● You're raising an excellent architectural point. Let me analyze the current model vs. what it should be.
+
+  Current Model Problems
+
+  The current model has several conceptual issues:
+
+  1. Conflates workload size with hardware size: It tries to model 200,000 concurrent threads as a workload parameter, but this mixes up "how much work"
+  with "how big is the GPU".
+  2. Scales thread management with workload: It charges thread context per effective_threads, which grows with workload size. But a single SM has a fixed
+   number of resident threads (e.g., 2048 on H100).
+  3. No clear SM-centric view: The energy events aren't structured around "what happens on one SM" but rather "what happens across the whole GPU".
+
+  What the Model Should Be
+
+  You're right - the model should be SM-centric:
+
+  Single SM Energy Model:
+    - Fixed: SM has 128 CUDA cores, 4 Tensor Core units, 2048 max resident threads
+    - Fixed: 256KB register file, 192KB L1/Shared memory
+    - Shared: L2 cache across all SMs (50MB on H100)
+    - External: HBM (80GB)
+
+  Energy per op on ONE SM:
+    1. Instruction fetch/decode (amortized across 32 threads in warp)
+    2. Register access (from SM's local 256KB register file)
+    3. Compute (CUDA core or Tensor Core MAC)
+    4. L1/Shared memory access (192KB per SM)
+    5. L2 cache access (shared, but per-byte energy is fixed)
+    6. HBM access (if L2 miss)
+
+  Key insight: A bigger GPU just runs more ops in parallel across more SMs. The energy per op should be the same whether you have 1 SM or 132 SMs. The
+  only thing that changes is throughput (ops/second), not energy/op.
+
+  How Far Off is the Current Model?
+
+  Let me check what's being charged:
+
+● Read(src/graphs/hardware/cycle_energy/gpu.py)
+  ⎿  Read 120 lines
+
+● Here's the analysis:
+
+  Current Model Issues
+
+  | Phase             | What it does                                     | What it should do                                                   |
+  |-------------------|--------------------------------------------------|---------------------------------------------------------------------|
+  | Instruction Fetch | Scales with num_instructions (correct)           | Same - amortized across warp                                        |
+  | Operand Fetch     | num_ops * 2 register accesses                    | Should be per-instruction (32 ops per warp read 2 vector registers) |
+  | Execute           | Per-op compute energy (correct)                  | Same                                                                |
+  | Thread Mgmt       | effective_threads context + num_warps scheduling | Should be fixed per SM (64 resident warps max)                      |
+  | Coherence         | Scales with cache lines (mostly correct)         | Same                                                                |
+
+  The key problems:
+
+  1. Line 331-336: Thread context energy scales with effective_threads (up to 200,000) - this is wrong. An SM has a FIXED number of resident threads
+  (2048). The context is maintained once, not scaled with workload.
+  2. Line 323: num_scheduling_decisions = num_warps * max(1, num_instructions // num_warps) - this is confusing. Warp scheduling should be proportional
+  to instructions executed, since each instruction dispatch requires a scheduling decision.
+  3. Register access (line 293): num_ops * 2 - this should be per-instruction (each warp instruction reads 2 vector registers), not per-op.
+
+  What an SM-Centric Model Should Look Like
+
+  # SM Configuration (fixed)
+  SM_MAX_THREADS = 2048
+  SM_MAX_WARPS = 64
+  WARP_SIZE = 32
+
+  # Per-instruction costs (amortized across warp's 32 threads)
+  instruction_fetch_per_instr = X pJ
+  instruction_decode_per_instr = Y pJ
+  warp_schedule_per_instr = Z pJ
+  register_read_per_instr = 2 * reg_energy  # 2 source vector registers
+  register_write_per_instr = 1 * reg_energy  # 1 dest vector register
+
+  # Per-op costs (actual compute)
+  compute_per_op = mac_energy  # Each of 32 lanes does 1 MAC
+
+  # Per-byte costs (memory hierarchy)
+  l1_shared_per_byte = ...
+  l2_per_byte = ...
+  hbm_per_byte = ...
+
+  # Fixed overhead (one-time per kernel)
+  kernel_launch = ...  # Amortized across all ops in kernel
+
+  The fundamental insight: num_instructions = num_ops / WARP_SIZE (since one instruction runs 32 ops in parallel).
+
+
+  Summary of Improvements
+
+  TEST 2 - Architecture Comparison (100K ops):
+  - GPU control overhead dropped from 79.3% to 34.1% - much more reasonable
+  - GPU is now competitive: 6.12 fJ/op vs KPU's 5.31 fJ/op (1.15x vs best)
+  - Before the fix, GPU was showing 22.77 pJ/op (artificially high)
+
+  TEST 4 - Scaling Behavior:
+  - GPU now converges to ~4.32 pJ/op at 1M ops
+  - The scaling is sensible: 2004 -> 204 -> 24 -> 6.1 -> 4.3 pJ/op
+  - Fixed kernel launch overhead (200K pJ) amortizes correctly
+  - At large scale, GPU is very competitive with TPU/KPU
+
+  Key insight from scaling:
+  - At 100 ops: GPU = 2004 pJ/op (dominated by kernel launch)
+  - At 1M ops: GPU = 4.32 pJ/op (kernel launch amortized to 0.2 pJ/op)
+  - Asymptotic energy/op: ~4 pJ (compute + minimal overhead)
+
+  Let me update the todos and create a summary:
+
+● Summary of Energy Model Fixes
+
+  All fixes have been completed. Here's the summary:
+
+  1. CPU SIMD Amortization (cpu.py)
+
+  - Before: 2 instructions per op (no SIMD modeling)
+  - After: instructions_per_op = 2.0 / simd_width
+  - AVX-512 (simd_width=16): 0.125 instructions per op
+  - Result: Control overhead reduced by 16x with AVX-512
+
+  2. GPU SM-Centric Model (gpu.py)
+
+  - Before: Scaled with effective_threads (200K), charged per-thread context, confused workload size with hardware size
+  - After: SM-centric model where:
+    - num_instructions = num_ops / warp_size (32)
+    - Instruction fetch/decode amortized across warp
+    - Register access is per-instruction (vector registers)
+    - No artificial thread context scaling
+  - Result: Control overhead dropped from 79% to 34%
+
+  3. Memory Model Consistency
+
+  - CPU/GPU: bytes_transferred -> cache hierarchy (consistent)
+  - TPU: Clarified internal vs external data movement
+    - Internal: systolic weight_load, input_feed, output_drain
+    - External: SRAM vs HBM based on hit ratios
+  - KPU: Fixed mode-aware memory allocation
+    - DRAM_RESIDENT now correctly charges DRAM energy
+    - Internal streaming separated from external EDDO hierarchy
+
+  4. Scaling Behavior
+
+  At 100K ops (L2_RESIDENT mode):
+  | Architecture     | Total (fJ/op) | Compute% | Control% | DataMov% |
+  |------------------|---------------|----------|----------|----------|
+  | CPU (AVX-512)    | 10,928        | 43.5%    | 16.8%    | 39.7%    |
+  | GPU (SM-centric) | 6,118         | 25.6%    | 34.1%    | 40.2%    |
+  | TPU              | 5,698         | 26.8%    | 0.3%     | 72.9%    |
+  | KPU              | 5,315         | 18.0%    | 0.2%     | 81.8%    |
+
+  The results now match expectations:
+  - TPU/KPU have near-zero control overhead (no per-op instruction fetch)
+  - GPU has moderate control overhead (warp scheduling per instruction)
+  - CPU has higher control overhead but SIMD amortization helps significantly
+  - All architectures have similar data movement characteristics for same bytes_transferred
+
+
+● The GPU's 200nJ kernel launch overhead is dominating the Part 1 comparison for small workloads (32 ops), making it appear 99.9% control. That's
+  actually a realistic problem - GPU kernel launches are expensive! However, for "native operation" comparison, we should model just the instruction
+  execution, not the kernel launch. Let me update the todos and adjust the GPU model for Part 1 to exclude kernel launch (since we're comparing
+  instruction-level energy, not full kernel invocations):
+
+● All tasks are complete. The energy walkthrough script now has both parts:
+
+  Part 1: Native Operation Energy - Shows the fundamental energy cost per native execution unit:
+  - CPU: 1 AVX-512 instruction = 16 MACs, ~14 pJ/MAC
+  - GPU: 1 warp instruction = 32 MACs, but dominated by kernel launch overhead for small workloads
+  - TPU: 1 systolic tile cycle = 16,384 MACs, ~6 pJ/MAC
+  - KPU: 1 tile cycle = 256 MACs (single 16x16 tile), ~7 pJ/MAC
+
+  Part 2: Real Workload Mapping - Shows a 300x300 MatMul (27M MACs):
+  - TPU tiling efficiency: 51% (300 = 2x128 + 44 remainder)
+  - KPU tiling efficiency: 95.5% (300 = 18x16 + 12 remainder)
+  - GPU wins on this workload at 1.7 pJ/MAC
+  - KPU second at 1.94 pJ/MAC, TPU third at 2.28 pJ/MAC, CPU last at 6.64 pJ/MAC
+
+  The key insight is demonstrated: KPU's finer tile granularity (16x16 vs 128x128) handles irregular matrix sizes better, with only 4.5% waste vs TPU's
+  49% waste for a 300x300 matrix.
+
+  The script can be run with:
+  cli/energy_walkthrough.py                # Both parts with defaults
+  cli/energy_walkthrough.py --matrix 512   # Custom matrix size for Part 2
+  cli/energy_walkthrough.py --trace        # Include detailed execution trace
+  cli/energy_walkthrough.py --part1        # Only Part 1
+  cli/energy_walkthrough.py --part2        # Only Part 2
+
+
+  Summary
+
+  GPU Model Changes
+
+  1. GPU CUDA Model (build_gpu_cuda_cycle_energy)
+  - Models scalar/vector workloads on CUDA cores
+  - SM has 4 partitions, each with 32 CUDA cores
+  - Native unit: 4 warp instructions = 128 MACs per SM-cycle
+  - Requires 4 warp schedulers to fully utilize the SM
+
+  2. GPU TensorCore Model (build_gpu_tensorcore_cycle_energy)
+  - Models matrix workloads on TensorCores
+  - SM has 4 partitions, each with 1 TensorCore (4x4x4 = 64 MACs)
+  - Native unit: 4 MMA instructions = 256 MACs per SM-cycle
+  - Direct comparison with KPU: Both have 256 MACs native unit
+
+  3. Legacy API (build_gpu_cycle_energy)
+  - Maintained for backwards compatibility
+  - Routes to TensorCore or CUDA model based on tensor_core_utilization
+
+  Key Insights from the Comparison
+
+  Architecture      Native Unit                 MACs    Control Units
+  ----------------  --------------------------  ------  -----------------
+  CPU (AVX-512)     1 instruction               16      1 fetch/decode
+  GPU (CUDA)        4 warp instructions (SM)    128     4 warp schedulers
+  GPU (TensorCore)  4 MMA instructions (SM)     256     4 warp schedulers
+  TPU (Systolic)    1 tile cycle                16,384  1 tile config
+  KPU (Domain)      1 tile cycle (16x16)        256     1 domain tracker
+
+  The key architectural insight: GPU TensorCore and KPU tile have the same native unit size (256 MACs), but:
+  - GPU needs 4 independent warp schedulers
+  - KPU needs 1 domain tracker
+
+  This explains why the SM is partitioned into 4 sub-cores - a single warp scheduler for 128 CUDA cores would be infeasible.
+
