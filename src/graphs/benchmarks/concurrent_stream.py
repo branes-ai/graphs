@@ -21,9 +21,29 @@ from typing import Dict, List, Optional, Any
 
 import numpy as np
 
+# Use 'spawn' start method to avoid CUDA/TensorRT fork issues.
+# CUDA cannot reinitialize in forked subprocesses, and TensorRT pybind11
+# objects fail in forked contexts.
+_mp_ctx = multiprocessing.get_context('spawn')
+
 
 # ---------------------------------------------------------------------------
-# Worker functions (each runs in its own Process)
+# Manager-based barrier (Barrier is not picklable across spawn contexts)
+# ---------------------------------------------------------------------------
+
+def _wait_barrier(ready_counter, ready_event, total):
+    """Manager-based barrier: increment counter, wait for all to arrive."""
+    with ready_counter.get_lock():
+        ready_counter.value += 1
+        arrived = ready_counter.value
+    if arrived >= total:
+        ready_event.set()
+    else:
+        ready_event.wait()
+
+
+# ---------------------------------------------------------------------------
+# Worker functions (each runs in its own Process via spawn)
 # ---------------------------------------------------------------------------
 
 def _pin_to_cores(core_ids: List[int]):
@@ -38,19 +58,21 @@ def _cpu_stream_worker(
     size_mb: int,
     num_trials: int,
     scalar: float,
-    barrier: multiprocessing.Barrier,
+    ready_counter,
+    ready_event,
+    total_engines: int,
     result_dict: dict,
-    dict_lock: multiprocessing.Lock,
+    dict_lock,
 ):
     """CPU multi-core STREAM Triad worker.
 
     Spawns sub-workers on all available cores within this process.
     Reports aggregate CPU bandwidth.
     """
-    from .numpy_benchmarks.multicore_stream import benchmark_multicore_stream
+    from graphs.benchmarks.numpy_benchmarks.multicore_stream import benchmark_multicore_stream
 
     # Wait for all engines to be ready
-    barrier.wait()
+    _wait_barrier(ready_counter, ready_event, total_engines)
 
     results = benchmark_multicore_stream(
         size_mb=size_mb, num_trials=num_trials, scalar=scalar,
@@ -70,9 +92,11 @@ def _gpu_stream_worker(
     size_mb: int,
     num_trials: int,
     scalar: float,
-    barrier: multiprocessing.Barrier,
+    ready_counter,
+    ready_event,
+    total_engines: int,
     result_dict: dict,
-    dict_lock: multiprocessing.Lock,
+    dict_lock,
 ):
     """GPU STREAM Triad worker via PyTorch CUDA."""
     try:
@@ -84,7 +108,7 @@ def _gpu_stream_worker(
                     'bandwidth_gbps': 0.0,
                     'error': 'CUDA not available',
                 }
-            barrier.wait()
+            _wait_barrier(ready_counter, ready_event, total_engines)
             return
     except ImportError:
         with dict_lock:
@@ -93,7 +117,7 @@ def _gpu_stream_worker(
                 'bandwidth_gbps': 0.0,
                 'error': 'PyTorch not installed',
             }
-        barrier.wait()
+        _wait_barrier(ready_counter, ready_event, total_engines)
         return
 
     num_elements = (size_mb * 1024 * 1024) // 4  # float32
@@ -110,7 +134,7 @@ def _gpu_stream_worker(
     torch.cuda.synchronize()
 
     # Wait for all engines
-    barrier.wait()
+    _wait_barrier(ready_counter, ready_event, total_engines)
 
     # Timed runs
     times = []
@@ -138,9 +162,11 @@ def _dla_stream_worker(
     dla_core: int,
     precision: str,
     iterations: int,
-    barrier: multiprocessing.Barrier,
+    ready_counter,
+    ready_event,
+    total_engines: int,
     result_dict: dict,
-    dict_lock: multiprocessing.Lock,
+    dict_lock,
 ):
     """DLA inference worker using a memory-heavy Conv2D model.
 
@@ -150,7 +176,7 @@ def _dla_stream_worker(
     engine_key = f'dla{dla_core}'
 
     try:
-        from .tensorrt_benchmarks.trt_utils import (
+        from graphs.benchmarks.tensorrt_benchmarks.trt_utils import (
             check_trt_available, build_engine_from_onnx,
             time_engine, export_pytorch_to_onnx,
         )
@@ -162,7 +188,7 @@ def _dla_stream_worker(
                 'bandwidth_gbps': 0.0,
                 'error': str(e),
             }
-        barrier.wait()
+        _wait_barrier(ready_counter, ready_event, total_engines)
         return
 
     import tempfile
@@ -198,7 +224,7 @@ def _dla_stream_worker(
         time_engine(engine, warmup=5, iterations=5)
 
         # Wait for all engines
-        barrier.wait()
+        _wait_barrier(ready_counter, ready_event, total_engines)
 
         # Timed runs
         timing = time_engine(engine, warmup=0, iterations=iterations)
@@ -224,7 +250,7 @@ def _dla_stream_worker(
     except Exception as e:
         # Still need to participate in barrier
         try:
-            barrier.wait()
+            _wait_barrier(ready_counter, ready_event, total_engines)
         except Exception:
             pass
         with dict_lock:
@@ -274,25 +300,26 @@ def _run_engine_isolated(
     dla_iterations: int,
 ) -> Dict[str, Any]:
     """Run a single engine in isolation and return its result."""
-    manager = multiprocessing.Manager()
+    manager = _mp_ctx.Manager()
     result_dict = manager.dict()
     dict_lock = manager.Lock()
-    barrier = multiprocessing.Barrier(1)
+    ready_counter = _mp_ctx.Value('i', 0)
+    ready_event = _mp_ctx.Event()
 
     if engine == 'cpu':
         target = _cpu_stream_worker
-        args = (size_mb, num_trials, scalar, barrier, result_dict, dict_lock)
+        args = (size_mb, num_trials, scalar, ready_counter, ready_event, 1, result_dict, dict_lock)
     elif engine == 'gpu':
         target = _gpu_stream_worker
-        args = (size_mb, num_trials, scalar, barrier, result_dict, dict_lock)
+        args = (size_mb, num_trials, scalar, ready_counter, ready_event, 1, result_dict, dict_lock)
     elif engine.startswith('dla'):
         core = int(engine[3:])
         target = _dla_stream_worker
-        args = (core, dla_precision, dla_iterations, barrier, result_dict, dict_lock)
+        args = (core, dla_precision, dla_iterations, ready_counter, ready_event, 1, result_dict, dict_lock)
     else:
         return {'engine': engine, 'bandwidth_gbps': 0.0, 'error': f'Unknown engine: {engine}'}
 
-    p = multiprocessing.Process(target=target, args=args)
+    p = _mp_ctx.Process(target=target, args=args)
     p.start()
     p.join(timeout=120)
 
@@ -374,27 +401,29 @@ def benchmark_concurrent_engines(
             ),
         }
 
-    manager = multiprocessing.Manager()
+    manager = _mp_ctx.Manager()
     result_dict = manager.dict()
     dict_lock = manager.Lock()
-    barrier = multiprocessing.Barrier(len(active_engines))
+    ready_counter = _mp_ctx.Value('i', 0)
+    ready_event = _mp_ctx.Event()
+    total = len(active_engines)
 
     processes = []
     for eng in active_engines:
         if eng == 'cpu':
             target = _cpu_stream_worker
-            args = (size_mb, num_trials, scalar, barrier, result_dict, dict_lock)
+            args = (size_mb, num_trials, scalar, ready_counter, ready_event, total, result_dict, dict_lock)
         elif eng == 'gpu':
             target = _gpu_stream_worker
-            args = (size_mb, num_trials, scalar, barrier, result_dict, dict_lock)
+            args = (size_mb, num_trials, scalar, ready_counter, ready_event, total, result_dict, dict_lock)
         elif eng.startswith('dla'):
             core = int(eng[3:])
             target = _dla_stream_worker
-            args = (core, dla_precision, dla_iterations, barrier, result_dict, dict_lock)
+            args = (core, dla_precision, dla_iterations, ready_counter, ready_event, total, result_dict, dict_lock)
         else:
             continue
 
-        p = multiprocessing.Process(target=target, args=args)
+        p = _mp_ctx.Process(target=target, args=args)
         processes.append((eng, p))
 
     for _, p in processes:
