@@ -49,6 +49,12 @@ def _trace_model(
     if _HAS_STABLE_EXPORT:
         if verbose:
             print("  Tracing model with PyTorch Dynamo export...", flush=True)
+        # Warm-up needed for Dynamo (lazy initialization)
+        with torch.no_grad():
+            try:
+                _ = model(input_tensor)
+            except Exception:
+                pass
         try:
             exported_program = torch.export.export(model, (input_tensor,))
             fx_graph = exported_program.module()
@@ -106,23 +112,9 @@ def trace_and_partition(
         >>> fx_graph, report = trace_and_partition(model, input_tensor)
         >>> print(f"Subgraphs: {len(report.subgraphs)}")
     """
-    import sys
-
     # Set model to evaluation mode (CRITICAL for BatchNorm with batch=1)
     # This prevents "Expected more than 1 value per channel" errors
     model.eval()
-
-    # Warm-up model (important for lazy initialization)
-    if verbose:
-        print("  Warming up model...", flush=True)
-    with torch.no_grad():
-        try:
-            _ = model(input_tensor)
-            if verbose:
-                print("    [OK] Warm-up complete", flush=True)
-        except Exception as e:
-            if verbose:
-                print(f"    Note: Warm-up failed ({e}), continuing anyway...", flush=True)
 
     fx_graph = _trace_model(model, input_tensor, verbose)
 
@@ -168,13 +160,6 @@ def trace_only(
         RuntimeError: If tracing fails
     """
     model.eval()
-
-    # Warm-up
-    with torch.no_grad():
-        try:
-            _ = model(input_tensor)
-        except Exception:
-            pass
 
     fx_graph = _trace_model(model, input_tensor, verbose)
 
