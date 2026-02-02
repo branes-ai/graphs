@@ -1430,8 +1430,8 @@ class HardwareCalibration:
 
             print()
 
-        # Precision Support Summary
-        if self.precision_matrix:
+        # Precision Support Summary (only if BLAS ops produced precision data)
+        if self.precision_matrix and self.precision_matrix.supported_precisions:
             print("Precision Support Summary:")
             print(f"  Supported:   {', '.join(self.precision_matrix.supported_precisions)}")
             if self.precision_matrix.unsupported_precisions:

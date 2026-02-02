@@ -522,13 +522,13 @@ def main():
 
         # Rename calibration file to proper convention if it was a pending file
         final_output_path = output_path
-        if output_path.name.startswith("pending_") and calibration.metadata:
+        if output_path.name.startswith("pending_"):
             # Generate proper filename from calibration metadata
             meta = calibration.metadata
-            if meta.gpu_clock and meta.gpu_clock.power_mode_name:
+            if meta and meta.gpu_clock and meta.gpu_clock.power_mode_name:
                 power_mode = meta.gpu_clock.power_mode_name
                 freq = meta.gpu_clock.sm_clock_mhz or 0
-            elif meta.cpu_clock:
+            elif meta and meta.cpu_clock:
                 # Prefer nvpmodel power_mode_name (Jetson) over governor
                 power_mode = meta.cpu_clock.power_mode_name or meta.cpu_clock.governor or "default"
                 freq = int(meta.cpu_clock.current_freq_mhz) if meta.cpu_clock.current_freq_mhz else 0
