@@ -428,6 +428,24 @@ def main():
     if args.operations:
         operations = [op.strip() for op in args.operations.split(',')]
 
+    # CPU-only operations: switch to CPU profile if auto-detected GPU
+    CPU_ONLY_OPS = {'multicore_stream'}
+    if operations and set(operations).issubset(CPU_ONLY_OPS):
+        if hardware_profile.device_type == 'gpu':
+            cpu_id = hardware_profile.id.replace('_gpu', '_cpu')
+            cpu_profile = registry.get(cpu_id)
+            if cpu_profile:
+                print(f"CPU-only operations requested. Switching to: {cpu_id}")
+                hardware_profile = cpu_profile
+                # Re-derive device and peaks from CPU profile
+                hardware_name = hardware_profile.model
+                device = hardware_profile.device_type
+                theoretical_peaks = hardware_profile.theoretical_peaks
+                peak_bandwidth = hardware_profile.peak_bandwidth_gbps
+                peak_gflops = theoretical_peaks.get(
+                    'fp32', max(theoretical_peaks.values()) if theoretical_peaks else 100.0
+                )
+
     # Detect actual device that will be used (may differ from requested if fallback occurs)
     device_info = detect_actual_device(device)
 
