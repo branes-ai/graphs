@@ -24,11 +24,48 @@ from typing import Tuple, Optional
 
 import torch
 import torch.nn as nn
-from torch.fx import GraphModule
+from torch.fx import GraphModule, symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
 from graphs.core.structures import PartitionReport
 from graphs.transform.partitioning.fusion_partitioner import FusionBasedPartitioner
+
+# torch.export.export() is stable from PyTorch 2.4+.
+# On older versions (e.g. JetPack's 2.1.0a0) it segfaults.
+_TORCH_VERSION = tuple(int(x) for x in torch.__version__.split('+')[0].split('a')[0].split('.')[:2])
+_HAS_STABLE_EXPORT = _TORCH_VERSION >= (2, 4)
+
+
+def _trace_model(
+    model: nn.Module,
+    input_tensor: torch.Tensor,
+    verbose: bool = False,
+) -> GraphModule:
+    """Trace model using Dynamo export (>= 2.4) or symbolic_trace (fallback)."""
+    if _HAS_STABLE_EXPORT:
+        if verbose:
+            print("  Tracing model with PyTorch Dynamo export...")
+        try:
+            exported_program = torch.export.export(model, (input_tensor,))
+            fx_graph = exported_program.module()
+            if verbose:
+                print("    [OK] Dynamo export successful")
+            return fx_graph
+        except Exception as e:
+            if verbose:
+                print(f"    [X] Dynamo export failed: {e}")
+                print("    Falling back to symbolic_trace...")
+
+    # Fallback: torch.fx.symbolic_trace (works on all PyTorch >= 1.8)
+    if verbose:
+        print("  Tracing model with torch.fx.symbolic_trace...")
+    try:
+        fx_graph = symbolic_trace(model)
+        if verbose:
+            print("    [OK] symbolic_trace successful")
+        return fx_graph
+    except Exception as e:
+        raise RuntimeError(f"Failed to trace model: {e}")
 
 
 def trace_and_partition(
@@ -65,9 +102,6 @@ def trace_and_partition(
         >>> fx_graph, report = trace_and_partition(model, input_tensor)
         >>> print(f"Subgraphs: {len(report.subgraphs)}")
     """
-    if verbose:
-        print("  Tracing model with PyTorch Dynamo export...")
-
     # Set model to evaluation mode (CRITICAL for BatchNorm with batch=1)
     # This prevents "Expected more than 1 value per channel" errors
     model.eval()
@@ -80,16 +114,7 @@ def trace_and_partition(
             if verbose:
                 print(f"    Note: Warm-up failed ({e}), continuing anyway...")
 
-    # Export with Dynamo (state-of-the-art tracing)
-    try:
-        exported_program = torch.export.export(model, (input_tensor,))
-        fx_graph = exported_program.module()
-        if verbose:
-            print("    [OK] Dynamo export successful")
-    except Exception as e:
-        if verbose:
-            print(f"    [X] Dynamo export failed: {e}")
-        raise RuntimeError(f"Failed to trace model with Dynamo: {e}")
+    fx_graph = _trace_model(model, input_tensor, verbose)
 
     # Shape propagation
     shape_prop = ShapeProp(fx_graph)
@@ -132,9 +157,6 @@ def trace_only(
     Raises:
         RuntimeError: If tracing fails
     """
-    if verbose:
-        print("  Tracing model with PyTorch Dynamo export...")
-
     model.eval()
 
     # Warm-up
@@ -144,14 +166,7 @@ def trace_only(
         except Exception:
             pass
 
-    # Export with Dynamo
-    try:
-        exported_program = torch.export.export(model, (input_tensor,))
-        fx_graph = exported_program.module()
-        if verbose:
-            print("    [OK] Dynamo export successful")
-    except Exception as e:
-        raise RuntimeError(f"Failed to trace model with Dynamo: {e}")
+    fx_graph = _trace_model(model, input_tensor, verbose)
 
     # Shape propagation
     shape_prop = ShapeProp(fx_graph)
