@@ -1061,12 +1061,18 @@ class HardwareCalibration:
 
         # Separate operations by category: STREAM (memory), BLAS (compute), other
         stream_ops = {}
+        multicore_ops = {}
+        concurrent_ops = {}
         blas_ops = {}
         other_memory_ops = {}
         compute_ops = {}
 
         for key, profile in self.operation_profiles.items():
-            if 'stream' in profile.operation_type:
+            if profile.operation_type == 'stream_multicore':
+                multicore_ops[key] = profile
+            elif profile.operation_type == 'stream_concurrent':
+                concurrent_ops[key] = profile
+            elif 'stream' in profile.operation_type:
                 stream_ops[key] = profile
             elif 'blas' in profile.operation_type:
                 blas_ops[key] = profile
@@ -1118,6 +1124,53 @@ class HardwareCalibration:
                 print()
                 print(f"  STREAM Score (minimum): {stream_score:.1f} GB/s")
             print()
+
+        # Multi-Core CPU STREAM Results
+        if multicore_ops:
+            for key, profile in multicore_ops.items():
+                ep = profile.extra_params
+                num_cores = ep.get('num_cores', 0)
+                single_bw = ep.get('single_core_bw_gbps', 0)
+                agg_bw = ep.get('aggregate_bw_gbps', 0)
+                scaling = ep.get('scaling_efficiency', 0)
+                print(f"Multi-Core CPU STREAM Triad ({num_cores} cores, {ep.get('size_mb', 256)} MB/core):")
+                print(f"  Single-core baseline: {single_bw:.1f} GB/s")
+                print(f"  Aggregate ({num_cores} cores):  {agg_bw:.1f} GB/s")
+                print(f"  Scaling efficiency:   {scaling*100:.1f}%"
+                      f" (ideal: {single_bw * num_cores:.1f} GB/s)")
+                per_core = ep.get('per_core_bw_gbps', [])
+                if per_core:
+                    print(f"  Per-core range:       {min(per_core):.1f} - {max(per_core):.1f} GB/s")
+                print()
+
+        # Concurrent Multi-Engine STREAM Results
+        if concurrent_ops:
+            for key, profile in concurrent_ops.items():
+                ep = profile.extra_params
+                engines = ep.get('engines', [])
+                isolated = ep.get('isolated', {})
+                concurrent = ep.get('concurrent', {})
+                contention = ep.get('contention', {})
+                agg = ep.get('aggregate_concurrent_gbps', 0)
+
+                print("Concurrent Engine Bandwidth:")
+                print(f"  {'Engine':<12} {'Isolated':>12} {'Concurrent':>12} {'Contention':>12}")
+                print("  " + "-" * 50)
+                for eng in engines:
+                    iso_bw = isolated.get(eng, 0)
+                    con_bw = concurrent.get(eng, 0)
+                    cont = contention.get(eng, 0)
+                    iso_str = f"{iso_bw:.1f} GB/s" if iso_bw > 0 else "N/A"
+                    con_str = f"{con_bw:.1f} GB/s" if con_bw > 0 else "N/A"
+                    cont_str = f"{cont:.2f}x" if iso_bw > 0 else "N/A"
+                    print(f"  {eng:<12} {iso_str:>12} {con_str:>12} {cont_str:>12}")
+                print("  " + "-" * 50)
+                print(f"  {'Aggregate':<12} {'':>12} {agg:>10.1f} GB/s")
+                if self.theoretical_bandwidth_gbps > 0:
+                    util = agg / self.theoretical_bandwidth_gbps * 100
+                    print(f"  Theoretical EMC:     {self.theoretical_bandwidth_gbps:.1f} GB/s")
+                    print(f"  EMC Utilization:     {util:.1f}%")
+                print()
 
         # BLAS Compute Performance Benchmark Results
         if blas_ops:
