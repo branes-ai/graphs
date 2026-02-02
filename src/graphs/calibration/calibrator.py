@@ -587,7 +587,8 @@ def calibrate_hardware(
         print()
 
     # Multi-core CPU STREAM benchmark
-    if 'multicore_stream' in operations:
+    # Runs automatically with 'stream' or explicitly with 'multicore_stream'
+    if 'multicore_stream' in operations or 'stream' in operations:
         print("Multi-Core CPU STREAM Benchmark")
         print("-" * 80)
 
