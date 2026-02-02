@@ -2,13 +2,13 @@
 ===============================================================================
                             COMPREHENSIVE ANALYSIS                             
 ===============================================================================
-Model: vit_b_32
+Model: vit_l_32
 Hardware: Jetson-Orin-AGX
 Precision: FP32
 Batch Size: 1
 ===============================================================================
 
-Creating model: vit_b_32 (batch_size=1)...
+Creating model: vit_l_32 (batch_size=1)...
 Creating hardware mapper: Jetson-Orin-AGX (precision=FP32)...
 Tracing model with FX...
   PyTorch version: 2.1.0a0+41361538.nv23.06 (parsed: (2, 1))
@@ -16,25 +16,25 @@ Tracing model with FX...
   Tracing model with torch.fx.symbolic_trace...
     [OK] symbolic_trace successful
   Running fusion-based partitioning...
-    Partitioned into 156 subgraphs
-    Total FLOPs: 0.35 GFLOPs
-Partitioned into 156 subgraphs
-Total FLOPs: 0.35 GFLOPs
-Total memory traffic: 394.65 MB
+    Partitioned into 288 subgraphs
+    Total FLOPs: 0.72 GFLOPs
+Partitioned into 288 subgraphs
+Total FLOPs: 0.72 GFLOPs
+Total memory traffic: 1333.02 MB
 Running hardware mapping...
   Peak units allocated: 16/16
-  Average utilization: 53.6%
+  Average utilization: 55.4%
 Running roofline analysis (thermal_profile=30W)...
 Running energy analysis (thermal_profile=30W)...
 Running memory analysis...
 Running operator-level EDP breakdown...
-Analyzing vit_b_32 on 1 architectures...
+Analyzing vit_l_32 on 1 architectures...
 
   Analyzing Jetson-Orin-AGX-64GB...
 
 Analysis complete!
 
-  Found 156 operators across 156 subgraphs
+  Found 288 operators across 288 subgraphs
 
 Analysis complete!
 ===============================================================================
@@ -43,56 +43,56 @@ Analysis complete!
 
 EXECUTIVE SUMMARY
 -------------------------------------------------------------------------------
-Model:                   ViT-B/32
+Model:                   ViT-L/32
 Hardware:                Jetson-Orin-AGX-64GB
 Precision:               FP32
 Batch Size:              1
 
-Performance:             2.91 ms latency, 344.2 fps
-Energy:                  32.7 mJ total (32.7 mJ/inference)
-Energy per Inference:    32.7 mJ (80% static overhead)
-Efficiency:              2.2% hardware utilization
+Performance:             8.21 ms latency, 121.7 fps
+Energy:                  95.3 mJ total (95.3 mJ/inference)
+Energy per Inference:    95.3 mJ (78% static overhead)
+Efficiency:              2.1% hardware utilization
 
-Memory:                  Peak 337.7 MB
-                         (activations: 0.8 MB, weights: 352.7 MB)
+Memory:                  Peak 1170.5 MB
+                         (activations: 1.0 MB, weights: 1225.9 MB)
                          [X] Does not fit in L2 cache (4.2 MB)
 
 PERFORMANCE ANALYSIS
 -------------------------------------------------------------------------------
-Total Latency:           2.91 ms
-Throughput:              344.2 fps
-Hardware Utilization:    2.2%
-Total FLOPs:             0.35 GFLOPs
-Subgraphs:               156
-Bottlenecks:             156 compute-bound, 0 memory-bound
+Total Latency:           8.21 ms
+Throughput:              121.7 fps
+Hardware Utilization:    2.1%
+Total FLOPs:             0.72 GFLOPs
+Subgraphs:               288
+Bottlenecks:             288 compute-bound, 0 memory-bound
 
 ENERGY ANALYSIS
 -------------------------------------------------------------------------------
-Total Energy:            32.7 mJ
-  Compute Energy:        0.7 mJ
-  Memory Energy:         5.9 mJ
-  Static Energy:         26.1 mJ
+Total Energy:            95.3 mJ
+  Compute Energy:        1.4 mJ
+  Memory Energy:         20.0 mJ
+  Static Energy:         73.9 mJ
 
-Energy per Inference:    32.7 mJ
-Average Power:           11.3 W
-Peak Power:              12.0 W
-Energy Efficiency:       8.9%
+Energy per Inference:    95.3 mJ
+Average Power:           11.6 W
+Peak Power:              12.1 W
+Energy Efficiency:       10.2%
 
 Power Management:
-  Average Units Allocated: 8.6
-  Allocated Units Idle:    18.0 mJ
-  Unallocated Units Idle:  8.1 mJ
+  Average Units Allocated: 8.9
+  Allocated Units Idle:    51.1 mJ
+  Unallocated Units Idle:  22.8 mJ
   Power Gating:            DISABLED (conservative estimate)
 
 MEMORY ANALYSIS
 -------------------------------------------------------------------------------
-Peak Memory:             337.7 MB
-  Activations:           0.8 MB
-  Weights:               352.7 MB
+Peak Memory:             1170.5 MB
+  Activations:           1.0 MB
+  Weights:               1225.9 MB
   Workspace:             1.2 MB
 
-Average Memory:          353.0 MB
-Memory Utilization:      99.7%
+Average Memory:          1226.3 MB
+Memory Utilization:      99.9%
 
 Hardware Fit:
   L2 Cache (4.2 MB):       [X] Does not fit
@@ -100,7 +100,7 @@ Hardware Fit:
 
 RECOMMENDATIONS
 -------------------------------------------------------------------------------
-  1. Increase batch size to amortize static energy (80% overhead)
+  1. Increase batch size to amortize static energy (78% overhead)
   2. Consider FP16 for 2× speedup with minimal accuracy loss
   3. Consider tiling or model partitioning to improve cache locality
 
