@@ -586,6 +586,91 @@ def calibrate_hardware(
 
         print()
 
+    # Multi-core CPU STREAM benchmark
+    if 'multicore_stream' in operations:
+        print("Multi-Core CPU STREAM Benchmark")
+        print("-" * 80)
+
+        from graphs.benchmarks.numpy_benchmarks.multicore_stream import (
+            benchmark_multicore_stream, print_multicore_results,
+        )
+        mc_results = benchmark_multicore_stream(
+            size_mb=256,
+            num_trials=metadata.num_measurement_runs,
+        )
+        print_multicore_results(mc_results)
+
+        # Store as an OperationCalibration
+        mc_cal = OperationCalibration(
+            operation_type='stream_multicore',
+            measured_gflops=0.0,
+            efficiency=0.0,
+            achieved_bandwidth_gbps=mc_results['aggregate_bw_gbps'],
+            memory_bound=True,
+            compute_bound=False,
+            arithmetic_intensity=0.0,
+            batch_size=1,
+            input_shape=(mc_results['num_cores'],),
+            output_shape=(mc_results['num_cores'],),
+            mean_latency_ms=0.0,
+            std_latency_ms=0.0,
+            min_latency_ms=0.0,
+            max_latency_ms=0.0,
+            num_trials=mc_results['num_trials'],
+            extra_params={
+                'num_cores': mc_results['num_cores'],
+                'size_mb': mc_results['size_mb'],
+                'single_core_bw_gbps': mc_results['single_core_bw_gbps'],
+                'aggregate_bw_gbps': mc_results['aggregate_bw_gbps'],
+                'scaling_efficiency': mc_results['scaling_efficiency'],
+                'per_core_bw_gbps': mc_results['per_core_bw_gbps'],
+            },
+        )
+        calibration.add_operation(mc_cal)
+        print()
+
+    # Concurrent multi-engine STREAM benchmark
+    if 'concurrent_stream' in operations:
+        print("Concurrent Multi-Engine STREAM Benchmark")
+        print("-" * 80)
+
+        from graphs.benchmarks.concurrent_stream import (
+            benchmark_concurrent_engines, print_concurrent_results,
+        )
+        conc_results = benchmark_concurrent_engines(
+            size_mb=256,
+            num_trials=metadata.num_measurement_runs,
+        )
+        print_concurrent_results(conc_results, theoretical_bw_gbps=theoretical_bandwidth_gbps)
+
+        # Store as an OperationCalibration
+        conc_cal = OperationCalibration(
+            operation_type='stream_concurrent',
+            measured_gflops=0.0,
+            efficiency=0.0,
+            achieved_bandwidth_gbps=conc_results['aggregate_concurrent_gbps'],
+            memory_bound=True,
+            compute_bound=False,
+            arithmetic_intensity=0.0,
+            batch_size=1,
+            input_shape=(len(conc_results.get('engines', [])),),
+            output_shape=(len(conc_results.get('engines', [])),),
+            mean_latency_ms=0.0,
+            std_latency_ms=0.0,
+            min_latency_ms=0.0,
+            max_latency_ms=0.0,
+            num_trials=metadata.num_measurement_runs,
+            extra_params={
+                'engines': conc_results.get('engines', []),
+                'isolated': {k: v.get('bandwidth_gbps', 0) for k, v in conc_results.get('isolated', {}).items()},
+                'concurrent': {k: v.get('bandwidth_gbps', 0) for k, v in conc_results.get('concurrent', {}).items()},
+                'contention': conc_results.get('contention', {}),
+                'aggregate_concurrent_gbps': conc_results['aggregate_concurrent_gbps'],
+            },
+        )
+        calibration.add_operation(conc_cal)
+        print()
+
     # Legacy matmul support (kept for backward compatibility)
     if 'matmul' in operations:
         print("2. Matrix Multiplication (Multi-Precision)")

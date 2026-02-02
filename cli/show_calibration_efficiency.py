@@ -125,6 +125,54 @@ def show_calibration_efficiency(profile, calibration, power_mode: str = None):
     print(f"{'Efficiency:':<20} {bw_eff*100:.1f}%")
     print()
 
+    # Show multi-core STREAM results if available
+    mc_profile = None
+    conc_profile = None
+    for key, op in calibration.operation_profiles.items():
+        if op.operation_type == 'stream_multicore':
+            mc_profile = op
+        elif op.operation_type == 'stream_concurrent':
+            conc_profile = op
+
+    if mc_profile:
+        ep = mc_profile.extra_params
+        num_cores = ep.get('num_cores', 0)
+        single_bw = ep.get('single_core_bw_gbps', 0)
+        agg_bw = ep.get('aggregate_bw_gbps', 0)
+        scaling = ep.get('scaling_efficiency', 0)
+        print(f"Multi-Core STREAM ({num_cores} cores):")
+        print("-" * 80)
+        print(f"{'Single-core:':<20} {single_bw:.1f} GB/s")
+        print(f"{'Aggregate:':<20} {agg_bw:.1f} GB/s")
+        print(f"{'Scaling:':<20} {scaling*100:.1f}% of ideal ({single_bw * num_cores:.1f} GB/s)")
+        print()
+
+    if conc_profile:
+        ep = conc_profile.extra_params
+        engines = ep.get('engines', [])
+        isolated = ep.get('isolated', {})
+        concurrent = ep.get('concurrent', {})
+        contention = ep.get('contention', {})
+        agg = ep.get('aggregate_concurrent_gbps', 0)
+
+        print("Concurrent Engine Bandwidth:")
+        print("-" * 80)
+        print(f"  {'Engine':<12} {'Isolated':>12} {'Concurrent':>12} {'Contention':>12}")
+        print("  " + "-" * 50)
+        for eng in engines:
+            iso_bw = isolated.get(eng, 0)
+            con_bw = concurrent.get(eng, 0)
+            cont = contention.get(eng, 0)
+            iso_str = f"{iso_bw:.1f} GB/s" if iso_bw > 0 else "N/A"
+            con_str = f"{con_bw:.1f} GB/s" if con_bw > 0 else "N/A"
+            cont_str = f"{cont:.2f}x" if iso_bw > 0 else "N/A"
+            print(f"  {eng:<12} {iso_str:>12} {con_str:>12} {cont_str:>12}")
+        print("  " + "-" * 50)
+        print(f"  {'Aggregate':<12} {'':>12} {agg:>10.1f} GB/s")
+        if theo_bw > 0:
+            print(f"  EMC Utilization: {agg / theo_bw * 100:.1f}%")
+        print()
+
     # Show summary
     print("Summary:")
     print("-" * 80)

@@ -347,6 +347,7 @@ def main():
                        help="Comma-separated operations to calibrate (default: blas,stream). "
                             "BLAS options: blas (all), blas1, blas2, blas3, dot, axpy, gemv, gemm. "
                             "STREAM options: stream (all 4), stream_copy, stream_scale, stream_add, stream_triad. "
+                            "Multi-engine: multicore_stream, concurrent_stream. "
                             "Legacy: matmul, memory")
     parser.add_argument("--min-gflops", type=float, default=1.0,
                        help="Minimum GFLOPS threshold for precision early termination (default: 1.0). "
