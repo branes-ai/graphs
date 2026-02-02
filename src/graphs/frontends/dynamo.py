@@ -42,27 +42,31 @@ def _trace_model(
     verbose: bool = False,
 ) -> GraphModule:
     """Trace model using Dynamo export (>= 2.4) or symbolic_trace (fallback)."""
+    if verbose:
+        print(f"  PyTorch version: {torch.__version__} (parsed: {_TORCH_VERSION})", flush=True)
+        print(f"  Dynamo export available: {_HAS_STABLE_EXPORT}", flush=True)
+
     if _HAS_STABLE_EXPORT:
         if verbose:
-            print("  Tracing model with PyTorch Dynamo export...")
+            print("  Tracing model with PyTorch Dynamo export...", flush=True)
         try:
             exported_program = torch.export.export(model, (input_tensor,))
             fx_graph = exported_program.module()
             if verbose:
-                print("    [OK] Dynamo export successful")
+                print("    [OK] Dynamo export successful", flush=True)
             return fx_graph
         except Exception as e:
             if verbose:
-                print(f"    [X] Dynamo export failed: {e}")
-                print("    Falling back to symbolic_trace...")
+                print(f"    [X] Dynamo export failed: {e}", flush=True)
+                print("    Falling back to symbolic_trace...", flush=True)
 
     # Fallback: torch.fx.symbolic_trace (works on all PyTorch >= 1.8)
     if verbose:
-        print("  Tracing model with torch.fx.symbolic_trace...")
+        print("  Tracing model with torch.fx.symbolic_trace...", flush=True)
     try:
         fx_graph = symbolic_trace(model)
         if verbose:
-            print("    [OK] symbolic_trace successful")
+            print("    [OK] symbolic_trace successful", flush=True)
         return fx_graph
     except Exception as e:
         raise RuntimeError(f"Failed to trace model: {e}")
@@ -102,17 +106,23 @@ def trace_and_partition(
         >>> fx_graph, report = trace_and_partition(model, input_tensor)
         >>> print(f"Subgraphs: {len(report.subgraphs)}")
     """
+    import sys
+
     # Set model to evaluation mode (CRITICAL for BatchNorm with batch=1)
     # This prevents "Expected more than 1 value per channel" errors
     model.eval()
 
     # Warm-up model (important for lazy initialization)
+    if verbose:
+        print("  Warming up model...", flush=True)
     with torch.no_grad():
         try:
             _ = model(input_tensor)
+            if verbose:
+                print("    [OK] Warm-up complete", flush=True)
         except Exception as e:
             if verbose:
-                print(f"    Note: Warm-up failed ({e}), continuing anyway...")
+                print(f"    Note: Warm-up failed ({e}), continuing anyway...", flush=True)
 
     fx_graph = _trace_model(model, input_tensor, verbose)
 
