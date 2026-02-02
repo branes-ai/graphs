@@ -58,6 +58,8 @@ class OperationType(Enum):
     STREAM_SCALE = "stream_scale"    # a[i] = q * b[i]
     STREAM_ADD = "stream_add"        # a[i] = b[i] + c[i]
     STREAM_TRIAD = "stream_triad"    # a[i] = b[i] + q * c[i]
+    STREAM_MULTICORE = "stream_multicore"    # Multi-core CPU STREAM Triad
+    STREAM_CONCURRENT = "stream_concurrent"  # Multi-engine concurrent STREAM
 
     # Elementwise operations
     RELU = "relu"
