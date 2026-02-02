@@ -1,0 +1,105 @@
+
+===============================================================================
+                            COMPREHENSIVE ANALYSIS                             
+===============================================================================
+Model: mobilenet_v3_large
+Hardware: Jetson-Orin-AGX
+Precision: FP32
+Batch Size: 1
+===============================================================================
+
+Creating model: mobilenet_v3_large (batch_size=1)...
+Creating hardware mapper: Jetson-Orin-AGX (precision=FP32)...
+Tracing model with FX...
+  PyTorch version: 2.1.0a0+41361538.nv23.06 (parsed: (2, 1))
+  Dynamo export available: False
+  Tracing model with torch.fx.symbolic_trace...
+    [OK] symbolic_trace successful
+  Running fusion-based partitioning...
+    Partitioned into 94 subgraphs
+    Total FLOPs: 0.43 GFLOPs
+Partitioned into 94 subgraphs
+Total FLOPs: 0.43 GFLOPs
+Total memory traffic: 70.11 MB
+Running hardware mapping...
+  Peak units allocated: 16/16
+  Average utilization: 84.4%
+Running roofline analysis (thermal_profile=30W)...
+Running energy analysis (thermal_profile=30W)...
+Running memory analysis...
+Running operator-level EDP breakdown...
+Analyzing mobilenet_v3_large on 1 architectures...
+
+  Analyzing Jetson-Orin-AGX-64GB...
+
+Analysis complete!
+
+  Found 94 operators across 94 subgraphs
+
+Analysis complete!
+===============================================================================
+                 COMPREHENSIVE ANALYSIS REPORT
+===============================================================================
+
+EXECUTIVE SUMMARY
+-------------------------------------------------------------------------------
+Model:                   MobileNet-V3-Large
+Hardware:                Jetson-Orin-AGX-64GB
+Precision:               FP32
+Batch Size:              1
+
+Performance:             1.11 ms latency, 903.9 fps
+Energy:                  11.8 mJ total (11.8 mJ/inference)
+Energy per Inference:    11.8 mJ (84% static overhead)
+Efficiency:              27.4% hardware utilization
+
+Memory:                  Peak 24.7 MB
+                         (activations: 4.0 MB, weights: 21.9 MB)
+                         [X] Does not fit in L2 cache (4.2 MB)
+
+PERFORMANCE ANALYSIS
+-------------------------------------------------------------------------------
+Total Latency:           1.11 ms
+Throughput:              903.9 fps
+Hardware Utilization:    27.4%
+Total FLOPs:             0.43 GFLOPs
+Subgraphs:               94
+Bottlenecks:             94 compute-bound, 0 memory-bound
+
+ENERGY ANALYSIS
+-------------------------------------------------------------------------------
+Total Energy:            11.8 mJ
+  Compute Energy:        0.8 mJ
+  Memory Energy:         1.1 mJ
+  Static Energy:         10.0 mJ
+
+Energy per Inference:    11.8 mJ
+Average Power:           10.7 W
+Peak Power:              12.3 W
+Energy Efficiency:       12.2%
+
+Power Management:
+  Average Units Allocated: 13.5
+  Allocated Units Idle:    9.1 mJ
+  Unallocated Units Idle:  0.9 mJ
+  Power Gating:            DISABLED (conservative estimate)
+
+MEMORY ANALYSIS
+-------------------------------------------------------------------------------
+Peak Memory:             24.7 MB
+  Activations:           4.0 MB
+  Weights:               21.9 MB
+  Workspace:             1.2 MB
+
+Average Memory:          22.4 MB
+Memory Utilization:      86.4%
+
+Hardware Fit:
+  L2 Cache (4.2 MB):       [X] Does not fit
+  Device Memory (68.7 GB):  [OK] Fits
+
+RECOMMENDATIONS
+-------------------------------------------------------------------------------
+  1. Increase batch size to amortize static energy (84% overhead)
+  2. Consider tiling or model partitioning to improve cache locality
+

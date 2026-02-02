@@ -1,0 +1,171 @@
+(.venv) cjuser@sdhome-jetson:/mnt/nvme/dev/branes/clones/graphs$ cli/calibrate_hardware.py --operations concurrent_stream
+
+================================================================================
+Auto-Detecting Hardware
+================================================================================
+CPU:      ARMv8 Processor rev 1 (v8l)
+Vendor:   ARM
+Cores:    12 cores, 12 threads
+GPU #1:  Orin
+Memory:   61 GB
+Board:    Jetson AGX Orin for DSBOARD-AGX
+SoC:      Tegra T234
+
+Matched to registry: jetson_orin_agx_gpu
+  Confidence: 95%
+  Device: GPU
+
+
+================================================================================
+EXECUTION DEVICE
+================================================================================
+  Requested device: CUDA
+  Actual device:    GPU (Orin)
+  Framework:        PYTORCH
+
+================================================================================
+Hardware Calibration: Jetson Orin AGX (GPU)
+================================================================================
+
+Running pre-flight checks...
+======================================================================
+PRE-FLIGHT CHECKS
+======================================================================
+
+[OK] CPU Governor: schedutil (Jetson default)
+    Current:  schedutil
+    Expected: schedutil or performance
+[OK] CPU Frequency: 1602 MHz idle (DVFS will boost under load)
+    Current:  1602 MHz (idle)
+    Expected: Up to 2202 MHz under load
+[-] Turbo Boost: Could not determine (not Intel pstate)
+[OK] System Load: 0.8% (idle)
+    Current:  0.8%
+    Expected: < 5%
+[OK] Thermal State: 35°C (cool)
+    Current:  35°C
+    Expected: < 80°C
+[OK] GPU Power Mode: MAXN (maximum performance)
+
+RESULT: PASSED
+  System is ready for calibration.
+======================================================================
+System Information:
+  CPU: aarch64
+  Cores: 12 physical, 12 logical
+  Memory: 61.3 GB
+  Python: 3.8.10
+  NumPy: 1.24.4
+  PyTorch: 2.1.0a0+41361538.nv23.06
+
+Execution Device:
+  Running on: GPU (Orin)
+  Framework:  PYTORCH
+              (PyTorch DL framework, GPU-accelerated)
+
+Querying CPU clock frequencies...
+  CPU Freq: 960 MHz (44% of max 2202 MHz)
+  Governor: schedutil
+  Power Mode: MAXN (nvpmodel 0)
+  Clock Policy: dvfs
+
+Querying GPU clock frequencies...
+  Running warmup to capture clock under load...
+  SM Clock (idle): 306 MHz
+  SM Clock (load): 408 MHz (31% of max 1300 MHz)
+  Power Mode: MAXN
+  Clock Policy: dvfs
+
+Running calibration benchmarks...
+
+Concurrent Multi-Engine STREAM Benchmark
+--------------------------------------------------------------------------------
+Engines detected: cpu, gpu, dla0, dla1
+
+Phase 1: Isolated engine benchmarks...
+  Running cpu in isolation...
+    cpu: 35.7 GB/s
+  Running gpu in isolation...
+    gpu: 72.0 GB/s
+  Running dla0 in isolation...
+====== Diagnostic Run torch.onnx.export version 2.1.0a0+41361538.nv23.06 =======
+verbose: False, log level: Level.ERROR
+======================= 0 NONE 0 NOTE 0 WARNING 0 ERROR ========================
+
+    dla0: 2.9 GB/s
+  Running dla1 in isolation...
+====== Diagnostic Run torch.onnx.export version 2.1.0a0+41361538.nv23.06 =======
+verbose: False, log level: Level.ERROR
+======================= 0 NONE 0 NOTE 0 WARNING 0 ERROR ========================
+
+    dla1: 2.8 GB/s
+
+Phase 2: Concurrent engine benchmarks...
+====== Diagnostic Run torch.onnx.export version 2.1.0a0+41361538.nv23.06 =======
+verbose: False, log level: Level.ERROR
+======================= 0 NONE 0 NOTE 0 WARNING 0 ERROR ========================
+
+====== Diagnostic Run torch.onnx.export version 2.1.0a0+41361538.nv23.06 =======
+verbose: False, log level: Level.ERROR
+======================= 0 NONE 0 NOTE 0 WARNING 0 ERROR ========================
+
+  cpu: 36.9 GB/s
+  gpu: 66.5 GB/s
+  dla0: 2.5 GB/s
+  dla1: 2.5 GB/s
+
+Concurrent Engine Bandwidth:
+  Engine           Isolated   Concurrent   Contention
+  --------------------------------------------------
+  cpu             35.7 GB/s    36.9 GB/s        1.03x
+  gpu             72.0 GB/s    66.5 GB/s        0.92x
+  dla0             2.9 GB/s     2.5 GB/s        0.87x
+  dla1             2.8 GB/s     2.5 GB/s        0.90x
+  --------------------------------------------------
+  Aggregate                      108.3 GB/s
+  Theoretical LPDDR5:  204.8 GB/s
+  EMC Utilization:     52.9%
+
+Building precision capability matrix...
+
+Calibration saved to: hardware_registry/gpu/jetson_orin_agx_gpu/calibrations/pending_pytorch.json
+
+================================================================================
+Hardware Calibration: Jetson Orin AGX (GPU)
+Date: 2026-02-02T13:52:35.105958
+================================================================================
+
+Framework: PYTORCH
+Device:    CUDA
+
+Theoretical Specifications:
+  Peak GFLOPS (FP32): 5325.0
+  Peak Bandwidth:     204.8 GB/s
+
+Concurrent Engine Bandwidth:
+  Engine           Isolated   Concurrent   Contention
+  --------------------------------------------------
+  cpu             35.7 GB/s    36.9 GB/s        1.03x
+  gpu             72.0 GB/s    66.5 GB/s        0.92x
+  dla0             2.9 GB/s     2.5 GB/s        0.87x
+  dla1             2.8 GB/s     2.5 GB/s        0.90x
+  --------------------------------------------------
+  Aggregate                      108.3 GB/s
+  Theoretical EMC:     204.8 GB/s
+  EMC Utilization:     52.9%
+
+
+================================================================================
+Calibration Complete!
+================================================================================
+
+Calibration file: hardware_registry/gpu/jetson_orin_agx_gpu/calibrations/MAXN_408MHz_pytorch_20260202T135437Z.json
+
+Next steps:
+  1. Review the calibration results above
+  2. View calibration efficiency:
+     ./cli/show_calibration_efficiency.py --id jetson_orin_agx_gpu
+
+  3. Use in analysis (calibration auto-loaded from registry):
+     ./cli/analyze_comprehensive.py --model resnet18 --hardware jetson_orin_agx_gpu
+
