@@ -950,6 +950,16 @@ class UnifiedAnalyzer:
         # ViT
         elif model_name_lower in ['vit', 'vit_b_16']:
             return models.vit_b_16(weights=None), torch.randn(batch_size, 3, 224, 224), "ViT-B/16"
+        elif model_name_lower == 'vit_b_32':
+            return models.vit_b_32(weights=None), torch.randn(batch_size, 3, 224, 224), "ViT-B/32"
+        elif model_name_lower == 'vit_l_16':
+            return models.vit_l_16(weights=None), torch.randn(batch_size, 3, 224, 224), "ViT-L/16"
+        elif model_name_lower == 'vit_l_32':
+            return models.vit_l_32(weights=None), torch.randn(batch_size, 3, 224, 224), "ViT-L/32"
+        elif model_name_lower == 'vit_h_14':
+            return models.vit_h_14(weights=None), torch.randn(batch_size, 3, 224, 224), "ViT-H/14"
+        elif model_name_lower == 'maxvit_t':
+            return models.maxvit_t(weights=None), torch.randn(batch_size, 3, 224, 224), "MaxViT-T"
 
         # Segmentation models
         elif model_name_lower in ['deeplabv3', 'deeplabv3_resnet50']:
@@ -960,8 +970,8 @@ class UnifiedAnalyzer:
         else:
             raise ValueError(
                 f"Unknown model: {model_name}. Supported: resnet18/34/50/101/152, "
-                f"mobilenet_v2/v3_small/v3_large, efficientnet_b0/b1/b2, vgg11/16/19, vit_b_16, "
-                f"deeplabv3_resnet50, fcn_resnet50"
+                f"mobilenet_v2/v3_small/v3_large, efficientnet_b0/b1/b2, vgg11/16/19, "
+                f"vit_b_16/b_32/l_16/l_32/h_14, maxvit_t, deeplabv3_resnet50, fcn_resnet50"
             )
 
     def _create_hardware_mapper(
