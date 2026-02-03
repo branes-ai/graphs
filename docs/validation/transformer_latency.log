@@ -1,0 +1,209 @@
+(.venv) cjuser@sdhome-jetson:/mnt/nvme/dev/branes/clones/graphs$  cli/validate_estimation_subgraph.py --model vit_b_16 --hardware Jetson-Orin-AGX
+/mnt/nvme/dev/branes/clones/graphs/.venv/lib/python3.8/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: '/mnt/nvme/dev/branes/clones/graphs/.venv/lib/python3.8/site-packages/torchvision/image.so: undefined symbol: _ZN5torch3jit17parseSchemaOrNameERKSs'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+
+================================================================================
+  PER-SUBGRAPH ESTIMATION VALIDATION
+================================================================================
+  Model:     vit_b_16
+  Hardware:  Jetson-Orin-AGX
+  Device:    cuda
+  Precision: FP32
+  Batch:     1
+  Runs:      5 warmup + 20 timed
+================================================================================
+
+Step 1: Creating model...
+Step 2: Tracing with symbolic_trace...
+  Running shape propagation...
+Step 3: Partitioning and running roofline estimation...
+  Partitioned into 156 subgraphs, 0.35 GFLOPs
+Step 4: Measuring per-node latency (5 warmup + 20 timed runs on cuda)...
+  Total measured node time: 81.30 ms (236 nodes)
+Step 5: Mapping nodes to subgraphs and comparing...
+
+Per-Subgraph Estimation Validation: ViT-B/16 on Jetson-Orin-AGX (FP32, batch=1)
+===============================================================================
+
+  Subgraph   Pattern                     FLOPs   Est (ms)  Meas (ms)    Error Bottleneck
+  ------------------------------------------------------------------------------------------
+  sg_24      LayerNorm_MultiheadAttention        0      0.054      2.199   -97.5% BANDWIDTH_BOUND
+  sg_112     LayerNorm_MultiheadAttention        0      0.054      2.188   -97.5% BANDWIDTH_BOUND
+  sg_35      LayerNorm_MultiheadAttention        0      0.054      2.184   -97.5% BANDWIDTH_BOUND
+  sg_46      LayerNorm_MultiheadAttention        0      0.054      2.179   -97.5% BANDWIDTH_BOUND
+  sg_90      LayerNorm_MultiheadAttention        0      0.054      2.178   -97.5% BANDWIDTH_BOUND
+  sg_134     LayerNorm_MultiheadAttention        0      0.054      2.165   -97.5% BANDWIDTH_BOUND
+  sg_123     LayerNorm_MultiheadAttention        0      0.054      2.115   -97.4% BANDWIDTH_BOUND
+  sg_57      LayerNorm_MultiheadAttention        0      0.054      2.088   -97.4% BANDWIDTH_BOUND
+  sg_68      LayerNorm_MultiheadAttention        0      0.054      2.076   -97.4% BANDWIDTH_BOUND
+  sg_79      LayerNorm_MultiheadAttention        0      0.054      2.070   -97.4% BANDWIDTH_BOUND
+  sg_145     LayerNorm_MultiheadAttention        0      0.054      2.066   -97.4% BANDWIDTH_BOUND
+  sg_101     LayerNorm_MultiheadAttention        0      0.054      2.028   -97.3% BANDWIDTH_BOUND
+  sg_62      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.843   -96.4% BANDWIDTH_BOUND
+  sg_40      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.842   -96.4% BANDWIDTH_BOUND
+  sg_128     LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.842   -96.4% BANDWIDTH_BOUND
+  sg_51      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.841   -96.4% BANDWIDTH_BOUND
+  sg_29      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.841   -96.4% BANDWIDTH_BOUND
+  sg_95      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.841   -96.4% BANDWIDTH_BOUND
+  sg_150     LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.840   -96.4% BANDWIDTH_BOUND
+  sg_73      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.840   -96.4% BANDWIDTH_BOUND
+  sg_84      LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.838   -96.4% BANDWIDTH_BOUND
+  sg_117     LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.837   -96.4% BANDWIDTH_BOUND
+  sg_139     LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.837   -96.4% BANDWIDTH_BOUND
+  sg_106     LayerNorm_Linear_GELU_+1more     4.7M      0.066      1.836   -96.4% BANDWIDTH_BOUND
+  sg_96      Linear_Dropout               4.7M      0.066      1.382   -95.2% BANDWIDTH_BOUND
+  sg_151     Linear_Dropout               4.7M      0.066      1.378   -95.2% BANDWIDTH_BOUND
+  sg_85      Linear_Dropout               4.7M      0.066      1.377   -95.2% BANDWIDTH_BOUND
+  sg_63      Linear_Dropout               4.7M      0.066      1.376   -95.2% BANDWIDTH_BOUND
+  sg_41      Linear_Dropout               4.7M      0.066      1.374   -95.2% BANDWIDTH_BOUND
+  sg_118     Linear_Dropout               4.7M      0.066      1.374   -95.2% BANDWIDTH_BOUND
+  sg_107     Linear_Dropout               4.7M      0.066      1.373   -95.2% BANDWIDTH_BOUND
+  sg_30      Linear_Dropout               4.7M      0.066      1.373   -95.2% BANDWIDTH_BOUND
+  sg_52      Linear_Dropout               4.7M      0.066      1.372   -95.2% BANDWIDTH_BOUND
+  sg_74      Linear_Dropout               4.7M      0.066      1.372   -95.2% BANDWIDTH_BOUND
+  sg_140     Linear_Dropout               4.7M      0.066      1.371   -95.2% BANDWIDTH_BOUND
+  sg_129     Linear_Dropout               4.7M      0.066      1.365   -95.2% BANDWIDTH_BOUND
+  sg_11      Unfused                    231.2M      0.253      1.012   -75.0% COMPUTE_BOUND
+  sg_155     Unfused                      1.5M      0.020      0.602   -96.7% BANDWIDTH_BOUND
+  sg_15      Unfused                         0      0.011      0.544   -98.0% BANDWIDTH_BOUND
+  sg_83      Unfused                      151K      0.014      0.526   -97.4% BANDWIDTH_BOUND
+  sg_94      Unfused                      151K      0.014      0.525   -97.4% BANDWIDTH_BOUND
+  sg_28      Unfused                      151K      0.014      0.524   -97.4% BANDWIDTH_BOUND
+  sg_39      Unfused                      151K      0.014      0.524   -97.4% BANDWIDTH_BOUND
+  sg_50      Unfused                      151K      0.014      0.523   -97.4% BANDWIDTH_BOUND
+  sg_127     Unfused                      151K      0.014      0.523   -97.3% BANDWIDTH_BOUND
+  sg_149     Unfused                      151K      0.014      0.523   -97.3% BANDWIDTH_BOUND
+  sg_72      Unfused                      151K      0.014      0.523   -97.3% BANDWIDTH_BOUND
+  sg_105     Unfused                      151K      0.014      0.523   -97.3% BANDWIDTH_BOUND
+  sg_61      Unfused                      151K      0.014      0.515   -97.3% BANDWIDTH_BOUND
+  sg_138     Unfused                      151K      0.014      0.510   -97.3% BANDWIDTH_BOUND
+  sg_116     Unfused                      151K      0.014      0.504   -97.3% BANDWIDTH_BOUND
+  sg_19      Unfused                      151K      0.014      0.491   -97.2% BANDWIDTH_BOUND
+  sg_86      Unfused                      151K      0.014      0.433   -96.8% BANDWIDTH_BOUND
+  sg_31      Unfused                      151K      0.014      0.420   -96.7% BANDWIDTH_BOUND
+  sg_153     Unfused                         0      0.011      0.363   -97.0% BANDWIDTH_BOUND
+  sg_152     Unfused                      151K      0.014      0.286   -95.1% BANDWIDTH_BOUND
+  sg_141     Unfused                      151K      0.014      0.285   -95.1% BANDWIDTH_BOUND
+  sg_130     Unfused                      151K      0.014      0.284   -95.1% BANDWIDTH_BOUND
+  sg_53      Unfused                      151K      0.014      0.281   -95.1% BANDWIDTH_BOUND
+  sg_108     Unfused                      151K      0.014      0.281   -95.1% BANDWIDTH_BOUND
+  sg_42      Unfused                      151K      0.014      0.280   -95.0% BANDWIDTH_BOUND
+  sg_64      Unfused                      151K      0.014      0.278   -95.0% BANDWIDTH_BOUND
+  sg_97      Unfused                      151K      0.014      0.277   -95.0% BANDWIDTH_BOUND
+  sg_119     Unfused                      151K      0.014      0.277   -95.0% BANDWIDTH_BOUND
+  sg_75      Unfused                      151K      0.014      0.276   -95.0% BANDWIDTH_BOUND
+  sg_154     Unfused                         0      0.008      0.101   -92.1% BANDWIDTH_BOUND
+  sg_20      Unfused                         0      0.011      0.074   -85.2% BANDWIDTH_BOUND
+  sg_27      Unfused                         0      0.011      0.070   -84.4% BANDWIDTH_BOUND
+  sg_137     Unfused                         0      0.011      0.068   -84.0% BANDWIDTH_BOUND
+  sg_60      Unfused                         0      0.011      0.068   -84.0% BANDWIDTH_BOUND
+  sg_38      Unfused                         0      0.011      0.068   -83.9% BANDWIDTH_BOUND
+  sg_71      Unfused                         0      0.011      0.068   -83.8% BANDWIDTH_BOUND
+  sg_115     Unfused                         0      0.011      0.067   -83.7% BANDWIDTH_BOUND
+  sg_93      Unfused                         0      0.011      0.067   -83.7% BANDWIDTH_BOUND
+  sg_104     Unfused                         0      0.011      0.067   -83.7% BANDWIDTH_BOUND
+  sg_126     Unfused                         0      0.011      0.066   -83.5% BANDWIDTH_BOUND
+  sg_49      Unfused                         0      0.011      0.066   -83.5% BANDWIDTH_BOUND
+  sg_82      Unfused                         0      0.011      0.066   -83.4% BANDWIDTH_BOUND
+  sg_148     Unfused                         0      0.011      0.066   -83.4% BANDWIDTH_BOUND
+  sg_12      Unfused                         0      0.005      0.040   -87.5% BALANCED
+  sg_6       Unfused                         0      0.005      0.039   -87.1% BALANCED
+  sg_135     Unfused                         0      0.008      0.041   -80.8% BANDWIDTH_BOUND
+  sg_133     Unfused                         0      0.005      0.038   -86.9% BALANCED
+  sg_78      Unfused                         0      0.005      0.038   -86.9% BALANCED
+  sg_113     Unfused                         0      0.008      0.041   -80.6% BANDWIDTH_BOUND
+  sg_69      Unfused                         0      0.008      0.041   -80.5% BANDWIDTH_BOUND
+  sg_45      Unfused                         0      0.005      0.038   -86.8% BALANCED
+  sg_102     Unfused                         0      0.008      0.041   -80.5% BANDWIDTH_BOUND
+  sg_91      Unfused                         0      0.008      0.041   -80.5% BANDWIDTH_BOUND
+  sg_56      Unfused                         0      0.005      0.038   -86.8% BALANCED
+  sg_122     Unfused                         0      0.005      0.038   -86.7% BALANCED
+  sg_124     Unfused                         0      0.008      0.040   -80.4% BANDWIDTH_BOUND
+  sg_58      Unfused                         0      0.008      0.040   -80.4% BANDWIDTH_BOUND
+  sg_47      Unfused                         0      0.008      0.040   -80.3% BANDWIDTH_BOUND
+  sg_146     Unfused                         0      0.008      0.040   -80.3% BANDWIDTH_BOUND
+  sg_67      Unfused                         0      0.005      0.037   -86.7% BALANCED
+  sg_144     Unfused                         0      0.005      0.037   -86.6% BALANCED
+  sg_89      Unfused                         0      0.005      0.037   -86.6% BALANCED
+  sg_36      Unfused                         0      0.008      0.040   -80.2% BANDWIDTH_BOUND
+  sg_111     Unfused                         0      0.005      0.037   -86.6% BALANCED
+  sg_100     Unfused                         0      0.005      0.037   -86.5% BALANCED
+  sg_25      Unfused                         0      0.008      0.040   -80.1% BANDWIDTH_BOUND
+  sg_80      Unfused                         0      0.008      0.040   -79.9% BANDWIDTH_BOUND
+  sg_34      Unfused                         0      0.005      0.036   -86.3% BALANCED
+  sg_18      Unfused                         0      0.005      0.034   -85.4% BALANCED
+  sg_23      Unfused                         0      0.005      0.033   -84.6% BALANCED
+  sg_13      Unfused                         0      0.008      0.035   -77.0% BANDWIDTH_BOUND
+  sg_0       Unfused                         0      0.008      0.033   -76.2% BANDWIDTH_BOUND
+  sg_8       Unfused                         0      0.005      0.030   -83.4% BALANCED
+  sg_114     Unfused                         0      0.005      0.029   -83.0% BALANCED
+  sg_131     Unfused                         0      0.005      0.029   -82.8% BALANCED
+  sg_125     Unfused                         0      0.005      0.029   -82.8% BALANCED
+  sg_59      Unfused                         0      0.005      0.029   -82.8% BALANCED
+  sg_16      Unfused                         0      0.005      0.029   -82.8% BALANCED
+  sg_54      Unfused                         0      0.005      0.029   -82.7% BALANCED
+  sg_76      Unfused                         0      0.005      0.029   -82.7% BALANCED
+  sg_103     Unfused                         0      0.005      0.029   -82.7% BALANCED
+  sg_120     Unfused                         0      0.005      0.029   -82.7% BALANCED
+  sg_87      Unfused                         0      0.005      0.029   -82.7% BALANCED
+  sg_65      Unfused                         0      0.005      0.029   -82.6% BALANCED
+  sg_92      Unfused                         0      0.005      0.029   -82.6% BALANCED
+  sg_136     Unfused                         0      0.005      0.029   -82.5% BALANCED
+  sg_98      Unfused                         0      0.005      0.029   -82.5% BALANCED
+  sg_142     Unfused                         0      0.005      0.029   -82.5% BALANCED
+  sg_32      Unfused                         0      0.005      0.028   -82.4% BALANCED
+  sg_109     Unfused                         0      0.005      0.028   -82.3% BALANCED
+  sg_147     Unfused                         0      0.005      0.028   -82.3% BALANCED
+  sg_70      Unfused                         0      0.005      0.028   -82.3% BALANCED
+  sg_43      Unfused                         0      0.005      0.028   -82.3% BALANCED
+  sg_48      Unfused                         0      0.005      0.028   -82.2% BALANCED
+  sg_26      Unfused                         0      0.005      0.028   -82.2% BALANCED
+  sg_81      Unfused                         0      0.005      0.028   -82.2% BALANCED
+  sg_37      Unfused                         0      0.005      0.028   -82.1% BALANCED
+  sg_21      Unfused                         0      0.005      0.028   -81.9% BALANCED
+  sg_14      Unfused                         0      0.005      0.027   -81.5% BALANCED
+  sg_1       Unfused                         0      0.005      0.027   -81.3% BALANCED
+  sg_7       Unfused                         0      0.005      0.026   -80.5% BALANCED
+  sg_9       Unfused                         0      0.005      0.026   -80.5% BALANCED
+  sg_55      Unfused                         0      0.008      0.028   -71.8% BANDWIDTH_BOUND
+  sg_132     Unfused                         0      0.008      0.028   -71.7% BANDWIDTH_BOUND
+  sg_143     Unfused                         0      0.008      0.028   -71.7% BANDWIDTH_BOUND
+  sg_99      Unfused                         0      0.008      0.028   -71.6% BANDWIDTH_BOUND
+  sg_88      Unfused                         0      0.008      0.028   -71.4% BANDWIDTH_BOUND
+  sg_77      Unfused                         0      0.008      0.028   -71.4% BANDWIDTH_BOUND
+  sg_121     Unfused                         0      0.008      0.028   -71.4% BANDWIDTH_BOUND
+  sg_110     Unfused                         0      0.008      0.028   -71.3% BANDWIDTH_BOUND
+  sg_66      Unfused                         0      0.008      0.028   -71.3% BANDWIDTH_BOUND
+  sg_17      Unfused                         0      0.008      0.027   -71.1% BANDWIDTH_BOUND
+  sg_44      Unfused                         0      0.008      0.027   -71.1% BANDWIDTH_BOUND
+  sg_33      Unfused                         0      0.008      0.027   -70.9% BANDWIDTH_BOUND
+  sg_2       Unfused                         0      0.005      0.024   -79.5% BALANCED
+  sg_5       Unfused                         0      0.005      0.024   -79.3% BALANCED
+  sg_22      Unfused                         0      0.008      0.027   -70.4% BANDWIDTH_BOUND
+  sg_10      Unfused                         0      0.005      0.024   -79.1% BALANCED
+  sg_4       Unfused                         0      0.005      0.024   -78.8% BALANCED
+  sg_3       Unfused                         0      0.005      0.024   -78.7% BALANCED
+  ------------------------------------------------------------------------------------------
+  Total                                 349.8M      3.487     80.441   -95.7%
+
+Error by Fusion Pattern (aggregated):
+  Pattern                  Count   Est (ms)  Meas (ms)   Gap (ms)    Error
+  ---------------------------------------------------------------------------
+  LayerNorm_MultiheadAttention    12      0.649     25.537    -24.887   -97.5%
+  LayerNorm_Linear_GELU_+1more    12      0.791     22.078    -21.287   -96.4%
+  Linear_Dropout              12      0.790     16.489    -15.699   -95.2%
+  Unfused                    120      1.256     16.338    -15.081   -92.3%
+
+Top Error Contributors (by absolute ms gap):
+   1. LayerNorm_MultiheadAttention   -24.89 ms  (12 instances, 32.3% of total error, underestimate)
+   2. LayerNorm_Linear_GELU_+1more   -21.29 ms  (12 instances, 27.7% of total error, underestimate)
+   3. Linear_Dropout         -15.70 ms  (12 instances, 20.4% of total error, underestimate)
+   4. Unfused                -15.08 ms  (120 instances, 19.6% of total error, underestimate)
+
+Unmapped node time: 0.860 ms (1.1% of measured total)
+    permute                        0.064 ms
+    reshape                        0.063 ms
+    expand                         0.058 ms
+    dim_7                          0.042 ms
+    dim_4                          0.041 ms
+
