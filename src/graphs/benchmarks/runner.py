@@ -273,6 +273,10 @@ class PyTorchRunner(BenchmarkRunner):
     def _run_conv2d(self, spec: Conv2dSpec, ctx: RunContext) -> BenchmarkResult:
         """Run Conv2d benchmark"""
 
+        # INT8 requires quantized convolution
+        if ctx.precision == Precision.INT8:
+            return self._run_conv2d_int8(spec, ctx)
+
         # Create input tensor
         x = torch.randn(
             spec.batch_size, spec.in_channels, spec.height, spec.width,
@@ -326,6 +330,171 @@ class PyTorchRunner(BenchmarkRunner):
                 'output_width': spec.output_width,
             }
         )
+
+    def _run_conv2d_int8(self, spec: Conv2dSpec, ctx: RunContext) -> BenchmarkResult:
+        """Run INT8 quantized Conv2d benchmark"""
+
+        # INT8 convolution only supported on CPU currently via PyTorch quantization
+        # For CUDA, we use fake quantization to simulate INT8 performance characteristics
+        if ctx.device.startswith("cuda"):
+            # Use CUDA INT8 via cuDNN (requires qint8 tensors)
+            # Fall back to simulated INT8 using int8 storage with float compute
+            return self._run_conv2d_int8_cuda(spec, ctx)
+        else:
+            return self._run_conv2d_int8_cpu(spec, ctx)
+
+    def _run_conv2d_int8_cpu(self, spec: Conv2dSpec, ctx: RunContext) -> BenchmarkResult:
+        """Run INT8 Conv2d on CPU using PyTorch quantization"""
+        import torch.ao.quantization as quant
+
+        # Create FP32 model first
+        conv = torch.nn.Conv2d(
+            spec.in_channels,
+            spec.out_channels,
+            spec.kernel_size,
+            stride=spec.stride,
+            padding=spec.padding,
+            dilation=spec.dilation,
+            groups=spec.groups,
+            bias=spec.bias,
+        )
+        conv.eval()
+
+        # Quantize the model
+        conv.qconfig = quant.get_default_qconfig('x86')
+        conv_prepared = quant.prepare(conv, inplace=False)
+
+        # Calibrate with sample data
+        with torch.no_grad():
+            sample = torch.randn(spec.batch_size, spec.in_channels, spec.height, spec.width)
+            conv_prepared(sample)
+
+        conv_quantized = quant.convert(conv_prepared, inplace=False)
+
+        # Create quantized input
+        x = torch.randn(spec.batch_size, spec.in_channels, spec.height, spec.width)
+        scale = x.abs().max() / 127.0
+        x_quant = torch.quantize_per_tensor(x, scale.item(), 0, torch.qint8)
+
+        # Define operation
+        def conv_op():
+            with torch.no_grad():
+                return conv_quantized(x_quant)
+
+        # Run benchmark
+        timings = self._run_timed(conv_op, ctx)
+
+        # Calculate metrics
+        timing_stats = self._compute_stats(timings)
+        flops = spec.flops
+        gflops = (flops / 1e9) / (timing_stats.mean_ms / 1000)
+
+        return BenchmarkResult(
+            spec_name=spec.name,
+            timestamp=datetime.now().isoformat(),
+            device=ctx.device,
+            device_name=get_device_name(ctx.device),
+            precision=ctx.precision.value,
+            timing=timing_stats,
+            throughput_ops_per_sec=flops / (timing_stats.mean_ms / 1000),
+            throughput_samples_per_sec=spec.batch_size / (timing_stats.mean_ms / 1000),
+            gflops=gflops,
+            success=True,
+            extra={
+                'in_channels': spec.in_channels,
+                'out_channels': spec.out_channels,
+                'kernel_size': spec.kernel_size,
+                'output_height': spec.output_height,
+                'output_width': spec.output_width,
+                'quantization': 'pytorch_native',
+            }
+        )
+
+    def _run_conv2d_int8_cuda(self, spec: Conv2dSpec, ctx: RunContext) -> BenchmarkResult:
+        """Run INT8 Conv2d on CUDA using cudnn int8 path"""
+
+        # PyTorch 2.0+ supports cuda quantized operations
+        # Try to use torch.backends.cudnn with int8
+        try:
+            # Create FP32 reference first
+            conv_fp32 = torch.nn.Conv2d(
+                spec.in_channels,
+                spec.out_channels,
+                spec.kernel_size,
+                stride=spec.stride,
+                padding=spec.padding,
+                dilation=spec.dilation,
+                groups=spec.groups,
+                bias=spec.bias,
+            ).cuda()
+            conv_fp32.eval()
+
+            # Use torch.ao.nn.quantized for CUDA quantized conv
+            import torch.ao.nn.quantized as nnq
+
+            # Create weight in int8
+            weight_fp32 = conv_fp32.weight.data
+            w_scale = weight_fp32.abs().max() / 127.0
+            weight_int8 = torch.quantize_per_tensor(
+                weight_fp32.cpu(), w_scale.item(), 0, torch.qint8
+            )
+
+            # Input
+            x = torch.randn(
+                spec.batch_size, spec.in_channels, spec.height, spec.width,
+                device='cuda'
+            )
+
+            # For CUDA INT8, use cuDNN's implicit GEMM with int8
+            # This requires going through cudnn directly or using TensorRT
+            # PyTorch native doesn't fully support qint8 on CUDA yet
+
+            # Fallback: simulate with fp16 (closest available precision)
+            conv_fp16 = conv_fp32.half()
+            x_fp16 = x.half()
+
+            def conv_op():
+                with torch.no_grad():
+                    return conv_fp16(x_fp16)
+
+            # Run benchmark
+            timings = self._run_timed(conv_op, ctx)
+
+            timing_stats = self._compute_stats(timings)
+            flops = spec.flops
+            gflops = (flops / 1e9) / (timing_stats.mean_ms / 1000)
+
+            return BenchmarkResult(
+                spec_name=spec.name,
+                timestamp=datetime.now().isoformat(),
+                device=ctx.device,
+                device_name=get_device_name(ctx.device),
+                precision='int8_simulated_fp16',
+                timing=timing_stats,
+                throughput_ops_per_sec=flops / (timing_stats.mean_ms / 1000),
+                throughput_samples_per_sec=spec.batch_size / (timing_stats.mean_ms / 1000),
+                gflops=gflops,
+                success=True,
+                extra={
+                    'in_channels': spec.in_channels,
+                    'out_channels': spec.out_channels,
+                    'kernel_size': spec.kernel_size,
+                    'output_height': spec.output_height,
+                    'output_width': spec.output_width,
+                    'quantization': 'simulated_fp16',
+                    'note': 'PyTorch CUDA does not natively support qint8 conv. Using FP16 as proxy.',
+                }
+            )
+
+        except Exception as e:
+            return BenchmarkResult(
+                spec_name=spec.name,
+                timestamp=datetime.now().isoformat(),
+                device=ctx.device,
+                precision='int8',
+                success=False,
+                error_message=f"INT8 CUDA conv not supported: {e}",
+            )
 
     def _run_memory(self, spec: MemoryBenchSpec, ctx: RunContext) -> BenchmarkResult:
         """Run memory bandwidth benchmark"""
