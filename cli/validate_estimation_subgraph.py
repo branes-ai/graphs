@@ -42,6 +42,16 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 
 # ============================================================================
+# Constants - Calibrated on Jetson Orin AGX 50W
+# ============================================================================
+
+# Kernel dispatch overhead per node (measured via dispatch_overhead.py)
+# This includes CUDA event timing overhead + kernel launch latency
+# Typical range: 0.20-0.30ms on Jetson Orin AGX
+KERNEL_DISPATCH_OVERHEAD_MS = 0.25
+
+
+# ============================================================================
 # TimingInterpreter with CUDA Events
 # ============================================================================
 
@@ -231,12 +241,26 @@ def aggregate_to_subgraphs(node_times, partition_report, roofline_report):
 
         estimated_ms = lat.actual_latency * 1000  # seconds -> ms
 
+        # Compute overhead-adjusted measurement
+        # Subtract kernel dispatch overhead for each node in the subgraph
+        total_overhead_ms = matched_nodes * KERNEL_DISPATCH_OVERHEAD_MS
+        adjusted_ms = max(0.0, measured_ms - total_overhead_ms)
+
+        # Raw error (vs raw measurement)
         if measured_ms > 0:
             error_pct = (estimated_ms - measured_ms) / measured_ms * 100
         else:
             error_pct = float('inf') if estimated_ms > 0 else 0.0
 
+        # Adjusted error (vs overhead-corrected measurement)
+        if adjusted_ms > 0:
+            adjusted_error_pct = (estimated_ms - adjusted_ms) / adjusted_ms * 100
+        else:
+            # If adjusted is 0, compare to estimate directly
+            adjusted_error_pct = 0.0 if estimated_ms < 0.01 else float('inf')
+
         gap_ms = estimated_ms - measured_ms
+        adjusted_gap_ms = estimated_ms - adjusted_ms
 
         rows.append({
             'subgraph_id': sg.subgraph_id,
@@ -247,9 +271,14 @@ def aggregate_to_subgraphs(node_times, partition_report, roofline_report):
             'arithmetic_intensity': sg.arithmetic_intensity,
             'estimated_ms': estimated_ms,
             'measured_ms': measured_ms,
+            'adjusted_ms': adjusted_ms,
+            'dispatch_overhead_ms': total_overhead_ms,
             'error_pct': error_pct,
+            'adjusted_error_pct': adjusted_error_pct,
             'gap_ms': gap_ms,
+            'adjusted_gap_ms': adjusted_gap_ms,
             'abs_gap_ms': abs(gap_ms),
+            'abs_adjusted_gap_ms': abs(adjusted_gap_ms),
             'bottleneck': lat.bottleneck.name if hasattr(lat.bottleneck, 'name') else str(lat.bottleneck),
             'compute_time_ms': lat.compute_time * 1000,
             'memory_time_ms': lat.memory_time * 1000,
@@ -265,10 +294,10 @@ def aggregate_by_pattern(rows):
     """Aggregate subgraph rows by fusion pattern.
 
     Returns:
-        List of dicts sorted by absolute gap (descending)
+        List of dicts sorted by absolute adjusted gap (descending)
     """
     patterns = defaultdict(lambda: {
-        'count': 0, 'est_ms': 0.0, 'meas_ms': 0.0, 'flops': 0,
+        'count': 0, 'est_ms': 0.0, 'meas_ms': 0.0, 'adj_ms': 0.0, 'flops': 0,
     })
 
     for r in rows:
@@ -276,24 +305,32 @@ def aggregate_by_pattern(rows):
         p['count'] += 1
         p['est_ms'] += r['estimated_ms']
         p['meas_ms'] += r['measured_ms']
+        p['adj_ms'] += r['adjusted_ms']
         p['flops'] += r['flops']
 
     result = []
     for pattern, p in patterns.items():
         gap = p['est_ms'] - p['meas_ms']
+        adj_gap = p['est_ms'] - p['adj_ms']
         error = (gap / p['meas_ms'] * 100) if p['meas_ms'] > 0 else float('inf')
+        adj_error = (adj_gap / p['adj_ms'] * 100) if p['adj_ms'] > 0 else float('inf')
         result.append({
             'pattern': pattern,
             'count': p['count'],
             'est_ms': p['est_ms'],
             'meas_ms': p['meas_ms'],
+            'adj_ms': p['adj_ms'],
             'gap_ms': gap,
+            'adj_gap_ms': adj_gap,
             'abs_gap_ms': abs(gap),
+            'abs_adj_gap_ms': abs(adj_gap),
             'error_pct': error,
+            'adj_error_pct': adj_error,
             'flops': p['flops'],
         })
 
-    result.sort(key=lambda x: x['abs_gap_ms'], reverse=True)
+    # Sort by adjusted gap (more meaningful comparison)
+    result.sort(key=lambda x: x['abs_adj_gap_ms'], reverse=True)
     return result
 
 
@@ -326,52 +363,60 @@ def format_bytes(nbytes):
 
 
 def print_subgraph_table(rows, top_n=None):
-    """Print per-subgraph comparison table with memory sizes."""
-    # Sort by measured time descending (large kernels first - more reliable measurements)
-    sorted_rows = sorted(rows, key=lambda r: r['measured_ms'], reverse=True)
+    """Print per-subgraph comparison table with overhead-adjusted measurements.
+
+    Shows both raw and adjusted (dispatch overhead subtracted) measurements.
+    The adjusted error is the primary metric for comparing against estimates.
+    """
+    # Sort by adjusted error (absolute value) - most accurate comparisons first
+    sorted_rows = sorted(rows, key=lambda r: abs(r['adjusted_error_pct'])
+                         if abs(r['adjusted_error_pct']) < 1000 else 1000)
     if top_n:
         sorted_rows = sorted_rows[:top_n]
 
     print()
-    header = (f"  {'Subgraph':<10} {'Pattern':<24} {'FLOPs':>8} {'Memory':>8} "
-              f"{'Est (ms)':>9} {'Meas (ms)':>9} {'Error':>8} {'Bottleneck':<14}")
+    print(f"  Dispatch overhead subtracted: {KERNEL_DISPATCH_OVERHEAD_MS:.2f} ms/node")
+    print()
+    header = (f"  {'Subgraph':<10} {'Pattern':<22} {'FLOPs':>7} {'Memory':>7} "
+              f"{'Est':>7} {'Raw':>7} {'Adj':>7} {'Adj Err':>8} {'Bottleneck':<14}")
     print(header)
-    print("  " + "-" * 106)
+    print("  " + "-" * 110)
 
     for r in sorted_rows:
         flops_str = format_flops(r['flops'])
         mem_str = format_bytes(r['total_bytes'])
-        err_str = f"{r['error_pct']:+.1f}%" if abs(r['error_pct']) < 10000 else "N/A"
-        print(f"  sg_{r['subgraph_id']:<7} {r['pattern']:<24} {flops_str:>8} {mem_str:>8} "
-              f"{r['estimated_ms']:>9.3f} {r['measured_ms']:>9.3f} {err_str:>8} "
-              f"{r['bottleneck']:<14}")
+        adj_err_str = f"{r['adjusted_error_pct']:+.1f}%" if abs(r['adjusted_error_pct']) < 1000 else ">>1000%"
+        print(f"  sg_{r['subgraph_id']:<7} {r['pattern']:<22} {flops_str:>7} {mem_str:>7} "
+              f"{r['estimated_ms']:>7.3f} {r['measured_ms']:>7.3f} {r['adjusted_ms']:>7.3f} "
+              f"{adj_err_str:>8} {r['bottleneck']:<14}")
 
 
 def print_pattern_table(pattern_rows, total_gap_ms):
-    """Print error aggregated by fusion pattern."""
+    """Print error aggregated by fusion pattern with adjusted measurements."""
     print()
-    print("Error by Fusion Pattern (aggregated):")
-    print(f"  {'Pattern':<24} {'Count':>5} {'Est (ms)':>10} {'Meas (ms)':>10} "
-          f"{'Gap (ms)':>10} {'Error':>8}")
-    print("  " + "-" * 75)
+    print("Error by Fusion Pattern (with dispatch overhead removed):")
+    print(f"  {'Pattern':<22} {'Count':>5} {'Est':>8} {'Adj':>8} "
+          f"{'Gap':>8} {'Adj Err':>9}")
+    print("  " + "-" * 70)
 
     for p in pattern_rows:
-        err_str = f"{p['error_pct']:+.1f}%" if abs(p['error_pct']) < 10000 else "N/A"
-        print(f"  {p['pattern']:<24} {p['count']:>5} {p['est_ms']:>10.3f} "
-              f"{p['meas_ms']:>10.3f} {p['gap_ms']:>+10.3f} {err_str:>8}")
+        adj_err_str = f"{p['adj_error_pct']:+.1f}%" if abs(p['adj_error_pct']) < 1000 else ">>1000%"
+        print(f"  {p['pattern']:<22} {p['count']:>5} {p['est_ms']:>8.2f} "
+              f"{p['adj_ms']:>8.2f} {p['adj_gap_ms']:>+8.2f} {adj_err_str:>9}")
 
 
 def print_top_contributors(pattern_rows, total_gap_ms):
-    """Print top error contributors by absolute gap."""
+    """Print top error contributors by absolute adjusted gap."""
     print()
-    print("Top Error Contributors (by absolute ms gap):")
-    abs_total = sum(p['abs_gap_ms'] for p in pattern_rows)
+    print("Top Error Contributors (adjusted, by absolute ms gap):")
+    abs_total = sum(p['abs_adj_gap_ms'] for p in pattern_rows)
 
     for i, p in enumerate(pattern_rows[:10]):
-        pct_of_total = p['abs_gap_ms'] / abs_total * 100 if abs_total > 0 else 0
-        direction = "underestimate" if p['gap_ms'] < 0 else "overestimate"
-        print(f"  {i+1:>2}. {p['pattern']:<20} {p['gap_ms']:>+8.2f} ms  "
-              f"({p['count']} instances, {pct_of_total:.1f}% of total error, {direction})")
+        pct_of_total = p['abs_adj_gap_ms'] / abs_total * 100 if abs_total > 0 else 0
+        direction = "underestimate" if p['adj_gap_ms'] < 0 else "overestimate"
+        adj_err_str = f"{p['adj_error_pct']:+.1f}%" if abs(p['adj_error_pct']) < 1000 else ">>1000%"
+        print(f"  {i+1:>2}. {p['pattern']:<20} {p['adj_gap_ms']:>+7.2f} ms ({adj_err_str})  "
+              f"[{p['count']} instances, {pct_of_total:.1f}% of gap]")
 
 
 def print_unaccounted_time(node_times, partition_report, total_meas_ms):
