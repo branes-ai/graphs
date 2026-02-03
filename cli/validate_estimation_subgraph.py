@@ -379,6 +379,8 @@ Examples:
                         help='Show top N subgraphs by error (default: all)')
     parser.add_argument('--output', type=str, default=None,
                         help='Output CSV path')
+    parser.add_argument('--thermal-profile', type=str, default=None,
+                        help='Thermal/power profile (e.g., 15W, 30W, 50W, MAXN for Jetson)')
     parser.add_argument('--quiet', action='store_true',
                         help='Suppress verbose estimation output')
 
@@ -395,12 +397,16 @@ Examples:
     precision_map = {'fp32': Precision.FP32, 'fp16': Precision.FP16}
     precision = precision_map[args.precision]
 
+    # Thermal profile
+    thermal_profile = getattr(args, 'thermal_profile', None)
+
     print()
     print("=" * 80)
     print("  PER-SUBGRAPH ESTIMATION VALIDATION")
     print("=" * 80)
     print(f"  Model:     {args.model}")
     print(f"  Hardware:  {args.hardware}")
+    print(f"  Thermal:   {thermal_profile or '(default)'}")
     print(f"  Device:    {device}")
     print(f"  Precision: {args.precision.upper()}")
     print(f"  Batch:     {args.batch_size}")
@@ -435,9 +441,9 @@ Examples:
     print(f"  Partitioned into {len(partition_report.subgraphs)} subgraphs, "
           f"{partition_report.total_flops/1e9:.2f} GFLOPs", flush=True)
 
-    hardware_mapper = analyzer._create_hardware_mapper(args.hardware)
+    hardware_mapper = analyzer._create_hardware_mapper(args.hardware, thermal_profile=thermal_profile)
     hardware = hardware_mapper.resource_model
-    roofline_analyzer = RooflineAnalyzer(hardware, precision=precision)
+    roofline_analyzer = RooflineAnalyzer(hardware, precision=precision, thermal_profile=thermal_profile)
     roofline_report = roofline_analyzer.analyze(partition_report.subgraphs, partition_report)
 
     if roofline_report is None:
