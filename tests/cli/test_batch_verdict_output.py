@@ -69,7 +69,7 @@ class TestBatchVerdictOutput:
             "--model", "resnet18",
             "--hardware", "H100",
             "--batch-size", "1", "4", "16",
-            "--check-latency", "1.0",  # Tight target
+            "--check-latency", "0.5",  # Tight target - batch=16 at ~0.83ms should fail
         )
         assert result["verdict"] == "PARTIAL"
         assert result["passing_count"] > 0

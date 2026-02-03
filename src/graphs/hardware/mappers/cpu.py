@@ -728,22 +728,27 @@ def create_i7_12700k_mapper() -> CPUMapper:
                 precision=Precision.FP32,
                 compute_resource=avx2_compute,
                 instruction_efficiency=0.65,  # Lower than Xeon (hybrid scheduling)
-                memory_bottleneck_factor=0.25,  # ← DOWN from 0.40 (tiny models are memory-starved!)
-                efficiency_factor=0.20,  # ← UP from 0.12 (calibrated: 0.344 recommended, using 0.20 as compromise)
-                tile_utilization=0.50,  # Hybrid core scheduling overhead
+                memory_bottleneck_factor=0.25,
+                # Measured efficiency across ResNet/ViT workloads: median ~50% of
+                # theoretical peak (range 37-63%). CPUs have no tile quantization
+                # so tile_utilization=1.0; efficiency_factor captures AVX2 ISA
+                # overhead, cache miss rate, and hybrid core scheduling.
+                efficiency_factor=0.50,
+                tile_utilization=1.0,
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=avx2_compute,
-                efficiency_factor=0.10,  # Emulated, worse than FP32
+                efficiency_factor=0.25,  # Emulated, worse than FP32
+                tile_utilization=1.0,
                 native_acceleration=False,
             ),
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=avx2_compute,
-                efficiency_factor=0.18,  # Better with VNNI
-                tile_utilization=0.60,
+                efficiency_factor=0.45,  # Better with VNNI
+                tile_utilization=1.0,
                 native_acceleration=True,
             ),
         }

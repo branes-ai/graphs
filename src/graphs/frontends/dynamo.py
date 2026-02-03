@@ -40,11 +40,39 @@ def _trace_model(
     model: nn.Module,
     input_tensor: torch.Tensor,
     verbose: bool = False,
+    prefer_modules: bool = True,
 ) -> GraphModule:
-    """Trace model using Dynamo export (>= 2.4) or symbolic_trace (fallback)."""
+    """Trace model using Dynamo export or symbolic_trace.
+
+    Args:
+        model: PyTorch model to trace
+        input_tensor: Example input for shape propagation
+        verbose: Print progress messages
+        prefer_modules: If True, prefer symbolic_trace which produces call_module
+            nodes. This enables fusion-based partitioning and weight counting
+            for estimation. If False, use Dynamo export (ATen ops) when available.
+    """
     if verbose:
         print(f"  PyTorch version: {torch.__version__} (parsed: {_TORCH_VERSION})", flush=True)
         print(f"  Dynamo export available: {_HAS_STABLE_EXPORT}", flush=True)
+
+    # For estimation (prefer_modules=True), always use symbolic_trace.
+    # This produces call_module nodes which enable:
+    # 1. Fusion-based partitioning (Conv+BN+ReLU fusion)
+    # 2. Weight counting via module.parameters()
+    # 3. Proper external vs internal memory traffic analysis
+    if prefer_modules:
+        if verbose:
+            print("  Using symbolic_trace for module-level analysis...", flush=True)
+        try:
+            fx_graph = symbolic_trace(model)
+            if verbose:
+                print("    [OK] symbolic_trace successful", flush=True)
+            return fx_graph
+        except Exception as e:
+            if verbose:
+                print(f"    [X] symbolic_trace failed: {e}", flush=True)
+                print("    Falling back to Dynamo export...", flush=True)
 
     if _HAS_STABLE_EXPORT:
         if verbose:
