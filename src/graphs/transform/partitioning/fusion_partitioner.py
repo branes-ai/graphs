@@ -515,7 +515,14 @@ class FusionBasedPartitioner:
             return flops, macs
 
         elif isinstance(module, torch.nn.Linear):
-            batch = meta.shape[0] if len(meta.shape) > 1 else 1
+            # Output shape may be [batch, out] or [batch, seq_len, out] (transformers).
+            # Multiply all dimensions except the last to get effective batch size.
+            if len(meta.shape) > 1:
+                batch = 1
+                for d in meta.shape[:-1]:
+                    batch *= d
+            else:
+                batch = 1
             out_features = module.out_features
             in_features = module.in_features
 
