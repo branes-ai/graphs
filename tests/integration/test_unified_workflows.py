@@ -152,13 +152,11 @@ class TestUnifiedWorkflows(unittest.TestCase):
         input_tensor = torch.randn(1, 3, 224, 224)
 
         # Direct Phase 3 usage (matching UnifiedAnalyzer's approach)
-        # Use Dynamo export (not symbolic_trace) to match unified analyzer
+        # Use symbolic_trace to match unified analyzer (which prefers module-level
+        # tracing for better fusion and weight counting)
         model.eval()
-        with torch.no_grad():
-            _ = model(input_tensor)  # Warm-up for lazy initialization
-
-        exported_program = torch.export.export(model, (input_tensor,))
-        fx_graph = exported_program.module()
+        from torch.fx import symbolic_trace
+        fx_graph = symbolic_trace(model)
 
         shape_prop = ShapeProp(fx_graph)
         shape_prop.propagate(input_tensor)

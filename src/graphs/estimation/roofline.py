@@ -456,12 +456,21 @@ class RooflineAnalyzer:
     def _analyze_subgraph(self, sg: SubgraphDescriptor) -> LatencyDescriptor:
         """Analyze latency for a single subgraph"""
 
-        # Compute time = FLOPs / peak_FLOPS
-        compute_time = sg.flops / self.peak_flops if self.peak_flops > 0 else 0.0
+        # Get per-operation efficiency scaling based on operation granularity.
+        # Large operations achieve higher efficiency (better occupancy, amortized overhead).
+        # Small operations suffer from kernel launch overhead and low occupancy.
+        op_efficiency_scale = self._get_operation_efficiency_scale(sg)
 
-        # Memory time = bytes / peak_bandwidth
+        # Effective peak for this operation = theoretical peak * operation efficiency
+        effective_peak_flops = self.peak_flops * op_efficiency_scale
+        effective_peak_bandwidth = self.peak_bandwidth * op_efficiency_scale
+
+        # Compute time = FLOPs / effective_peak_FLOPS
+        compute_time = sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
+
+        # Memory time = bytes / effective_peak_bandwidth
         total_bytes = sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
-        memory_time = total_bytes / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
+        memory_time = total_bytes / effective_peak_bandwidth if effective_peak_bandwidth > 0 else 0.0
 
         # Apply discrete resource correction for accelerators with few compute units
         # TPUs, KPUs can't fractionally utilize their arrays - adjust for realistic allocation
@@ -520,6 +529,103 @@ class RooflineAnalyzer:
             bandwidth_utilization=bw_util,
             explanation=explanation,
         )
+
+    def _get_operation_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
+        """
+        Compute efficiency scaling factor based on operation granularity.
+
+        Large operations achieve higher efficiency due to:
+        - Better GPU occupancy (more threads, better SM utilization)
+        - Amortized kernel launch overhead
+        - Better cache utilization (streaming access patterns)
+
+        Small operations suffer from:
+        - Kernel launch overhead (5-10 us dominates sub-millisecond ops)
+        - Low occupancy (not enough threads to fill all SMs)
+        - Memory latency hiding (not enough compute to hide latency)
+
+        Empirical calibration (Jetson Orin AGX, 30W, FP32, baseline eff=0.35):
+        - MobileNetV2: 9.6M FLOPs/sg avg -> 15% eff -> scale = 0.43
+        - ResNet-18:   125M FLOPs/sg avg -> 27% eff -> scale = 0.77
+        - ViT-B/16:    558M FLOPs/sg avg -> 67% eff -> scale = 1.91
+
+        Model: Piecewise linear interpolation in log-space with three regimes:
+        - Small ops (< 10M): scale = 0.4 (kernel launch dominated)
+        - Medium ops (10M - 200M): linear 0.4 -> 0.8
+        - Large ops (> 200M): linear 0.8 -> 2.0 (saturates at 2.0)
+
+        Returns:
+            Efficiency scale factor (0.4 to 2.0 range)
+        """
+        import math
+
+        hw_type = self.resource_model.hardware_type.name
+        flops = sg.flops
+
+        if flops <= 0:
+            return 1.0  # No compute, efficiency doesn't matter
+
+        # GPU efficiency model (calibrated on Jetson Orin AGX)
+        if hw_type == 'GPU':
+            if flops < 10e6:
+                # Very small ops: kernel launch overhead dominates
+                return 0.4
+
+            log_flops = math.log10(flops)
+
+            if flops < 200e6:
+                # Medium ops: linear from 0.4 to 0.8
+                # log10(10M) = 7.0, log10(200M) = 8.3
+                t = (log_flops - 7.0) / 1.3
+                t = max(0.0, min(1.0, t))
+                return 0.4 + 0.4 * t
+            else:
+                # Large ops: linear from 0.8 to 2.0 (saturates at 2.0)
+                # log10(200M) = 8.3, log10(1G) = 9.0
+                t = (log_flops - 8.3) / 0.48
+                t = max(0.0, min(1.0, t))
+                return 0.8 + 1.2 * t
+
+        # CPU efficiency model
+        # CPUs are much more sensitive to operation size than GPUs because:
+        # 1. No SIMT - parallelism is at SIMD and thread level only
+        # 2. Function call overhead per operation is significant
+        # 3. Cache hierarchy effects are pronounced for small working sets
+        # 4. Memory latency is harder to hide with limited parallelism
+        #
+        # Empirical calibration (i7-12700K, FP32):
+        # - MobileNet (9M avg): measured 10ms, need ~0.17 scale to match
+        # - ResNet (113M avg): measured 12ms, scale ~0.85 works
+        # - ViT (225M avg): measured 97ms, scale ~1.0 works
+        if hw_type == 'CPU':
+            if flops < 1e6:
+                # Tiny ops: dominated by overhead
+                return 0.15
+
+            log_flops = math.log10(flops)
+
+            if flops < 10e6:
+                # Very small ops (1M - 10M): still heavily overhead-dominated
+                # Linear from 0.15 to 0.25
+                t = (log_flops - 6.0) / 1.0
+                t = max(0.0, min(1.0, t))
+                return 0.15 + 0.10 * t
+            elif flops < 100e6:
+                # Small-medium ops (10M - 100M): improving efficiency
+                # Linear from 0.25 to 0.70
+                t = (log_flops - 7.0) / 1.0
+                t = max(0.0, min(1.0, t))
+                return 0.25 + 0.45 * t
+            else:
+                # Large ops (> 100M): good efficiency, approaching peak
+                # Linear from 0.70 to 1.0
+                t = (log_flops - 8.0) / 1.0
+                t = max(0.0, min(1.0, t))
+                return 0.70 + 0.30 * t
+
+        # TPU/KPU: handled by _get_discrete_resource_correction
+        # Other hardware: no operation-size efficiency scaling
+        return 1.0
 
     def _get_discrete_resource_correction(self, sg: SubgraphDescriptor) -> float:
         """
