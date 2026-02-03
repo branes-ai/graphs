@@ -313,35 +313,38 @@ def format_flops(flops):
         return f"{flops:.0f}"
 
 
+def format_bytes(nbytes):
+    """Format bytes as human readable string."""
+    if nbytes >= 1e9:
+        return f"{nbytes/1e9:.1f}GB"
+    elif nbytes >= 1e6:
+        return f"{nbytes/1e6:.1f}MB"
+    elif nbytes >= 1e3:
+        return f"{nbytes/1e3:.0f}KB"
+    else:
+        return f"{nbytes:.0f}B"
+
+
 def print_subgraph_table(rows, top_n=None):
-    """Print per-subgraph comparison table."""
-    # Sort by absolute gap descending
-    sorted_rows = sorted(rows, key=lambda r: r['abs_gap_ms'], reverse=True)
+    """Print per-subgraph comparison table with memory sizes."""
+    # Sort by measured time descending (large kernels first - more reliable measurements)
+    sorted_rows = sorted(rows, key=lambda r: r['measured_ms'], reverse=True)
     if top_n:
         sorted_rows = sorted_rows[:top_n]
 
     print()
-    header = (f"  {'Subgraph':<10} {'Pattern':<24} {'FLOPs':>8} "
-              f"{'Est (ms)':>10} {'Meas (ms)':>10} {'Error':>8} {'Bottleneck':<12}")
+    header = (f"  {'Subgraph':<10} {'Pattern':<24} {'FLOPs':>8} {'Memory':>8} "
+              f"{'Est (ms)':>9} {'Meas (ms)':>9} {'Error':>8} {'Bottleneck':<14}")
     print(header)
-    print("  " + "-" * 90)
+    print("  " + "-" * 106)
 
     for r in sorted_rows:
         flops_str = format_flops(r['flops'])
+        mem_str = format_bytes(r['total_bytes'])
         err_str = f"{r['error_pct']:+.1f}%" if abs(r['error_pct']) < 10000 else "N/A"
-        print(f"  sg_{r['subgraph_id']:<7} {r['pattern']:<24} {flops_str:>8} "
-              f"{r['estimated_ms']:>10.3f} {r['measured_ms']:>10.3f} {err_str:>8} "
-              f"{r['bottleneck']:<12}")
-
-    # Totals
-    total_est = sum(r['estimated_ms'] for r in rows)
-    total_meas = sum(r['measured_ms'] for r in rows)
-    total_flops = sum(r['flops'] for r in rows)
-    total_err = (total_est - total_meas) / total_meas * 100 if total_meas > 0 else 0
-
-    print("  " + "-" * 90)
-    print(f"  {'Total':<10} {'':<24} {format_flops(total_flops):>8} "
-          f"{total_est:>10.3f} {total_meas:>10.3f} {total_err:>+7.1f}%")
+        print(f"  sg_{r['subgraph_id']:<7} {r['pattern']:<24} {flops_str:>8} {mem_str:>8} "
+              f"{r['estimated_ms']:>9.3f} {r['measured_ms']:>9.3f} {err_str:>8} "
+              f"{r['bottleneck']:<14}")
 
 
 def print_pattern_table(pattern_rows, total_gap_ms):
@@ -474,6 +477,8 @@ Examples:
                         help='Suppress verbose estimation output')
     parser.add_argument('--legacy-timing', action='store_true',
                         help='Use legacy timing with sync overhead (for comparison)')
+    parser.add_argument('--subgraph', action='store_true',
+                        help='Show per-subgraph breakdown (FX Interpreter, useful for large compute kernels)')
 
     args = parser.parse_args()
 
@@ -554,34 +559,40 @@ Examples:
     print(f"  Estimated total:      {estimated_total:.3f} ms", flush=True)
     print(f"  Error:                {full_model_error:+.1f}%", flush=True)
 
-    # Step 5: Measure per-node times with TimingInterpreter (for breakdown analysis)
-    use_cuda_events = device == 'cuda' and not args.legacy_timing
-    timing_method = "CUDA events" if use_cuda_events else "wall clock (legacy)"
-    print(f"Step 5: Measuring per-node latency for breakdown ({args.warmup_runs} warmup + "
-          f"{args.timing_runs} timed runs on {device}, {timing_method})...", flush=True)
-    print("  WARNING: FX Interpreter runs nodes separately (no fusion), times will be inflated.", flush=True)
-    node_times = measure_node_times(
-        fx_graph, input_tensor, device=device,
-        warmup_runs=args.warmup_runs, timing_runs=args.timing_runs,
-        use_cuda_events=use_cuda_events,
-    )
+    # Step 5: Measure per-node times with TimingInterpreter (only if --subgraph or --output)
+    node_times = {}
+    total_node_time = 0.0
+    rows = []
+    pattern_rows = []
+    total_gap = 0.0
 
-    total_node_time = sum(node_times.values())
-    print(f"  Total measured node time: {total_node_time:.2f} ms "
-          f"({len(node_times)} nodes)", flush=True)
+    if args.subgraph or args.output:
+        use_cuda_events = device == 'cuda' and not args.legacy_timing
+        timing_method = "CUDA events" if use_cuda_events else "wall clock (legacy)"
+        print(f"Step 5: Measuring per-node latency for breakdown ({args.warmup_runs} warmup + "
+              f"{args.timing_runs} timed runs on {device}, {timing_method})...", flush=True)
+        node_times = measure_node_times(
+            fx_graph, input_tensor, device=device,
+            warmup_runs=args.warmup_runs, timing_runs=args.timing_runs,
+            use_cuda_events=use_cuda_events,
+        )
 
-    # Step 6: Map to subgraphs and compare
-    print("Step 6: Mapping nodes to subgraphs and comparing...", flush=True)
-    rows = aggregate_to_subgraphs(
-        node_times, partition_report, roofline_report,
-    )
+        total_node_time = sum(node_times.values())
+        print(f"  Total measured node time: {total_node_time:.2f} ms "
+              f"({len(node_times)} nodes)", flush=True)
 
-    if not rows:
-        print("ERROR: No subgraphs matched between estimation and measurement")
-        return 1
+        # Step 6: Map to subgraphs and compare
+        print("Step 6: Mapping nodes to subgraphs and comparing...", flush=True)
+        rows = aggregate_to_subgraphs(
+            node_times, partition_report, roofline_report,
+        )
 
-    total_gap = sum(r['gap_ms'] for r in rows)
-    pattern_rows = aggregate_by_pattern(rows)
+        if not rows:
+            print("ERROR: No subgraphs matched between estimation and measurement")
+            return 1
+
+        total_gap = sum(r['gap_ms'] for r in rows)
+        pattern_rows = aggregate_by_pattern(rows)
 
     # Print FULL MODEL validation summary first (most important)
     print()
@@ -604,18 +615,33 @@ Examples:
     print(f"  Rating:             {rating}")
     print("=" * 80)
 
-    # Per-subgraph breakdown (for debugging, note the fusion caveat)
-    title = (f"\nPer-Subgraph Breakdown (FX Interpreter, NO fusion): {display_name}")
-    print(title)
-    print("-" * len(title.strip()))
-    print("NOTE: FX Interpreter runs nodes separately without kernel fusion.")
-    print(f"      Sum of node times ({total_node_time:.1f} ms) >> full model ({full_model_median:.1f} ms)")
-    print()
+    # Per-subgraph breakdown (only with --subgraph flag)
+    if args.subgraph:
+        print()
+        print("=" * 106)
+        print("  PER-SUBGRAPH BREAKDOWN (FX Interpreter - no kernel fusion)")
+        print("=" * 106)
+        print()
+        print("  IMPORTANT: FX Interpreter runs each node as a SEPARATE kernel without fusion.")
+        print(f"  Total node time ({total_node_time:.1f} ms) is {total_node_time/full_model_median:.1f}x higher than")
+        print(f"  actual inference ({full_model_median:.1f} ms) due to per-kernel dispatch overhead (~0.2-0.3ms).")
+        print()
+        print("  This table is useful for:")
+        print("  - Identifying operation types and memory footprints in the model")
+        print("  - Comparing LARGE compute kernels (>100M FLOPs) where dispatch overhead is <30%")
+        print("  - Understanding which fusion patterns dominate the workload")
+        print()
+        print("  NOT useful for: validating estimation accuracy (use Full Model Validation above)")
+        print()
 
-    print_subgraph_table(rows, top_n=args.top)
-    print_pattern_table(pattern_rows, total_gap)
-    print_top_contributors(pattern_rows, total_gap)
-    print_unaccounted_time(node_times, partition_report, total_node_time)
+        print_subgraph_table(rows, top_n=args.top)
+        print()
+        print_pattern_table(pattern_rows, total_gap)
+        print_top_contributors(pattern_rows, total_gap)
+        print_unaccounted_time(node_times, partition_report, total_node_time)
+    else:
+        print()
+        print("  Use --subgraph to see per-subgraph breakdown (FX Interpreter, for debugging)")
 
     # CSV output
     if args.output:
