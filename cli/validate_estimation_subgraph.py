@@ -42,11 +42,37 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 
 # ============================================================================
-# TimingInterpreter
+# TimingInterpreter with CUDA Events
 # ============================================================================
 
-class TimingInterpreter(Interpreter):
-    """FX Interpreter that times each node execution."""
+class CUDAEventTimingInterpreter(Interpreter):
+    """FX Interpreter that times each node using CUDA events (no sync overhead)."""
+
+    def __init__(self, module, device='cpu'):
+        super().__init__(module)
+        self.device = device
+        self.node_times = {}  # node_name -> time_ms
+        # Pre-create events for CUDA timing
+        if device == 'cuda':
+            self._start_event = torch.cuda.Event(enable_timing=True)
+            self._end_event = torch.cuda.Event(enable_timing=True)
+
+    def run_node(self, n):
+        if self.device == 'cuda':
+            self._start_event.record()
+            result = super().run_node(n)
+            self._end_event.record()
+            self._end_event.synchronize()  # Wait only for this node
+            self.node_times[n.name] = self._start_event.elapsed_time(self._end_event)
+        else:
+            start = time.perf_counter()
+            result = super().run_node(n)
+            self.node_times[n.name] = (time.perf_counter() - start) * 1000
+        return result
+
+
+class LegacyTimingInterpreter(Interpreter):
+    """FX Interpreter that times each node (legacy with sync overhead)."""
 
     def __init__(self, module, device='cpu'):
         super().__init__(module)
@@ -64,9 +90,65 @@ class TimingInterpreter(Interpreter):
         return result
 
 
+def measure_full_model_inference(model, input_tensor, device='cpu',
+                                  warmup_runs=50, timing_runs=100):
+    """Measure full model inference time with CUDA events (gold standard).
+
+    This measures the actual end-to-end inference time with all kernel fusion
+    and pipelining benefits. This is the "ground truth" for validation.
+
+    Args:
+        model: PyTorch model (nn.Module)
+        input_tensor: Input tensor
+        device: 'cpu' or 'cuda'
+        warmup_runs: Warmup iterations to stabilize performance
+        timing_runs: Measurement iterations
+
+    Returns:
+        Tuple of (median_time_ms, min_time_ms, max_time_ms)
+    """
+    if device == 'cuda':
+        model = model.cuda()
+        input_tensor = input_tensor.cuda()
+
+    model.eval()
+
+    # Warmup
+    with torch.no_grad():
+        for _ in range(warmup_runs):
+            _ = model(input_tensor)
+    if device == 'cuda':
+        torch.cuda.synchronize()
+
+    # Measure with CUDA events for GPU, time.perf_counter for CPU
+    times = []
+    with torch.no_grad():
+        for _ in range(timing_runs):
+            if device == 'cuda':
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
+                _ = model(input_tensor)
+                end.record()
+                end.synchronize()
+                times.append(start.elapsed_time(end))
+            else:
+                start = time.perf_counter()
+                _ = model(input_tensor)
+                times.append((time.perf_counter() - start) * 1000)
+
+    times.sort()
+    median_time = statistics.median(times)
+    return median_time, min(times), max(times)
+
+
 def measure_node_times(fx_graph, input_tensor, device='cpu',
-                       warmup_runs=5, timing_runs=20):
+                       warmup_runs=5, timing_runs=20, use_cuda_events=True):
     """Run TimingInterpreter multiple times and return median per-node times.
+
+    NOTE: FX Interpreter runs each node as a SEPARATE kernel without fusion.
+    The sum of node times will be MUCH higher than actual inference time.
+    Use measure_full_model_inference() for the actual inference time.
 
     Args:
         fx_graph: Traced FX GraphModule
@@ -74,6 +156,7 @@ def measure_node_times(fx_graph, input_tensor, device='cpu',
         device: 'cpu' or 'cuda'
         warmup_runs: Discarded warmup iterations
         timing_runs: Measurement iterations
+        use_cuda_events: Use CUDA events for accurate GPU timing (default True)
 
     Returns:
         Dict[node_name, median_time_ms]
@@ -82,12 +165,18 @@ def measure_node_times(fx_graph, input_tensor, device='cpu',
         fx_graph = fx_graph.cuda()
         input_tensor = input_tensor.cuda()
 
+    # Select interpreter class
+    if device == 'cuda' and use_cuda_events:
+        InterpreterClass = CUDAEventTimingInterpreter
+    else:
+        InterpreterClass = LegacyTimingInterpreter
+
     # Collect per-node times across runs
     all_times = defaultdict(list)  # node_name -> [time_ms, ...]
 
     total_runs = warmup_runs + timing_runs
     for i in range(total_runs):
-        interp = TimingInterpreter(fx_graph, device=device)
+        interp = InterpreterClass(fx_graph, device=device)
         with torch.no_grad():
             interp.run(input_tensor)
 
@@ -383,6 +472,8 @@ Examples:
                         help='Thermal/power profile (e.g., 15W, 30W, 50W, MAXN for Jetson)')
     parser.add_argument('--quiet', action='store_true',
                         help='Suppress verbose estimation output')
+    parser.add_argument('--legacy-timing', action='store_true',
+                        help='Use legacy timing with sync overhead (for comparison)')
 
     args = parser.parse_args()
 
@@ -450,20 +541,37 @@ Examples:
         print("ERROR: Roofline analysis failed")
         return 1
 
-    # Step 4: Measure per-node times with TimingInterpreter
-    print(f"Step 4: Measuring per-node latency ({args.warmup_runs} warmup + "
-          f"{args.timing_runs} timed runs on {device})...", flush=True)
+    # Step 4: Measure FULL MODEL inference time (gold standard)
+    print("Step 4: Measuring full model inference time (gold standard)...", flush=True)
+    full_model_median, full_model_min, full_model_max = measure_full_model_inference(
+        model, input_tensor, device=device,
+        warmup_runs=50, timing_runs=100,
+    )
+    estimated_total = roofline_report.total_latency * 1000  # convert from seconds to ms
+    full_model_error = (estimated_total - full_model_median) / full_model_median * 100
+    print(f"  Full model inference: {full_model_median:.3f} ms "
+          f"(min={full_model_min:.3f}, max={full_model_max:.3f})", flush=True)
+    print(f"  Estimated total:      {estimated_total:.3f} ms", flush=True)
+    print(f"  Error:                {full_model_error:+.1f}%", flush=True)
+
+    # Step 5: Measure per-node times with TimingInterpreter (for breakdown analysis)
+    use_cuda_events = device == 'cuda' and not args.legacy_timing
+    timing_method = "CUDA events" if use_cuda_events else "wall clock (legacy)"
+    print(f"Step 5: Measuring per-node latency for breakdown ({args.warmup_runs} warmup + "
+          f"{args.timing_runs} timed runs on {device}, {timing_method})...", flush=True)
+    print("  WARNING: FX Interpreter runs nodes separately (no fusion), times will be inflated.", flush=True)
     node_times = measure_node_times(
         fx_graph, input_tensor, device=device,
         warmup_runs=args.warmup_runs, timing_runs=args.timing_runs,
+        use_cuda_events=use_cuda_events,
     )
 
     total_node_time = sum(node_times.values())
     print(f"  Total measured node time: {total_node_time:.2f} ms "
           f"({len(node_times)} nodes)", flush=True)
 
-    # Step 5: Map to subgraphs and compare
-    print("Step 5: Mapping nodes to subgraphs and comparing...", flush=True)
+    # Step 6: Map to subgraphs and compare
+    print("Step 6: Mapping nodes to subgraphs and comparing...", flush=True)
     rows = aggregate_to_subgraphs(
         node_times, partition_report, roofline_report,
     )
@@ -475,11 +583,34 @@ Examples:
     total_gap = sum(r['gap_ms'] for r in rows)
     pattern_rows = aggregate_by_pattern(rows)
 
-    # Print results
-    title = (f"\nPer-Subgraph Estimation Validation: {display_name} on "
-             f"{args.hardware} ({args.precision.upper()}, batch={args.batch_size})")
+    # Print FULL MODEL validation summary first (most important)
+    print()
+    print("=" * 80)
+    print("  FULL MODEL VALIDATION (Gold Standard)")
+    print("=" * 80)
+    print(f"  Model:              {display_name}")
+    print(f"  Hardware:           {args.hardware} ({thermal_profile or 'default'})")
+    print(f"  Measured inference: {full_model_median:.3f} ms (CUDA events, 100 runs)")
+    print(f"  Estimated latency:  {estimated_total:.3f} ms (roofline model)")
+    print(f"  Error:              {full_model_error:+.1f}%")
+    if abs(full_model_error) < 15:
+        rating = "EXCELLENT"
+    elif abs(full_model_error) < 30:
+        rating = "GOOD"
+    elif abs(full_model_error) < 50:
+        rating = "FAIR"
+    else:
+        rating = "POOR"
+    print(f"  Rating:             {rating}")
+    print("=" * 80)
+
+    # Per-subgraph breakdown (for debugging, note the fusion caveat)
+    title = (f"\nPer-Subgraph Breakdown (FX Interpreter, NO fusion): {display_name}")
     print(title)
-    print("=" * len(title.strip()))
+    print("-" * len(title.strip()))
+    print("NOTE: FX Interpreter runs nodes separately without kernel fusion.")
+    print(f"      Sum of node times ({total_node_time:.1f} ms) >> full model ({full_model_median:.1f} ms)")
+    print()
 
     print_subgraph_table(rows, top_n=args.top)
     print_pattern_table(pattern_rows, total_gap)

@@ -333,8 +333,8 @@ Examples:
     parser.add_argument(
         "--precision", "-p",
         default=None,
-        choices=["fp32", "fp16", "bf16"],
-        help="Precision to use"
+        choices=["fp32", "fp16", "bf16", "int8"],
+        help="Precision to use (int8 uses quantized conv)"
     )
     parser.add_argument(
         "--all-precisions",

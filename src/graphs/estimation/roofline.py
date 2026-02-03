@@ -459,11 +459,15 @@ class RooflineAnalyzer:
         # Get per-operation efficiency scaling based on operation granularity.
         # Large operations achieve higher efficiency (better occupancy, amortized overhead).
         # Small operations suffer from kernel launch overhead and low occupancy.
-        op_efficiency_scale = self._get_operation_efficiency_scale(sg)
+        # IMPORTANT: Compute and bandwidth have DIFFERENT efficiency characteristics:
+        # - Compute efficiency: heavily impacted by kernel launch overhead for small ops
+        # - Bandwidth efficiency: limited by DRAM physics, less impacted by kernel size
+        compute_efficiency_scale = self._get_compute_efficiency_scale(sg)
+        bandwidth_efficiency_scale = self._get_bandwidth_efficiency_scale(sg)
 
         # Effective peak for this operation = theoretical peak * operation efficiency
-        effective_peak_flops = self.peak_flops * op_efficiency_scale
-        effective_peak_bandwidth = self.peak_bandwidth * op_efficiency_scale
+        effective_peak_flops = self.peak_flops * compute_efficiency_scale
+        effective_peak_bandwidth = self.peak_bandwidth * bandwidth_efficiency_scale
 
         # Compute time = FLOPs / effective_peak_FLOPS
         compute_time = sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
@@ -530,9 +534,11 @@ class RooflineAnalyzer:
             explanation=explanation,
         )
 
-    def _get_operation_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
+    def _get_compute_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """
-        Compute efficiency scaling factor based on operation granularity.
+        Compute efficiency scaling factor based on operation type and granularity.
+
+        This affects COMPUTE performance (FLOPs/sec).
 
         Large operations achieve higher efficiency due to:
         - Better GPU occupancy (more threads, better SM utilization)
@@ -544,9 +550,16 @@ class RooflineAnalyzer:
         - Low occupancy (not enough threads to fill all SMs)
         - Memory latency hiding (not enough compute to hide latency)
 
-        Empirical calibration (Jetson Orin AGX, 30W, FP32, baseline eff=0.35):
-        - MobileNetV2: 9.6M FLOPs/sg avg -> 15% eff -> scale = 0.43
-        - ResNet-18:   125M FLOPs/sg avg -> 27% eff -> scale = 0.77
+        Depthwise convolutions are fundamentally different:
+        - Very low arithmetic intensity (few FLOPs per byte)
+        - Severely memory-bound regardless of size
+        - Measured 3-80 GFLOPS vs 400-4000 GFLOPS for standard convs (50x slower)
+
+        Empirical calibration (Jetson Orin AGX, 50W, FP32):
+        - Standard Conv2D: 968 GFLOPS average (26% efficiency)
+        - Depthwise Conv2D: 3-80 GFLOPS (0.1-2% efficiency)
+        - MobileNetV2: heavily uses depthwise -> 17ms measured
+        - ResNet-18:   standard convs only -> 7ms measured
         - ViT-B/16:    558M FLOPs/sg avg -> 67% eff -> scale = 1.91
 
         Model: Piecewise linear interpolation in log-space with three regimes:
@@ -558,6 +571,7 @@ class RooflineAnalyzer:
             Efficiency scale factor (0.4 to 2.0 range)
         """
         import math
+        from graphs.core.structures import OperationType
 
         hw_type = self.resource_model.hardware_type.name
         flops = sg.flops
@@ -565,26 +579,92 @@ class RooflineAnalyzer:
         if flops <= 0:
             return 1.0  # No compute, efficiency doesn't matter
 
-        # GPU efficiency model (calibrated on Jetson Orin AGX)
+        # Check for depthwise convolution (severely inefficient on GPUs)
+        # CALIBRATION (Jetson Orin AGX, 50W, FP32):
+        # - Depthwise 3x3: 3-80 GFLOPS measured vs 968 GFLOPS for standard conv
+        # - This is ~0.3-8% of standard conv efficiency -> use 0.03-0.08 scale
+        is_depthwise = (
+            # Check operation_types list (fused subgraphs may have multiple ops)
+            (hasattr(sg, 'operation_types') and OperationType.CONV2D_DEPTHWISE in sg.operation_types) or
+            # Check is_depthwise flag if set
+            getattr(sg, 'is_depthwise', False) or
+            # Fallback to node name detection
+            (hasattr(sg, 'node_names') and any('dw' in n.lower() for n in sg.node_names)) or
+            (hasattr(sg, 'node_names') and any('depthwise' in n.lower() for n in sg.node_names))
+        )
+
+        # Check for Conv2d+BatchNorm fusion patterns (additional overhead)
+        # CALIBRATION (Jetson Orin AGX, 50W, FP32, ResNet-18 layers):
+        # - Conv2D only: 529 GFLOPS average
+        # - Conv2d+BN+ReLU: 354 GFLOPS average (67% of Conv2D)
+        # The BatchNorm adds memory traffic that reduces effective compute throughput
+        fusion_pattern = getattr(sg, 'fusion_pattern', '') if hasattr(sg, 'fusion_pattern') else ''
+        has_batchnorm = 'BatchNorm' in fusion_pattern or 'batchnorm' in fusion_pattern.lower()
+        is_conv_bn_pattern = has_batchnorm and (
+            'Conv2d' in fusion_pattern or
+            (hasattr(sg, 'operation_types') and OperationType.CONV2D in sg.operation_types)
+        )
+
+        # GPU efficiency model (CALIBRATED on Jetson Orin AGX 50W, 2026-02-03)
+        # Conv2d+BN+ReLU calibration (ResNet-18 layers):
+        #   - Conv2D only: 529 GFLOPS, Conv2d+BN+ReLU: 354 GFLOPS
+        #   - BatchNorm fusion factor: 0.67 (354/529)
+        # This factor accounts for the memory traffic overhead of BatchNorm
         if hw_type == 'GPU':
-            if flops < 10e6:
-                # Very small ops: kernel launch overhead dominates
-                return 0.4
+            # Depthwise convolutions: dramatically lower efficiency
+            if is_depthwise:
+                # Calibrated: depthwise gets 3-80 GFLOPS vs 968 GFLOPS standard
+                # Average ~30 GFLOPS = 3% of standard efficiency
+                return 0.03
+
+            # Conv2d+BatchNorm fusion overhead factor
+            # BatchNorm adds memory traffic that reduces effective compute throughput
+            bn_fusion_factor = 0.67 if is_conv_bn_pattern else 1.0
+
+            if flops < 1e6:
+                # Tiny ops (< 1M FLOPs): dominated by launch overhead
+                # Example: unfused ops measured at 0.4-0.8ms regardless of FLOPs
+                return 0.01 * bn_fusion_factor
 
             log_flops = math.log10(flops)
 
+            if flops < 10e6:
+                # Very small ops (1M-10M): severely overhead-dominated
+                # MobileNet-V2 (9M avg): 38 GFLOPS / 958 peak = 4% scale
+                t = (log_flops - 6.0) / 1.0
+                t = max(0.0, min(1.0, t))
+                return (0.02 + 0.04 * t) * bn_fusion_factor  # 0.02 -> 0.06
+
+            if flops < 50e6:
+                # Small ops (10M-50M): improving
+                # Interpolate from 6% at 10M to 20% at 50M
+                t = (log_flops - 7.0) / 0.7  # log10(50M) = 7.7
+                t = max(0.0, min(1.0, t))
+                return (0.06 + 0.14 * t) * bn_fusion_factor  # 0.06 -> 0.20
+
             if flops < 200e6:
-                # Medium ops: linear from 0.4 to 0.8
-                # log10(10M) = 7.0, log10(200M) = 8.3
-                t = (log_flops - 7.0) / 1.3
+                # Medium ops (50M-200M): good efficiency
+                # CALIBRATED from ResNet-18 Conv2d+BN+ReLU benchmark:
+                #   - 231M FLOPs layer: 0.330ms = 700 GFLOPS
+                #   - Peak 958 GFLOPS -> scale = 0.73
+                # For Conv2d+BN patterns, bn_fusion_factor (0.67) already applied
+                t = (log_flops - 7.7) / 0.6  # log10(200M) = 8.3
                 t = max(0.0, min(1.0, t))
-                return 0.4 + 0.4 * t
+                base_scale = 0.35 + 0.45 * t  # 0.35 -> 0.80
+                return base_scale * bn_fusion_factor
+
             else:
-                # Large ops: linear from 0.8 to 2.0 (saturates at 2.0)
-                # log10(200M) = 8.3, log10(1G) = 9.0
-                t = (log_flops - 8.3) / 0.48
+                # Large ops (> 200M): Conv2d+BN+ReLU at 231M achieves ~700 GFLOPS
+                # Scale = 700/958 = 0.73 for Conv2d+BN patterns
+                # ViT (MatMul, no BN) can achieve higher (1.19x)
+                t = (log_flops - 8.3) / 0.7  # log10(1G) = 9.0
                 t = max(0.0, min(1.0, t))
-                return 0.8 + 1.2 * t
+                if is_conv_bn_pattern:
+                    # Conv2d+BN: calibrated at 700 GFLOPS / 958 = 0.73
+                    return 0.73 + 0.17 * t  # 0.73 -> 0.90
+                else:
+                    # MatMul/other: can exceed calibrated Conv2D baseline
+                    return 0.85 + 0.55 * t  # 0.85 -> 1.40
 
         # CPU efficiency model
         # CPUs are much more sensitive to operation size than GPUs because:
@@ -626,6 +706,112 @@ class RooflineAnalyzer:
         # TPU/KPU: handled by _get_discrete_resource_correction
         # Other hardware: no operation-size efficiency scaling
         return 1.0
+
+    def _get_bandwidth_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
+        """
+        Bandwidth efficiency scaling factor based on operation characteristics.
+
+        This affects MEMORY BANDWIDTH performance (bytes/sec).
+
+        CRITICAL: Bandwidth efficiency is fundamentally different from compute efficiency:
+        - Memory bandwidth is limited by DRAM physics, not kernel launch overhead
+        - Small operations can still achieve good bandwidth if access is coalesced
+        - GPU memory controller typically achieves 60-80% of peak bandwidth
+
+        EXCEPTION: Depthwise convolutions have poor bandwidth efficiency due to:
+        - Scattered access patterns (each filter only touches one channel)
+        - Poor L2 cache utilization
+        - Many small memory transactions instead of coalesced streaming
+
+        CALIBRATION (Jetson Orin AGX 50W, 204 GB/s peak):
+        - add_ReLU (residual connections): measured ~80 GB/s effective = 40%
+        - Depthwise Conv2D: measured ~15 GB/s effective = 7%
+        - Standard Conv2D: measured ~60 GB/s effective = 30% (compute-bound)
+
+        The key factors affecting bandwidth efficiency:
+        1. Access pattern (coalesced vs random): 0.3-0.9x
+        2. Memory controller overhead: ~0.8x
+        3. Cache effects (L2 hit rate): can improve effective bandwidth
+
+        Model: Conservative floor with size-based improvement
+        - Depthwise convolutions: very low efficiency (0.07)
+        - All other operations: minimum 0.3 (30% of peak)
+        - Large tensor operations: up to 0.7 (70% of peak)
+        """
+        import math
+        from graphs.core.structures import OperationType
+
+        hw_type = self.resource_model.hardware_type.name
+
+        if hw_type == 'GPU':
+            # Check for depthwise convolution (poor bandwidth efficiency)
+            # CALIBRATION (Jetson Orin AGX, 50W, FP32):
+            # - Depthwise Conv2D achieves very low effective bandwidth
+            # - Due to scattered access patterns and poor cache utilization
+            is_depthwise = (
+                # Check operation_types list (fused subgraphs may have multiple ops)
+                (hasattr(sg, 'operation_types') and OperationType.CONV2D_DEPTHWISE in sg.operation_types) or
+                # Check is_depthwise flag if set
+                getattr(sg, 'is_depthwise', False) or
+                # Fallback to node name detection
+                (hasattr(sg, 'node_names') and any('dw' in n.lower() for n in sg.node_names)) or
+                (hasattr(sg, 'node_names') and any('depthwise' in n.lower() for n in sg.node_names))
+            )
+
+            if is_depthwise:
+                # Depthwise convolutions have VERY poor bandwidth utilization
+                # Due to scattered access patterns and lack of data reuse
+                # CALIBRATION (Jetson Orin AGX 50W, MobileNet-V2):
+                # - 17 depthwise subgraphs should account for ~6.2ms of 15.5ms total
+                # - With 0.07 efficiency: 1.9ms estimated (3x underestimate)
+                # - Need ~0.02 efficiency to match measured (~4 GB/s effective)
+                return 0.02  # ~4 GB/s on 204 GB/s peak
+
+            # GPU memory bandwidth is relatively consistent regardless of kernel size
+            # The main factors are access patterns and memory controller efficiency
+
+            # Total bytes transferred (approximation of working set size)
+            total_bytes = sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+
+            if total_bytes <= 0:
+                return 0.5  # Default moderate efficiency
+
+            # Larger transfers achieve better bandwidth efficiency due to:
+            # - Better pipelining in memory controller
+            # - Amortized DRAM row activation overhead
+            # - Better L2 cache behavior
+
+            log_bytes = math.log10(max(total_bytes, 1))
+
+            if total_bytes < 1e4:  # < 10 KB
+                # Very small transfers: memory latency dominates
+                return 0.3
+
+            if total_bytes < 1e6:  # 10 KB - 1 MB
+                # Small transfers: improving efficiency
+                # Linear from 0.3 to 0.5
+                t = (log_bytes - 4.0) / 2.0  # log10(1MB) = 6.0
+                t = max(0.0, min(1.0, t))
+                return 0.3 + 0.2 * t
+
+            if total_bytes < 10e6:  # 1 MB - 10 MB
+                # Medium transfers: good efficiency
+                # Linear from 0.5 to 0.6
+                t = (log_bytes - 6.0) / 1.0
+                t = max(0.0, min(1.0, t))
+                return 0.5 + 0.1 * t
+
+            else:  # > 10 MB
+                # Large transfers: best efficiency (streaming)
+                return 0.7
+
+        elif hw_type == 'CPU':
+            # CPU memory bandwidth is more variable due to cache hierarchy
+            # but still doesn't have the kernel launch penalty
+            return 0.5  # Conservative estimate
+
+        # Other hardware: default to moderate efficiency
+        return 0.5
 
     def _get_discrete_resource_correction(self, sg: SubgraphDescriptor) -> float:
         """

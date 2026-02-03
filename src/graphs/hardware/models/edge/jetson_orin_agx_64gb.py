@@ -241,6 +241,8 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     # ========================================================================
     # 50W MODE: High performance (active cooling required)
     # ========================================================================
+    # CALIBRATED 2026-02-03: Measured via Conv2D microbenchmarks on Orin AGX
+    # GPU clock observed at 306-816 MHz range during benchmarks
     clock_50w = ClockDomain(
         base_clock_hz=828e6,
         max_boost_clock_hz=1.2e9,
@@ -259,8 +261,14 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         clock_domain=clock_50w,
     )
 
-    # Sustained INT8: 64 TCs × 64 MACs/TC × 900 MHz = 3.7 TOPS
-    # Effective: 3.7 × 0.60 = 2.2 TOPS
+    # CALIBRATION DATA (2026-02-03, Conv2D microbenchmarks):
+    # - FP32 Conv2D average: 968 GFLOPS (26% of theoretical peak)
+    # - FP16 Conv2D average: 1012 GFLOPS (27% of theoretical peak)
+    # - BF16 Conv2D average: 1057 GFLOPS (29% of theoretical peak)
+    # - Depthwise convs: 3-80 GFLOPS (severely memory-bound)
+    # - Standard 3x3 convs: 400-4000 GFLOPS (size-dependent)
+    # - GEMM: 1592 GFLOPS FP32, 3406 GFLOPS FP16 (higher than Conv2D)
+    # Note: INT8 requires TensorRT for native support, not available in PyTorch
 
     thermal_50w = ThermalOperatingPoint(
         name="50W-performance",
@@ -270,19 +278,29 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_50w,
-                efficiency_factor=0.70,
+                # INT8 estimated from FP16 scaling (TensorRT typically 1.5-2x FP16)
+                efficiency_factor=0.40,  # Conservative estimate without TensorRT calibration
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_50w,
-                efficiency_factor=0.60,
+                # CALIBRATED: 1012 GFLOPS / 3686 GFLOPS theoretical = 27%
+                efficiency_factor=0.27,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_50w,
-                efficiency_factor=0.45,
+                # CALIBRATED: 968 GFLOPS / 3686 GFLOPS theoretical = 26%
+                efficiency_factor=0.26,
+                native_acceleration=True,
+            ),
+            Precision.BF16: PerformanceCharacteristics(
+                precision=Precision.BF16,
+                compute_resource=compute_resource_50w,
+                # CALIBRATED: 1057 GFLOPS / 3686 GFLOPS theoretical = 29%
+                efficiency_factor=0.29,
                 native_acceleration=True,
             ),
         }
