@@ -523,6 +523,58 @@ class FusionBasedPartitioner:
             flops = 2 * macs
             return flops, macs
 
+        elif isinstance(module, torch.nn.MultiheadAttention):
+            # MHA tensor_meta is a tuple (attn_output, attn_weights).
+            # Get sequence length from the input node shape.
+            embed_dim = module.embed_dim
+            num_heads = module.num_heads
+            head_dim = embed_dim // num_heads
+            kdim = module.kdim
+            vdim = module.vdim
+
+            # Input shape: [batch, seq_len, embed_dim] or [seq_len, batch, embed_dim]
+            if node.args:
+                arg0 = node.args[0]
+                if hasattr(arg0, 'meta') and 'tensor_meta' in arg0.meta:
+                    arg_meta = arg0.meta['tensor_meta']
+                    if hasattr(arg_meta, 'shape') and len(arg_meta.shape) == 3:
+                        # ViT uses batch_first=True: [batch, seq_len, embed_dim]
+                        # Default MHA: [seq_len, batch, embed_dim]
+                        if getattr(module, 'batch_first', False):
+                            batch = arg_meta.shape[0]
+                            seq_len = arg_meta.shape[1]
+                        else:
+                            seq_len = arg_meta.shape[0]
+                            batch = arg_meta.shape[1]
+                    else:
+                        return 0, 0
+                else:
+                    return 0, 0
+            else:
+                return 0, 0
+
+            # 1. QKV input projection: in_proj_weight is [3*embed_dim, embed_dim]
+            #    3 linear projections: Q, K, V each [batch*seq_len, embed_dim] x [embed_dim, embed_dim]
+            qkv_macs = batch * seq_len * embed_dim * (embed_dim + kdim + vdim)
+
+            # 2. Q @ K^T: [batch, heads, seq_len, head_dim] x [batch, heads, head_dim, seq_len]
+            #    -> [batch, heads, seq_len, seq_len]
+            qkt_macs = batch * num_heads * seq_len * seq_len * head_dim
+
+            # 3. Softmax: ~5 ops per element (max, sub, exp, sum, div)
+            softmax_flops = 5 * batch * num_heads * seq_len * seq_len
+
+            # 4. Attn @ V: [batch, heads, seq_len, seq_len] x [batch, heads, seq_len, head_dim]
+            #    -> [batch, heads, seq_len, head_dim]
+            attn_v_macs = batch * num_heads * seq_len * seq_len * head_dim
+
+            # 5. Output projection: [batch*seq_len, embed_dim] x [embed_dim, embed_dim]
+            out_proj_macs = batch * seq_len * embed_dim * embed_dim
+
+            total_macs = qkv_macs + qkt_macs + attn_v_macs + out_proj_macs
+            total_flops = 2 * total_macs + softmax_flops
+            return total_flops, total_macs
+
         return 0, 0
 
     def _compute_flops_aten(self, node) -> Tuple[int, int]:
@@ -864,6 +916,13 @@ class FusionBasedPartitioner:
             return 0
 
         meta = node.meta['tensor_meta']
+        # MHA returns a 2-tuple (attn_output, attn_weights); use first element.
+        # Dynamo export also produces tuples but with 7 raw fields (Size, dtype, ...),
+        # so only unwrap short tuples where the first element has a 'shape' attr.
+        if isinstance(meta, tuple) and len(meta) <= 2:
+            meta = meta[0]
+            if meta is None:
+                return 0
         if hasattr(meta, 'shape'):
             numel = 1
             for dim in meta.shape:
