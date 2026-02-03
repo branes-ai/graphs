@@ -375,18 +375,18 @@ def print_subgraph_table(rows, top_n=None):
         sorted_rows = sorted_rows[:top_n]
 
     print()
-    print(f"  Dispatch overhead subtracted: {KERNEL_DISPATCH_OVERHEAD_MS:.2f} ms/node")
+    print(f"  Adj = Meas - (nodes * {KERNEL_DISPATCH_OVERHEAD_MS:.2f}ms dispatch overhead)")
     print()
-    header = (f"  {'Subgraph':<10} {'Pattern':<22} {'FLOPs':>7} {'Memory':>7} "
-              f"{'Est':>7} {'Raw':>7} {'Adj':>7} {'Adj Err':>8} {'Bottleneck':<14}")
+    header = (f"  {'Subgraph':<10} {'Pattern':<27} {'FLOPs':>7} {'Memory':>7} "
+              f"{'Est':>7} {'Meas':>7} {'Adj':>7} {'Adj Err':>8} {'Bottleneck':<14}")
     print(header)
-    print("  " + "-" * 110)
+    print("  " + "-" * 115)
 
     for r in sorted_rows:
         flops_str = format_flops(r['flops'])
         mem_str = format_bytes(r['total_bytes'])
         adj_err_str = f"{r['adjusted_error_pct']:+.1f}%" if abs(r['adjusted_error_pct']) < 1000 else ">>1000%"
-        print(f"  sg_{r['subgraph_id']:<7} {r['pattern']:<22} {flops_str:>7} {mem_str:>7} "
+        print(f"  sg_{r['subgraph_id']:<7} {r['pattern']:<27} {flops_str:>7} {mem_str:>7} "
               f"{r['estimated_ms']:>7.3f} {r['measured_ms']:>7.3f} {r['adjusted_ms']:>7.3f} "
               f"{adj_err_str:>8} {r['bottleneck']:<14}")
 
@@ -395,13 +395,13 @@ def print_pattern_table(pattern_rows, total_gap_ms):
     """Print error aggregated by fusion pattern with adjusted measurements."""
     print()
     print("Error by Fusion Pattern (with dispatch overhead removed):")
-    print(f"  {'Pattern':<22} {'Count':>5} {'Est':>8} {'Adj':>8} "
+    print(f"  {'Pattern':<27} {'Count':>5} {'Est':>8} {'Adj':>8} "
           f"{'Gap':>8} {'Adj Err':>9}")
-    print("  " + "-" * 70)
+    print("  " + "-" * 75)
 
     for p in pattern_rows:
         adj_err_str = f"{p['adj_error_pct']:+.1f}%" if abs(p['adj_error_pct']) < 1000 else ">>1000%"
-        print(f"  {p['pattern']:<22} {p['count']:>5} {p['est_ms']:>8.2f} "
+        print(f"  {p['pattern']:<27} {p['count']:>5} {p['est_ms']:>8.2f} "
               f"{p['adj_ms']:>8.2f} {p['adj_gap_ms']:>+8.2f} {adj_err_str:>9}")
 
 
@@ -413,9 +413,8 @@ def print_top_contributors(pattern_rows, total_gap_ms):
 
     for i, p in enumerate(pattern_rows[:10]):
         pct_of_total = p['abs_adj_gap_ms'] / abs_total * 100 if abs_total > 0 else 0
-        direction = "underestimate" if p['adj_gap_ms'] < 0 else "overestimate"
         adj_err_str = f"{p['adj_error_pct']:+.1f}%" if abs(p['adj_error_pct']) < 1000 else ">>1000%"
-        print(f"  {i+1:>2}. {p['pattern']:<20} {p['adj_gap_ms']:>+7.2f} ms ({adj_err_str})  "
+        print(f"  {i+1:>2}. {p['pattern']:<27} {p['adj_gap_ms']:>+7.2f} ms ({adj_err_str})  "
               f"[{p['count']} instances, {pct_of_total:.1f}% of gap]")
 
 
