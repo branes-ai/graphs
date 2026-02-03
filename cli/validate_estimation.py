@@ -122,7 +122,8 @@ def measure_inference(model, input_tensor, device, num_warmup=10, num_runs=50):
 # Estimation
 # ============================================================================
 
-def run_estimation(analyzer, model_name, hardware_name, precision, batch_size):
+def run_estimation(analyzer, model_name, hardware_name, precision, batch_size,
+                   thermal_profile=None):
     """Run the unified analyzer estimation.
 
     Returns:
@@ -134,6 +135,7 @@ def run_estimation(analyzer, model_name, hardware_name, precision, batch_size):
             hardware_name=hardware_name,
             precision=precision,
             batch_size=batch_size,
+            thermal_profile=thermal_profile,
         )
         return {
             'latency_ms': result.total_latency_ms,
@@ -310,6 +312,8 @@ Examples:
                         help='Measurement iterations (default: 50)')
     parser.add_argument('--output', type=str, default=None,
                         help='Output CSV path')
+    parser.add_argument('--thermal-profile', type=str, default=None,
+                        help='Thermal/power profile (e.g., 15W, 30W, 50W, MAXN for Jetson)')
     parser.add_argument('--quiet', action='store_true',
                         help='Suppress verbose output')
 
@@ -330,11 +334,15 @@ Examples:
     precision_map = {'fp32': Precision.FP32, 'fp16': Precision.FP16}
     precision = precision_map[args.precision]
 
+    # Thermal profile (convert underscores for argparse compatibility)
+    thermal_profile = getattr(args, 'thermal_profile', None)
+
     print()
     print("=" * 70)
     print("  ESTIMATION VALIDATION")
     print("=" * 70)
     print(f"  Hardware (estimation): {args.hardware}")
+    print(f"  Thermal profile:       {thermal_profile or '(default)'}")
     print(f"  Device (measurement):  {device}")
     print(f"  Precision:             {args.precision.upper()}")
     print(f"  Models:                {', '.join(model_names)}")
@@ -354,7 +362,7 @@ Examples:
             if not args.quiet:
                 print(f"  Running estimation...", flush=True)
             estimated = run_estimation(analyzer, model_name, args.hardware,
-                                       precision, batch_size)
+                                       precision, batch_size, thermal_profile)
             if estimated is None:
                 print(f"  Skipping {model_name} batch={batch_size} (estimation failed)")
                 continue
