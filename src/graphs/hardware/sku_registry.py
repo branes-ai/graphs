@@ -165,18 +165,18 @@ class JetsonRegistry:
             family="Jetson Orin",
             soc="Orin",
             form_factor="Module",
-            supported_profiles=["15W", "30W", "60W"],
+            supported_profiles=["15W", "30W", "50W", "MAXN"],
             market_position=MarketPosition.FLAGSHIP,
             typical_deployment_profile="30W",  # Balanced flagship default
             scenario_profiles={
                 ComparisonScenario.MATCHED_15W: "15W",
                 ComparisonScenario.MATCHED_25W: "30W",  # Closest available
-                ComparisonScenario.MARKETPLACE: "60W",  # Flagship positioning
+                ComparisonScenario.MARKETPLACE: "50W",  # Flagship positioning
                 ComparisonScenario.BATTERY_DRONE: "15W",
                 ComparisonScenario.EDGE_PASSIVE: "15W",
                 ComparisonScenario.EDGE_ACTIVE: "30W",
-                ComparisonScenario.INDUSTRIAL: "60W",
-                ComparisonScenario.MAX_PERFORMANCE: "60W",
+                ComparisonScenario.INDUSTRIAL: "50W",
+                ComparisonScenario.MAX_PERFORMANCE: "MAXN",
             },
             release_year=2022,
             notes="Flagship edge AI module. 2x the SMs of NX, 2x the bandwidth. "

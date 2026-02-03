@@ -855,8 +855,8 @@ def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None) -> GPUMapper
     MEMORY: 64 GB LPDDR5
 
     Args:
-        thermal_profile: Thermal profile name (e.g., "15W", "30W", "60W")
-                        If None, uses default ("15W")
+        thermal_profile: Thermal profile name (e.g., "15W", "30W", "50W", "MAXN")
+                        If None, uses default ("30W")
 
     Returns:
         GPUMapper configured for Jetson Orin AGX 64GB

@@ -59,11 +59,17 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     - Effective INT8: ~1.1 TOPS (40% of peak)
     - Use case: Tethered robots with active cooling
 
-    60W Mode (Max Performance - Unrealistic for Embodied AI):
-    - Sustained clock: 1.0 GHz (98% of boost)
-    - Peak INT8: 4.1 TOPS (4,096 MACs/clock × 1.0 GHz)
-    - Effective INT8: ~2.5 TOPS (60% of peak)
-    - Use case: Benchtop testing only (too hot for deployment!)
+    50W Mode (High Performance - Active Cooling Required):
+    - Sustained clock: 900 MHz (87% of boost)
+    - Peak INT8: 3.7 TOPS (4,096 MACs/clock × 900 MHz)
+    - Effective INT8: ~2.2 TOPS (60% of peak)
+    - Use case: Tethered systems with robust cooling
+
+    MAXN Mode (Unconstrained - Experimental):
+    - Maximum clocks, no power cap (can exceed 60W)
+    - WARNING: Hardware throttling engaged when power exceeds TDP
+    - Not recommended for prolonged heavy workloads
+    - Use case: Benchmarking and short bursts only
 
     References:
     - Jetson Orin AGX Datasheet: NVIDIA Technical Brief
@@ -233,16 +239,16 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
-    # 60W MODE: Max performance (unrealistic for robots - benchtop only!)
+    # 50W MODE: High performance (active cooling required)
     # ========================================================================
-    clock_60w = ClockDomain(
-        base_clock_hz=918e6,
-        max_boost_clock_hz=1.3e9,
-        sustained_clock_hz=1.0e9,    # 1.0 GHz sustained (77% of boost)
+    clock_50w = ClockDomain(
+        base_clock_hz=828e6,
+        max_boost_clock_hz=1.2e9,
+        sustained_clock_hz=900e6,    # 900 MHz sustained (75% of boost)
         dvfs_enabled=True,
     )
 
-    compute_resource_60w = ComputeResource(
+    compute_resource_50w = ComputeResource(
         resource_type="Ampere-SM-TensorCore",
         num_units=num_sms,
         ops_per_unit_per_clock={
@@ -250,32 +256,83 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
             Precision.FP16: fp16_ops_per_sm_per_clock,
             Precision.FP32: fp32_ops_per_sm_per_clock,
         },
-        clock_domain=clock_60w,
+        clock_domain=clock_50w,
     )
 
-    # Sustained INT8: 32 × 512 × 1.0 GHz = 16.4 TOPS
-    # Effective: 16.4 × 0.75 = 12.3 TOPS (7.2% of peak)
+    # Sustained INT8: 64 TCs × 64 MACs/TC × 900 MHz = 3.7 TOPS
+    # Effective: 3.7 × 0.60 = 2.2 TOPS
 
-    thermal_60w = ThermalOperatingPoint(
-        name="60W-max",
-        tdp_watts=60.0,
-        cooling_solution="active-fan-max",
+    thermal_50w = ThermalOperatingPoint(
+        name="50W-performance",
+        tdp_watts=50.0,
+        cooling_solution="active-fan-high",
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
-                compute_resource=compute_resource_60w,
-                efficiency_factor=0.75,  # Best case (still only 30% of peak!)
+                compute_resource=compute_resource_50w,
+                efficiency_factor=0.70,
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
-                compute_resource=compute_resource_60w,
+                compute_resource=compute_resource_50w,
+                efficiency_factor=0.60,
+                native_acceleration=True,
+            ),
+            Precision.FP32: PerformanceCharacteristics(
+                precision=Precision.FP32,
+                compute_resource=compute_resource_50w,
+                efficiency_factor=0.45,
+                native_acceleration=True,
+            ),
+        }
+    )
+
+    # ========================================================================
+    # MAXN MODE: Unconstrained (experimental - hardware throttling engaged)
+    # ========================================================================
+    clock_maxn = ClockDomain(
+        base_clock_hz=918e6,
+        max_boost_clock_hz=1.3e9,
+        sustained_clock_hz=1.0e9,    # 1.0 GHz sustained (77% of boost)
+        dvfs_enabled=True,
+    )
+
+    compute_resource_maxn = ComputeResource(
+        resource_type="Ampere-SM-TensorCore",
+        num_units=num_sms,
+        ops_per_unit_per_clock={
+            Precision.INT8: int8_ops_per_sm_per_clock,
+            Precision.FP16: fp16_ops_per_sm_per_clock,
+            Precision.FP32: fp32_ops_per_sm_per_clock,
+        },
+        clock_domain=clock_maxn,
+    )
+
+    # MAXN is unconstrained but throttles under sustained load
+    # Peak INT8: 64 TCs × 64 MACs/TC × 1.0 GHz = 4.1 TOPS
+    # Effective: varies due to thermal throttling
+
+    thermal_maxn = ThermalOperatingPoint(
+        name="MAXN-unconstrained",
+        tdp_watts=60.0,  # Can exceed this, triggering throttling
+        cooling_solution="active-fan-max",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_maxn,
+                efficiency_factor=0.75,  # Best case before throttling
+                native_acceleration=True,
+            ),
+            Precision.FP16: PerformanceCharacteristics(
+                precision=Precision.FP16,
+                compute_resource=compute_resource_maxn,
                 efficiency_factor=0.65,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
-                compute_resource=compute_resource_60w,
+                compute_resource=compute_resource_maxn,
                 efficiency_factor=0.50,
                 native_acceleration=True,
             ),
@@ -330,14 +387,16 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         cuda_cores_per_sm=cuda_cores_per_sm,
         tensor_cores_per_sm=tensor_cores_per_sm,
         ops_per_clock_per_core=2.0,  # FMA: 2 ops/clock for FP32
-        sm_boost_clock_hz=1.3e9,     # 1.3 GHz boost (60W mode)
+        sm_boost_clock_hz=1.3e9,     # 1.3 GHz boost (MAXN mode)
         sm_sustained_clock_hz=650e6,  # 650 MHz sustained (30W mode typical)
 
         # NEW: Thermal operating points with DVFS modeling
+        # Power modes per NVIDIA nvpmodel: 15W, 30W, 50W, MAXN
         thermal_operating_points={
-            "15W": thermal_15w,  # Battery-powered deployment
-            "30W": thermal_30w,  # Balanced (typical deployment)
-            "60W": thermal_60w,  # Max performance
+            "15W": thermal_15w,   # Battery-powered deployment (passive cooling)
+            "30W": thermal_30w,   # Balanced (active cooling, typical deployment)
+            "50W": thermal_50w,   # High performance (robust active cooling)
+            "MAXN": thermal_maxn, # Unconstrained (experimental, throttles under load)
         },
         default_thermal_profile="30W",  # Balanced default for edge AI with active cooling
 
