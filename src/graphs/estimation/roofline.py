@@ -583,15 +583,25 @@ class RooflineAnalyzer:
         # CALIBRATION (Jetson Orin AGX, 50W, FP32):
         # - Depthwise 3x3: 3-80 GFLOPS measured vs 968 GFLOPS for standard conv
         # - This is ~0.3-8% of standard conv efficiency -> use 0.03-0.08 scale
-        is_depthwise = (
-            # Check operation_types list (fused subgraphs may have multiple ops)
+        #
+        # IMPORTANT: MBConv blocks (EfficientNet, MobileNetV3) fuse pointwise + depthwise
+        # In these fused subgraphs, pointwise convolutions dominate FLOPs (~95%+)
+        # Don't penalize the entire subgraph for containing a depthwise op.
+        has_depthwise = (
             (hasattr(sg, 'operation_types') and OperationType.CONV2D_DEPTHWISE in sg.operation_types) or
-            # Check is_depthwise flag if set
             getattr(sg, 'is_depthwise', False) or
-            # Fallback to node name detection
             (hasattr(sg, 'node_names') and any('dw' in n.lower() for n in sg.node_names)) or
             (hasattr(sg, 'node_names') and any('depthwise' in n.lower() for n in sg.node_names))
         )
+        has_pointwise = (
+            hasattr(sg, 'operation_types') and OperationType.CONV2D_POINTWISE in sg.operation_types
+        )
+        has_standard_conv = (
+            hasattr(sg, 'operation_types') and OperationType.CONV2D in sg.operation_types
+        )
+        # Only flag as "pure depthwise" if it has depthwise but NOT pointwise/standard conv
+        # MBConv blocks have both -> use pointwise-dominated efficiency
+        is_depthwise = has_depthwise and not has_pointwise and not has_standard_conv
 
         # Check for Conv2d patterns and BatchNorm presence
         # CALIBRATION (Jetson Orin AGX, 50W, FP32, TF32 ENABLED - cuDNN default):
@@ -615,6 +625,15 @@ class RooflineAnalyzer:
         is_conv_bn_pattern = has_batchnorm and is_conv_pattern
         is_conv_only_pattern = is_conv_pattern and not has_batchnorm
 
+        # Check for MBConv-style fused blocks (pointwise + depthwise)
+        # These are used in EfficientNet, MobileNetV2/V3
+        # FLOPs are dominated by pointwise, but overall efficiency is lower than
+        # pure Conv2d+BN due to:
+        # 1. Multiple sequential kernel launches within the fused block
+        # 2. Large intermediate tensors (expansion ratio 4-6x)
+        # 3. SiLU/Swish activation more expensive than ReLU
+        is_mbconv_pattern = has_depthwise and has_pointwise
+
         # GPU efficiency model (CALIBRATED on Jetson Orin AGX 50W, 2026-02-04)
         # Note: cuDNN uses TF32 by default, which achieves higher throughput than pure FP32
         # The 958 GFLOPS base is the 50W thermal profile for FP32
@@ -622,12 +641,46 @@ class RooflineAnalyzer:
         #   - Conv2d+BN+ReLU (231M): 720 GFLOPS = 0.75x of base
         #   - Conv2d+ReLU (231M, no BN): 1083 GFLOPS = 1.13x of base
         #   - Conv2d+ReLU (3.7G, VGG-style): 5374 GFLOPS = 5.6x of base
+        #   - MBConv blocks: ~40-60 GFLOPS = 0.04-0.06x (much lower efficiency)
         if hw_type == 'GPU':
-            # Depthwise convolutions: dramatically lower efficiency
+            # Pure depthwise convolutions: dramatically lower efficiency
             if is_depthwise:
                 # Calibrated: depthwise gets 3-80 GFLOPS vs 968 GFLOPS standard
                 # Average ~30 GFLOPS = 3% of standard efficiency
                 return 0.03
+
+            # MBConv-style fused blocks (EfficientNet, MobileNet)
+            # These achieve much lower efficiency than standard Conv2d+BN
+            # despite pointwise convolutions dominating the FLOPs
+            #
+            # CALIBRATION (Jetson Orin AGX, 50W):
+            # - EfficientNet-B0: avg 26M MBConv, measured 22.2ms
+            # - EfficientNet-B1: avg 33M MBConv, measured 32.9ms
+            # - EfficientNet-B2: avg 48M MBConv, measured 32.4ms
+            #
+            # Smaller MBConv blocks are LESS efficient due to:
+            # 1. Higher kernel launch overhead relative to compute
+            # 2. Less opportunity for memory latency hiding
+            # 3. Worse GPU occupancy with smaller tensors
+            if is_mbconv_pattern:
+                log_flops_mbconv = math.log10(flops) if flops > 0 else 0
+                if flops < 10e6:
+                    return 0.025  # Very small MBConv: ~24 GFLOPS
+                elif flops < 30e6:
+                    # Small MBConv (B0 range: 15-30M)
+                    t = (log_flops_mbconv - 7.0) / 0.48  # log10(30M) = 7.48
+                    t = max(0.0, min(1.0, t))
+                    return 0.025 + 0.010 * t  # 0.025 -> 0.035
+                elif flops < 50e6:
+                    # Medium MBConv (B1/B2 range: 30-50M)
+                    t = (log_flops_mbconv - 7.48) / 0.22  # log10(50M) = 7.70
+                    t = max(0.0, min(1.0, t))
+                    return 0.035 + 0.020 * t  # 0.035 -> 0.055
+                else:
+                    # Large MBConv (B2 range: >50M)
+                    t = (log_flops_mbconv - 7.70) / 0.60  # up to ~200M
+                    t = max(0.0, min(1.0, t))
+                    return 0.055 + 0.045 * t  # 0.055 -> 0.10
 
             if flops < 1e6:
                 # Tiny ops (< 1M FLOPs): dominated by launch overhead
