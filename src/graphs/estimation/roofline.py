@@ -670,22 +670,62 @@ class RooflineAnalyzer:
 
             else:
                 # Large ops (> 200M)
-                t = (log_flops - 8.3) / 1.3  # log10(200M)=8.3, log10(4G)=9.6
-                t = max(0.0, min(1.0, t))
-                if is_conv_bn_pattern:
-                    # Conv2d+BN: calibrated at 700 GFLOPS / 958 = 0.73
-                    # Scale = 0.73 with slight improvement for larger convs
-                    return 0.73 + 0.17 * t  # 0.73 -> 0.90
-                elif is_conv_only_pattern:
-                    # Conv2d+ReLU (no BN, VGG-style): cuDNN + TF32 very efficient
-                    # CALIBRATED (Jetson Orin AGX, 50W, TF32 enabled):
-                    #   - 231M (small): 1083 GFLOPS = 1.13x of 958
-                    #   - 3.7G (VGG): 5374 GFLOPS = 5.6x of 958
-                    # Large convs benefit dramatically from TF32 and better occupancy
-                    return 1.13 + 4.47 * t  # 1.13 -> 5.60
+                # IMPORTANT: Efficiency scales with operation size but NOT linearly
+                # Use a curved scaling to match empirical observations:
+                #
+                # CALIBRATION (Jetson Orin AGX, 50W, TF32 enabled, Conv2d+BN+ReLU):
+                # - 231M FLOPs (ResNet 56x56): 720 GFLOPS = 0.75x of 958 base
+                # - 925M FLOPs (28x28 spatial): 2475 GFLOPS = 2.58x
+                # - 3699M FLOPs (28x28 spatial): 3210 GFLOPS = 3.35x
+                # - 7399M FLOPs (large spatial): ~5000 GFLOPS = 5.2x
+                #
+                # Key insight: Efficiency doesn't climb much from 200M-500M,
+                # then ramps up significantly for truly large ops (>1G).
+                #
+                # For extremely large ops (>10G), efficiency plateaus or drops
+                # due to memory pressure (can't fit everything in L2).
+                #
+                # Three-phase model:
+                # Phase 1 (200M-500M): 0.73 -> 0.80 (slow growth)
+                # Phase 2 (500M-5G): 0.80 -> 4.50 (fast growth with TF32/occupancy)
+                # Phase 3 (>5G): 4.50 -> 5.00 (plateau, memory-limited)
+
+                if flops < 500e6:
+                    # Phase 1: 200M-500M, slow efficiency growth
+                    # ResNets mostly live here (max 236M)
+                    t = (log_flops - 8.3) / 0.4  # log10(500M) = 8.7
+                    t = max(0.0, min(1.0, t))
+                    if is_conv_bn_pattern:
+                        return 0.73 + 0.07 * t  # 0.73 -> 0.80
+                    elif is_conv_only_pattern:
+                        return 1.13 + 0.17 * t  # 1.13 -> 1.30
+                    else:
+                        return 0.85 + 0.05 * t  # 0.85 -> 0.90
+
+                elif flops < 5e9:
+                    # Phase 2: 500M-5G, fast efficiency growth
+                    # VGG and segmentation models benefit here
+                    t = (log_flops - 8.7) / 1.0  # log10(5G) = 9.7
+                    t = max(0.0, min(1.0, t))
+                    if is_conv_bn_pattern:
+                        return 0.80 + 3.70 * t  # 0.80 -> 4.50
+                    elif is_conv_only_pattern:
+                        return 1.30 + 4.10 * t  # 1.30 -> 5.40
+                    else:
+                        return 0.90 + 0.50 * t  # 0.90 -> 1.40
+
                 else:
-                    # MatMul/other: can achieve good efficiency
-                    return 0.85 + 0.55 * t  # 0.85 -> 1.40
+                    # Phase 3: >5G, efficiency plateaus
+                    # Extremely large ops may hit memory bandwidth limits
+                    t = (log_flops - 9.7) / 0.6  # log10(20G) = 10.3
+                    t = max(0.0, min(1.0, t))
+                    if is_conv_bn_pattern:
+                        # Slight increase then plateau at 5.0
+                        return 4.50 + 0.50 * t  # 4.50 -> 5.00
+                    elif is_conv_only_pattern:
+                        return 5.40 + 0.20 * t  # 5.40 -> 5.60
+                    else:
+                        return 1.40 + 0.10 * t  # 1.40 -> 1.50
 
         # CPU efficiency model
         # CPUs are much more sensitive to operation size than GPUs because:
