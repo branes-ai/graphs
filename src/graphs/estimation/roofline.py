@@ -879,11 +879,79 @@ class RooflineAnalyzer:
             return 1.0
 
     def _estimate_overhead(self, sg: SubgraphDescriptor) -> float:
-        """Estimate overhead (kernel launch, etc.)"""
-        # GPU kernel launch overhead
+        """
+        Estimate overhead (kernel launch, etc.)
+
+        CALIBRATION (Jetson Orin AGX, 50W):
+        - Simple kernel launch: ~5-10 us
+        - Hardswish/Hardsigmoid: ~100 us (non-fused activation)
+        - SE block (avgpool + 2 FC + activations): ~575 us
+        - Pointwise conv (tiny 1x1): ~100-200 us
+
+        MobileNet-V3 has many small operations that are dominated by
+        kernel launch overhead rather than actual compute/memory time.
+        """
         if self.resource_model.hardware_type.name == 'GPU':
-            # Typical kernel launch: 5-10 μs
-            return 5e-6  # 5 microseconds
+            # Base kernel launch overhead
+            base_overhead = 5e-6  # 5 microseconds
+
+            # Check operation patterns for additional overhead
+            fusion_pattern = getattr(sg, 'fusion_pattern', '') if hasattr(sg, 'fusion_pattern') else ''
+            node_name = sg.node_name if hasattr(sg, 'node_name') else ''
+
+            # Get operation types list
+            op_types_str = '_'.join(str(op).split('.')[-1] for op in sg.operation_types) if hasattr(sg, 'operation_types') else ''
+
+            # Hardswish/Hardsigmoid activations have high overhead (~100us)
+            # These are often separate kernels on GPU
+            if 'HARDSWISH' in op_types_str.upper() or 'hardswish' in fusion_pattern.lower():
+                base_overhead = 100e-6  # 100 microseconds
+
+            if 'hardsigmoid' in node_name.lower() or 'scale_activation' in node_name.lower():
+                # Hardsigmoid in SE blocks
+                base_overhead = 100e-6
+
+            # Squeeze-Excitation pattern: avgpool -> fc -> relu -> fc -> sigmoid -> mul
+            # Very expensive due to multiple sequential tiny kernels
+            if 'ADAPTIVEAVGPOOL' in op_types_str and 'CONV2D_POINTWISE' in op_types_str:
+                # SE block internal path
+                base_overhead = 200e-6  # 200 microseconds for SE FC path
+
+            # UNKNOWN operations - need to distinguish MobileNet-V3 patterns from others
+            # MobileNet-V3 UNKNOWN: hardsigmoid, mul (SE scaling) - slow activations
+            # ViT UNKNOWN: gelu, softmax, add, reshape - typically faster
+            if 'UNKNOWN' in op_types_str:
+                # Check node name for specific slow patterns
+                node_lower = node_name.lower()
+                if ('hardsigmoid' in node_lower or
+                    'scale_activation' in node_lower or
+                    ('mul' in node_lower and sg.total_flops < 100000)):
+                    # MobileNet-V3 style slow activations/SE scaling
+                    base_overhead = 100e-6  # 100 microseconds
+                else:
+                    # Other UNKNOWN ops (GELU, softmax, add, etc.)
+                    # These have lower overhead
+                    base_overhead = 10e-6  # 10 microseconds
+
+            # Pointwise convolutions (1x1) with very few FLOPs
+            # These are common in MobileNet-V3 and are overhead-dominated
+            if 'POINTWISE' in op_types_str:
+                if sg.total_flops < 1e6:
+                    # Very tiny pointwise convs (MobileNet-V3-Small style)
+                    base_overhead = max(base_overhead, 150e-6)
+                elif sg.total_flops < 5e6:
+                    # Small pointwise convs
+                    base_overhead = max(base_overhead, 100e-6)
+
+            # Depthwise convolutions also have high per-op overhead
+            if 'DEPTHWISE' in op_types_str:
+                if sg.total_flops < 2e6:
+                    # Tiny depthwise (MobileNet-V3-Small)
+                    base_overhead = max(base_overhead, 150e-6)
+                else:
+                    base_overhead = max(base_overhead, 75e-6)
+
+            return base_overhead
 
         # TPU systolic array setup overhead
         if self.resource_model.hardware_type.name == 'TPU':
