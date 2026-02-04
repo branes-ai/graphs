@@ -1,0 +1,1036 @@
+{
+  "schema_version": "1.0",
+  "hardware_id": "jetson-orin-agx-50w",
+  "hardware_name": "NVIDIA Jetson AGX Orin 64GB (50W)",
+  "device_type": "gpu",
+  "precision": "FP32",
+  "calibration_date": "2026-02-04T16:44:48.680433",
+  "calibration_tool_version": "extract_efficiency_curves.py v1.0",
+  "curves": {
+    "conv2d_depthwise": {
+      "operation_type": "conv2d_depthwise",
+      "description": "Depthwise separable convolution - severely memory-bound on GPU",
+      "data_points": [
+        {
+          "flops": 1000000.0,
+          "efficiency_mean": 0.03,
+          "efficiency_std": 0.006,
+          "efficiency_min": 0.024,
+          "efficiency_max": 0.036,
+          "ci_lower": 0.01824,
+          "ci_upper": 0.04176,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "depthwise any size"
+          ],
+          "source_models": [
+            "mobilenet_v2"
+          ]
+        },
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.03,
+          "efficiency_std": 0.006,
+          "efficiency_min": 0.024,
+          "efficiency_max": 0.036,
+          "ci_lower": 0.01824,
+          "ci_upper": 0.04176,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "depthwise any size"
+          ],
+          "source_models": [
+            "mobilenet_v2"
+          ]
+        },
+        {
+          "flops": 100000000.0,
+          "efficiency_mean": 0.03,
+          "efficiency_std": 0.006,
+          "efficiency_min": 0.024,
+          "efficiency_max": 0.036,
+          "ci_lower": 0.01824,
+          "ci_upper": 0.04176,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "depthwise any size"
+          ],
+          "source_models": [
+            "mobilenet_v2"
+          ]
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            1000000.0,
+            0.03
+          ],
+          [
+            100000000.0,
+            0.03
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 1000000.0,
+      "max_flops": 100000000.0,
+      "calibration_models": [
+        "mobilenet_v2",
+        "efficientnet_b0"
+      ],
+      "notes": "Depthwise gets 3-80 GFLOPS vs 968 GFLOPS for standard conv = ~3% efficiency"
+    },
+    "mbconv": {
+      "operation_type": "mbconv",
+      "description": "MBConv-style fused blocks (pointwise + depthwise)",
+      "data_points": [
+        {
+          "flops": 5000000.0,
+          "efficiency_mean": 0.025,
+          "efficiency_std": 0.005000000000000001,
+          "efficiency_min": 0.020000000000000004,
+          "efficiency_max": 0.03,
+          "ci_lower": 0.0152,
+          "ci_upper": 0.034800000000000005,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "very small MBConv <10M"
+          ],
+          "source_models": [
+            "efficientnet_b0"
+          ]
+        },
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.025,
+          "efficiency_std": 0.005000000000000001,
+          "efficiency_min": 0.020000000000000004,
+          "efficiency_max": 0.03,
+          "ci_lower": 0.0152,
+          "ci_upper": 0.034800000000000005,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "small MBConv 10M"
+          ],
+          "source_models": [
+            "efficientnet_b0"
+          ]
+        },
+        {
+          "flops": 20000000.0,
+          "efficiency_mean": 0.03,
+          "efficiency_std": 0.006,
+          "efficiency_min": 0.024,
+          "efficiency_max": 0.036,
+          "ci_lower": 0.01824,
+          "ci_upper": 0.04176,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "small MBConv 20M"
+          ],
+          "source_models": [
+            "efficientnet_b0"
+          ]
+        },
+        {
+          "flops": 30000000.0,
+          "efficiency_mean": 0.035,
+          "efficiency_std": 0.007000000000000001,
+          "efficiency_min": 0.028000000000000004,
+          "efficiency_max": 0.042,
+          "ci_lower": 0.02128,
+          "ci_upper": 0.048720000000000006,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium MBConv 30M"
+          ],
+          "source_models": [
+            "efficientnet_b1"
+          ]
+        },
+        {
+          "flops": 40000000.0,
+          "efficiency_mean": 0.045,
+          "efficiency_std": 0.009,
+          "efficiency_min": 0.036,
+          "efficiency_max": 0.054,
+          "ci_lower": 0.02736,
+          "ci_upper": 0.06264,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium MBConv 40M"
+          ],
+          "source_models": [
+            "efficientnet_b1"
+          ]
+        },
+        {
+          "flops": 50000000.0,
+          "efficiency_mean": 0.055,
+          "efficiency_std": 0.011000000000000001,
+          "efficiency_min": 0.044000000000000004,
+          "efficiency_max": 0.066,
+          "ci_lower": 0.03344,
+          "ci_upper": 0.07656,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium MBConv 50M"
+          ],
+          "source_models": [
+            "efficientnet_b2"
+          ]
+        },
+        {
+          "flops": 75000000.0,
+          "efficiency_mean": 0.075,
+          "efficiency_std": 0.015,
+          "efficiency_min": 0.06,
+          "efficiency_max": 0.09,
+          "ci_lower": 0.0456,
+          "ci_upper": 0.10439999999999999,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "large MBConv 75M"
+          ],
+          "source_models": [
+            "efficientnet_b2"
+          ]
+        },
+        {
+          "flops": 100000000.0,
+          "efficiency_mean": 0.1,
+          "efficiency_std": 0.020000000000000004,
+          "efficiency_min": 0.08000000000000002,
+          "efficiency_max": 0.12,
+          "ci_lower": 0.0608,
+          "ci_upper": 0.13920000000000002,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "large MBConv 100M+"
+          ],
+          "source_models": [
+            "efficientnet_b2"
+          ]
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            5000000.0,
+            0.025
+          ],
+          [
+            10000000.0,
+            0.025
+          ],
+          [
+            30000000.0,
+            0.035
+          ],
+          [
+            50000000.0,
+            0.055
+          ],
+          [
+            100000000.0,
+            0.1
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 5000000.0,
+      "max_flops": 100000000.0,
+      "calibration_models": [
+        "efficientnet_b0",
+        "efficientnet_b1",
+        "efficientnet_b2",
+        "mobilenet_v2"
+      ],
+      "notes": "MBConv blocks achieve much lower efficiency than standard Conv2d+BN"
+    },
+    "generic_tiny": {
+      "operation_type": "generic_tiny",
+      "description": "Tiny operations (<10M FLOPs) - kernel launch dominated",
+      "data_points": [
+        {
+          "flops": 500000.0,
+          "efficiency_mean": 0.01,
+          "efficiency_std": 0.002,
+          "efficiency_min": 0.008,
+          "efficiency_max": 0.012,
+          "ci_lower": 0.00608,
+          "ci_upper": 0.01392,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "tiny <1M"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 1000000.0,
+          "efficiency_mean": 0.02,
+          "efficiency_std": 0.004,
+          "efficiency_min": 0.016,
+          "efficiency_max": 0.024,
+          "ci_lower": 0.01216,
+          "ci_upper": 0.02784,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "tiny 1M"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 5000000.0,
+          "efficiency_mean": 0.04,
+          "efficiency_std": 0.008,
+          "efficiency_min": 0.032,
+          "efficiency_max": 0.048,
+          "ci_lower": 0.02432,
+          "ci_upper": 0.05568,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "small 5M"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.06,
+          "efficiency_std": 0.012,
+          "efficiency_min": 0.048,
+          "efficiency_max": 0.072,
+          "ci_lower": 0.03648,
+          "ci_upper": 0.08352,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "small 10M"
+          ],
+          "source_models": []
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            500000.0,
+            0.01
+          ],
+          [
+            1000000.0,
+            0.02
+          ],
+          [
+            10000000.0,
+            0.06
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 500000.0,
+      "max_flops": 10000000.0,
+      "calibration_models": [],
+      "notes": "Kernel launch overhead dominates for tiny operations"
+    },
+    "conv2d_batchnorm": {
+      "operation_type": "conv2d_batchnorm",
+      "description": "Conv2D fused with BatchNorm (BN adds memory overhead)",
+      "data_points": [
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.06,
+          "efficiency_std": 0.012,
+          "efficiency_min": 0.048,
+          "efficiency_max": 0.072,
+          "ci_lower": 0.03648,
+          "ci_upper": 0.08352,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "small-med 10M"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 50000000.0,
+          "efficiency_mean": 0.23,
+          "efficiency_std": 0.046000000000000006,
+          "efficiency_min": 0.18400000000000002,
+          "efficiency_max": 0.276,
+          "ci_lower": 0.13984000000000002,
+          "ci_upper": 0.32016,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium 50M (0.35*0.67)"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 100000000.0,
+          "efficiency_mean": 0.4,
+          "efficiency_std": 0.08000000000000002,
+          "efficiency_min": 0.32000000000000006,
+          "efficiency_max": 0.48,
+          "ci_lower": 0.2432,
+          "ci_upper": 0.5568000000000001,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium 100M"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 200000000.0,
+          "efficiency_mean": 0.54,
+          "efficiency_std": 0.10800000000000001,
+          "efficiency_min": 0.43200000000000005,
+          "efficiency_max": 0.648,
+          "ci_lower": 0.32832,
+          "ci_upper": 0.7516800000000001,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium 200M (0.80*0.67)"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 231000000.0,
+          "efficiency_mean": 0.73,
+          "efficiency_std": 0.146,
+          "efficiency_min": 0.584,
+          "efficiency_max": 0.876,
+          "ci_lower": 0.44384,
+          "ci_upper": 1.01616,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "ResNet-18 conv layer 231M"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 500000000.0,
+          "efficiency_mean": 0.8,
+          "efficiency_std": 0.16000000000000003,
+          "efficiency_min": 0.6400000000000001,
+          "efficiency_max": 0.96,
+          "ci_lower": 0.4864,
+          "ci_upper": 1.1136000000000001,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "large 500M"
+          ],
+          "source_models": [
+            "resnet50"
+          ]
+        },
+        {
+          "flops": 1000000000.0,
+          "efficiency_mean": 2.5,
+          "efficiency_std": 0.5,
+          "efficiency_min": 2.0,
+          "efficiency_max": 3.0,
+          "ci_lower": 1.52,
+          "ci_upper": 3.48,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "very large 1G"
+          ],
+          "source_models": [
+            "vgg16"
+          ]
+        },
+        {
+          "flops": 3700000000.0,
+          "efficiency_mean": 4.5,
+          "efficiency_std": 0.9,
+          "efficiency_min": 3.6,
+          "efficiency_max": 5.3999999999999995,
+          "ci_lower": 2.7359999999999998,
+          "ci_upper": 6.264,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "VGG-style 3.7G"
+          ],
+          "source_models": [
+            "vgg16"
+          ]
+        },
+        {
+          "flops": 5000000000.0,
+          "efficiency_mean": 5.0,
+          "efficiency_std": 1.0,
+          "efficiency_min": 4.0,
+          "efficiency_max": 6.0,
+          "ci_lower": 3.04,
+          "ci_upper": 6.96,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "huge >5G"
+          ],
+          "source_models": [
+            "vgg19"
+          ]
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            10000000.0,
+            0.06
+          ],
+          [
+            50000000.0,
+            0.23
+          ],
+          [
+            200000000.0,
+            0.54
+          ],
+          [
+            500000000.0,
+            0.8
+          ],
+          [
+            5000000000.0,
+            5.0
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 10000000.0,
+      "max_flops": 10000000000.0,
+      "calibration_models": [
+        "resnet18",
+        "resnet50",
+        "vgg16",
+        "vgg19"
+      ],
+      "notes": "BatchNorm fusion factor 0.67 derived from ResNet-18: 720 GFLOPS with BN vs 1083 GFLOPS without"
+    },
+    "conv2d": {
+      "operation_type": "conv2d",
+      "description": "Conv2D without BatchNorm - higher efficiency",
+      "data_points": [
+        {
+          "flops": 50000000.0,
+          "efficiency_mean": 0.6,
+          "efficiency_std": 0.12,
+          "efficiency_min": 0.48,
+          "efficiency_max": 0.72,
+          "ci_lower": 0.3648,
+          "ci_upper": 0.8351999999999999,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium 50M"
+          ],
+          "source_models": [
+            "custom"
+          ]
+        },
+        {
+          "flops": 200000000.0,
+          "efficiency_mean": 1.13,
+          "efficiency_std": 0.22599999999999998,
+          "efficiency_min": 0.9039999999999999,
+          "efficiency_max": 1.3559999999999999,
+          "ci_lower": 0.6870399999999999,
+          "ci_upper": 1.57296,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium 200M"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 231000000.0,
+          "efficiency_mean": 1.13,
+          "efficiency_std": 0.22599999999999998,
+          "efficiency_min": 0.9039999999999999,
+          "efficiency_max": 1.3559999999999999,
+          "ci_lower": 0.6870399999999999,
+          "ci_upper": 1.57296,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "Conv2D+ReLU 231M no BN"
+          ],
+          "source_models": [
+            "resnet18"
+          ]
+        },
+        {
+          "flops": 500000000.0,
+          "efficiency_mean": 1.3,
+          "efficiency_std": 0.26,
+          "efficiency_min": 1.04,
+          "efficiency_max": 1.56,
+          "ci_lower": 0.7904,
+          "ci_upper": 1.8096,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "large 500M"
+          ],
+          "source_models": [
+            "vgg16"
+          ]
+        },
+        {
+          "flops": 3700000000.0,
+          "efficiency_mean": 5.4,
+          "efficiency_std": 1.08,
+          "efficiency_min": 4.32,
+          "efficiency_max": 6.48,
+          "ci_lower": 3.2832000000000003,
+          "ci_upper": 7.5168,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "VGG-style 3.7G"
+          ],
+          "source_models": [
+            "vgg16"
+          ]
+        },
+        {
+          "flops": 5000000000.0,
+          "efficiency_mean": 5.6,
+          "efficiency_std": 1.1199999999999999,
+          "efficiency_min": 4.4799999999999995,
+          "efficiency_max": 6.72,
+          "ci_lower": 3.4048,
+          "ci_upper": 7.7951999999999995,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "huge >5G"
+          ],
+          "source_models": [
+            "vgg19"
+          ]
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            50000000.0,
+            0.6
+          ],
+          [
+            200000000.0,
+            1.13
+          ],
+          [
+            500000000.0,
+            1.3
+          ],
+          [
+            5000000000.0,
+            5.6
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 50000000.0,
+      "max_flops": 10000000000.0,
+      "calibration_models": [
+        "resnet18",
+        "vgg16",
+        "vgg19"
+      ],
+      "notes": "Conv2D+ReLU (no BN): 1083 GFLOPS measured at 231M = 1.13x of 958 base"
+    },
+    "matmul": {
+      "operation_type": "matmul",
+      "description": "Matrix multiplication and attention operations",
+      "data_points": [
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.2,
+          "efficiency_std": 0.04000000000000001,
+          "efficiency_min": 0.16000000000000003,
+          "efficiency_max": 0.24,
+          "ci_lower": 0.1216,
+          "ci_upper": 0.27840000000000004,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "small 10M"
+          ],
+          "source_models": [
+            "vit_b_16"
+          ]
+        },
+        {
+          "flops": 50000000.0,
+          "efficiency_mean": 0.35,
+          "efficiency_std": 0.06999999999999999,
+          "efficiency_min": 0.27999999999999997,
+          "efficiency_max": 0.42,
+          "ci_lower": 0.2128,
+          "ci_upper": 0.48719999999999997,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "medium 50M"
+          ],
+          "source_models": [
+            "vit_b_16"
+          ]
+        },
+        {
+          "flops": 200000000.0,
+          "efficiency_mean": 0.6,
+          "efficiency_std": 0.12,
+          "efficiency_min": 0.48,
+          "efficiency_max": 0.72,
+          "ci_lower": 0.3648,
+          "ci_upper": 0.8351999999999999,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "large 200M"
+          ],
+          "source_models": [
+            "vit_b_16"
+          ]
+        },
+        {
+          "flops": 500000000.0,
+          "efficiency_mean": 0.9,
+          "efficiency_std": 0.18000000000000002,
+          "efficiency_min": 0.7200000000000001,
+          "efficiency_max": 1.08,
+          "ci_lower": 0.5471999999999999,
+          "ci_upper": 1.2528000000000001,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "large 500M"
+          ],
+          "source_models": [
+            "vit_l_16"
+          ]
+        },
+        {
+          "flops": 1000000000.0,
+          "efficiency_mean": 1.15,
+          "efficiency_std": 0.22999999999999998,
+          "efficiency_min": 0.9199999999999999,
+          "efficiency_max": 1.38,
+          "ci_lower": 0.6991999999999999,
+          "ci_upper": 1.6008,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "very large 1G"
+          ],
+          "source_models": [
+            "vit_l_16"
+          ]
+        },
+        {
+          "flops": 5000000000.0,
+          "efficiency_mean": 1.4,
+          "efficiency_std": 0.27999999999999997,
+          "efficiency_min": 1.1199999999999999,
+          "efficiency_max": 1.68,
+          "ci_lower": 0.8512,
+          "ci_upper": 1.9487999999999999,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "huge 5G"
+          ],
+          "source_models": [
+            "vit_h_14"
+          ]
+        },
+        {
+          "flops": 10000000000.0,
+          "efficiency_mean": 1.5,
+          "efficiency_std": 0.30000000000000004,
+          "efficiency_min": 1.2000000000000002,
+          "efficiency_max": 1.7999999999999998,
+          "ci_lower": 0.9119999999999999,
+          "ci_upper": 2.088,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "massive >5G"
+          ],
+          "source_models": [
+            "vit_h_14"
+          ]
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            10000000.0,
+            0.2
+          ],
+          [
+            50000000.0,
+            0.35
+          ],
+          [
+            200000000.0,
+            0.6
+          ],
+          [
+            500000000.0,
+            0.9
+          ],
+          [
+            5000000000.0,
+            1.4
+          ],
+          [
+            10000000000.0,
+            1.5
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 10000000.0,
+      "max_flops": 20000000000.0,
+      "calibration_models": [
+        "vit_b_16",
+        "vit_l_16",
+        "vit_h_14"
+      ],
+      "notes": "MatMul efficiency scales strongly with size; ViT-B/16 avg 558M FLOPs/sg -> 67% eff"
+    }
+  },
+  "bandwidth_curves": {
+    "conv2d_depthwise": {
+      "operation_type": "conv2d_depthwise",
+      "description": "Depthwise convolution bandwidth - scattered access patterns",
+      "data_points": [
+        {
+          "flops": 1000000.0,
+          "efficiency_mean": 0.02,
+          "efficiency_std": 0.004,
+          "efficiency_min": 0.016,
+          "efficiency_max": 0.024,
+          "ci_lower": 0.01216,
+          "ci_upper": 0.02784,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "depthwise any size"
+          ],
+          "source_models": [
+            "mobilenet_v2"
+          ]
+        },
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.02,
+          "efficiency_std": 0.004,
+          "efficiency_min": 0.016,
+          "efficiency_max": 0.024,
+          "ci_lower": 0.01216,
+          "ci_upper": 0.02784,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "depthwise any size"
+          ],
+          "source_models": [
+            "mobilenet_v2"
+          ]
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            1000000.0,
+            0.02
+          ],
+          [
+            10000000.0,
+            0.02
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 1000000.0,
+      "max_flops": 10000000.0,
+      "calibration_models": [
+        "mobilenet_v2"
+      ],
+      "notes": "~4 GB/s on 204 GB/s peak = 2% bandwidth efficiency"
+    },
+    "generic": {
+      "operation_type": "generic",
+      "description": "Generic bandwidth efficiency for memory-bound operations",
+      "data_points": [
+        {
+          "flops": 10000.0,
+          "efficiency_mean": 0.3,
+          "efficiency_std": 0.06,
+          "efficiency_min": 0.24,
+          "efficiency_max": 0.36,
+          "ci_lower": 0.1824,
+          "ci_upper": 0.41759999999999997,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "<10KB"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 100000.0,
+          "efficiency_mean": 0.35,
+          "efficiency_std": 0.06999999999999999,
+          "efficiency_min": 0.27999999999999997,
+          "efficiency_max": 0.42,
+          "ci_lower": 0.2128,
+          "ci_upper": 0.48719999999999997,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "10KB-100KB"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 1000000.0,
+          "efficiency_mean": 0.5,
+          "efficiency_std": 0.1,
+          "efficiency_min": 0.4,
+          "efficiency_max": 0.6,
+          "ci_lower": 0.304,
+          "ci_upper": 0.696,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "1MB"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 10000000.0,
+          "efficiency_mean": 0.6,
+          "efficiency_std": 0.12,
+          "efficiency_min": 0.48,
+          "efficiency_max": 0.72,
+          "ci_lower": 0.3648,
+          "ci_upper": 0.8351999999999999,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            "10MB"
+          ],
+          "source_models": []
+        },
+        {
+          "flops": 100000000.0,
+          "efficiency_mean": 0.7,
+          "efficiency_std": 0.13999999999999999,
+          "efficiency_min": 0.5599999999999999,
+          "efficiency_max": 0.84,
+          "ci_lower": 0.4256,
+          "ci_upper": 0.9743999999999999,
+          "num_observations": 1,
+          "source": "legacy_hardcoded",
+          "source_subgraphs": [
+            ">10MB streaming"
+          ],
+          "source_models": []
+        }
+      ],
+      "fitted_curve": {
+        "curve_type": "piecewise_linear",
+        "breakpoints": [
+          [
+            10000.0,
+            0.3
+          ],
+          [
+            1000000.0,
+            0.5
+          ],
+          [
+            10000000.0,
+            0.6
+          ],
+          [
+            100000000.0,
+            0.7
+          ]
+        ],
+        "r_squared": 0.0,
+        "residual_std": 0.0,
+        "max_residual": 0.0
+      },
+      "min_flops": 10000.0,
+      "max_flops": 100000000.0,
+      "calibration_models": [],
+      "notes": "Bandwidth efficiency ranges 30-70% depending on access patterns and size"
+    }
+  },
+  "validation": null,
+  "notes": "Extracted from roofline.py hard-coded values. Calibrated on Jetson Orin AGX 50W with TF32 enabled (cuDNN default). Base peak: 958 GFLOPS FP32. Statistical uncertainty is estimated (20% relative) since original values lacked statistics."
+}
