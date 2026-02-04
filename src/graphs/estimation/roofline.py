@@ -593,23 +593,35 @@ class RooflineAnalyzer:
             (hasattr(sg, 'node_names') and any('depthwise' in n.lower() for n in sg.node_names))
         )
 
-        # Check for Conv2d+BatchNorm fusion patterns (additional overhead)
-        # CALIBRATION (Jetson Orin AGX, 50W, FP32, ResNet-18 layers):
-        # - Conv2D only: 529 GFLOPS average
-        # - Conv2d+BN+ReLU: 354 GFLOPS average (67% of Conv2D)
-        # The BatchNorm adds memory traffic that reduces effective compute throughput
+        # Check for Conv2d patterns and BatchNorm presence
+        # CALIBRATION (Jetson Orin AGX, 50W, FP32, TF32 ENABLED - cuDNN default):
+        # - Conv2d+BN+ReLU (231M): 720 GFLOPS
+        # - Conv2d+ReLU no BN (231M): 1083 GFLOPS (1.5x faster without BN overhead)
+        # - Conv2d+ReLU no BN (3.7G, VGG): 5374 GFLOPS (large convs more efficient)
+        # Key insight: cuDNN uses TF32 by default, achieving ~1.5-2.5x FP32 theoretical
         fusion_pattern = getattr(sg, 'fusion_pattern', '') if hasattr(sg, 'fusion_pattern') else ''
-        has_batchnorm = 'BatchNorm' in fusion_pattern or 'batchnorm' in fusion_pattern.lower()
-        is_conv_bn_pattern = has_batchnorm and (
+        has_batchnorm = (
+            'BatchNorm' in fusion_pattern or
+            'batchnorm' in fusion_pattern.lower() or
+            (hasattr(sg, 'operation_types') and any(
+                'BATCHNORM' in str(op) for op in sg.operation_types
+            ))
+        )
+        is_conv_pattern = (
             'Conv2d' in fusion_pattern or
+            'conv2d' in fusion_pattern.lower() or
             (hasattr(sg, 'operation_types') and OperationType.CONV2D in sg.operation_types)
         )
+        is_conv_bn_pattern = has_batchnorm and is_conv_pattern
+        is_conv_only_pattern = is_conv_pattern and not has_batchnorm
 
-        # GPU efficiency model (CALIBRATED on Jetson Orin AGX 50W, 2026-02-03)
-        # Conv2d+BN+ReLU calibration (ResNet-18 layers):
-        #   - Conv2D only: 529 GFLOPS, Conv2d+BN+ReLU: 354 GFLOPS
-        #   - BatchNorm fusion factor: 0.67 (354/529)
-        # This factor accounts for the memory traffic overhead of BatchNorm
+        # GPU efficiency model (CALIBRATED on Jetson Orin AGX 50W, 2026-02-04)
+        # Note: cuDNN uses TF32 by default, which achieves higher throughput than pure FP32
+        # The 958 GFLOPS base is the 50W thermal profile for FP32
+        # Actual achieved GFLOPS with TF32:
+        #   - Conv2d+BN+ReLU (231M): 720 GFLOPS = 0.75x of base
+        #   - Conv2d+ReLU (231M, no BN): 1083 GFLOPS = 1.13x of base
+        #   - Conv2d+ReLU (3.7G, VGG-style): 5374 GFLOPS = 5.6x of base
         if hw_type == 'GPU':
             # Depthwise convolutions: dramatically lower efficiency
             if is_depthwise:
@@ -617,14 +629,9 @@ class RooflineAnalyzer:
                 # Average ~30 GFLOPS = 3% of standard efficiency
                 return 0.03
 
-            # Conv2d+BatchNorm fusion overhead factor
-            # BatchNorm adds memory traffic that reduces effective compute throughput
-            bn_fusion_factor = 0.67 if is_conv_bn_pattern else 1.0
-
             if flops < 1e6:
                 # Tiny ops (< 1M FLOPs): dominated by launch overhead
-                # Example: unfused ops measured at 0.4-0.8ms regardless of FLOPs
-                return 0.01 * bn_fusion_factor
+                return 0.01
 
             log_flops = math.log10(flops)
 
@@ -633,37 +640,51 @@ class RooflineAnalyzer:
                 # MobileNet-V2 (9M avg): 38 GFLOPS / 958 peak = 4% scale
                 t = (log_flops - 6.0) / 1.0
                 t = max(0.0, min(1.0, t))
-                return (0.02 + 0.04 * t) * bn_fusion_factor  # 0.02 -> 0.06
+                return 0.02 + 0.04 * t  # 0.02 -> 0.06
 
             if flops < 50e6:
                 # Small ops (10M-50M): improving
-                # Interpolate from 6% at 10M to 20% at 50M
                 t = (log_flops - 7.0) / 0.7  # log10(50M) = 7.7
                 t = max(0.0, min(1.0, t))
-                return (0.06 + 0.14 * t) * bn_fusion_factor  # 0.06 -> 0.20
+                return 0.06 + 0.14 * t  # 0.06 -> 0.20
 
             if flops < 200e6:
                 # Medium ops (50M-200M): good efficiency
                 # CALIBRATED from ResNet-18 Conv2d+BN+ReLU benchmark:
                 #   - 231M FLOPs layer: 0.330ms = 700 GFLOPS
                 #   - Peak 958 GFLOPS -> scale = 0.73
-                # For Conv2d+BN patterns, bn_fusion_factor (0.67) already applied
                 t = (log_flops - 7.7) / 0.6  # log10(200M) = 8.3
                 t = max(0.0, min(1.0, t))
-                base_scale = 0.35 + 0.45 * t  # 0.35 -> 0.80
-                return base_scale * bn_fusion_factor
+                if is_conv_bn_pattern:
+                    # Conv2d+BN: BatchNorm adds memory traffic overhead
+                    # bn_fusion_factor = 0.67 applied to base scale
+                    base_scale = 0.35 + 0.45 * t  # 0.35 -> 0.80
+                    return base_scale * 0.67  # 0.23 -> 0.54
+                elif is_conv_only_pattern:
+                    # Conv2d+ReLU (no BN): 1083 GFLOPS / 958 = 1.13 at 231M
+                    # Higher than Conv2d+BN because no BatchNorm memory overhead
+                    return 0.60 + 0.53 * t  # 0.60 -> 1.13
+                else:
+                    # MatMul/other
+                    return 0.35 + 0.45 * t  # 0.35 -> 0.80
 
             else:
-                # Large ops (> 200M): Conv2d+BN+ReLU at 231M achieves ~700 GFLOPS
-                # Scale = 700/958 = 0.73 for Conv2d+BN patterns
-                # ViT (MatMul, no BN) can achieve higher (1.19x)
-                t = (log_flops - 8.3) / 0.7  # log10(1G) = 9.0
+                # Large ops (> 200M)
+                t = (log_flops - 8.3) / 1.3  # log10(200M)=8.3, log10(4G)=9.6
                 t = max(0.0, min(1.0, t))
                 if is_conv_bn_pattern:
                     # Conv2d+BN: calibrated at 700 GFLOPS / 958 = 0.73
+                    # Scale = 0.73 with slight improvement for larger convs
                     return 0.73 + 0.17 * t  # 0.73 -> 0.90
+                elif is_conv_only_pattern:
+                    # Conv2d+ReLU (no BN, VGG-style): cuDNN + TF32 very efficient
+                    # CALIBRATED (Jetson Orin AGX, 50W, TF32 enabled):
+                    #   - 231M (small): 1083 GFLOPS = 1.13x of 958
+                    #   - 3.7G (VGG): 5374 GFLOPS = 5.6x of 958
+                    # Large convs benefit dramatically from TF32 and better occupancy
+                    return 1.13 + 4.47 * t  # 1.13 -> 5.60
                 else:
-                    # MatMul/other: can exceed calibrated Conv2D baseline
+                    # MatMul/other: can achieve good efficiency
                     return 0.85 + 0.55 * t  # 0.85 -> 1.40
 
         # CPU efficiency model
