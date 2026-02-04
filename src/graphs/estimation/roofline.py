@@ -746,6 +746,7 @@ class RooflineAnalyzer:
                 if flops < 500e6:
                     # Phase 1: 200M-500M, slow efficiency growth
                     # ResNets mostly live here (max 236M)
+                    # ViT attention varies: B=244M, L=430M
                     t = (log_flops - 8.3) / 0.4  # log10(500M) = 8.7
                     t = max(0.0, min(1.0, t))
                     if is_conv_bn_pattern:
@@ -753,7 +754,11 @@ class RooflineAnalyzer:
                     elif is_conv_only_pattern:
                         return 1.13 + 0.17 * t  # 1.13 -> 1.30
                     else:
-                        return 0.85 + 0.05 * t  # 0.85 -> 0.90
+                        # MatMul/Attention: efficiency scales strongly with size
+                        # Smaller ViT (B/32, 244M) has lower efficiency (~0.7)
+                        # Larger ViT (L/32, 430M) has higher efficiency (~1.1)
+                        # This is because larger matrices utilize GPU better
+                        return 0.60 + 0.55 * t  # 0.60 -> 1.15
 
                 elif flops < 5e9:
                     # Phase 2: 500M-5G, fast efficiency growth
@@ -1013,6 +1018,7 @@ class RooflineAnalyzer:
             # UNKNOWN operations - need to distinguish MobileNet-V3 patterns from others
             # MobileNet-V3 UNKNOWN: hardsigmoid, mul (SE scaling) - slow activations
             # ViT UNKNOWN: gelu, softmax, add, reshape - typically faster
+            # MaxViT UNKNOWN: many reshape/transpose for window attention - moderate overhead
             if 'UNKNOWN' in op_types_str:
                 # Check node name for specific slow patterns
                 node_lower = node_name.lower()
@@ -1021,10 +1027,27 @@ class RooflineAnalyzer:
                     ('mul' in node_lower and sg.total_flops < 100000)):
                     # MobileNet-V3 style slow activations/SE scaling
                     base_overhead = 100e-6  # 100 microseconds
+                elif ('swap' in node_lower or 'partition' in node_lower or
+                      'window' in node_lower or 'grid' in node_lower):
+                    # MaxViT window/grid attention partitioning operations
+                    # These involve tensor reshaping/transposing which has memory overhead
+                    base_overhead = 50e-6  # 50 microseconds
+                elif 'softmax' in node_lower:
+                    # Softmax has moderate overhead
+                    base_overhead = 30e-6  # 30 microseconds
+                elif 'floordiv' in node_lower or 'floor_divide' in node_lower:
+                    # Integer division ops (MaxViT uses for indexing)
+                    base_overhead = 25e-6  # 25 microseconds
+                elif 'getitem' in node_lower or 'getattr' in node_lower:
+                    # Tensor indexing operations (MaxViT has hundreds)
+                    # Each one triggers memory access pattern changes
+                    base_overhead = 25e-6  # 25 microseconds
+                elif 'chunk' in node_lower or 'split' in node_lower:
+                    # Tensor splitting operations
+                    base_overhead = 30e-6  # 30 microseconds
                 else:
-                    # Other UNKNOWN ops (GELU, softmax, add, etc.)
-                    # These have lower overhead
-                    base_overhead = 10e-6  # 10 microseconds
+                    # Other UNKNOWN ops (GELU, add, etc.)
+                    base_overhead = 15e-6  # 15 microseconds
 
             # Pointwise convolutions (1x1) with very few FLOPs
             # These are common in MobileNet-V3 and are overhead-dominated
