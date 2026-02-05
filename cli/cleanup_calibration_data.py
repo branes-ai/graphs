@@ -21,11 +21,13 @@ calibration_dir = repo_root / "calibration_data"
 
 
 def dash_to_underscore(name: str) -> str:
-    """Convert dashes to underscores, preserving model names like i7-12700K."""
-    # Special case: i7-12700K -> i7_12700K
-    if name == "i7-12700K":
-        return "i7_12700K"
-    # General case: replace dashes with underscores
+    """Convert dashes to underscores, preserving case for model numbers."""
+    # Special cases for CPU model numbers (preserve case)
+    if name.startswith("i7-") or name.startswith("i9-") or name.startswith("i5-"):
+        return name.replace("-", "_")
+    if name.startswith("ryzen"):
+        return name.replace("-", "_")
+    # General case: replace dashes with underscores, lowercase for Jetson etc.
     return name.replace("-", "_").lower()
 
 
