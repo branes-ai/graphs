@@ -6,23 +6,26 @@ Runs efficiency measurements for all supported models on the current hardware
 and aggregates results into calibration curves.
 
 Usage:
-    # Run full calibration on CPU (known hardware config)
-    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu
+    # Auto-detect hardware and run calibration (recommended)
+    ./cli/calibrate_efficiency.py
 
-    # Run full calibration on Jetson GPU
-    ./cli/calibrate_efficiency.py --id jetson_orin_agx_50w --device cuda
+    # Auto-detect but force CPU (even if GPU available)
+    ./cli/calibrate_efficiency.py --device cpu
 
-    # Run calibration on custom hardware (requires --hardware mapper)
-    ./cli/calibrate_efficiency.py --id ryzen_7_8845hs --hardware Ryzen --device cpu
+    # Use pre-configured hardware profile
+    ./cli/calibrate_efficiency.py --id jetson_orin_agx_50w
 
-    # Run quick calibration (fewer models, fewer runs)
-    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --quick
+    # Custom hardware ID with explicit mapper
+    ./cli/calibrate_efficiency.py --id my_custom_cpu --hardware Ryzen --device cpu
+
+    # Quick calibration (fewer models, fewer runs)
+    ./cli/calibrate_efficiency.py --quick
 
     # Run specific models only
-    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --models resnet18,vgg16
+    ./cli/calibrate_efficiency.py --models resnet18,vgg16
 
     # Resume from where you left off (skip existing measurements)
-    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --resume
+    ./cli/calibrate_efficiency.py --resume
 
 Directory Structure:
     calibration_data/
@@ -37,15 +40,155 @@ Directory Structure:
 
 import argparse
 import json
+import platform
+import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 # Add repo root to path
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
+
+import torch
+
+
+# ============================================================================
+# Hardware Auto-Detection
+# ============================================================================
+
+def sanitize_hardware_id(name: str) -> str:
+    """Convert hardware name to valid ID (lowercase, underscores)."""
+    # Replace spaces, dashes, special chars with underscores
+    sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', name)
+    # Remove leading/trailing underscores, collapse multiple
+    sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+    return sanitized.lower()
+
+
+def detect_cpu_info() -> Tuple[str, str]:
+    """Detect CPU and return (hardware_id, mapper_name).
+
+    Returns:
+        Tuple of (sanitized_id, mapper_name)
+    """
+    cpu_name = platform.processor()
+
+    # Try to get more detailed info
+    try:
+        import cpuinfo
+        info = cpuinfo.get_cpu_info()
+        cpu_name = info.get('brand_raw', cpu_name)
+    except ImportError:
+        # Fallback to platform
+        if not cpu_name or cpu_name == 'x86_64':
+            # Try /proc/cpuinfo on Linux
+            try:
+                with open('/proc/cpuinfo') as f:
+                    for line in f:
+                        if line.startswith('model name'):
+                            cpu_name = line.split(':')[1].strip()
+                            break
+            except:
+                pass
+
+    # Determine mapper based on CPU name
+    cpu_lower = cpu_name.lower()
+
+    if 'intel' in cpu_lower:
+        if 'i7-12700' in cpu_lower:
+            mapper = 'i7-12700K'
+        elif 'xeon' in cpu_lower:
+            mapper = 'Xeon'
+        else:
+            mapper = 'i7-12700K'  # Default Intel mapper
+    elif 'amd' in cpu_lower or 'ryzen' in cpu_lower:
+        if 'epyc' in cpu_lower:
+            mapper = 'EPYC'
+        else:
+            mapper = 'Ryzen'
+    elif 'ampere' in cpu_lower:
+        mapper = 'Ampere-One'
+    else:
+        mapper = 'i7-12700K'  # Generic fallback
+
+    hardware_id = sanitize_hardware_id(cpu_name)
+    return hardware_id, mapper
+
+
+def detect_gpu_info() -> Tuple[str, str]:
+    """Detect GPU and return (hardware_id, mapper_name).
+
+    Returns:
+        Tuple of (sanitized_id, mapper_name) or (None, None) if no GPU
+    """
+    if not torch.cuda.is_available():
+        return None, None
+
+    gpu_name = torch.cuda.get_device_name(0)
+    gpu_lower = gpu_name.lower()
+
+    # Determine mapper based on GPU name
+    if 'h100' in gpu_lower:
+        mapper = 'H100'
+    elif 'a100' in gpu_lower:
+        mapper = 'A100'
+    elif 'v100' in gpu_lower:
+        mapper = 'V100'
+    elif 'orin' in gpu_lower:
+        if 'agx' in gpu_lower:
+            mapper = 'Jetson-Orin-AGX'
+        elif 'nx' in gpu_lower:
+            mapper = 'Jetson-Orin-NX'
+        elif 'nano' in gpu_lower:
+            mapper = 'Jetson-Orin-Nano'
+        else:
+            mapper = 'Jetson-Orin-AGX'  # Default Orin
+    elif 'jetson' in gpu_lower:
+        mapper = 'Jetson-Orin-AGX'  # Default Jetson
+    else:
+        mapper = 'A100'  # Generic GPU fallback
+
+    hardware_id = sanitize_hardware_id(gpu_name)
+    return hardware_id, mapper
+
+
+def auto_detect_hardware(prefer_gpu: bool = True) -> dict:
+    """Auto-detect hardware and return configuration.
+
+    Args:
+        prefer_gpu: If True and GPU available, use GPU config
+
+    Returns:
+        Hardware config dict with device, hardware_arg, description, hardware_id
+    """
+    gpu_id, gpu_mapper = detect_gpu_info()
+    cpu_id, cpu_mapper = detect_cpu_info()
+
+    if prefer_gpu and gpu_id:
+        return {
+            "device": "cuda",
+            "hardware_arg": gpu_mapper,
+            "thermal_profile": None,
+            "description": f"Auto-detected: {torch.cuda.get_device_name(0)}",
+            "hardware_id": gpu_id,
+        }
+    else:
+        cpu_name = platform.processor()
+        try:
+            import cpuinfo
+            cpu_name = cpuinfo.get_cpu_info().get('brand_raw', cpu_name)
+        except:
+            pass
+        return {
+            "device": "cpu",
+            "hardware_arg": cpu_mapper,
+            "thermal_profile": None,
+            "description": f"Auto-detected: {cpu_name}",
+            "hardware_id": cpu_id,
+        }
 
 
 # ============================================================================
@@ -368,22 +511,23 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Known hardware configurations (from --list-hardware)
-  %(prog)s --id i7_12700K --device cpu
-  %(prog)s --id jetson_orin_agx_50w --device cuda
-  %(prog)s --id jetson_orin_agx_50w --device cuda --precision fp16
-  %(prog)s --id jetson_orin_agx_50w --device cuda --precision bf16
+  # Auto-detect hardware (recommended)
+  %(prog)s                              # Detect and calibrate
+  %(prog)s --device cpu                 # Force CPU even if GPU available
+  %(prog)s --quick                      # Quick calibration (fewer models)
 
-  # Custom hardware (requires --hardware mapper and --device)
-  %(prog)s --id my_custom_ryzen --hardware Ryzen --device cpu
-  %(prog)s --id ryzen_7_8845hs --hardware Ryzen --device cpu
+  # Pre-configured hardware profiles
+  %(prog)s --id jetson_orin_agx_50w
+  %(prog)s --id jetson_orin_agx_50w --precision fp16
+
+  # Custom hardware ID
+  %(prog)s --id my_ryzen --hardware Ryzen --device cpu
 
   # Other options
-  %(prog)s --id i7_12700K --device cpu --quick
-  %(prog)s --id i7_12700K --device cpu --models resnet18,vgg16
-  %(prog)s --id i7_12700K --device cpu --resume
-  %(prog)s --list-hardware
-  %(prog)s --list-models
+  %(prog)s --models resnet18,vgg16      # Specific models only
+  %(prog)s --resume                     # Skip existing measurements
+  %(prog)s --list-hardware              # Show pre-configured hardware
+  %(prog)s --list-models                # Show available models
 """)
     parser.add_argument('--id', type=str,
                         help='Hardware identifier (e.g., i7_12700K, jetson_orin_agx_50w)')
@@ -440,14 +584,23 @@ Examples:
         print(f"\nQuick calibration models: {', '.join(QUICK_MODELS)}")
         return 0
 
-    # Validate hardware
+    # Auto-detect or validate hardware
+    auto_detected = False
     if not args.id:
-        print("Error: --id is required")
-        parser.print_help()
-        return 1
+        # Auto-detect hardware
+        prefer_gpu = args.device != 'cpu'  # Prefer GPU unless explicitly --device cpu
+        auto_config = auto_detect_hardware(prefer_gpu=prefer_gpu)
+        args.id = auto_config['hardware_id']
+        auto_detected = True
+        print(f"\nAuto-detected hardware: {auto_config['description']}")
+        print(f"  Hardware ID: {args.id}")
+        print(f"  Mapper: {auto_config['hardware_arg']}")
+        print(f"  Device: {auto_config['device']}")
 
     # Get or create hardware config
-    if args.id in HARDWARE_CONFIGS:
+    if auto_detected:
+        hardware_config = auto_config
+    elif args.id in HARDWARE_CONFIGS:
         hardware_config = HARDWARE_CONFIGS[args.id].copy()
     else:
         # Create custom config
