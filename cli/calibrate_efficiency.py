@@ -7,23 +7,23 @@ and aggregates results into calibration curves.
 
 Usage:
     # Run full calibration on CPU (i7-12700K)
-    ./cli/calibrate_efficiency.py --hardware i7-12700K --device cpu
+    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu
 
     # Run full calibration on Jetson GPU
-    ./cli/calibrate_efficiency.py --hardware jetson-orin-agx --device cuda --thermal-profile 50W
+    ./cli/calibrate_efficiency.py --id jetson_orin_agx_50w --device cuda
 
     # Run quick calibration (fewer models, fewer runs)
-    ./cli/calibrate_efficiency.py --hardware i7-12700K --device cpu --quick
+    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --quick
 
     # Run specific models only
-    ./cli/calibrate_efficiency.py --hardware i7-12700K --device cpu --models resnet18,vgg16
+    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --models resnet18,vgg16
 
     # Resume from where you left off (skip existing measurements)
-    ./cli/calibrate_efficiency.py --hardware i7-12700K --device cpu --resume
+    ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --resume
 
 Directory Structure:
     calibration_data/
-      <hardware>/
+      <hardware_id>/
         measurements/
           resnet18.json
           resnet50.json
@@ -109,9 +109,10 @@ QUICK_MODELS = [
 ]
 
 # Hardware configurations
+# IDs use underscores to match hardware_registry/ naming convention
 HARDWARE_CONFIGS = {
     # Intel CPUs
-    "i7-12700K": {
+    "i7_12700K": {
         "device": "cpu",
         "hardware_arg": "i7-12700K",
         "thermal_profile": None,
@@ -119,13 +120,13 @@ HARDWARE_CONFIGS = {
     },
 
     # AMD CPUs
-    "ryzen-7-7800x3d": {
+    "ryzen_7_7800x3d": {
         "device": "cpu",
         "hardware_arg": "Ryzen",  # Uses generic Ryzen mapper
         "thermal_profile": None,
         "description": "AMD Ryzen 7 7800X3D",
     },
-    "ryzen-9-7950x": {
+    "ryzen_9_7950x": {
         "device": "cpu",
         "hardware_arg": "Ryzen",
         "thermal_profile": None,
@@ -133,25 +134,25 @@ HARDWARE_CONFIGS = {
     },
 
     # Jetson Orin AGX (64GB)
-    "jetson-orin-agx-15w": {
+    "jetson_orin_agx_15w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-AGX",
         "thermal_profile": "15W",
         "description": "NVIDIA Jetson AGX Orin 64GB (15W)",
     },
-    "jetson-orin-agx-30w": {
+    "jetson_orin_agx_30w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-AGX",
         "thermal_profile": "30W",
         "description": "NVIDIA Jetson AGX Orin 64GB (30W)",
     },
-    "jetson-orin-agx-50w": {
+    "jetson_orin_agx_50w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-AGX",
         "thermal_profile": "50W",
         "description": "NVIDIA Jetson AGX Orin 64GB (50W)",
     },
-    "jetson-orin-agx-maxn": {
+    "jetson_orin_agx_maxn": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-AGX",
         "thermal_profile": "MAXN",
@@ -159,13 +160,13 @@ HARDWARE_CONFIGS = {
     },
 
     # Jetson Orin Nano (8GB)
-    "jetson-orin-nano-7w": {
+    "jetson_orin_nano_7w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-Nano",
         "thermal_profile": "7W",
         "description": "NVIDIA Jetson Orin Nano 8GB (7W)",
     },
-    "jetson-orin-nano-15w": {
+    "jetson_orin_nano_15w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-Nano",
         "thermal_profile": "15W",
@@ -173,19 +174,19 @@ HARDWARE_CONFIGS = {
     },
 
     # Jetson Orin NX (16GB)
-    "jetson-orin-nx-10w": {
+    "jetson_orin_nx_10w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-NX",
         "thermal_profile": "10W",
         "description": "NVIDIA Jetson Orin NX 16GB (10W)",
     },
-    "jetson-orin-nx-15w": {
+    "jetson_orin_nx_15w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-NX",
         "thermal_profile": "15W",
         "description": "NVIDIA Jetson Orin NX 16GB (15W)",
     },
-    "jetson-orin-nx-25w": {
+    "jetson_orin_nx_25w": {
         "device": "cuda",
         "hardware_arg": "Jetson-Orin-NX",
         "thermal_profile": "25W",
@@ -357,16 +358,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --hardware i7-12700K --device cpu
-  %(prog)s --hardware jetson-orin-agx-50w --device cuda
-  %(prog)s --hardware i7-12700K --device cpu --quick
-  %(prog)s --hardware i7-12700K --device cpu --models resnet18,vgg16
-  %(prog)s --hardware i7-12700K --device cpu --resume
+  %(prog)s --id i7_12700K --device cpu
+  %(prog)s --id jetson_orin_agx_50w --device cuda
+  %(prog)s --id i7_12700K --device cpu --quick
+  %(prog)s --id i7_12700K --device cpu --models resnet18,vgg16
+  %(prog)s --id i7_12700K --device cpu --resume
   %(prog)s --list-hardware
   %(prog)s --list-models
 """)
-    parser.add_argument('--hardware', type=str,
-                        help='Hardware identifier (e.g., i7-12700K, jetson-orin-agx-50w)')
+    parser.add_argument('--id', type=str,
+                        help='Hardware identifier (e.g., i7_12700K, jetson_orin_agx_50w)')
     parser.add_argument('--device', choices=['cpu', 'cuda'],
                         help='Device for measurement (overrides hardware config)')
     parser.add_argument('--thermal-profile', type=str,
@@ -415,24 +416,24 @@ Examples:
         return 0
 
     # Validate hardware
-    if not args.hardware:
-        print("Error: --hardware is required")
+    if not args.id:
+        print("Error: --id is required")
         parser.print_help()
         return 1
 
     # Get or create hardware config
-    if args.hardware in HARDWARE_CONFIGS:
-        hardware_config = HARDWARE_CONFIGS[args.hardware].copy()
+    if args.id in HARDWARE_CONFIGS:
+        hardware_config = HARDWARE_CONFIGS[args.id].copy()
     else:
         # Create custom config
         if not args.device:
-            print(f"Error: Unknown hardware '{args.hardware}'. Specify --device.")
+            print(f"Error: Unknown hardware '{args.id}'. Specify --device.")
             return 1
         hardware_config = {
             "device": args.device,
-            "hardware_arg": args.hardware,
+            "hardware_arg": args.id,
             "thermal_profile": args.thermal_profile,
-            "description": f"Custom: {args.hardware}",
+            "description": f"Custom: {args.id}",
         }
 
     # Override with command-line args
@@ -458,15 +459,15 @@ Examples:
         timing_runs = args.timing_runs
 
     # Setup directories
-    calibration_dir = get_calibration_dir(args.hardware)
-    measurements_dir = get_measurements_dir(args.hardware)
+    calibration_dir = get_calibration_dir(args.id)
+    measurements_dir = get_measurements_dir(args.id)
     measurements_dir.mkdir(parents=True, exist_ok=True)
 
     print()
     print("=" * 70)
     print("  EFFICIENCY CALIBRATION WORKFLOW")
     print("=" * 70)
-    print(f"  Hardware:    {args.hardware}")
+    print(f"  Hardware:    {args.id}")
     print(f"  Description: {hardware_config['description']}")
     print(f"  Device:      {hardware_config['device']}")
     print(f"  Thermal:     {hardware_config.get('thermal_profile', 'default')}")
@@ -498,7 +499,7 @@ Examples:
 
             success = run_measurement(
                 model=model,
-                hardware_id=args.hardware,
+                hardware_id=args.id,
                 hardware_config=hardware_config,
                 output_path=output_path,
                 warmup_runs=warmup_runs,
@@ -523,7 +524,7 @@ Examples:
 
         curves_path = calibration_dir / "efficiency_curves.json"
         success = run_aggregation(
-            hardware_id=args.hardware,
+            hardware_id=args.id,
             measurements_dir=measurements_dir,
             output_path=curves_path,
             hardware_config=hardware_config
@@ -537,7 +538,7 @@ Examples:
     # Generate report
     report_path = calibration_dir / "calibration_report.md"
     generate_calibration_report(
-        hardware_id=args.hardware,
+        hardware_id=args.id,
         hardware_config=hardware_config,
         models_measured=models_measured,
         models_failed=models_failed,
@@ -554,7 +555,7 @@ Examples:
     print("  To install calibration curves:")
     device_type = hardware_config['device']
     print(f"    cp {calibration_dir}/efficiency_curves.json \\")
-    print(f"       hardware_registry/{device_type}/{args.hardware}/efficiency_curves.json")
+    print(f"       hardware_registry/{device_type}/{args.id}/efficiency_curves.json")
     print()
 
     return 0 if not models_failed else 1
