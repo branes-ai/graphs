@@ -539,7 +539,10 @@ Examples:
     parser.add_argument('--model', required=True,
                         help='Model name (e.g., resnet18, vit_b_16)')
     parser.add_argument('--hardware', required=True, choices=HARDWARE_CHOICES,
-                        help='Target hardware')
+                        help='Target hardware (mapper name, e.g., Jetson-Orin-AGX)')
+    parser.add_argument('--id', type=str, default=None,
+                        help='Calibration hardware ID (e.g., jetson_orin_agx_30w). '
+                             'Defaults to --hardware if not specified.')
     parser.add_argument('--batch-size', type=int, default=1,
                         help='Batch size (default: 1)')
     parser.add_argument('--device', choices=['cpu', 'cuda'], default=None,
@@ -643,10 +646,12 @@ Examples:
 
     # Save to JSON
     if args.output:
+        # Use calibration ID if specified, otherwise use hardware mapper name
+        hw_id = args.id if args.id else args.hardware
         save_measurements_json(
             measurements=valid_measurements,
             model_name=args.model,
-            hardware_id=args.hardware,
+            hardware_id=hw_id,
             device=device,
             precision=args.precision.upper(),
             thermal_profile=args.thermal_profile,
