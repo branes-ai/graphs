@@ -207,14 +207,14 @@ def get_all_models() -> List[str]:
     return models
 
 
-def get_calibration_dir(hardware_id: str) -> Path:
-    """Get calibration data directory for hardware."""
-    return repo_root / "calibration_data" / hardware_id
+def get_calibration_dir(hardware_id: str, precision: str = "fp32") -> Path:
+    """Get calibration data directory for hardware and precision."""
+    return repo_root / "calibration_data" / hardware_id / precision
 
 
-def get_measurements_dir(hardware_id: str) -> Path:
-    """Get measurements directory for hardware."""
-    return get_calibration_dir(hardware_id) / "measurements"
+def get_measurements_dir(hardware_id: str, precision: str = "fp32") -> Path:
+    """Get measurements directory for hardware and precision."""
+    return get_calibration_dir(hardware_id, precision) / "measurements"
 
 
 def run_measurement(
@@ -222,6 +222,7 @@ def run_measurement(
     hardware_id: str,
     hardware_config: dict,
     output_path: Path,
+    precision: str = "fp32",
     warmup_runs: int = 10,
     timing_runs: int = 50,
     quiet: bool = False
@@ -238,6 +239,7 @@ def run_measurement(
         "--hardware", hardware_config["hardware_arg"],
         "--id", hardware_id,  # Calibration ID for aggregation filtering
         "--device", hardware_config["device"],
+        "--precision", precision,
         "--warmup-runs", str(warmup_runs),
         "--timing-runs", str(timing_runs),
         "--output", str(output_path),
@@ -261,7 +263,8 @@ def run_aggregation(
     hardware_id: str,
     measurements_dir: Path,
     output_path: Path,
-    hardware_config: dict
+    hardware_config: dict,
+    precision: str = "fp32"
 ) -> bool:
     """Run aggregation to create efficiency curves.
 
@@ -279,6 +282,7 @@ def run_aggregation(
         "--hardware", hardware_id,
         "--hardware-name", hardware_config["description"],
         "--device-type", device_type,
+        "--precision", precision,
     ]
 
     try:
@@ -294,7 +298,8 @@ def generate_calibration_report(
     hardware_config: dict,
     models_measured: List[str],
     models_failed: List[str],
-    output_path: Path
+    output_path: Path,
+    precision: str = "fp32"
 ):
     """Generate markdown calibration report."""
     report = f"""# Calibration Report: {hardware_config['description']}
@@ -303,6 +308,7 @@ def generate_calibration_report(
 
 - **Hardware ID**: {hardware_id}
 - **Device**: {hardware_config['device']}
+- **Precision**: {precision.upper()}
 - **Thermal Profile**: {hardware_config.get('thermal_profile', 'default')}
 - **Calibration Date**: {datetime.now().isoformat()}
 
@@ -361,6 +367,8 @@ def main():
 Examples:
   %(prog)s --id i7_12700K --device cpu
   %(prog)s --id jetson_orin_agx_50w --device cuda
+  %(prog)s --id jetson_orin_agx_50w --device cuda --precision fp16
+  %(prog)s --id jetson_orin_agx_50w --device cuda --precision bf16
   %(prog)s --id i7_12700K --device cpu --quick
   %(prog)s --id i7_12700K --device cpu --models resnet18,vgg16
   %(prog)s --id i7_12700K --device cpu --resume
@@ -391,6 +399,10 @@ Examples:
                         help='List available hardware configurations')
     parser.add_argument('--list-models', action='store_true',
                         help='List available models')
+    parser.add_argument('--precision',
+                        choices=['fp32', 'fp16', 'bf16', 'tf32', 'int8'],
+                        default='fp32',
+                        help='Precision: fp32, fp16, bf16, tf32, int8 (default: fp32)')
     parser.add_argument('--quiet', action='store_true',
                         help='Suppress verbose output')
 
@@ -459,9 +471,10 @@ Examples:
         warmup_runs = args.warmup_runs
         timing_runs = args.timing_runs
 
-    # Setup directories
-    calibration_dir = get_calibration_dir(args.id)
-    measurements_dir = get_measurements_dir(args.id)
+    # Setup directories (include precision in path)
+    precision = args.precision
+    calibration_dir = get_calibration_dir(args.id, precision)
+    measurements_dir = get_measurements_dir(args.id, precision)
     measurements_dir.mkdir(parents=True, exist_ok=True)
 
     print()
@@ -471,6 +484,7 @@ Examples:
     print(f"  Hardware:    {args.id}")
     print(f"  Description: {hardware_config['description']}")
     print(f"  Device:      {hardware_config['device']}")
+    print(f"  Precision:   {precision.upper()}")
     print(f"  Thermal:     {hardware_config.get('thermal_profile', 'default')}")
     print(f"  Models:      {len(models)}")
     print(f"  Runs:        {warmup_runs} warmup + {timing_runs} timed")
@@ -503,6 +517,7 @@ Examples:
                 hardware_id=args.id,
                 hardware_config=hardware_config,
                 output_path=output_path,
+                precision=precision,
                 warmup_runs=warmup_runs,
                 timing_runs=timing_runs,
                 quiet=True
@@ -528,7 +543,8 @@ Examples:
             hardware_id=args.id,
             measurements_dir=measurements_dir,
             output_path=curves_path,
-            hardware_config=hardware_config
+            hardware_config=hardware_config,
+            precision=precision
         )
 
         if success:
@@ -543,7 +559,8 @@ Examples:
         hardware_config=hardware_config,
         models_measured=models_measured,
         models_failed=models_failed,
-        output_path=report_path
+        output_path=report_path,
+        precision=precision
     )
     print(f"  Report:  {report_path}")
 
