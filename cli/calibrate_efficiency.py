@@ -236,6 +236,7 @@ def run_measurement(
         str(repo_root / "cli" / "measure_efficiency.py"),
         "--model", model,
         "--hardware", hardware_config["hardware_arg"],
+        "--id", hardware_id,  # Calibration ID for aggregation filtering
         "--device", hardware_config["device"],
         "--warmup-runs", str(warmup_runs),
         "--timing-runs", str(timing_runs),
