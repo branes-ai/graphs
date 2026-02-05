@@ -345,12 +345,12 @@ To use these calibration curves:
 ```python
 # Load calibration data
 import json
-with open('calibration_data/{hardware_id}/efficiency_curves.json') as f:
+with open('calibration_data/{hardware_id}/{precision}/efficiency_curves.json') as f:
     curves = json.load(f)
 
 # Or copy to hardware_registry
-cp calibration_data/{hardware_id}/efficiency_curves.json \\
-   hardware_registry/{hardware_config['device']}/{hardware_id}/efficiency_curves.json
+cp calibration_data/{hardware_id}/{precision}/efficiency_curves.json \\
+   hardware_registry/{hardware_config['device']}/{hardware_id}/{precision}/efficiency_curves.json
 ```
 """
 
@@ -589,7 +589,7 @@ Examples:
     print("  To install calibration curves:")
     device_type = hardware_config['device']
     print(f"    cp {calibration_dir}/efficiency_curves.json \\")
-    print(f"       hardware_registry/{device_type}/{args.id}/efficiency_curves.json")
+    print(f"       hardware_registry/{device_type}/{args.id}/{precision}/efficiency_curves.json")
     print()
 
     return 0 if not models_failed else 1
