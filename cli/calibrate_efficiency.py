@@ -6,11 +6,14 @@ Runs efficiency measurements for all supported models on the current hardware
 and aggregates results into calibration curves.
 
 Usage:
-    # Run full calibration on CPU (i7-12700K)
+    # Run full calibration on CPU (known hardware config)
     ./cli/calibrate_efficiency.py --id i7_12700K --device cpu
 
     # Run full calibration on Jetson GPU
     ./cli/calibrate_efficiency.py --id jetson_orin_agx_50w --device cuda
+
+    # Run calibration on custom hardware (requires --hardware mapper)
+    ./cli/calibrate_efficiency.py --id ryzen_7_8845hs --hardware Ryzen --device cpu
 
     # Run quick calibration (fewer models, fewer runs)
     ./cli/calibrate_efficiency.py --id i7_12700K --device cpu --quick
@@ -365,10 +368,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Known hardware configurations (from --list-hardware)
   %(prog)s --id i7_12700K --device cpu
   %(prog)s --id jetson_orin_agx_50w --device cuda
   %(prog)s --id jetson_orin_agx_50w --device cuda --precision fp16
   %(prog)s --id jetson_orin_agx_50w --device cuda --precision bf16
+
+  # Custom hardware (requires --hardware mapper and --device)
+  %(prog)s --id my_custom_ryzen --hardware Ryzen --device cpu
+  %(prog)s --id ryzen_7_8845hs --hardware Ryzen --device cpu
+
+  # Other options
   %(prog)s --id i7_12700K --device cpu --quick
   %(prog)s --id i7_12700K --device cpu --models resnet18,vgg16
   %(prog)s --id i7_12700K --device cpu --resume
@@ -377,6 +387,8 @@ Examples:
 """)
     parser.add_argument('--id', type=str,
                         help='Hardware identifier (e.g., i7_12700K, jetson_orin_agx_50w)')
+    parser.add_argument('--hardware', type=str,
+                        help='Hardware mapper name for custom --id (e.g., Ryzen, i7-12700K)')
     parser.add_argument('--device', choices=['cpu', 'cuda'],
                         help='Device for measurement (overrides hardware config)')
     parser.add_argument('--thermal-profile', type=str,
@@ -442,9 +454,13 @@ Examples:
         if not args.device:
             print(f"Error: Unknown hardware '{args.id}'. Specify --device.")
             return 1
+        if not args.hardware:
+            print(f"Error: Unknown hardware '{args.id}'. Specify --hardware mapper name.")
+            print("  Examples: --hardware Ryzen, --hardware i7-12700K, --hardware Jetson-Orin-AGX")
+            return 1
         hardware_config = {
             "device": args.device,
-            "hardware_arg": args.id,
+            "hardware_arg": args.hardware,
             "thermal_profile": args.thermal_profile,
             "description": f"Custom: {args.id}",
         }

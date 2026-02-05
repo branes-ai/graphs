@@ -518,12 +518,14 @@ def save_measurements_json(
 # Main
 # ============================================================================
 
-HARDWARE_CHOICES = [
-    'H100', 'A100', 'V100', 'Jetson-Orin-AGX', 'Jetson-Orin-Nano',
+# Known hardware mappers (for auto-detection of device type)
+# Users can specify any hardware name - validation happens at runtime
+KNOWN_HARDWARE = [
+    'H100', 'A100', 'V100', 'Jetson-Orin-AGX', 'Jetson-Orin-Nano', 'Jetson-Orin-NX',
     'i7-12700K', 'Ryzen', 'EPYC', 'Xeon', 'Ampere-One',
 ]
 
-GPU_HARDWARE = {'h100', 'a100', 'v100', 'jetson-orin-agx', 'jetson-orin-nano'}
+GPU_HARDWARE = {'h100', 'a100', 'v100', 'jetson-orin-agx', 'jetson-orin-nano', 'jetson-orin-nx'}
 
 
 def main():
@@ -538,8 +540,8 @@ Examples:
 """)
     parser.add_argument('--model', required=True,
                         help='Model name (e.g., resnet18, vit_b_16)')
-    parser.add_argument('--hardware', required=True, choices=HARDWARE_CHOICES,
-                        help='Target hardware (mapper name, e.g., Jetson-Orin-AGX)')
+    parser.add_argument('--hardware', required=True,
+                        help='Target hardware mapper (e.g., Jetson-Orin-AGX, Ryzen, i7-12700K)')
     parser.add_argument('--id', type=str, default=None,
                         help='Calibration hardware ID (e.g., jetson_orin_agx_30w). '
                              'Defaults to --hardware if not specified.')
