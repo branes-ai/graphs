@@ -1,0 +1,37 @@
+● Phase 1 of the efficiency externalization roadmap is complete. Here's what was delivered:
+
+  Files Created:
+  ┌──────────────────────────────────────────────────────────────┬────────────────────────────────────────────┐
+  │                             File                             │                  Purpose                   │
+  ├──────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
+  │ cli/extract_efficiency_curves.py                             │ Extract hard-coded values from roofline.py │
+  ├──────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
+  │ cli/validate_efficiency_schema.py                            │ Schema validation utility                  │
+  ├──────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
+  │ docs/schemas/efficiency_calibration.md                       │ JSON schema documentation                  │
+  ├──────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
+  │ hardware_registry/gpu/jetson_orin_agx/efficiency_curves.json │ 6 compute + 2 bandwidth curves             │
+  ├──────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
+  │ hardware_registry/cpu/i7-12700K/efficiency_curves.json       │ 1 generic compute curve                    │
+  └──────────────────────────────────────────────────────────────┴────────────────────────────────────────────┘
+  Key Features:
+
+  1. Statistical Fields: Each data point has mean, std, min, max, and 95% CI
+  2. Source Traceability: All legacy values marked "source": "legacy_hardcoded"
+  3. Piecewise-Linear Curves: Fitted curves with breakpoints in log(FLOPs) space
+  4. Operation Types: conv2d, conv2d_batchnorm, conv2d_depthwise, mbconv, matmul, generic
+
+  GPU Curves (Jetson Orin AGX 50W):
+  - conv2d_depthwise: 3% efficiency (memory-bound)
+  - mbconv: 2.5% - 10% (small fused blocks)
+  - generic_tiny: 1% - 6% (kernel launch dominated)
+  - conv2d_batchnorm: 6% - 500% (size dependent, VGG scales high)
+  - conv2d: 60% - 560% (no BN, higher efficiency)
+  - matmul: 20% - 150% (ViT attention)
+
+  CPU Curves (i7-12700K):
+  - generic: 15% (tiny) to 100% (large ops >225M FLOPs)
+
+  The validation utility reports 0 errors on both files. The commit has been pushed to main (8115163).
+
+
