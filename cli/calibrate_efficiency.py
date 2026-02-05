@@ -266,6 +266,9 @@ def run_aggregation(
     Returns:
         True if successful, False otherwise
     """
+    # Map 'cuda' to 'gpu' for device-type
+    device_type = "gpu" if hardware_config["device"] == "cuda" else hardware_config["device"]
+
     cmd = [
         sys.executable,
         str(repo_root / "cli" / "aggregate_efficiency.py"),
@@ -273,7 +276,7 @@ def run_aggregation(
         "--output", str(output_path),
         "--hardware-id", hardware_id,
         "--hardware-name", hardware_config["description"],
-        "--device-type", hardware_config["device"],
+        "--device-type", device_type,
     ]
 
     try:
