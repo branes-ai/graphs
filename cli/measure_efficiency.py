@@ -547,8 +547,10 @@ Examples:
                         help='Batch size (default: 1)')
     parser.add_argument('--device', choices=['cpu', 'cuda'], default=None,
                         help='Device for measurement (default: auto)')
-    parser.add_argument('--precision', choices=['fp32', 'fp16'], default='fp32',
-                        help='Precision (default: fp32)')
+    parser.add_argument('--precision',
+                        choices=['fp32', 'fp16', 'bf16', 'tf32', 'int8'],
+                        default='fp32',
+                        help='Precision: fp32, fp16, bf16, tf32, int8 (default: fp32)')
     parser.add_argument('--thermal-profile', type=str, default=None,
                         help='Thermal/power profile (e.g., 15W, 30W, 50W)')
     parser.add_argument('--warmup-runs', type=int, default=10,
@@ -588,9 +590,22 @@ Examples:
     model, input_tensor, display_name = analyzer._create_model(args.model, args.batch_size)
     model.eval()
 
+    # Convert model/input to requested precision
     if args.precision == 'fp16':
         model = model.half()
         input_tensor = input_tensor.half()
+    elif args.precision == 'bf16':
+        model = model.to(torch.bfloat16)
+        input_tensor = input_tensor.to(torch.bfloat16)
+    elif args.precision == 'tf32':
+        # TF32 uses FP32 tensors but TF32 Tensor Core operations
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    elif args.precision == 'int8':
+        # INT8 requires quantization - for now just measure FP32 and note
+        # that actual INT8 inference would need quantized models
+        print("  NOTE: INT8 calibration uses FP32 model; actual INT8 requires quantization")
+    # fp32 is default, no conversion needed
 
     # Step 2: Trace
     print("Step 2: Tracing with symbolic_trace...", flush=True)
@@ -613,7 +628,13 @@ Examples:
     hardware = hardware_mapper.resource_model
 
     # Get theoretical peak based on precision
-    precision_map = {'fp32': Precision.FP32, 'fp16': Precision.FP16}
+    precision_map = {
+        'fp32': Precision.FP32,
+        'fp16': Precision.FP16,
+        'bf16': Precision.BF16,
+        'tf32': Precision.TF32,
+        'int8': Precision.INT8,
+    }
     precision = precision_map[args.precision]
     theoretical_peak = hardware.get_peak_ops(precision)
     print(f"  Theoretical peak: {format_flops(theoretical_peak)}FLOPS")

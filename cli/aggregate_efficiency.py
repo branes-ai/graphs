@@ -310,7 +310,7 @@ def generate_efficiency_curves_json(
         "hardware_id": hardware_id,
         "hardware_name": hardware_name,
         "device_type": device_type,
-        "precision": precision,
+        "precision": precision.upper(),
         "calibration_date": datetime.now().isoformat(),
         "calibration_tool_version": "aggregate_efficiency.py v1.0",
         "curves": {},
