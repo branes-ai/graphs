@@ -1,0 +1,76 @@
+$ python cli/calibrate_efficiency.py --id ryzen_7_8845hs_w_radeon_780m_graphics --device cpu
+
+======================================================================
+  EFFICIENCY CALIBRATION WORKFLOW
+======================================================================
+  Hardware:    ryzen_7_8845hs_w_radeon_780m_graphics
+  Description: Custom: ryzen_7_8845hs_w_radeon_780m_graphics
+  Device:      cpu
+  Thermal:     None
+  Models:      15
+  Runs:        10 warmup + 50 timed
+  Output:      C:\Users\tomtz\dev\branes\clones\graphs\calibration_data\ryzen_7_8845hs_w_radeon_780m_graphics
+======================================================================
+
+Phase 1: Running measurements for 15 models...
+----------------------------------------------------------------------
+  [1/15] resnet18... FAILED
+  [2/15] resnet34... FAILED
+  [3/15] resnet50... FAILED
+  [4/15] resnet101... FAILED
+  [5/15] mobilenet_v2... FAILED
+  [6/15] mobilenet_v3_small... FAILED
+  [7/15] mobilenet_v3_large... FAILED
+  [8/15] efficientnet_b0... FAILED
+  [9/15] efficientnet_b1... FAILED
+  [10/15] vgg11... FAILED
+  [11/15] vgg16... FAILED
+  [12/15] vit_b_16... FAILED
+  [13/15] vit_b_32... FAILED
+  [14/15] vit_l_16... FAILED
+  [15/15] maxvit_t... FAILED
+----------------------------------------------------------------------
+  Measured: 0, Skipped: 0, Failed: 15
+
+Phase 2: Aggregating measurements into efficiency curves...
+----------------------------------------------------------------------
+Error: No input files specified
+usage: aggregate_efficiency.py [-h] [--input INPUT_FILES] [--input-dir INPUT_DIR] [--hardware HARDWARE] --output OUTPUT [--hardware-id HARDWARE_ID]
+                               [--hardware-name HARDWARE_NAME] [--device-type {cpu,gpu}] [--precision PRECISION] [--dry-run] [--verbose]
+
+Aggregate efficiency measurements into calibration curves
+
+options:
+  -h, --help            show this help message and exit
+  --input INPUT_FILES, -i INPUT_FILES
+                        Input measurement JSON file(s)
+  --input-dir INPUT_DIR
+                        Directory containing measurement JSON files
+  --hardware HARDWARE   Filter by hardware ID (for input-dir mode)
+  --output OUTPUT, -o OUTPUT
+                        Output efficiency curves JSON path
+  --hardware-id HARDWARE_ID
+                        Hardware ID for output (default: from first input)
+  --hardware-name HARDWARE_NAME
+                        Hardware name for output
+  --device-type {cpu,gpu}
+                        Device type (default: auto-detect)
+  --precision PRECISION
+                        Precision (default: FP32)
+  --dry-run             Preview without writing output
+  --verbose, -v         Show detailed bin information
+
+Examples:
+  aggregate_efficiency.py --input measurements/*.json --output efficiency_curves.json
+  aggregate_efficiency.py --input-dir measurements/ --hardware i7-12700K --output curves.json
+  Aggregation FAILED
+  Report:  C:\Users\tomtz\dev\branes\clones\graphs\calibration_data\ryzen_7_8845hs_w_radeon_780m_graphics\calibration_report.md
+
+======================================================================
+  CALIBRATION COMPLETE
+======================================================================
+  Calibration data: C:\Users\tomtz\dev\branes\clones\graphs\calibration_data\ryzen_7_8845hs_w_radeon_780m_graphics
+
+  To install calibration curves:
+    cp C:\Users\tomtz\dev\branes\clones\graphs\calibration_data\ryzen_7_8845hs_w_radeon_780m_graphics/efficiency_curves.json \
+       hardware_registry/cpu/ryzen_7_8845hs_w_radeon_780m_graphics/efficiency_curves.json
