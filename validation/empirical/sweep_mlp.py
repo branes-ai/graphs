@@ -37,7 +37,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 from src.graphs.transform.partitioning import FusionBasedPartitioner
 from src.graphs.hardware.mappers.cpu import create_intel_cpu_mapper, create_i7_12700k_mapper
-from src.graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
+from src.graphs.hardware.mappers.gpu import (
+    create_h100_pcie_80gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
+    create_jetson_orin_nx_16gb_mapper,
+)
 from src.graphs.hardware.resource_model import Precision
 
 # Import existing MLP models
@@ -276,6 +281,42 @@ def detect_cpu_model() -> str:
         return 'generic'
 
 
+def detect_gpu_model() -> str:
+    """
+    Detect GPU model to auto-select appropriate mapper.
+
+    Returns:
+        'jetson-orin-agx', 'jetson-orin-nx', 'jetson-orin-nano', 'h100', 'generic', etc.
+    """
+    if not torch.cuda.is_available():
+        return 'generic'
+
+    try:
+        gpu_name = torch.cuda.get_device_name(0).lower()
+
+        # Jetson devices
+        if 'orin' in gpu_name:
+            if 'agx' in gpu_name:
+                return 'jetson-orin-agx'
+            elif 'nx' in gpu_name:
+                return 'jetson-orin-nx'
+            elif 'nano' in gpu_name:
+                return 'jetson-orin-nano'
+            else:
+                # Default to AGX for unspecified Orin
+                return 'jetson-orin-agx'
+
+        # NVIDIA datacenter GPUs
+        if 'h100' in gpu_name:
+            return 'h100'
+        if 'a100' in gpu_name:
+            return 'a100'
+
+        return 'generic'
+    except:
+        return 'generic'
+
+
 # ============================================================================
 # ANALYTICAL ESTIMATION
 # ============================================================================
@@ -325,6 +366,16 @@ def run_analytical_estimate(
             'bottleneck': 'compute' or 'memory',
         }
     """
+    # Ensure model and input are on the same device for tracing
+    # (empirical benchmark may have moved model to CUDA in-place)
+    model = model.to(device)
+    input_tensor = input_tensor.to(device)
+
+    # For CUDA with reduced precision, apply precision before tracing
+    if device == 'cuda' and precision in ('fp16', 'bf16'):
+        model = model.half() if precision == 'fp16' else model.bfloat16()
+        input_tensor = input_tensor.half() if precision == 'fp16' else input_tensor.bfloat16()
+
     # Trace model
     traced = symbolic_trace(model)
     ShapeProp(traced).propagate(input_tensor)
@@ -336,7 +387,7 @@ def run_analytical_estimate(
     # Extract execution stages
     execution_stages = extract_execution_stages(fusion_report)
 
-    # Map to hardware (auto-detect CPU model for accurate mapping)
+    # Map to hardware (auto-detect for accurate mapping)
     if device == 'cpu':
         cpu_model = detect_cpu_model()
         if cpu_model == 'i7-12700k':
@@ -344,7 +395,16 @@ def run_analytical_estimate(
         else:
             mapper = create_intel_cpu_mapper()
     elif device == 'cuda':
-        mapper = create_h100_pcie_80gb_mapper()
+        gpu_model = detect_gpu_model()
+        if gpu_model == 'jetson-orin-agx':
+            mapper = create_jetson_orin_agx_64gb_mapper()
+        elif gpu_model == 'jetson-orin-nx':
+            mapper = create_jetson_orin_nx_16gb_mapper()
+        elif gpu_model == 'jetson-orin-nano':
+            mapper = create_jetson_orin_nano_8gb_mapper()
+        else:
+            # Default to H100 for datacenter GPUs
+            mapper = create_h100_pcie_80gb_mapper()
     else:
         raise ValueError(f"Unsupported device: {device}")
 
@@ -417,13 +477,22 @@ def run_sweep(
     print(f"Running sweep with {total_configs} configurations on {device}...")
     print(f"Results will be saved to: {output_file}")
 
-    # Show detected CPU mapper
+    # Show detected hardware mapper
     if device == 'cpu':
         cpu_model = detect_cpu_model()
         if cpu_model == 'i7-12700k':
-            print(f"✓ Detected CPU: Intel i7-12700K → Using calibrated mapper")
+            print(f"Detected CPU: Intel i7-12700K -> Using calibrated mapper")
         else:
-            print(f"  Using generic Intel CPU mapper")
+            print(f"Using generic Intel CPU mapper")
+    elif device == 'cuda':
+        gpu_model = detect_gpu_model()
+        gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Unknown"
+        if gpu_model.startswith('jetson'):
+            print(f"Detected GPU: {gpu_name} -> Using {gpu_model} mapper")
+        elif gpu_model == 'h100':
+            print(f"Detected GPU: {gpu_name} -> Using H100 mapper")
+        else:
+            print(f"Detected GPU: {gpu_name} -> Using H100 mapper (default)")
 
     print("=" * 80)
 
