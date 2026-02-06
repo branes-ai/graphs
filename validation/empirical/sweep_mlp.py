@@ -362,7 +362,7 @@ def run_analytical_estimate(
     Returns:
         {
             'time_ms': Estimated latency,
-            'memory_mb': Estimated memory traffic,
+            'memory_traffic_mb': Total memory traffic in MB (bytes transferred, NOT peak allocation),
             'flops': Total FLOPs,
             'arithmetic_intensity': FLOPs/Byte,
             'bottleneck': 'compute' or 'memory',
@@ -481,7 +481,7 @@ def run_analytical_estimate(
 
     return {
         'time_ms': hw_allocation.total_latency * 1000,  # Convert to ms
-        'memory_mb': memory_traffic / 1024**2,
+        'memory_traffic_mb': memory_traffic / 1024**2,  # Total bytes transferred (NOT peak allocation)
         'flops': fusion_report.total_flops,
         'arithmetic_intensity': ai,
         'bottleneck': bottleneck,
@@ -596,9 +596,10 @@ def run_sweep(
 
             # Compute errors
             time_error = abs(empirical['time_ms'] - analytical['time_ms']) / empirical['time_ms'] * 100
-            memory_error = abs(empirical['memory_mb'] - analytical['memory_mb']) / max(empirical['memory_mb'], 0.01) * 100
+            # Note: memory comparison removed - empirical measures peak allocation,
+            # analytical measures memory traffic (total bytes transferred). Different metrics.
 
-            print(f"  Errors: time={time_error:.1f}%, memory={memory_error:.1f}%")
+            print(f"  Error: time={time_error:.1f}%")
 
             # Store results
             result = {
@@ -618,14 +619,13 @@ def run_sweep(
 
                 # Analytical estimates
                 'analytical_time_ms': analytical['time_ms'],
-                'analytical_memory_mb': analytical['memory_mb'],
+                'analytical_memory_traffic_mb': analytical['memory_traffic_mb'],
                 'analytical_flops': analytical['flops'],
                 'analytical_ai': analytical['arithmetic_intensity'],
                 'analytical_bottleneck': analytical['bottleneck'],
 
                 # Errors
                 'time_error_pct': time_error,
-                'memory_error_pct': memory_error,
             }
 
             results.append(result)
