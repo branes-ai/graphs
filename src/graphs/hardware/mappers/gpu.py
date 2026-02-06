@@ -55,7 +55,8 @@ class GPUMapper(HardwareMapper):
     def __init__(
         self,
         resource_model: HardwareResourceModel,
-        thermal_profile: str = None
+        thermal_profile: str = None,
+        calibration=None  # Type: Optional[GPUCalibration]
     ):
         """
         Initialize GPU mapper.
@@ -64,12 +65,75 @@ class GPUMapper(HardwareMapper):
             resource_model: GPU resource model
             thermal_profile: Thermal profile name (e.g., "15W", "30W", "60W")
                            If None, uses default from resource model
+            calibration: Optional GPUCalibration for size-dependent efficiency lookup
         """
         super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a GPU model
         if resource_model.hardware_type.value != "gpu":
             raise ValueError(f"GPUMapper requires GPU resource model, got {resource_model.hardware_type}")
+
+        # Calibration data for size-dependent efficiency
+        self.calibration = calibration
+        self.default_efficiency = 0.50  # Fallback when no calibration
+
+    def _classify_operation(self, subgraph: FusedSubgraph) -> str:
+        """
+        Classify subgraph into operation type for calibration lookup.
+
+        Maps fusion patterns to calibration operation types:
+        - Conv2d_*, conv2d -> conv2d or conv2d_batchnorm
+        - Linear, MatMul, matmul -> matmul
+        - ReLU, GELU, Softmax -> activation
+        - Add, Mul -> unfused
+
+        Args:
+            subgraph: Fused subgraph to classify
+
+        Returns:
+            Operation type string for calibration lookup
+        """
+        # Get fusion pattern (e.g., "Conv2d_BatchNorm2d_ReLU")
+        pattern = subgraph.fusion_pattern.lower() if subgraph.fusion_pattern else ""
+
+        # Check for specific patterns
+        if "conv2d" in pattern and ("batchnorm" in pattern or "bn" in pattern):
+            return "conv2d_batchnorm"
+        elif "conv2d" in pattern or "conv" in pattern:
+            return "conv2d"
+        elif "linear" in pattern or "matmul" in pattern or "mm" in pattern or "gemm" in pattern:
+            return "matmul"
+        elif any(act in pattern for act in ["relu", "gelu", "softmax", "sigmoid", "tanh", "silu", "hardswish"]):
+            return "activation"
+        elif "add" in pattern or "mul" in pattern:
+            return "unfused"
+
+        # Fallback: check node names
+        node_names = " ".join(subgraph.node_names).lower() if subgraph.node_names else ""
+        if "conv" in node_names:
+            return "conv2d"
+        elif "linear" in node_names or "matmul" in node_names:
+            return "matmul"
+
+        return "unfused"
+
+    def _get_calibrated_efficiency(self, subgraph: FusedSubgraph) -> float:
+        """
+        Get size-dependent efficiency from calibration curves.
+
+        Args:
+            subgraph: Fused subgraph to get efficiency for
+
+        Returns:
+            Efficiency factor (0.0 to 1.0)
+        """
+        if self.calibration is None:
+            return self.default_efficiency
+
+        op_type = self._classify_operation(subgraph)
+        flops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
+
+        return self.calibration.get_efficiency(op_type, flops, self.default_efficiency)
 
     def map_subgraph(
         self,
@@ -135,6 +199,17 @@ class GPUMapper(HardwareMapper):
         )
 
         estimated_latency = max(compute_time, memory_time)
+
+        # Apply size-dependent calibration correction
+        if self.calibration is not None:
+            calibrated_eff = self._get_calibrated_efficiency(subgraph)
+            if calibrated_eff > 0:
+                # Efficiency correction: adjust latency based on calibrated vs default
+                # Higher efficiency = faster execution, so divide latency by efficiency ratio
+                efficiency_ratio = calibrated_eff / self.default_efficiency
+                estimated_latency = estimated_latency / efficiency_ratio
+                compute_time = compute_time / efficiency_ratio
+                memory_time = memory_time / efficiency_ratio
 
         # Calculate energy
         compute_energy, memory_energy = self._calculate_energy(
@@ -313,6 +388,15 @@ class GPUMapper(HardwareMapper):
             kernel_time = max(compute_time, memory_time)
             bottleneck = (BottleneckType.COMPUTE_BOUND if compute_time > memory_time
                          else BottleneckType.BANDWIDTH_BOUND)
+
+            # Apply size-dependent calibration correction
+            if self.calibration is not None:
+                calibrated_eff = self._get_calibrated_efficiency(sg)
+                if calibrated_eff > 0:
+                    efficiency_ratio = calibrated_eff / self.default_efficiency
+                    kernel_time = kernel_time / efficiency_ratio
+                    compute_time = compute_time / efficiency_ratio
+                    memory_time = memory_time / efficiency_ratio
 
             # Add kernel launch overhead (unless disabled for micro-benchmarks)
             # Check execution_context for disable_launch_overhead flag
@@ -848,7 +932,7 @@ def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
     return GPUMapper(t4_pcie_16gb_resource_model(), thermal_profile=thermal_profile)
 
 
-def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None) -> GPUMapper:
+def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None, calibration=None) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Orin AGX 64GB (edge AI platform).
 
@@ -857,6 +941,7 @@ def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None) -> GPUMapper
     Args:
         thermal_profile: Thermal profile name (e.g., "15W", "30W", "50W", "MAXN")
                         If None, uses default ("30W")
+        calibration: Optional GPUCalibration for size-dependent efficiency lookup
 
     Returns:
         GPUMapper configured for Jetson Orin AGX 64GB
@@ -874,10 +959,10 @@ def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None) -> GPUMapper
         tech_profile=EDGE_8NM_LPDDR5
     )
 
-    return GPUMapper(resource_model, thermal_profile=thermal_profile)
+    return GPUMapper(resource_model, thermal_profile=thermal_profile, calibration=calibration)
 
 
-def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None) -> GPUMapper:
+def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None, calibration=None) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Orin Nano 8GB (compact edge AI platform).
 
@@ -886,15 +971,16 @@ def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None) -> GPUMapper
     Args:
         thermal_profile: Thermal profile name (e.g., "7W", "15W")
                         If None, uses default ("7W")
+        calibration: Optional GPUCalibration for size-dependent efficiency lookup
 
     Returns:
         GPUMapper configured for Jetson Orin Nano 8GB
     """
     from ..models.edge.jetson_orin_nano_8gb import jetson_orin_nano_8gb_resource_model
-    return GPUMapper(jetson_orin_nano_8gb_resource_model(), thermal_profile=thermal_profile)
+    return GPUMapper(jetson_orin_nano_8gb_resource_model(), thermal_profile=thermal_profile, calibration=calibration)
 
 
-def create_jetson_orin_nx_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
+def create_jetson_orin_nx_16gb_mapper(thermal_profile: str = None, calibration=None) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Orin NX 16GB (mid-range edge AI platform).
 
@@ -912,12 +998,13 @@ def create_jetson_orin_nx_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
     Args:
         thermal_profile: Thermal profile name (e.g., "10W", "15W", "25W", "40W")
                         If None, uses default ("25W")
+        calibration: Optional GPUCalibration for size-dependent efficiency lookup
 
     Returns:
         GPUMapper configured for Jetson Orin NX 16GB
     """
     from ..models.edge.jetson_orin_nx_16gb import jetson_orin_nx_16gb_resource_model
-    return GPUMapper(jetson_orin_nx_16gb_resource_model(), thermal_profile=thermal_profile)
+    return GPUMapper(jetson_orin_nx_16gb_resource_model(), thermal_profile=thermal_profile, calibration=calibration)
 
 
 def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
