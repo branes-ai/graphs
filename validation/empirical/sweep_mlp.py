@@ -426,7 +426,7 @@ def run_analytical_estimate(
     )
 
     # Compute arithmetic intensity (using fused memory traffic)
-    memory_traffic = fusion_report.total_memory_traffic_fused
+    memory_traffic = fusion_report.total_memory_traffic
     ai = fusion_report.total_flops / memory_traffic if memory_traffic > 0 else 0
     bottleneck = 'compute' if ai > 10 else 'memory'
 
