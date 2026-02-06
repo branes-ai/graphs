@@ -30,6 +30,46 @@ from .efficiency_curves import (
 )
 
 
+def _enforce_monotonicity(breakpoints: List[tuple], max_efficiency: float = 1.0) -> List[tuple]:
+    """
+    Enforce monotonically increasing efficiency in breakpoints with clamping.
+
+    Efficiency should generally increase with problem size as:
+    - Fixed overhead is better amortized
+    - Better memory access patterns
+    - Better utilization of parallel resources
+
+    This function also clamps efficiency to max_efficiency (default 100%) to handle
+    calibration data anomalies where measured throughput exceeds theoretical peak.
+
+    Args:
+        breakpoints: List of (size, efficiency) tuples, sorted by size
+        max_efficiency: Maximum allowed efficiency (default 1.0 = 100%)
+
+    Returns:
+        List of (size, efficiency) tuples with monotonically increasing,
+        clamped efficiency values
+    """
+    if len(breakpoints) <= 1:
+        return breakpoints
+
+    result = []
+    prev_eff = 0.0
+
+    for size, eff in breakpoints:
+        # Clamp efficiency to [0, max_efficiency]
+        eff = max(0.0, min(eff, max_efficiency))
+
+        # Enforce monotonicity: if efficiency decreased, use previous
+        if eff < prev_eff:
+            eff = prev_eff
+
+        result.append((size, eff))
+        prev_eff = eff
+
+    return result
+
+
 # Default calibration data directory
 CALIBRATION_DATA_DIR = Path(__file__).parent.parent.parent.parent / "calibration_data"
 
@@ -139,6 +179,9 @@ class GPUCalibration:
                 if breakpoints:
                     # Convert to list of tuples
                     bp_tuples = [tuple(bp) for bp in breakpoints]
+                    # Enforce monotonically increasing efficiency
+                    # This fixes calibration data anomalies (e.g., dips in matmul curve)
+                    bp_tuples = _enforce_monotonicity(bp_tuples)
                     curve = PiecewiseLinearCurve(breakpoints=bp_tuples)
                     profile.add_curve(op_type, curve, precision)
 
