@@ -652,26 +652,33 @@ def main():
 
     args = parser.parse_args()
 
-    # Determine sweep parameters
+    # Check device availability
+    if args.device == 'cuda' and not torch.cuda.is_available():
+        print("ERROR: CUDA not available. Falling back to CPU.")
+        args.device = 'cpu'
+
+    # Build device suffix with power mode for Jetson
+    device_suffix = args.device
+    if args.device == 'cuda':
+        power_mode = get_jetson_power_mode()
+        if power_mode:
+            device_suffix = f"cuda_{power_mode.lower()}"
+
+    # Determine sweep parameters and output filename
     if args.scenario:
         sweep_params = MEMORY_SCENARIOS[args.scenario]
-        output_file = args.output or f'mlp_sweep_{args.scenario}_{args.device}.csv'
+        output_file = args.output or f'mlp_sweep_{args.scenario}_{device_suffix}.csv'
     elif args.full:
         sweep_params = FULL_SWEEP
-        output_file = args.output or f'mlp_sweep_full_{args.device}.csv'
+        output_file = args.output or f'mlp_sweep_full_{device_suffix}.csv'
     else:  # Default to quick
         sweep_params = QUICK_SWEEP
-        output_file = args.output or f'mlp_sweep_quick_{args.device}.csv'
+        output_file = args.output or f'mlp_sweep_quick_{device_suffix}.csv'
 
     # Ensure output directory exists
     output_dir = Path(__file__).parent / 'results'
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / output_file
-
-    # Check device availability
-    if args.device == 'cuda' and not torch.cuda.is_available():
-        print("ERROR: CUDA not available. Falling back to CPU.")
-        args.device = 'cpu'
 
     # Run sweep
     results = run_sweep(sweep_params, device=args.device, output_file=str(output_path))
