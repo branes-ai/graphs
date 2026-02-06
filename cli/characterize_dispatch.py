@@ -122,23 +122,47 @@ def compute_statistics(latencies: List[float]) -> Dict[str, float]:
     }
 
 
-def build_histogram(latencies: List[float], bins: int = 20) -> List[Dict[str, Any]]:
-    """Build histogram of latencies."""
+def build_histogram(latencies: List[float], bins: int = 20,
+                    clip_percentile: float = 99.0) -> List[Dict[str, Any]]:
+    """Build histogram of latencies with outlier clipping.
+
+    Args:
+        latencies: List of latency measurements
+        bins: Number of histogram bins
+        clip_percentile: Percentile to clip histogram range (excludes extreme outliers)
+
+    Returns:
+        List of histogram bin dicts
+    """
     if not latencies:
         return []
 
-    min_val = min(latencies)
-    max_val = max(latencies)
+    sorted_lat = sorted(latencies)
+    n = len(sorted_lat)
 
-    # Add small buffer to include max value
+    # Use percentile-based range to exclude outliers
+    min_val = sorted_lat[0]
+    clip_idx = min(int(clip_percentile / 100 * (n - 1)), n - 1)
+    max_val = sorted_lat[clip_idx]
+
+    # Count outliers beyond clip range
+    outliers_above = n - clip_idx - 1
+
+    # Handle edge case where min == max
+    if max_val <= min_val:
+        max_val = min_val + 0.001
+
     bin_width = (max_val - min_val) / bins
-    if bin_width == 0:
-        bin_width = 0.001
 
     counts = [0] * bins
+    outlier_count = 0
     for lat in latencies:
-        bin_idx = min(int((lat - min_val) / bin_width), bins - 1)
-        counts[bin_idx] += 1
+        if lat > max_val:
+            outlier_count += 1
+        else:
+            bin_idx = min(int((lat - min_val) / bin_width), bins - 1)
+            bin_idx = max(0, bin_idx)  # Handle edge case
+            counts[bin_idx] += 1
 
     histogram = []
     for i in range(bins):
@@ -153,10 +177,14 @@ def build_histogram(latencies: List[float], bins: int = 20) -> List[Dict[str, An
             'percentage': pct,
         })
 
+    # Add outlier info to last bin metadata
+    if histogram:
+        histogram[-1]['outliers_above'] = outlier_count
+
     return histogram
 
 
-def print_histogram(histogram: List[Dict], max_bar_width: int = 50):
+def print_histogram(histogram: List[Dict], max_bar_width: int = 50, stats: Dict = None):
     """Print ASCII histogram."""
     if not histogram:
         return
@@ -165,11 +193,18 @@ def print_histogram(histogram: List[Dict], max_bar_width: int = 50):
     if max_pct == 0:
         max_pct = 1
 
-    print("\nHistogram:")
+    print("\nHistogram (p0-p99):")
     for h in histogram:
         bar_len = int(h['percentage'] / max_pct * max_bar_width)
         bar = '#' * bar_len
-        print(f"  {h['bin_start']:6.3f}-{h['bin_end']:6.3f} ms: {bar} ({h['percentage']:5.1f}%)")
+        print(f"  {h['bin_start']:7.4f} - {h['bin_end']:7.4f} ms: {bar:<{max_bar_width}} ({h['percentage']:5.1f}%)")
+
+    # Show outlier count if any
+    outliers = histogram[-1].get('outliers_above', 0)
+    if outliers > 0 and stats:
+        total = stats.get('count', len(histogram))
+        outlier_pct = outliers / total * 100
+        print(f"  [>{histogram[-1]['bin_end']:7.4f} ms: {outliers} outliers ({outlier_pct:.1f}%), max={stats['max']:.4f} ms]")
 
 
 def print_statistics(stats: Dict[str, float], kernel_type: str):
@@ -258,7 +293,7 @@ Examples:
         print_statistics(stats, kernel_type)
 
         if not args.quiet:
-            print_histogram(histogram)
+            print_histogram(histogram, stats=stats)
 
     # Summary comparison
     if len(args.kernel_types) > 1:
