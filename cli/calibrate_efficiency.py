@@ -155,6 +155,73 @@ def detect_gpu_info() -> Tuple[str, str]:
     return hardware_id, mapper
 
 
+def find_existing_calibration_id(detected_id: str, mapper_name: str, device: str) -> Optional[str]:
+    """Check if there's an existing calibration ID that matches the detected hardware.
+
+    Args:
+        detected_id: Auto-generated verbose ID (e.g., "12th_gen_intel_r_core_tm_i7_12700k")
+        mapper_name: Hardware mapper name (e.g., "i7-12700K", "Ryzen", "Jetson-Orin-AGX")
+        device: Device type ("cpu" or "cuda")
+
+    Returns:
+        Existing calibration ID if found, None otherwise
+    """
+    calibration_dir = repo_root / "calibration_data"
+    if not calibration_dir.exists():
+        return None
+
+    # Get existing calibration IDs
+    existing_ids = [d.name for d in calibration_dir.iterdir() if d.is_dir()]
+
+    # Also check HARDWARE_CONFIGS keys
+    existing_ids.extend(HARDWARE_CONFIGS.keys())
+    existing_ids = list(set(existing_ids))  # Remove duplicates
+
+    # Extract key identifiers from detected hardware for matching
+    detected_lower = detected_id.lower()
+
+    # Define patterns to extract from detected ID and match against existing
+    # Format: (pattern_in_detected, pattern_to_find_in_existing)
+    match_patterns = []
+
+    # Intel patterns
+    if 'i7_12700' in detected_lower or 'i7-12700' in mapper_name.lower():
+        match_patterns.append('i7_12700')
+    if 'i9_' in detected_lower:
+        match_patterns.append('i9_')
+    if 'xeon' in detected_lower:
+        match_patterns.append('xeon')
+
+    # AMD patterns
+    if 'ryzen' in detected_lower:
+        # Extract model number like "ryzen_7_8845" or "ryzen_9_7950"
+        match = re.search(r'ryzen_(\d+_\d+)', detected_lower)
+        if match:
+            match_patterns.append(f'ryzen_{match.group(1)}')
+        match_patterns.append('ryzen')
+    if 'epyc' in detected_lower:
+        match_patterns.append('epyc')
+
+    # Jetson patterns
+    if 'orin' in detected_lower:
+        if 'agx' in detected_lower:
+            match_patterns.append('orin_agx')
+        elif 'nx' in detected_lower:
+            match_patterns.append('orin_nx')
+        elif 'nano' in detected_lower:
+            match_patterns.append('orin_nano')
+
+    # Try to find a matching existing ID
+    for existing_id in existing_ids:
+        existing_lower = existing_id.lower()
+        for pattern in match_patterns:
+            if pattern in existing_lower:
+                # Found a match - prefer shorter/cleaner IDs
+                return existing_id
+
+    return None
+
+
 def auto_detect_hardware(prefer_gpu: bool = True) -> dict:
     """Auto-detect hardware and return configuration.
 
@@ -168,27 +235,34 @@ def auto_detect_hardware(prefer_gpu: bool = True) -> dict:
     cpu_id, cpu_mapper = detect_cpu_info()
 
     if prefer_gpu and gpu_id:
-        return {
-            "device": "cuda",
-            "hardware_arg": gpu_mapper,
-            "thermal_profile": None,
-            "description": f"Auto-detected: {torch.cuda.get_device_name(0)}",
-            "hardware_id": gpu_id,
-        }
+        device = "cuda"
+        detected_id = gpu_id
+        mapper = gpu_mapper
+        description = torch.cuda.get_device_name(0)
     else:
-        cpu_name = platform.processor()
+        device = "cpu"
+        detected_id = cpu_id
+        mapper = cpu_mapper
         try:
             import cpuinfo
-            cpu_name = cpuinfo.get_cpu_info().get('brand_raw', cpu_name)
+            description = cpuinfo.get_cpu_info().get('brand_raw', platform.processor())
         except:
-            pass
-        return {
-            "device": "cpu",
-            "hardware_arg": cpu_mapper,
-            "thermal_profile": None,
-            "description": f"Auto-detected: {cpu_name}",
-            "hardware_id": cpu_id,
-        }
+            description = platform.processor()
+
+    # Check for existing calibration ID that matches this hardware
+    existing_id = find_existing_calibration_id(detected_id, mapper, device)
+    if existing_id:
+        hardware_id = existing_id
+    else:
+        hardware_id = detected_id
+
+    return {
+        "device": device,
+        "hardware_arg": mapper,
+        "thermal_profile": None,
+        "description": f"Auto-detected: {description}",
+        "hardware_id": hardware_id,
+    }
 
 
 # ============================================================================
