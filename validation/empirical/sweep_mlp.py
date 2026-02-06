@@ -407,8 +407,12 @@ def run_analytical_estimate(
         detected_power_mode = get_jetson_power_mode()
         if detected_power_mode:
             # Normalize power mode name for calibration lookup
-            # nvpmodel returns names like 'MAXN', '50W', '30W', '15W'
-            power_mode_normalized = detected_power_mode.lower().replace(' ', '_')
+            # nvpmodel returns names like 'MODE_50W', 'MODE_30W', 'MAXN'
+            # Strip 'MODE_' prefix and convert to lowercase for calibration dir
+            pm = detected_power_mode.upper()
+            if pm.startswith('MODE_'):
+                pm = pm[5:]  # Remove 'MODE_' prefix
+            power_mode_normalized = pm.lower()
         else:
             power_mode_normalized = None
 
@@ -433,8 +437,15 @@ def run_analytical_estimate(
             calibration = GPUCalibration.load(calibration_hw_id, precision)
 
         # Pass thermal profile to mapper to match calibration data
-        # Power mode names from nvpmodel: 'MAXN', '50W', '30W', '15W'
-        thermal_profile = detected_power_mode if detected_power_mode else None
+        # nvpmodel returns names like 'MODE_50W', 'MODE_30W', 'MAXN'
+        # Thermal profiles in resource model are: '15W', '30W', '50W', 'MAXN'
+        thermal_profile = None
+        if detected_power_mode:
+            # Strip 'MODE_' prefix if present and normalize
+            tp = detected_power_mode.upper()
+            if tp.startswith('MODE_'):
+                tp = tp[5:]  # Remove 'MODE_' prefix
+            thermal_profile = tp
 
         if gpu_model == 'jetson-orin-agx':
             mapper = create_jetson_orin_agx_64gb_mapper(
@@ -544,7 +555,13 @@ def run_sweep(
 
         # Check calibration availability
         if gpu_model.startswith('jetson'):
-            power_normalized = power_mode.lower().replace(' ', '_') if power_mode else None
+            # Normalize: strip MODE_ prefix, convert to lowercase
+            power_normalized = None
+            if power_mode:
+                pm = power_mode.upper()
+                if pm.startswith('MODE_'):
+                    pm = pm[5:]
+                power_normalized = pm.lower()
             if power_normalized:
                 cal_id = f"jetson_orin_agx_{power_normalized}"
                 cal = GPUCalibration.load(cal_id, 'fp32')
@@ -675,7 +692,11 @@ def main():
     if args.device == 'cuda':
         power_mode = get_jetson_power_mode()
         if power_mode:
-            device_suffix = f"cuda_{power_mode.lower()}"
+            # Normalize: strip MODE_ prefix
+            pm = power_mode.upper()
+            if pm.startswith('MODE_'):
+                pm = pm[5:]
+            device_suffix = f"cuda_{pm.lower()}"
 
     # Determine sweep parameters and output filename
     if args.scenario:
