@@ -592,6 +592,11 @@ Examples:
     model, input_tensor, display_name = analyzer._create_model(args.model, args.batch_size)
     model.eval()
 
+    # For CUDA with reduced precision, move to GPU first (CPU doesn't support FP16 conv2d)
+    if device == 'cuda' and args.precision in ('fp16', 'bf16'):
+        model = model.cuda()
+        input_tensor = input_tensor.cuda()
+
     # Convert model/input to requested precision
     if args.precision == 'fp16':
         model = model.half()
