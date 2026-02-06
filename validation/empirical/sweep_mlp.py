@@ -432,12 +432,25 @@ def run_analytical_estimate(
             calibration_hw_id = "jetson_orin_nano"
             calibration = GPUCalibration.load(calibration_hw_id, precision)
 
+        # Pass thermal profile to mapper to match calibration data
+        # Power mode names from nvpmodel: 'MAXN', '50W', '30W', '15W'
+        thermal_profile = detected_power_mode if detected_power_mode else None
+
         if gpu_model == 'jetson-orin-agx':
-            mapper = create_jetson_orin_agx_64gb_mapper(calibration=calibration)
+            mapper = create_jetson_orin_agx_64gb_mapper(
+                thermal_profile=thermal_profile,
+                calibration=calibration
+            )
         elif gpu_model == 'jetson-orin-nx':
-            mapper = create_jetson_orin_nx_16gb_mapper(calibration=calibration)
+            mapper = create_jetson_orin_nx_16gb_mapper(
+                thermal_profile=thermal_profile,
+                calibration=calibration
+            )
         elif gpu_model == 'jetson-orin-nano':
-            mapper = create_jetson_orin_nano_8gb_mapper(calibration=calibration)
+            mapper = create_jetson_orin_nano_8gb_mapper(
+                thermal_profile=thermal_profile,
+                calibration=calibration
+            )
         else:
             # Default to H100 for datacenter GPUs (no calibration yet)
             mapper = create_h100_pcie_80gb_mapper()

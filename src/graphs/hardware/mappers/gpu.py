@@ -227,24 +227,19 @@ class GPUMapper(HardwareMapper):
 
         estimated_latency = max(compute_time, memory_time)
 
-        # Apply size-dependent calibration correction
-        if self.calibration is not None:
+        # Apply size-dependent calibration: use calibrated efficiency directly
+        if self.calibration is not None and ops > 0:
             calibrated_eff = self._get_calibrated_efficiency(subgraph)
-            if calibrated_eff > 0 and ops > 0 and estimated_latency > 0:
-                # Compute what efficiency the base model implicitly achieved
-                # base_eff = (ops / latency) / theoretical_peak
+            if calibrated_eff > 0:
+                # Direct calculation: latency = ops / (peak * efficiency)
                 peak_ops = self.resource_model.get_peak_ops(precision)
-                base_throughput = ops / estimated_latency  # ops/sec achieved by base model
-                base_eff = base_throughput / peak_ops if peak_ops > 0 else self.default_efficiency
+                calibrated_latency = ops / (peak_ops * calibrated_eff)
 
-                # Correction ratio: how much does calibrated differ from base model's assumption
-                efficiency_ratio = calibrated_eff / base_eff if base_eff > 0 else 1.0
-
-                # Apply correction (cap to avoid extreme corrections)
-                efficiency_ratio = max(0.01, min(100.0, efficiency_ratio))
-                estimated_latency = estimated_latency / efficiency_ratio
-                compute_time = compute_time / efficiency_ratio
-                memory_time = memory_time / efficiency_ratio
+                # Use calibrated latency (it already includes all inefficiencies)
+                estimated_latency = calibrated_latency
+                # Preserve bottleneck classification from base model
+                compute_time = calibrated_latency if compute_time > memory_time else compute_time
+                memory_time = calibrated_latency if memory_time >= compute_time else memory_time
 
         # Calculate energy
         compute_energy, memory_energy = self._calculate_energy(
@@ -424,31 +419,30 @@ class GPUMapper(HardwareMapper):
             bottleneck = (BottleneckType.COMPUTE_BOUND if compute_time > memory_time
                          else BottleneckType.BANDWIDTH_BOUND)
 
-            # Apply size-dependent calibration correction
-            if self.calibration is not None:
+            # Apply size-dependent calibration: use calibrated efficiency directly
+            if self.calibration is not None and ops > 0:
                 calibrated_eff = self._get_calibrated_efficiency(sg)
-                if calibrated_eff > 0 and ops > 0 and kernel_time > 0:
-                    # Compute what efficiency the base model implicitly achieved
+                if calibrated_eff > 0:
+                    # Direct calculation: latency = ops / (peak * efficiency)
                     peak_ops = self.resource_model.get_peak_ops(precision)
-                    base_throughput = ops / kernel_time
-                    base_eff = base_throughput / peak_ops if peak_ops > 0 else self.default_efficiency
-
-                    # Correction ratio with bounds to avoid extreme corrections
-                    efficiency_ratio = calibrated_eff / base_eff if base_eff > 0 else 1.0
-                    efficiency_ratio = max(0.01, min(100.0, efficiency_ratio))
-                    kernel_time = kernel_time / efficiency_ratio
-                    compute_time = compute_time / efficiency_ratio
-                    memory_time = memory_time / efficiency_ratio
+                    calibrated_latency = ops / (peak_ops * calibrated_eff)
+                    kernel_time = calibrated_latency
+                    # Preserve original compute/memory for bottleneck analysis
+                    if compute_time > memory_time:
+                        compute_time = calibrated_latency
+                    else:
+                        memory_time = calibrated_latency
 
             # Add kernel launch overhead
-            # Note: calibration captures dispatch effects for compute-heavy ops,
-            # but tiny ops (activations, 0-FLOP) still need minimum dispatch time
+            # For calibrated execution, use max() because calibration may already
+            # capture dispatch effects for small ops (very low efficiency = high latency).
+            # For tiny ops where calibration gives latency < dispatch, use dispatch time.
+            # For uncalibrated execution, add dispatch overhead explicitly.
             disable_overhead = getattr(self, 'disable_launch_overhead', False)
             if disable_overhead:
                 kernel_latency = kernel_time
             elif self.calibration is not None:
-                # With calibration: use calibrated time but enforce minimum dispatch time
-                # This handles 0-FLOP ops where calibration can't apply
+                # With calibration: enforce minimum dispatch time for tiny ops
                 kernel_latency = max(kernel_time, self.kernel_launch_overhead)
             else:
                 kernel_latency = kernel_time + self.kernel_launch_overhead
