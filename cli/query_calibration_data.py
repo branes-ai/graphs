@@ -143,19 +143,23 @@ def load_hardware_data(hardware_id: str, precision: str = "fp32") -> Dict[str, A
 
 def list_hardware():
     """List all hardware targets and their calibration status."""
-    print("\n" + "=" * 90)
-    print("  CALIBRATION DATA SUMMARY")
-    print("=" * 90)
-
     entries = find_calibration_entries()
 
     if not entries:
-        print("  No calibration data found")
+        print("\n  No calibration data found")
         return
 
+    # Calculate column width based on longest hardware ID
+    hw_id_width = max(len("Hardware ID"), max(len(hw_id) for hw_id, _, _ in entries))
+    total_width = hw_id_width + 60  # Other columns take ~60 chars
+
+    print("\n" + "=" * total_width)
+    print("  CALIBRATION DATA SUMMARY")
+    print("=" * total_width)
+
     headers = ["Hardware ID", "Precision", "Models", "Op Types", "Data Points", "Date"]
-    print(f"\n  {headers[0]:<25} {headers[1]:<10} {headers[2]:>7} {headers[3]:>9} {headers[4]:>12} {headers[5]:<12}")
-    print("  " + "-" * 82)
+    print(f"\n  {headers[0]:<{hw_id_width}} {headers[1]:<10} {headers[2]:>7} {headers[3]:>9} {headers[4]:>12} {headers[5]:<12}")
+    print("  " + "-" * (total_width - 2))
 
     for hw_id, precision, cal_dir in entries:
         measurements_dir = cal_dir / "measurements"
@@ -177,7 +181,7 @@ def list_hardware():
                 if cal_date:
                     date = cal_date[:10]
 
-        print(f"  {hw_id:<25} {precision:<10} {model_count:>7} {op_types:>9} {data_points:>12} {date:<12}")
+        print(f"  {hw_id:<{hw_id_width}} {precision:<10} {model_count:>7} {op_types:>9} {data_points:>12} {date:<12}")
 
     print()
 
