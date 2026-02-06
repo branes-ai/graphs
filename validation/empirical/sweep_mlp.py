@@ -44,6 +44,7 @@ from src.graphs.hardware.mappers.gpu import (
     create_jetson_orin_nx_16gb_mapper,
 )
 from src.graphs.hardware.resource_model import Precision
+from src.graphs.calibration.gpu_calibration import GPUCalibration
 
 # Import existing MLP models
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../workloads/pytorch/mlp'))
@@ -396,14 +397,33 @@ def run_analytical_estimate(
             mapper = create_intel_cpu_mapper()
     elif device == 'cuda':
         gpu_model = detect_gpu_model()
+
+        # Load calibration data if available
+        calibration = None
+        calibration_hw_id = None
         if gpu_model == 'jetson-orin-agx':
-            mapper = create_jetson_orin_agx_64gb_mapper()
+            # Try to load calibration for various power modes (50w is default)
+            for power_mode in ['50w', '30w', 'maxn', '15w']:
+                calibration_hw_id = f"jetson_orin_agx_{power_mode}"
+                calibration = GPUCalibration.load(calibration_hw_id, precision)
+                if calibration:
+                    break
         elif gpu_model == 'jetson-orin-nx':
-            mapper = create_jetson_orin_nx_16gb_mapper()
+            calibration_hw_id = "jetson_orin_nx"
+            calibration = GPUCalibration.load(calibration_hw_id, precision)
         elif gpu_model == 'jetson-orin-nano':
-            mapper = create_jetson_orin_nano_8gb_mapper()
+            calibration_hw_id = "jetson_orin_nano"
+            calibration = GPUCalibration.load(calibration_hw_id, precision)
+
+        # Create mapper with calibration
+        if gpu_model == 'jetson-orin-agx':
+            mapper = create_jetson_orin_agx_64gb_mapper(calibration=calibration)
+        elif gpu_model == 'jetson-orin-nx':
+            mapper = create_jetson_orin_nx_16gb_mapper(calibration=calibration)
+        elif gpu_model == 'jetson-orin-nano':
+            mapper = create_jetson_orin_nano_8gb_mapper(calibration=calibration)
         else:
-            # Default to H100 for datacenter GPUs
+            # Default to H100 for datacenter GPUs (no calibration yet)
             mapper = create_h100_pcie_80gb_mapper()
     else:
         raise ValueError(f"Unsupported device: {device}")

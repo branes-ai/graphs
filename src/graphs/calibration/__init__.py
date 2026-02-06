@@ -63,6 +63,7 @@ from .efficiency_curves import (
     fit_efficiency_curve,
     auto_fit_efficiency_curve,
 )
+from .gpu_calibration import GPUCalibration
 from .energy_fitter import (
     EnergyFitter,
     EnergyCoefficients,
@@ -138,6 +139,8 @@ __all__ = [
     'CurveFitResult',
     'fit_efficiency_curve',
     'auto_fit_efficiency_curve',
+    # GPU calibration
+    'GPUCalibration',
     # Energy fitting (TASK-2026-008)
     'EnergyFitter',
     'EnergyCoefficients',
