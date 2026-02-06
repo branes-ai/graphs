@@ -45,6 +45,7 @@ from src.graphs.hardware.mappers.gpu import (
 )
 from src.graphs.hardware.resource_model import Precision
 from src.graphs.calibration.gpu_calibration import GPUCalibration
+from src.graphs.calibration.gpu_clock import get_jetson_power_mode
 
 # Import existing MLP models
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../workloads/pytorch/mlp'))
@@ -398,16 +399,34 @@ def run_analytical_estimate(
     elif device == 'cuda':
         gpu_model = detect_gpu_model()
 
-        # Load calibration data if available
+        # Load calibration data if available - detect actual power mode
         calibration = None
         calibration_hw_id = None
+
+        # Auto-detect Jetson power mode
+        detected_power_mode = get_jetson_power_mode()
+        if detected_power_mode:
+            # Normalize power mode name for calibration lookup
+            # nvpmodel returns names like 'MAXN', '50W', '30W', '15W'
+            power_mode_normalized = detected_power_mode.lower().replace(' ', '_')
+            print(f"  [DEBUG] Detected Jetson power mode: {detected_power_mode}")
+        else:
+            power_mode_normalized = None
+
         if gpu_model == 'jetson-orin-agx':
-            # Try to load calibration for various power modes (50w is default)
-            for power_mode in ['50w', '30w', 'maxn', '15w']:
-                calibration_hw_id = f"jetson_orin_agx_{power_mode}"
+            if power_mode_normalized:
+                # Try detected power mode first
+                calibration_hw_id = f"jetson_orin_agx_{power_mode_normalized}"
                 calibration = GPUCalibration.load(calibration_hw_id, precision)
-                if calibration:
-                    break
+
+            if not calibration:
+                # Fallback: try common power modes
+                for power_mode in ['maxn', '50w', '30w', '15w']:
+                    calibration_hw_id = f"jetson_orin_agx_{power_mode}"
+                    calibration = GPUCalibration.load(calibration_hw_id, precision)
+                    if calibration:
+                        print(f"  [DEBUG] Fallback: using {power_mode} calibration")
+                        break
         elif gpu_model == 'jetson-orin-nx':
             calibration_hw_id = "jetson_orin_nx"
             calibration = GPUCalibration.load(calibration_hw_id, precision)
