@@ -45,8 +45,11 @@ class GPUMapper(HardwareMapper):
     - Sequential execution mode for small DNNs (batch=1, limited parallelism)
     """
 
-    # Kernel launch overhead (empirical: ~5-10 µs per kernel)
-    KERNEL_LAUNCH_OVERHEAD = 10e-6  # 10 microseconds
+    # Kernel launch overhead varies by device class:
+    # - Datacenter GPUs (H100, A100): ~5-10 µs per kernel
+    # - Edge devices (Jetson): ~50-100 µs per kernel (Tegra software stack overhead)
+    KERNEL_LAUNCH_OVERHEAD_DATACENTER = 10e-6  # 10 microseconds
+    KERNEL_LAUNCH_OVERHEAD_EDGE = 80e-6  # 80 microseconds (measured on Jetson)
 
     # Idle power fraction (nanoscale transistor leakage)
     # Modern GPUs consume ~50% TDP at idle
@@ -76,6 +79,23 @@ class GPUMapper(HardwareMapper):
         # Calibration data for size-dependent efficiency
         self.calibration = calibration
         self.default_efficiency = 0.50  # Fallback when no calibration
+
+        # Determine kernel launch overhead based on device class
+        # Edge devices (Jetson, etc.) have higher software stack overhead
+        self._is_edge_device = self._detect_edge_device()
+
+    def _detect_edge_device(self) -> bool:
+        """Detect if this is an edge device (higher dispatch overhead)."""
+        name = self.resource_model.name.lower()
+        edge_indicators = ['jetson', 'orin', 'xavier', 'tegra', 'nano', 'edge']
+        return any(ind in name for ind in edge_indicators)
+
+    @property
+    def kernel_launch_overhead(self) -> float:
+        """Get appropriate kernel launch overhead for this device class."""
+        if self._is_edge_device:
+            return self.KERNEL_LAUNCH_OVERHEAD_EDGE
+        return self.KERNEL_LAUNCH_OVERHEAD_DATACENTER
 
     def _classify_operation(self, subgraph: FusedSubgraph) -> str:
         """
@@ -114,6 +134,13 @@ class GPUMapper(HardwareMapper):
             return "conv2d"
         elif "linear" in node_names or "matmul" in node_names:
             return "matmul"
+
+        # Heuristic: operations with significant MACs are likely matmul (Linear layers)
+        # Operations with 0 FLOPs/MACs are likely activations
+        if subgraph.total_macs > 0:
+            return "matmul"
+        elif subgraph.total_flops == 0:
+            return "activation"
 
         return "unfused"
 
@@ -203,10 +230,18 @@ class GPUMapper(HardwareMapper):
         # Apply size-dependent calibration correction
         if self.calibration is not None:
             calibrated_eff = self._get_calibrated_efficiency(subgraph)
-            if calibrated_eff > 0:
-                # Efficiency correction: adjust latency based on calibrated vs default
-                # Higher efficiency = faster execution, so divide latency by efficiency ratio
-                efficiency_ratio = calibrated_eff / self.default_efficiency
+            if calibrated_eff > 0 and ops > 0 and estimated_latency > 0:
+                # Compute what efficiency the base model implicitly achieved
+                # base_eff = (ops / latency) / theoretical_peak
+                peak_ops = self.resource_model.get_peak_ops(precision)
+                base_throughput = ops / estimated_latency  # ops/sec achieved by base model
+                base_eff = base_throughput / peak_ops if peak_ops > 0 else self.default_efficiency
+
+                # Correction ratio: how much does calibrated differ from base model's assumption
+                efficiency_ratio = calibrated_eff / base_eff if base_eff > 0 else 1.0
+
+                # Apply correction (cap to avoid extreme corrections)
+                efficiency_ratio = max(0.01, min(100.0, efficiency_ratio))
                 estimated_latency = estimated_latency / efficiency_ratio
                 compute_time = compute_time / efficiency_ratio
                 memory_time = memory_time / efficiency_ratio
@@ -392,19 +427,31 @@ class GPUMapper(HardwareMapper):
             # Apply size-dependent calibration correction
             if self.calibration is not None:
                 calibrated_eff = self._get_calibrated_efficiency(sg)
-                if calibrated_eff > 0:
-                    efficiency_ratio = calibrated_eff / self.default_efficiency
+                if calibrated_eff > 0 and ops > 0 and kernel_time > 0:
+                    # Compute what efficiency the base model implicitly achieved
+                    peak_ops = self.resource_model.get_peak_ops(precision)
+                    base_throughput = ops / kernel_time
+                    base_eff = base_throughput / peak_ops if peak_ops > 0 else self.default_efficiency
+
+                    # Correction ratio with bounds to avoid extreme corrections
+                    efficiency_ratio = calibrated_eff / base_eff if base_eff > 0 else 1.0
+                    efficiency_ratio = max(0.01, min(100.0, efficiency_ratio))
                     kernel_time = kernel_time / efficiency_ratio
                     compute_time = compute_time / efficiency_ratio
                     memory_time = memory_time / efficiency_ratio
 
-            # Add kernel launch overhead (unless disabled for micro-benchmarks)
-            # Check execution_context for disable_launch_overhead flag
+            # Add kernel launch overhead
+            # Note: calibration captures dispatch effects for compute-heavy ops,
+            # but tiny ops (activations, 0-FLOP) still need minimum dispatch time
             disable_overhead = getattr(self, 'disable_launch_overhead', False)
             if disable_overhead:
-                kernel_latency = kernel_time  # Pure compute time only
+                kernel_latency = kernel_time
+            elif self.calibration is not None:
+                # With calibration: use calibrated time but enforce minimum dispatch time
+                # This handles 0-FLOP ops where calibration can't apply
+                kernel_latency = max(kernel_time, self.kernel_launch_overhead)
             else:
-                kernel_latency = kernel_time + self.KERNEL_LAUNCH_OVERHEAD
+                kernel_latency = kernel_time + self.kernel_launch_overhead
 
             # Calculate energy for this kernel
             compute_energy, memory_energy = self._calculate_energy(

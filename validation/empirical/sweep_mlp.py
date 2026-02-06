@@ -416,6 +416,11 @@ def run_analytical_estimate(
             calibration = GPUCalibration.load(calibration_hw_id, precision)
 
         # Create mapper with calibration
+        if calibration:
+            print(f"  [DEBUG] Calibration loaded: {calibration_hw_id}, ops={calibration.list_operations()}")
+        else:
+            print(f"  [DEBUG] No calibration loaded for {gpu_model}")
+
         if gpu_model == 'jetson-orin-agx':
             mapper = create_jetson_orin_agx_64gb_mapper(calibration=calibration)
         elif gpu_model == 'jetson-orin-nx':
