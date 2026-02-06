@@ -409,7 +409,6 @@ def run_analytical_estimate(
             # Normalize power mode name for calibration lookup
             # nvpmodel returns names like 'MAXN', '50W', '30W', '15W'
             power_mode_normalized = detected_power_mode.lower().replace(' ', '_')
-            print(f"  [DEBUG] Detected Jetson power mode: {detected_power_mode}")
         else:
             power_mode_normalized = None
 
@@ -425,7 +424,6 @@ def run_analytical_estimate(
                     calibration_hw_id = f"jetson_orin_agx_{power_mode}"
                     calibration = GPUCalibration.load(calibration_hw_id, precision)
                     if calibration:
-                        print(f"  [DEBUG] Fallback: using {power_mode} calibration")
                         break
         elif gpu_model == 'jetson-orin-nx':
             calibration_hw_id = "jetson_orin_nx"
@@ -433,12 +431,6 @@ def run_analytical_estimate(
         elif gpu_model == 'jetson-orin-nano':
             calibration_hw_id = "jetson_orin_nano"
             calibration = GPUCalibration.load(calibration_hw_id, precision)
-
-        # Create mapper with calibration
-        if calibration:
-            print(f"  [DEBUG] Calibration loaded: {calibration_hw_id}, ops={calibration.list_operations()}")
-        else:
-            print(f"  [DEBUG] No calibration loaded for {gpu_model}")
 
         if gpu_model == 'jetson-orin-agx':
             mapper = create_jetson_orin_agx_64gb_mapper(calibration=calibration)
@@ -521,22 +513,43 @@ def run_sweep(
     print(f"Running sweep with {total_configs} configurations on {device}...")
     print(f"Results will be saved to: {output_file}")
 
-    # Show detected hardware mapper
+    # Show detected hardware and calibration info
     if device == 'cpu':
         cpu_model = detect_cpu_model()
         if cpu_model == 'i7-12700k':
-            print(f"Detected CPU: Intel i7-12700K -> Using calibrated mapper")
+            print(f"  Hardware:    Intel i7-12700K (calibrated)")
         else:
-            print(f"Using generic Intel CPU mapper")
+            print(f"  Hardware:    Generic Intel CPU")
     elif device == 'cuda':
         gpu_model = detect_gpu_model()
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Unknown"
+        power_mode = get_jetson_power_mode()
+
+        print(f"  Hardware:    {gpu_name}")
+        if power_mode:
+            print(f"  Power Mode:  {power_mode}")
+
+        # Check calibration availability
         if gpu_model.startswith('jetson'):
-            print(f"Detected GPU: {gpu_name} -> Using {gpu_model} mapper")
-        elif gpu_model == 'h100':
-            print(f"Detected GPU: {gpu_name} -> Using H100 mapper")
+            power_normalized = power_mode.lower().replace(' ', '_') if power_mode else None
+            if power_normalized:
+                cal_id = f"jetson_orin_agx_{power_normalized}"
+                cal = GPUCalibration.load(cal_id, 'fp32')
+                if cal:
+                    print(f"  Calibration: {cal_id} (matched)")
+                else:
+                    # Try fallbacks
+                    for pm in ['maxn', '50w', '30w', '15w']:
+                        cal = GPUCalibration.load(f"jetson_orin_agx_{pm}", 'fp32')
+                        if cal:
+                            print(f"  Calibration: jetson_orin_agx_{pm} (fallback)")
+                            break
+                    if not cal:
+                        print(f"  Calibration: None available")
+            else:
+                print(f"  Calibration: Power mode not detected")
         else:
-            print(f"Detected GPU: {gpu_name} -> Using H100 mapper (default)")
+            print(f"  Calibration: None (using theoretical peaks)")
 
     print("=" * 80)
 
