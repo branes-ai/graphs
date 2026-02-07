@@ -104,7 +104,8 @@ class HardwareInfo:
     """Detected hardware information."""
     device_type: str  # 'cuda' or 'cpu'
     device_name: str
-    hardware_id: str  # e.g., 'jetson_orin_agx_50w'
+    hardware_id: str  # e.g., 'jetson_orin_agx_50w' (for directory naming)
+    mapper_name: str = ""  # e.g., 'jetson-orin-agx' (for unified analyzer lookup)
     power_mode: Optional[str] = None
     clock_mhz: Optional[int] = None
     memory_gb: Optional[float] = None
@@ -141,17 +142,21 @@ def _detect_gpu() -> HardwareInfo:
     except ImportError:
         pass
 
-    # Build hardware ID
+    # Build hardware ID (for directory naming) and mapper name (for unified analyzer)
     gpu_lower = gpu_name.lower()
     if 'orin' in gpu_lower:
         if 'agx' in gpu_lower or '64gb' in gpu_lower:
             base_id = "jetson_orin_agx"
+            mapper_name = "jetson-orin-agx"
         elif 'nx' in gpu_lower:
             base_id = "jetson_orin_nx"
+            mapper_name = "jetson-orin-nx"
         elif 'nano' in gpu_lower:
             base_id = "jetson_orin_nano"
+            mapper_name = "jetson-orin-nano"
         else:
             base_id = "jetson_orin"
+            mapper_name = "jetson-orin"
 
         if power_mode:
             hardware_id = f"{base_id}_{power_mode.lower()}"
@@ -159,8 +164,16 @@ def _detect_gpu() -> HardwareInfo:
             hardware_id = base_id
     elif 'h100' in gpu_lower:
         hardware_id = "nvidia_h100"
+        mapper_name = "h100"
     elif 'a100' in gpu_lower:
         hardware_id = "nvidia_a100"
+        mapper_name = "a100"
+    elif 'v100' in gpu_lower:
+        hardware_id = "nvidia_v100"
+        mapper_name = "v100"
+    elif 'b100' in gpu_lower:
+        hardware_id = "nvidia_b100"
+        mapper_name = "b100"
     elif 'rtx' in gpu_lower:
         # Extract RTX model
         import re
@@ -169,9 +182,12 @@ def _detect_gpu() -> HardwareInfo:
             hardware_id = f"nvidia_rtx_{match.group(1)}"
         else:
             hardware_id = "nvidia_rtx"
+        # No RTX mapper available; fall back to generic GPU name
+        mapper_name = hardware_id.replace('_', '-')
     else:
         # Generic GPU ID
         hardware_id = gpu_name.lower().replace(' ', '_').replace('-', '_')
+        mapper_name = hardware_id.replace('_', '-')
 
     # Estimate CUDA/Tensor cores from compute capability
     major, minor = props.major, props.minor
@@ -182,6 +198,7 @@ def _detect_gpu() -> HardwareInfo:
         device_type="cuda",
         device_name=gpu_name,
         hardware_id=hardware_id,
+        mapper_name=mapper_name,
         power_mode=power_mode,
         memory_gb=props.total_memory / (1024**3),
         cuda_cores=cuda_cores,
@@ -228,28 +245,49 @@ def _detect_cpu() -> HardwareInfo:
     except ImportError:
         pass
 
-    # Build hardware ID
+    # Build hardware ID (for directory naming) and mapper name (for unified analyzer)
     cpu_lower = cpu_name.lower()
     if 'i7' in cpu_lower or 'i9' in cpu_lower or 'i5' in cpu_lower:
         import re
-        match = re.search(r'i[579]-(\d+)', cpu_lower)
+        match = re.search(r'(i[579]-\d+\w*)', cpu_lower)
         if match:
-            hardware_id = f"intel_core_i7_{match.group(1)}"
+            cpu_model = match.group(1)  # e.g., 'i7-12700k'
+            hardware_id = f"intel_core_{cpu_model.replace('-', '_')}"
+            mapper_name = cpu_model  # e.g., 'i7-12700k'
         else:
             hardware_id = "intel_core"
+            mapper_name = "i7-12700k"  # best-effort default
     elif 'ryzen' in cpu_lower:
-        hardware_id = "amd_ryzen"
+        import re
+        match = re.search(r'(ryzen\s+\d+\s+\d+\w*)', cpu_lower)
+        if match:
+            cpu_model = match.group(1).replace(' ', '-')  # e.g., 'ryzen-7-5800x'
+            hardware_id = f"amd_{cpu_model.replace('-', '_')}"
+            mapper_name = cpu_model
+        else:
+            hardware_id = "amd_ryzen"
+            mapper_name = "ryzen"
     elif 'xeon' in cpu_lower:
         hardware_id = "intel_xeon"
+        mapper_name = "xeon"
+    elif 'epyc' in cpu_lower:
+        hardware_id = "amd_epyc"
+        mapper_name = "epyc"
+    elif 'ampere' in cpu_lower:
+        hardware_id = "ampere_one"
+        mapper_name = "ampere-one"
     elif 'arm' in cpu_lower or 'aarch64' in cpu_lower:
         hardware_id = "arm_cpu"
+        mapper_name = hardware_id.replace('_', '-')
     else:
         hardware_id = cpu_name.lower().replace(' ', '_').replace('-', '_')[:30]
+        mapper_name = hardware_id.replace('_', '-')
 
     return HardwareInfo(
         device_type="cpu",
         device_name=cpu_name,
         hardware_id=hardware_id,
+        mapper_name=mapper_name,
     )
 
 
@@ -298,6 +336,7 @@ def run_full_calibration(
     hw = detect_hardware(device)
     print(f"Device:      {hw.device_name}")
     print(f"Hardware ID: {hw.hardware_id}")
+    print(f"Mapper:      {hw.mapper_name}")
     if hw.power_mode:
         print(f"Power Mode:  {hw.power_mode}")
     if hw.cuda_cores:
@@ -443,7 +482,7 @@ def _run_measurement(
         sys.executable,
         str(REPO_ROOT / "cli" / "measure_efficiency.py"),
         "--model", model,
-        "--hardware", hardware.device_name.split()[0],  # First word
+        "--hardware", hardware.mapper_name,
         "--id", hardware.hardware_id,
         "--device", hardware.device_type,
         "--precision", precision,
