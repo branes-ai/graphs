@@ -93,6 +93,7 @@ class GPUCalibration:
         "matmul": ["matmul", "linear", "gemm", "mm"],
         "conv2d": ["conv2d", "conv"],
         "conv2d_batchnorm": ["conv2d_batchnorm", "conv_bn", "conv_bn_relu"],
+        "depthwise": ["depthwise", "depthwise_conv2d", "dwconv"],
         "activation": ["activation", "relu", "gelu", "softmax", "sigmoid", "tanh"],
         "unfused": ["unfused", "add", "mul", "elementwise"],
     })
