@@ -355,9 +355,9 @@ def run_full_calibration(
         start_time=datetime.now().isoformat(),
     )
 
-    # Setup directories
-    measurements_dir = output_base / "measurements" / hw.hardware_id
+    # Setup directories -- canonical layout: calibration_data/<hw>/measurements/<prec>/
     calibration_dir = output_base / "calibration_data" / hw.hardware_id
+    measurements_dir = calibration_dir / "measurements"
 
     run.measurements_dir = str(measurements_dir)
     run.output_dir = str(calibration_dir)
@@ -439,6 +439,18 @@ def run_full_calibration(
 
         if not success:
             run.errors.append(f"aggregate_{precision}")
+
+    # Rebuild manifest.json for this hardware
+    print()
+    print("Rebuilding manifest...")
+    try:
+        from graphs.calibration.ground_truth import GroundTruthLoader
+        loader = GroundTruthLoader(output_base / "calibration_data")
+        manifest = loader.rebuild_manifest(hw.hardware_id)
+        print(f"  Manifest: {len(manifest.measurements)} entries")
+    except Exception as e:
+        print(f"  WARNING: Failed to build manifest: {e}")
+        run.errors.append(f"manifest_{hw.hardware_id}")
 
     # Save run metadata
     run.end_time = datetime.now().isoformat()

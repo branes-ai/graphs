@@ -28,6 +28,7 @@ import math
 import statistics
 import sys
 import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -45,63 +46,14 @@ from torch.fx.passes.shape_prop import ShapeProp
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
 from graphs.transform.partitioning.fusion_partitioner import FusionBasedPartitioner
 from graphs.hardware.resource_model import Precision
-
-
-# ============================================================================
-# Data structures
-# ============================================================================
-
-@dataclass
-class LatencyStats:
-    """Statistical summary of latency measurements."""
-    mean: float
-    std: float
-    min: float
-    max: float
-    ci_lower: float  # 95% CI
-    ci_upper: float
-    samples: int
-
-    def to_dict(self):
-        return asdict(self)
-
-
-@dataclass
-class EfficiencyStats:
-    """Statistical summary of efficiency measurements."""
-    mean: float
-    std: float
-    min: float
-    max: float
-    ci_lower: float  # 95% CI
-    ci_upper: float
-    samples: int
-
-    def to_dict(self):
-        return asdict(self)
-
-
-@dataclass
-class SubgraphMeasurement:
-    """Complete measurement data for a single subgraph."""
-    subgraph_id: int
-    fusion_pattern: str
-    operation_type: str
-    flops: int
-    total_bytes: int
-    arithmetic_intensity: float
-    theoretical_peak_flops: float
-    measured_latency: LatencyStats
-    achieved_flops: float
-    efficiency: EfficiencyStats
-    node_names: List[str]
-    source_model: str
-
-    def to_dict(self):
-        d = asdict(self)
-        d['measured_latency'] = self.measured_latency.to_dict()
-        d['efficiency'] = self.efficiency.to_dict()
-        return d
+from graphs.calibration.ground_truth import (
+    LatencyStats,
+    EfficiencyStats,
+    SubgraphMeasurement,
+    ModelSummary,
+    SystemState,
+    MeasurementRecord,
+)
 
 
 # ============================================================================
@@ -482,6 +434,45 @@ def print_operation_type_summary(measurements: List[SubgraphMeasurement]):
               f"{avg_eff:>8.3f} {range_str:>15}")
 
 
+def capture_system_state(device: str) -> SystemState:
+    """Capture current hardware state for measurement context."""
+    gpu_clock = None
+    mem_clock = None
+    power_mode = None
+    temperature = None
+    cpu_freq = None
+    cpu_governor = None
+
+    if device == 'cuda':
+        try:
+            from graphs.calibration.gpu_clock import get_gpu_clock_info
+            clock_info = get_gpu_clock_info()
+            if clock_info:
+                gpu_clock = clock_info.get('sm_clock_mhz')
+                mem_clock = clock_info.get('mem_clock_mhz')
+                temperature = clock_info.get('temperature_c')
+                power_mode = clock_info.get('power_mode_name')
+        except (ImportError, Exception):
+            pass
+    else:
+        try:
+            import psutil
+            freqs = psutil.cpu_freq()
+            if freqs:
+                cpu_freq = freqs.current
+        except (ImportError, Exception):
+            pass
+
+    return SystemState(
+        gpu_clock_mhz=gpu_clock,
+        mem_clock_mhz=mem_clock,
+        power_mode=power_mode,
+        temperature_c=temperature,
+        cpu_freq_mhz=cpu_freq,
+        cpu_governor=cpu_governor,
+    )
+
+
 def save_measurements_json(
     measurements: List[SubgraphMeasurement],
     model_name: str,
@@ -490,27 +481,42 @@ def save_measurements_json(
     precision: str,
     thermal_profile: Optional[str],
     theoretical_peak: float,
-    output_path: Path
+    output_path: Path,
+    batch_size: int = 1,
+    input_shape: Optional[List[int]] = None,
+    run_id: Optional[str] = None,
+    run_index: Optional[int] = None,
 ):
-    """Save measurements to JSON file."""
-    output = {
-        "schema_version": "1.0",
-        "measurement_type": "efficiency",
-        "model": model_name,
-        "hardware_id": hardware_id,
-        "device": device,
-        "precision": precision,
-        "thermal_profile": thermal_profile,
-        "theoretical_peak_flops": theoretical_peak,
-        "measurement_date": datetime.now().isoformat(),
-        "tool_version": "measure_efficiency.py v1.0",
-        "subgraphs": [m.to_dict() for m in measurements if m is not None]
-    }
+    """Save measurements to JSON file (v2.0 schema)."""
+    valid = [m for m in measurements if m is not None]
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w') as f:
-        json.dump(output, f, indent=2)
+    # Compute model summary
+    model_summary = ModelSummary.from_subgraphs(valid, batch_size)
 
+    # Capture system state
+    system_state = capture_system_state(device)
+
+    record = MeasurementRecord(
+        schema_version="2.0",
+        measurement_type="efficiency",
+        model=model_name,
+        hardware_id=hardware_id,
+        device=device,
+        precision=precision,
+        thermal_profile=thermal_profile,
+        theoretical_peak_flops=theoretical_peak,
+        measurement_date=datetime.now().isoformat(),
+        tool_version="measure_efficiency.py v2.0",
+        subgraphs=valid,
+        batch_size=batch_size,
+        input_shape=input_shape,
+        model_summary=model_summary,
+        system_state=system_state,
+        run_id=run_id,
+        run_index=run_index,
+    )
+
+    record.save(output_path)
     print(f"\nMeasurements saved to: {output_path}")
 
 
@@ -684,7 +690,10 @@ Examples:
             precision=args.precision.upper(),
             thermal_profile=args.thermal_profile,
             theoretical_peak=theoretical_peak,
-            output_path=Path(args.output)
+            output_path=Path(args.output),
+            batch_size=args.batch_size,
+            input_shape=list(input_tensor.shape),
+            run_id=str(uuid.uuid4()),
         )
 
     print()
