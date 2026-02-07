@@ -40,6 +40,8 @@ from typing import Dict, List, Optional, Tuple
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 
+from graphs.calibration.ground_truth import GroundTruthLoader
+
 
 # ============================================================================
 # FLOP Binning
@@ -206,36 +208,54 @@ def load_measurement_file(filepath: Path) -> Optional[dict]:
 
 
 def extract_observations(data: dict) -> List[Tuple[str, EfficiencyObservation]]:
-    """Extract observations from measurement data.
+    """Extract observations from measurement data (dict or MeasurementRecord).
 
     Returns:
         List of (operation_type, EfficiencyObservation) tuples
     """
     observations = []
-    model_name = data.get("model", "unknown")
 
-    for sg in data.get("subgraphs", []):
-        op_type = sg.get("operation_type", "generic")
-        flops = sg.get("flops", 0)
-        eff = sg.get("efficiency", {})
+    # Handle both raw dicts and MeasurementRecord objects
+    if hasattr(data, 'model'):
+        # MeasurementRecord object
+        model_name = data.model
+        subgraphs = data.subgraphs
+        for sg in subgraphs:
+            if sg.flops == 0:
+                continue
+            if sg.efficiency.samples == 0:
+                continue
+            obs = EfficiencyObservation(
+                flops=sg.flops,
+                efficiency_mean=sg.efficiency.mean,
+                efficiency_std=sg.efficiency.std,
+                num_samples=sg.efficiency.samples,
+                source_model=model_name,
+                fusion_pattern=sg.fusion_pattern,
+            )
+            observations.append((sg.operation_type, obs))
+    else:
+        # Raw dict (legacy path)
+        model_name = data.get("model", "unknown")
+        for sg in data.get("subgraphs", []):
+            op_type = sg.get("operation_type", "generic")
+            flops = sg.get("flops", 0)
+            eff = sg.get("efficiency", {})
 
-        # Skip zero-FLOP operations (reshape, etc.)
-        if flops == 0:
-            continue
+            if flops == 0:
+                continue
+            if eff.get("samples", 0) == 0:
+                continue
 
-        # Skip if no efficiency data
-        if eff.get("samples", 0) == 0:
-            continue
-
-        obs = EfficiencyObservation(
-            flops=flops,
-            efficiency_mean=eff.get("mean", 0),
-            efficiency_std=eff.get("std", 0),
-            num_samples=eff.get("samples", 1),
-            source_model=model_name,
-            fusion_pattern=sg.get("fusion_pattern", "")
-        )
-        observations.append((op_type, obs))
+            obs = EfficiencyObservation(
+                flops=flops,
+                efficiency_mean=eff.get("mean", 0),
+                efficiency_std=eff.get("std", 0),
+                num_samples=eff.get("samples", 1),
+                source_model=model_name,
+                fusion_pattern=sg.get("fusion_pattern", "")
+            )
+            observations.append((op_type, obs))
 
     return observations
 
@@ -437,6 +457,8 @@ Examples:
                         help='Directory containing measurement JSON files')
     parser.add_argument('--hardware', type=str,
                         help='Filter by hardware ID (for input-dir mode)')
+    parser.add_argument('--from-loader', action='store_true',
+                        help='Load measurements via GroundTruthLoader instead of file globs')
     parser.add_argument('--output', '-o', type=str, required=True,
                         help='Output efficiency curves JSON path')
     parser.add_argument('--hardware-id', type=str,
@@ -454,58 +476,86 @@ Examples:
 
     args = parser.parse_args()
 
-    # Collect input files
-    input_files = []
-    if args.input_files:
-        for pattern in args.input_files:
-            input_files.extend(glob.glob(pattern))
-    if args.input_dir:
-        dir_files = glob.glob(str(Path(args.input_dir) / "*.json"))
-        input_files.extend(dir_files)
-
-    if not input_files:
-        print("Error: No input files specified")
-        parser.print_help()
-        return 1
-
-    input_files = list(set(input_files))  # Remove duplicates
-    print(f"Found {len(input_files)} input file(s)")
-
     # Load and aggregate
     curves: Dict[str, OperationTypeCurve] = defaultdict(OperationTypeCurve)
     loaded_files = []
     hardware_id = args.hardware_id
     device_type = args.device_type
 
-    for filepath in input_files:
-        fp = Path(filepath)
-        print(f"  Loading {fp.name}...", end=" ")
+    if args.from_loader and args.hardware_id:
+        # Use GroundTruthLoader to find measurement files
+        loader = GroundTruthLoader()
+        prec = args.precision.lower() if args.precision else None
+        records = loader.load_all(args.hardware_id, precision=prec)
 
-        data = load_measurement_file(fp)
-        if data is None:
-            continue
+        if not records:
+            print(f"Error: No measurements found via loader for {args.hardware_id}"
+                  f"{' / ' + prec if prec else ''}")
+            return 1
 
-        # Filter by hardware if specified
-        if args.hardware and data.get("hardware_id") != args.hardware:
-            print(f"skipped (hardware={data.get('hardware_id')})")
-            continue
+        print(f"Loaded {len(records)} record(s) via GroundTruthLoader")
 
-        # Extract metadata from first file
         if not hardware_id:
-            hardware_id = data.get("hardware_id", "unknown")
-        if not device_type:
-            device_type = data.get("device", "cpu")
+            hardware_id = args.hardware_id
+        if not device_type and records:
+            device_type = records[0].device
 
-        # Extract observations
-        observations = extract_observations(data)
-        print(f"{len(observations)} observations")
+        for record in records:
+            observations = extract_observations(record)
+            print(f"  {record.model} (b{record.batch_size}): {len(observations)} observations")
+            for op_type, obs in observations:
+                if op_type not in curves:
+                    curves[op_type] = OperationTypeCurve(operation_type=op_type)
+                curves[op_type].add_observation(obs)
+            loaded_files.append(f"{record.model}_b{record.batch_size}")
 
-        for op_type, obs in observations:
-            if op_type not in curves:
-                curves[op_type] = OperationTypeCurve(operation_type=op_type)
-            curves[op_type].add_observation(obs)
+    else:
+        # Collect input files via glob (original path)
+        input_files = []
+        if args.input_files:
+            for pattern in args.input_files:
+                input_files.extend(glob.glob(pattern))
+        if args.input_dir:
+            dir_files = glob.glob(str(Path(args.input_dir) / "*.json"))
+            input_files.extend(dir_files)
 
-        loaded_files.append(filepath)
+        if not input_files:
+            print("Error: No input files specified (use --input, --input-dir, or --from-loader)")
+            parser.print_help()
+            return 1
+
+        input_files = list(set(input_files))  # Remove duplicates
+        print(f"Found {len(input_files)} input file(s)")
+
+        for filepath in input_files:
+            fp = Path(filepath)
+            print(f"  Loading {fp.name}...", end=" ")
+
+            data = load_measurement_file(fp)
+            if data is None:
+                continue
+
+            # Filter by hardware if specified
+            if args.hardware and data.get("hardware_id") != args.hardware:
+                print(f"skipped (hardware={data.get('hardware_id')})")
+                continue
+
+            # Extract metadata from first file
+            if not hardware_id:
+                hardware_id = data.get("hardware_id", "unknown")
+            if not device_type:
+                device_type = data.get("device", "cpu")
+
+            # Extract observations
+            observations = extract_observations(data)
+            print(f"{len(observations)} observations")
+
+            for op_type, obs in observations:
+                if op_type not in curves:
+                    curves[op_type] = OperationTypeCurve(operation_type=op_type)
+                curves[op_type].add_observation(obs)
+
+            loaded_files.append(filepath)
 
     if not loaded_files:
         print("Error: No valid measurement files loaded")
