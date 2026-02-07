@@ -97,11 +97,16 @@ class GPUMapper(HardwareMapper):
             return self.KERNEL_LAUNCH_OVERHEAD_EDGE
         return self.KERNEL_LAUNCH_OVERHEAD_DATACENTER
 
+    # Arithmetic intensity threshold for memory-bound operations
+    # Depthwise convolutions typically have AI < 10-20
+    MEMORY_BOUND_AI_THRESHOLD = 20.0
+
     def _classify_operation(self, subgraph: FusedSubgraph) -> str:
         """
         Classify subgraph into operation type for calibration lookup.
 
         Maps fusion patterns to calibration operation types:
+        - Conv2d with low AI -> depthwise (memory-bound)
         - Conv2d_*, conv2d -> conv2d or conv2d_batchnorm
         - Linear, MatMul, matmul -> matmul
         - ReLU, GELU, Softmax -> activation
@@ -116,11 +121,19 @@ class GPUMapper(HardwareMapper):
         # Get fusion pattern (e.g., "Conv2d_BatchNorm2d_ReLU")
         pattern = subgraph.fusion_pattern.lower() if subgraph.fusion_pattern else ""
 
+        # Get arithmetic intensity for memory-bound detection
+        ai = getattr(subgraph, 'arithmetic_intensity', 0.0)
+
         # Check for specific patterns
-        if "conv2d" in pattern and ("batchnorm" in pattern or "bn" in pattern):
-            return "conv2d_batchnorm"
-        elif "conv2d" in pattern or "conv" in pattern:
-            return "conv2d"
+        if "conv2d" in pattern or "conv" in pattern:
+            # Detect depthwise/memory-bound convolutions by low arithmetic intensity
+            # Depthwise convs have AI < 20 (typically 1-10), standard convs have AI > 50
+            if ai > 0 and ai < self.MEMORY_BOUND_AI_THRESHOLD:
+                return "depthwise"
+            elif "batchnorm" in pattern or "bn" in pattern:
+                return "conv2d_batchnorm"
+            else:
+                return "conv2d"
         elif "linear" in pattern or "matmul" in pattern or "mm" in pattern or "gemm" in pattern:
             return "matmul"
         elif any(act in pattern for act in ["relu", "gelu", "softmax", "sigmoid", "tanh", "silu", "hardswish"]):
@@ -131,6 +144,9 @@ class GPUMapper(HardwareMapper):
         # Fallback: check node names
         node_names = " ".join(subgraph.node_names).lower() if subgraph.node_names else ""
         if "conv" in node_names:
+            # Check AI for memory-bound detection
+            if ai > 0 and ai < self.MEMORY_BOUND_AI_THRESHOLD:
+                return "depthwise"
             return "conv2d"
         elif "linear" in node_names or "matmul" in node_names:
             return "matmul"
@@ -227,8 +243,18 @@ class GPUMapper(HardwareMapper):
 
         estimated_latency = max(compute_time, memory_time)
 
-        # Apply size-dependent calibration: use calibrated efficiency directly
-        if self.calibration is not None and ops > 0:
+        # Classify operation for calibration lookup
+        op_type = self._classify_operation(subgraph)
+
+        # Handle memory-bound operations (depthwise convolutions)
+        # These are bandwidth-limited, not compute-limited
+        if op_type == "depthwise":
+            # For memory-bound ops, use memory time directly
+            # Don't apply compute-based calibration since they're bandwidth-limited
+            estimated_latency = memory_time
+            bottleneck = "memory"
+        # Apply size-dependent calibration for compute-bound operations
+        elif self.calibration is not None and ops > 0:
             calibrated_eff = self._get_calibrated_efficiency(subgraph)
             if calibrated_eff > 0:
                 # Direct calculation: latency = ops / (peak * efficiency)
