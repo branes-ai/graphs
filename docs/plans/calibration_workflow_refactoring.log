@@ -1,0 +1,88 @@
+# Calibration Workflow
+
+Current state:
+  - measure_efficiency.py + run_full_calibration.py collect per-subgraph timing data and aggregate into efficiency curves
+  - Calibration data exists in calibration_data/ for Jetson Orin (4 power modes), i7-12700K, Ryzen 9
+  - But: the efficiency curves are never consumed -- the unified analyzer uses hardcoded theoretical specs, not measured data
+  - And: the validation tests (validation/estimators/) only check estimator sanity (no NaN, positive values), they never compare against measured ground
+   truth
+  - So every time you want to check "is my latency estimate right?", you must re-measure on hardware, which is the bottleneck you're hitting
+
+Target architecture:
+
+  PHYSICAL HARDWARE (run once)          DEVELOPMENT MACHINE (run repeatedly)
+
+    Benchmark Sweep                       Estimator Development
+    ─────────────                         ─────────────────────
+    run_full_calibration.py               compare against ground truth
+           │                              calibrate model params
+           ▼                              regression-test estimates
+    calibration_data/                            │
+    └─ <hw_id>/                                  │
+       └─ ground_truth/          ◄───────────────┘
+          ├─ raw_measurements/        (reads stored data, no HW needed)
+          ├─ summary.json
+          └─ manifest.json
+
+## Task breakdown:
+
+Here's the dependency graph and execution plan:
+
+```text
+  Task 1: Ground-truth schema          ← START HERE (unblocks everything)
+    ├──► Task 2: Benchmark sweep tool   (next hardware run uses new schema)
+    ├──► Task 3: Convert existing data  (immediate value, no hardware needed)
+    │      ├──► Task 6: Feed curves into roofline  (accuracy improvement)
+    │      └──► Task 4: Offline validation framework  (the core workflow change)
+    │             ├──► Task 5: Regression tests  (CI guard rails)
+    │             └──► Task 7: Error diagnosis tooling  (daily dev workflow)
+
+  Critical path: 1 → 3 → 4 → 5/7
+```
+
+Key insight: Tasks 3+4 are where the biggest workflow improvement lands. Once existing measurement data is in a canonical format and the offline
+validation framework exists, you can iterate on estimator models purely on your dev machine. The Jetson only gets touched when you need to expand the
+ground-truth dataset (Task 2).
+
+What changes day-to-day:
+  - Before: tweak estimator → ssh to Jetson → run model → wait → compare → repeat
+  - After: tweak estimator → python cli/validate_estimators.py --all → see error table in seconds 
+            → drill into worst subgraphs with diagnosis tool → repeat
+
+
+
+● Implementation is complete. Here's a summary of what was done:
+
+  Summary
+
+  Files Created
+
+  1. src/graphs/calibration/ground_truth.py - Schema v2.0 dataclasses and GroundTruthLoader
+    - LatencyStats, EfficiencyStats, SubgraphMeasurement - moved from measure_efficiency.py to be self-contained
+    - ModelSummary - whole-model aggregates with from_subgraphs() factory
+    - SystemState - hardware conditions during measurement
+    - MeasurementRecord - top-level record with v1.0 backward compat (from_dict() infers batch_size from filename, computes model_summary on the fly)
+    - Manifest, ManifestEntry, ManifestCoverage - index format
+    - GroundTruthLoader - query interface with list_hardware(), list_models(), list_configurations(), load(), load_model_summary(), load_all(),
+  rebuild_manifest()
+  2. cli/migrate_measurements.py - Migration script with --dry-run, scans both measurements/ and calibration_data/, converts v1.0 to v2.0, generates
+  manifests
+
+  Files Modified
+
+  3. src/graphs/calibration/__init__.py - Exports new types (MeasurementRecord, ModelSummary, SystemState, GroundTruthLoader, etc.)
+  4. cli/measure_efficiency.py - Now emits v2.0 JSON:
+    - Imports dataclasses from ground_truth.py instead of defining locally
+    - Adds batch_size, input_shape, model_summary, system_state, run_id to output
+    - New capture_system_state() helper queries GPU/CPU clocks at measurement time
+  5. cli/run_full_calibration.py - Uses canonical storage path (calibration_data/<hw>/measurements/<prec>/) and rebuilds manifest after calibration
+
+  Verification
+
+  - All 556 existing tests pass (0 failures)
+  - GroundTruthLoader correctly finds 6 hardware IDs, 45 configs per Jetson mode
+  - v1.0 backward compat: loads old files, infers batch_size, computes model_summary
+  - Filename parsing correctly handles ambiguous names (efficientnet_b0, efficientnet_b1, vit_b_16)
+  - Migration dry-run finds all 661 measurement files across both directories
+  - Manifest generation produces correct coverage and summary data
+

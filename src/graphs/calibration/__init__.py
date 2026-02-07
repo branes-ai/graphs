@@ -33,6 +33,16 @@ from .schema import (
     PrecisionCapabilityMatrix,
     GPUClockData,
 )
+from .ground_truth import (
+    MeasurementRecord,
+    SubgraphMeasurement as GTSubgraphMeasurement,
+    LatencyStats as GTLatencyStats,
+    EfficiencyStats as GTEfficiencyStats,
+    ModelSummary,
+    SystemState,
+    Manifest,
+    GroundTruthLoader,
+)
 from .calibrator import load_calibration, calibrate_hardware
 from .precision_detector import get_precision_capabilities
 from .logging import CalibrationLogger, get_logger, set_logger, LogAdapter
@@ -107,6 +117,15 @@ __all__ = [
     'PrecisionCapabilityMatrix',
     'GPUClockData',
     'GPUClockInfo',
+    # Ground truth (measurement schema v2.0)
+    'MeasurementRecord',
+    'GTSubgraphMeasurement',
+    'GTLatencyStats',
+    'GTEfficiencyStats',
+    'ModelSummary',
+    'SystemState',
+    'Manifest',
+    'GroundTruthLoader',
     # Calibration functions
     'load_calibration',
     'calibrate_hardware',
