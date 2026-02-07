@@ -4,13 +4,8 @@ Query Calibration Data
 
 Query and analyze raw calibration measurements in calibration_data/.
 
-Directory structure (new with precision):
-    calibration_data/<hardware_id>/<precision>/measurements/
-    calibration_data/<hardware_id>/<precision>/efficiency_curves.json
-
-Legacy structure (still supported):
-    calibration_data/<hardware_id>/measurements/
-    calibration_data/<hardware_id>/efficiency_curves.json
+Uses GroundTruthLoader for measurement data and reads efficiency curves
+directly from the file system.
 
 Usage:
     # List all hardware and summary
@@ -34,12 +29,14 @@ import argparse
 import csv
 import json
 import sys
-from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 
 repo_root = Path(__file__).parent.parent
+sys.path.insert(0, str(repo_root))
+
+from graphs.calibration.ground_truth import GroundTruthLoader, _normalize_precision
+
 calibration_dir = repo_root / "calibration_data"
 
 # Supported precisions
@@ -60,98 +57,107 @@ def format_flops(flops: float) -> str:
         return f"{flops:.0f}"
 
 
-def find_calibration_entries() -> List[Tuple[str, str, Path]]:
-    """Find all calibration entries (hardware_id, precision, path).
+def _find_curves_file(hardware_id: str, precision: str) -> Optional[Path]:
+    """Find efficiency_curves.json for a hardware/precision combo."""
+    # v2.0 canonical: calibration_data/<hw>/<prec>/efficiency_curves.json
+    p1 = calibration_dir / hardware_id / precision / "efficiency_curves.json"
+    if p1.exists():
+        return p1
+    # Legacy: calibration_data/<hw>/efficiency_curves.json
+    p2 = calibration_dir / hardware_id / "efficiency_curves.json"
+    if p2.exists():
+        return p2
+    return None
 
-    Handles both new structure (hardware/precision/) and legacy (hardware/).
 
-    Returns:
-        List of (hardware_id, precision, calibration_dir) tuples
-    """
+def _find_all_curves_entries() -> List[Dict[str, Any]]:
+    """Find all (hardware_id, precision, curves_path) combos with efficiency curves."""
     entries = []
-
     if not calibration_dir.exists():
         return entries
 
     for hw_dir in sorted(calibration_dir.iterdir()):
         if not hw_dir.is_dir():
             continue
-
         hw_id = hw_dir.name
 
-        # Check for new structure: hardware_id/precision/
-        found_precision_dirs = False
+        # Check precision subdirs for curves
+        found = False
         for precision in PRECISIONS:
-            prec_dir = hw_dir / precision
-            if prec_dir.is_dir():
-                # Check if it has measurements or curves
-                if (prec_dir / "measurements").exists() or (prec_dir / "efficiency_curves.json").exists():
-                    entries.append((hw_id, precision, prec_dir))
-                    found_precision_dirs = True
+            curves_path = hw_dir / precision / "efficiency_curves.json"
+            if curves_path.exists():
+                entries.append({
+                    'hardware_id': hw_id,
+                    'precision': precision,
+                    'curves_path': curves_path,
+                })
+                found = True
 
-        # Check for legacy structure: hardware_id/measurements/
-        if not found_precision_dirs:
-            if (hw_dir / "measurements").exists() or (hw_dir / "efficiency_curves.json").exists():
-                # Infer precision from efficiency_curves.json if available
-                precision = "fp32"  # default
-                curves_file = hw_dir / "efficiency_curves.json"
-                if curves_file.exists():
-                    try:
-                        with open(curves_file) as f:
-                            curves = json.load(f)
-                            precision = curves.get("precision", "FP32").lower()
-                    except:
-                        pass
-                entries.append((hw_id, precision, hw_dir))
+        # Legacy: curves at top level
+        if not found:
+            curves_path = hw_dir / "efficiency_curves.json"
+            if curves_path.exists():
+                precision = "fp32"
+                try:
+                    with open(curves_path) as f:
+                        curves = json.load(f)
+                        precision = curves.get("precision", "FP32").lower()
+                except Exception:
+                    pass
+                entries.append({
+                    'hardware_id': hw_id,
+                    'precision': precision,
+                    'curves_path': curves_path,
+                })
 
     return entries
 
 
-def load_hardware_data(hardware_id: str, precision: str = "fp32") -> Dict[str, Any]:
-    """Load all data for a hardware target and precision."""
-    # Try new structure first
-    hw_dir = calibration_dir / hardware_id / precision
-    if not hw_dir.exists():
-        # Try legacy structure
-        hw_dir = calibration_dir / hardware_id
-        if not hw_dir.exists():
-            return None
-
-    data = {
-        "hardware_id": hardware_id,
-        "precision": precision,
-        "measurements": [],
-        "efficiency_curves": None,
-        "calibration_report": None,
-    }
-
-    # Load measurements
-    measurements_dir = hw_dir / "measurements"
-    if measurements_dir.exists():
-        for json_file in sorted(measurements_dir.glob("*.json")):
-            with open(json_file) as f:
-                data["measurements"].append(json.load(f))
-
-    # Load efficiency curves
-    curves_file = hw_dir / "efficiency_curves.json"
-    if curves_file.exists():
-        with open(curves_file) as f:
-            data["efficiency_curves"] = json.load(f)
-
-    return data
-
-
 def list_hardware():
     """List all hardware targets and their calibration status."""
-    entries = find_calibration_entries()
+    loader = GroundTruthLoader(calibration_dir)
+    hw_ids = loader.list_hardware()
+    curves_entries = _find_all_curves_entries()
 
-    if not entries:
+    # Merge: measurement data + curves data
+    # Build a set of all (hw_id, precision) combos from both sources
+    all_combos = {}
+
+    # From measurements
+    for hw_id in hw_ids:
+        configs = loader.list_configurations(hw_id)
+        by_precision = {}
+        for cfg in configs:
+            prec = cfg['precision']
+            by_precision.setdefault(prec, []).append(cfg)
+        for prec, cfgs in by_precision.items():
+            key = (hw_id, prec)
+            all_combos.setdefault(key, {'model_count': 0, 'op_types': 0, 'data_points': 0, 'date': '-'})
+            all_combos[key]['model_count'] = len(cfgs)
+
+    # From curves
+    for entry in curves_entries:
+        key = (entry['hardware_id'], entry['precision'])
+        all_combos.setdefault(key, {'model_count': 0, 'op_types': 0, 'data_points': 0, 'date': '-'})
+        try:
+            with open(entry['curves_path']) as f:
+                curves = json.load(f)
+                all_combos[key]['op_types'] = len(curves.get("curves", {}))
+                for curve in curves.get("curves", {}).values():
+                    all_combos[key]['data_points'] += len(curve.get("data_points", []))
+                cal_date = curves.get("calibration_date", "")
+                if cal_date:
+                    all_combos[key]['date'] = cal_date[:10]
+        except Exception:
+            pass
+
+    if not all_combos:
         print("\n  No calibration data found")
         return
 
-    # Calculate column width based on longest hardware ID
-    hw_id_width = max(len("Hardware ID"), max(len(hw_id) for hw_id, _, _ in entries))
-    total_width = hw_id_width + 60  # Other columns take ~60 chars
+    # Calculate column width
+    hw_id_width = max(len("Hardware ID"), max(len(k[0]) for k in all_combos))
+    total_width = hw_id_width + 60
 
     print("\n" + "=" * total_width)
     print("  CALIBRATION DATA SUMMARY")
@@ -161,42 +167,22 @@ def list_hardware():
     print(f"\n  {headers[0]:<{hw_id_width}} {headers[1]:<10} {headers[2]:>7} {headers[3]:>9} {headers[4]:>12} {headers[5]:<12}")
     print("  " + "-" * (total_width - 2))
 
-    for hw_id, precision, cal_dir in entries:
-        measurements_dir = cal_dir / "measurements"
-        curves_file = cal_dir / "efficiency_curves.json"
-
-        model_count = len(list(measurements_dir.glob("*.json"))) if measurements_dir.exists() else 0
-
-        op_types = 0
-        data_points = 0
-        date = "-"
-
-        if curves_file.exists():
-            with open(curves_file) as f:
-                curves = json.load(f)
-                op_types = len(curves.get("curves", {}))
-                for curve in curves.get("curves", {}).values():
-                    data_points += len(curve.get("data_points", []))
-                cal_date = curves.get("calibration_date", "")
-                if cal_date:
-                    date = cal_date[:10]
-
-        print(f"  {hw_id:<{hw_id_width}} {precision:<10} {model_count:>7} {op_types:>9} {data_points:>12} {date:<12}")
+    for (hw_id, precision), info in sorted(all_combos.items()):
+        print(f"  {hw_id:<{hw_id_width}} {precision:<10} {info['model_count']:>7} "
+              f"{info['op_types']:>9} {info['data_points']:>12} {info['date']:<12}")
 
     print()
 
 
 def show_curves(hardware_id: str, precision: str = "fp32"):
     """Show efficiency curves for a hardware target."""
-    data = load_hardware_data(hardware_id, precision)
-    if not data:
-        print(f"No data found for {hardware_id} ({precision})")
-        return
-
-    curves = data.get("efficiency_curves")
-    if not curves:
+    curves_path = _find_curves_file(hardware_id, precision)
+    if not curves_path:
         print(f"No efficiency curves found for {hardware_id} ({precision})")
         return
+
+    with open(curves_path) as f:
+        curves = json.load(f)
 
     print(f"\n{'=' * 80}")
     print(f"  EFFICIENCY CURVES: {hardware_id}")
@@ -223,40 +209,38 @@ def show_curves(hardware_id: str, precision: str = "fp32"):
 
 def show_model(hardware_id: str, model_name: str, precision: str = "fp32"):
     """Show measurements for a specific model."""
-    data = load_hardware_data(hardware_id, precision)
-    if not data:
-        print(f"No data found for {hardware_id} ({precision})")
-        return
+    loader = GroundTruthLoader(calibration_dir)
 
-    measurement = None
-    for m in data["measurements"]:
-        if m.get("model") == model_name:
-            measurement = m
-            break
-
-    if not measurement:
+    try:
+        record = loader.load(hardware_id, model_name, precision, batch_size=1)
+    except FileNotFoundError:
         print(f"No measurement found for {model_name} on {hardware_id} ({precision})")
         return
 
     print(f"\n{'=' * 80}")
     print(f"  MODEL: {model_name} on {hardware_id}")
     print(f"{'=' * 80}")
-    print(f"  Device: {measurement.get('device', 'unknown')}")
-    print(f"  Precision: {measurement.get('precision', precision.upper())}")
-    print(f"  Theoretical Peak: {format_flops(measurement.get('theoretical_peak_flops', 0))}FLOPS")
-    print(f"  Date: {measurement.get('measurement_date', 'unknown')[:10]}")
+    print(f"  Device: {record.device}")
+    print(f"  Precision: {record.precision}")
+    print(f"  Batch Size: {record.batch_size}")
+    print(f"  Theoretical Peak: {format_flops(record.theoretical_peak_flops)}FLOPS")
+    print(f"  Date: {record.measurement_date[:10]}")
+
+    if record.model_summary:
+        ms = record.model_summary
+        print(f"  Total Latency: {ms.total_latency_ms:.3f} ms")
+        print(f"  Throughput: {ms.throughput_fps:.1f} FPS")
 
     print(f"\n  {'SG':<4} {'Pattern':<28} {'OpType':<16} {'FLOPs':>10} {'Eff':>8} {'Lat(ms)':>10}")
     print(f"  {'-' * 85}")
 
-    for sg in measurement.get("subgraphs", []):
-        sg_id = sg["subgraph_id"]
-        pattern = sg["fusion_pattern"][:27]
-        op_type = sg["operation_type"][:15]
-        flops = format_flops(sg["flops"])
-        eff = f"{sg['efficiency']['mean']:.4f}"
-        lat = f"{sg['measured_latency']['mean']:.3f}"
-        print(f"  {sg_id:<4} {pattern:<28} {op_type:<16} {flops:>10} {eff:>8} {lat:>10}")
+    for sg in record.subgraphs:
+        pattern = sg.fusion_pattern[:27]
+        op_type = sg.operation_type[:15]
+        flops = format_flops(sg.flops)
+        eff = f"{sg.efficiency.mean:.4f}"
+        lat = f"{sg.measured_latency.mean:.3f}"
+        print(f"  {sg.subgraph_id:<4} {pattern:<28} {op_type:<16} {flops:>10} {eff:>8} {lat:>10}")
 
     print()
 
@@ -267,7 +251,7 @@ def compare_hardware(precision_filter: str = None):
     print("  HARDWARE COMPARISON")
     print(f"{'=' * 100}")
 
-    entries = find_calibration_entries()
+    entries = _find_all_curves_entries()
 
     if not entries:
         print("  No calibration data found")
@@ -275,7 +259,7 @@ def compare_hardware(precision_filter: str = None):
 
     # Filter by precision if specified
     if precision_filter:
-        entries = [(hw, prec, path) for hw, prec, path in entries if prec == precision_filter]
+        entries = [e for e in entries if e['precision'] == precision_filter]
         if not entries:
             print(f"  No calibration data found for precision {precision_filter}")
             return
@@ -284,15 +268,15 @@ def compare_hardware(precision_filter: str = None):
     hw_data = {}
     all_op_types = set()
 
-    for hw_id, precision, cal_dir in entries:
-        curves_file = cal_dir / "efficiency_curves.json"
-
-        if curves_file.exists():
-            with open(curves_file) as f:
+    for entry in entries:
+        try:
+            with open(entry['curves_path']) as f:
                 curves = json.load(f)
-                key = f"{hw_id}/{precision}"
+                key = f"{entry['hardware_id']}/{entry['precision']}"
                 hw_data[key] = curves
                 all_op_types.update(curves.get("curves", {}).keys())
+        except Exception:
+            pass
 
     if not hw_data:
         print("  No efficiency curves found")
@@ -326,34 +310,34 @@ def compare_hardware(precision_filter: str = None):
 
 def export_csv(output_path: str, precision_filter: str = None):
     """Export comparison data to CSV."""
-    entries = find_calibration_entries()
+    entries = _find_all_curves_entries()
 
     if precision_filter:
-        entries = [(hw, prec, path) for hw, prec, path in entries if prec == precision_filter]
+        entries = [e for e in entries if e['precision'] == precision_filter]
 
     rows = []
 
-    for hw_id, precision, cal_dir in entries:
-        curves_file = cal_dir / "efficiency_curves.json"
-
-        if curves_file.exists():
-            with open(curves_file) as f:
+    for entry in entries:
+        try:
+            with open(entry['curves_path']) as f:
                 curves = json.load(f)
+        except Exception:
+            continue
 
-            for op_type, curve in curves.get("curves", {}).items():
-                for dp in curve.get("data_points", []):
-                    rows.append({
-                        "hardware_id": hw_id,
-                        "precision": precision,
-                        "device_type": curves.get("device_type", ""),
-                        "operation_type": op_type,
-                        "flops": dp["flops"],
-                        "efficiency_mean": dp["efficiency_mean"],
-                        "efficiency_std": dp["efficiency_std"],
-                        "num_observations": dp.get("num_observations", 0),
-                        "num_samples": dp.get("num_samples", 0),
-                        "source_models": ",".join(dp.get("source_models", [])),
-                    })
+        for op_type, curve in curves.get("curves", {}).items():
+            for dp in curve.get("data_points", []):
+                rows.append({
+                    "hardware_id": entry['hardware_id'],
+                    "precision": entry['precision'],
+                    "device_type": curves.get("device_type", ""),
+                    "operation_type": op_type,
+                    "flops": dp["flops"],
+                    "efficiency_mean": dp["efficiency_mean"],
+                    "efficiency_std": dp["efficiency_std"],
+                    "num_observations": dp.get("num_observations", 0),
+                    "num_samples": dp.get("num_samples", 0),
+                    "source_models": ",".join(dp.get("source_models", [])),
+                })
 
     with open(output_path, 'w', newline='') as f:
         if rows:
