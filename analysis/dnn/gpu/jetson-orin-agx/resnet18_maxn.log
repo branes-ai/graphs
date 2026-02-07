@@ -1,0 +1,66 @@
+(.venv) cjuser@sdhome-jetson:/mnt/nvme/dev/branes/clones/graphs$ cli/measure_efficiency.py --id jetson_orin_agx_maxn --precision fp16 --model resnet18 --hardware Jetson-Orin-AGX --device cuda --thermal-profile MAXN
+
+================================================================================
+  EFFICIENCY MEASUREMENT
+================================================================================
+  Model:     resnet18
+  Hardware:  Jetson-Orin-AGX
+  Thermal:   MAXN
+  Device:    cuda
+  Precision: FP16
+  Runs:      10 warmup + 50 timed
+================================================================================
+
+Step 1: Creating model...
+Step 2: Tracing with symbolic_trace...
+Step 3: Partitioning...
+  32 subgraphs, 3.63 GFLOPs
+Step 4: Loading hardware specifications...
+  Theoretical peak: 2.66TFLOPS
+Step 5: Measuring node times (10 warmup + 50 timed)...
+  Collected times for 71 nodes
+Step 6: Computing efficiency statistics...
+  32 subgraphs measured
+
+  SG   Pattern                        OpType                FLOPs  Lat(ms)     Eff Eff Std
+  ---------------------------------------------------------------------------------------------------------
+  0    Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     236.0M    0.854   0.104   0.005
+  1    Unfused                        unfused                   0    0.201   0.000   0.000
+  2    Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     231.2M    0.503   0.173   0.003
+  3    Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.435   0.224   0.029
+  4    add_ReLU                       activation             201K    0.190   0.000   0.000
+  5    Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     231.2M    0.480   0.181   0.003
+  6    Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.379   0.229   0.004
+  7    add_ReLU                       activation             201K    0.187   0.000   0.000
+  8    Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     115.6M    0.458   0.095   0.003
+  9    Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.412   0.211   0.006
+  10   Conv2d_BatchNorm2d             conv2d_batchnorm      12.8M    0.340   0.014   0.000
+  11   add_ReLU                       activation             100K    0.189   0.000   0.000
+  12   Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     231.2M    0.510   0.170   0.003
+  13   Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.409   0.213   0.004
+  14   add_ReLU                       activation             100K    0.198   0.000   0.000
+  15   Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     115.6M    0.501   0.087   0.002
+  16   Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.473   0.184   0.004
+  17   Conv2d_BatchNorm2d             conv2d_batchnorm      12.8M    0.338   0.014   0.001
+  18   add_ReLU                       activation              50K    0.201   0.000   0.000
+  19   Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     231.2M    0.576   0.151   0.004
+  20   Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.471   0.184   0.003
+  21   add_ReLU                       activation              50K    0.188   0.000   0.000
+  22   Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     115.6M    0.660   0.066   0.001
+  23   Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.836   0.104   0.001
+  24   Conv2d_BatchNorm2d             conv2d_batchnorm      12.8M    0.340   0.014   0.000
+  25   add_ReLU                       activation              25K    0.188   0.000   0.000
+  26   Conv2d_BatchNorm2d_ReLU        conv2d_batchnorm     231.2M    0.934   0.093   0.001
+  27   Conv2d_BatchNorm2d             conv2d_batchnorm     231.2M    0.832   0.104   0.001
+  28   add_ReLU                       activation              25K    0.188   0.000   0.000
+  29   Unfused                        unfused                   0    0.134   0.000   0.000
+  30   Unfused                        unfused                   0    0.070   0.000   0.000
+  31   Unfused                        unfused                1.0M    0.219   0.002   0.001
+
+Summary by Operation Type:
+  Operation Type       Count  Total FLOPs  Avg Eff       Eff Range
+  ----------------------------------------------------------------------
+  activation               8         753K    0.000     0.000-0.000
+  conv2d_batchnorm        20        3.63G    0.131     0.014-0.229
+  unfused                  4         1.0M    0.001     0.000-0.002
+
