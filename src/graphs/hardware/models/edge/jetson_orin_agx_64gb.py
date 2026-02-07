@@ -111,13 +111,15 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     # ========================================================================
     # Tensor Core Fabric (15% more efficient for fused MAC+accumulate)
     # ========================================================================
+    # Ampere Tensor Cores (2nd gen): 256 FP16 ops/TC/clock, 512 INT8 ops/TC/clock
+    # This is for 4x4x4 matrix operations with 4-way throughput
     tensor_fabric = ComputeFabric(
         fabric_type="tensor_core",
         circuit_type="tensor_core",
         num_units=num_sms * tensor_cores_per_sm,  # 16 SMs × 4 Tensor Cores/SM = 64 TCs
         ops_per_unit_per_clock={
-            Precision.FP16: 64,        # 64 FP16 ops/clock/TC (Ampere 2nd gen)
-            Precision.INT8: 64,        # 64 INT8 ops/clock/TC
+            Precision.FP16: 256,       # 256 FP16 ops/clock/TC (Ampere 2nd gen)
+            Precision.INT8: 512,       # 512 INT8 ops/clock/TC (Ampere 2nd gen)
         },
         core_frequency_hz=baseline_freq_hz,  # 650 MHz sustained (30W)
         process_node_nm=8,
@@ -128,9 +130,28 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         }
     )
 
-    # Tensor Core INT8: 4×4×4 matmul = 64 MACs/clock per Tensor Core
-    # Total: 64 TCs × 64 MACs/TC/clock = 4,096 MACs/clock
-    # At 1.3 GHz: 4,096 × 1.3e9 = 5.3 TOPS INT8
+    # ========================================================================
+    # Combined Peak Calculations (CUDA cores + Tensor cores)
+    # ========================================================================
+    # FP16/INT8 can use BOTH CUDA cores (at 2x/4x rate) AND Tensor cores
+    # This matches auto_detect.py calculations for consistency with calibration
+    #
+    # FP32: CUDA cores only = 2048 cores × 2 ops (FMA) = 4096 ops/clock
+    # FP16: CUDA cores (2x) + Tensor cores = 2048×4 + 64×256 = 24576 ops/clock
+    # INT8: CUDA cores (4x) + Tensor cores = 2048×8 + 64×512 = 49152 ops/clock
+    #
+    # At 650 MHz (30W baseline):
+    #   FP32: 4096 × 650e6 = 2.66 TFLOPS
+    #   FP16: 24576 × 650e6 = 15.97 TFLOPS (6x FP32)
+    #   INT8: 49152 × 650e6 = 31.95 TOPS (12x FP32)
+
+    fp32_ops_per_clock = num_sms * cuda_cores_per_sm * 2  # 2048 × 2 = 4096
+    fp16_ops_per_clock = (num_sms * cuda_cores_per_sm * 4 +
+                          total_tensor_cores * 256)  # 8192 + 16384 = 24576
+    int8_ops_per_clock = (num_sms * cuda_cores_per_sm * 8 +
+                          total_tensor_cores * 512)  # 16384 + 32768 = 49152
+
+    # Legacy per-SM values (still used by some thermal profiles)
     int8_ops_per_sm_per_clock = 256  # 4 TCs/SM × 64 MACs/TC = 256 MACs/SM/clock
     fp32_ops_per_sm_per_clock = 256  # CUDA core capability: 128 cores × 2 ops (FMA)
     fp16_ops_per_sm_per_clock = 256  # Tensor Core FP16: 4 TCs/SM × 64 MACs/TC
@@ -377,13 +398,16 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
-    # Legacy Precision Profiles (calculated from fabrics for backward compatibility)
+    # Legacy Precision Profiles (calculated from combined CUDA + Tensor cores)
     # ========================================================================
-    # Calculate peak ops using fabrics (use 30W sustained as baseline)
+    # Calculate peak ops at 30W sustained baseline (650 MHz)
+    # FP64/FP32: CUDA cores only
+    # FP16/INT8: Combined CUDA cores (at higher rate) + Tensor cores
     cuda_fp64_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP64)
     cuda_fp32_peak = cuda_fabric.get_peak_ops_per_sec(Precision.FP32)
-    tensor_fp16_peak = tensor_fabric.get_peak_ops_per_sec(Precision.FP16)
-    tensor_int8_peak = tensor_fabric.get_peak_ops_per_sec(Precision.INT8)
+    # FP16/INT8: Use combined peaks (CUDA + Tensor cores)
+    combined_fp16_peak = fp16_ops_per_clock * baseline_freq_hz  # 24576 × 650e6 = 15.97 TFLOPS
+    combined_int8_peak = int8_ops_per_clock * baseline_freq_hz  # 49152 × 650e6 = 31.95 TOPS
 
     # ========================================================================
     # Hardware Resource Model (uses NEW thermal operating points + compute fabrics)
@@ -436,17 +460,17 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
             ),
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=tensor_fp16_peak,  # ~2.7 TOPS @ 650 MHz (Tensor Cores)
+                peak_ops_per_sec=combined_fp16_peak,  # ~16 TFLOPS @ 650 MHz (CUDA + Tensor)
                 tensor_core_supported=True,
-                relative_speedup=1.0,
+                relative_speedup=6.0,  # ~6x FP32 theoretical
                 bytes_per_element=2,
                 accumulator_precision=Precision.FP32,
             ),
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=tensor_int8_peak,  # ~2.7 TOPS @ 650 MHz (Tensor Cores)
+                peak_ops_per_sec=combined_int8_peak,  # ~32 TOPS @ 650 MHz (CUDA + Tensor)
                 tensor_core_supported=True,
-                relative_speedup=1.0,
+                relative_speedup=12.0,  # ~12x FP32 theoretical
                 bytes_per_element=1,
                 accumulator_precision=Precision.INT32,
             ),
