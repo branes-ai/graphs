@@ -1,0 +1,1875 @@
+{
+  "schema_version": "1.0",
+  "measurement_type": "efficiency",
+  "model": "resnet34",
+  "hardware_id": "jetson_orin_15w",
+  "device": "cuda",
+  "precision": "BF16",
+  "thermal_profile": "15W",
+  "theoretical_peak_flops": 31948800000000.0,
+  "measurement_date": "2026-02-07T13:53:51.894289",
+  "tool_version": "measure_efficiency.py v1.0",
+  "subgraphs": [
+    {
+      "subgraph_id": 0,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3776446464,
+      "total_bytes": 61033088,
+      "arithmetic_intensity": 61.875395588701004,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 22.968567678928377,
+        "std": 0.2079157592638469,
+        "min": 22.33273684978485,
+        "max": 23.49417531490326,
+        "ci_lower": 22.9109363707583,
+        "ci_upper": 23.026198987098454,
+        "samples": 50
+      },
+      "achieved_flops": 164431313024.9201,
+      "efficiency": {
+        "mean": 0.005146713273265979,
+        "std": 4.6898866294593444e-05,
+        "min": 0.005031165186210906,
+        "max": 0.00529281644780656,
+        "ci_lower": 0.005133713570762327,
+        "ci_upper": 0.005159712975769631,
+        "samples": 50
+      },
+      "node_names": [
+        "conv1",
+        "bn1",
+        "relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 1,
+      "fusion_pattern": "Unfused",
+      "operation_type": "unfused",
+      "flops": 0,
+      "total_bytes": 64225280,
+      "arithmetic_intensity": 0.0,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 5.622520952224732,
+        "std": 0.19583818227573688,
+        "min": 5.339200019836426,
+        "max": 5.782271862030029,
+        "ci_lower": 5.568237377597383,
+        "ci_upper": 5.676804526852081,
+        "samples": 50
+      },
+      "achieved_flops": 0,
+      "efficiency": {
+        "mean": 0,
+        "std": 0,
+        "min": 0,
+        "max": 0,
+        "ci_lower": 0,
+        "ci_upper": 0,
+        "samples": 0
+      },
+      "node_names": [
+        "maxpool"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 2,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 25764096,
+      "arithmetic_intensity": 143.58649059528423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 4.445345275998116,
+        "std": 0.1398425751533522,
+        "min": 4.088447988033295,
+        "max": 4.564063876867294,
+        "ci_lower": 4.406582891787822,
+        "ci_upper": 4.48410766020841,
+        "samples": 50
+      },
+      "achieved_flops": 833040898255.7607,
+      "efficiency": {
+        "mean": 0.026074246865477286,
+        "std": 0.0008630356823006132,
+        "min": 0.02537010268801196,
+        "max": 0.028321448522687257,
+        "ci_lower": 0.025835025579199884,
+        "ci_upper": 0.026313468151754688,
+        "samples": 50
+      },
+      "node_names": [
+        "layer1_0_conv1",
+        "layer1_0_bn1",
+        "layer1_0_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 3,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 25764096,
+      "arithmetic_intensity": 143.58649059528423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.9446323144435884,
+        "std": 0.18079882141772252,
+        "min": 3.708159923553467,
+        "max": 4.121984004974365,
+        "ci_lower": 3.8945174379628256,
+        "ci_upper": 3.9947471909243513,
+        "samples": 50
+      },
+      "achieved_flops": 939804134254.3047,
+      "efficiency": {
+        "mean": 0.029415944706978184,
+        "std": 0.00137890944065191,
+        "min": 0.028091028274499413,
+        "max": 0.031225937289082423,
+        "ci_lower": 0.029033730510256355,
+        "ci_upper": 0.029798158903700012,
+        "samples": 50
+      },
+      "node_names": [
+        "layer1_0_conv2",
+        "layer1_0_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 4,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 3211264,
+      "total_bytes": 38535168,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.7790374392271042,
+        "std": 0.10849218339253856,
+        "min": 0.7501440048217773,
+        "max": 1.5259839594364166,
+        "ci_lower": 0.7489649402627256,
+        "ci_upper": 0.8091099381914828,
+        "samples": 50
+      },
+      "achieved_flops": 4163400487.584002,
+      "efficiency": {
+        "mean": 0.00013031476886718755,
+        "std": 9.525050121246503e-06,
+        "min": 6.586754722503267e-05,
+        "max": 0.0001339913668132305,
+        "ci_lower": 0.0001276745596746925,
+        "ci_upper": 0.0001329549780596826,
+        "samples": 50
+      },
+      "node_names": [
+        "add",
+        "layer1_0_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 5,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 25764096,
+      "arithmetic_intensity": 143.58649059528423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 4.413781111836434,
+        "std": 0.14637435592511347,
+        "min": 3.739455968141556,
+        "max": 4.518975913524628,
+        "ci_lower": 4.3732082103671805,
+        "ci_upper": 4.454354013305687,
+        "samples": 50
+      },
+      "achieved_flops": 839143321589.4897,
+      "efficiency": {
+        "mean": 0.026265253204799232,
+        "std": 0.0009655421006938563,
+        "min": 0.025623232220429535,
+        "max": 0.030964602930814888,
+        "ci_lower": 0.025997618588965914,
+        "ci_upper": 0.02653288782063255,
+        "samples": 50
+      },
+      "node_names": [
+        "layer1_1_conv1",
+        "layer1_1_bn1",
+        "layer1_1_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 6,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 25764096,
+      "arithmetic_intensity": 143.58649059528423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.885409928560257,
+        "std": 0.20135576234742023,
+        "min": 3.341055929660797,
+        "max": 4.137472152709961,
+        "ci_lower": 3.8295969587654124,
+        "ci_upper": 3.941222898355101,
+        "samples": 50
+      },
+      "achieved_flops": 954668389140.4044,
+      "efficiency": {
+        "mean": 0.029881197075959175,
+        "std": 0.0015728496218874097,
+        "min": 0.02798587276410516,
+        "max": 0.03465693830588612,
+        "ci_lower": 0.02944522540365725,
+        "ci_upper": 0.0303171687482611,
+        "samples": 50
+      },
+      "node_names": [
+        "layer1_1_conv2",
+        "layer1_1_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 7,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 3211264,
+      "total_bytes": 38535168,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.7604192006587982,
+        "std": 0.012103220220708782,
+        "min": 0.7479360103607178,
+        "max": 0.8151679933071136,
+        "ci_lower": 0.7570643591746333,
+        "ci_upper": 0.7637740421429631,
+        "samples": 50
+      },
+      "achieved_flops": 4224029637.38028,
+      "efficiency": {
+        "mean": 0.000132212466113916,
+        "std": 2.0307117328586264e-06,
+        "min": 0.0001233031980377969,
+        "max": 0.00013438692497817395,
+        "ci_lower": 0.00013164958153943576,
+        "ci_upper": 0.00013277535068839625,
+        "samples": 50
+      },
+      "node_names": [
+        "add_1",
+        "layer1_1_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 8,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 25764096,
+      "arithmetic_intensity": 143.58649059528423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 4.360714272260666,
+        "std": 0.16325152719383865,
+        "min": 4.096447914838791,
+        "max": 4.529248088598251,
+        "ci_lower": 4.315463257588879,
+        "ci_upper": 4.405965286932453,
+        "samples": 50
+      },
+      "achieved_flops": 849545632630.485,
+      "efficiency": {
+        "mean": 0.026590846373900894,
+        "std": 0.0010271070850618438,
+        "min": 0.02556511963260663,
+        "max": 0.02826613974788594,
+        "ci_lower": 0.026306146815038917,
+        "ci_upper": 0.02687554593276287,
+        "samples": 50
+      },
+      "node_names": [
+        "layer1_2_conv1",
+        "layer1_2_bn1",
+        "layer1_2_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 9,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 25764096,
+      "arithmetic_intensity": 143.58649059528423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.8652172923088073,
+        "std": 0.18875523944159744,
+        "min": 3.699008047580719,
+        "max": 4.129696011543274,
+        "ci_lower": 3.8128970092696988,
+        "ci_upper": 3.917537575347916,
+        "samples": 50
+      },
+      "achieved_flops": 959291719879.6792,
+      "efficiency": {
+        "mean": 0.030025907698557668,
+        "std": 0.0014374327764900923,
+        "min": 0.0280385696446209,
+        "max": 0.03130319473257174,
+        "ci_lower": 0.029627471660765334,
+        "ci_upper": 0.03042434373635,
+        "samples": 50
+      },
+      "node_names": [
+        "layer1_2_conv2",
+        "layer1_2_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 10,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 3211264,
+      "total_bytes": 38535168,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.7610111993551254,
+        "std": 0.017144291040847685,
+        "min": 0.749343991279602,
+        "max": 0.8437440097332001,
+        "ci_lower": 0.7562590443293067,
+        "ci_upper": 0.7657633543809441,
+        "samples": 50
+      },
+      "achieved_flops": 4221692461.9399753,
+      "efficiency": {
+        "mean": 0.0001321393123353608,
+        "std": 2.7798078916816523e-06,
+        "min": 0.00011912715154517497,
+        "max": 0.00013413441848139976,
+        "ci_lower": 0.00013136878889920405,
+        "ci_upper": 0.00013290983577151757,
+        "samples": 50
+      },
+      "node_names": [
+        "add_2",
+        "layer1_2_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 11,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 1849688064,
+      "total_bytes": 19415552,
+      "arithmetic_intensity": 95.26837372432162,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.0738995119929315,
+        "std": 0.1486085445500936,
+        "min": 2.799520030617714,
+        "max": 3.2474559545516968,
+        "ci_lower": 3.0327073250322267,
+        "ci_upper": 3.1150916989536364,
+        "samples": 50
+      },
+      "achieved_flops": 603201498369.4016,
+      "efficiency": {
+        "mean": 0.018880255232415665,
+        "std": 0.0009657456399938911,
+        "min": 0.017827919893489957,
+        "max": 0.02068046807388265,
+        "ci_lower": 0.018612564198366783,
+        "ci_upper": 0.019147946266464547,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_0_conv1",
+        "layer2_0_bn1",
+        "layer2_0_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 12,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.961815676689148,
+        "std": 0.1983084799072667,
+        "min": 2.437279999256134,
+        "max": 3.214303970336914,
+        "ci_lower": 2.906847370492732,
+        "ci_upper": 3.016783982885564,
+        "samples": 50
+      },
+      "achieved_flops": 1254540333313.6487,
+      "efficiency": {
+        "mean": 0.03926721295678237,
+        "std": 0.0026394660976863053,
+        "min": 0.03602359027003671,
+        "max": 0.04750819325892345,
+        "ci_lower": 0.03853559028123907,
+        "ci_upper": 0.039998835632325674,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_0_conv2",
+        "layer2_0_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 13,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 205520896,
+      "total_bytes": 19284480,
+      "arithmetic_intensity": 10.657321120403557,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.231331843137741,
+        "std": 0.30833357152814755,
+        "min": 1.8221439719200134,
+        "max": 2.643903970718384,
+        "ci_lower": 2.145866137494093,
+        "ci_upper": 2.316797548781389,
+        "samples": 50
+      },
+      "achieved_flops": 93888633816.33095,
+      "efficiency": {
+        "mean": 0.002938721761578868,
+        "std": 0.0004143786343559245,
+        "min": 0.002433076459684211,
+        "max": 0.0035303579804630792,
+        "ci_lower": 0.0028238618641847654,
+        "ci_upper": 0.003053581658972971,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_0_downsample_0",
+        "layer2_0_downsample_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 14,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 1605632,
+      "total_bytes": 19267584,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.49119423747062685,
+        "std": 0.012677614316889364,
+        "min": 0.47894400358200073,
+        "max": 0.5313280075788498,
+        "ci_lower": 0.4876801820659527,
+        "ci_upper": 0.494708292875301,
+        "samples": 50
+      },
+      "achieved_flops": 3270874038.145342,
+      "efficiency": {
+        "mean": 0.00010237861948321508,
+        "std": 2.5265629509760464e-06,
+        "min": 9.458641279878726e-05,
+        "max": 0.00010493170366586661,
+        "ci_lower": 0.00010167829196328898,
+        "ci_upper": 0.00010307894700314118,
+        "samples": 50
+      },
+      "node_names": [
+        "add_3",
+        "layer2_0_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 15,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.3816499134898184,
+        "std": 0.09601283119654182,
+        "min": 3.0278079509735107,
+        "max": 3.4520320147275925,
+        "ci_lower": 3.355036514473981,
+        "ci_upper": 3.408263312505656,
+        "samples": 50
+      },
+      "achieved_flops": 1094901156660.8223,
+      "efficiency": {
+        "mean": 0.034270493935948214,
+        "std": 0.0010633939705189705,
+        "min": 0.03354278544832863,
+        "max": 0.03824244176171735,
+        "ci_lower": 0.033975736165598486,
+        "ci_upper": 0.03456525170629794,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_1_conv1",
+        "layer2_1_bn1",
+        "layer2_1_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 16,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.9609817469120028,
+        "std": 0.18462851777150974,
+        "min": 2.734687924385071,
+        "max": 3.2189120054244995,
+        "ci_lower": 2.9098053327606737,
+        "ci_upper": 3.012158161063332,
+        "samples": 50
+      },
+      "achieved_flops": 1254015412559.377,
+      "efficiency": {
+        "mean": 0.03925078289511271,
+        "std": 0.0023772080995429516,
+        "min": 0.03597202068141007,
+        "max": 0.042341492862227145,
+        "ci_lower": 0.03859185442786118,
+        "ci_upper": 0.03990971136236424,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_1_conv2",
+        "layer2_1_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 17,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 1605632,
+      "total_bytes": 19267584,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.48646783858537673,
+        "std": 0.010071911363161492,
+        "min": 0.4748480021953583,
+        "max": 0.5417920053005219,
+        "ci_lower": 0.4836760471902114,
+        "ci_upper": 0.48925962998054207,
+        "samples": 50
+      },
+      "achieved_flops": 3301887420.393265,
+      "efficiency": {
+        "mean": 0.00010334934083262173,
+        "std": 2.0001057413658133e-06,
+        "min": 9.275960103644195e-05,
+        "max": 0.00010583683625930926,
+        "ci_lower": 0.00010279493980616024,
+        "ci_upper": 0.00010390374185908322,
+        "samples": 50
+      },
+      "node_names": [
+        "add_4",
+        "layer2_1_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 18,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.313721611201763,
+        "std": 0.1627765577794799,
+        "min": 3.0480000525712967,
+        "max": 3.472639948129654,
+        "ci_lower": 3.268602251334726,
+        "ci_upper": 3.3588409710688003,
+        "samples": 50
+      },
+      "achieved_flops": 1119138846297.7007,
+      "efficiency": {
+        "mean": 0.03502913556370507,
+        "std": 0.0017932524253270572,
+        "min": 0.033343730118964264,
+        "max": 0.0379890968614282,
+        "ci_lower": 0.0345320713511765,
+        "ci_upper": 0.03552619977623364,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_2_conv1",
+        "layer2_2_bn1",
+        "layer2_2_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 19,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.9404089605808257,
+        "std": 0.19322214447216685,
+        "min": 2.4478719830513,
+        "max": 3.2159359455108643,
+        "ci_lower": 2.8868505146372088,
+        "ci_upper": 2.9939674065244426,
+        "samples": 50
+      },
+      "achieved_flops": 1263379230074.85,
+      "efficiency": {
+        "mean": 0.03954387113365291,
+        "std": 0.0025652850882803852,
+        "min": 0.0360053095561191,
+        "max": 0.04730262449690475,
+        "ci_lower": 0.038832810384865794,
+        "ci_upper": 0.040254931882440025,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_2_conv2",
+        "layer2_2_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 20,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 1605632,
+      "total_bytes": 19267584,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.48737535893917083,
+        "std": 0.008711162149525121,
+        "min": 0.47760000824928284,
+        "max": 0.5278720110654831,
+        "ci_lower": 0.48496074798261646,
+        "ci_upper": 0.4897899698957252,
+        "samples": 50
+      },
+      "achieved_flops": 3295426464.5059433,
+      "efficiency": {
+        "mean": 0.00010314711239564376,
+        "std": 1.752196240108093e-06,
+        "min": 9.520567335057265e-05,
+        "max": 0.00010522698783158098,
+        "ci_lower": 0.00010266142837705056,
+        "ci_upper": 0.00010363279641423695,
+        "samples": 50
+      },
+      "node_names": [
+        "add_5",
+        "layer2_2_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 21,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.3782828706502914,
+        "std": 0.10566841863711673,
+        "min": 3.0541120022535324,
+        "max": 3.4913600236177444,
+        "ci_lower": 3.3489930793430704,
+        "ci_upper": 3.4075726619575124,
+        "samples": 50
+      },
+      "achieved_flops": 1096185495023.7439,
+      "efficiency": {
+        "mean": 0.03431069382961939,
+        "std": 0.0011634864333333488,
+        "min": 0.03316494673923285,
+        "max": 0.03791307232522281,
+        "ci_lower": 0.03398819184406259,
+        "ci_upper": 0.03463319581517619,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_3_conv1",
+        "layer2_3_bn1",
+        "layer2_3_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 22,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 13140480,
+      "arithmetic_intensity": 281.52518994739916,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.983226866722107,
+        "std": 0.19040405491502557,
+        "min": 2.8034879565238953,
+        "max": 3.2577600479125977,
+        "ci_lower": 2.9304495553509415,
+        "ci_upper": 3.0360041780932727,
+        "samples": 50
+      },
+      "achieved_flops": 1244951451231.752,
+      "efficiency": {
+        "mean": 0.03896708017927909,
+        "std": 0.002448552762302492,
+        "min": 0.035543062572997636,
+        "max": 0.041302395810660336,
+        "ci_lower": 0.03828837598045077,
+        "ci_upper": 0.03964578437810742,
+        "samples": 50
+      },
+      "node_names": [
+        "layer2_3_conv2",
+        "layer2_3_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 23,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 1605632,
+      "total_bytes": 19267584,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.4862822398543358,
+        "std": 0.011961829394348972,
+        "min": 0.4760959893465042,
+        "max": 0.5520320236682892,
+        "ci_lower": 0.4829665899077206,
+        "ci_upper": 0.4895978898009509,
+        "samples": 50
+      },
+      "achieved_flops": 3303639142.396274,
+      "efficiency": {
+        "mean": 0.00010340416987167825,
+        "std": 2.322589351543847e-06,
+        "min": 9.103893995578934e-05,
+        "max": 0.00010555940688639887,
+        "ci_lower": 0.00010276038094896603,
+        "ci_upper": 0.00010404795879439047,
+        "samples": 50
+      },
+      "node_names": [
+        "add_6",
+        "layer2_3_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 24,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 1849688064,
+      "total_bytes": 10224640,
+      "arithmetic_intensity": 180.90495743615423,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.5146156907081605,
+        "std": 0.11786587544449578,
+        "min": 2.198048025369644,
+        "max": 2.6091520190238953,
+        "ci_lower": 2.481944936867622,
+        "ci_upper": 2.547286444548699,
+        "samples": 50
+      },
+      "achieved_flops": 737339408000.039,
+      "efficiency": {
+        "mean": 0.02307878255208455,
+        "std": 0.001202876031194229,
+        "min": 0.02218934895063866,
+        "max": 0.026339453891435514,
+        "ci_lower": 0.022745362327039543,
+        "ci_upper": 0.02341220277712956,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_0_conv1",
+        "layer3_0_bn1",
+        "layer3_0_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 25,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.6358028799295425,
+        "std": 0.1815516777890702,
+        "min": 2.4695358872413635,
+        "max": 2.88374400138855,
+        "ci_lower": 2.5854793223093675,
+        "ci_upper": 2.6861264375497176,
+        "samples": 50
+      },
+      "achieved_flops": 1409886552697.6558,
+      "efficiency": {
+        "mean": 0.04412956207111553,
+        "std": 0.00295684980923642,
+        "min": 0.04015292937757821,
+        "max": 0.046887664127090396,
+        "ci_lower": 0.04330996511909953,
+        "ci_upper": 0.04494915902313153,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_0_conv2",
+        "layer3_0_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 26,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 205520896,
+      "total_bytes": 9700352,
+      "arithmetic_intensity": 21.186952391006017,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 1.4869804716110229,
+        "std": 0.31249958717864973,
+        "min": 1.051936000585556,
+        "max": 1.8651520013809204,
+        "ci_lower": 1.4003600053439111,
+        "ci_upper": 1.5736009378781346,
+        "samples": 50
+      },
+      "achieved_flops": 144868715488.97644,
+      "efficiency": {
+        "mean": 0.004534402402875114,
+        "std": 0.0010247516961828884,
+        "min": 0.003448952422139206,
+        "max": 0.006115220421432206,
+        "ci_lower": 0.004250355724501006,
+        "ci_upper": 0.0048184490812492225,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_0_downsample_0",
+        "layer3_0_downsample_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 27,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 802816,
+      "total_bytes": 9633792,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.36354112029075625,
+        "std": 0.014203688555958268,
+        "min": 0.34780800342559814,
+        "max": 0.4201599955558777,
+        "ci_lower": 0.35960405868841055,
+        "ci_upper": 0.36747818189310194,
+        "samples": 50
+      },
+      "achieved_flops": 2211424380.568044,
+      "efficiency": {
+        "mean": 6.921776030924618e-05,
+        "std": 2.5401313690743367e-06,
+        "min": 5.980627711822053e-05,
+        "max": 7.224734589404141e-05,
+        "ci_lower": 6.851367181570475e-05,
+        "ci_upper": 6.992184880278762e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_7",
+        "layer3_0_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 28,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.9674163082242013,
+        "std": 0.12505432737948988,
+        "min": 2.478048011660576,
+        "max": 3.0601279586553574,
+        "ci_lower": 2.9327530171647513,
+        "ci_upper": 3.0020795992836513,
+        "samples": 50
+      },
+      "achieved_flops": 1249100090508.7886,
+      "efficiency": {
+        "mean": 0.039096932921073364,
+        "std": 0.0018464695662674985,
+        "min": 0.03783853838636491,
+        "max": 0.046726604442654106,
+        "ci_lower": 0.03858511766966093,
+        "ci_upper": 0.039608748172485796,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_1_conv1",
+        "layer3_1_bn1",
+        "layer3_1_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 29,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.595657598376274,
+        "std": 0.20054589575476078,
+        "min": 2.10835200548172,
+        "max": 2.870112121105194,
+        "ci_lower": 2.5400691121479637,
+        "ci_upper": 2.651246084604584,
+        "samples": 50
+      },
+      "achieved_flops": 1433658057181.6907,
+      "efficiency": {
+        "mean": 0.04487361206623381,
+        "std": 0.0035090654747342094,
+        "min": 0.0403436396715337,
+        "max": 0.05492003656396701,
+        "ci_lower": 0.043900948741051445,
+        "ci_upper": 0.045846275391416176,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_1_conv2",
+        "layer3_1_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 30,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 802816,
+      "total_bytes": 9633792,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.36192063987255096,
+        "std": 0.011705172518001933,
+        "min": 0.3465919941663742,
+        "max": 0.39318400621414185,
+        "ci_lower": 0.3586761315824754,
+        "ci_upper": 0.3651651481626265,
+        "samples": 50
+      },
+      "achieved_flops": 2220407215.547301,
+      "efficiency": {
+        "mean": 6.949892376387535e-05,
+        "std": 2.1710995679304226e-06,
+        "min": 6.390953022264956e-05,
+        "max": 7.250082388268571e-05,
+        "ci_lower": 6.889712566684636e-05,
+        "ci_upper": 7.010072186090434e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_8",
+        "layer3_1_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 31,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.9522214429080487,
+        "std": 0.13459602751248664,
+        "min": 2.656608074903488,
+        "max": 3.0657599568367004,
+        "ci_lower": 2.9149133275083075,
+        "ci_upper": 2.98952955830779,
+        "samples": 50
+      },
+      "achieved_flops": 1255838744779.6458,
+      "efficiency": {
+        "mean": 0.03930785333970746,
+        "std": 0.0019312994661682807,
+        "min": 0.03776902655817971,
+        "max": 0.04358594341582576,
+        "ci_lower": 0.03877252443968788,
+        "ci_upper": 0.03984318223972704,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_2_conv1",
+        "layer3_2_bn1",
+        "layer3_2_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 32,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.6292736303806303,
+        "std": 0.18436462531622566,
+        "min": 2.471840113401413,
+        "max": 2.8951680660247803,
+        "ci_lower": 2.5781703634859983,
+        "ci_upper": 2.6803768972752624,
+        "samples": 50
+      },
+      "achieved_flops": 1413581165055.9023,
+      "efficiency": {
+        "mean": 0.0442452037339713,
+        "std": 0.00299980753765309,
+        "min": 0.039994489642791654,
+        "max": 0.04684395588654542,
+        "ci_lower": 0.04341369950713672,
+        "ci_upper": 0.04507670796080587,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_2_conv2",
+        "layer3_2_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 33,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 802816,
+      "total_bytes": 9633792,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.3592825591564178,
+        "std": 0.012377842527740997,
+        "min": 0.3455040007829666,
+        "max": 0.39951999485492706,
+        "ci_lower": 0.3558515962523905,
+        "ci_upper": 0.36271352206044516,
+        "samples": 50
+      },
+      "achieved_flops": 2236950938.5964947,
+      "efficiency": {
+        "mean": 7.001674362093396e-05,
+        "std": 2.2761984071924685e-06,
+        "min": 6.289598881610327e-05,
+        "max": 7.27291292467255e-05,
+        "ci_lower": 6.938581361194564e-05,
+        "ci_upper": 7.064767362992227e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_9",
+        "layer3_2_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 34,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.953146223425865,
+        "std": 0.13631741861540408,
+        "min": 2.6022719889879227,
+        "max": 3.0837118923664093,
+        "ci_lower": 2.9153609627559205,
+        "ci_upper": 2.99093148409581,
+        "samples": 50
+      },
+      "achieved_flops": 1255521805548.742,
+      "efficiency": {
+        "mean": 0.0392979331163844,
+        "std": 0.0019599721492575446,
+        "min": 0.0375491528626277,
+        "max": 0.04449602874748026,
+        "ci_lower": 0.0387546565540951,
+        "ci_upper": 0.0398412096786737,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_3_conv1",
+        "layer3_3_bn1",
+        "layer3_3_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 35,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.6154265531897547,
+        "std": 0.18718175374131266,
+        "min": 2.2753280252218246,
+        "max": 2.883232057094574,
+        "ci_lower": 2.5635424181348845,
+        "ci_upper": 2.667310688244625,
+        "samples": 50
+      },
+      "achieved_flops": 1421355833190.5776,
+      "efficiency": {
+        "mean": 0.04448855146955684,
+        "std": 0.003086676360681652,
+        "min": 0.04016005889843335,
+        "max": 0.05088970379094269,
+        "ci_lower": 0.04363296843345808,
+        "ci_upper": 0.045344134505655595,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_3_conv2",
+        "layer3_3_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 36,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 802816,
+      "total_bytes": 9633792,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.36315263926982877,
+        "std": 0.01783525140595616,
+        "min": 0.34860800206661224,
+        "max": 0.4419199973344803,
+        "ci_lower": 0.3582089598022079,
+        "ci_upper": 0.36809631873744963,
+        "samples": 50
+      },
+      "achieved_flops": 2215237072.9778633,
+      "efficiency": {
+        "mean": 6.933709788717772e-05,
+        "std": 2.968578506415454e-06,
+        "min": 5.686143482931391e-05,
+        "max": 7.208154999093686e-05,
+        "ci_lower": 6.85142499061683e-05,
+        "ci_upper": 7.015994586818715e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_10",
+        "layer3_3_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 37,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.9858476865291594,
+        "std": 0.13129269412057615,
+        "min": 2.673791989684105,
+        "max": 3.457951992750168,
+        "ci_lower": 2.9494552084306584,
+        "ci_upper": 3.0222401646276604,
+        "samples": 50
+      },
+      "achieved_flops": 1241410208394.369,
+      "efficiency": {
+        "mean": 0.038856238994715575,
+        "std": 0.0017806305928363543,
+        "min": 0.03348536054680125,
+        "max": 0.04330582546342706,
+        "ci_lower": 0.03836267337565832,
+        "ci_upper": 0.03934980461377283,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_4_conv1",
+        "layer3_4_bn1",
+        "layer3_4_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 38,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.6497599905729294,
+        "std": 0.18942657976519126,
+        "min": 2.472767949104309,
+        "max": 2.8884479999542236,
+        "ci_lower": 2.5972536214900646,
+        "ci_upper": 2.7022663596557943,
+        "samples": 50
+      },
+      "achieved_flops": 1403023579936.2195,
+      "efficiency": {
+        "mean": 0.043914750473764884,
+        "std": 0.00308558427217601,
+        "min": 0.040087538094022906,
+        "max": 0.04682637902707822,
+        "ci_lower": 0.04305947014915582,
+        "ci_upper": 0.044770030798373946,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_4_conv2",
+        "layer3_4_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 39,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 802816,
+      "total_bytes": 9633792,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.3640735986828804,
+        "std": 0.01823886925473834,
+        "min": 0.342399999499321,
+        "max": 0.4358079880475998,
+        "ci_lower": 0.3590180420554499,
+        "ci_upper": 0.36912915531031093,
+        "samples": 50
+      },
+      "achieved_flops": 2210044251.0613627,
+      "efficiency": {
+        "mean": 6.917456214509976e-05,
+        "std": 3.165796298124228e-06,
+        "min": 5.7658890652230484e-05,
+        "max": 7.33884496639871e-05,
+        "ci_lower": 6.829704818123827e-05,
+        "ci_upper": 7.005207610896124e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_11",
+        "layer3_4_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 40,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.9667692731320856,
+        "std": 0.12436218936752699,
+        "min": 2.6566400676965714,
+        "max": 3.090239956974983,
+        "ci_lower": 2.932297832941492,
+        "ci_upper": 3.0012407133226793,
+        "samples": 50
+      },
+      "achieved_flops": 1249275917680.3855,
+      "efficiency": {
+        "mean": 0.03910243632563306,
+        "std": 0.0017820374875576219,
+        "min": 0.03746983109496652,
+        "max": 0.04358541852873774,
+        "ci_lower": 0.03860848073525505,
+        "ci_upper": 0.03959639191601107,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_5_conv1",
+        "layer3_5_bn1",
+        "layer3_5_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 41,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7603200,
+      "arithmetic_intensity": 486.5551515151515,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.6379737704992294,
+        "std": 0.18629980318457387,
+        "min": 2.46748811006546,
+        "max": 2.872640013694763,
+        "ci_lower": 2.5863340996663413,
+        "ci_upper": 2.6896134413321175,
+        "samples": 50
+      },
+      "achieved_flops": 1409088430091.0261,
+      "efficiency": {
+        "mean": 0.044104580769575887,
+        "std": 0.0030452081423123353,
+        "min": 0.0403081376986879,
+        "max": 0.04692657636664251,
+        "ci_lower": 0.0432604921371749,
+        "ci_upper": 0.04494866940197687,
+        "samples": 50
+      },
+      "node_names": [
+        "layer3_5_conv2",
+        "layer3_5_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 42,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 802816,
+      "total_bytes": 9633792,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.3605049610137939,
+        "std": 0.01503102244676369,
+        "min": 0.34435199201107025,
+        "max": 0.42553600668907166,
+        "ci_lower": 0.3563385741568866,
+        "ci_upper": 0.36467134787070127,
+        "samples": 50
+      },
+      "achieved_flops": 2230408721.4850483,
+      "efficiency": {
+        "mean": 6.981197170112957e-05,
+        "std": 2.6780771105950085e-06,
+        "min": 5.90507142361884e-05,
+        "max": 7.297244015187025e-05,
+        "ci_lower": 6.906964659883623e-05,
+        "ci_upper": 7.05542968034229e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_12",
+        "layer3_5_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 43,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 1849688064,
+      "total_bytes": 7178240,
+      "arithmetic_intensity": 257.6798858773181,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 2.7695148745179177,
+        "std": 0.086050232592107,
+        "min": 2.4374080151319504,
+        "max": 2.879903942346573,
+        "ci_lower": 2.7456629669464028,
+        "ci_upper": 2.7933667820894326,
+        "samples": 50
+      },
+      "achieved_flops": 668579743830.2933,
+      "efficiency": {
+        "mean": 0.02092659955398304,
+        "std": 0.0007254489143534862,
+        "min": 0.02010323461282216,
+        "max": 0.023752849033053837,
+        "ci_lower": 0.020725515374059485,
+        "ci_upper": 0.021127683733906596,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_0_conv1",
+        "layer4_0_bn1",
+        "layer4_0_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 44,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7931904,
+      "arithmetic_intensity": 466.3919442292796,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.3951071918010713,
+        "std": 0.18936998928668383,
+        "min": 3.189728021621704,
+        "max": 3.610975980758667,
+        "ci_lower": 3.342616508798559,
+        "ci_upper": 3.447597874803584,
+        "samples": 50
+      },
+      "achieved_flops": 1092952185917.2964,
+      "efficiency": {
+        "mean": 0.034209490995508324,
+        "std": 0.0019082165022068355,
+        "min": 0.032066336039831965,
+        "max": 0.036301141804529,
+        "ci_lower": 0.03368056036666477,
+        "ci_upper": 0.034738421624351874,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_0_conv2",
+        "layer4_0_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 45,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 205520896,
+      "total_bytes": 5081088,
+      "arithmetic_intensity": 40.44820636839984,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 1.3227353638410568,
+        "std": 0.30940550211022183,
+        "min": 0.944320023059845,
+        "max": 1.7769920229911804,
+        "ci_lower": 1.2369725341990587,
+        "ci_upper": 1.408498193483055,
+        "samples": 50
+      },
+      "achieved_flops": 164190332078.50815,
+      "efficiency": {
+        "mean": 0.005139170550333914,
+        "std": 0.0012236502198320074,
+        "min": 0.0036200615588539648,
+        "max": 0.006812119150006461,
+        "ci_lower": 0.0047999920139824145,
+        "ci_upper": 0.005478349086685414,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_0_downsample_0",
+        "layer4_0_downsample_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 46,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 401408,
+      "total_bytes": 4816896,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.36161919951438903,
+        "std": 0.012140472931817244,
+        "min": 0.3409600108861923,
+        "max": 0.3989119976758957,
+        "ci_lower": 0.35825403210552437,
+        "ci_upper": 0.3649843669232537,
+        "samples": 50
+      },
+      "achieved_flops": 1111209774.3263476,
+      "efficiency": {
+        "mean": 3.478095497565942e-05,
+        "std": 1.1238884612132157e-06,
+        "min": 3.1495925510644904e-05,
+        "max": 3.6849196864603245e-05,
+        "ci_lower": 3.446942898798872e-05,
+        "ci_upper": 3.509248096333012e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_13",
+        "layer4_0_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 47,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7931904,
+      "arithmetic_intensity": 466.3919442292796,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.66773824185133,
+        "std": 0.14902443626694456,
+        "min": 3.3781118988990784,
+        "max": 3.815360054373741,
+        "ci_lower": 3.6264307755881613,
+        "ci_upper": 3.7090457081144987,
+        "samples": 50
+      },
+      "achieved_flops": 1010349223465.0721,
+      "efficiency": {
+        "mean": 0.03162401165192658,
+        "std": 0.0013547366564015736,
+        "min": 0.030348582461577223,
+        "max": 0.034276771372939205,
+        "ci_lower": 0.031248497809152873,
+        "ci_upper": 0.03199952549470029,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_1_conv1",
+        "layer4_1_bn1",
+        "layer4_1_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 48,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7931904,
+      "arithmetic_intensity": 466.3919442292796,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.317361269593239,
+        "std": 0.1883243446794841,
+        "min": 2.8287360668182373,
+        "max": 3.6012479662895203,
+        "ci_lower": 3.2651604244885717,
+        "ci_upper": 3.369562114697906,
+        "samples": 50
+      },
+      "achieved_flops": 1118631209405.3284,
+      "efficiency": {
+        "mean": 0.03501324648829779,
+        "std": 0.001959538884193742,
+        "min": 0.03215295650692783,
+        "max": 0.040933747969286755,
+        "ci_lower": 0.03447009002095704,
+        "ci_upper": 0.03555640295563854,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_1_conv2",
+        "layer4_1_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 49,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 401408,
+      "total_bytes": 4816896,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.3647948789596558,
+        "std": 0.018020516733482757,
+        "min": 0.3452479988336563,
+        "max": 0.4249599874019623,
+        "ci_lower": 0.3597998465632251,
+        "ci_upper": 0.36978991135608646,
+        "samples": 50
+      },
+      "achieved_flops": 1102820266.7059648,
+      "efficiency": {
+        "mean": 3.451836271490525e-05,
+        "std": 1.5888055796208463e-06,
+        "min": 2.9565377768656603e-05,
+        "max": 3.639152900682291e-05,
+        "ci_lower": 3.407796827676518e-05,
+        "ci_upper": 3.495875715304532e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_14",
+        "layer4_1_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 50,
+      "fusion_pattern": "Conv2d_BatchNorm2d_ReLU",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7931904,
+      "arithmetic_intensity": 466.3919442292796,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.6478867223858833,
+        "std": 0.16180862297550908,
+        "min": 3.3739520013332367,
+        "max": 3.8051520586013794,
+        "ci_lower": 3.603035660358191,
+        "ci_upper": 3.6927377844135756,
+        "samples": 50
+      },
+      "achieved_flops": 1016157544458.5079,
+      "efficiency": {
+        "mean": 0.03180581256443146,
+        "std": 0.0014709558938747487,
+        "min": 0.030429997920590132,
+        "max": 0.034319032750025444,
+        "ci_lower": 0.031398084392576485,
+        "ci_upper": 0.03221354073628644,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_2_conv1",
+        "layer4_2_bn1",
+        "layer4_2_relu"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 51,
+      "fusion_pattern": "Conv2d_BatchNorm2d",
+      "operation_type": "conv2d_batchnorm",
+      "flops": 3699376128,
+      "total_bytes": 7931904,
+      "arithmetic_intensity": 466.3919442292796,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 3.35553534924984,
+        "std": 0.18957043782041405,
+        "min": 3.192191928625107,
+        "max": 3.6043200492858887,
+        "ci_lower": 3.3029891047484754,
+        "ci_upper": 3.4080815937512043,
+        "samples": 50
+      },
+      "achieved_flops": 1105851067044.9382,
+      "efficiency": {
+        "mean": 0.034613227008367706,
+        "std": 0.0019116462901578365,
+        "min": 0.032125551462531876,
+        "max": 0.03627312261285019,
+        "ci_lower": 0.034083345690807426,
+        "ci_upper": 0.035143108325927985,
+        "samples": 50
+      },
+      "node_names": [
+        "layer4_2_conv2",
+        "layer4_2_bn2"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 52,
+      "fusion_pattern": "add_ReLU",
+      "operation_type": "activation",
+      "flops": 401408,
+      "total_bytes": 4816896,
+      "arithmetic_intensity": 0.08333333333333333,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.36485759884119034,
+        "std": 0.014434332766667913,
+        "min": 0.3434240072965622,
+        "max": 0.4129599928855896,
+        "ci_lower": 0.36085660592535446,
+        "ci_upper": 0.36885859175702623,
+        "samples": 50
+      },
+      "achieved_flops": 1101801688.2884102,
+      "efficiency": {
+        "mean": 3.448648112881893e-05,
+        "std": 1.313088425327673e-06,
+        "min": 3.042450305248684e-05,
+        "max": 3.658481147840341e-05,
+        "ci_lower": 3.4122511586719e-05,
+        "ci_upper": 3.485045067091886e-05,
+        "samples": 50
+      },
+      "node_names": [
+        "add_15",
+        "layer4_2_relu_1"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 53,
+      "fusion_pattern": "Unfused",
+      "operation_type": "unfused",
+      "flops": 0,
+      "total_bytes": 1638400,
+      "arithmetic_intensity": 0.0,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.7388460814952851,
+        "std": 0.009483737231385358,
+        "min": 0.7287039756774902,
+        "max": 0.780128002166748,
+        "ci_lower": 0.736217323651622,
+        "ci_upper": 0.7414748393389482,
+        "samples": 50
+      },
+      "achieved_flops": 0,
+      "efficiency": {
+        "mean": 0,
+        "std": 0,
+        "min": 0,
+        "max": 0,
+        "ci_lower": 0,
+        "ci_upper": 0,
+        "samples": 0
+      },
+      "node_names": [
+        "avgpool"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 54,
+      "fusion_pattern": "Unfused",
+      "operation_type": "unfused",
+      "flops": 0,
+      "total_bytes": 65536,
+      "arithmetic_intensity": 0.0,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.19153279870748519,
+        "std": 0.13575818625608607,
+        "min": 0.12569600343704224,
+        "max": 0.5617280006408691,
+        "ci_lower": 0.15390254933900538,
+        "ci_upper": 0.229163048075965,
+        "samples": 50
+      },
+      "achieved_flops": 0,
+      "efficiency": {
+        "mean": 0,
+        "std": 0,
+        "min": 0,
+        "max": 0,
+        "ci_lower": 0,
+        "ci_upper": 0,
+        "samples": 0
+      },
+      "node_names": [
+        "flatten"
+      ],
+      "source_model": "resnet34"
+    },
+    {
+      "subgraph_id": 55,
+      "fusion_pattern": "Unfused",
+      "operation_type": "unfused",
+      "flops": 16384000,
+      "total_bytes": 1122768,
+      "arithmetic_intensity": 14.592507089621364,
+      "theoretical_peak_flops": 31948800000000.0,
+      "measured_latency": {
+        "mean": 0.9907596765458584,
+        "std": 0.16224791426669424,
+        "min": 0.10735999792814255,
+        "max": 1.0498239994049072,
+        "ci_lower": 0.945786849184608,
+        "ci_upper": 1.0357325039071088,
+        "samples": 50
+      },
+      "achieved_flops": 19219854052.6068,
+      "efficiency": {
+        "mean": 0.0006015829718990009,
+        "std": 0.0006078746436926831,
+        "min": 0.0004884823676265785,
+        "max": 0.004776644213087172,
+        "ci_lower": 0.00043308871709375144,
+        "ci_upper": 0.0007700772267042503,
+        "samples": 50
+      },
+      "node_names": [
+        "fc"
+      ],
+      "source_model": "resnet34"
+    }
+  ]
+}
