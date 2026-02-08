@@ -16,6 +16,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-02-07 - Ground-Truth Measurement Schema v2.0
+
+### Added
+- **Ground-truth measurement schema v2.0** (`src/graphs/calibration/ground_truth.py`)
+  - `MeasurementRecord` dataclass with new fields: `batch_size`, `input_shape`, `model_summary`, `system_state`, `run_id`, `run_index`
+  - `ModelSummary`: whole-model aggregates (total FLOPs, latency, throughput) computed from subgraphs
+  - `SystemState`: hardware conditions captured during measurement (GPU/CPU clocks, temperature, power mode)
+  - `GroundTruthLoader`: query interface for stored measurement data with `list_hardware()`, `list_models()`, `list_configurations()`, `load()`, `load_all()`
+  - `Manifest` / `ManifestEntry`: auto-generated per-hardware index for fast lookups
+  - `_is_valid_model_name()` heuristic for disambiguating batch suffixes from model names (e.g., `efficientnet_b0` vs `resnet18_b4`)
+  - Backward-compatible v1.0 loading: infers `batch_size` from filename, computes `model_summary` on the fly
+- **Migration script** (`cli/migrate_measurements.py`): converts v1.0 files to v2.0 canonical layout, generates manifests
+- **CI data-hygiene check** (`ci/check_no_legacy_json_reads.sh`): prevents new code from reading measurement JSON directly outside `GroundTruthLoader`
+- Canonical storage layout: `calibration_data/<hw_id>/measurements/<precision>/<model>_b<batch>.json`
+- Migrated measurement data for 11 hardware targets (661 files) into canonical layout
+
+### Changed
+- `cli/measure_efficiency.py` now emits v2.0 schema via `MeasurementRecord.save()` with `batch_size`, `input_shape`, `model_summary`, `system_state`, `run_id`
+- `cli/query_calibration_data.py` rewritten to use `GroundTruthLoader` for all measurement queries
+- `cli/aggregate_efficiency.py` uses `GroundTruthLoader` by default when `--hardware-id` is provided
+- `cli/run_full_calibration.py` writes to canonical layout and rebuilds manifest after aggregation
+- `src/graphs/calibration/__init__.py` exports ground-truth types
+- CI workflow (`ci.yml`) includes new `data-hygiene` job in gate
+
+### Deprecated
+- `aggregate_efficiency.py` flags `--input`, `--input-dir`, `--hardware`, `--from-loader` (use `--hardware-id` instead)
+
+### Removed
+- `measurements/` top-level directory (445 duplicate JSON files, all migrated to `calibration_data/`)
+
+---
+
 ## [0.8.0] - 2026-01-23 - Milestone 1: Foundation Consolidation
 
 ### Added
