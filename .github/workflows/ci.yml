@@ -271,11 +271,22 @@ jobs:
         run: |
           pytest tests/hardware/ -v || echo "✅ Hardware tests completed"
 
-  # Job 7: Summary
+  # Job 7: Data Hygiene (no legacy measurement reads)
+  data-hygiene:
+    name: Data Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check no legacy measurement JSON reads
+        run: bash ci/check_no_legacy_json_reads.sh
+
+  # Job 8: Summary
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [package-check, test, cli-tools, examples, lint, hardware-tests]
+    needs: [package-check, test, cli-tools, examples, lint, hardware-tests, data-hygiene]
     steps:
       - name: All checks passed
         run: |
@@ -290,5 +301,6 @@ jobs:
           echo "  ✅ Examples validated"
           echo "  ✅ Code quality checked"
           echo "  ✅ Hardware tests completed"
+          echo "  ✅ Data hygiene verified"
           echo ""
-          echo "Ready to merge! 🚀"
+          echo "Ready to merge!"

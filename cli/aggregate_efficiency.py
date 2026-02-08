@@ -7,21 +7,16 @@ efficiency curves for calibration. Groups data by operation type and FLOP
 bins, computes pooled statistics, and fits parametric curves.
 
 Usage:
-    # Aggregate multiple model measurements
+    # Aggregate from calibration data (recommended)
     ./cli/aggregate_efficiency.py \\
-        --input measurements/resnet18_i7.json \\
-        --input measurements/resnet50_i7.json \\
-        --input measurements/vgg16_i7.json \\
-        --output hardware_registry/cpu/i7-12700K/efficiency_curves.json
-
-    # Aggregate all measurements in a directory
-    ./cli/aggregate_efficiency.py \\
-        --input-dir measurements/ \\
-        --hardware i7-12700K \\
-        --output hardware_registry/cpu/i7-12700K/efficiency_curves.json
+        --hardware-id jetson_orin_agx_maxn \\
+        --precision FP32 \\
+        --output calibration_data/jetson_orin_agx_maxn/fp32/efficiency_curves.json
 
     # Preview without writing
-    ./cli/aggregate_efficiency.py --input measurements/*.json --dry-run
+    ./cli/aggregate_efficiency.py \\
+        --hardware-id jetson_orin_agx_maxn --dry-run \\
+        --output /dev/null
 """
 
 import argparse
@@ -30,6 +25,7 @@ import json
 import math
 import statistics
 import sys
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -448,21 +444,24 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --input measurements/*.json --output efficiency_curves.json
-  %(prog)s --input-dir measurements/ --hardware i7-12700K --output curves.json
+  %(prog)s --hardware-id jetson_orin_agx_maxn --precision FP32 -o curves.json
+  %(prog)s --hardware-id i7_12700K -o curves.json --verbose
 """)
     parser.add_argument('--input', '-i', action='append', dest='input_files',
-                        help='Input measurement JSON file(s)')
+                        help='[DEPRECATED] Input measurement JSON file(s). '
+                             'Use --hardware-id instead.')
     parser.add_argument('--input-dir', type=str,
-                        help='Directory containing measurement JSON files')
+                        help='[DEPRECATED] Directory containing measurement JSON files. '
+                             'Use --hardware-id instead.')
     parser.add_argument('--hardware', type=str,
-                        help='Filter by hardware ID (for input-dir mode)')
+                        help='[DEPRECATED] Filter by hardware ID (for input-dir mode). '
+                             'Use --hardware-id instead.')
     parser.add_argument('--from-loader', action='store_true',
-                        help='Load measurements via GroundTruthLoader instead of file globs')
+                        help='[DEPRECATED] No longer needed; GroundTruthLoader is the default.')
     parser.add_argument('--output', '-o', type=str, required=True,
                         help='Output efficiency curves JSON path')
     parser.add_argument('--hardware-id', type=str,
-                        help='Hardware ID for output (default: from first input)')
+                        help='Hardware ID to aggregate (uses GroundTruthLoader)')
     parser.add_argument('--hardware-name', type=str,
                         help='Hardware name for output')
     parser.add_argument('--device-type', type=str, choices=['cpu', 'gpu'],
@@ -476,27 +475,57 @@ Examples:
 
     args = parser.parse_args()
 
+    # Deprecation warnings for old flags
+    if args.input_files:
+        warnings.warn(
+            "--input is deprecated and will be removed in a future version. "
+            "Use --hardware-id to load via GroundTruthLoader.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if args.input_dir:
+        warnings.warn(
+            "--input-dir is deprecated and will be removed in a future version. "
+            "Use --hardware-id to load via GroundTruthLoader.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if args.hardware:
+        warnings.warn(
+            "--hardware is deprecated. Use --hardware-id instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Load and aggregate
     curves: Dict[str, OperationTypeCurve] = defaultdict(OperationTypeCurve)
     loaded_files = []
     hardware_id = args.hardware_id
     device_type = args.device_type
 
-    if args.from_loader and args.hardware_id:
-        # Use GroundTruthLoader to find measurement files
+    use_loader = args.hardware_id and not (args.input_files or args.input_dir)
+
+    if use_loader or args.from_loader:
+        # GroundTruthLoader path (default when --hardware-id is given)
+        hw = args.hardware_id or args.hardware
+        if not hw:
+            print("Error: --hardware-id is required")
+            parser.print_help()
+            return 1
+
         loader = GroundTruthLoader()
         prec = args.precision.lower() if args.precision else None
-        records = loader.load_all(args.hardware_id, precision=prec)
+        records = loader.load_all(hw, precision=prec)
 
         if not records:
-            print(f"Error: No measurements found via loader for {args.hardware_id}"
+            print(f"Error: No measurements found for {hw}"
                   f"{' / ' + prec if prec else ''}")
             return 1
 
         print(f"Loaded {len(records)} record(s) via GroundTruthLoader")
 
         if not hardware_id:
-            hardware_id = args.hardware_id
+            hardware_id = hw
         if not device_type and records:
             device_type = records[0].device
 
@@ -510,7 +539,10 @@ Examples:
             loaded_files.append(f"{record.model}_b{record.batch_size}")
 
     else:
-        # Collect input files via glob (original path)
+        # DEPRECATED: legacy glob-based path
+        print("WARNING: Using deprecated glob-based file loading.")
+        print("         Migrate to: --hardware-id <ID> [--precision <PREC>]")
+        print()
         input_files = []
         if args.input_files:
             for pattern in args.input_files:
@@ -520,7 +552,7 @@ Examples:
             input_files.extend(dir_files)
 
         if not input_files:
-            print("Error: No input files specified (use --input, --input-dir, or --from-loader)")
+            print("Error: No input files specified. Use --hardware-id (recommended)")
             parser.print_help()
             return 1
 
