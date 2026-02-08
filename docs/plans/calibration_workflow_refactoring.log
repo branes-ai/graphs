@@ -86,3 +86,116 @@ What changes day-to-day:
   - Migration dry-run finds all 661 measurement files across both directories
   - Manifest generation produces correct coverage and summary data
 
+● Here's where we stand:
+
+  Completed: Ground-Truth Data Schema and Storage (Task 1)
+
+  All code is written and verified:
+▒ ┌────────────────────────────────────────┬───────────────────────────────────────────────┐
+  │                  File                  │                    Status                     │
+  ├────────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ src/graphs/calibration/ground_truth.py │ Created - schema v2.0 + GroundTruthLoader     │
+  ├────────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ src/graphs/calibration/__init__.py     │ Modified - exports new types                  │
+  ├────────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ cli/measure_efficiency.py              │ Modified - emits v2.0 JSON                    │
+  ├────────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ cli/run_full_calibration.py            │ Modified - canonical paths + manifest rebuild │
+  ├────────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ cli/migrate_measurements.py            │ Created - migration script                    │
+  └────────────────────────────────────────┴───────────────────────────────────────────────┘
+  Verification Results
+
+  - 556 tests pass, 0 failures
+  - GroundTruthLoader reads all 6 hardware targets, 216 total configurations
+  - v1.0 backward compat works (infers batch_size, computes model_summary on the fly)
+  - Filename ambiguity resolved (efficientnet_b1 vs _b1 batch suffix)
+  - Migration dry-run finds all 661 measurement files
+
+  What's NOT yet done
+
+  - Migration not executed -- cli/migrate_measurements.py exists but hasn't been run (only --dry-run tested). Running it will consolidate measurements/
+  into calibration_data/<hw>/measurements/<prec>/ and generate manifest.json per hardware.
+  - No new measurements collected -- existing data is still v1.0 on disk. Next measure_efficiency.py run will emit v2.0.
+  - Nothing committed -- all changes are local, uncommitted.
+
+
+● Migration complete. Quick sanity check on the results:
+
+● Bash(echo "=== Manifests generated ===" && find /home/stillwater/dev/branes/clones/graphs/calibration_data -name "manifest.json" | sort && echo "" &&
+      echo "=== Sampl…)
+  ⎿  === Manifests generated ===
+     /home/stillwater/dev/branes/clones/graphs/calibration_data/i7_12700K/manifest.json
+     /home/stillwater/dev/branes/clones/graphs/calibration_data/intel_core_i7_12700k/manifest.json
+     … +31 lines (ctrl+o to expand)
+
+● All good. Here's the result:
+
+  - 661 files migrated, 0 failures, 0 duplicates
+  - 11 manifest.json files generated (one per hardware ID)
+  - All files upgraded to schema v2.0 with batch_size, model_summary, and tool_version: v2.0 (migrated)
+  - Canonical layout: calibration_data/<hw>/measurements/<prec>/<model>_b<batch>.json
+
+  The old data in measurements/ and calibration_data/<hw>/<prec>/measurements/ still exists (migration copies, doesn't delete). Want me to commit these
+  changes?
+
+❯ are the query tools now using the migrated database
+
+● Good question. Let me check what actually reads measurement data today.
+
+● Searched for 2 patterns (ctrl+o to expand)
+
+● Explore(Find all measurement data consumers)
+▒ ⎿  Done (15 tool uses · 89.5k tokens · 53s)
+
+● No, they're not. The migration wrote v2.0 files to the canonical layout, but the existing query tools still use their own JSON reading code. Two tools
+   are clear candidates for switching:
+  ┌───────────────────────────────────────────┬───────────────────────────────────────┬────────────────────────────────────────────────┐
+  │                   Tool                    │           Current approach            │         Should use GroundTruthLoader?          │
+  ├───────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ cli/query_calibration_data.py             │ Hand-rolled Path.glob() + json.load() │ Yes -- this is exactly what the loader does    │
+  ├───────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ cli/aggregate_efficiency.py               │ Glob patterns + json.load()           │ Yes -- could use load_all()                    │
+  ├───────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ cli/calibrate_efficiency.py               │ Produces data (subprocess)            │ No -- writer, not reader                       │
+  ├───────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ src/graphs/calibration/gpu_calibration.py │ Reads efficiency_curves.json          │ No -- reads aggregate curves, not measurements │
+  ├───────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ cli/validate_efficiency_schema.py         │ Reads efficiency_curves.json          │ No -- validates curves, not measurements       │
+  ├───────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ Others                                    │ Different schema or one-time scripts  │ No                                             │
+  └───────────────────────────────────────────┴───────────────────────────────────────┴────────────────────────────────────────────────┘
+  Want me to update query_calibration_data.py and aggregate_efficiency.py to use the GroundTruthLoader?
+
+
+
+● 556 passed, 0 failures. Now let me also quickly verify the aggregate_efficiency.py still works with the new default loader path:
+
+● Bash(python cli/aggregate_efficiency.py --hardware-id jetson_orin_agx_maxn --precision FP32 --output /dev/null --dry-run 2>&1 | head -20)
+  ⎿  Loaded 15 record(s) via GroundTruthLoader
+       efficientnet_b0 (b1): 59 observations
+       efficientnet_b1 (b1): 87 observations
+     … +17 lines (ctrl+o to expand)
+
+● Works. The --hardware-id flag now uses GroundTruthLoader by default without needing --from-loader.
+
+● All three done. Here's a summary of what was changed:
+
+  1. Deprecated old glob path in aggregate_efficiency.py
+  - --hardware-id now uses GroundTruthLoader by default (no --from-loader needed)
+  - --input, --input-dir, --hardware flags emit DeprecationWarning
+  - Legacy glob path prints a visible WARNING: Using deprecated glob-based file loading banner
+
+  2. Added CI check (ci/check_no_legacy_json_reads.sh)
+  - New data-hygiene job in .github/workflows/ci.yml
+  - Checks for: load_measurement_file() outside safe-listed files, json.load() near measurement contexts, glob patterns on measurement dirs, existence
+  of old measurements/ directory
+  - Safe-listed files: ground_truth.py, migration scripts, tools that read efficiency curves (not measurements)
+  - CI will fail if anyone adds new direct JSON measurement reads
+
+  3. Removed old measurements/ directory
+  - git rm -r measurements/ -- 445 duplicate JSON files removed
+  - All that data already exists in calibration_data/<hw>/measurements/<prec>/
+
+  All 556 tests pass. CI check passes clean.
+
