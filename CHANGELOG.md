@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SEMVER versioning strategy and governance framework (PROPOSAL-001)
 - Decision record template for AI governance
 - Task specification template for delegation
+- **KPU vs GPU energy comparison tools** (`tools/`)
+  - `energy_comparison_gpu_vs_kpu.py`: 4-panel matplotlib comparing GPU (512 TensorCore MACs, register-file sourced) vs KPU (64x64 systolic array) energy for NxN matmul
+  - `energy_sweep_array_sizes.py`: KPU energy advantage ratio sweep across 5 systolic array sizes (16x16 through 256x256) with per-tile execution model and power-gated leakage
+  - `diagnose_dip.py`: Diagnostic tool for tile boundary energy discontinuities
+  - `kpu_energy_advantage.html`: Web-native D3.js chart for marketing site (clean, no legend, log-scale x-axis with superscript notation)
+  - Energy model: 5nm FP16 weight-stationary dataflow; GPU 1.262 pJ/MAC dynamic vs KPU 0.215 pJ/MAC core; power-gated leakage with 5% residual for inactive PEs
 
 ---
 
