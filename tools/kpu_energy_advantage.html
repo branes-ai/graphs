@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPU Energy Advantage Ratio</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    background: #fff;
+    display: flex;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .chart-wrap { max-width: 880px; width: 100%; }
+  h1 {
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: #1a1a2e;
+    letter-spacing: -0.01em;
+    margin-bottom: 1.2rem;
+  }
+  svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+
+<div class="chart-wrap">
+  <h1>KPU Energy Advantage Ratio</h1>
+  <div id="chart"></div>
+</div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const dims = [4,6,8,12,16,24,32,48,64,96,128,192,256,384,512,768,1024,1536,2048,3072,4096];
+
+const curves = [
+  [1.519,1.937,2.22,2.573,2.783,3.135,3.391,3.658,3.807,3.97,4.056,4.147,4.193,4.241,4.265,4.29,4.302,4.315,4.321,4.327,4.33],
+  [1.109,1.583,1.933,2.385,2.654,2.948,3.104,3.503,3.708,3.965,4.108,4.261,4.342,4.426,4.469,4.513,4.536,4.558,4.57,4.581,4.587],
+  [0.533,0.915,1.274,1.846,2.238,2.698,2.941,3.18,3.294,3.722,3.89,4.139,4.277,4.423,4.5,4.58,4.621,4.663,4.684,4.706,4.716],
+  [0.173,0.34,0.539,0.969,1.376,2.013,2.43,2.886,3.109,3.31,3.398,3.842,3.987,4.232,4.366,4.509,4.584,4.662,4.701,4.742,4.762],
+  [0.047,0.097,0.163,0.334,0.542,0.999,1.434,2.108,2.539,2.991,3.2,3.379,3.452,3.904,4.038,4.28,4.413,4.553,4.627,4.703,4.742],
+];
+
+const colors = ["#e74c3c","#e67e22","#27ae60","#2e86c1","#8e44ad"];
+
+const W = 820, H = 440;
+const m = { top: 12, right: 48, bottom: 50, left: 58 };
+const pw = W - m.left - m.right;
+const ph = H - m.top - m.bottom;
+
+const x = d3.scaleLog().domain([4, 4096]).range([0, pw]);
+const y = d3.scaleLinear().domain([0, 5.4]).range([ph, 0]);
+
+const svg = d3.select("#chart").append("svg")
+  .attr("viewBox", `0 0 ${W} ${H}`);
+const g = svg.append("g").attr("transform", `translate(${m.left},${m.top})`);
+
+// Green / red zone fills
+g.append("rect")
+  .attr("x",0).attr("y",y(5.4)).attr("width",pw).attr("height",y(1)-y(5.4))
+  .attr("fill","#27ae60").attr("opacity",0.06);
+g.append("rect")
+  .attr("x",0).attr("y",y(1)).attr("width",pw).attr("height",y(0)-y(1))
+  .attr("fill","#e74c3c").attr("opacity",0.05);
+
+// Grid
+[1,2,3,4,5].forEach(t => {
+  g.append("line")
+    .attr("x1",0).attr("x2",pw).attr("y1",y(t)).attr("y2",y(t))
+    .attr("stroke", t===1 ? "#999" : "#e8e8e8")
+    .attr("stroke-width", t===1 ? 1.2 : 0.8)
+    .attr("stroke-dasharray", t===1 ? "6,4" : "none");
+});
+[10,100,1000].forEach(t => {
+  g.append("line")
+    .attr("x1",x(t)).attr("x2",x(t)).attr("y1",0).attr("y2",ph)
+    .attr("stroke","#e8e8e8").attr("stroke-width",0.8);
+});
+
+// Zone labels
+g.append("text").attr("x",pw-6).attr("y",y(5.1))
+  .attr("text-anchor","end").attr("fill","#27ae60")
+  .attr("font-size","12px").attr("font-weight",600).attr("opacity",0.65)
+  .text("KPU more efficient");
+g.append("text").attr("x",6).attr("y",y(0.18))
+  .attr("fill","#e74c3c")
+  .attr("font-size","12px").attr("font-weight",600).attr("opacity",0.5)
+  .text("GPU more efficient");
+
+// X axis - ticks at 10^1, 10^2, 10^3 only
+const xTickVals = [10, 100, 1000];
+const xAxis = d3.axisBottom(x).tickValues(xTickVals).tickFormat(() => "").tickSizeOuter(0);
+g.append("g").attr("transform",`translate(0,${ph})`).call(xAxis)
+  .call(g => g.select(".domain").attr("stroke","#ccc"))
+  .call(g => g.selectAll(".tick line").attr("stroke","#ccc"));
+
+// Superscript tick labels: 10^1, 10^2, 10^3
+xTickVals.forEach((v, i) => {
+  const tx = g.append("text")
+    .attr("x", x(v)).attr("y", ph + 22)
+    .attr("text-anchor","middle").attr("fill","#666").attr("font-size","12px");
+  tx.append("tspan").text("10");
+  tx.append("tspan").attr("baseline-shift","super").attr("font-size","9px")
+    .text(i + 1);
+});
+
+g.append("text").attr("x",pw/2).attr("y",ph+42)
+  .attr("text-anchor","middle").attr("fill","#666").attr("font-size","12px")
+  .text("Matrix Dimension N");
+
+// Y axis
+const yAxis = d3.axisLeft(y).tickValues([1,2,3,4,5])
+  .tickFormat(d => d+"x").tickSizeOuter(0);
+g.append("g").call(yAxis)
+  .call(g => g.select(".domain").remove())
+  .call(g => g.selectAll(".tick line").remove())
+  .call(g => g.selectAll(".tick text").attr("fill","#666").attr("font-size","11px"));
+g.append("text").attr("transform","rotate(-90)")
+  .attr("x",-ph/2).attr("y",-42)
+  .attr("text-anchor","middle").attr("fill","#666").attr("font-size","12px")
+  .text("GPU Energy / KPU Energy");
+
+// Line + area generators
+const lineFn = d3.line()
+  .x((_,i) => x(dims[i])).y(d => y(d))
+  .curve(d3.curveMonotoneX);
+
+const areaFn = d3.area()
+  .x((_,i) => x(dims[i]))
+  .y0(d => y(Math.min(d, 1)))
+  .y1(d => y(Math.max(d, 1)))
+  .curve(d3.curveMonotoneX);
+
+// Draw curves (back to front: largest array first)
+[...curves].reverse().forEach((vals, ri) => {
+  const color = colors[curves.length - 1 - ri];
+
+  g.append("path").datum(vals).attr("d", areaFn)
+    .attr("fill",color).attr("opacity",0.08);
+
+  g.append("path").datum(vals).attr("d", lineFn)
+    .attr("fill","none").attr("stroke",color)
+    .attr("stroke-width",2.5).attr("stroke-linejoin","round");
+
+  // Diamond markers at sparse intervals
+  [0,2,4,6,8,10,12,14,16,18,20].filter(i => i < dims.length).forEach(i => {
+    g.append("path")
+      .attr("d", d3.symbol().type(d3.symbolDiamond).size(30)())
+      .attr("transform",`translate(${x(dims[i])},${y(vals[i])})`)
+      .attr("fill",color).attr("stroke","#fff").attr("stroke-width",1);
+  });
+});
+
+// Right-edge value annotations with collision avoidance
+const gap = 14;
+const lx = x(dims[dims.length-1]);
+let labels = curves.map((vals, ci) => {
+  const v = vals[vals.length-1];
+  return { v, rawY: y(v), y: y(v), color: colors[ci] };
+});
+labels.sort((a,b) => a.y - b.y);
+for (let i=1; i<labels.length; i++)
+  if (labels[i].y - labels[i-1].y < gap) labels[i].y = labels[i-1].y + gap;
+for (let i=labels.length-2; i>=0; i--)
+  if (labels[i+1].y - labels[i].y < gap) labels[i].y = labels[i+1].y - gap;
+
+labels.forEach(l => {
+  g.append("line")
+    .attr("x1",lx+3).attr("x2",lx+9)
+    .attr("y1",l.rawY).attr("y2",l.y)
+    .attr("stroke",l.color).attr("stroke-width",1).attr("opacity",0.4);
+  g.append("text")
+    .attr("x",lx+11).attr("y",l.y).attr("dy","0.35em")
+    .attr("fill",l.color).attr("font-size","12px").attr("font-weight",700)
+    .text(l.v.toFixed(1)+"x");
+});
+</script>
+</body>
+</html>
