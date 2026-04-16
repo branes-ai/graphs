@@ -29,7 +29,7 @@ import argparse
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 
 from graphs.benchmarks.schema import LayerTag
 
