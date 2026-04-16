@@ -540,6 +540,16 @@ class TestLayerTag:
         restored = BenchmarkResult.from_dict(payload)
         assert restored.layer is LayerTag.ALU
 
+    def test_from_dict_handles_explicit_null_layer(self):
+        payload = {
+            'spec_name': 'null_layer',
+            'timestamp': '2026-04-16T00:00:00Z',
+            'device': 'cpu',
+            'layer': None,
+        }
+        restored = BenchmarkResult.from_dict(payload)
+        assert restored.layer is LayerTag.COMPOSITE
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
