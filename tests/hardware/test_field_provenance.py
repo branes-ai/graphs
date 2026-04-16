@@ -15,7 +15,6 @@ from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 from graphs.hardware.resource_model import (
     HardwareResourceModel,
     HardwareType,
-    Precision,
 )
 
 

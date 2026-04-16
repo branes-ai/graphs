@@ -51,7 +51,7 @@ class TestFittersNamespaceAllExports:
     """Every entry in __all__ must resolve to an existing attribute."""
 
     def test_all_symbols_resolve(self):
-        import graphs.calibration.fitters as fitters_pkg
+        from graphs.calibration import fitters as fitters_pkg
         for name in fitters_pkg.__all__:
             assert hasattr(fitters_pkg, name), f"Missing re-export: {name}"
 
