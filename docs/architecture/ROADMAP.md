@@ -12,6 +12,7 @@ This project follows [Semantic Versioning](https://semver.org/):
 | M2: Benchmarking Infrastructure | 0.9.0-alpha | Alpha | Planned |
 | M3: Calibration Framework | 0.9.0-beta | Beta | Planned |
 | M4: Validation Pipeline | 0.9.0-rc | RC | Planned |
+| M4.5: Bottom-Up Validation Infrastructure | 0.9.0-rc | RC | In Progress |
 | M5: Hardware Coverage | **1.0.0** | Stable | Planned |
 | M6: Frontend Expansion | 1.1.0 | Feature | Future |
 | M7: Advanced Analysis | 1.2.0 | Feature | Future |

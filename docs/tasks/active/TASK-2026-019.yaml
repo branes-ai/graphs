@@ -1,0 +1,132 @@
+# Task: Phase 5 - Layer 5 External Memory by Technology
+task_id: "TASK-2026-019"
+title: "Phase 5: Layer-5 DRAM bandwidth and energy per memory technology"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "1.5w"
+  complexity: "medium"
+
+objective: |
+  Measure achieved bandwidth and pJ/byte per memory technology (HBM2e,
+  HBM3, HBM3e, GDDR6, DDR5, LPDDR5, LPDDR5X):
+    - Upgrade memory_bench.py and multicore_stream.py; tag
+      layer=DRAM; integrate PowerMeter so energy is recorded
+      alongside bandwidth
+    - Access-pattern sweep: sequential / strided / random at fixed
+      working set > L3
+    - Read / write asymmetry probe (100% read, 100% write, 50/50)
+    - Technology matrix: same benchmark across every memory tech we
+      can access
+
+  Fit HardwareResourceModel.peak_bandwidth,
+  HardwareResourceModel.energy_per_byte,
+  TechnologyProfile.dram_{read,write}_energy_per_byte_pj, and
+  validate KPU read-vs-write asymmetry constants.
+
+motivation: |
+  Current bandwidth fits are CALIBRATED on measured SKUs but energy
+  per byte is THEORETICAL everywhere. With PowerMeter available,
+  pJ/byte becomes measurable. Access-pattern sweeps cover the
+  difference between STREAM-style sequential and real-workload
+  strided access.
+
+deliverables:
+  - path: "src/graphs/benchmarks/layer5_dram/access_pattern.py"
+    type: "code"
+    description: "Sequential / strided / random sweeps"
+    acceptance: "Produces bandwidth vs pattern curve"
+
+  - path: "src/graphs/benchmarks/layer5_dram/read_write_asymmetry.py"
+    type: "code"
+    description: "100% read / 100% write / 50/50 mix"
+    acceptance: "Quantifies read/write asymmetry per tech"
+
+  - path: "src/graphs/benchmarks/layer5_dram/technology_matrix.py"
+    type: "code"
+    description: "Cross-technology runner feeding per-tech fit"
+    acceptance: "Emits one row per (tech, pattern, precision) combo"
+
+  - path: "src/graphs/benchmarks/memory_bench.py"
+    type: "code"
+    description: "Retag existing STREAM bench as layer=DRAM + integrate PowerMeter"
+    acceptance: "BenchmarkResult.energy_joules populated when PowerMeter available"
+
+  - path: "src/graphs/calibration/fitters/layer5_dram_fitter.py"
+    type: "code"
+    description: "Fit peak_bandwidth and energy_per_byte per technology"
+    acceptance: "Updates field_provenance for peak_bandwidth, energy_per_byte, TechnologyProfile.dram_*"
+
+  - path: "validation/composition/layer1_5_to_resnet18.py"
+    type: "test"
+    description: "Composition: Layer 1-5 -> ResNet-18 end-to-end latency AND energy within 15%"
+
+dependencies:
+  - task: "TASK-2026-018"
+    description: "Layer 4 measurements required"
+
+interfaces_provided:
+  - name: "layer5_dram_fitter.fit"
+    module: "graphs.calibration.fitters.layer5_dram_fitter"
+
+interfaces_consumed:
+  - name: "HardwareResourceModel.set_provenance"
+  - name: "PowerMeter"
+    module: "graphs.benchmarks.power_meter"
+
+acceptance_criteria:
+  - criterion: "Measured pJ/byte for DDR5 on i7-12700K within 20% of DATACENTER_7NM_DDR5"
+    verification: "technology_matrix.py output compared to profile"
+  - criterion: "Composition Layer 1-5 -> ResNet-18 within 15% on Jetson Orin"
+    verification: "python validation/composition/test_layer_composition.py"
+
+constraints:
+  - "Access-pattern benchmarks must sustain ~90% of achievable peak"
+  - "PowerMeter integration must not perturb bandwidth measurement"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_layer5_dram.py"
+  integration_tests:
+    required: true
+    location: "validation/composition/"
+  validation_tests:
+    required: true
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-018"]
+  blocks: ["TASK-2026-020"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 5 - Layer 5: External Memory by Technology"

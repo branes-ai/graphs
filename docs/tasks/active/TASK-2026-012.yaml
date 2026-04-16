@@ -1,0 +1,193 @@
+# Task: Bottom-Up Validation Infrastructure (Umbrella)
+task_id: "TASK-2026-012"
+title: "Establish bottom-up microbenchmark validation infrastructure (umbrella)"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "claude-opus-4-6"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "13w"   # See plan; effort is not a gating concern per owner
+  complexity: "very_high"
+
+objective: |
+  Stand up a six-layer bottom-up benchmark suite that measures each
+  physical layer of the modeled micro-architectures in isolation, fits
+  that layer's coefficients from measurement, and composes upward so
+  the composite workload (ResNet, MobileNet, ViT, MLP) becomes a
+  cross-check of the layered model rather than the source of
+  calibration.
+
+  The umbrella task coordinates six sub-tasks (TASK-2026-013 through
+  TASK-2026-020) that implement the layers in dependency order
+  (ALU -> register/SIMD -> scratchpad -> on-chip L3 -> DRAM -> cluster),
+  with a Phase 0 foundation + Phase 0.5 power-measurement plumbing
+  prerequisite.
+
+motivation: |
+  Today's calibration path is top-down: composite workloads are run
+  against real hardware, fitted efficiency curves are back-propagated
+  into the resource model, and the composite itself becomes the
+  ground truth. This silently absorbs mis-cancellation between
+  layers. For example, a 2x-high ALU energy that cancels against a
+  0.5x-low cache energy can still produce a composite GEMM sweep that
+  matches. Downstream claims ("KPU is 7x more energy-efficient than
+  GPU for MLP") then rest on individual coefficients nobody has
+  measured in isolation.
+
+  A bottom-up path isolates each physical layer, fits its
+  coefficients from a dedicated probe, and uses the composite
+  workload as a cross-check. This also enables per-field
+  EstimationConfidence propagation: a reader can ask "what is the
+  confidence on the KPU L3 NoC energy for this SKU?" and get a
+  truthful answer, not an inherited one.
+
+deliverables:
+  - path: "docs/assessments/bottom-up-microbenchmark-coverage.md"
+    type: "documentation"
+    description: "Assessment of current coverage across 6 layers"
+    acceptance: "Already landed in commit 9642d01 on main"
+
+  - path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    type: "documentation"
+    description: "7-phase implementation plan with composition tests"
+    acceptance: "Already landed in commit 9642d01 on main"
+
+  - path: "docs/designs/micro-architecture-modeling-methodology.md"
+    type: "documentation"
+    description: "Shared latency/energy methodology + software architecture"
+    acceptance: "Already landed in commit 9642d01 on main"
+
+  - path: "docs/designs/{cpu,gpu,tpu,kpu}-modeling.md"
+    type: "documentation"
+    description: "Architecture-specific modeling docs"
+    acceptance: "Already landed in commit 9642d01 on main"
+
+dependencies: []
+
+interfaces_provided:
+  - name: "LayerTag"
+    signature: "enum(ALU, REGISTER_SIMD, SCRATCHPAD, ONCHIP, DRAM, CLUSTER, COMPOSITE)"
+    module: "graphs.benchmarks.schema"
+    description: "Layer taxonomy shared across all sub-tasks"
+
+  - name: "field_provenance API"
+    signature: "HardwareResourceModel.{set,get}_provenance, .aggregate_confidence()"
+    module: "graphs.hardware.resource_model"
+    description: "Per-field confidence annotations"
+
+  - name: "Composition check registry"
+    signature: "register_layer_check(CompositionCheck), run_all_checks() -> CompositionReport"
+    module: "validation.composition.test_layer_composition"
+    description: "Cross-layer consistency gate"
+
+interfaces_consumed:
+  - name: "EstimationConfidence"
+    module: "graphs.core.confidence"
+    description: "Confidence taxonomy used by field_provenance"
+
+acceptance_criteria:
+  - criterion: "All six sub-tasks (013..019) are complete and merged"
+    verification: "All TASK-2026-013..019 state.status == completed"
+
+  - criterion: "At least one fully-covered SKU (i7-12700K or Jetson Orin) has field_provenance populated for every roofline/energy field"
+    verification: "python -c 'from graphs.hardware.mappers import get_mapper_by_name; m = get_mapper_by_name(...); print(m.resource_model.aggregate_confidence())' reports CALIBRATED"
+
+  - criterion: "Composition test predicts ResNet-18 end-to-end latency and energy within 15% of measured composite on the fully-covered SKU"
+    verification: "python validation/composition/test_layer_composition.py exits 0 with the ResNet-18 check registered"
+
+  - criterion: "CI fails when a resource-model field regression exceeds the composition tolerance"
+    verification: "Synthetic regression test against CI hook (added in Phase 0.5)"
+
+constraints:
+  - "No breaking changes to HardwareResourceModel public API"
+  - "Composition test must be runnable both standalone and under pytest"
+  - "Confidence propagation rule: aggregate = weakest across layers"
+  - "Documentation per .claude/rules/validation.md: validation scripts standalone, tests pytest"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/, tests/calibration/, tests/hardware/"
+  integration_tests:
+    required: true
+    location: "validation/composition/"
+  validation_tests:
+    required: true
+    location: "validation/composition/test_layer_composition.py"
+  manual_testing:
+    required: false
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "in_progress"
+  blocked_by: []
+  blocks: []
+  started_at: "2026-04-16T00:00:00Z"
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Assessment, plan, and methodology docs merged (commit 9642d01)"
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Phase 0 foundation PR opened (PR #1 on branch phase0-foundation)"
+
+review:
+  pull_request: "https://github.com/branes-ai/graphs/pull/1"
+  review_status: "pending"
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/assessments/bottom-up-microbenchmark-coverage.md"
+    description: "Coverage assessment"
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    description: "Implementation plan"
+  - type: "documentation"
+    path: "docs/designs/micro-architecture-modeling-methodology.md"
+    description: "Shared methodology document"
+  - type: "related_task"
+    task_id: "TASK-2026-013"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-014"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-015"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-016"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-017"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-018"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-019"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-020"
+    relationship: "blocks"
