@@ -17,6 +17,7 @@ from pathlib import Path
 from graphs.benchmarks.schema import (
     BenchmarkSpec,
     BenchmarkCategory,
+    LayerTag,
     Precision,
     DeviceType,
     ExecutionConfig,
@@ -476,6 +477,68 @@ class TestSpecValidation:
         )
         assert spec.output_height > 0
         assert spec.output_width > 0
+
+
+class TestLayerTag:
+    """Tests for LayerTag enum and BenchmarkResult.layer integration."""
+
+    def test_layer_tag_values(self):
+        assert LayerTag.ALU.value == "alu"
+        assert LayerTag.REGISTER_SIMD.value == "register_simd"
+        assert LayerTag.SCRATCHPAD.value == "scratchpad"
+        assert LayerTag.ONCHIP.value == "onchip"
+        assert LayerTag.DRAM.value == "dram"
+        assert LayerTag.CLUSTER.value == "cluster"
+        assert LayerTag.COMPOSITE.value == "composite"
+
+    def test_result_defaults_to_composite(self):
+        result = BenchmarkResult(
+            spec_name="legacy",
+            timestamp="2026-04-16T00:00:00Z",
+            device="cpu",
+        )
+        assert result.layer is LayerTag.COMPOSITE
+
+    def test_result_accepts_explicit_layer(self):
+        result = BenchmarkResult(
+            spec_name="alu_fma",
+            timestamp="2026-04-16T00:00:00Z",
+            device="cpu",
+            layer=LayerTag.ALU,
+        )
+        assert result.layer is LayerTag.ALU
+
+    def test_json_roundtrip_preserves_layer(self):
+        result = BenchmarkResult(
+            spec_name="dram_stream",
+            timestamp="2026-04-16T00:00:00Z",
+            device="cpu",
+            bandwidth_gbps=75.0,
+            layer=LayerTag.DRAM,
+        )
+        restored = BenchmarkResult.from_json(result.to_json())
+        assert restored.layer is LayerTag.DRAM
+
+    def test_from_dict_back_compat_missing_layer(self):
+        # Simulate a result serialized before LayerTag existed.
+        legacy_payload = {
+            'spec_name': 'pre_layer_tag_result',
+            'timestamp': '2025-01-01T00:00:00Z',
+            'device': 'cuda:0',
+            'gflops': 1200.0,
+        }
+        restored = BenchmarkResult.from_dict(legacy_payload)
+        assert restored.layer is LayerTag.COMPOSITE
+
+    def test_from_dict_accepts_string_layer(self):
+        payload = {
+            'spec_name': 'str_layer',
+            'timestamp': '2026-04-16T00:00:00Z',
+            'device': 'cpu',
+            'layer': 'alu',
+        }
+        restored = BenchmarkResult.from_dict(payload)
+        assert restored.layer is LayerTag.ALU
 
 
 if __name__ == "__main__":
