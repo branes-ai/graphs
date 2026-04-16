@@ -33,6 +33,20 @@ This directory contains task specifications for delegatable work items.
 | TASK-2026-010 | Create calibration CLI tool | high | **completed** | - | 0.9.0-beta |
 | TASK-2026-011 | Run initial calibration on hardware | high | ready | - | 0.9.0-beta |
 
+### M4.5: Bottom-Up Validation Infrastructure (0.9.0-rc)
+
+| ID | Title | Priority | Status | Blocked By | Target |
+|----|-------|----------|--------|------------|--------|
+| TASK-2026-012 | Bottom-up validation infrastructure (umbrella) | high | in_progress | - | 0.9.0-rc |
+| TASK-2026-013 | Phase 0: foundation (LayerTag, fitters pkg, provenance, composition scaffold) | high | review | - | 0.9.0-rc |
+| TASK-2026-014 | Phase 0.5: PowerMeter abstraction + CI gate | high | ready | 013 | 0.9.0-rc |
+| TASK-2026-015 | Phase 1: Layer-1 ALU throughput and energy | high | ready | 013, 014 | 0.9.0-rc |
+| TASK-2026-016 | Phase 2: Layer-2 register / SIMD / warp / systolic fill | high | ready | 015 | 0.9.0-rc |
+| TASK-2026-017 | Phase 3: Layer-3 tile / scratchpad / L1-L2 | high | ready | 016 | 0.9.0-rc |
+| TASK-2026-018 | Phase 4: Layer-4 on-chip L3 / LLC / distributed L3 | high | ready | 017 | 0.9.0-rc |
+| TASK-2026-019 | Phase 5: Layer-5 DRAM by technology | high | ready | 018 | 0.9.0-rc |
+| TASK-2026-020 | Phase 6: Layer-6 PCIe / NVLink / NUMA / collectives | medium | ready | 019 | 0.9.0-rc |
+
 ## Task Dependency Graph
 
 ```
@@ -59,6 +73,35 @@ TASK-2026-008 (Energy Fitting) [DONE] -------+---> TASK-2026-010 (Calibrate CLI)
                                              |              |
 TASK-2026-009 (Utilization Fitting) [DONE] --+              v
                                                   TASK-2026-011 (Initial Calibration) [ready]
+
+
+M4.5: Bottom-Up Validation Infrastructure
+==================================================
+TASK-2026-012 (Umbrella) [in_progress]
+     |
+     v
+TASK-2026-013 (Phase 0: Foundation) [review, PR #1]
+     |
+     v
+TASK-2026-014 (Phase 0.5: PowerMeter + CI) [ready]
+     |
+     v
+TASK-2026-015 (Phase 1: Layer-1 ALU) [ready]
+     |
+     v
+TASK-2026-016 (Phase 2: Layer-2 Register/SIMD) [ready]
+     |
+     v
+TASK-2026-017 (Phase 3: Layer-3 Scratchpad) [ready]
+     |
+     v
+TASK-2026-018 (Phase 4: Layer-4 On-chip L3) [ready]
+     |
+     v
+TASK-2026-019 (Phase 5: Layer-5 DRAM) [ready]
+     |
+     v
+TASK-2026-020 (Phase 6: Layer-6 Cluster) [ready]
 ```
 
 ## Completed Tasks
@@ -109,6 +152,7 @@ Examples:
 | M2 | 0.9.0-alpha | Benchmarking Infrastructure | 001-005, 007 (5/6 done) |
 | M3 | 0.9.0-beta | Calibration Framework | 006, 008-011 |
 | M4 | 0.9.0-rc | Validation Pipeline | TBD |
+| M4.5 | 0.9.0-rc | Bottom-Up Validation Infrastructure | 012-020 |
 | M5 | 1.0.0 | Hardware Coverage | TBD |
 | M6 | 1.1.0 | Frontend Expansion | TBD |
 | M7 | 1.2.0 | Advanced Analysis | TBD |

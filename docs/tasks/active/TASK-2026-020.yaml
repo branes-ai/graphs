@@ -1,0 +1,144 @@
+# Task: Phase 6 - Layer 6 Distributed / Cluster
+task_id: "TASK-2026-020"
+title: "Phase 6: Layer-6 PCIe / NVLink / NUMA / collective benchmarks"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "medium"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "2w"
+  complexity: "high"
+
+objective: |
+  Measure inter-chip, inter-socket, and pod-level communication cost:
+    - PCIe host <-> device memcpy sweep (latency + bandwidth)
+    - NVLink / NV-HBI peer-to-peer memcpy between connected GPUs
+    - NUMA cross-socket vs same-socket memory access
+    - NCCL AllReduce across ring / tree topologies at message sizes
+      4 KB -> 1 GB
+    - TPU ICI pod-level (only if TPU v4/v5p access is arranged)
+
+  Produce a new ClusterModel dataclass under hardware/cluster_model.py
+  describing topology, inter-chip bandwidth, and link energy, and
+  extend GraphHardwareAllocation with cluster-level metrics.
+
+motivation: |
+  Every mapper currently assumes single-chip execution. Multi-chip
+  training and distributed inference fall outside the model. Layer 6
+  is the boundary between what we can predict today and what we
+  cannot. Even if nobody fits it immediately, shipping the
+  abstraction prevents silently-wrong multi-chip numbers later.
+
+deliverables:
+  - path: "src/graphs/benchmarks/layer6_cluster/pcie_bench.py"
+    type: "code"
+    description: "Host <-> device memcpy sweep"
+    acceptance: "Produces bandwidth + round-trip latency curve"
+
+  - path: "src/graphs/benchmarks/layer6_cluster/nvlink_bench.py"
+    type: "code"
+    description: "Peer-to-peer NVLink memcpy between connected GPUs"
+    acceptance: "Requires 2+ GPU host; skips gracefully otherwise"
+
+  - path: "src/graphs/benchmarks/layer6_cluster/numa_bench.py"
+    type: "code"
+    description: "Cross-socket vs same-socket memory access"
+    acceptance: "Quantifies NUMA penalty for dual-socket hosts"
+
+  - path: "src/graphs/benchmarks/layer6_cluster/allreduce_bench.py"
+    type: "code"
+    description: "NCCL AllReduce sweep across ring / tree topologies"
+    acceptance: "Produces latency vs message-size curves"
+
+  - path: "src/graphs/hardware/cluster_model.py"
+    type: "code"
+    description: "ClusterModel dataclass: topology, inter-chip bandwidth, link energy"
+    acceptance: "New file; no existing imports break"
+
+  - path: "src/graphs/hardware/resource_model.py"
+    type: "code"
+    description: "Extend GraphHardwareAllocation with cluster-level metrics"
+    acceptance: "Additive; default single-chip behavior unchanged"
+
+  - path: "src/graphs/calibration/fitters/layer6_cluster_fitter.py"
+    type: "code"
+    description: "Fit per-link bandwidth, latency, and energy"
+    acceptance: "Populates ClusterModel fields with provenance"
+
+  - path: "validation/composition/layer1_6_to_multi_gpu.py"
+    type: "test"
+    description: "Composition: Layer 1-6 -> 2-GPU ResNet-50 training step within 20% (if access available)"
+
+dependencies:
+  - task: "TASK-2026-019"
+    description: "Layer 5 measurements required"
+
+interfaces_provided:
+  - name: "ClusterModel"
+    module: "graphs.hardware.cluster_model"
+    description: "Topology + inter-chip bandwidth + link energy"
+
+  - name: "layer6_cluster_fitter.fit"
+    module: "graphs.calibration.fitters.layer6_cluster_fitter"
+
+interfaces_consumed:
+  - name: "GraphHardwareAllocation"
+    module: "graphs.hardware.resource_model"
+
+acceptance_criteria:
+  - criterion: "PCIe and NVLink fits populate a multi_chip_overhead field on relevant GPU resource models"
+    verification: "H100 / B100 resource models carry CALIBRATED multi_chip_overhead when 2+ GPU host available"
+  - criterion: "Distributed ResNet-50 prediction within 20% (if 2-GPU access available)"
+    verification: "python validation/composition/test_layer_composition.py"
+  - criterion: "Single-chip behavior unchanged"
+    verification: "All prior tests still green"
+
+constraints:
+  - "NCCL requires Linux; document"
+  - "NVLink bench requires 2+ NVLink-connected GPUs; skip otherwise"
+  - "NUMA bench requires dual-socket host; skip otherwise"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_layer6_cluster.py"
+  integration_tests:
+    required: true
+    location: "validation/composition/"
+  validation_tests:
+    required: true
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-019"]
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 6 - Layer 6: Distributed / Cluster"

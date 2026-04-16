@@ -1,0 +1,127 @@
+# Task: Phase 4 - Layer 4 On-Chip L3 / LLC / Distributed L3
+task_id: "TASK-2026-018"
+title: "Phase 4: Layer-4 on-chip L3 / LLC / distributed L3 benchmarks"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "1.5w"
+  complexity: "high"
+
+objective: |
+  Measure the chip-wide L3 / LLC threshold, data-reuse behavior, and
+  NoC-distance cost for mesh architectures:
+    - Working-set sweep crossing x86 L3 boundary
+    - GPU L2 hit-rate measurement via CUPTI / Nsight counters (replaces
+      the fixed 0.90 constant in DataParallelEnergyModel)
+    - KPU T256/T768 NoC near-tile vs far-tile cost (simulator until
+      silicon)
+    - Multi-core CPU coherence-traffic probe (true-sharing vs
+      false-sharing vs padded)
+
+motivation: |
+  Layer 4 is where top-down calibration is most susceptible to
+  mis-cancellation. L3 behavior affects nearly every composite
+  workload, so an incorrect L3 energy per byte compensates for any
+  other coefficient error. Directly measuring hit rate and NoC
+  distance removes that hiding place.
+
+deliverables:
+  - path: "src/graphs/benchmarks/layer4_onchip/working_set_l3.py"
+    type: "code"
+    description: "Working-set sweep crossing L3 boundary"
+    acceptance: "Produces L3 hit-rate curve"
+
+  - path: "src/graphs/benchmarks/layer4_onchip/noc_distance.py"
+    type: "code"
+    description: "Mesh-distance sweep for tile arrays"
+    acceptance: "Replaces KPU l3_routing_distance_factor constant"
+
+  - path: "src/graphs/benchmarks/layer4_onchip/coherence_traffic.py"
+    type: "code"
+    description: "Multi-core CPU true/false/padded sharing"
+    acceptance: "Quantifies coherence cost vs padding"
+
+  - path: "src/graphs/benchmarks/layer4_onchip/gpu_l2_hitrate.py"
+    type: "code"
+    description: "CUPTI / Nsight-counter-backed L2 hit-rate measurement"
+    acceptance: "Hit rate per op type; replaces 0.90 constant"
+
+  - path: "src/graphs/calibration/fitters/layer4_onchip_fitter.py"
+    type: "code"
+    description: "Fit L3 capacity, NoC distance, L2 hit rate"
+    acceptance: "Updates field_provenance"
+
+  - path: "validation/composition/layer1_4_to_vit_mlp.py"
+    type: "test"
+    description: "Composition: Layer 1-4 -> ViT MLP block within 15%"
+
+dependencies:
+  - task: "TASK-2026-017"
+    description: "Layer 3 measurements required"
+
+interfaces_provided:
+  - name: "layer4_onchip_fitter.fit"
+    module: "graphs.calibration.fitters.layer4_onchip_fitter"
+
+interfaces_consumed:
+  - name: "HardwareResourceModel.set_provenance"
+    module: "graphs.hardware.resource_model"
+
+acceptance_criteria:
+  - criterion: "GPU L2 hit rate measured per op type, not a constant"
+    verification: "DataParallelEnergyModel.l2_hit_rate is per-op, fitted"
+  - criterion: "Coherence-traffic cost quantified"
+    verification: "CPU multi-core test output feeds future CPU scaling refinement"
+  - criterion: "Composition Layer 1-4 -> ViT MLP within 15%"
+    verification: "python validation/composition/test_layer_composition.py"
+
+constraints:
+  - "CUPTI requires GPU root access on some distros; document"
+  - "L3 sweep must defeat streaming prefetchers"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_layer4_onchip.py"
+  integration_tests:
+    required: true
+    location: "validation/composition/"
+  validation_tests:
+    required: true
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-017"]
+  blocks: ["TASK-2026-019"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 4 - Layer 4: On-Chip L3 / Last-Level Cache / Distributed L3"
