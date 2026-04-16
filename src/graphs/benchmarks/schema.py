@@ -559,8 +559,10 @@ class BenchmarkResult:
             data['timing'] = TimingStats.from_dict(data['timing'])
         # Back-compat: results serialized before LayerTag existed default
         # to COMPOSITE; string values from JSON are re-parsed to the enum.
-        layer = data.get('layer', LayerTag.COMPOSITE)
-        if isinstance(layer, str):
+        layer = data.get('layer')
+        if layer is None:
+            layer = LayerTag.COMPOSITE
+        elif isinstance(layer, str):
             layer = LayerTag(layer)
         data['layer'] = layer
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})

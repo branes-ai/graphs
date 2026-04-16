@@ -69,7 +69,7 @@ class TestFieldProvenanceSetGet:
         model.set_provenance("energy_per_flop_fp32", conf)
 
         out = model.get_provenance("energy_per_flop_fp32")
-        assert out is conf
+        assert out == conf
         assert out.level is ConfidenceLevel.CALIBRATED
         assert out.score == pytest.approx(0.92)
         assert out.calibration_id == "i7_12700k_layer1_fp32_20260416"

@@ -25,6 +25,7 @@ decisions.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
@@ -128,8 +129,14 @@ class CompositionReport:
 
     @property
     def all_passed(self) -> bool:
-        # An empty registry (Phase 0 state) counts as passing — there is
-        # nothing to fail until Phase 1 lands its first check.
+        """True when zero checks FAILED.
+
+        SKIPPED checks are non-failing: a run where every check skips
+        (e.g., measurement data missing for a SKU) reports green. An
+        empty registry (Phase 0 state) also reports green. Phase 1+
+        code that needs to distinguish "all healthy" from "all skipped"
+        should inspect n_skipped explicitly.
+        """
         return self.n_failed == 0
 
     def format(self) -> str:
@@ -178,8 +185,16 @@ def run_all_checks() -> CompositionReport:
 def test_composition_scaffold_runs() -> None:
     """The scaffold must import, run, and report cleanly before any
     Phase 1+ checks are registered."""
-    report = run_all_checks()
-    assert report.all_passed, report.format()
+    saved = registered_checks()
+    clear_registry()
+    try:
+        report = run_all_checks()
+        assert report.all_passed, report.format()
+        assert report.results == []
+    finally:
+        clear_registry()
+        for c in saved:
+            register_layer_check(c)
 
 
 def test_registry_api_is_functional() -> None:
@@ -187,36 +202,40 @@ def test_registry_api_is_functional() -> None:
     behaves (add, list, clear)."""
     from graphs.benchmarks.schema import LayerTag as LT
 
-    def _runner() -> CompositionCheckResult:
-        return CompositionCheckResult(
-            name="phase0_self_test",
-            hardware="dummy",
-            from_layers=[LT.ALU],
-            predicts_layer=LT.REGISTER_SIMD,
-            status=CheckStatus.SKIPPED,
-            details="phase 0 self-test",
-        )
-
+    saved = registered_checks()
     clear_registry()
-    assert registered_checks() == []
+    try:
+        assert registered_checks() == []
 
-    register_layer_check(
-        CompositionCheck(
-            name="phase0_self_test",
-            hardware="dummy",
-            from_layers=[LT.ALU],
-            predicts_layer=LT.REGISTER_SIMD,
-            runner=_runner,
+        def _runner() -> CompositionCheckResult:
+            return CompositionCheckResult(
+                name="phase0_self_test",
+                hardware="dummy",
+                from_layers=[LT.ALU],
+                predicts_layer=LT.REGISTER_SIMD,
+                status=CheckStatus.SKIPPED,
+                details="phase 0 self-test",
+            )
+
+        register_layer_check(
+            CompositionCheck(
+                name="phase0_self_test",
+                hardware="dummy",
+                from_layers=[LT.ALU],
+                predicts_layer=LT.REGISTER_SIMD,
+                runner=_runner,
+            )
         )
-    )
-    assert len(registered_checks()) == 1
+        assert len(registered_checks()) == 1
 
-    report = run_all_checks()
-    assert len(report.results) == 1
-    assert report.results[0].status is CheckStatus.SKIPPED
-    assert report.all_passed  # SKIPPED is not a failure
-
-    clear_registry()
+        report = run_all_checks()
+        assert len(report.results) == 1
+        assert report.results[0].status is CheckStatus.SKIPPED
+        assert report.all_passed
+    finally:
+        clear_registry()
+        for c in saved:
+            register_layer_check(c)
 
 
 # --------------------------------------------------------------------------- #
@@ -230,6 +249,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         0  - all registered checks passed (or registry is empty)
         1  - at least one registered check failed
     """
+    parser = argparse.ArgumentParser(
+        description="Bottom-up layer composition validation"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="Print per-check detail (reserved for Phase 1+)"
+    )
+    parser.parse_args(argv)
+
     report = run_all_checks()
     print(report.format())
     return 0 if report.all_passed else 1
