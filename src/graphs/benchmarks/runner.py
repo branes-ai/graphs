@@ -32,6 +32,7 @@ from .schema import (
     DeviceType,
     Precision,
 )
+from .collectors import MeasurementCollector, PowerMeasurement
 
 
 # Precision to PyTorch dtype mapping
@@ -184,11 +185,50 @@ class PyTorchRunner(BenchmarkRunner):
 
     Supports CPU and CUDA devices with proper synchronization
     and timing using CUDA events for GPU accuracy.
+
+    When ``enable_power_measurement`` is True (the default), the runner
+    auto-selects a power collector via ``auto_select_power_collector``
+    and populates ``energy_joules``, ``avg_power_watts``, and
+    ``peak_power_watts`` on every ``BenchmarkResult``.  If no backend
+    is available the fields are left as None (NoOp fallback).
     """
 
-    def __init__(self, config: Optional[ExecutionConfig] = None):
+    def __init__(
+        self,
+        config: Optional[ExecutionConfig] = None,
+        enable_power_measurement: bool = True,
+    ):
         super().__init__(config)
         self._operation_cache: Dict[str, Callable] = {}
+        self._enable_power = enable_power_measurement
+
+    def _get_power_collector(self, device: str) -> Optional[MeasurementCollector]:
+        if not self._enable_power:
+            return None
+        try:
+            from .power_meter import auto_select_power_collector
+            return auto_select_power_collector(device)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _attach_power(
+        result: BenchmarkResult,
+        collector: Optional[MeasurementCollector],
+    ) -> BenchmarkResult:
+        """Populate energy fields on *result* from the collector's measurement."""
+        if collector is None:
+            return result
+        try:
+            measurement = collector.get_measurement()
+            if isinstance(measurement, PowerMeasurement) and measurement.success:
+                result.energy_joules = measurement.energy_joules
+                result.avg_power_watts = measurement.avg_power_watts
+                result.peak_power_watts = measurement.peak_power_watts
+        except Exception:
+            # Power measurement is best-effort; never abort the benchmark.
+            pass
+        return result
 
     def run(
         self,
@@ -213,17 +253,33 @@ class PyTorchRunner(BenchmarkRunner):
             config=self.config,
         )
 
-        # Dispatch to appropriate handler
-        if isinstance(spec, GEMMSpec):
-            return self._run_gemm(spec, ctx)
-        elif isinstance(spec, Conv2dSpec):
-            return self._run_conv2d(spec, ctx)
-        elif isinstance(spec, MemoryBenchSpec):
-            return self._run_memory(spec, ctx)
-        elif isinstance(spec, WorkloadSpec):
-            return self._run_workload(spec, ctx)
-        else:
-            raise ValueError(f"Unsupported spec type: {type(spec)}")
+        # Start power collection (wraps the entire measurement scope).
+        # start() can fail at runtime (e.g., RAPL perms changed between
+        # probe and read, tegrastats races); treat as best-effort.
+        power_collector = self._get_power_collector(device)
+        if power_collector is not None:
+            try:
+                power_collector.start()
+            except Exception:
+                power_collector = None
+
+        try:
+            # Dispatch to appropriate handler
+            if isinstance(spec, GEMMSpec):
+                result = self._run_gemm(spec, ctx)
+            elif isinstance(spec, Conv2dSpec):
+                result = self._run_conv2d(spec, ctx)
+            elif isinstance(spec, MemoryBenchSpec):
+                result = self._run_memory(spec, ctx)
+            elif isinstance(spec, WorkloadSpec):
+                result = self._run_workload(spec, ctx)
+            else:
+                raise ValueError(f"Unsupported spec type: {type(spec)}")
+        finally:
+            if power_collector is not None:
+                power_collector.stop()
+
+        return self._attach_power(result, power_collector)
 
     def _run_gemm(self, spec: GEMMSpec, ctx: RunContext) -> BenchmarkResult:
         """Run GEMM benchmark"""
