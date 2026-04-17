@@ -18,9 +18,6 @@ from graphs.benchmarks.power_meter import (
     TegrastatsPowerCollector,
     NoOpPowerCollector,
     auto_select_power_collector,
-    _rapl_available,
-    _tegrastats_available,
-    _nvml_available,
 )
 
 
@@ -81,6 +78,21 @@ class TestRAPLPowerCollector:
         m = collector.get_measurement()
         assert m.success
         assert m.energy_joules == pytest.approx(2.0, abs=0.01)
+
+    def test_negative_delta_without_max_reports_failure(self):
+        collector = self._make_collector()
+        collector._max_energy_uj = None
+
+        reads = iter(["5000000", "2000000"])
+
+        with patch("pathlib.Path.read_text", side_effect=lambda: next(reads)):
+            collector.start()
+            time.sleep(0.01)
+            collector.stop()
+
+        m = collector.get_measurement()
+        assert not m.success
+        assert m.energy_joules == 0.0
 
     def test_reset_clears_state(self):
         collector = self._make_collector()
@@ -162,6 +174,22 @@ class TestAutoSelect:
         ):
             c = auto_select_power_collector("cpu")
             assert isinstance(c, NoOpPowerCollector)
+
+    def test_cuda_without_nvml_returns_noop(self):
+        with (
+            patch("graphs.benchmarks.power_meter._nvml_available", return_value=False),
+            patch("graphs.benchmarks.power_meter._tegrastats_available", return_value=False),
+        ):
+            c = auto_select_power_collector("cuda:0")
+            assert isinstance(c, NoOpPowerCollector)
+
+    def test_cuda_without_nvml_prefers_tegrastats_on_jetson(self):
+        with (
+            patch("graphs.benchmarks.power_meter._nvml_available", return_value=False),
+            patch("graphs.benchmarks.power_meter._tegrastats_available", return_value=True),
+        ):
+            c = auto_select_power_collector("cuda")
+            assert isinstance(c, TegrastatsPowerCollector)
 
 
 class TestRunnerPowerIntegration:

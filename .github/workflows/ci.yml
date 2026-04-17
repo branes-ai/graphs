@@ -283,6 +283,11 @@ jobs:
         run: bash ci/check_no_legacy_json_reads.sh
 
   # Job 8: Bottom-Up Composition Check
+  # Runs unconditionally (not path-gated) because:
+  # - Fast (<5s with the current registry; grows slowly as phases add checks)
+  # - A regression in resource_model.py can be triggered by code that doesn't
+  #   touch hardware/models/ directly (e.g., a change in calibration fitters)
+  # - Skipped jobs in GitHub Actions break the ci-success needs gate
   composition-check:
     name: Composition Check
     runs-on: ubuntu-latest
