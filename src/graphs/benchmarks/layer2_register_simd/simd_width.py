@@ -84,7 +84,6 @@ def run_simd_width_sweep(
         # Warmup
         for _ in range(warmup_iterations):
             torch.addcmul(a, b, c, value=1.0, out=a)
-        _dce_guard = float(a.sum().item())  # prevent dead-code elimination
 
         # Empty-loop overhead
         empty_times = [_run_empty_loop(num_iterations, device) for _ in range(3)]

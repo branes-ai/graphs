@@ -43,10 +43,12 @@ class TestSIMDWidthSweep:
         from graphs.benchmarks.layer2_register_simd.simd_width import (
             run_simd_width_sweep,
         )
+        # Use widths where both are above dispatch-floor (64 vs 4096)
+        # to avoid flakiness from width=1 being dispatch-dominated
         results = run_simd_width_sweep(
             device="cpu",
             precision="fp32",
-            widths=[1, 4096],
+            widths=[64, 4096],
             num_iterations=2000,
             warmup_iterations=100,
             num_trials=3,
