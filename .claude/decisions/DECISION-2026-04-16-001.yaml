@@ -1,0 +1,118 @@
+# Decision: Additive re-export subpackage for calibration fitters
+decision_id: "DECISION-2026-04-16-001"
+timestamp: "2026-04-16T00:00:00Z"
+ai_model: "claude-opus-4-6-20260101"
+session_id: ""
+
+summary: |
+  graphs.calibration.fitters ships as an additive re-export layer in
+  Phase 0 rather than physically relocating the legacy fitter modules.
+  Existing import paths continue to work unchanged; new (Phase 1+)
+  fitters land in graphs.calibration.fitters directly. Physical
+  relocation of the legacy modules is deferred to a follow-up cleanup
+  PR.
+
+trigger:
+  type: "user_request"
+  content: |
+    Phase 0 item 2 of docs/plans/bottom-up-microbenchmark-plan.md:
+    "Add calibration/fitters/ subpackage; move existing
+    energy_fitter.py, roofline_fitter.py, efficiency_curves.py into
+    fitters/ namespace and re-export for backward compat."
+  context: |
+    An audit showed the legacy fitter modules are imported directly
+    from graphs.calibration.<fitter> in:
+      - cli/fit_calibration.py
+      - tests/calibration/test_{energy,roofline,utilization}_fitter.py
+      - internal calibration modules (power_model, utilization_curves,
+        utilization_fitter)
+    Any physical relocation would cascade updates across the CLI,
+    test suite, and internal calibration imports in a single
+    foundation PR whose stated purpose is to be additive and
+    non-breaking.
+
+alternatives:
+  - option: "Physically move fitter files to calibration/fitters/ with shim modules at legacy paths"
+    pros:
+      - "End state is clean; new canonical path is the only real home"
+      - "Deprecation-warning shims guide future readers"
+    cons:
+      - "Touches tests, CLI, and internal imports in a PR whose scope is foundation"
+      - "Shims that forward __all__ are fragile for non-exported names"
+      - "Review burden shifts from API-surface to refactor mechanics"
+    selected: false
+    rejected_reason: "Increases PR blast radius beyond Phase 0 scope and mixes two concerns"
+
+  - option: "Additive graphs.calibration.fitters package that re-exports from existing locations"
+    pros:
+      - "Zero behavior change for existing code"
+      - "New (Phase 1+) fitters land in the canonical path from day one"
+      - "Review can focus on the Phase 0 API additions"
+      - "Physical relocation becomes a focused, testable cleanup PR later"
+    cons:
+      - "Two import paths resolve to the same object during the transition"
+      - "Identity (not just equality) must be enforced via tests to guarantee isinstance() behaves"
+    selected: true
+    selected_reason: |
+      Minimizes Phase 0 blast radius while still opening the canonical
+      path for Phase 1+ fitters. Identity tests in
+      tests/calibration/test_fitters_namespace.py make the re-export
+      guarantee load-bearing rather than accidental.
+
+impact:
+  files_modified: 0
+  files_created: 2        # calibration/fitters/__init__.py + test_fitters_namespace.py
+  files_deleted: 0
+  lines_added: 115
+  lines_removed: 0
+  breaking_changes: false
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 8       # new tests only; no existing test modified
+
+verification:
+  - action: "Run tests/calibration/test_fitters_namespace.py"
+    result: "8 passed - every re-export is identity, __all__ resolves, legacy top-level surface intact"
+  - action: "Run tests/calibration/ (full suite)"
+    result: "104 passed - no regression"
+  - action: "Run full suite: pytest tests/"
+    result: "589 passed, 9 skipped, 0 failed"
+
+risks:
+  - risk: "Future Phase 1+ fitter adds a new symbol under graphs.calibration.fitters that collides with a legacy re-export"
+    mitigation: "__all__ is the authoritative list; CI test asserts no duplicates between re-exports and new additions"
+    severity: "low"
+    likelihood: "low"
+  - risk: "Deferred physical relocation never happens"
+    mitigation: "Follow-up task should be filed; TASK-2026-012 references this decision; cleanup PR is out of scope but tracked"
+    severity: "low"
+    likelihood: "medium"
+  - risk: "Re-export breaks if legacy files get moved without updating fitters/__init__.py"
+    mitigation: "Identity tests in test_fitters_namespace.py catch this"
+    severity: "medium"
+    likelihood: "low"
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 0 - Foundation, item 2"
+  - type: "code"
+    path: "src/graphs/calibration/fitters/__init__.py"
+    section: "module docstring documents the transitional state"
+  - type: "pr"
+    url: "https://github.com/branes-ai/graphs/pull/1"
+  - type: "related_task"
+    task_id: "TASK-2026-013"
+
+review:
+  status: "pending"
+  reviewer: ""
+  reviewed_at: ""
+  comments: ""
+  modifications_required: []
+
+follow_up:
+  - action: "File a follow-up task for physical relocation of the legacy fitters once Phase 1+ has produced enough new fitters to justify the churn"
+    owner: "unassigned"
+    due_date: ""
+    status: "pending"

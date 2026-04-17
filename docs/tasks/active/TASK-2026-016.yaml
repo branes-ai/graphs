@@ -1,0 +1,140 @@
+# Task: Phase 2 - Layer 2 Register File / SIMD / Warp / Systolic Fill
+task_id: "TASK-2026-016"
+title: "Phase 2: Layer-2 register-file, SIMD, warp, and systolic fill benchmarks"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "2w"
+  complexity: "high"
+
+objective: |
+  Measure the cost of feeding operands into the ALU array:
+    - Register-file read/write energy per access
+    - SIMD width effective throughput vs scalar (validates the fixed
+      0.70 SIMD-efficiency constant and 0.90 simd_packed multiplier)
+    - GPU warp issue rate and divergence penalty
+    - Systolic array fill-and-drain overhead (TPU / KPU simulator path
+      until silicon is available)
+
+  Fit:
+    - StoredProgramEnergyModel.register_file_{read,write}_energy
+    - DataParallelEnergyModel.warp_divergence_penalty + rate
+    - TPUMapper pipeline_fill_overhead
+    - CPUMapper vectorization_efficiency table
+
+motivation: |
+  Register-file energy is often comparable to ALU energy on CPUs.
+  SIMT coherence machinery dominates small-batch GPU energy. Systolic
+  fill overhead is the difference between hitting peak TFLOPS and
+  coming in at 20% on small matmuls. All three are modeled with
+  constants today; Layer 2 replaces them with measurements.
+
+deliverables:
+  - path: "src/graphs/benchmarks/layer2_register_simd/register_rw.py"
+    type: "code"
+    description: "Load-use chains + spill-vs-in-register compare"
+    acceptance: "Isolates register-file energy from ALU"
+
+  - path: "src/graphs/benchmarks/layer2_register_simd/simd_width.py"
+    type: "code"
+    description: "Same arithmetic at scalar / 128 / 256 / 512-bit widths"
+    acceptance: "Produces efficiency curve per SIMD width"
+
+  - path: "src/graphs/benchmarks/layer2_register_simd/warp_divergence.py"
+    type: "code"
+    description: "GPU branch-divergence sweep (0% -> 50%)"
+    acceptance: "Fits warp_divergence_penalty"
+
+  - path: "src/graphs/benchmarks/layer2_register_simd/systolic_fill.py"
+    type: "code"
+    description: "Matmul with small M/N and K sweeping pipeline depth"
+    acceptance: "Fits TPU/KPU pipeline_fill_overhead"
+
+  - path: "src/graphs/calibration/fitters/layer2_register_fitter.py"
+    type: "code"
+    description: "Fit register + SIMD + warp + systolic parameters"
+    acceptance: "Updates field_provenance for affected fields"
+
+  - path: "validation/composition/layer1_2_to_layer3_gemm.py"
+    type: "test"
+    description: "Composition check: Layer 1+2 -> Layer 3 GEMM within 8%"
+
+  - path: "tests/benchmarks/test_layer2_register_simd.py"
+    type: "test"
+    description: "Unit tests"
+    acceptance: "Coverage >= 80%"
+
+dependencies:
+  - task: "TASK-2026-015"
+    description: "Layer 1 measurements are a prerequisite for Layer 2 isolation"
+  - module: "graphs.benchmarks.power_meter"
+
+interfaces_provided:
+  - name: "layer2_register_fitter.fit"
+    module: "graphs.calibration.fitters.layer2_register_fitter"
+
+interfaces_consumed:
+  - name: "HardwareResourceModel.set_provenance"
+    module: "graphs.hardware.resource_model"
+  - name: "register_layer_check"
+    module: "validation.composition.test_layer_composition"
+
+acceptance_criteria:
+  - criterion: "Measured register-file energy within 30% of TechnologyProfile"
+    verification: "Compare fitted pJ/access vs TechnologyProfile.register_{read,write}_energy_pj"
+  - criterion: "Warp-divergence curve replaces constant 0.05 assumption"
+    verification: "DataParallelEnergyModel.warp_divergence_rate becomes a per-op estimate"
+  - criterion: "Composition Layer 1+2 -> Layer 3 GEMM within 8%"
+    verification: "python validation/composition/test_layer_composition.py"
+
+constraints:
+  - "Compiler must not hoist register reads out of the measurement loop"
+  - "GPU divergence benchmark must not be serialized away by the scheduler"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_layer2_register_simd.py"
+  integration_tests:
+    required: true
+    location: "validation/composition/"
+  validation_tests:
+    required: true
+    location: "validation/composition/"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-015"]
+  blocks: ["TASK-2026-017"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 2 - Layer 2: Register File, SIMD, Warp, Systolic Fill"

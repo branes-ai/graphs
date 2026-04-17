@@ -1,0 +1,190 @@
+# Task: Phase 0 - Foundation
+task_id: "TASK-2026-013"
+title: "Phase 0: foundation for bottom-up microbenchmark validation"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "claude-opus-4-6"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "1w"
+  complexity: "medium"
+
+objective: |
+  Land the pure-software scaffolding the later phases hook into:
+  1. LayerTag enum + BenchmarkResult.layer field
+  2. graphs.calibration.fitters subpackage (re-export for now)
+  3. HardwareResourceModel.field_provenance with set/get/aggregate helpers
+  4. validation/composition/test_layer_composition.py scaffold runnable
+     both standalone and under pytest, with a registry API that later
+     phases populate via register_layer_check()
+
+  Items 5 (PowerMeter) and 6 (CI hook) are intentionally deferred to
+  TASK-2026-014 (Phase 0.5). See DECISION-2026-04-16-002.
+
+motivation: |
+  The bottom-up plan requires shared types, shared helpers, and a
+  single composition-check registry before any layer's benchmark can
+  emit data. Landing these first as a focused, additive, non-breaking
+  PR lets review focus on API surface rather than on hardware-specific
+  measurement plumbing.
+
+deliverables:
+  - path: "src/graphs/benchmarks/schema.py"
+    type: "code"
+    description: "Add LayerTag enum + BenchmarkResult.layer field"
+    acceptance: "Default COMPOSITE for back-compat; JSON round-trip preserves enum"
+
+  - path: "src/graphs/calibration/fitters/__init__.py"
+    type: "code"
+    description: "Subpackage re-exporting existing fitters"
+    acceptance: "All re-exports are identity (not re-bound copies)"
+
+  - path: "src/graphs/hardware/resource_model.py"
+    type: "code"
+    description: "Add field_provenance dict + set/get/aggregate helpers"
+    acceptance: "get_provenance returns UNKNOWN for unrecorded fields; aggregate returns weakest level"
+
+  - path: "validation/composition/test_layer_composition.py"
+    type: "test"
+    description: "Scaffold for cross-layer composition checks"
+    acceptance: "Runs standalone and via pytest; exits 0 with empty registry"
+
+  - path: "tests/benchmarks/test_schema.py"
+    type: "test"
+    description: "LayerTag tests (6 new cases)"
+    acceptance: "All pass"
+
+  - path: "tests/calibration/test_fitters_namespace.py"
+    type: "test"
+    description: "Re-export identity tests"
+    acceptance: "All pass"
+
+  - path: "tests/hardware/test_field_provenance.py"
+    type: "test"
+    description: "Provenance API tests (11 cases)"
+    acceptance: "All pass"
+
+dependencies:
+  - module: "graphs.core.confidence"
+    classes: ["ConfidenceLevel", "EstimationConfidence"]
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkResult"]
+
+interfaces_provided:
+  - name: "LayerTag"
+    signature: "enum(ALU, REGISTER_SIMD, SCRATCHPAD, ONCHIP, DRAM, CLUSTER, COMPOSITE)"
+    module: "graphs.benchmarks.schema"
+    description: "Hierarchy layer tag for benchmarks"
+
+  - name: "HardwareResourceModel.set_provenance"
+    signature: "(field_name: str, confidence: EstimationConfidence) -> None"
+    module: "graphs.hardware.resource_model"
+    description: "Record per-field provenance"
+
+  - name: "HardwareResourceModel.get_provenance"
+    signature: "(field_name: str) -> EstimationConfidence"
+    module: "graphs.hardware.resource_model"
+    description: "Retrieve per-field provenance (UNKNOWN if unrecorded)"
+
+  - name: "HardwareResourceModel.aggregate_confidence"
+    signature: "() -> EstimationConfidence"
+    module: "graphs.hardware.resource_model"
+    description: "Weakest confidence across all provenance entries"
+
+  - name: "register_layer_check"
+    signature: "(check: CompositionCheck) -> None"
+    module: "validation.composition.test_layer_composition"
+    description: "Register a composition check for later execution"
+
+  - name: "run_all_checks"
+    signature: "() -> CompositionReport"
+    module: "validation.composition.test_layer_composition"
+    description: "Execute all registered checks and return report"
+
+interfaces_consumed:
+  - name: "EstimationConfidence"
+    module: "graphs.core.confidence"
+
+acceptance_criteria:
+  - criterion: "LayerTag and BenchmarkResult.layer field land with back-compat"
+    verification: "pytest tests/benchmarks/test_schema.py (41 passed)"
+
+  - criterion: "graphs.calibration.fitters re-exports are identity"
+    verification: "pytest tests/calibration/test_fitters_namespace.py (8 passed)"
+
+  - criterion: "field_provenance API works end-to-end"
+    verification: "pytest tests/hardware/test_field_provenance.py (11 passed)"
+
+  - criterion: "Composition scaffold runs clean both ways"
+    verification: "python validation/composition/test_layer_composition.py (exit 0) and pytest validation/composition/test_layer_composition.py (2 passed)"
+
+  - criterion: "No existing test regresses"
+    verification: "pytest tests/ (589 passed, 9 skipped, 0 failed)"
+
+constraints:
+  - "All changes additive and backward-compatible"
+  - "No physical file relocation of existing fitters (deferred)"
+  - "No new external dependencies"
+  - "Python 3.9+ compatible"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/, tests/calibration/, tests/hardware/"
+  integration_tests:
+    required: false
+    location: ""
+  validation_tests:
+    required: true
+    location: "validation/composition/test_layer_composition.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: false
+  api_reference: false
+
+state:
+  status: "review"
+  blocked_by: []
+  blocks: ["TASK-2026-014", "TASK-2026-015"]
+  started_at: "2026-04-16T00:00:00Z"
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created retroactively per governance remediation"
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "PR #1 opened on branch phase0-foundation; 27 new tests, 589 passed 0 failed"
+
+review:
+  pull_request: "https://github.com/branes-ai/graphs/pull/1"
+  review_status: "pending"
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 0 - Foundation"
+  - type: "pr"
+    url: "https://github.com/branes-ai/graphs/pull/1"
+    description: "Phase 0 foundation PR"
+  - type: "related_task"
+    task_id: "TASK-2026-012"
+    relationship: "depends_on"

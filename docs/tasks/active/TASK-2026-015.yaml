@@ -1,0 +1,163 @@
+# Task: Phase 1 - Layer 1 ALU / MAC / Tensor-Core Benchmarks
+task_id: "TASK-2026-015"
+title: "Phase 1: Layer-1 ALU throughput and energy benchmarks"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "2w"
+  complexity: "high"
+
+objective: |
+  Isolate and measure per-ALU / per-MAC / per-tensor-core behavior in
+  tight FMA loops with empty-loop subtraction, for every supported
+  precision. Fit:
+    - ComputeFabric.ops_per_unit_per_clock[precision]
+    - ComputeFabric.energy_per_flop_fp32 (derived from measured pJ/op
+      via reverse lookup against PROCESS_NODE_ENERGY x CIRCUIT_TYPE_MULTIPLIER)
+    - Clock-vs-throughput relationship to validate sustained_clock_hz
+      under the selected thermal operating point.
+
+  Register one composition check that predicts large-GEMM
+  (Layer 3) throughput from Layer 1 fits alone and diffs against
+  measured GEMM on the same SKU.
+
+motivation: |
+  Layer 1 is the foundation of the bottom-up methodology. Without a
+  measured pJ/op baseline, every higher-layer fit rides on analytical
+  process-node estimates that nobody has verified on this silicon.
+  A wrong Layer 1 coefficient is invisible in top-down calibration
+  because it absorbs into the composite efficiency_factor.
+
+deliverables:
+  - path: "src/graphs/benchmarks/layer1_alu/fma_rate.py"
+    type: "code"
+    description: "Tight FMA loop with empty-loop subtraction, per precision"
+    acceptance: "Result-sink check prevents dead-code elimination; min duration enforced"
+
+  - path: "src/graphs/benchmarks/layer1_alu/precision_sweep.py"
+    type: "code"
+    description: "Sweep precision with fixed op count, record throughput + Joules"
+    acceptance: "FP64/FP32/TF32/BF16/FP16/FP8/INT8/INT4 covered on each fabric"
+
+  - path: "src/graphs/benchmarks/layer1_alu/clock_dvfs_probe.py"
+    type: "code"
+    description: "Capture clock vs throughput across thermal-governor settings"
+    acceptance: "Validates ClockDomain.sustained_clock_hz"
+
+  - path: "src/graphs/benchmarks/specs/layer1/fma_rate.yaml"
+    type: "config"
+    description: "Per-SKU op counts sized to amortize timer resolution"
+    acceptance: "Loop overhead < 1% of ALU time"
+
+  - path: "src/graphs/calibration/fitters/layer1_alu_fitter.py"
+    type: "code"
+    description: "Fit per-fabric ops_per_clock and energy_per_flop_fp32"
+    acceptance: "Writes EstimationConfidence(CALIBRATED) via set_provenance"
+
+  - path: "validation/composition/layer1_to_layer3_gemm.py"
+    type: "test"
+    description: "Composition check: Layer 1 fits -> predicted Layer 3 GEMM rate"
+    acceptance: "Within 10% of measured GEMM at large M/N"
+
+  - path: "tests/benchmarks/test_layer1_alu.py"
+    type: "test"
+    description: "Unit tests for Layer 1 benchmarks (mocked hardware)"
+    acceptance: "Coverage >= 80%"
+
+dependencies:
+  - task: "TASK-2026-013"
+    description: "Foundation (LayerTag, field_provenance, composition registry)"
+  - task: "TASK-2026-014"
+    description: "PowerMeter required for pJ/op measurement"
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkResult", "LayerTag"]
+
+interfaces_provided:
+  - name: "layer1_alu_fitter.fit"
+    signature: "(results: List[BenchmarkResult]) -> Dict[Precision, (ops_per_clock, pJ_per_op)]"
+    module: "graphs.calibration.fitters.layer1_alu_fitter"
+
+interfaces_consumed:
+  - name: "HardwareResourceModel.set_provenance"
+    module: "graphs.hardware.resource_model"
+  - name: "PowerMeter"
+    module: "graphs.benchmarks.power_meter"
+  - name: "register_layer_check"
+    module: "validation.composition.test_layer_composition"
+
+acceptance_criteria:
+  - criterion: "Measured pJ/op for FP32 on i7-12700K within 20% of analytical get_base_alu_energy(7, 'standard_cell')"
+    verification: "cli/benchmark.py --layer 1 --device cpu; compare to analytical"
+
+  - criterion: "ComputeFabric fields gain field_provenance CALIBRATED on at least one SKU"
+    verification: "model.aggregate_confidence().level == CALIBRATED after fit"
+
+  - criterion: "Composition test Layer 1 -> Layer 3 GEMM rate within 10%"
+    verification: "python validation/composition/test_layer_composition.py"
+
+  - criterion: "FMA loops are not obliterated by compiler"
+    verification: "Dead-code-elimination defense via result-sink sanity test"
+
+constraints:
+  - "Minimum measurement duration tunable per backend (RAPL 10 ms floor)"
+  - "Must support both CPU SIMD and GPU (CUDA / tensor cores)"
+  - "Jetson dispatch overhead must be amortized (bundle work per launch)"
+  - "Emulated precisions flagged in results but still measured"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_layer1_alu.py"
+  integration_tests:
+    required: true
+    location: "validation/composition/layer1_to_layer3_gemm.py"
+  validation_tests:
+    required: true
+    location: "validation/composition/"
+  manual_testing:
+    required: true
+    instructions: "Run on i7-12700K and Jetson Orin Nano; verify measurement stability"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: true
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-013", "TASK-2026-014"]
+  blocks: ["TASK-2026-016"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 1 - Layer 1: ALU / MAC / Tensor-Core Rate and Energy"
+  - type: "related_task"
+    task_id: "TASK-2026-014"
+    relationship: "depends_on"

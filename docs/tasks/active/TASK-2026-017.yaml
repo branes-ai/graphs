@@ -1,0 +1,133 @@
+# Task: Phase 3 - Layer 3 Scratchpad / L1-L2 Benchmarks
+task_id: "TASK-2026-017"
+title: "Phase 3: Layer-3 tile / scratchpad / L1-L2 benchmarks"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "2w"
+  complexity: "high"
+
+objective: |
+  Upgrade the existing GEMM/Conv2d suite rather than replace it:
+    - Add cache-line-stride sweep to probe L1/L2 capacity thresholds
+    - Add working-set sweep crossing 0.25x / 0.5x / 1x / 2x / 4x L1
+      and L2 boundaries
+    - Migrate existing microbench/gemm.py and microbench/conv2d.py
+      onto the layer=SCRATCHPAD tag
+    - Validate _analyze_tiling overhead formula (1.0 + 0.10 x
+      (iterations - 1)) against measurement
+    - Add per-precision memory-traffic scaling (replace the current
+      FP32-scaled heuristic)
+
+motivation: |
+  Layer 3 is where existing benchmarks actually live. Retagging them
+  plus adding the capacity-boundary probes is the least-invasive way
+  to turn the existing GPU calibration curves into a per-layer fit.
+  KPU tiling overhead is currently a hardcoded constant; a tile-count
+  sweep produces a real curve.
+
+deliverables:
+  - path: "src/graphs/benchmarks/layer3_scratchpad/stride_walk.py"
+    type: "code"
+    description: "Pointer-chase / strided-read across L1 and L2 thresholds"
+    acceptance: "Capacity corners measured within 10% of spec"
+
+  - path: "src/graphs/benchmarks/layer3_scratchpad/working_set_sweep.py"
+    type: "code"
+    description: "GEMM whose working set crosses L1, L2 capacity boundaries"
+    acceptance: "Produces efficiency-vs-working-set curve"
+
+  - path: "src/graphs/benchmarks/layer3_scratchpad/tile_overhead.py"
+    type: "code"
+    description: "Accelerator tile count sweep (1 -> 8 iterations) for KPU/TPU"
+    acceptance: "Fits per-iteration tiling overhead"
+
+  - path: "src/graphs/benchmarks/microbench/gemm.py"
+    type: "code"
+    description: "Tag existing GEMM results layer=SCRATCHPAD"
+    acceptance: "BenchmarkResult.layer is populated; legacy JSON back-compat"
+
+  - path: "src/graphs/benchmarks/microbench/conv2d.py"
+    type: "code"
+    description: "Tag existing Conv2d results layer=SCRATCHPAD"
+    acceptance: "Same as GEMM"
+
+  - path: "src/graphs/calibration/fitters/layer3_scratchpad_fitter.py"
+    type: "code"
+    description: "Fit L1 / L2 capacity, tiling overhead coefficients"
+    acceptance: "Replaces KPUMapper _analyze_tiling 0.80/0.10 constants"
+
+  - path: "validation/composition/layer1_3_to_resnet_conv.py"
+    type: "test"
+    description: "Composition check: Layer 1-3 -> ResNet-18 Conv layer within 15%"
+
+dependencies:
+  - task: "TASK-2026-016"
+    description: "Layer 2 measurements required"
+
+interfaces_provided:
+  - name: "layer3_scratchpad_fitter.fit"
+    module: "graphs.calibration.fitters.layer3_scratchpad_fitter"
+
+interfaces_consumed:
+  - name: "HardwareResourceModel.set_provenance"
+    module: "graphs.hardware.resource_model"
+
+acceptance_criteria:
+  - criterion: "L1/L2 capacity corners measured within 10% of spec"
+    verification: "stride_walk.py output matches datasheet"
+  - criterion: "KPU tiling overhead fitted from measurement (simulator OK)"
+    verification: "0.80/0.10 constants replaced with fitted values"
+  - criterion: "Composition Layer 1-3 -> ResNet-18 Conv within 15%"
+    verification: "python validation/composition/test_layer_composition.py"
+
+constraints:
+  - "Existing GEMM/Conv2d sweep results must remain loadable (back-compat)"
+  - "Stride sweep must defeat prefetchers"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_layer3_scratchpad.py"
+  integration_tests:
+    required: true
+    location: "validation/composition/"
+  validation_tests:
+    required: true
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-016"]
+  blocks: ["TASK-2026-018"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 3 - Layer 3: Tile / Scratchpad / L1-L2"

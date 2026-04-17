@@ -1,0 +1,119 @@
+# Decision: Defer PowerMeter and CI hook from Phase 0 to Phase 0.5
+decision_id: "DECISION-2026-04-16-002"
+timestamp: "2026-04-16T00:00:00Z"
+ai_model: "claude-opus-4-6-20260101"
+session_id: ""
+
+summary: |
+  Phase 0 items 5 (PowerMeter abstraction) and 6 (CI hook for
+  composition tests) are split into a dedicated Phase 0.5
+  (TASK-2026-014) rather than landing alongside the pure-software
+  foundation (TASK-2026-013). Phase 0 stays additive and
+  hardware-agnostic; Phase 0.5 is the hardware-dependent follow-up
+  that Phase 1 depends on.
+
+trigger:
+  type: "user_request"
+  content: |
+    During Phase 0 planning the user asked: "The plan has Phase 0
+    (foundation) before any measurement work. ... Do you want me to
+    do all six in Phase 0, or land 1-4 first and defer 5-6 to just
+    before Phase 1 when we actually need them?"
+    The user answered: "yes, execute Phase 0 items 1-4 in a focused
+    PR, and get that to a high quality first."
+  context: |
+    Items 1-4 (LayerTag, fitters subpackage, field_provenance,
+    composition scaffold) are pure software and can be validated on
+    any host. Items 5-6 require:
+      - a specific target host (Intel i7-12700K for RAPL vs.
+        Jetson Orin Nano/AGX for tegrastats)
+      - possibly optional dependencies (pynvml for NVML)
+      - CI runner configuration (which lacks power domains by default)
+    Bundling them into Phase 0 would have forced Phase 0 review to
+    also review hardware-specific measurement code.
+
+alternatives:
+  - option: "Land all six Phase 0 items in one PR"
+    pros:
+      - "Plan says Phase 0 is one phase; splitting feels like scope creep"
+      - "Fewer PRs to merge before Phase 1 can start"
+    cons:
+      - "PR review has to reason about both API surface and hardware plumbing at once"
+      - "PowerMeter needs target-host selection (RAPL vs tegrastats) which was still open at Phase 0 start"
+      - "CI hook needs a composition check to gate on, and Phase 0 ships an empty registry"
+      - "Higher risk of merge conflicts or hardware-specific bugs blocking the pure-software foundation"
+    selected: false
+    rejected_reason: "Mixes two concerns; delays the pure-software foundation; creates a larger review surface for no Phase 1 benefit"
+
+  - option: "Split into Phase 0 (items 1-4, pure software) and Phase 0.5 (items 5-6, hardware plumbing)"
+    pros:
+      - "Phase 0 review focuses on API surface and back-compat"
+      - "Phase 0.5 can select target host and pin optional dependencies at the right time"
+      - "Phase 0.5 lands just-in-time for Phase 1's first PowerMeter-dependent benchmark"
+      - "CI hook has a live registry (from Phase 0) to gate on by the time it lands"
+    cons:
+      - "Two PRs instead of one"
+      - "Introduces a sub-numbered phase ('Phase 0.5') not in the original plan text"
+    selected: true
+    selected_reason: |
+      Matches the user's stated preference ("focused PR, high
+      quality"), isolates risk, and aligns each phase with the
+      hardware access required to execute it.
+
+impact:
+  files_modified: 0       # Phase 0 commit did not touch PowerMeter or CI
+  files_created: 0        # This decision is about what NOT to create
+  files_deleted: 0
+  lines_added: 0
+  lines_removed: 0
+  breaking_changes: false
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 0
+
+verification:
+  - action: "Phase 0 PR #1 built without PowerMeter/CI"
+    result: "589 passed, 9 skipped, 0 failed - foundation is clean"
+  - action: "TASK-2026-014 documents exactly what deferred items must ship in Phase 0.5"
+    result: "Spec enumerates deliverables and acceptance criteria"
+
+risks:
+  - risk: "Phase 0.5 is not executed before Phase 1 attempts to use PowerMeter"
+    mitigation: "TASK-2026-015 explicitly lists TASK-2026-014 in blocked_by; Phase 1 cannot start without it"
+    severity: "medium"
+    likelihood: "low"
+  - risk: "CI hook in Phase 0.5 runs against an empty registry and always passes, giving false assurance"
+    mitigation: "Phase 0.5 must include a synthetic regression test that proves the hook fails when a check regresses"
+    severity: "medium"
+    likelihood: "low"
+  - risk: "RAPL vs tegrastats backend selection drifts from what Phase 1 assumes"
+    mitigation: "Phase 0.5 documentation (docs/designs/power-measurement.md) fixes the backend-selection algorithm; Phase 1 consumes it"
+    severity: "low"
+    likelihood: "low"
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 0 - Foundation"
+  - type: "related_task"
+    task_id: "TASK-2026-013"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-014"
+    relationship: "blocks"
+  - type: "related_task"
+    task_id: "TASK-2026-015"
+    relationship: "blocks"
+
+review:
+  status: "pending"
+  reviewer: ""
+  reviewed_at: ""
+  comments: ""
+  modifications_required: []
+
+follow_up:
+  - action: "Author Phase 0.5 PR (implements TASK-2026-014)"
+    owner: "unassigned"
+    due_date: ""
+    status: "pending"
