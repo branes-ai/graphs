@@ -196,7 +196,7 @@ class TestLayer1ALUFitter:
             success=False,
         )
         fitter = Layer1ALUFitter()
-        fit = fitter.fit(good + [bad])
+        fit = fitter.fit(good + [bad], sustained_clock_hz=4.5e9, num_cores=10)
         assert fit.num_results_used == 2
 
 
@@ -234,16 +234,42 @@ class TestCompositionCheck:
         )
         predicted_gflops = result.gflops * 0.70
 
+        # 8% off should still pass at 10% tolerance
         check_result = check_layer1_to_gemm(
             layer1_results=[result],
-            measured_gemm_gflops=predicted_gflops,
+            measured_gemm_gflops=predicted_gflops * 1.08,
             precision="fp32",
             hardware="test",
             gemm_efficiency=0.70,
             tolerance=0.10,
         )
         assert check_result.status is CheckStatus.PASSED
-        assert check_result.max_relative_error < 0.01
+        assert check_result.max_relative_error > 0.01
+
+    def test_check_fails_when_beyond_tolerance(self):
+        from validation.composition.layer1_to_layer3_gemm import (
+            check_layer1_to_gemm,
+        )
+        from validation.composition.test_layer_composition import CheckStatus
+        from graphs.benchmarks.layer1_alu.fma_rate import run_fma_rate_benchmark
+
+        result = run_fma_rate_benchmark(
+            device="cpu", precision="fp32",
+            num_elements=1024, num_iterations=100,
+            warmup_iterations=10, num_trials=3,
+        )
+        predicted_gflops = result.gflops * 0.70
+
+        # 12% off should fail at 10% tolerance
+        check_result = check_layer1_to_gemm(
+            layer1_results=[result],
+            measured_gemm_gflops=predicted_gflops * 1.12,
+            precision="fp32",
+            hardware="test",
+            gemm_efficiency=0.70,
+            tolerance=0.10,
+        )
+        assert check_result.status is CheckStatus.FAILED
 
     def test_check_skips_when_no_layer1_data(self):
         from validation.composition.layer1_to_layer3_gemm import (

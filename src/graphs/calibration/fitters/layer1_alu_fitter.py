@@ -62,8 +62,8 @@ class Layer1ALUFitter:
     def fit(
         self,
         results: List[BenchmarkResult],
-        sustained_clock_hz: float = 4.5e9,
-        num_cores: int = 10,
+        sustained_clock_hz: float,
+        num_cores: int,
         hardware_name: str = "",
     ) -> ALUFitResult:
         """
@@ -96,7 +96,8 @@ class Layer1ALUFitter:
                 continue
 
             fit.measured_throughput[prec] = throughput
-            fit.precisions_fitted.append(prec)
+            if prec not in fit.precisions_fitted:
+                fit.precisions_fitted.append(prec)
 
             if sustained_clock_hz > 0 and num_cores > 0:
                 fit.ops_per_clock_per_core[prec] = (

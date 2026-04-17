@@ -94,7 +94,7 @@ def check_layer1_to_gemm(
         return CompositionCheckResult(
             name=f"layer1_to_gemm_{precision}",
             hardware=hardware,
-            predicts_layer=LayerTag.SCRATCHPAD,
+            predicts_layer=LayerTag.COMPOSITE,
             from_layers=[LayerTag.ALU],
             status=CheckStatus.SKIPPED,
             tolerance=tolerance,
@@ -105,7 +105,7 @@ def check_layer1_to_gemm(
         return CompositionCheckResult(
             name=f"layer1_to_gemm_{precision}",
             hardware=hardware,
-            predicts_layer=LayerTag.SCRATCHPAD,
+            predicts_layer=LayerTag.COMPOSITE,
             from_layers=[LayerTag.ALU],
             status=CheckStatus.SKIPPED,
             tolerance=tolerance,
@@ -118,7 +118,7 @@ def check_layer1_to_gemm(
     return CompositionCheckResult(
         name=f"layer1_to_gemm_{precision}",
         hardware=hardware,
-        predicts_layer=LayerTag.SCRATCHPAD,
+        predicts_layer=LayerTag.COMPOSITE,
         from_layers=[LayerTag.ALU],
         status=CheckStatus.PASSED if passed else CheckStatus.FAILED,
         max_relative_error=relative_error,
