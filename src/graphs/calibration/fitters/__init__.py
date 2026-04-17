@@ -123,9 +123,16 @@ __all__ = [
     # Layer 1 ALU fitter (Phase 1)
     'Layer1ALUFitter',
     'ALUFitResult',
+    # Layer 2 Register/SIMD fitter (Phase 2)
+    'Layer2RegisterFitter',
+    'SIMDFitResult',
 ]
 
 from graphs.calibration.fitters.layer1_alu_fitter import (
     Layer1ALUFitter,
     ALUFitResult,
+)
+from graphs.calibration.fitters.layer2_register_fitter import (
+    Layer2RegisterFitter,
+    SIMDFitResult,
 )

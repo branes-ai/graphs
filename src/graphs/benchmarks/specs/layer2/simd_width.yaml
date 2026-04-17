@@ -1,0 +1,25 @@
+# Layer 2 SIMD Width Sweep Benchmark Spec
+
+name: "layer2_simd_width"
+description: "SIMD width effective throughput vs scalar"
+category: "microbenchmark"
+layer: "register_simd"
+tags: ["layer2", "simd", "register", "throughput"]
+
+precisions: ["fp32"]
+devices: ["auto"]
+
+# Vector widths to sweep (elements)
+# 1=scalar, 4=SSE/NEON, 8=AVX-2, 16=AVX-512, 64+=multi-iteration
+widths: [1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096]
+
+num_iterations: 10000
+warmup_iterations: 500
+num_trials: 5
+
+execution:
+  warmup_iterations: 500
+  measurement_iterations: 10000
+  min_duration_ms: 50.0
+  sync_before_timing: true
+  clear_cache: false
