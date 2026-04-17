@@ -68,6 +68,7 @@ def run_precision_sweep(
                 from graphs.benchmarks.power_meter import auto_select_power_collector
                 collector = auto_select_power_collector(device)
             except Exception:
+                # PowerMeter unavailable; proceed without energy measurement.
                 pass
 
         try:

@@ -150,6 +150,7 @@ def run_fma_rate_benchmark(
         try:
             power_collector.start()
         except Exception:
+            # Runtime start failure (e.g., RAPL perms); proceed without power.
             power_collector = None
 
     # Measurement trials
@@ -175,6 +176,7 @@ def run_fma_rate_benchmark(
                 avg_power_watts = measurement.avg_power_watts
                 peak_power_watts = measurement.peak_power_watts
         except Exception:
+            # Power collection is best-effort; don't abort the benchmark.
             pass
 
     # Statistics
