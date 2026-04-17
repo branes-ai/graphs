@@ -1,5 +1,5 @@
 """
-FMA Rate Microbenchmark — Layer 1 ALU Isolation
+FMA Rate Microbenchmark - Layer 1 ALU Isolation
 
 Measures per-precision throughput (ops/sec) and optionally energy
 (pJ/op) in a tight FMA loop. Empty-loop subtraction removes timer
@@ -154,11 +154,18 @@ def run_fma_rate_benchmark(
             power_collector = None
 
     # Measurement trials
+    # NOTE: power window also covers a.normal_() and the sink read.
+    # Their energy is small relative to num_iterations * num_elements FMAs
+    # but will slightly inflate pJ/op for very small num_iterations.
     trial_times_ms = []
+    clamped_trials = 0
     for _ in range(num_trials):
         a.normal_()
         raw_seconds = _run_fma_loop(a, b, c, num_iterations, device)
-        net_seconds = max(raw_seconds - empty_overhead, 1e-9)
+        net_seconds = raw_seconds - empty_overhead
+        if net_seconds <= 0:
+            clamped_trials += 1
+            net_seconds = 1e-9
         trial_times_ms.append(net_seconds * 1000.0)
     _sink = float(a.sum().item())
 
@@ -226,6 +233,7 @@ def run_fma_rate_benchmark(
             "flops_per_iteration": flops_per_iter,
             "total_flops_per_trial": total_flops,
             "empty_loop_overhead_ms": empty_overhead * 1000.0,
+            "clamped_trials": clamped_trials,
             "pj_per_op": pj_per_op,
             "sink_value": _sink,
         },

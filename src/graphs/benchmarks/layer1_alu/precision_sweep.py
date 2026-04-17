@@ -1,5 +1,5 @@
 """
-Precision Sweep — Layer 1 ALU Energy Characterization
+Precision Sweep - Layer 1 ALU Energy Characterization
 
 Runs the FMA-rate benchmark across all supported precisions on a
 single device, collecting throughput (GFLOPS) and energy (pJ/op via
