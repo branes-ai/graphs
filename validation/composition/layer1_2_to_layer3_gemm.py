@@ -51,7 +51,7 @@ def predict_gemm_from_layer1_2(
     if layer1_gflops is None:
         return None
 
-    # Get SIMD efficiency from Layer 2
+    # Get SIMD efficiency from Layer 2 via the fitter (single source of truth)
     simd_efficiency = _extract_simd_efficiency(layer2_results)
     if simd_efficiency is None:
         simd_efficiency = 0.70  # fallback to analytical default
@@ -62,30 +62,11 @@ def predict_gemm_from_layer1_2(
 def _extract_simd_efficiency(
     layer2_results: List[BenchmarkResult],
 ) -> Optional[float]:
-    """Extract SIMD efficiency from width-sweep results."""
-    widths = {}
-    for r in layer2_results:
-        if r.layer is LayerTag.REGISTER_SIMD and r.success:
-            w = r.extra.get("vector_width")
-            if w is not None and r.gflops > 0:
-                widths[w] = r.gflops
-
-    if not widths:
-        return None
-
-    sorted_w = sorted(widths.keys())
-    if len(sorted_w) < 2:
-        return None
-
-    scalar = widths[sorted_w[0]]
-    peak = widths[sorted_w[-1]]
-
-    if scalar <= 0:
-        return None
-
-    width_ratio = sorted_w[-1] / sorted_w[0]
-    throughput_ratio = peak / scalar
-    return throughput_ratio / width_ratio
+    """Extract SIMD efficiency from Layer 2 results via the fitter."""
+    from graphs.calibration.fitters.layer2_register_fitter import Layer2RegisterFitter
+    fitter = Layer2RegisterFitter()
+    fit = fitter.fit(layer2_results)
+    return fit.simd_efficiency
 
 
 def check_layer1_2_to_gemm(

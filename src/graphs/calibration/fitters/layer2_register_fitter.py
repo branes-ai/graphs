@@ -113,7 +113,10 @@ class Layer2RegisterFitter:
                     fit.peak_vector_gflops / fit.scalar_gflops
                 )
                 # SIMD efficiency = actual speedup / theoretical speedup
-                fit.simd_efficiency = throughput_ratio / width_ratio
+                # Clamp to [0, 1]: dispatch overhead on small widths
+                # can make the ratio exceed 1.0 or go near 0.
+                raw_eff = throughput_ratio / width_ratio
+                fit.simd_efficiency = max(0.0, min(1.0, raw_eff))
 
         return fit
 

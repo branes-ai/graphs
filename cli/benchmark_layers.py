@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 
 
@@ -49,7 +48,7 @@ def run_layer1(device: str, precision: str, verbose: bool) -> list:
 
     for r in results:
         pj = r.extra.get("pj_per_op")
-        pj_str = f"{pj:.2f} pJ/op" if pj else "(no power measurement)"
+        pj_str = f"{pj:.2f} pJ/op" if pj is not None else "(no power measurement)"
         clamped = r.extra.get("clamped_trials", 0)
         print(f"  {r.precision:6s}  {r.gflops:8.1f} GFLOPS  {pj_str}")
         if clamped > 0:
@@ -157,7 +156,7 @@ def run_fitter(layer1_results: list, layer2_results: list, device: str) -> None:
         for prec, throughput in fit1.measured_throughput.items():
             ops_clk = fit1.ops_per_clock_per_core.get(prec, 0)
             pj = fit1.measured_pj_per_op.get(prec)
-            pj_str = f"{pj:.2f} pJ/op" if pj else "N/A"
+            pj_str = f"{pj:.2f} pJ/op" if pj is not None else "N/A"
             print(f"  Layer 1 [{prec}]: {throughput/1e9:.1f} GOPS, "
                   f"{ops_clk:.2f} ops/clk/core, energy={pj_str}")
 
