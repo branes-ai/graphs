@@ -120,4 +120,12 @@ __all__ = [
     'create_typical_compute_curve',
     'create_typical_memory_curve',
     'interpolate_utilization',
+    # Layer 1 ALU fitter (Phase 1)
+    'Layer1ALUFitter',
+    'ALUFitResult',
 ]
+
+from graphs.calibration.fitters.layer1_alu_fitter import (
+    Layer1ALUFitter,
+    ALUFitResult,
+)
