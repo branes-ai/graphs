@@ -24,13 +24,12 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .collectors import (
     MeasurementCollector,
@@ -108,6 +107,8 @@ class RAPLPowerCollector(MeasurementCollector):
         try:
             self._max_energy_uj = int(max_path.read_text().strip())
         except (FileNotFoundError, PermissionError, OSError, ValueError):
+            # max_energy_range_uj is optional; without it we cannot
+            # detect counter wrap-around, but normal measurements work.
             pass
 
     def _read_energy_uj(self) -> int:
@@ -127,9 +128,17 @@ class RAPLPowerCollector(MeasurementCollector):
         duration_ms = self.duration_ms
         delta_uj = self._energy_end_uj - self._energy_start_uj
 
-        # Handle counter wrap-around
+        # Handle counter wrap-around (requires max_energy_range_uj)
         if delta_uj < 0 and self._max_energy_uj is not None:
             delta_uj += self._max_energy_uj
+
+        # If still negative (wrap without max range), report failure
+        if delta_uj < 0:
+            return PowerMeasurement(
+                duration_ms=duration_ms,
+                success=False,
+                error_message="RAPL counter wrapped without max_energy_range_uj",
+            )
 
         energy_j = delta_uj * 1e-6
         duration_s = duration_ms / 1000.0
@@ -290,17 +299,26 @@ def auto_select_power_collector(
     Returns:
         A MeasurementCollector subclass ready to start()
     """
-    if device.startswith("cuda") and _nvml_available():
-        device_index = 0
-        if ":" in device:
-            try:
-                device_index = int(device.split(":")[1])
-            except (IndexError, ValueError):
-                pass
-        return PowerCollector(
-            device_index=device_index,
-            sampling_interval_ms=sampling_interval_ms,
-        )
+    if device.startswith("cuda"):
+        if _nvml_available():
+            device_index = 0
+            if ":" in device:
+                try:
+                    device_index = int(device.split(":")[1])
+                except (IndexError, ValueError):
+                    # Malformed device string like "cuda:"; default to GPU 0.
+                    pass
+            return PowerCollector(
+                device_index=device_index,
+                sampling_interval_ms=sampling_interval_ms,
+            )
+        # NVML unavailable for a CUDA target: RAPL measures the CPU
+        # socket, not the GPU, so returning it would attribute the
+        # wrong power domain. Fall through to tegrastats (covers
+        # Jetson integrated GPUs) or NoOp.
+        if _tegrastats_available():
+            return TegrastatsPowerCollector(interval_ms=int(sampling_interval_ms))
+        return NoOpPowerCollector()
 
     if _rapl_available():
         return RAPLPowerCollector()

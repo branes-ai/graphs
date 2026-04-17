@@ -226,6 +226,7 @@ class PyTorchRunner(BenchmarkRunner):
                 result.avg_power_watts = measurement.avg_power_watts
                 result.peak_power_watts = measurement.peak_power_watts
         except Exception:
+            # Power measurement is best-effort; never abort the benchmark.
             pass
         return result
 
@@ -252,10 +253,15 @@ class PyTorchRunner(BenchmarkRunner):
             config=self.config,
         )
 
-        # Start power collection (wraps the entire measurement scope)
+        # Start power collection (wraps the entire measurement scope).
+        # start() can fail at runtime (e.g., RAPL perms changed between
+        # probe and read, tegrastats races); treat as best-effort.
         power_collector = self._get_power_collector(device)
         if power_collector is not None:
-            power_collector.start()
+            try:
+                power_collector.start()
+            except Exception:
+                power_collector = None
 
         try:
             # Dispatch to appropriate handler
