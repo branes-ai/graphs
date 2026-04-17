@@ -83,7 +83,7 @@ The empirical infrastructure we built is NOT wasted:
 | Aspect | Empirical (Phases 1-2) | Model-based (Phases 1-6 retrofit) |
 |--------|----------------------|-----------------------------------|
 | Data source | Real hardware (RAPL, CUDA events) | Analytical model predictions |
-| Coverage | Only SKUs we can physically access | All 50+ hardware mappers |
+| Coverage | Only SKUs we can physically access | All 45 hardware mappers |
 | What it validates | Model vs silicon | Model vs itself (internal consistency) |
 | Hardware needed | i7-12700K, Orin Nano, etc. | None (runs in CI) |
 | TPU/KPU coverage | None (no silicon) | Full (exercises the model code paths) |

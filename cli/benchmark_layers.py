@@ -3,11 +3,11 @@
 Run Layer 1-2 empirical benchmarks and print results.
 
 Usage:
-    python cli/run_layer_benchmarks.py
-    python cli/run_layer_benchmarks.py --layers 1
-    python cli/run_layer_benchmarks.py --layers 1 2
-    python cli/run_layer_benchmarks.py --device cpu --precision fp32
-    python cli/run_layer_benchmarks.py --output results.json
+    python cli/benchmark_layers.py
+    python cli/benchmark_layers.py --layers 1
+    python cli/benchmark_layers.py --layers 1 2
+    python cli/benchmark_layers.py --device cpu --precision fp32
+    python cli/benchmark_layers.py --output results.json
 
 RAPL power measurement requires read access to
 /sys/class/powercap/intel-rapl:*/energy_uj. To enable:
