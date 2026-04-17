@@ -33,15 +33,11 @@ from graphs.benchmarks.schema import BenchmarkResult, LayerTag, TimingStats
 from graphs.benchmarks.layer1_alu.fma_rate import (
     _run_fma_loop,
     _run_empty_loop,
-    get_sink_value,
 )
 
 import statistics
-import time
 
 SIMD_WIDTHS = [1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096]
-
-_sink: float = 0.0
 
 
 def run_simd_width_sweep(
@@ -55,9 +51,10 @@ def run_simd_width_sweep(
     """
     Sweep FMA throughput across vector lengths on one device/precision.
 
-    Each width uses the same total FLOPs (num_iterations * width * 2)
-    so shorter vectors run more iterations per trial to keep
-    measurement time comparable.
+    Total FLOPs per trial scales with width (num_iterations * width * 2).
+    GFLOPS is normalized per trial so results are comparable across
+    widths. Small widths will have lower absolute GFLOPS due to
+    PyTorch dispatch overhead dominating the per-call cost.
 
     Returns one BenchmarkResult per width, all tagged LayerTag.REGISTER_SIMD.
     """
@@ -87,7 +84,7 @@ def run_simd_width_sweep(
         # Warmup
         for _ in range(warmup_iterations):
             torch.addcmul(a, b, c, value=1.0, out=a)
-        _sink = float(a.sum().item())
+        _dce_guard = float(a.sum().item())  # prevent dead-code elimination
 
         # Empty-loop overhead
         empty_times = [_run_empty_loop(num_iterations, device) for _ in range(3)]
@@ -104,7 +101,7 @@ def run_simd_width_sweep(
                 clamped += 1
                 net_s = 1e-9
             trial_times_ms.append(net_s * 1000.0)
-        _sink = float(a.sum().item())
+        _dce_guard = float(a.sum().item())
 
         sorted_t = sorted(trial_times_ms)
         n = len(sorted_t)

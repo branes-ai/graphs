@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphs.benchmarks.schema import BenchmarkResult, LayerTag
+from graphs.benchmarks.schema import LayerTag
 
 
 class TestSIMDWidthSweep:

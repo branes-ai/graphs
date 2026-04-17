@@ -22,7 +22,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 import torch
 
