@@ -1,0 +1,196 @@
+# Task: Phase 0.5 - Power-Measurement and CI Plumbing
+task_id: "TASK-2026-014"
+title: "Phase 0.5: PowerMeter abstraction + composition-test CI gate"
+version: "1.0"
+created_at: "2026-04-16T00:00:00Z"
+updated_at: "2026-04-16T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-6"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4.5"
+  target_version: "0.9.0-rc"
+  estimated_effort: "1w"
+  complexity: "medium"
+
+objective: |
+  Deferred Phase 0 items 5 and 6:
+
+  5. PowerMeter abstraction (src/graphs/benchmarks/power_meter.py)
+     with concrete backends for:
+     - Intel RAPL (x86 Linux hosts)
+     - Jetson tegrastats (Orin Nano / AGX)
+     - NVIDIA NVML (discrete GPU hosts)
+     - NoOp fallback when no power domain is available
+     The abstraction returns energy_joules + avg_power_watts alongside
+     wall-clock timing so BenchmarkResult.energy_joules is populated
+     wherever the host supports it.
+
+  6. CI hook that runs validation/composition/test_layer_composition.py
+     on every PR that modifies:
+       - src/graphs/hardware/resource_model.py
+       - src/graphs/hardware/architectural_energy.py
+       - src/graphs/hardware/models/**/*.py
+     The hook fails the PR when any registered composition check
+     regresses beyond the check's tolerance.
+
+motivation: |
+  PowerMeter is a prerequisite for every subsequent phase: Layer 1
+  needs pJ/op, Layer 5 needs pJ/byte, and the composition tests'
+  energy predictions need a measured baseline on the target SKU.
+
+  CI integration turns the composition registry from a nice-to-have
+  diagnostic into an actual regression gate. Without it, a subtle
+  change to a resource-model coefficient can silently drift the
+  model, and the bottom-up methodology loses its primary advantage.
+
+  Both items were deferred from Phase 0 because they need the target
+  machine selected (i7-12700K for RAPL vs. Jetson for tegrastats) and
+  because bundling them with pure-software Phase 0 would have
+  confused review of that PR.
+
+deliverables:
+  - path: "src/graphs/benchmarks/power_meter.py"
+    type: "code"
+    description: "PowerMeter abstraction + RAPL / tegrastats / NVML / NoOp backends"
+    acceptance: "Works on i7-12700K (RAPL) and Jetson Orin Nano (tegrastats); returns NoOp on hosts without power domain"
+
+  - path: "src/graphs/benchmarks/runner.py"
+    type: "code"
+    description: "Integrate PowerMeter into the benchmark runner so BenchmarkResult.energy_joules is populated automatically"
+    acceptance: "Existing runner tests still pass; new runs include energy when PowerMeter is available"
+
+  - path: "tests/benchmarks/test_power_meter.py"
+    type: "test"
+    description: "PowerMeter unit tests (mocked backends + NoOp fallback)"
+    acceptance: "Coverage >= 80%; no host power access required"
+
+  - path: ".github/workflows/composition-check.yml"
+    type: "config"
+    description: "CI workflow running validation/composition/test_layer_composition.py"
+    acceptance: "Triggers on PRs touching resource_model / architectural_energy / hardware/models; fails on regression"
+
+  - path: "docs/designs/power-measurement.md"
+    type: "documentation"
+    description: "Document PowerMeter API, backend selection, sampling semantics, and known limitations (RAPL 10 ms sampling, tegrastats fused CPU+GPU reporting)"
+    acceptance: "Reviewed by @stillwater"
+
+dependencies:
+  - task: "TASK-2026-013"
+    description: "Phase 0 foundation must land first"
+  - module: "graphs.benchmarks.schema"
+    classes: ["BenchmarkResult"]
+  - external: "RAPL on Intel Linux host (/sys/class/powercap/intel-rapl)"
+    description: "Only for RAPL backend"
+  - external: "tegrastats on Jetson"
+    description: "Only for tegrastats backend"
+  - external: "pynvml"
+    description: "Only for NVML backend; optional dependency"
+
+interfaces_provided:
+  - name: "PowerMeter"
+    signature: "class PowerMeter (abstract): __enter__, __exit__, energy_joules, avg_power_watts"
+    module: "graphs.benchmarks.power_meter"
+    description: "Context manager that measures energy during its scope"
+
+  - name: "RAPLPowerMeter"
+    module: "graphs.benchmarks.power_meter"
+    description: "Intel RAPL backend (reads /sys/class/powercap)"
+
+  - name: "TegrastatsPowerMeter"
+    module: "graphs.benchmarks.power_meter"
+    description: "Jetson tegrastats backend (parses CPU_POW/GPU_POW fields)"
+
+  - name: "NVMLPowerMeter"
+    module: "graphs.benchmarks.power_meter"
+    description: "NVML backend for discrete NVIDIA GPUs"
+
+  - name: "auto_select_power_meter"
+    signature: "(device: str) -> PowerMeter"
+    module: "graphs.benchmarks.power_meter"
+    description: "Pick the best available backend for the device; NoOp fallback"
+
+interfaces_consumed:
+  - name: "BenchmarkResult.energy_joules"
+    module: "graphs.benchmarks.schema"
+  - name: "register_layer_check"
+    module: "validation.composition.test_layer_composition"
+
+acceptance_criteria:
+  - criterion: "PowerMeter populates BenchmarkResult.energy_joules on i7-12700K"
+    verification: "Run GEMM bench with RAPL, assert energy_joules > 0"
+
+  - criterion: "PowerMeter returns NoOp on CI runners without power domains"
+    verification: "Unit test with mocked host"
+
+  - criterion: "CI composition-check workflow triggers on resource-model edits"
+    verification: "Synthetic PR touching resource_model.py fails CI when a regression is injected"
+
+  - criterion: "RAPL sampling interval documented and honored (min measurement duration)"
+    verification: "power_meter.py has MIN_MEASUREMENT_MS enforced; documented in power-measurement.md"
+
+constraints:
+  - "pynvml is an optional dependency (only required if NVMLPowerMeter is selected)"
+  - "No root privileges required on development hosts (RAPL needs read access to /sys; document setup)"
+  - "CI runners do not have power domains: must not fail if no PowerMeter is available"
+  - "Do not break existing runner.py tests"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/benchmarks/test_power_meter.py"
+  integration_tests:
+    required: true
+    location: "tests/benchmarks/test_power_meter_integration.py"
+  validation_tests:
+    required: false
+  manual_testing:
+    required: true
+    instructions: "Run cli/benchmark.py on i7-12700K and Jetson Orin Nano; verify energy_joules is populated"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  readme_update: false
+  user_guide: true
+  api_reference: false
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-013"]
+  blocks: ["TASK-2026-015"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-16"
+    author: "claude-opus-4-6"
+    note: "Task created"
+
+review:
+  pull_request: ""
+  review_status: ""
+  review_comments: ""
+  merged_at: ""
+  merge_commit: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "Phase 0 - Foundation (items 5 and 6)"
+  - type: "related_task"
+    task_id: "TASK-2026-013"
+    relationship: "depends_on"
+  - type: "related_task"
+    task_id: "TASK-2026-015"
+    relationship: "blocks"
+  - type: "documentation"
+    path: ".claude/decisions/DECISION-2026-04-16-002.yaml"
+    description: "Decision to defer PowerMeter + CI from Phase 0"
