@@ -1,0 +1,32 @@
+# Layer 1 ALU FMA Rate Benchmark Spec
+#
+# Op counts sized to:
+#   - Fit in L1 cache (num_elements * 4B = 16 KB for FP32)
+#   - Amortize timer resolution (num_iterations * num_elements * 2 FLOPs
+#     at ~50 GFLOPS FP32 on i7-12700K = ~0.4 ms per trial, well above
+#     perf_counter resolution)
+#   - Total measurement time > 100 ms for RAPL (5 trials * ~0.4 ms * 5000
+#     iters = ~2 s per precision)
+
+name: "layer1_fma_rate"
+description: "ALU FMA throughput and energy per precision"
+category: "microbenchmark"
+layer: "alu"
+tags: ["layer1", "alu", "fma", "throughput", "energy"]
+
+# Per-precision sweep runs all of these
+precisions: ["fp64", "fp32", "fp16", "bf16"]
+devices: ["auto"]
+
+# Benchmark parameters
+num_elements: 4096        # 16 KB at FP32 - fits in L1
+num_iterations: 5000      # iterations per trial
+warmup_iterations: 200
+num_trials: 5             # trials for statistics
+
+execution:
+  warmup_iterations: 200
+  measurement_iterations: 5000
+  min_duration_ms: 100.0
+  sync_before_timing: true
+  clear_cache: false      # L1-resident - no need to flush
