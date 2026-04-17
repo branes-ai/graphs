@@ -27,6 +27,36 @@ class BenchmarkCategory(Enum):
     CUSTOM = "custom"                  # User-defined benchmarks
 
 
+class LayerTag(Enum):
+    """
+    Physical layer of the hardware hierarchy that a benchmark isolates.
+
+    The layered benchmark strategy probes one physical layer at a time so a
+    measurement maps cleanly to a specific resource-model field. Composite
+    benchmarks (e.g., end-to-end ResNet) span multiple layers and use
+    ``COMPOSITE`` to indicate they validate the stack rather than a single
+    layer.
+
+    See ``docs/plans/bottom-up-microbenchmark-plan.md`` for the full layering.
+
+    Layers:
+        ALU             - single FMA / MAC / tensor-core slot in isolation
+        REGISTER_SIMD   - register file, SIMD lane, warp issue, systolic fill
+        SCRATCHPAD      - L1, L2, tile scratchpad, tiling overhead
+        ONCHIP          - chip-wide L3 / LLC, distributed L3, NoC hops, coherence
+        DRAM            - external DRAM (HBM, GDDR, DDR, LPDDR)
+        CLUSTER         - PCIe, NVLink, NV-HBI, ICI, NUMA, collectives
+        COMPOSITE       - spans multiple layers (legacy / end-to-end benchmarks)
+    """
+    ALU = "alu"
+    REGISTER_SIMD = "register_simd"
+    SCRATCHPAD = "scratchpad"
+    ONCHIP = "onchip"
+    DRAM = "dram"
+    CLUSTER = "cluster"
+    COMPOSITE = "composite"
+
+
 class Precision(Enum):
     """Supported numerical precisions"""
     FP64 = "fp64"
@@ -486,6 +516,12 @@ class BenchmarkResult:
     peak_memory_bytes: Optional[int] = None
     allocated_memory_bytes: Optional[int] = None
 
+    # Hierarchy layer this result characterizes. COMPOSITE is the
+    # default for backward compatibility with existing top-down
+    # benchmarks (GEMM, Conv2d, MLP sweeps) that exercise multiple
+    # layers at once.
+    layer: LayerTag = LayerTag.COMPOSITE
+
     # Status
     success: bool = True
     error_message: str = ""
@@ -510,6 +546,7 @@ class BenchmarkResult:
             'energy_joules': self.energy_joules,
             'peak_memory_bytes': self.peak_memory_bytes,
             'allocated_memory_bytes': self.allocated_memory_bytes,
+            'layer': self.layer.value,
             'success': self.success,
             'error_message': self.error_message,
             'extra': self.extra,
@@ -520,6 +557,14 @@ class BenchmarkResult:
         data = data.copy()
         if data.get('timing'):
             data['timing'] = TimingStats.from_dict(data['timing'])
+        # Back-compat: results serialized before LayerTag existed default
+        # to COMPOSITE; string values from JSON are re-parsed to the enum.
+        layer = data.get('layer')
+        if layer is None:
+            layer = LayerTag.COMPOSITE
+        elif isinstance(layer, str):
+            layer = LayerTag(layer)
+        data['layer'] = layer
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
     def to_json(self, indent: int = 2) -> str:

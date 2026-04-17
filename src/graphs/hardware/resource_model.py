@@ -26,6 +26,7 @@ from graphs.core.structures import (
     BottleneckType,
     PartitionReport,
 )
+from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 
 # Aliases for backward compatibility (these were originally in transform.partitioning)
 # Importing directly from ir.structures avoids pulling in torch dependency
@@ -645,6 +646,15 @@ class HardwareResourceModel:
     # NEW: BOM cost modeling for market analysis
     bom_cost_profile: Optional[BOMCostProfile] = None
 
+    # Provenance of individual resource-model fields.
+    # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
+    # the EstimationConfidence that describes where that value came from.
+    # Unannotated fields default to UNKNOWN via ``get_provenance``. The
+    # bottom-up benchmark suite (see docs/plans/bottom-up-microbenchmark-plan.md)
+    # populates this map as each layer's fitter upgrades a field from
+    # THEORETICAL to INTERPOLATED or CALIBRATED.
+    field_provenance: Dict[str, EstimationConfidence] = field(default_factory=dict)
+
     def get_peak_ops(self, precision: Precision) -> float:
         """
         Get peak operations per second for a given precision.
@@ -679,6 +689,64 @@ class HardwareResourceModel:
             penalty = occupancy / self.min_occupancy
             return self.compute_units * occupancy * penalty
         return self.compute_units * occupancy
+
+    # ------------------------------------------------------------------
+    # Field provenance API
+    # ------------------------------------------------------------------
+    # Every field of a HardwareResourceModel originates from one of
+    #   - a datasheet (THEORETICAL)
+    #   - an interpolation across two measured points (INTERPOLATED)
+    #   - a direct measurement on this silicon (CALIBRATED)
+    #   - unknown / unannotated (UNKNOWN)
+    # The ``field_provenance`` map records this per-field. Bottom-up
+    # benchmark fitters use these setters so callers can ask "what is
+    # the confidence on the L3 cache energy for this SKU?" without
+    # scraping source comments.
+
+    def set_provenance(
+        self,
+        field_name: str,
+        confidence: EstimationConfidence,
+    ) -> None:
+        """
+        Record the provenance of a named resource-model field.
+
+        ``field_name`` is free-form so it can cover nested or derived
+        quantities (e.g., ``"thermal.maxn.efficiency_factor"``).
+        """
+        self.field_provenance[field_name] = confidence
+
+    def get_provenance(self, field_name: str) -> EstimationConfidence:
+        """
+        Return the provenance for a field, or UNKNOWN if unrecorded.
+
+        Returning UNKNOWN (rather than None) keeps callers from having
+        to branch on absence: ``model.get_provenance(x).level`` is
+        always safe.
+        """
+        return self.field_provenance.get(field_name, EstimationConfidence.unknown())
+
+    def aggregate_confidence(self) -> EstimationConfidence:
+        """
+        Return the weakest per-field confidence across the model.
+
+        Estimation rules require aggregate confidence to be the minimum
+        across the analysis chain. If any field is UNKNOWN or
+        THEORETICAL, the aggregate demotes to match. Empty provenance
+        maps to UNKNOWN.
+        """
+        if not self.field_provenance:
+            return EstimationConfidence.unknown()
+
+        # Ordering: CALIBRATED > INTERPOLATED > THEORETICAL > UNKNOWN.
+        rank = {
+            ConfidenceLevel.CALIBRATED: 3,
+            ConfidenceLevel.INTERPOLATED: 2,
+            ConfidenceLevel.THEORETICAL: 1,
+            ConfidenceLevel.UNKNOWN: 0,
+        }
+        worst = min(self.field_provenance.values(), key=lambda c: rank[c.level])
+        return worst
 
 
 @dataclass
