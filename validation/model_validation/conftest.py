@@ -155,6 +155,54 @@ def gpu_mappers():
     return mappers
 
 
+@pytest.fixture(scope="module")
+def tpu_mappers():
+    """All TPU mappers as (name, mapper) pairs."""
+    mappers = _get_mappers_by_category("tpu")
+    assert len(mappers) > 0, "No TPU mappers found -- mapper registry is broken"
+    return mappers
+
+
+@pytest.fixture(scope="module")
+def kpu_mappers():
+    """KPU mappers (excludes Hailo which shares the kpu hardware type)."""
+    mappers = [
+        (name, m) for name, m in _get_mappers_by_category("kpu")
+        if "KPU" in name or "Stillwater" in name
+    ]
+    assert len(mappers) > 0, "No KPU mappers found"
+    return mappers
+
+
+@pytest.fixture(scope="module")
+def hailo_mappers():
+    """Hailo mappers (registered under kpu hardware type)."""
+    mappers = [
+        (name, m) for name, m in _get_mappers_by_category("kpu")
+        if "Hailo" in name
+    ]
+    assert len(mappers) > 0, "No Hailo mappers found"
+    return mappers
+
+
+@pytest.fixture(scope="module")
+def dsp_mappers():
+    """All DSP mappers as (name, mapper) pairs."""
+    mappers = _get_mappers_by_category("dsp")
+    assert len(mappers) > 0, "No DSP mappers found"
+    return mappers
+
+
+@pytest.fixture(scope="module")
+def dpu_cgra_mappers():
+    """DPU + CGRA mappers as (name, mapper) pairs."""
+    dpu = _get_mappers_by_category("dpu")
+    cgra = _get_mappers_by_category("cgra")
+    mappers = dpu + cgra
+    assert len(mappers) > 0, "No DPU/CGRA mappers found"
+    return mappers
+
+
 # ---------------------------------------------------------------------------
 # Precision fixtures
 # ---------------------------------------------------------------------------
