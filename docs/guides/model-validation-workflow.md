@@ -39,8 +39,9 @@ Plus two infrastructure tests:
 python -m pytest validation/model_validation/ -q
 ```
 
-This runs all model consistency tests (82+ tests across 7
-architecture classes) and the regression snapshot check.
+This runs all 125+ model validation tests across 7 architecture
+classes, including consistency, sensitivity, regression snapshots,
+and provenance audit.
 
 ### Verbose with per-test detail
 
@@ -99,7 +100,7 @@ snapshot within 1%.
 
 ### Precision scaling failure
 
-```
+```text
 FAILED test_stored_program_consistency.py::TestPrecisionScaling::test_int8_cheaper_than_fp32
   Intel-i7-12700K: INT8 compute energy 0.015 >= FP32 0.012
 ```
@@ -110,7 +111,7 @@ have a scaling factor lower than FP32's 1.0. Fix by checking
 
 ### Coefficient sensitivity failure
 
-```
+```text
 FAILED test_coefficient_sensitivity.py::TestEnergyPerFlopSensitivity::test_cpu
   Intel-i7-12700K: energy_per_flop +10% -> 0.0% compute energy change
 ```
@@ -121,7 +122,7 @@ model or thermal operating point. Check whether the mapper uses
 
 ### Regression snapshot failure
 
-```
+```text
 FAILED test_regression_snapshot.py::TestRegressionSnapshot::test_energy_matches_snapshot
   3 energy regression(s) detected (tolerance=1%):
     H100-SXM5-80GB/medium_matmul_fp32/compute_energy: expected=2.15e-03, got=2.37e-03, delta=10.2%
@@ -144,7 +145,7 @@ change.
 
 ### Cross-architecture ranking failure
 
-```
+```text
 FAILED test_cross_architecture_ranking.py::TestLatencyRanking::test_h100_faster_than_orin_agx_gpu
   H100 should be faster than Orin AGX
 ```
@@ -250,7 +251,7 @@ python -m pytest validation/model_validation/ -v
 
 ### File layout
 
-```
+```text
 validation/model_validation/
     __init__.py
     conftest.py                             # Shared fixtures
