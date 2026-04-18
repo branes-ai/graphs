@@ -118,13 +118,14 @@ class TestCrossMapperOrdering:
             bytes_t = (medium_matmul.total_input_bytes +
                        medium_matmul.total_output_bytes +
                        medium_matmul.total_weight_bytes)
-            ct, mt, _ = mapper._calculate_latency(
+            ct, mt, bottleneck = mapper._calculate_latency(
                 ops, bytes_t,
                 allocated_units=mapper.resource_model.compute_units,
                 occupancy=1.0, precision=Precision.INT8,
             )
             assert ct >= 0, f"{name}: negative compute_time"
             assert mt >= 0, f"{name}: negative memory_time"
+            assert bottleneck is not None, f"{name}: no bottleneck type"
 
     def test_no_kpu_has_zero_bandwidth(self, kpu_mappers):
         for name, mapper in kpu_mappers:

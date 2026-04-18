@@ -80,13 +80,14 @@ class TestDSPCrossMapper:
             bytes_t = (medium_matmul.total_input_bytes +
                        medium_matmul.total_output_bytes +
                        medium_matmul.total_weight_bytes)
-            ct, mt, _ = mapper._calculate_latency(
+            ct, mt, bottleneck = mapper._calculate_latency(
                 ops, bytes_t,
                 allocated_units=mapper.resource_model.compute_units,
                 occupancy=1.0, precision=Precision.FP32,
             )
             assert ct >= 0, f"{name}: negative compute_time"
             assert mt >= 0, f"{name}: negative memory_time"
+            assert bottleneck is not None, f"{name}: no bottleneck type"
 
     def test_no_dsp_has_zero_bandwidth(self, dsp_mappers):
         for name, mapper in dsp_mappers:
@@ -128,6 +129,24 @@ class TestDPUCGRAPrecision:
             assert e_int8[0] < e_fp32[0], f"{name}: INT8 compute >= FP32"
 
 
+class TestDPUCGRASensitivity:
+
+    def test_energy_per_flop_perturbation(self, dpu_cgra_mappers, medium_matmul):
+        for name, mapper in dpu_cgra_mappers:
+            ops = medium_matmul.total_flops
+            bytes_t = (medium_matmul.total_input_bytes +
+                       medium_matmul.total_output_bytes +
+                       medium_matmul.total_weight_bytes)
+            base_c, _ = mapper._calculate_energy(ops, bytes_t, Precision.FP32)
+            original = mapper.resource_model.energy_per_flop_fp32
+            mapper.resource_model.energy_per_flop_fp32 = original * 1.10
+            pert_c, _ = mapper._calculate_energy(ops, bytes_t, Precision.FP32)
+            mapper.resource_model.energy_per_flop_fp32 = original
+            if base_c > 0:
+                delta = (pert_c - base_c) / base_c
+                assert 0.05 < delta < 0.20, f"{name}: {delta*100:.1f}% (expected ~10%)"
+
+
 class TestDPUCGRACrossMapper:
 
     def test_no_negative_latency(self, dpu_cgra_mappers, medium_matmul):
@@ -136,13 +155,14 @@ class TestDPUCGRACrossMapper:
             bytes_t = (medium_matmul.total_input_bytes +
                        medium_matmul.total_output_bytes +
                        medium_matmul.total_weight_bytes)
-            ct, mt, _ = mapper._calculate_latency(
+            ct, mt, bottleneck = mapper._calculate_latency(
                 ops, bytes_t,
                 allocated_units=mapper.resource_model.compute_units,
                 occupancy=1.0, precision=Precision.FP32,
             )
             assert ct >= 0, f"{name}: negative compute_time"
             assert mt >= 0, f"{name}: negative memory_time"
+            assert bottleneck is not None, f"{name}: no bottleneck type"
 
 
 # =========================================================================
@@ -180,6 +200,24 @@ class TestHailoPrecision:
             assert e_int8[0] < e_fp32[0], f"{name}: INT8 compute >= FP32"
 
 
+class TestHailoSensitivity:
+
+    def test_energy_per_flop_perturbation(self, hailo_mappers, medium_matmul):
+        for name, mapper in hailo_mappers:
+            ops = medium_matmul.total_flops
+            bytes_t = (medium_matmul.total_input_bytes +
+                       medium_matmul.total_output_bytes +
+                       medium_matmul.total_weight_bytes)
+            base_c, _ = mapper._calculate_energy(ops, bytes_t, Precision.INT8)
+            original = mapper.resource_model.energy_per_flop_fp32
+            mapper.resource_model.energy_per_flop_fp32 = original * 1.10
+            pert_c, _ = mapper._calculate_energy(ops, bytes_t, Precision.INT8)
+            mapper.resource_model.energy_per_flop_fp32 = original
+            if base_c > 0:
+                delta = (pert_c - base_c) / base_c
+                assert 0.05 < delta < 0.20, f"{name}: {delta*100:.1f}% (expected ~10%)"
+
+
 class TestHailoCrossMapper:
 
     def test_all_hailo_have_positive_peak(self, hailo_mappers):
@@ -193,13 +231,14 @@ class TestHailoCrossMapper:
             bytes_t = (medium_matmul.total_input_bytes +
                        medium_matmul.total_output_bytes +
                        medium_matmul.total_weight_bytes)
-            ct, mt, _ = mapper._calculate_latency(
+            ct, mt, bottleneck = mapper._calculate_latency(
                 ops, bytes_t,
                 allocated_units=mapper.resource_model.compute_units,
                 occupancy=1.0, precision=Precision.INT8,
             )
             assert ct >= 0, f"{name}: negative compute_time"
             assert mt >= 0, f"{name}: negative memory_time"
+            assert bottleneck is not None, f"{name}: no bottleneck type"
 
 
 if __name__ == "__main__":

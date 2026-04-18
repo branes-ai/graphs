@@ -31,8 +31,7 @@ class TestLayerDecomposition:
             bytes_t = (medium_matmul.total_input_bytes +
                        medium_matmul.total_output_bytes +
                        medium_matmul.total_weight_bytes)
-            base_c, base_m = mapper._calculate_energy(ops, bytes_t, Precision.FP32)
-            arch_c, arch_m, breakdown = mapper._calculate_energy_with_architecture(
+            _, _, breakdown = mapper._calculate_energy_with_architecture(
                 ops, bytes_t, Precision.FP32
             )
             assert breakdown is not None, f"{name}: no breakdown"
@@ -128,13 +127,14 @@ class TestCrossMapperOrdering:
             bytes_t = (medium_matmul.total_input_bytes +
                        medium_matmul.total_output_bytes +
                        medium_matmul.total_weight_bytes)
-            ct, mt, _ = mapper._calculate_latency(
+            ct, mt, bottleneck = mapper._calculate_latency(
                 ops, bytes_t,
                 allocated_units=mapper.resource_model.compute_units,
                 occupancy=1.0, precision=Precision.FP32,
             )
             assert ct >= 0, f"{name}: negative compute_time"
             assert mt >= 0, f"{name}: negative memory_time"
+            assert bottleneck is not None, f"{name}: no bottleneck type"
 
     def test_no_tpu_has_zero_bandwidth(self, tpu_mappers):
         for name, mapper in tpu_mappers:
