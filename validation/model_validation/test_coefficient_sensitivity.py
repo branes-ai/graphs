@@ -28,8 +28,10 @@ def _perturb_and_measure_energy(mapper, ops, bytes_t, precision, field, factor):
     base_c, base_m = mapper._calculate_energy(ops, bytes_t, precision)
 
     setattr(mapper.resource_model, field, original * factor)
-    pert_c, pert_m = mapper._calculate_energy(ops, bytes_t, precision)
-    setattr(mapper.resource_model, field, original)
+    try:
+        pert_c, pert_m = mapper._calculate_energy(ops, bytes_t, precision)
+    finally:
+        setattr(mapper.resource_model, field, original)
 
     return base_c, base_m, pert_c, pert_m
 
@@ -41,8 +43,10 @@ def _perturb_and_measure_latency(mapper, ops, bytes_t, precision, field, factor)
 
     base_ct, base_mt, _ = mapper._calculate_latency(ops, bytes_t, units, 1.0, precision)
     setattr(mapper.resource_model, field, original * factor)
-    pert_ct, pert_mt, _ = mapper._calculate_latency(ops, bytes_t, units, 1.0, precision)
-    setattr(mapper.resource_model, field, original)
+    try:
+        pert_ct, pert_mt, _ = mapper._calculate_latency(ops, bytes_t, units, 1.0, precision)
+    finally:
+        setattr(mapper.resource_model, field, original)
 
     return base_ct, base_mt, pert_ct, pert_mt
 

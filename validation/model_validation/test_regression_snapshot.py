@@ -6,13 +6,13 @@ any output diverges by more than 1% from the recorded baseline.
 This prevents silent coefficient drift across PRs.
 
 Workflow:
-1. First run generates the snapshot file (if missing)
-2. Subsequent runs compare against the snapshot
-3. If a coefficient change is intentional, regenerate:
-   python -m pytest validation/model_validation/test_regression_snapshot.py --snapshot-update
+1. snapshot.json is checked into source control
+2. Tests compare current outputs against the committed snapshot
+3. If a coefficient change is intentional, regenerate and commit:
+   python -c "from validation.model_validation.test_regression_snapshot import _generate_snapshot, _save_snapshot; _save_snapshot(_generate_snapshot())"
+   git add validation/model_validation/snapshot.json
 
-The snapshot file lives at validation/model_validation/snapshot.json
-and is checked into source control.
+The snapshot file lives at validation/model_validation/snapshot.json.
 """
 
 from __future__ import annotations
@@ -58,7 +58,8 @@ def _generate_snapshot() -> Dict:
     for sku in REFERENCE_SKUS:
         try:
             mapper = get_mapper_by_name(sku)
-        except Exception:
+        except (KeyError, ValueError, TypeError, AttributeError):
+            # SKU not registered; skip rather than fail snapshot generation
             continue
         if mapper is None:
             continue
@@ -71,7 +72,8 @@ def _generate_snapshot() -> Dict:
 
                 try:
                     compute_e, memory_e = mapper._calculate_energy(ops, bytes_t, prec)
-                except Exception:
+                except (ValueError, KeyError):
+                    # Precision not supported on this SKU
                     continue
 
                 peak_ops = mapper.resource_model.get_peak_ops(prec)
@@ -112,14 +114,22 @@ def _check_relative(actual: float, expected: float, tol: float) -> bool:
 
 
 class TestRegressionSnapshot:
-    """Compare current model outputs against recorded baseline."""
+    """Compare current model outputs against committed baseline.
+
+    snapshot.json must be checked into source control. If missing,
+    tests fail with instructions to generate it.
+    """
 
     @pytest.fixture(autouse=True)
-    def _ensure_snapshot(self):
-        """Generate snapshot if it doesn't exist."""
+    def _require_snapshot(self):
         if not SNAPSHOT_PATH.exists():
-            snapshot = _generate_snapshot()
-            _save_snapshot(snapshot)
+            pytest.fail(
+                f"snapshot.json not found at {SNAPSHOT_PATH}. Generate it:\n"
+                "  python -c \"from validation.model_validation"
+                ".test_regression_snapshot import _generate_snapshot, "
+                "_save_snapshot; _save_snapshot(_generate_snapshot())\"\n"
+                "  git add validation/model_validation/snapshot.json"
+            )
 
     def test_energy_matches_snapshot(self):
         baseline = _load_snapshot()

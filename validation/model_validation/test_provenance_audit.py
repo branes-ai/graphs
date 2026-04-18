@@ -77,11 +77,11 @@ class TestProvenanceAPI:
                 "_test_field",
                 EstimationConfidence.theoretical(source="provenance audit test"),
             )
-            prov = rm.get_provenance("_test_field")
-            assert prov.level is ConfidenceLevel.THEORETICAL
-
-            # Clean up
-            del rm.field_provenance["_test_field"]
+            try:
+                prov = rm.get_provenance("_test_field")
+                assert prov.level is ConfidenceLevel.THEORETICAL
+            finally:
+                rm.field_provenance.pop("_test_field", None)
 
     def test_cpu(self, cpu_mappers):
         self._check(cpu_mappers)
