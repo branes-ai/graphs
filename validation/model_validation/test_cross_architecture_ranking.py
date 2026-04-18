@@ -23,11 +23,24 @@ from graphs.hardware.resource_model import Precision
 
 
 def _get_mapper(name: str):
+    """Get a mapper by name; skip test if not found."""
     from graphs.hardware.mappers import get_mapper_by_name
-    m = get_mapper_by_name(name)
+    try:
+        m = get_mapper_by_name(name)
+    except (KeyError, ValueError, TypeError, AttributeError):
+        m = None
     if m is None:
         pytest.skip(f"Mapper {name} not found")
     return m
+
+
+def _try_get_mapper(name: str):
+    """Get a mapper by name; return None if not found (for loop tests)."""
+    from graphs.hardware.mappers import get_mapper_by_name
+    try:
+        return get_mapper_by_name(name)
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return None
 
 
 def _compute_energy(mapper, ops: int, bytes_t: int, precision: Precision) -> float:
@@ -39,9 +52,12 @@ def _compute_latency(mapper, ops: int, bytes_t: int, precision: Precision) -> fl
     """Compute roofline latency from peak specs.
 
     Uses peak_ops directly rather than going through
-    _calculate_latency, which can hit a 0.01× penalty path when
+    _calculate_latency, which can hit a 0.01x penalty path when
     thermal operating points exist but have empty performance_specs
-    (a known data gap for datacenter GPUs).
+    (a known data gap for datacenter GPUs). This means these tests
+    do NOT exercise the production _calculate_latency path for
+    datacenter GPUs -- that path needs its thermal specs populated
+    first (tracked as a separate model data issue).
     """
     peak_ops = mapper.resource_model.get_peak_ops(precision)
     peak_bw = mapper.resource_model.peak_bandwidth
@@ -84,9 +100,8 @@ class TestEnergyRanking:
             "Qualcomm-QRB5165",
         ]
         for name in representatives:
-            try:
-                mapper = _get_mapper(name)
-            except Exception:
+            mapper = _try_get_mapper(name)
+            if mapper is None:
                 continue
             e_fp32 = _compute_energy(mapper, LARGE_MATMUL_OPS, LARGE_MATMUL_BYTES, Precision.FP32)
             e_int8 = _compute_energy(mapper, LARGE_MATMUL_OPS, LARGE_MATMUL_BYTES, Precision.INT8)
@@ -101,9 +116,8 @@ class TestEnergyRanking:
             "Stillwater-KPU-T64",
         ]
         for name in representatives:
-            try:
-                mapper = _get_mapper(name)
-            except Exception:
+            mapper = _try_get_mapper(name)
+            if mapper is None:
                 continue
             e = _compute_energy(mapper, LARGE_MATMUL_OPS, LARGE_MATMUL_BYTES, Precision.FP32)
             e_mj = e * 1000.0
@@ -145,9 +159,8 @@ class TestLatencyRanking:
             "Stillwater-KPU-T256",
         ]
         for name in representatives:
-            try:
-                mapper = _get_mapper(name)
-            except Exception:
+            mapper = _try_get_mapper(name)
+            if mapper is None:
                 continue
             lat = _compute_latency(mapper, LARGE_MATMUL_OPS, LARGE_MATMUL_BYTES, Precision.FP32)
             lat_ms = lat * 1000.0
@@ -179,10 +192,9 @@ class TestPhysicsInvariants:
             ("Stillwater-KPU-T768", "Stillwater-KPU-T64"),     # 768 vs 64 tiles
         ]
         for big_name, small_name in pairs:
-            try:
-                big = _get_mapper(big_name)
-                small = _get_mapper(small_name)
-            except Exception:
+            big = _try_get_mapper(big_name)
+            small = _try_get_mapper(small_name)
+            if big is None or small is None:
                 continue
             assert big.resource_model.compute_units > small.resource_model.compute_units, (
                 f"{big_name} should have more compute units than {small_name}"
@@ -209,9 +221,8 @@ class TestPhysicsInvariants:
             (Precision.INT4, 0.5),
         ]
         for name in representatives:
-            try:
-                mapper = _get_mapper(name)
-            except Exception:
+            mapper = _try_get_mapper(name)
+            if mapper is None:
                 continue
             scaling = mapper.resource_model.energy_scaling
             for i in range(len(ordered_precisions) - 1):
@@ -227,11 +238,10 @@ class TestPhysicsInvariants:
 
     def test_no_mapper_has_zero_energy_coefficients(self):
         """Every mapper must have non-zero energy_per_flop and energy_per_byte."""
-        from graphs.hardware.mappers import list_all_mappers, get_mapper_by_name
+        from graphs.hardware.mappers import list_all_mappers
         for name in sorted(list_all_mappers()):
-            try:
-                mapper = get_mapper_by_name(name)
-            except Exception:
+            mapper = _try_get_mapper(name)
+            if mapper is None:
                 continue
             assert mapper.resource_model.energy_per_flop_fp32 > 0, (
                 f"{name}: zero energy_per_flop_fp32"
