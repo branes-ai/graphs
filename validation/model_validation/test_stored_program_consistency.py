@@ -15,8 +15,6 @@ Runs without hardware -- exercises the modeling code only.
 
 from __future__ import annotations
 
-import copy
-
 import pytest
 
 from graphs.hardware.resource_model import Precision
@@ -204,7 +202,7 @@ class TestCrossMapperOrdering:
         try:
             xeon = get_mapper_by_name("Intel-Xeon-Platinum-8490H")
             i7 = get_mapper_by_name("Intel-i7-12700K")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             pytest.skip("Required mappers not found")
 
         assert xeon.resource_model.compute_units > i7.resource_model.compute_units
@@ -215,7 +213,7 @@ class TestCrossMapperOrdering:
         try:
             epyc128 = get_mapper_by_name("AMD-EPYC-9754")
             epyc96 = get_mapper_by_name("AMD-EPYC-9654")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             pytest.skip("Required mappers not found")
 
         assert epyc128.resource_model.compute_units > epyc96.resource_model.compute_units

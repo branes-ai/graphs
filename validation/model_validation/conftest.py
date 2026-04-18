@@ -84,12 +84,27 @@ def large_matmul() -> SubgraphDescriptor:
 
 @pytest.fixture
 def elementwise_relu() -> SubgraphDescriptor:
-    """1M-element ReLU: zero FLOPs (just reads), pure bandwidth."""
+    """1M-element ReLU: near-zero compute, pure bandwidth."""
     n = 1_000_000
     return _make_subgraph(
         "elementwise_relu", OperationType.RELU,
-        flops=n, macs=0,
+        flops=0, macs=0,
         input_bytes=n * 4, output_bytes=n * 4, weight_bytes=0,
+    )
+
+
+@pytest.fixture
+def depthwise_conv() -> SubgraphDescriptor:
+    """3x3 depthwise conv on 56x56x64: memory-bound, low arithmetic intensity."""
+    H, W, C = 56, 56, 64
+    K = 3
+    flops = 2 * K * K * C * H * W
+    macs = K * K * C * H * W
+    return _make_subgraph(
+        "depthwise_conv", OperationType.CONV2D_DEPTHWISE,
+        flops=flops, macs=macs,
+        input_bytes=C * H * W * 4, output_bytes=C * H * W * 4,
+        weight_bytes=C * K * K * 4,
     )
 
 
@@ -119,6 +134,7 @@ def _get_mappers_by_category(category: str) -> List[tuple]:
             if hw_type == category:
                 results.append((name, mapper))
         except Exception:
+            # Skip mappers that fail to instantiate (missing deps, etc.)
             pass
     return results
 
@@ -126,13 +142,17 @@ def _get_mappers_by_category(category: str) -> List[tuple]:
 @pytest.fixture(scope="module")
 def cpu_mappers():
     """All CPU mappers as (name, mapper) pairs."""
-    return _get_mappers_by_category("cpu")
+    mappers = _get_mappers_by_category("cpu")
+    assert len(mappers) > 0, "No CPU mappers found -- mapper registry is broken"
+    return mappers
 
 
 @pytest.fixture(scope="module")
 def gpu_mappers():
     """All GPU mappers as (name, mapper) pairs."""
-    return _get_mappers_by_category("gpu")
+    mappers = _get_mappers_by_category("gpu")
+    assert len(mappers) > 0, "No GPU mappers found -- mapper registry is broken"
+    return mappers
 
 
 # ---------------------------------------------------------------------------

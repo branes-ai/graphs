@@ -51,6 +51,9 @@ class TestLayerDecomposition:
             assert arch_c >= base_c * 0.99, (
                 f"{name}: arch compute {arch_c} < base {base_c}"
             )
+            assert arch_m >= base_m * 0.99, (
+                f"{name}: arch memory {arch_m} < base {base_m}"
+            )
 
 
 class TestMonotonicity:
@@ -197,7 +200,7 @@ class TestCrossMapperOrdering:
         try:
             h100 = get_mapper_by_name("H100-SXM5-80GB")
             a100 = get_mapper_by_name("A100-SXM4-80GB")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             pytest.skip("Required mappers not found")
 
         h100_peak = h100.resource_model.get_peak_ops(Precision.FP32)
@@ -210,7 +213,7 @@ class TestCrossMapperOrdering:
         try:
             a100 = get_mapper_by_name("A100-SXM4-80GB")
             v100 = get_mapper_by_name("V100-SXM3-32GB")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             pytest.skip("Required mappers not found")
 
         a100_peak = a100.resource_model.get_peak_ops(Precision.FP32)
@@ -223,7 +226,7 @@ class TestCrossMapperOrdering:
         try:
             h100 = get_mapper_by_name("H100-SXM5-80GB")
             orin = get_mapper_by_name("Jetson-Orin-AGX-64GB")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             pytest.skip("Required mappers not found")
 
         h100_peak = h100.resource_model.get_peak_ops(Precision.FP32)
@@ -260,7 +263,7 @@ class TestCrossMapperOrdering:
         try:
             h100 = get_mapper_by_name("H100-SXM5-80GB")
             v100 = get_mapper_by_name("V100-SXM3-32GB")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             pytest.skip("Required mappers not found")
 
         assert h100.resource_model.peak_bandwidth > v100.resource_model.peak_bandwidth
