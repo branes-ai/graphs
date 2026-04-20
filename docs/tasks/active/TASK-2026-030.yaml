@@ -1,0 +1,100 @@
+# Task: M7 Layer 7 External Memory Model Population
+task_id: "TASK-2026-030"
+title: "M7: Layer 7 (external memory) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M7"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-4d"
+  complexity: "medium"
+
+objective: |
+  Populate HardwareResourceModel.peak_bandwidth and energy_per_byte
+  from TechnologyProfile per memory technology (HBM2e, HBM3,
+  HBM3e, GDDR6, DDR5, LPDDR5, LPDDR5X). Read/write asymmetry
+  coefficients. Access-pattern overhead multipliers (sequential vs
+  strided vs random). Render Layer 7 panel; memory-technology
+  comparison chart; bandwidth-vs-pJ/byte scatter across SKUs.
+
+motivation: |
+  External-memory coefficients are the largest contributor to
+  memory-bound workload energy; the pJ/byte comparison across
+  HBM / GDDR / DDR / LPDDR is a visually striking chart for the
+  M8 engineering deck.
+
+deliverables:
+  - path: "src/graphs/hardware/resource_model.py"
+    type: "code"
+    description: "Populate peak_bandwidth and energy_per_byte per SKU from TechnologyProfile; asymmetric read/write values"
+    acceptance: "Every SKU carries values with provenance"
+
+  - path: "src/graphs/hardware/architectural_energy.py"
+    type: "code"
+    description: "Access-pattern overhead multipliers (sequential, strided, random)"
+    acceptance: "Tagged THEORETICAL; defaults documented"
+
+  - path: "src/graphs/reporting/layer_panels/layer7_external_memory.py"
+    type: "code"
+    description: "Layer 7 panel; memory-technology comparison chart; bandwidth-vs-pJ/byte scatter"
+    acceptance: "Renders per-SKU and in cross-SKU comparison"
+
+  - path: "tests/hardware/test_layer7_external_memory_model.py"
+    type: "test"
+    description: "Self-consistency: read/write asymmetry within expected ranges; pJ/byte monotone with technology generation"
+
+dependencies:
+  - task: "TASK-2026-029"
+    description: "M6 SoC fabric content (external memory traffic traverses the fabric)"
+
+acceptance_criteria:
+  - criterion: "Layer 7 panel populated for all 9 SKUs with memory-technology annotation"
+    verification: "Regenerated HTML"
+  - criterion: "Cross-SKU bandwidth-vs-pJ/byte scatter renders"
+    verification: "compare.html review"
+  - criterion: "Plan-owner sign-off"
+    verification: "PR review"
+
+constraints:
+  - "NO measurement"
+  - "Each SKU's memory technology explicitly named (HBM3e vs DDR5 etc.)"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer7_external_memory_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-029"]
+  blocks: ["TASK-2026-031"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M7 - Layer 7: External Memory"

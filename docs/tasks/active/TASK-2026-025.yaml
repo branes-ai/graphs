@@ -1,0 +1,110 @@
+# Task: M2 Layer 2 Register File Model Population
+task_id: "TASK-2026-025"
+title: "M2: Layer 2 (register file) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M2"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-4d"
+  complexity: "medium"
+
+objective: |
+  Populate register-file read/write energy from
+  TechnologyProfile.register_{read,write}_energy_pj; set per-SKU
+  warp_divergence_penalty and warp_divergence_rate defaults; expose
+  SIMD-efficiency coefficients in CPUMapper._analyze_vectorization
+  with field_provenance tags; document analytical systolic
+  pipeline-fill overhead coefficients for TPU/KPU. Render the Layer
+  2 panel including register-energy-as-fraction-of-ALU chart.
+
+motivation: |
+  Layer 2 quantifies operand-fetch energy, which is where the KPU's
+  dataflow advantage surfaces when paired with Layer 1 content (the
+  M0.5 comparison harness will now show real energy-per-op data).
+
+deliverables:
+  - path: "src/graphs/hardware/architectural_energy.py"
+    type: "code"
+    description: "StoredProgramEnergyModel.register_file_read/write_energy parameterized from TechnologyProfile; DataParallelEnergyModel warp fields"
+    acceptance: "Per-SKU values with THEORETICAL provenance"
+
+  - path: "src/graphs/hardware/mappers/cpu/*.py"
+    type: "code"
+    description: "Expose SIMD-efficiency (0.95/0.80/0.70) with provenance tags; make them per-SKU overrides instead of hard-coded"
+    acceptance: "Ryzen 9 8945HS and i7-12700K carry per-SKU SIMD efficiencies"
+
+  - path: "src/graphs/hardware/mappers/accelerators/tpu.py"
+    type: "code"
+    description: "Expose pipeline_fill_overhead via a tagged field instead of hard-coded constant"
+    acceptance: "Coral Edge TPU carries value with THEORETICAL provenance"
+
+  - path: "src/graphs/hardware/mappers/accelerators/kpu.py"
+    type: "code"
+    description: "Tie KPU systolic/wavefront fill-and-drain to the dataflow-tile abstraction from M0.5"
+    acceptance: "No double-counting vs M0.5 tile model"
+
+  - path: "src/graphs/reporting/layer_panels/layer2_register.py"
+    type: "code"
+    description: "Layer 2 panel; register-read energy as fraction of ALU energy chart"
+    acceptance: "Renders per-SKU"
+
+  - path: "tests/hardware/test_layer2_register_model.py"
+    type: "test"
+    description: "Self-consistency for register energy and SIMD efficiency"
+
+dependencies:
+  - task: "TASK-2026-024"
+    description: "M1 Layer 1 ALU populated (register energy is compared against ALU)"
+
+acceptance_criteria:
+  - criterion: "Layer 2 panel populated for all 9 SKUs"
+    verification: "Regenerated HTML"
+  - criterion: "Plan-owner sign-off on GPU, CPU, TPU, KPU representative SKUs"
+    verification: "PR review"
+  - criterion: "compare_archetypes energy-per-op chart now reflects register+ALU combined energy"
+    verification: "M0.5 harness re-rendered"
+
+constraints:
+  - "NO measurement"
+  - "Warp_divergence_rate keeps analytical 5% default; tagged THEORETICAL"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer2_register_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-024"]
+  blocks: ["TASK-2026-026"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M2 - Layer 2: Register File"

@@ -1,0 +1,99 @@
+# Task: M5 Layer 5 L3 / LLC / Shared Cache Model Population
+task_id: "TASK-2026-028"
+title: "M5: Layer 5 (L3 / LLC) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M5"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-4d"
+  complexity: "medium"
+
+objective: |
+  Populate HardwareResourceModel.l3_cache_total for SKUs with a
+  distinct L3; GPU LLC (L2-as-LLC) hit-rate model per op type;
+  analytical coherence-state overhead coefficients for multi-core
+  CPU (true-sharing vs private-line penalty); annotate SKUs where
+  L3 is merged into L2. Render Layer 5 panel with architecture-
+  specific cache-hierarchy notes.
+
+motivation: |
+  Layer 5 is where architecture-specific hierarchy differences are
+  most visible. Honest annotation (e.g., "GPU has no distinct L3"
+  vs "CPU L3 is a true chip-wide shared cache") keeps the report
+  from over-claiming uniform structure.
+
+deliverables:
+  - path: "src/graphs/hardware/models/**/*.py"
+    type: "code"
+    description: "Populate l3_cache_total for CPUs with L3; annotate GPUs/accelerators that merge L2/L3"
+    acceptance: "Every SKU has explicit L3 presence/absence recorded"
+
+  - path: "src/graphs/hardware/architectural_energy.py"
+    type: "code"
+    description: "GPU LLC hit-rate per op type; coherence-state overhead coefficients"
+    acceptance: "Tagged THEORETICAL; coherence penalty exposed per SKU"
+
+  - path: "src/graphs/reporting/layer_panels/layer5_l3_cache.py"
+    type: "code"
+    description: "Layer 5 panel; cache-hierarchy shape notes per SKU"
+    acceptance: "Renders per-SKU"
+
+  - path: "tests/hardware/test_layer5_l3_cache_model.py"
+    type: "test"
+    description: "Self-consistency for L3 capacity, hit-rate, coherence"
+
+dependencies:
+  - task: "TASK-2026-027"
+    description: "M4 L2 content"
+
+acceptance_criteria:
+  - criterion: "Layer 5 panel populated for all 9 SKUs with architecture-specific annotations"
+    verification: "Regenerated HTML"
+  - criterion: "Plan-owner sign-off"
+    verification: "PR review"
+
+constraints:
+  - "NO measurement"
+  - "NO SoC fabric / NoC hop content (that is Layer 6)"
+  - "Coherence-traffic TRANSPORT cost is Layer 6; coherence PROTOCOL cost is Layer 5"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer5_l3_cache_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-027"]
+  blocks: ["TASK-2026-029"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M5 - Layer 5: L3 / Last-Level / Shared Cache"

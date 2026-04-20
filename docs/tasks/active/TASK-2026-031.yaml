@@ -1,0 +1,114 @@
+# Task: M8 Reporting Polish + Engineering Preview
+task_id: "TASK-2026-031"
+title: "M8: Reporting polish + engineering-audience PPT deck"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M8"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-5d"
+  complexity: "medium"
+
+objective: |
+  Final polish and assembly of the delivery artifact.
+  compare.html interactive cross-SKU comparison with Plotly
+  filters (checkbox per SKU, per precision). index.html landing
+  with 7-layer coverage matrix and confidence-ladder legend front
+  and center. One engineering-audience PPT deck via the existing
+  cli/generate_*_slides.py patterns. Branes brand polish pass.
+  README. Plan-owner dry-run review.
+
+motivation: |
+  This is the shippable investor-enabling artifact. The engineering
+  deck is the primary output; the investor due-diligence slide is
+  a subsequent derivation (not part of M8).
+
+deliverables:
+  - path: "src/graphs/reporting/compare.py"
+    type: "code"
+    description: "compare.html interactive cross-SKU page with Plotly filters (SKU checkbox, precision checkbox)"
+    acceptance: "Works client-side; no server"
+
+  - path: "src/graphs/reporting/index.py"
+    type: "code"
+    description: "index.html landing: 7-layer coverage matrix; confidence-ladder legend; archetype comparison entry; per-SKU index"
+    acceptance: "Front page is investor-ready"
+
+  - path: "cli/generate_microarch_deck.py"
+    type: "code"
+    description: "One-deck PowerPoint generator for engineering audience; layer-by-layer walkthrough with full confidence and provenance detail; reuses cli/generate_*_slides.py patterns"
+    acceptance: "One .pptx output; Branes-branded master slide"
+
+  - path: "reports/microarch_model/README.md"
+    type: "documentation"
+    description: "How to regenerate; confidence-tag meaning; SKU scope; handoff notes for future validation overlay"
+    acceptance: "Complete; readable by external engineer"
+
+  - path: "src/graphs/reporting/microarch_html_template.py"
+    type: "code"
+    description: "CSS / brand polish pass; final Branes identity"
+    acceptance: "Externally-shareable quality"
+
+dependencies:
+  - task: "TASK-2026-030"
+    description: "M7 Layer 7 content (last layer before polish)"
+
+acceptance_criteria:
+  - criterion: "compare.html renders with working Plotly filters across all 9 SKUs"
+    verification: "Manual visual review"
+  - criterion: "One PPT deck generated, layer-by-layer, engineering audience"
+    verification: "Plan-owner review"
+  - criterion: "Branes logo and brand identity consistent across HTML and PPT"
+    verification: "Visual review"
+  - criterion: "Artifact committed to a tagged branch or release"
+    verification: "Release tag created"
+  - criterion: "Plan-owner dry-run review complete; refinements folded"
+    verification: "Sign-off"
+
+constraints:
+  - "NO measurement work"
+  - "NO separate investor deck at this milestone; investor slide derived afterward"
+  - "Brand identity visible on every HTML page and every PPT slide"
+
+testing:
+  unit_tests:
+    required: false
+  integration_tests:
+    required: true
+    location: "tests/cli/test_generate_microarch_deck.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-030"]
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M8 - Reporting Polish + Engineering Preview"
+  - type: "asset"
+    path: "docs/img/Branes_Logo.jpg"

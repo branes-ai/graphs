@@ -15,8 +15,8 @@ Two categories of fitters live here:
    cleanup PR so that Phase 0 changes remain additive and non-breaking.
 
 2. **Layered fitters** (added in Phase 1 onward) — one fitter per
-   hierarchy layer (ALU, register/SIMD, scratchpad, on-chip L3, DRAM,
-   cluster). These land here directly as
+   hierarchy layer (ALU, register, L1/L2/L3 cache, SoC fabric, external
+   memory, intra-server, inter-server). These land here directly as
    ``layer1_alu_fitter.py``, ``layer2_register_fitter.py``, etc.
 
 Preferred import style (new code):

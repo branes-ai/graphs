@@ -1,0 +1,111 @@
+# Task: M6 Layer 6 SoC Data Movement Model Population
+task_id: "TASK-2026-029"
+title: "M6: Layer 6 (SoC data movement / on-chip fabric) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M6"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "5-7d"
+  complexity: "high"
+
+objective: |
+  Populate SoCFabricModel per SKU: topology (crossbar / ring / 2D
+  mesh / CLOS), hop-count formula, per-hop latency and pJ/flit,
+  bisection bandwidth. Tie KPU inter-tile NoC from the M0.5
+  dataflow-tile abstraction to SoCFabricModel. CPU ring/mesh hop
+  coefficients. GPU SM-to-L2 crossbar coefficients. Memory-
+  controller contention coefficient (analytical). Render Layer 6
+  panel with topology annotation.
+
+motivation: |
+  Highest-risk milestone - the modeling concept is newest and
+  datasheet sources are thinnest. Without Layer 6 the coherence
+  transport cost has nowhere to go and the KPU inter-tile NoC
+  story is invisible.
+
+deliverables:
+  - path: "src/graphs/hardware/fabric_model.py"
+    type: "code"
+    description: "SoCFabricModel fully defined: topology enum, hop latency, pj_per_flit_per_hop, bisection_bandwidth, controller_count"
+    acceptance: "Dataclass complete; per-SKU instances populated"
+
+  - path: "src/graphs/hardware/models/**/*.py"
+    type: "code"
+    description: "Populate SoCFabricModel for all 9 SKUs: CPU ring/mesh; GPU SM-to-L2 crossbar; KPU inter-tile NoC tied to M0.5 tile model; TPU systolic NoC; Hailo / Edge TPU as appropriate"
+    acceptance: "Every SKU has a SoCFabricModel instance with provenance"
+
+  - path: "src/graphs/hardware/mappers/accelerators/kpu.py"
+    type: "code"
+    description: "Remove l3_routing_distance_factor constant; replace with lookups against SoCFabricModel"
+    acceptance: "No constant left; same numeric output as M0.5 via the new field"
+
+  - path: "src/graphs/reporting/layer_panels/layer6_soc_fabric.py"
+    type: "code"
+    description: "Layer 6 panel; topology description; hop-count curve"
+    acceptance: "Renders per-SKU with topology annotation"
+
+  - path: "tests/hardware/test_layer6_soc_fabric_model.py"
+    type: "test"
+    description: "Self-consistency: hop-count curve linear for ring, quadratic at bisection for 2D mesh, constant for full crossbar"
+
+dependencies:
+  - task: "TASK-2026-028"
+    description: "M5 L3 content"
+
+interfaces_provided:
+  - name: "SoCFabricModel (populated)"
+    module: "graphs.hardware.fabric_model"
+
+acceptance_criteria:
+  - criterion: "Layer 6 panel populated for all 9 SKUs with topology + hop-count curve"
+    verification: "Regenerated HTML"
+  - criterion: "Plan-owner sign-off across full SKU set (fabric topology varies most across architectures)"
+    verification: "PR review"
+  - criterion: "KPU inter-tile NoC consistent with M0.5 dataflow-tile model"
+    verification: "No numeric regression in compare_archetypes"
+
+constraints:
+  - "NO measurement"
+  - "If datasheet sources are insufficient for a SKU, ship with explicit LOW-CONFIDENCE annotation and document the assumption rather than leaving the field blank"
+  - "Flag datasheet-scarcity slippage at end of week 5 per plan risk register"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer6_soc_fabric_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-028"]
+  blocks: ["TASK-2026-030"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M6 - Layer 6: SoC Data Movement / On-Chip Fabric"
