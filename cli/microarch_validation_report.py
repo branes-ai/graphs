@@ -43,6 +43,11 @@ from graphs.reporting import (  # noqa: E402
     render_comparison_page,
     render_index_page,
 )
+from graphs.reporting.compare_archetypes import (  # noqa: E402
+    build_default_comparison,
+    render_archetype_page,
+)
+from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
 DEFAULT_SKU_LIST = [
@@ -92,7 +97,7 @@ def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
 
 
 def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:
-    """Write index.html, compare.html, and one hardware/<sku>.html per SKU."""
+    """Write index.html, compare.html, compare_archetypes.html, and one hardware/<sku>.html per SKU."""
     hw_dir = out_dir / "hardware"
     hw_dir.mkdir(parents=True, exist_ok=True)
     written = []
@@ -105,10 +110,24 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
         p = hw_dir / f"{r.sku}.html"
         p.write_text(render_sku_page(r, _repo_root))
         written.append(p)
-    # Comparison shell
+    # Comparison shell (M0 stub, M8 fills in)
     compare_path = out_dir / "compare.html"
     compare_path.write_text(render_comparison_page(reports, _repo_root))
     written.append(compare_path)
+    # Compute-archetype comparison (M0.5)
+    try:
+        archetype_report = build_default_comparison(
+            precision=Precision.INT8,
+            kpu_sku="Stillwater-KPU-T128",
+            kpu_display_name="KPU T128",
+        )
+        arch_path = out_dir / "compare_archetypes.html"
+        arch_path.write_text(render_archetype_page(archetype_report, _repo_root))
+        written.append(arch_path)
+    except RuntimeError as exc:
+        # Registry missing a required SKU: skip gracefully, note on stderr
+        import sys as _sys
+        print(f"warning: compare_archetypes.html skipped ({exc})", file=_sys.stderr)
     return written
 
 

@@ -1,0 +1,144 @@
+# KPU Dataflow-Tile Model
+
+**Status:** M0.5 draft (2026-04-21)
+**Scope:** KPU T64, T128, T256 under the refined abstraction
+**Companion:** `src/graphs/hardware/resource_model.py` (`TileSpecialization`,
+`TileScheduleClass`); `src/graphs/reporting/compare_archetypes.py`.
+
+## Why this model exists
+
+The pre-M0.5 KPU tile model was parameterized to reach peak-ops/s parity
+with NVIDIA Tensor Cores. That framing is convenient for apples-to-apples
+throughput comparisons but hides what the KPU actually is and what it
+actually does well.
+
+The KPU is a **distributed dataflow fabric** whose competitive positioning
+is **energy per op** in the pipelined steady state, not peak throughput.
+Compensating for the peak-throughput gap is a design knob (larger PE
+arrays such as 32x32); the energy-per-op advantage is structural.
+
+This document captures the refined abstraction and the product narrative
+it supports.
+
+## The abstraction in one picture
+
+```text
+   Wavefront N-1           Wavefront N              Wavefront N+1
+   |---drain--|             |---steady---|            |---fill---|
+              +---steady---+             +---drain---+
+
+                 <-- one tile's pipeline -->
+```
+
+On an output-stationary KPU fabric, the **drain** of tile N-1 overlaps
+with the **fill** of tile N+1 across the fabric. The workload pays
+fill + drain **once** across N tiles. As N grows, effective utilization
+saturates toward 1.0.
+
+On a weight-stationary systolic array (TPU), weights must fully drain
+and reload between tile boundaries. Fill + drain is paid **per tile**.
+Effective utilization is a flat floor set by
+`steady / (steady + fill + drain)`, independent of tile count.
+
+This scheduling-class difference is the single most important lever in
+the model, and the due-diligence chart (chart 4 of the comparison
+harness) is the one picture that makes it visible.
+
+## Data-model fields
+
+`TileSpecialization` (in `resource_model.py`) carries these dataflow-
+aware fields in addition to the legacy `array_dimensions`,
+`ops_per_tile_per_clock`, and `optimization_level`:
+
+| Field | Purpose |
+|-------|---------|
+| `schedule_class` | `OUTPUT_STATIONARY` (KPU), `WEIGHT_STATIONARY` (TPU), `ROW_STATIONARY`, or `UNSPECIFIED`. Governs how fill/drain amortizes. |
+| `pipeline_fill_cycles` | Cycles for a wavefront to propagate through the PE array; one-time per pipeline start under output-stationary scheduling. |
+| `pipeline_drain_cycles` | Cycles to drain the final wavefront. |
+| `pe_mac_energy_pj_steady_state` | Optional per-PE MAC energy in the steady-state regime. If None, derived from `CIRCUIT_TYPE_MULTIPLIER` and the precision-specific `energy_scaling`. |
+
+The method
+`TileSpecialization.effective_pipeline_utilization(num_tiles, steady_cycles_per_tile=128)`
+returns the dimensionless pipeline utilization factor for a workload
+with `num_tiles` sequential compute tiles and `steady_cycles_per_tile`
+steady-state wavefront duration (representative GEMM K-dimension).
+
+## SKU lineup (M0.5 exploration)
+
+Tile sizes inversely scaled with tile count - smaller engines benefit
+from larger per-tile PE arrays (amortize fill/drain over more
+wavefront cycles); larger engines move toward smaller tiles to
+preserve per-tile utilization across many concurrent tiles.
+
+| SKU | Tiles | PE array | PE count / tile | Default TDP | Peak INT8 |
+|-----|-------|----------|-----------------|-------------|-----------|
+| T64  | 64  | 32x32 | 1024 | 6 W  | ~118 TOPS |
+| T128 | 128 | 24x24 | 576  | 12 W | ~147 TOPS |
+| T256 | 256 | 16x16 | 256  | 30 W | ~184 TOPS |
+
+These numbers use a homogeneous per-SKU PE-array size; future work will
+introduce heterogeneous tile sizes on a single SoC (mix of 8x8 through
+64x64 on one die). The `TileSpecialization` abstraction already supports
+heterogeneity; only the SKU configuration files are homogeneous today.
+
+## Why KPU utilization on GEMM is ~1.0
+
+Output-stationary scheduling on a dataflow fabric pipelines adjacent
+tiles through the physical mesh with no state-change between them:
+
+1. Tile N-1 is draining into its accumulators.
+2. Tile N is in its steady phase, new rows entering, outputs accumulating.
+3. Tile N+1 is filling the upstream row buffers.
+
+All three stages run concurrently on different parts of the fabric.
+The only times the pipeline is not full are the very first `fill`
+cycles (at the start of the workload) and the very last `drain`
+cycles (at the end). Over N tiles, the penalty is (fill + drain)
+cycles amortized across N * steady useful cycles:
+
+```
+util = (N * steady) / (N * steady + fill + drain)
+```
+
+At N >= 12 and representative K = 128, util > 0.97. At N >= 32, util > 0.99.
+
+A weight-stationary systolic array cannot compose this way because
+weights are stationary inside the PE array; changing the output tile
+means unloading and reloading weights. Each tile pays its own fill and
+drain. Effective utilization is capped at `steady / (steady + fill + drain)`
+regardless of tile count.
+
+## How this maps to the product story
+
+1. **Energy per op.** KPU per-PE steady-state MAC energy is below Tensor
+   Core at matched precision because the dataflow fabric has no
+   instruction fetch, no coherence machinery, no scheduling overhead
+   per operation. The fabric is pre-scheduled; PEs only compute.
+
+2. **Peak ops/s.** Tensor Core wins on peak at matched silicon area
+   due to its density. We compensate with larger PE arrays (up to
+   32x32 on T64). The Tensor Core-matched peak is a design choice,
+   not a structural advantage.
+
+3. **Energy efficiency (ops/W).** The product of (1) and the pipeline
+   utilization story. KPU's per-op energy advantage multiplied by
+   near-unit sustained utilization yields the ops/W lead shown in
+   chart 3 of the comparison harness.
+
+4. **Utilization sensitivity.** Chart 4 makes the scheduling-class
+   story visible. It is the single chart that shows why KPU scales
+   differently than TPU on large workloads.
+
+5. **Array-size scaling.** Chart 5 shows the headroom (larger arrays
+   improve ops/W until fill/drain becomes negligible) and diminishing
+   returns (beyond ~32x32 the advantage plateaus at representative K).
+
+## Next steps
+
+- M1-M7 will populate per-SKU Layer 1-7 content on top of this tile
+  abstraction. The dataflow-tile fields feed Layer 2 (register / SIMD /
+  wavefront) and Layer 6 (SoC data movement / fabric) especially.
+- Future: heterogeneous tile sizes within a single SoC.
+- Future (post-M8): silicon measurement will graduate
+  `pe_mac_energy_pj_steady_state` from `THEORETICAL` to `CALIBRATED` per
+  the bottom-up microbenchmark plan.

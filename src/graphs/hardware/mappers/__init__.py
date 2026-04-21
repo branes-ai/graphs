@@ -87,6 +87,7 @@ def _init_registry():
     )
     from .accelerators.kpu import (
         create_kpu_t64_mapper,
+        create_kpu_t128_mapper,
         create_kpu_t256_mapper,
         create_kpu_t768_mapper,
     )
@@ -432,15 +433,23 @@ def _init_registry():
             "factory": create_kpu_t64_mapper,
             "category": "kpu",
             "vendor": "Stillwater",
-            "description": "Stillwater KPU T64 (64 tiles)",
+            "description": "Stillwater KPU T64 (64 tiles, 32x32 PE array, dataflow output-stationary)",
             "default_tdp_w": 5.0,
             "memory_gb": 4.0,
+        },
+        "Stillwater-KPU-T128": {
+            "factory": create_kpu_t128_mapper,
+            "category": "kpu",
+            "vendor": "Stillwater",
+            "description": "Stillwater KPU T128 (128 tiles, 24x24 PE array, dataflow output-stationary)",
+            "default_tdp_w": 12.0,
+            "memory_gb": 16.0,
         },
         "Stillwater-KPU-T256": {
             "factory": create_kpu_t256_mapper,
             "category": "kpu",
             "vendor": "Stillwater",
-            "description": "Stillwater KPU T256 (256 tiles)",
+            "description": "Stillwater KPU T256 (256 tiles, 16x16 PE array, dataflow output-stationary)",
             "default_tdp_w": 10.0,
             "memory_gb": 8.0,
         },
