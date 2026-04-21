@@ -55,6 +55,10 @@ from graphs.reporting.generalized_architecture import (  # noqa: E402
     build_default_report as build_generalized_report,
     render_generalized_page,
 )
+from graphs.reporting.competitive_trajectory import (  # noqa: E402
+    build_default_report as build_trajectory_report,
+    render_trajectory_page,
+)
 from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
@@ -157,6 +161,15 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
     except RuntimeError as exc:
         import sys as _sys
         print(f"warning: generalized_architecture.html skipped ({exc})", file=_sys.stderr)
+    # Competitive trajectory (M0.5) - Jetson history + KPU target extrapolation
+    try:
+        traj_report = build_trajectory_report()
+        traj_path = out_dir / "competitive_trajectory.html"
+        traj_path.write_text(render_trajectory_page(traj_report, _repo_root))
+        written.append(traj_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: competitive_trajectory.html skipped ({exc})", file=_sys.stderr)
     return written
 
 

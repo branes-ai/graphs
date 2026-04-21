@@ -454,6 +454,13 @@ a.primary-link:hover {{ background: #15385c; }}
     process-scaling curves and peak-TOPS-at-fixed-TDP envelopes.</p>
     <p><a class="primary-link" href="generalized_architecture.html">Open generalized comparison &rarr;</a></p>
   </section>
+  <section class="highlighted-link">
+    <h3>Competitive trajectory: Jetson vs. KPU target</h3>
+    <p>How long would NVIDIA's Jetson line take to reach the KPU T128
+    TOPS/W target at its demonstrated rate of improvement? Historical
+    trajectory + extrapolations + parity-year analysis.</p>
+    <p><a class="primary-link" href="competitive_trajectory.html">Open trajectory analysis &rarr;</a></p>
+  </section>
   <section>
     <h3>Per-SKU layer panels</h3>
     <p class="meta">Layer 1-7 content populates in milestones M1-M7.
