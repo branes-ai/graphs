@@ -13,9 +13,10 @@ through 64x64 on one die). This file treats the SoC as homogeneous
 with a single PE-array size; the ``TileSpecialization`` abstraction
 already supports heterogeneity for later exploration.
 
-Scheduling is ``OUTPUT_STATIONARY`` across the whole fabric - the
-KPU's signature advantage. See
-``docs/hardware/kpu_dataflow_tile_model.md``.
+The KPU is a distributed domain-flow machine capable of direct
+execution of systems of affine recurrence equations. Scheduling is
+``OUTPUT_STATIONARY`` across the whole fabric - the KPU's signature
+advantage. See ``docs/hardware/kpu_domainflow_tile_model.md``.
 """
 
 from ...resource_model import (
@@ -56,7 +57,7 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     - 18W: active-cooled peak
 
     Architectural signature:
-      - Distributed dataflow fabric, output-stationary scheduling
+      - Distributed domain-flow fabric, output-stationary scheduling
       - Per-PE steady-state MAC energy well below Tensor Core
       - Fill/drain overlaps across adjacent tiles -> effective pipeline
         utilization -> 1.0 at approximately 12+ workload tiles
@@ -111,7 +112,7 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
 
     matrix_tile_fabric = ComputeFabric(
         fabric_type="kpu_matrix_tile",
-        circuit_type="standard_cell",  # dataflow, not tensor-core emulation
+        circuit_type="standard_cell",  # domain-flow, not tensor-core emulation
         num_units=13,  # 10% of 128
         ops_per_unit_per_clock={
             Precision.INT8: _INT8_OPS_PER_TILE,

@@ -1,10 +1,10 @@
 """
 Compute-archetype comparison harness (GPU Tensor Core vs. TPU systolic
-vs. KPU dataflow).
+vs. KPU domain flow).
 
 This is the diligence tool used during M0.5 to pick PE-array sizes for
-T64 / T128 / T256 under the refined dataflow-tile abstraction, and the
-artifact that makes the KPU's energy-per-op positioning legible.
+T64 / T128 / T256 under the refined domain-flow-tile abstraction, and
+the artifact that makes the KPU's energy-per-op positioning legible.
 
 Five charts, rendered via Plotly loaded from CDN:
 
@@ -21,7 +21,7 @@ Five charts, rendered via Plotly loaded from CDN:
         - Shows where "compensate for peak with larger arrays"
           has headroom vs. diminishing returns.
 
-See ``docs/hardware/kpu_dataflow_tile_model.md`` and
+See ``docs/hardware/kpu_domainflow_tile_model.md`` and
 ``docs/plans/microarch-model-delivery-plan.md`` (M0.5).
 """
 from __future__ import annotations
@@ -55,7 +55,7 @@ class ArchetypeEntry:
     """
     One archetype's representative numbers for the comparison harness.
     """
-    archetype: str               # "Tensor Core", "Systolic", "Dataflow"
+    archetype: str               # "Tensor Core", "Systolic", "Domain Flow"
     sku: str                     # representative SKU
     display_name: str
     color: str                   # hex color for consistent chart theming
@@ -175,7 +175,7 @@ def _synthesize_utilization_curve(
 def _kpu_entry_from_mapper(
     sku: str, precision: Precision, display_name: str, color: str,
 ) -> ArchetypeEntry:
-    """Build a Dataflow (KPU) archetype entry from the mapper registry."""
+    """Build a Domain Flow (KPU) archetype entry from the mapper registry."""
     from graphs.hardware.mappers import get_mapper_by_name
     mapper = get_mapper_by_name(sku)
     if mapper is None:
@@ -239,7 +239,7 @@ def _kpu_entry_from_mapper(
         })
 
     return ArchetypeEntry(
-        archetype="Dataflow (KPU)",
+        archetype="Domain Flow (KPU)",
         sku=sku,
         display_name=display_name,
         color=color,
@@ -610,7 +610,7 @@ table th { font-size: 12px; text-transform: uppercase; color: #586374; backgroun
     charts_block = "".join([
         _chart_section(
             "Chart 1: Energy per op",
-            "Lower is better. KPU wins on energy per op - the dataflow "
+            "Lower is better. KPU wins on energy per op - the domain-flow "
             "fabric's per-PE steady-state MAC energy is below Tensor Core "
             "at matched precision.",
             "chart1"),

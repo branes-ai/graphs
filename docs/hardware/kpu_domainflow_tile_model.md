@@ -1,24 +1,36 @@
-# KPU Dataflow-Tile Model
+# KPU Domain-Flow-Tile Model
 
 **Status:** M0.5 draft (2026-04-21)
 **Scope:** KPU T64, T128, T256 under the refined abstraction
 **Companion:** `src/graphs/hardware/resource_model.py` (`TileSpecialization`,
 `TileScheduleClass`); `src/graphs/reporting/compare_archetypes.py`.
 
+## What the KPU is
+
+The Stillwater KPU is a **distributed domain-flow machine** capable of
+direct execution of systems of affine recurrence equations (SARE). The
+`ArchitectureClass` enum already records this as `DOMAIN_FLOW`; the
+matching energy model is `DomainFlowEnergyModel`. The KPU is not a
+generic "dataflow" accelerator (token-based, data-driven dispatch) nor
+a weight-stationary systolic array. Its distinctive characteristic is
+that programs are expressed as affine-recurrence domains, statically
+scheduled onto the fabric, and executed without per-operation
+instruction fetch or coherence machinery.
+
+This document describes the refined tile abstraction and the product
+narrative it supports.
+
 ## Why this model exists
 
 The pre-M0.5 KPU tile model was parameterized to reach peak-ops/s parity
-with NVIDIA Tensor Cores. That framing is convenient for apples-to-apples
-throughput comparisons but hides what the KPU actually is and what it
-actually does well.
+with NVIDIA Tensor Cores. That framing is convenient for apples-to-
+apples throughput comparisons but hides what the KPU actually is and
+what it actually does well.
 
-The KPU is a **distributed dataflow fabric** whose competitive positioning
-is **energy per op** in the pipelined steady state, not peak throughput.
-Compensating for the peak-throughput gap is a design knob (larger PE
-arrays such as 32x32); the energy-per-op advantage is structural.
-
-This document captures the refined abstraction and the product narrative
-it supports.
+The KPU's competitive positioning is **energy per op** in the pipelined
+steady state, not peak throughput. Compensating for the peak-throughput
+gap is a design knob (larger PE arrays such as 32x32); the energy-per-
+op advantage is structural.
 
 ## The abstraction in one picture
 
@@ -46,8 +58,8 @@ harness) is the one picture that makes it visible.
 
 ## Data-model fields
 
-`TileSpecialization` (in `resource_model.py`) carries these dataflow-
-aware fields in addition to the legacy `array_dimensions`,
+`TileSpecialization` (in `resource_model.py`) carries these domain-
+flow-aware fields in addition to the legacy `array_dimensions`,
 `ops_per_tile_per_clock`, and `optimization_level`:
 
 | Field | Purpose |
@@ -83,7 +95,7 @@ heterogeneity; only the SKU configuration files are homogeneous today.
 
 ## Why KPU utilization on GEMM is ~1.0
 
-Output-stationary scheduling on a dataflow fabric pipelines adjacent
+Output-stationary scheduling on a domain-flow fabric pipelines adjacent
 tiles through the physical mesh with no state-change between them:
 
 1. Tile N-1 is draining into its accumulators.
@@ -111,9 +123,10 @@ regardless of tile count.
 ## How this maps to the product story
 
 1. **Energy per op.** KPU per-PE steady-state MAC energy is below Tensor
-   Core at matched precision because the dataflow fabric has no
+   Core at matched precision because the domain-flow fabric has no
    instruction fetch, no coherence machinery, no scheduling overhead
-   per operation. The fabric is pre-scheduled; PEs only compute.
+   per operation. The fabric is pre-scheduled for the affine recurrence
+   domain; PEs only compute.
 
 2. **Peak ops/s.** Tensor Core wins on peak at matched silicon area
    due to its density. We compensate with larger PE arrays (up to
@@ -133,11 +146,24 @@ regardless of tile count.
    improve ops/W until fill/drain becomes negligible) and diminishing
    returns (beyond ~32x32 the advantage plateaus at representative K).
 
+## Relationship to other Stillwater research products
+
+- **KPU** (this document): distributed domain-flow machine for SARE
+  execution. `ArchitectureClass.DOMAIN_FLOW`.
+- **DFM** (Data Flow Machine): token-based data-flow research machine;
+  a distinct architecture with different execution semantics. See
+  `src/graphs/hardware/mappers/research/dfm.py`.
+
+The two share the general dataflow design-space lineage but are not
+the same machine. KPU positioning uses "domain flow" to make the
+distinction explicit.
+
 ## Next steps
 
 - M1-M7 will populate per-SKU Layer 1-7 content on top of this tile
-  abstraction. The dataflow-tile fields feed Layer 2 (register / SIMD /
-  wavefront) and Layer 6 (SoC data movement / fabric) especially.
+  abstraction. The domain-flow-tile fields feed Layer 2 (register /
+  SIMD / wavefront) and Layer 6 (SoC data movement / fabric)
+  especially.
 - Future: heterogeneous tile sizes within a single SoC.
 - Future (post-M8): silicon measurement will graduate
   `pe_mac_energy_pj_steady_state` from `THEORETICAL` to `CALIBRATED` per

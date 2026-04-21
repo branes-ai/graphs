@@ -62,7 +62,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     # ========================================================================
     int8_tile_fabric = ComputeFabric(
         fabric_type="kpu_int8_tile",
-        circuit_type="standard_cell",   # Tile-based dataflow accelerator
+        circuit_type="standard_cell",   # Tile-based domain-flow accelerator
         num_units=44,                    # 44 INT8 tiles (69% of 64)
         ops_per_unit_per_clock={
             Precision.INT8: 512,         # 512 INT8 ops/tile/cycle
@@ -141,7 +141,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     # T64 TILE ALLOCATION (64 tiles total, ~70/20/10 ratio)
     # M0.5: homogeneous 32x32 PE array per tile; smaller engine uses larger
     # tile size to amortize pipeline fill/drain across the workload.
-    # Scheduling is OUTPUT_STATIONARY (distributed dataflow fabric).
+    # Scheduling is OUTPUT_STATIONARY (distributed domain-flow fabric).
     # ========================================================================
     _T64_PE_ARRAY = (32, 32)
     # 32x32 array at 2 INT8 ops/PE/clock = 2048 INT8 ops/tile/clock

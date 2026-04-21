@@ -470,7 +470,7 @@ class KPUOperandFetchModel(OperandFetchEnergyModel):
     - Domain tracking: ~0.07 pJ per operation (routing control)
 
     Key Characteristics:
-    - Programmable dataflow (not fixed weight-stationary)
+    - Programmable domain-flow (not fixed weight-stationary)
     - Can adapt reuse pattern to workload
     - Handles irregular operations (attention, softmax) efficiently
     - Slightly higher overhead than TPU for simple matmul

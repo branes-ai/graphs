@@ -62,7 +62,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     # ========================================================================
     int8_tile_fabric = ComputeFabric(
         fabric_type="kpu_int8_tile",
-        circuit_type="standard_cell",   # Tile-based dataflow accelerator
+        circuit_type="standard_cell",   # Tile-based domain-flow accelerator
         num_units=537,                   # 537 INT8 tiles (70% of 768)
         ops_per_unit_per_clock={
             Precision.INT8: 512,         # 512 INT8 ops/tile/cycle

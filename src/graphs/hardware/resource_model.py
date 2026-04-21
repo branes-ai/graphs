@@ -346,12 +346,13 @@ class TileScheduleClass(Enum):
     Scheduling discipline that governs how a tile's fill/drain overhead
     composes across an N-tile workload.
 
-    This is the key lever that distinguishes the KPU's dataflow advantage
-    from a systolic weight-stationary architecture. The chart-4 "effective
-    pipeline utilization vs. workload tile count" plot is driven by this
-    enum.
+    This is the key lever that distinguishes the KPU's domain-flow advantage
+    from a systolic weight-stationary architecture. The KPU is a distributed
+    domain-flow machine capable of direct execution of systems of affine
+    recurrence equations; the chart-4 "effective pipeline utilization vs.
+    workload tile count" plot is driven by this enum.
 
-    See ``docs/hardware/kpu_dataflow_tile_model.md``.
+    See ``docs/hardware/kpu_domainflow_tile_model.md``.
 
     Values:
         OUTPUT_STATIONARY: KPU. Fill and drain of tile N overlap with
@@ -366,7 +367,7 @@ class TileScheduleClass(Enum):
             steady/(steady+fill+drain).
 
         ROW_STATIONARY: Reserved for Eyeriss-style row-stationary
-            dataflows; modeled like OUTPUT_STATIONARY for M0.5.
+            dataflow schedules; modeled like OUTPUT_STATIONARY for M0.5.
 
         UNSPECIFIED: No pipeline model applied (e.g., GPU Tensor Core,
             CPU SIMD). Effective utilization is treated as 1.0 and other
@@ -395,7 +396,7 @@ class TileSpecialization:
 
     All precisions are native (no emulation) - just on different tile types.
 
-    Dataflow-tile fields (added M0.5):
+    Domain-flow-tile fields (added M0.5):
         schedule_class: scheduling discipline governing fill/drain composition.
         pipeline_fill_cycles: cycles for a wavefront to propagate through
             the PE array (one-time per pipeline start).
@@ -422,7 +423,7 @@ class TileSpecialization:
     array_dimensions: Tuple[int, int] = (16, 8)  # e.g., 16×8 systolic array
     pe_configuration: str = "Mixed"              # "INT8-MAC", "BF16-FMA", "Mixed"
 
-    # Dataflow-tile scheduling parameters (M0.5)
+    # Domain-flow-tile scheduling parameters (M0.5)
     schedule_class: TileScheduleClass = TileScheduleClass.UNSPECIFIED
     pipeline_fill_cycles: int = 0
     pipeline_drain_cycles: int = 0

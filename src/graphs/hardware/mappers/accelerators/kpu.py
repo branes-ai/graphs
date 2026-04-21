@@ -529,7 +529,7 @@ def create_kpu_t128_mapper(thermal_profile: str = None) -> KPUMapper:
     Create KPU mapper for Stillwater KPU-T128 (mid-range embodied AI).
 
     Introduced in M0.5. 128 tiles with 24x24 PE arrays per tile,
-    scheduled OUTPUT_STATIONARY on a distributed dataflow fabric.
+    scheduled OUTPUT_STATIONARY on a distributed domain-flow fabric.
 
     Args:
         thermal_profile: Thermal profile name (e.g., "6W", "12W", "18W")

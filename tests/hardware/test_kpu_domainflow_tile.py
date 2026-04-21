@@ -1,5 +1,5 @@
 """
-Internal-consistency tests for the M0.5 KPU dataflow-tile abstraction.
+Internal-consistency tests for the M0.5 KPU domain-flow-tile abstraction.
 
 Asserts the comparative behavior that the refined model is supposed to
 encode. Not silicon validation - these are model self-check tests that

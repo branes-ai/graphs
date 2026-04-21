@@ -50,19 +50,19 @@ class TestBuildDefaultComparison:
         assert isinstance(rpt, ArchetypeComparisonReport)
         assert len(rpt.archetypes) == 3
         names = {a.archetype for a in rpt.archetypes}
-        assert names == {"SIMT + Tensor Core", "Systolic (TPU)", "Dataflow (KPU)"}
+        assert names == {"SIMT + Tensor Core", "Systolic (TPU)", "Domain Flow (KPU)"}
 
     def test_kpu_wins_energy_per_op(self):
         """The KPU entry must have the lowest energy-per-op."""
         rpt = build_default_comparison(precision=Precision.INT8)
         by_name = {a.archetype: a for a in rpt.archetypes}
-        kpu = by_name["Dataflow (KPU)"]
+        kpu = by_name["Domain Flow (KPU)"]
         tc = by_name["SIMT + Tensor Core"]
         assert kpu.energy_per_op_pj < tc.energy_per_op_pj
 
     def test_kpu_utilization_saturates(self):
         rpt = build_default_comparison(precision=Precision.INT8)
-        kpu = [a for a in rpt.archetypes if a.archetype == "Dataflow (KPU)"][0]
+        kpu = [a for a in rpt.archetypes if a.archetype == "Domain Flow (KPU)"][0]
         util_at_last = kpu.utilization_curve[-1][1]
         assert util_at_last > 0.98
 
@@ -75,7 +75,7 @@ class TestBuildDefaultComparison:
     def test_array_scaling_populated_for_kpu_only(self):
         rpt = build_default_comparison(precision=Precision.INT8)
         by_name = {a.archetype: a for a in rpt.archetypes}
-        assert len(by_name["Dataflow (KPU)"].array_scaling_curve) > 0
+        assert len(by_name["Domain Flow (KPU)"].array_scaling_curve) > 0
         assert len(by_name["SIMT + Tensor Core"].array_scaling_curve) == 0
         assert len(by_name["Systolic (TPU)"].array_scaling_curve) == 0
 
