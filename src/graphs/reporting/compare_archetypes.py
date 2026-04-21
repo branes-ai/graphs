@@ -213,29 +213,29 @@ def _kpu_entry_from_mapper(
         spec0.pipeline_drain_cycles,
     )
 
-    # Array-scaling sweep: hypothetical per-PE MAC energy and steady
-    # throughput as PE array grows. Per-op energy stays roughly flat
-    # (same MAC energy at the PE), but peak ops grows quadratically
-    # with array dimension while fill/drain grows linearly -> ops/W
-    # improves up to the regime where fill/drain becomes negligible.
+    # Linear-schedule efficiency asymptote (scale-invariant in N).
+    # For an NxNxN GEMM tile executed on an output-stationary fabric
+    # with fill = drain = N cycles and a steady phase of N cycles
+    # (one per K-reduction row), total latency is N(M+2) cycles for
+    # M tiles, of which MN is useful. Equivalently, per the user's
+    # linear-schedule formula: efficiency = 1 - 2/(3M). This is
+    # independent of N, so larger PE arrays do NOT improve efficiency.
+    # What drives efficiency is the workload's tile-count M.
+    #
+    # The curve below is what chart 5 plots (multiple N values overlay
+    # as the same curve, which is the point).
     scaling = []
+    tile_counts = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256]
     for dim in (8, 16, 24, 32, 48, 64):
-        pes = dim * dim
-        fill_d = dim
-        drain_d = dim
-        # At 16 tiles of workload, compute effective utilization
-        util_16 = _synthesize_utilization_curve(
-            spec0.schedule_class, fill_d, drain_d, tile_counts=[16],
-        )[0][1]
-        # Hypothetical peak scales with PE count (not tile count)
-        hypo_peak = pes * 2 * rm.precision_profiles[precision].peak_ops_per_sec / (rows * cols * 2)
-        hypo_ops_per_watt = hypo_peak * util_16 / tdp if tdp > 0 else 0.0
+        points = []
+        for m in tile_counts:
+            # User's linear-schedule formula: eff = 1 - (2N)/(M * 3N) = 1 - 2/(3M)
+            efficiency = 1.0 - 2.0 / (3.0 * m) if m >= 1 else 0.0
+            points.append({"tile_count": m, "efficiency": efficiency})
         scaling.append({
             "pe_array_dim": dim,
-            "pe_count": pes,
-            "peak_ops_per_sec": hypo_peak,
-            "ops_per_watt_at_util_16": hypo_ops_per_watt,
-            "effective_utilization_at_16_tiles": util_16,
+            "pe_count": dim * dim,
+            "points": points,
         })
 
     return ArchetypeEntry(
@@ -488,22 +488,33 @@ def _render_chart_js(report: ArchetypeComparisonReport) -> str:
         },
     }
 
-    # Chart 5: array-size scaling (KPU only; other archetypes render as empty)
+    # Chart 5: linear-schedule efficiency asymptote (KPU only).
+    # Plots eff = 1 - 2/(3M) across workload tile counts M for multiple
+    # PE array sizes N. All N curves overlay as the same line, which
+    # is the point: efficiency is scale-invariant in N. The plateau is
+    # set by M, not by the PE array.
     chart5_traces = []
     for a in arch:
         if not a["array_scaling_curve"]:
             continue
-        xs = [p["pe_array_dim"] for p in a["array_scaling_curve"]]
-        ys = [p["ops_per_watt_at_util_16"] / 1e12 for p in a["array_scaling_curve"]]
-        chart5_traces.append({
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": f"{a['display_name']}: TOPS/W",
-            "x": xs,
-            "y": ys,
-            "line": {"color": a["color"], "width": 2},
-            "marker": {"size": 8},
-        })
+        # Use Plotly dash styles to visually differentiate overlapping curves
+        dash_styles = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+        for idx, curve in enumerate(a["array_scaling_curve"]):
+            xs = [p["tile_count"] for p in curve["points"]]
+            ys = [p["efficiency"] for p in curve["points"]]
+            dim = curve["pe_array_dim"]
+            chart5_traces.append({
+                "type": "scatter",
+                "mode": "lines",
+                "name": f"{dim}x{dim} PE array",
+                "x": xs,
+                "y": ys,
+                "line": {
+                    "color": a["color"], "width": 2,
+                    "dash": dash_styles[idx % len(dash_styles)],
+                },
+                "opacity": 0.75,
+            })
     if not chart5_traces:
         chart5_traces = [{
             "type": "scatter", "mode": "markers",
@@ -512,11 +523,29 @@ def _render_chart_js(report: ArchetypeComparisonReport) -> str:
     chart5 = {
         "data": chart5_traces,
         "layout": {
-            "title": "PE array-size scaling (KPU): TOPS/W at 16-tile workload",
-            "xaxis": {"title": "PE array dimension (square: NxN)"},
-            "yaxis": {"title": "TOPS / W"},
-            "margin": {"t": 50, "b": 50, "l": 60, "r": 20},
+            "title": ("KPU linear-schedule efficiency: eff = 1 - 2/(3M), "
+                      "scale-invariant in PE array size N"),
+            "xaxis": {
+                "title": "Workload tile count M",
+                "type": "log",
+            },
+            "yaxis": {
+                "title": "Efficiency",
+                "range": [0, 1.05],
+            },
+            "margin": {"t": 60, "b": 50, "l": 60, "r": 20},
             "legend": {"orientation": "h", "y": -0.2},
+            "annotations": [
+                {
+                    "text": ("All PE array sizes produce the same curve: "
+                             "efficiency is set by workload tile count M, "
+                             "not by N."),
+                    "xref": "paper", "yref": "paper",
+                    "x": 0.5, "y": 1.08,
+                    "showarrow": False,
+                    "font": {"size": 12, "color": "#586374"},
+                },
+            ],
         },
     }
 
@@ -633,10 +662,14 @@ table th { font-size: 12px; text-transform: uppercase; color: #586374; backgroun
             "fill/drain per tile; Tensor Core has no tile pipeline.",
             "chart4"),
         _chart_section(
-            "Chart 5: PE array-size scaling (KPU)",
-            "Where 'compensate for peak with larger arrays' has headroom. "
-            "Beyond ~32x32, fill/drain becomes negligible and ops/W "
-            "plateaus.",
+            "Chart 5: Linear-schedule efficiency asymptote (KPU)",
+            "For an NxNxN GEMM tile under a linear schedule, per-tile "
+            "latency is 3N cycles (fill=N, steady=N, drain=N). With "
+            "fill/drain amortized across M tiles on an output-stationary "
+            "fabric, efficiency = 1 - 2/(3M). Plateau is set by M, not N: "
+            "at M=12, eff~0.94; at M=32, eff~0.98; asymptote approaches "
+            "1.0 as M grows. Larger PE arrays give higher peak throughput "
+            "but do not improve efficiency (the curves overlay).",
             "chart5"),
     ])
 

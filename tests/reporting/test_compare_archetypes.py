@@ -79,6 +79,40 @@ class TestBuildDefaultComparison:
         assert len(by_name["SIMT + Tensor Core"].array_scaling_curve) == 0
         assert len(by_name["Systolic (TPU)"].array_scaling_curve) == 0
 
+    def test_efficiency_curve_follows_linear_schedule_formula(self):
+        """Chart 5 must follow eff = 1 - 2/(3M) (user's linear-schedule formula).
+
+        Efficiency must be scale-invariant in N (all PE array sizes give
+        the same curve) and must plateau toward 1.0 as M grows.
+        """
+        rpt = build_default_comparison(precision=Precision.INT8)
+        kpu = [a for a in rpt.archetypes if a.archetype == "Domain Flow (KPU)"][0]
+        assert len(kpu.array_scaling_curve) >= 2
+
+        # Scale-invariance: every array-size curve is identical
+        reference = kpu.array_scaling_curve[0]["points"]
+        for curve in kpu.array_scaling_curve[1:]:
+            assert curve["points"] == reference, (
+                "Efficiency must be scale-invariant in PE array size N; "
+                f"curve for {curve['pe_array_dim']}x{curve['pe_array_dim']} "
+                "differs from the reference curve."
+            )
+
+        # User's formula: eff(M) = 1 - 2/(3M). Check a few M values.
+        by_m = {p["tile_count"]: p["efficiency"] for p in reference}
+        for m, expected in [(1, 1/3), (2, 2/3), (12, 17/18), (64, 1 - 2/192)]:
+            assert m in by_m
+            assert abs(by_m[m] - expected) < 1e-9, (
+                f"At M={m}, expected 1-2/(3M)={expected:.6f}, "
+                f"got {by_m[m]:.6f}"
+            )
+
+        # Plateau: rises monotonically, asymptotes toward 1.0
+        ms = sorted(by_m.keys())
+        effs = [by_m[m] for m in ms]
+        assert effs == sorted(effs), "Efficiency must be monotonically increasing in M"
+        assert effs[-1] > 0.99, f"Large-M plateau must exceed 0.99; got {effs[-1]:.4f}"
+
 
 class TestRenderArchetypePage:
     def test_html_contains_five_chart_divs(self):
@@ -110,6 +144,20 @@ class TestRenderArchetypePage:
         assert "Jetson Orin AGX" in html
         assert "Coral Edge TPU" in html
         assert "KPU T128" in html
+
+
+class TestChart5Rendering:
+    """The rendered HTML must show the scale-invariance + plateau story."""
+
+    def test_chart5_title_describes_linear_schedule_formula(self):
+        rpt = build_default_comparison(precision=Precision.INT8)
+        html = render_archetype_page(rpt, REPO_ROOT)
+        # Title / caption must mention the user's formula rather than
+        # the old (incorrect) "ops/W scaling with array size" claim.
+        assert "1 - 2/(3M)" in html or "eff = 1 - 2/(3M)" in html
+        assert "scale-invariant" in html or "scale invariant" in html.lower()
+        # Old (incorrect) caption must be gone
+        assert "fill/drain becomes negligible" not in html
 
 
 class TestToDict:
