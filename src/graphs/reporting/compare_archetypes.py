@@ -648,11 +648,15 @@ table th { font-size: 12px; text-transform: uppercase; color: #586374; backgroun
   <script src="{_PLOTLY_CDN}"></script>
   <style>{_CSS}
 {extra_css}
+a.nav-back {{ display: inline-block; color: #0a2540; text-decoration: none;
+               font-weight: 600; margin-bottom: 10px; }}
+a.nav-back:hover {{ text-decoration: underline; }}
   </style>
 </head>
 <body>
 {header}
 <main>
+  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
   <section class="page-header">
     <h2>Compute-archetype comparison (M0.5)</h2>
     <div class="meta">Three archetypes, one picture: why KPU wins on energy per op.</div>

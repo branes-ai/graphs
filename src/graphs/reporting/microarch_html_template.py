@@ -413,6 +413,16 @@ ul.sku-list li {{ padding: 10px 14px; background: #fff; margin-bottom: 6px;
 ul.sku-list a {{ color: #0a2540; text-decoration: none; font-weight: 600; }}
 ul.sku-list a:hover {{ text-decoration: underline; }}
 .meta {{ color: #586374; font-size: 13px; font-weight: 400; }}
+section.highlighted-link {{ background: #fff; border-left: 4px solid #3fc98a;
+                             padding: 14px 18px; border-radius: 4px;
+                             margin-bottom: 18px;
+                             box-shadow: 0 1px 3px rgba(0,0,0,0.04); }}
+section.highlighted-link h3 {{ margin: 0 0 6px; color: #0a2540; }}
+section.highlighted-link p {{ margin: 6px 0; color: #3a4452; }}
+a.primary-link {{ display: inline-block; padding: 8px 16px; background: #0a2540;
+                  color: #fff; border-radius: 4px; text-decoration: none;
+                  font-weight: 600; }}
+a.primary-link:hover {{ background: #15385c; }}
   </style>
 </head>
 <body>
@@ -420,13 +430,21 @@ ul.sku-list a:hover {{ text-decoration: underline; }}
 <main>
   <section class="page-header">
     <h2>Report index</h2>
-    <div class="meta">Per-SKU layer panels + cross-SKU comparison.</div>
+    <div class="meta">Per-SKU layer panels, cross-SKU comparison, and the compute-archetype exploration harness.</div>
   </section>
   {_render_legend()}
+  <section class="highlighted-link">
+    <h3>Compute-archetype comparison (GPU vs. TPU vs. KPU)</h3>
+    <p>The M0.5 exploration harness: five Plotly charts comparing energy per op,
+    peak throughput, ops/W, pipeline utilization vs. tile count, and PE array-size scaling.</p>
+    <p><a class="primary-link" href="compare_archetypes.html">Open compute-archetype comparison &rarr;</a></p>
+  </section>
   <section>
-    <h3>SKUs</h3>
+    <h3>Per-SKU layer panels</h3>
+    <p class="meta">Layer 1-7 content populates in milestones M1-M7.
+    Panels currently show <em>NOT YET POPULATED</em> placeholders by design.</p>
     <ul class="sku-list">{entries}</ul>
-    <p><a href="compare.html">Cross-SKU comparison &rarr;</a></p>
+    <p><a href="compare.html">Cross-SKU layer comparison (shell, populated at M8) &rarr;</a></p>
   </section>
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
