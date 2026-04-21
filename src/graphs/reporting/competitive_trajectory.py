@@ -148,7 +148,7 @@ class TrajectoryReport:
 def build_default_report(
     kpu_peak_tops_per_watt: float = 12.3,
     kpu_sustained_tops_per_watt: float = 11.04,
-    kpu_label: str = "KPU T128 (Stillwater)",
+    kpu_label: str = "KPU T128",
 ) -> TrajectoryReport:
     from datetime import datetime, timezone
     return TrajectoryReport(

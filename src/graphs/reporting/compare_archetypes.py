@@ -658,12 +658,15 @@ def _render_archetype_summary(report: ArchetypeComparisonReport) -> str:
     rows = []
     for a in report.archetypes:
         a_d = a.to_dict()
+        # Display SKU without internal "Stillwater-" prefix used as the
+        # registry key; registry keys stay intact in code.
+        display_sku = a_d["sku"].replace("Stillwater-", "")
         rows.append(
             f"<tr>"
             f'<td style="border-left:4px solid {a_d["color"]};padding-left:10px;">'
             f"<strong>{html.escape(a_d['display_name'])}</strong><br/>"
             f"<span class=\"meta\">{html.escape(a_d['archetype'])}</span></td>"
-            f"<td><code>{html.escape(a_d['sku'])}</code></td>"
+            f"<td><code>{html.escape(display_sku)}</code></td>"
             f"<td>{html.escape(a_d['schedule_class'].replace('_', ' '))}</td>"
             f"<td>{a_d['pe_array_rows']}x{a_d['pe_array_cols']}</td>"
             f"<td>{a_d['process_node_nm']} nm</td>"
