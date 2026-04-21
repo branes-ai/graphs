@@ -168,13 +168,25 @@ class TestReportAndHTML:
         assert rpt.power_budget_w == 12.0
         assert len(rpt.archetypes) == len(CANONICAL_ARCHETYPES)
 
-    def test_html_renders_three_charts_and_table(self):
+    def test_html_renders_four_charts_and_table(self):
+        """Page has stacked-bar component breakdown (Chart 1),
+        process-scaling cost line (Chart 2), sustained-TOPS bar
+        ranking (Chart 3), sustained-TOPS trend line (Chart 4),
+        plus a detail table."""
         rpt = build_default_report()
         html = render_generalized_page(rpt, REPO_ROOT)
         assert 'id="chart_same_process"' in html
         assert 'id="chart_process_scaling"' in html
+        assert 'id="chart_sustained_bar"' in html
         assert 'id="chart_tdp_capability"' in html
         assert 'class="generalized"' in html
+
+    def test_bar_chart_shows_both_sustained_and_headroom(self):
+        rpt = build_default_report()
+        html = render_generalized_page(rpt, REPO_ROOT)
+        # Title or legend calls out the sustained-vs-headroom split
+        assert "sustained" in html.lower()
+        assert "headroom" in html.lower()
 
     def test_html_cross_links_to_native_op_page(self):
         rpt = build_default_report()

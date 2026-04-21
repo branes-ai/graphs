@@ -481,7 +481,62 @@ def _render_chart_js(report: GeneralizedReport) -> str:
         },
     }
 
-    # Chart 3: SUSTAINED throughput at fixed power budget.
+    # Chart 3: SUSTAINED TOPS bar chart at reference process node.
+    # A point-in-time view that complements the line chart (chart 4).
+    # Sorted ascending so the winner is at the top (Plotly horizontal
+    # bar charts plot first entry at the bottom by default).
+    ranked = sorted(
+        report.archetypes,
+        key=lambda a: 2.0 * report.power_budget_w / total_pj_per_mac(a, ref_nm)
+                      * a.realistic_utilization,
+    )
+    bar_sustained = [
+        2.0 * report.power_budget_w / total_pj_per_mac(a, ref_nm)
+        * a.realistic_utilization
+        for a in ranked
+    ]
+    bar_peak = [
+        2.0 * report.power_budget_w / total_pj_per_mac(a, ref_nm)
+        for a in ranked
+    ]
+    # Stacked: sustained portion (colored) + wasted headroom (gray)
+    chart_sustained_bar = {
+        "data": [
+            {
+                "type": "bar",
+                "orientation": "h",
+                "name": "Sustained",
+                "y": [a.name for a in ranked],
+                "x": bar_sustained,
+                "marker": {"color": [a.color for a in ranked]},
+                "text": [f"{v:.0f}" for v in bar_sustained],
+                "textposition": "inside",
+                "insidetextanchor": "end",
+            },
+            {
+                "type": "bar",
+                "orientation": "h",
+                "name": "Headroom (util-capped)",
+                "y": [a.name for a in ranked],
+                "x": [p - s for p, s in zip(bar_peak, bar_sustained)],
+                "marker": {"color": "#e3e6eb"},
+                "text": [f"peak {p:.0f}" for p in bar_peak],
+                "textposition": "outside",
+            },
+        ],
+        "layout": {
+            "title": (f"Sustained INT8 TOPS at {ref_nm} nm, "
+                      f"{report.power_budget_w:.0f} W TDP "
+                      f"(colored = sustained, gray = util-capped headroom)"),
+            "xaxis": {"title": "INT8 TOPS"},
+            "yaxis": {"title": "", "automargin": True},
+            "barmode": "stack",
+            "margin": {"t": 50, "b": 50, "l": 240, "r": 100},
+            "legend": {"orientation": "h", "y": -0.15},
+        },
+    }
+
+    # Chart 4: SUSTAINED throughput vs process node (line / trend view).
     # Peak TOPS * realistic_utilization. The utilization factor captures
     # each architecture's structural ceiling - TPU's shape-mismatch +
     # bandwidth cap, KPU's near-1.0 output-stationary saturation, GPU's
@@ -529,6 +584,7 @@ def _render_chart_js(report: GeneralizedReport) -> str:
     payload = {
         "chart_same_process": chart_same_process,
         "chart_process_scaling": chart_process_scaling,
+        "chart_sustained_bar": chart_sustained_bar,
         "chart_tdp_capability": chart_tdp_capability,
     }
     return (
@@ -667,7 +723,6 @@ a.nav-back:hover { text-decoration: underline; }
       pure architectural cost.</p>
     <div id="chart_same_process" class="plot"></div>
   </section>
-  {_render_archetype_table(report)}
   <section class="chart-section">
     <h3>Chart 2: Process-scaling - pJ/MAC vs. node per architecture</h3>
     <p class="chart-desc">How each architecture scales from 28 nm down
@@ -676,16 +731,21 @@ a.nav-back:hover { text-decoration: underline; }
     <div id="chart_process_scaling" class="plot"></div>
   </section>
   <section class="chart-section">
-    <h3>Chart 3: Sustained INT8 TOPS at {report.power_budget_w:.0f} W TDP vs. process node</h3>
-    <p class="chart-desc">The chart that decides which architecture wins
-      for your application: sustained throughput = peak * realistic
-      utilization. Marketing peak-TOPS numbers assume 100% ALU duty
-      cycle, which is structurally impossible for WS systolic (shape
-      mismatch caps util at ~0.40), CGRA (reconfig dead time caps at
-      ~0.25), SIMT GPU (warp divergence), and CPU (memory-bound
-      ~0.15). KPU output-stationary scheduling saturates toward 0.90,
-      so its sustained TOPS is the highest even though its theoretical
-      MAC floor is higher than TPU's.</p>
+    <h3>Chart 3: Sustained INT8 TOPS at {report.reference_process_nm} nm, {report.power_budget_w:.0f} W TDP (bar view)</h3>
+    <p class="chart-desc">The headline story in one picture: sustained
+      throughput = peak * realistic utilization, ranked at a single
+      process node and power budget. Gray segments show the peak-TOPS
+      headroom that each architecture can never reach due to its
+      structural utilization ceiling. KPU wins sustained throughput
+      even though TPU has the lower theoretical MAC floor.</p>
+    <div id="chart_sustained_bar" class="plot"></div>
+  </section>
+  {_render_archetype_table(report)}
+  <section class="chart-section">
+    <h3>Chart 4: Sustained INT8 TOPS at {report.power_budget_w:.0f} W TDP vs. process node (trend)</h3>
+    <p class="chart-desc">Same sustained-TOPS story as chart 3, but
+      as a function of process node. Ratios are preserved across
+      processes; absolute throughput grows as process shrinks.</p>
     <div id="chart_tdp_capability" class="plot"></div>
   </section>
 </main>
