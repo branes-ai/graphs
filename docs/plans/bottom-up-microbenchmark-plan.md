@@ -258,7 +258,7 @@ This layer models the **on-chip transport** that carries packets between cores, 
 
 ### Exit criteria
 - Measured per-hop energy on at least one SKU within 30% of the analytical `NOC_HOP_ENERGY_PJ` used today.
-- Fabric topology model matches measurement (e.g., hop-count curve is linear for ring, quadratic for 2D mesh at bisection).
+- Fabric topology model matches measurement: hop-count scaling is linear in ring position for a ring, grows with mesh dimension (roughly proportional to sqrt(node count)) for a square 2D mesh, and is constant for a full crossbar.
 - Composition test: Layers 1–6 predict a kernel whose working set spans the on-chip fabric (e.g., multi-core CPU far-tile access, GPU cross-SM reduction) within 12%.
 
 ---
@@ -404,9 +404,9 @@ Layers must be built 1 -> 9 because each layer's composition test depends on ear
 
 This plan is complete when, on at least one fully-covered SKU (target: Jetson Orin AGX MAXN or Intel i7-12700K):
 
-1. Every resource-model field used by the roofline and energy models has a `field_provenance` entry backed by a Layer 1–9 benchmark.
-2. Each upward composition test (Layers 1..N -> Layer N+1 microbench) passes within its target band.
+1. Every resource-model field used by the roofline and energy models has a `field_provenance` entry. Layers 1–7 must be backed by a benchmark on the target SKU. Layers 8–9 must be backed by a benchmark **only if multi-device hardware is available**; otherwise the field provenance is `THEORETICAL` and the report annotates the layer as "no hardware" rather than "fit failed".
+2. Each upward composition test (Layers 1..N -> Layer N+1 microbench) passes within its target band, conditional on the target layer's measurement being available.
 3. A regression in any layer's fit triggers CI failure before it can reach `main`.
-4. `cli/microarch_validation_report.py` reports CALIBRATED across Layers 1–7 and (where multi-device hardware is available) Layers 8–9 for the SKU. Layers 8–9 may legitimately remain `THEORETICAL` for single-device development environments; the report distinguishes "no hardware" from "fit failed".
+4. `cli/microarch_validation_report.py` reports CALIBRATED across Layers 1–7 for the SKU, and CALIBRATED on Layers 8–9 where multi-device hardware exists. Layers 8–9 remain `THEORETICAL` in single-device development environments; the report explicitly distinguishes "no hardware" from "fit failed".
 
 **Workload-level end-to-end accuracy (e.g., ResNet-18 within 15%) is explicitly out of scope for this plan** and is the charter of the separate workload-decomposition plan (Hierarchy B).

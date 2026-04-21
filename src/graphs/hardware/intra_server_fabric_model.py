@@ -16,7 +16,7 @@ See ``docs/plans/microarch-model-delivery-plan.md`` and
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 import json
@@ -46,7 +46,10 @@ class IntraServerFabricModel:
         topology: Intra-server topology enum.
         device_count: Number of coherent devices in the fabric
             (e.g., 8 for DGX H100 NVSwitch mesh).
-        per_link_bandwidth_gbps: Bandwidth per directional link, GB/s.
+        per_link_bandwidth_gbps: Bandwidth per directional link,
+            gigabits per second (Gbps). Per the field name, values are
+            in bits/s (not bytes/s). Consumers converting to GB/s must
+            divide by 8.
         link_energy_pj_per_bit: Energy per bit per link traversal.
         link_count: Total directional link count
             (e.g., 64 for NVSwitch all-to-all).

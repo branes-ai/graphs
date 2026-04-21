@@ -12,17 +12,34 @@ from __future__ import annotations
 
 import base64
 import html
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from graphs.reporting.microarch_schema import (
-    CONFIDENCE_LADDER,
     LayerPanel,
     MicroarchReport,
-    REPORT_LAYERS_IN_ORDER,
 )
+
+
+# Whitelist of status values whose CSS class is safe to emit unescaped.
+# Anything outside this set is coerced to "unknown" to prevent HTML
+# attribute injection through a crafted panel.status.
+_SAFE_STATUS_CLASSES = {
+    "calibrated",
+    "interpolated",
+    "theoretical",
+    "not_populated",
+    "unknown",
+}
+
+
+def _safe_status_class(status: str) -> str:
+    """Return an HTML-safe class token for a panel status."""
+    token = (status or "").strip().lower()
+    if token in _SAFE_STATUS_CLASSES:
+        return token
+    return "unknown"
 
 
 # Brand asset path (repo-relative).
@@ -249,14 +266,14 @@ def _render_metric(name: str, entry: Dict) -> str:
 
 
 def _render_panel(panel: LayerPanel) -> str:
-    status = panel.status or "not_populated"
-    badge_class = status.lower()
+    raw_status = panel.status or "not_populated"
+    badge_class = _safe_status_class(raw_status)
     summary_block = (
         f'<p class="summary">{html.escape(panel.summary)}</p>'
-        if panel.summary and status != "not_populated"
+        if panel.summary and badge_class != "not_populated"
         else ""
     )
-    if status == "not_populated":
+    if badge_class == "not_populated":
         body = '<div class="placeholder">NOT YET POPULATED</div>'
     else:
         metrics_html = "".join(
@@ -266,11 +283,13 @@ def _render_panel(panel: LayerPanel) -> str:
             f'{summary_block}'
             f'<div class="metrics-grid">{metrics_html}</div>'
         )
+    # Display text is fully HTML-escaped; class attribute uses the whitelisted token.
+    display_status = html.escape(raw_status.replace("_", " "))
     return f"""
 <div class="layer-panel">
   <header>
     <h3>{html.escape(panel.title)}</h3>
-    <span class="badge {badge_class}">{html.escape(status.replace("_", " "))}</span>
+    <span class="badge {badge_class}">{display_status}</span>
   </header>
   {body}
 </div>

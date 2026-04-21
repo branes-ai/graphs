@@ -44,7 +44,7 @@ Foundation that every subsequent milestone depends on. No layer content yet.
 - `LayerTag` enum with all 9 entries in `src/graphs/benchmarks/schema.py` (Layers 8 and 9 defined but unused this phase).
 - `HardwareResourceModel.field_provenance: Dict[str, EstimationConfidence]`.
 - Empty dataclass stubs: `SoCFabricModel` (`hardware/fabric_model.py`), `IntraServerFabricModel` (`hardware/intra_server_fabric_model.py`), `ClusterInterconnectModel` (`hardware/cluster_interconnect_model.py`) — field shapes only; values in later phases or later plans.
-- `cli/microarch_validation_report.py` skeleton with flags `--hardware`, `--layer`, `--precision`, `--output`, `--format {html,pptx,json}`.
+- `cli/microarch_validation_report.py` skeleton with flags `--hardware`, `--layer`, `--precision`, `--output`, `--format {html,pptx,json,all}`, `--serve`, `--verbose`.
 - HTML template with per-SKU page shell plus 7 empty layer panels and a cross-SKU comparison page.
 - **Branes branding:** template header and footer integrate `docs/img/Branes_Logo.jpg`; colors and typography chosen to match brand. Every generated HTML page and PPT slide carries the logo — this report ships externally.
 - JSON data contract: `reports/microarch_model/<date>/data/<sku>.json`.
@@ -57,7 +57,8 @@ Foundation that every subsequent milestone depends on. No layer content yet.
 - CI residual-gate hooks.
 
 **Exit criteria:**
-- `./cli/microarch_validation_report.py --hardware jetson_orin_agx_64gb --output tmp/` produces HTML with `"NOT YET POPULATED"` placeholders in all 7 panels, Branes-branded chrome visible, and a working PowerPoint export.
+- `./cli/microarch_validation_report.py --hardware jetson_orin_agx_64gb --output tmp/ --format html` produces HTML with `"NOT YET POPULATED"` placeholders in all 7 panels and Branes-branded chrome visible.
+- `./cli/microarch_validation_report.py --hardware jetson_orin_agx_64gb --output tmp/ --format pptx` produces a `.pptx` deck with the Branes-branded master slide.
 - Unit tests cover JSON round-trip and the dataclass-stub serialization.
 
 ---

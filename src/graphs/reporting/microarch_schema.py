@@ -13,9 +13,9 @@ See ``docs/plans/microarch-model-delivery-plan.md``.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, List
 import json
 from pathlib import Path
 
@@ -144,7 +144,7 @@ def empty_report(sku: str, display_name: str = "") -> MicroarchReport:
     All seven layer panels start in status 'not_populated'. M1-M7
     replace these in place.
     """
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     panels = [
         LayerPanel(layer=tag, title=title, status="not_populated",
                    summary="NOT YET POPULATED")

@@ -28,7 +28,7 @@ The word **layer** refers to a validation layer; cache levels are written **L1 /
 
 ### 1.1 Benchmark harness
 
-```
+```text
 src/graphs/benchmarks/
 ├── collectors.py, runner.py, schema.py           # framework-agnostic harness
 ├── microbench/
@@ -54,7 +54,7 @@ Note: GEMM and Conv2D are **mixed-layer composites** — they exercise ALU + reg
 
 ### 1.2 Calibration / fitting plumbing
 
-```
+```text
 src/graphs/calibration/
 ├── calibrator.py, calibration_db.py, schema.py
 ├── efficiency_curves.py                          # fits size → efficiency
@@ -65,11 +65,11 @@ src/graphs/calibration/
 └── power_model.py, precision_detector.py
 ```
 
-Per-layer fitters under `calibration/fitters/` (`layer1_alu_fitter.py` ... `layer9_cluster_interconnect_fitter.py`) do not yet exist; Phase 0 of the plan stands them up.
+The `calibration/fitters/` subpackage exists (stood up pre-pivot) and already hosts `layer1_alu_fitter.py` and `layer2_register_fitter.py`. Fitters for the remaining layers (L1/L2/L3 cache, SoC fabric, external memory, intra-server, cluster interconnect) are added as each validation phase lands.
 
 ### 1.3 Validation tests
 
-```
+```text
 validation/
 ├── empirical/
 │   ├── sweep_{gemm,conv2d,mlp}.py                # composite sweeps that feed top-down calibration
@@ -185,7 +185,7 @@ The `validation/composition/` directory and per-layer `validation/empirical/resu
 - Fabric-bandwidth saturation curve.
 - Memory-controller contention probe (N cores → same vs. distributed controllers).
 
-**Validation status:** `THEORETICAL` only. No `SoCFabricModel` dataclass exists yet.
+**Validation status:** `THEORETICAL` only. `SoCFabricModel` scaffolding is in place (M0 landed the dataclass and `field_provenance` machinery) but no per-SKU content or measurement backs it yet.
 
 ---
 
@@ -222,9 +222,9 @@ The `validation/composition/` directory and per-layer `validation/empirical/resu
 - NUMA cross-socket latency (EPYC dual-socket, Xeon dual-socket).
 - TPU v4 / v5p ICI bandwidth between chips inside one pod.
 - Intra-chassis collective-op benchmark (NCCL AllReduce on 2–16 local devices).
-- `IntraServerFabricModel` dataclass (does not yet exist).
+- Per-SKU `IntraServerFabricModel` content (M0 landed the dataclass scaffolding; values are still empty).
 
-**Validation status:** Not modeled, not measured.
+**Validation status:** Scaffolding exists (`IntraServerFabricModel`, `field_provenance`) but no per-SKU values are populated yet.
 
 ---
 
@@ -232,7 +232,7 @@ The `validation/composition/` directory and per-layer `validation/empirical/resu
 
 **Goal:** Measure the message-passing fabric between chassis — Ethernet (100/200/400/800 GbE), InfiniBand (NDR / XDR), RoCE, optical (TPU v7 OCS). Latency and energy are dominated by NIC, switch, and topology.
 
-**What we have:** Nothing. No multi-node benchmark, no `ClusterInterconnectModel` dataclass, no entry in any current resource model that distinguishes a 100 GbE link from an IB NDR link from a TPU OCS link.
+**What we have:** `ClusterInterconnectModel` dataclass scaffolding (M0) with fabric-type and topology enums; no per-SKU entries, no multi-node benchmark, and no resource-model entry yet distinguishes a 100 GbE link from an IB NDR link from a TPU OCS link.
 
 **What is missing:**
 - Point-to-point bandwidth/latency probe per fabric (`ib_send_bw`-style for IB; `netperf` for Ethernet).
@@ -240,9 +240,9 @@ The `validation/composition/` directory and per-layer `validation/empirical/resu
 - Multi-node collective-op benchmark (AllReduce/AllGather/AllToAll across 2 / 4 / 16 / 64+ nodes).
 - Tail-latency under congestion probe (incast and all-to-all under background traffic).
 - TPU OCS reconfiguration cost probe (if access).
-- `ClusterInterconnectModel` dataclass with fabric-type and topology enums.
+- Per-SKU `ClusterInterconnectModel` content (M0 landed the dataclass itself).
 
-**Validation status:** Not modeled, not measured. Most v1 entries will remain `THEORETICAL` until multi-node access is arranged; the plan calls for shipping the scaffolding so future measurements drop in without code changes.
+**Validation status:** Scaffolding landed (M0); content and measurement still missing. Most v1 entries will remain `THEORETICAL` until multi-node access is arranged.
 
 ---
 
@@ -269,7 +269,7 @@ A bottom-up path fits each layer from an isolated probe and composes upward. The
 
 ### 3.4 Confidence propagation is uneven
 
-`EstimationConfidence` is propagated correctly through composite reports, but individual resource-model fields don't carry confidence annotations. If a field in `HardwareResourceModel` came from a datasheet, a measurement, or an interpolation, the reader can't tell without reading the comments. Phase 0 of the plan adds `HardwareResourceModel.field_provenance` to fix this.
+`EstimationConfidence` is propagated correctly through composite reports. Individual resource-model fields now carry confidence annotations via `HardwareResourceModel.field_provenance`, landed with M0; subsequent milestones populate per-field entries.
 
 ### 3.5 Layer 6 was implicit, Layer 8/9 were conflated
 
