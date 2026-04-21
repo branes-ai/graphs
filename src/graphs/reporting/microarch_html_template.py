@@ -440,11 +440,19 @@ a.primary-link:hover {{ background: #15385c; }}
     <p><a class="primary-link" href="compare_archetypes.html">Open compute-archetype comparison &rarr;</a></p>
   </section>
   <section class="highlighted-link">
-    <h3>Native-op energy breakdown (ALU -&gt; +Register -&gt; +L1)</h3>
-    <p>Theoretical energy floor per MAC for each architecture's native operation,
-    broken down by memory-hierarchy layer. No workload assumed - this is the
-    architectural-efficiency ceiling.</p>
+    <h3>Native-op energy breakdown (specific products)</h3>
+    <p>Theoretical energy floor per MAC for each <em>shipping product</em>'s
+    native operation, broken down by memory-hierarchy layer. Coral (14nm)
+    vs. KPU T128 (16nm) vs. Jetson Orin AGX (8nm) - process advantages
+    mixed in.</p>
     <p><a class="primary-link" href="native_op_energy.html">Open native-op breakdown &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Generalized architecture comparison (apples-to-apples)</h3>
+    <p>Same data but with the process-technology advantage stripped out:
+    CPU / GPU / TPU / KPU / DSP / DFM / CGRA at matched process, plus
+    process-scaling curves and peak-TOPS-at-fixed-TDP envelopes.</p>
+    <p><a class="primary-link" href="generalized_architecture.html">Open generalized comparison &rarr;</a></p>
   </section>
   <section>
     <h3>Per-SKU layer panels</h3>

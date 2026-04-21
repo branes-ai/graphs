@@ -51,6 +51,10 @@ from graphs.reporting.native_op_energy import (  # noqa: E402
     build_default_comparison as build_native_op_comparison,
     render_native_op_page,
 )
+from graphs.reporting.generalized_architecture import (  # noqa: E402
+    build_default_report as build_generalized_report,
+    render_generalized_page,
+)
 from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
@@ -131,7 +135,7 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
     except RuntimeError as exc:
         import sys as _sys
         print(f"warning: compare_archetypes.html skipped ({exc})", file=_sys.stderr)
-    # Native-op energy breakdown (M0.5)
+    # Native-op energy breakdown (M0.5) - specific shipping products
     try:
         native_op_report = build_native_op_comparison(
             precision=Precision.INT8, kpu_sku="Stillwater-KPU-T128",
@@ -142,6 +146,17 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
     except RuntimeError as exc:
         import sys as _sys
         print(f"warning: native_op_energy.html skipped ({exc})", file=_sys.stderr)
+    # Generalized architecture comparison (M0.5) - process-normalized
+    try:
+        gen_report = build_generalized_report(
+            reference_process_nm=16, power_budget_w=12.0,
+        )
+        gen_path = out_dir / "generalized_architecture.html"
+        gen_path.write_text(render_generalized_page(gen_report, _repo_root))
+        written.append(gen_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: generalized_architecture.html skipped ({exc})", file=_sys.stderr)
     return written
 
 
