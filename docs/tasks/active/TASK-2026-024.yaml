@@ -1,0 +1,110 @@
+# Task: M1 Layer 1 ALU Model Population
+task_id: "TASK-2026-024"
+title: "M1: Layer 1 (ALU / MAC / Tensor Core) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M1"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-4d"
+  complexity: "medium"
+
+objective: |
+  Populate ComputeFabric.ops_per_unit_per_clock[precision] for all
+  supported precisions (FP64, FP32, TF32, BF16, FP16, FP8, INT8,
+  INT4) and per-precision energy coefficients (via
+  PROCESS_NODE_ENERGY x CIRCUIT_TYPE_MULTIPLIER) across the 9
+  target SKUs. Tag all entries with field_provenance =
+  THEORETICAL (or INTERPOLATED where datasheet families support
+  it). Render the Layer 1 panel in the per-SKU HTML report and the
+  cross-SKU comparison chart.
+
+motivation: |
+  Layer 1 is the first populated panel and sets the pattern for
+  M2-M7. It also feeds the compute-archetype comparison harness
+  (M0.5) with the first real numbers.
+
+deliverables:
+  - path: "src/graphs/hardware/models/**/*.py"
+    type: "code"
+    description: "Populate ComputeFabric.ops_per_unit_per_clock[precision] for all 9 SKUs and all supported precisions; attach field_provenance tags"
+    acceptance: "Every SKU resolves with non-default values for every supported precision"
+
+  - path: "src/graphs/hardware/resource_model.py"
+    type: "code"
+    description: "Populate ComputeFabric.energy_per_flop_fp32 via PROCESS_NODE_ENERGY * CIRCUIT_TYPE_MULTIPLIER; expose per-precision energy coefficients"
+    acceptance: "Per-SKU energy coefficients carry THEORETICAL provenance"
+
+  - path: "src/graphs/reporting/layer_panels/layer1_alu.py"
+    type: "code"
+    description: "Layer 1 panel renderer; predicted ops/s and pJ/op for each precision per SKU; confidence badge"
+    acceptance: "Panel renders in per-SKU HTML and cross-SKU compare page"
+
+  - path: "tests/hardware/test_layer1_alu_model.py"
+    type: "test"
+    description: "Self-consistency: ranges sane, no sign errors, monotone with precision narrowing"
+    acceptance: "No hardware measurement; pure model self-check"
+
+dependencies:
+  - task: "TASK-2026-022"
+    description: "M0 scaffolding"
+  - task: "TASK-2026-023"
+    description: "M0.5 needed for KPU SKUs"
+
+interfaces_consumed:
+  - name: "LayerTag.ALU"
+    module: "graphs.benchmarks.schema"
+  - name: "HardwareResourceModel.field_provenance"
+    module: "graphs.hardware.resource_model"
+
+acceptance_criteria:
+  - criterion: "Layer 1 panel populated for all 9 target SKUs with per-precision ops/s and pJ/op"
+    verification: "Regenerated HTML shows Layer 1 content on every SKU page"
+  - criterion: "Cross-SKU ops/W chart at FP16 and INT8 renders in compare.html"
+    verification: "Plan-owner visual review"
+  - criterion: "Plan-owner review signs off on Layer 1 numbers for one GPU, one CPU, one accelerator SKU"
+    verification: "Sign-off in PR review"
+
+constraints:
+  - "NO measurement; all entries THEORETICAL or INTERPOLATED"
+  - "All 9 SKUs covered; no partial population"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer1_alu_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-022", "TASK-2026-023"]
+  blocks: ["TASK-2026-025"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M1 - Layer 1: ALU / MAC / Tensor Core"

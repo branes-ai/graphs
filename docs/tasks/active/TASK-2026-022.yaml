@@ -1,0 +1,147 @@
+# Task: M0 Scaffolding
+task_id: "TASK-2026-022"
+title: "M0: Scaffolding - schema, dataclass stubs, CLI skeleton, branded HTML template"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M0"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-5d"
+  complexity: "medium"
+
+objective: |
+  Stand up the foundation every subsequent milestone depends on: the
+  LayerTag enum, field_provenance on HardwareResourceModel, empty
+  dataclass stubs for SoC/intra-server/inter-server fabrics, the CLI
+  skeleton, a Branes-branded HTML template with 7 empty layer
+  panels, a cross-SKU comparison page, the JSON data contract, and
+  the confidence-ladder legend.
+
+motivation: |
+  The subsequent milestones populate content into these scaffolds. A
+  clean, branded, externally-shareable shell shipped at M0 lets
+  every layer milestone be demoable the day it lands.
+
+deliverables:
+  - path: "src/graphs/benchmarks/schema.py"
+    type: "code"
+    description: "LayerTag enum with all 9 entries (ALU, REGISTER, L1_CACHE, L2_CACHE, L3_CACHE, SOC_DATA_MOVEMENT, EXTERNAL_MEMORY, DISTRIBUTED_MEMORY, CLUSTER_INTERCONNECT); BenchmarkResult.layer field"
+    acceptance: "Enum resolves; all existing BenchmarkResult writers compile"
+
+  - path: "src/graphs/hardware/resource_model.py"
+    type: "code"
+    description: "Add HardwareResourceModel.field_provenance: Dict[str, EstimationConfidence]"
+    acceptance: "Additive; default empty dict; existing callers unchanged"
+
+  - path: "src/graphs/hardware/fabric_model.py"
+    type: "code"
+    description: "SoCFabricModel dataclass stub: topology enum, hop_latency, pj_per_flit_per_hop, bisection_bandwidth, controller_count; fields only"
+    acceptance: "New file; round-trips through to_dict/from_dict"
+
+  - path: "src/graphs/hardware/intra_server_fabric_model.py"
+    type: "code"
+    description: "IntraServerFabricModel dataclass stub: topology (bus/crossbar/NVSwitch/PCIe-tree), per_link_bandwidth, link_energy"
+    acceptance: "New file; round-trips"
+
+  - path: "src/graphs/hardware/cluster_interconnect_model.py"
+    type: "code"
+    description: "ClusterInterconnectModel dataclass stub: fabric_type enum, topology enum, node_count, per_hop_latency, pj_per_bit, nic_energy_fixed"
+    acceptance: "New file; round-trips"
+
+  - path: "cli/microarch_validation_report.py"
+    type: "code"
+    description: "CLI skeleton with flags --hardware, --layer, --precision, --output, --format {html,pptx,json}, --serve"
+    acceptance: "End-to-end run on one SKU produces HTML with placeholder panels + working PPT export"
+
+  - path: "src/graphs/reporting/microarch_html_template.py"
+    type: "code"
+    description: "Branes-branded HTML template: header/footer with logo from docs/img/Branes_Logo.jpg; per-SKU page shell; 7 empty layer panels; cross-SKU comparison page; confidence-ladder legend"
+    acceptance: "Renders externally-shareable HTML with brand identity visible"
+
+  - path: "reports/microarch_model/<date>/data/<sku>.json"
+    type: "contract"
+    description: "JSON data contract per SKU; schema documented"
+    acceptance: "Schema in reporting/schema.py; example emitted during skeleton run"
+
+  - path: "reports/microarch_model/README.md"
+    type: "documentation"
+    description: "How to regenerate; what confidence tags mean; which SKUs are in scope"
+    acceptance: "Legend explains THEORETICAL / INTERPOLATED / CALIBRATED"
+
+dependencies: []
+
+interfaces_provided:
+  - name: "LayerTag"
+    module: "graphs.benchmarks.schema"
+  - name: "HardwareResourceModel.field_provenance"
+    module: "graphs.hardware.resource_model"
+  - name: "SoCFabricModel"
+    module: "graphs.hardware.fabric_model"
+  - name: "IntraServerFabricModel"
+    module: "graphs.hardware.intra_server_fabric_model"
+  - name: "ClusterInterconnectModel"
+    module: "graphs.hardware.cluster_interconnect_model"
+  - name: "cli/microarch_validation_report.py"
+    module: "cli"
+
+acceptance_criteria:
+  - criterion: "End-to-end skeleton run produces HTML with NOT YET POPULATED placeholders in all 7 panels"
+    verification: "./cli/microarch_validation_report.py --hardware jetson_orin_agx_64gb --output tmp/ produces HTML"
+  - criterion: "PowerPoint export works with branded master slide"
+    verification: "Same command with --format pptx produces a .pptx"
+  - criterion: "Branes logo visible on every HTML page and PPT slide"
+    verification: "Plan-owner visual review"
+  - criterion: "JSON round-trip for all three fabric dataclasses"
+    verification: "tests/hardware/test_fabric_models.py"
+
+constraints:
+  - "No measurement plumbing (no PowerMeter)"
+  - "No composition-test runner"
+  - "No benchmark kernels"
+  - "No CI residual-gate hooks"
+  - "No Unicode characters in any emitted text (CLAUDE.md rule)"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_fabric_models.py, tests/reporting/test_microarch_template.py"
+  integration_tests:
+    required: true
+    location: "tests/cli/test_microarch_validation_report.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: []
+  blocks: ["TASK-2026-023", "TASK-2026-024"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M0 - Scaffolding"
+  - type: "asset"
+    path: "docs/img/Branes_Logo.jpg"

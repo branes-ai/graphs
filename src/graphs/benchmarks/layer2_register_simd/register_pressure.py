@@ -114,7 +114,7 @@ def run_register_pressure_benchmark(
     Runs 4 independent FMA streams vs 4 dependent FMA streams
     (same total FLOPs) and reports the ILP ratio.
 
-    Returns a BenchmarkResult tagged LayerTag.REGISTER_SIMD with
+    Returns a BenchmarkResult tagged LayerTag.REGISTER with
     the ILP ratio in extra["ilp_ratio"].
     """
     dtype_map = {
@@ -175,7 +175,7 @@ def run_register_pressure_benchmark(
         timing=timing,
         throughput_ops_per_sec=total_flops / (dep_mean / 1000.0) if dep_mean > 0 else 0,
         gflops=dep_gflops,
-        layer=LayerTag.REGISTER_SIMD,
+        layer=LayerTag.REGISTER,
         success=True,
         extra={
             "num_elements": num_elements,

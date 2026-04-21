@@ -37,23 +37,32 @@ class LayerTag(Enum):
     ``COMPOSITE`` to indicate they validate the stack rather than a single
     layer.
 
-    See ``docs/plans/bottom-up-microbenchmark-plan.md`` for the full layering.
+    See ``docs/plans/microarch-model-delivery-plan.md`` and
+    ``docs/plans/bottom-up-microbenchmark-plan.md`` for the full 9-layer
+    framing. The word ``layer`` is reserved for the validation hierarchy;
+    cache levels are always written as L1 / L2 / L3 cache to avoid collision.
 
     Layers:
-        ALU             - single FMA / MAC / tensor-core slot in isolation
-        REGISTER_SIMD   - register file, SIMD lane, warp issue, systolic fill
-        SCRATCHPAD      - L1, L2, tile scratchpad, tiling overhead
-        ONCHIP          - chip-wide L3 / LLC, distributed L3, NoC hops, coherence
-        DRAM            - external DRAM (HBM, GDDR, DDR, LPDDR)
-        CLUSTER         - PCIe, NVLink, NV-HBI, ICI, NUMA, collectives
-        COMPOSITE       - spans multiple layers (legacy / end-to-end benchmarks)
+        ALU                   - single FMA / MAC / tensor-core slot in isolation
+        REGISTER              - register file, SIMD lane, warp issue, systolic fill
+        L1_CACHE              - L1 cache / per-core scratchpad / tile-local storage
+        L2_CACHE              - L2 cache, line-fill latency, prefetch
+        L3_CACHE              - shared / last-level cache, capacity, coherence protocol
+        SOC_DATA_MOVEMENT     - on-chip fabric (crossbar / ring / mesh / CLOS NoC)
+        EXTERNAL_MEMORY       - HBM / GDDR / DDR / LPDDR bandwidth and energy
+        DISTRIBUTED_MEMORY    - intra-server fabric: PCIe / NVLink / NVSwitch / NUMA / TPU-ICI
+        CLUSTER_INTERCONNECT  - inter-server fabric: Ethernet / InfiniBand / RoCE / optical
+        COMPOSITE             - spans multiple layers (end-to-end workloads)
     """
     ALU = "alu"
-    REGISTER_SIMD = "register_simd"
-    SCRATCHPAD = "scratchpad"
-    ONCHIP = "onchip"
-    DRAM = "dram"
-    CLUSTER = "cluster"
+    REGISTER = "register"
+    L1_CACHE = "l1_cache"
+    L2_CACHE = "l2_cache"
+    L3_CACHE = "l3_cache"
+    SOC_DATA_MOVEMENT = "soc_data_movement"
+    EXTERNAL_MEMORY = "external_memory"
+    DISTRIBUTED_MEMORY = "distributed_memory"
+    CLUSTER_INTERCONNECT = "cluster_interconnect"
     COMPOSITE = "composite"
 
 

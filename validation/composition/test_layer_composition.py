@@ -88,7 +88,7 @@ class CompositionCheck:
     tolerance: float = 0.15
 
 
-# Module-level registry. Phase 1 lands the first ALU -> SCRATCHPAD check.
+# Module-level registry. Phase 1 lands the first ALU -> L1_CACHE check.
 _CHECKS: List[CompositionCheck] = []
 
 
@@ -212,7 +212,7 @@ def test_registry_api_is_functional() -> None:
                 name="phase0_self_test",
                 hardware="dummy",
                 from_layers=[LT.ALU],
-                predicts_layer=LT.REGISTER_SIMD,
+                predicts_layer=LT.REGISTER,
                 status=CheckStatus.SKIPPED,
                 details="phase 0 self-test",
             )
@@ -222,7 +222,7 @@ def test_registry_api_is_functional() -> None:
                 name="phase0_self_test",
                 hardware="dummy",
                 from_layers=[LT.ALU],
-                predicts_layer=LT.REGISTER_SIMD,
+                predicts_layer=LT.REGISTER,
                 runner=_runner,
             )
         )

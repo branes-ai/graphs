@@ -34,7 +34,7 @@ def predict_gemm_from_layer1_2(
 
     Args:
         layer1_results: FMA-rate results (LayerTag.ALU)
-        layer2_results: SIMD width sweep results (LayerTag.REGISTER_SIMD)
+        layer2_results: SIMD width sweep results (LayerTag.REGISTER)
         precision: which precision to predict for
         gemm_overhead: GEMM-specific overhead beyond SIMD (loop control, etc.)
 
@@ -107,7 +107,7 @@ def check_layer1_2_to_gemm(
             name=f"layer1_2_to_gemm_{precision}",
             hardware=hardware,
             predicts_layer=LayerTag.COMPOSITE,
-            from_layers=[LayerTag.ALU, LayerTag.REGISTER_SIMD],
+            from_layers=[LayerTag.ALU, LayerTag.REGISTER],
             status=CheckStatus.SKIPPED,
             tolerance=tolerance,
             details="Insufficient Layer 1 or Layer 2 data",
@@ -118,7 +118,7 @@ def check_layer1_2_to_gemm(
             name=f"layer1_2_to_gemm_{precision}",
             hardware=hardware,
             predicts_layer=LayerTag.COMPOSITE,
-            from_layers=[LayerTag.ALU, LayerTag.REGISTER_SIMD],
+            from_layers=[LayerTag.ALU, LayerTag.REGISTER],
             status=CheckStatus.SKIPPED,
             tolerance=tolerance,
             details="No measured GEMM baseline available",
@@ -131,7 +131,7 @@ def check_layer1_2_to_gemm(
         name=f"layer1_2_to_gemm_{precision}",
         hardware=hardware,
         predicts_layer=LayerTag.COMPOSITE,
-        from_layers=[LayerTag.ALU, LayerTag.REGISTER_SIMD],
+        from_layers=[LayerTag.ALU, LayerTag.REGISTER],
         status=CheckStatus.PASSED if passed else CheckStatus.FAILED,
         max_relative_error=relative_error,
         tolerance=tolerance,

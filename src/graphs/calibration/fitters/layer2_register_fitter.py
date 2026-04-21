@@ -65,7 +65,7 @@ class Layer2RegisterFitter:
 
         Args:
             results: BenchmarkResults from Layer 2 benchmarks
-                     (layer==REGISTER_SIMD, success==True)
+                     (layer==REGISTER, success==True)
             hardware_name: SKU name for the fit record
 
         Returns:
@@ -73,7 +73,7 @@ class Layer2RegisterFitter:
         """
         layer2_results = [
             r for r in results
-            if r.layer is LayerTag.REGISTER_SIMD and r.success
+            if r.layer is LayerTag.REGISTER and r.success
         ]
 
         fit = SIMDFitResult(

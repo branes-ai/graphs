@@ -1,0 +1,93 @@
+# Task: Micro-architectural Model Delivery (Umbrella)
+task_id: "TASK-2026-021"
+title: "Micro-arch model delivery: Layers 1-7 end-to-end (umbrella)"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "epic"
+  priority: "high"
+  milestone: "microarch-delivery"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "7-9w"
+  complexity: "high"
+
+objective: |
+  Deliver analytical energy and latency models for Layers 1-7 of the
+  9-layer micro-architectural hierarchy, end-to-end through a
+  Branes-branded reporting tool (HTML + PowerPoint + JSON), on a
+  compressed schedule for investor presentations and product
+  planning.
+
+  System-level validation (microbenchmark kernels, power-meter
+  integration, measurement campaigns, CI residual gates) is
+  explicitly deferred to a follow-on phase after this epic ships.
+  Layers 8 (intra-server) and 9 (inter-server) are out of scope for
+  this delivery.
+
+motivation: |
+  Stakeholder timelines require quantitative, layered,
+  cross-architecture comparisons on a short horizon. Measurement-
+  driven validation (the existing TASK-2026-013..020 track) is the
+  correct long-term foundation but will not land in time. This epic
+  delivers model content first, ships externally under Branes
+  branding with honest confidence annotations
+  (THEORETICAL / INTERPOLATED), and leaves hooks for measurement to
+  plug in after M8.
+
+deliverables:
+  - path: "docs/plans/microarch-model-delivery-plan.md"
+    type: "documentation"
+    description: "Plan document (already landed)"
+    acceptance: "Locked 2026-04-20; no further modifications"
+
+  - path: "TASK-2026-022..031"
+    type: "tracking"
+    description: "Child tasks M0, M0.5, M1-M7, M8"
+    acceptance: "All child tasks reach completed"
+
+dependencies: []
+
+acceptance_criteria:
+  - criterion: "All 10 child tasks complete"
+    verification: "TASK-2026-022..031 status == completed"
+  - criterion: "M8 engineering deck signed off by plan owner"
+    verification: "Tagged release branch exists with deck artifact"
+  - criterion: "Investor due-diligence slide derivable from M8 deck"
+    verification: "Plan owner confirms after M8 review"
+
+constraints:
+  - "No measurement work interleaved with milestones M0-M8"
+  - "No Layer 8 or Layer 9 content"
+  - "No workload decomposition (Hierarchy B)"
+  - "SKU list locked 2026-04-20: Jetson Orin AGX, i7-12700K, Ryzen 9 8945HS, KPU T64/T128/T256, Coral Edge TPU, Hailo-8, Hailo-10H"
+
+state:
+  status: "ready"
+  blocked_by: []
+  blocks: []
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Epic created from microarch-model-delivery-plan"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "whole document"
+  - type: "documentation"
+    path: "docs/plans/bottom-up-microbenchmark-plan.md"
+    section: "re-sequenced: runs after this epic completes"

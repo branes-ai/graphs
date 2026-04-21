@@ -56,7 +56,7 @@ def run_simd_width_sweep(
     widths. Small widths will have lower absolute GFLOPS due to
     PyTorch dispatch overhead dominating the per-call cost.
 
-    Returns one BenchmarkResult per width, all tagged LayerTag.REGISTER_SIMD.
+    Returns one BenchmarkResult per width, all tagged LayerTag.REGISTER.
     """
     global _sink
 
@@ -129,7 +129,7 @@ def run_simd_width_sweep(
             timing=timing,
             throughput_ops_per_sec=total_flops / (mean_ms / 1000.0) if mean_ms > 0 else 0,
             gflops=gflops,
-            layer=LayerTag.REGISTER_SIMD,
+            layer=LayerTag.REGISTER,
             success=True,
             extra={
                 "vector_width": width,

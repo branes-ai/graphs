@@ -1,0 +1,97 @@
+# Task: M4 Layer 4 L2 Cache Model Population
+task_id: "TASK-2026-027"
+title: "M4: Layer 4 (L2 cache) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M4"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-4d"
+  complexity: "medium"
+
+objective: |
+  Populate HardwareResourceModel.l2_cache_total (and
+  l2_cache_per_unit where applicable) from datasheets; replace
+  0.90 constant in DataParallelEnergyModel.l2_hit_rate with per-op
+  lookup; parameterize L2 read/write energy; add analytical
+  prefetch-effectiveness coefficient. Render Layer 4 panel with L2
+  topology annotation (per-core vs. shared).
+
+motivation: |
+  Layer 4 is where GPU architectures that collapse L3 into an
+  enlarged L2 start to diverge from the CPU-style three-level
+  cache. The topology annotation keeps that visible in the report.
+
+deliverables:
+  - path: "src/graphs/hardware/models/**/*.py"
+    type: "code"
+    description: "Populate l2_cache_total (and l2_cache_per_unit) per SKU; L2 topology annotation (per-core vs shared)"
+    acceptance: "Every SKU carries L2 fields with provenance"
+
+  - path: "src/graphs/hardware/architectural_energy.py"
+    type: "code"
+    description: "Replace l2_hit_rate constant with per-op lookup; parameterize L2 energy; prefetch-effectiveness coefficient"
+    acceptance: "Tagged THEORETICAL; defaults documented"
+
+  - path: "src/graphs/reporting/layer_panels/layer4_l2_cache.py"
+    type: "code"
+    description: "Layer 4 panel; L2 topology annotation (per-core vs shared)"
+    acceptance: "Renders per-SKU"
+
+  - path: "tests/hardware/test_layer4_l2_cache_model.py"
+    type: "test"
+    description: "Self-consistency for L2 capacity, hit-rate, energy"
+
+dependencies:
+  - task: "TASK-2026-026"
+    description: "M3 L1 content"
+
+acceptance_criteria:
+  - criterion: "Layer 4 panel populated for all 9 SKUs"
+    verification: "Regenerated HTML"
+  - criterion: "Plan-owner sign-off"
+    verification: "PR review"
+
+constraints:
+  - "NO measurement"
+  - "Annotate SKUs where L2 is the de-facto LLC (e.g., GPUs without distinct L3)"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer4_l2_cache_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-026"]
+  blocks: ["TASK-2026-028"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M4 - Layer 4: L2 Cache"

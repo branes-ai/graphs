@@ -484,11 +484,14 @@ class TestLayerTag:
 
     def test_layer_tag_values(self):
         assert LayerTag.ALU.value == "alu"
-        assert LayerTag.REGISTER_SIMD.value == "register_simd"
-        assert LayerTag.SCRATCHPAD.value == "scratchpad"
-        assert LayerTag.ONCHIP.value == "onchip"
-        assert LayerTag.DRAM.value == "dram"
-        assert LayerTag.CLUSTER.value == "cluster"
+        assert LayerTag.REGISTER.value == "register"
+        assert LayerTag.L1_CACHE.value == "l1_cache"
+        assert LayerTag.L2_CACHE.value == "l2_cache"
+        assert LayerTag.L3_CACHE.value == "l3_cache"
+        assert LayerTag.SOC_DATA_MOVEMENT.value == "soc_data_movement"
+        assert LayerTag.EXTERNAL_MEMORY.value == "external_memory"
+        assert LayerTag.DISTRIBUTED_MEMORY.value == "distributed_memory"
+        assert LayerTag.CLUSTER_INTERCONNECT.value == "cluster_interconnect"
         assert LayerTag.COMPOSITE.value == "composite"
 
     def test_result_defaults_to_composite(self):
@@ -510,14 +513,14 @@ class TestLayerTag:
 
     def test_json_roundtrip_preserves_layer(self):
         result = BenchmarkResult(
-            spec_name="dram_stream",
+            spec_name="external_memory_stream",
             timestamp="2026-04-16T00:00:00Z",
             device="cpu",
             bandwidth_gbps=75.0,
-            layer=LayerTag.DRAM,
+            layer=LayerTag.EXTERNAL_MEMORY,
         )
         restored = BenchmarkResult.from_json(result.to_json())
-        assert restored.layer is LayerTag.DRAM
+        assert restored.layer is LayerTag.EXTERNAL_MEMORY
 
     def test_from_dict_back_compat_missing_layer(self):
         # Simulate a result serialized before LayerTag existed.

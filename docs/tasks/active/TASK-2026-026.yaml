@@ -1,0 +1,99 @@
+# Task: M3 Layer 3 L1 Cache / Scratchpad Model Population
+task_id: "TASK-2026-026"
+title: "M3: Layer 3 (L1 cache / scratchpad) model population + panel"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M3"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "3-4d"
+  complexity: "medium"
+
+objective: |
+  Populate HardwareResourceModel.l1_cache_per_unit per SKU from
+  datasheets; replace the 0.95 constant in
+  DataParallelEnergyModel.l1_hit_rate with a per-op-type lookup
+  (tagged THEORETICAL); parameterize L1 read/write energy from the
+  technology profile; model the KPU scratchpad (tile-local storage)
+  as the L1-equivalent under the dataflow-tile abstraction. Render
+  the Layer 3 panel.
+
+motivation: |
+  Layer 3 is the innermost cache and the layer where scratchpad-
+  vs-cache semantics diverge across architectures. Modeling the KPU
+  tile-local storage as the L1-equivalent keeps the comparison
+  harness fair across CPU, GPU, TPU, and KPU.
+
+deliverables:
+  - path: "src/graphs/hardware/models/**/*.py"
+    type: "code"
+    description: "Populate l1_cache_per_unit from datasheets for all 9 SKUs; scratchpad-vs-cache annotation for accelerators"
+    acceptance: "Every SKU carries l1_cache_per_unit with provenance"
+
+  - path: "src/graphs/hardware/architectural_energy.py"
+    type: "code"
+    description: "Replace DataParallelEnergyModel.l1_hit_rate constant with per-op-type lookup; parameterize L1 read/write energy from TechnologyProfile"
+    acceptance: "Lookup tagged THEORETICAL; defaults documented"
+
+  - path: "src/graphs/reporting/layer_panels/layer3_l1_cache.py"
+    type: "code"
+    description: "Layer 3 panel; per-op hit-rate table; scratchpad-vs-cache annotation for accelerators"
+    acceptance: "Renders per-SKU"
+
+  - path: "tests/hardware/test_layer3_l1_cache_model.py"
+    type: "test"
+    description: "Self-consistency for L1 capacity, hit-rate, and energy"
+
+dependencies:
+  - task: "TASK-2026-025"
+    description: "M2 Layer 2 register-file content feeds into L1 spill comparison"
+
+acceptance_criteria:
+  - criterion: "Layer 3 panel populated for all 9 SKUs"
+    verification: "Regenerated HTML"
+  - criterion: "Plan-owner sign-off"
+    verification: "PR review"
+
+constraints:
+  - "NO measurement"
+  - "KPU tile-local storage modeled as L1-equivalent, consistent with M0.5 abstraction"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_layer3_l1_cache_model.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-025"]
+  blocks: ["TASK-2026-027"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M3 - Layer 3: L1 Cache / Scratchpad"
