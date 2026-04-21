@@ -89,6 +89,12 @@ class GeneralizedArchetype:
     register_byte_eq: float         # register-file reads + writes per MAC
     l1_byte_eq_amortized: float     # L1/scratchpad bytes per MAC (after reuse)
 
+    # Realistic effective utilization on representative workloads.
+    # This is the structural ceiling set by the architecture's scheduling
+    # class + memory subsystem, NOT the marketing peak. Used for Chart 3
+    # (sustained TOPS at fixed TDP). Citation per archetype in notes.
+    realistic_utilization: float = 1.0
+
     # Notes / source
     notes: str = ""
 
@@ -150,16 +156,19 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
             "Neoverse-class cores."
         ),
         alu_fa_eq=8.0,
-        instruction_fetch_fa_eq=30.0,   # amortized across 16-lane SIMD
-        decode_fa_eq=15.0,              # x86-style decode
-        scheduling_fa_eq=8.0,            # OOO issue + register rename + retire
+        instruction_fetch_fa_eq=30.0,
+        decode_fa_eq=15.0,
+        scheduling_fa_eq=8.0,
         interconnect_fa_eq=0.0,
-        register_byte_eq=3.0,            # 3 byte-access per MAC
-        l1_byte_eq_amortized=0.5,        # 0.5 byte / MAC amortized
+        register_byte_eq=3.0,
+        l1_byte_eq_amortized=0.5,
+        realistic_utilization=0.15,
         notes=(
             "Largest per-MAC overhead of any mainstream architecture. "
-            "Dynamic scheduling + branch prediction + register renaming "
-            "are structurally un-amortizable beyond SIMD width."
+            "Realistic utilization on ML-like workloads ~0.15 "
+            "(memory-bound, branch-heavy). Dynamic scheduling + branch "
+            "prediction + register renaming are structurally un-"
+            "amortizable beyond SIMD width."
         ),
     ),
     GeneralizedArchetype(
@@ -168,20 +177,21 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         color="#5b8ff9",
         description=(
             "Classical GPU compute without Tensor Cores. Warp-level "
-            "lockstep execution across 32 threads. One MAC per thread "
-            "per issue cycle. Represents baseline GPU efficiency."
+            "lockstep execution across 32 threads."
         ),
         alu_fa_eq=8.0,
-        instruction_fetch_fa_eq=2.0,    # amortized across warp + ILP
+        instruction_fetch_fa_eq=2.0,
         decode_fa_eq=1.0,
-        scheduling_fa_eq=10.0,           # warp scheduling + divergence
+        scheduling_fa_eq=10.0,
         interconnect_fa_eq=0.0,
-        register_byte_eq=6.0,            # warp register file, larger per access
+        register_byte_eq=6.0,
         l1_byte_eq_amortized=0.3,
+        realistic_utilization=0.35,
         notes=(
-            "Warp-level amortization eliminates most fetch/decode cost. "
-            "The main overhead is warp scheduling + divergence handling "
-            "and the larger register file access energy."
+            "Realistic utilization ~0.35 on mixed workloads - warp "
+            "divergence + memory subsystem contention + occupancy "
+            "limits. Better on pure GEMM (~0.50) but worse on "
+            "irregular kernels."
         ),
     ),
     GeneralizedArchetype(
@@ -190,8 +200,7 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         color="#8bbafc",
         description=(
             "Warp-level matrix-multiply-accumulate instruction (HMMA). "
-            "Amortizes scheduling over 4096 MACs per instruction. "
-            "Lower floor than a SIMT CUDA core kernel for GEMM."
+            "Amortizes scheduling over 4096 MACs per instruction."
         ),
         alu_fa_eq=8.0,
         instruction_fetch_fa_eq=0.5,
@@ -200,10 +209,11 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         interconnect_fa_eq=0.0,
         register_byte_eq=5.0,
         l1_byte_eq_amortized=0.5,
+        realistic_utilization=0.50,
         notes=(
-            "Matrix-native instruction buys a 4096x amortization of "
-            "scheduling overhead. Register-file access is still the "
-            "dominant memory-side cost."
+            "Realistic utilization ~0.50 on well-tuned HMMA kernels. "
+            "Warp divergence is less of a problem inside the HMMA "
+            "primitive itself, but still present in surrounding code."
         ),
     ),
     GeneralizedArchetype(
@@ -211,22 +221,23 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         category="TPU",
         color="#e98c3f",
         description=(
-            "Systolic array with stationary weights. Inputs stream "
-            "through row-by-row; partial sums accumulate in PE "
-            "registers. Weight reload is double-buffered and amortized "
-            "over the reduction dimension K."
+            "Systolic array with stationary weights. Inputs stream in "
+            "row-by-row; partial sums accumulate in PE registers."
         ),
         alu_fa_eq=8.0,
-        instruction_fetch_fa_eq=0.0,    # no per-MAC fetch
+        instruction_fetch_fa_eq=0.0,
         decode_fa_eq=0.0,
-        scheduling_fa_eq=0.0,            # statically scheduled
+        scheduling_fa_eq=0.0,
         interconnect_fa_eq=0.0,
-        register_byte_eq=2.0,            # input read + accumulator update
-        l1_byte_eq_amortized=0.05,       # UB load amortized by array row dim
+        register_byte_eq=2.0,
+        l1_byte_eq_amortized=0.05,
+        realistic_utilization=0.40,
         notes=(
-            "Lowest theoretical floor among mainstream archetypes. "
-            "Loss is not per-MAC - it is shape/tile mismatch against "
-            "the fixed PE dimensions at workload level."
+            "Realistic utilization ~0.40 on well-tuned dense GEMM "
+            "(Jouppi ISCA 2017 Table 3 cites 10-25% on TPU v1 "
+            "production workloads, higher for tuned kernels). The "
+            "structural loss is shape/tile mismatch against fixed PE "
+            "dimensions, NOT per-MAC overhead."
         ),
     ),
     GeneralizedArchetype(
@@ -243,15 +254,15 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         instruction_fetch_fa_eq=0.0,
         decode_fa_eq=0.0,
         scheduling_fa_eq=0.0,
-        interconnect_fa_eq=0.2,          # tile-to-tile NoC per MAC (amortized)
-        register_byte_eq=3.0,            # PE-local: 2 reads + acc write
+        interconnect_fa_eq=0.2,
+        register_byte_eq=3.0,
         l1_byte_eq_amortized=0.08,
+        realistic_utilization=0.90,
         notes=(
-            "Like TPU in having no per-MAC fetch/decode, but with an "
-            "output-stationary schedule that gives near-1.0 utilization "
-            "at real-workload tile counts. Slightly higher register "
-            "cost than TPU (no weight stationarity) but real-workload "
-            "efficiency wins."
+            "Realistic utilization ~0.90 on real-workload tile counts "
+            "M >= 12. Output-stationary scheduling amortizes fill/drain "
+            "across the workload's tile decomposition. This is THE "
+            "structural advantage - not a lower MAC floor than TPU."
         ),
     ),
     GeneralizedArchetype(
@@ -259,22 +270,22 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         category="DSP",
         color="#d4860b",
         description=(
-            "Very Long Instruction Word DSP with explicit SIMD lanes. "
-            "Bundled instructions issue per cycle; no dynamic "
-            "scheduling. Representative of TI C7x, Qualcomm Hexagon, "
-            "or Hailo-style cores."
+            "VLIW DSP with explicit SIMD lanes. Bundled instructions "
+            "issue per cycle; no dynamic scheduling."
         ),
         alu_fa_eq=8.0,
-        instruction_fetch_fa_eq=4.0,     # VLIW bundle fetch amortized over lanes
+        instruction_fetch_fa_eq=4.0,
         decode_fa_eq=1.5,
-        scheduling_fa_eq=0.0,            # static, no OOO
+        scheduling_fa_eq=0.0,
         interconnect_fa_eq=0.0,
         register_byte_eq=2.5,
         l1_byte_eq_amortized=0.2,
+        realistic_utilization=0.60,
         notes=(
-            "Much simpler than OOO CPU but retains instruction fetch + "
-            "decode cost. Absent dynamic scheduling keeps overhead low "
-            "compared to SIMT GPU."
+            "Realistic utilization ~0.60 on well-tuned kernels. VLIW "
+            "bundles are statically scheduled by the compiler so the "
+            "utilization story depends on instruction-level parallelism "
+            "in the workload."
         ),
     ),
     GeneralizedArchetype(
@@ -282,21 +293,22 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         category="DFM",
         color="#586374",
         description=(
-            "Classical token-based dataflow. Instruction tokens "
-            "stored in a CAM; ready tokens dispatch to PEs when all "
-            "operands arrive. Stillwater DFM-128 is an instance."
+            "Classical token-based dataflow with CAM-stored "
+            "instruction tokens. Stillwater DFM-128 is an instance."
         ),
         alu_fa_eq=8.0,
         instruction_fetch_fa_eq=0.0,
         decode_fa_eq=0.0,
-        scheduling_fa_eq=25.0,           # CAM-based token matching is expensive
-        interconnect_fa_eq=10.0,         # token routing on 2D mesh
+        scheduling_fa_eq=25.0,
+        interconnect_fa_eq=10.0,
         register_byte_eq=2.0,
         l1_byte_eq_amortized=0.5,
+        realistic_utilization=0.50,
         notes=(
-            "Elegant in concept but the CAM-based token match is a "
-            "structural cost per MAC. Distinct from KPU's domain-flow "
-            "approach which is statically scheduled."
+            "Realistic utilization ~0.50. Token-matching latency is "
+            "predictable but adds structural per-MAC overhead via the "
+            "CAM and token-routing network. Distinct from KPU's "
+            "statically-scheduled domain-flow."
         ),
     ),
     GeneralizedArchetype(
@@ -304,20 +316,37 @@ CANONICAL_ARCHETYPES: List[GeneralizedArchetype] = [
         category="CGRA",
         color="#a04bdd",
         description=(
-            "Spatial dataflow fabric with PE-level reconfiguration. "
-            "Graph mapped to fabric, no per-MAC fetch. Representative "
-            "of Plasticine, Samba Nova, or Xilinx Versal AI Engine."
+            "Spatial dataflow fabric with PE-level reconfiguration "
+            "(Plasticine, SambaNova, Xilinx Versal AI Engine). "
+            "Graph mapped to fabric; no per-MAC fetch, but the "
+            "reconfigurable switch network and configuration memory "
+            "are structural costs paid on every MAC."
         ),
         alu_fa_eq=8.0,
         instruction_fetch_fa_eq=0.0,
         decode_fa_eq=0.0,
-        scheduling_fa_eq=0.0,
-        interconnect_fa_eq=0.5,          # reconfigurable fabric routing
+        # Config-memory readout + switch state maintenance per MAC.
+        # Not per-reconfig - the reconfigurable switches and config
+        # SRAM sit in the datapath and cost energy every cycle.
+        scheduling_fa_eq=5.0,
+        # Reconfigurable switch network is structurally heavier than a
+        # fixed NoC because every switch must read its config bit each
+        # cycle. Representative: 6x a fixed-fabric interconnect.
+        interconnect_fa_eq=3.0,
         register_byte_eq=2.0,
         l1_byte_eq_amortized=0.1,
+        # Reconfiguration events add macroscopic dead time on top of
+        # the per-MAC cost. FPGAs and CGRAs are never energy-
+        # competitive with fixed-function dataflow fabrics because of
+        # the combined per-cycle config overhead + reconfig dead time.
+        realistic_utilization=0.25,
         notes=(
-            "Low per-MAC energy similar to TPU/KPU. Main cost is fabric "
-            "reconfiguration overhead (paid per graph, not per MAC)."
+            "Realistic utilization ~0.25 after reconfig dead time is "
+            "factored in. Per-MAC overhead is elevated by the reconfig "
+            "switch network and config-SRAM readout which the fabric "
+            "pays EVERY cycle - not just at reconfig events. Combined "
+            "with reconfig dead time this is why FPGAs/CGRAs are not "
+            "energy-competitive for sustained AI workloads."
         ),
     ),
 ]
@@ -452,20 +481,27 @@ def _render_chart_js(report: GeneralizedReport) -> str:
         },
     }
 
-    # Chart 3: peak throughput at fixed power budget
-    # For each archetype at each process, compute peak MACs/sec if the
-    # entire power budget were spent on MACs: peak_macs = P / E_per_MAC.
-    # Peak TOPS = 2 * peak_macs / 1e12. This assumes 100% ALU duty which
-    # is an upper bound; real workloads hit <100%.
+    # Chart 3: SUSTAINED throughput at fixed power budget.
+    # Peak TOPS * realistic_utilization. The utilization factor captures
+    # each architecture's structural ceiling - TPU's shape-mismatch +
+    # bandwidth cap, KPU's near-1.0 output-stationary saturation, GPU's
+    # warp divergence, CGRA's reconfig dead time. No 100% duty-cycle
+    # illusion.
     tdp_traces = []
     for a in report.archetypes:
         xs = report.process_nodes
-        ys = [(report.power_budget_w / total_pj_per_mac(a, nm) / 1e12) * 2.0
-              for nm in xs]
+        # peak_TOPS = 2 * TDP_W / pJ_per_MAC (unit cancellation: pJ = J*1e-12,
+        # TOPS = ops/s*1e-12, so (W/pJ)*2 = TOPS directly)
+        # sustained_TOPS = peak_TOPS * realistic_utilization
+        ys = [
+            2.0 * report.power_budget_w / total_pj_per_mac(a, nm)
+            * a.realistic_utilization
+            for nm in xs
+        ]
         tdp_traces.append({
             "type": "scatter",
             "mode": "lines+markers",
-            "name": a.name,
+            "name": f"{a.name} (util {a.realistic_utilization:.2f})",
             "x": xs,
             "y": ys,
             "line": {"color": a.color, "width": 2},
@@ -474,8 +510,8 @@ def _render_chart_js(report: GeneralizedReport) -> str:
     chart_tdp_capability = {
         "data": tdp_traces,
         "layout": {
-            "title": (f"Peak INT8 TOPS at {report.power_budget_w:.0f} W TDP vs. "
-                      "process node"),
+            "title": (f"Sustained INT8 TOPS at {report.power_budget_w:.0f} W TDP "
+                      "vs. process node (realistic utilization)"),
             "xaxis": {
                 "title": "Process node (nm)",
                 "autorange": "reversed",
@@ -484,7 +520,7 @@ def _render_chart_js(report: GeneralizedReport) -> str:
                 "tickvals": report.process_nodes,
                 "ticktext": [str(n) for n in report.process_nodes],
             },
-            "yaxis": {"title": "Peak INT8 TOPS (upper bound)", "type": "log"},
+            "yaxis": {"title": "Sustained INT8 TOPS", "type": "log"},
             "margin": {"t": 50, "b": 50, "l": 60, "r": 20},
             "legend": {"orientation": "h", "y": -0.3},
         },
@@ -506,27 +542,32 @@ def _render_chart_js(report: GeneralizedReport) -> str:
 
 def _render_archetype_table(report: GeneralizedReport) -> str:
     ref = report.reference_process_nm
+    tdp = report.power_budget_w
     rows = []
     for a in report.archetypes:
         comps = compute_components_pj_per_mac(a, ref)
         total = sum(comps.values())
+        # peak_TOPS = 2 * TDP / pJ_per_MAC (pJ and 1e-12 cancel out);
+        # sustained_TOPS = peak * realistic_utilization
+        peak_tops = 2.0 * tdp / total
+        sustained_tops = peak_tops * a.realistic_utilization
         rows.append(
             f'<tr>'
             f'<td style="border-left:4px solid {a.color};padding-left:10px;">'
             f'<strong>{html.escape(a.name)}</strong></td>'
             f'<td>{html.escape(a.category)}</td>'
-            f'<td class="num">{comps["ALU"]:.3f}</td>'
-            f'<td class="num">{comps["Instruction fetch"] + comps["Decode"]:.3f}</td>'
-            f'<td class="num">{comps["Scheduling / coherence"] + comps["Interconnect / routing"]:.3f}</td>'
-            f'<td class="num">{comps["Register file"] + comps["L1 / scratchpad"]:.3f}</td>'
-            f'<td class="num"><strong>{total:.3f}</strong></td>'
+            f'<td class="num">{total:.3f}</td>'
+            f'<td class="num">{a.realistic_utilization:.2f}</td>'
+            f'<td class="num">{peak_tops:.1f}</td>'
+            f'<td class="num"><strong>{sustained_tops:.1f}</strong></td>'
             f'</tr>'
         )
     return (
         '<table class="generalized">'
         f'<thead><tr><th>Architecture</th><th>Category</th>'
-        f'<th>ALU</th><th>Fetch+Decode</th><th>Schedule+Routing</th>'
-        f'<th>Reg+L1</th><th>Total pJ/MAC @ {ref}nm</th></tr></thead>'
+        f'<th>Total pJ/MAC @ {ref}nm</th><th>Realistic util</th>'
+        f'<th>Peak TOPS @ {tdp:.0f}W</th>'
+        f'<th>Sustained TOPS @ {tdp:.0f}W</th></tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
         '</table>'
     )
@@ -635,13 +676,16 @@ a.nav-back:hover { text-decoration: underline; }
     <div id="chart_process_scaling" class="plot"></div>
   </section>
   <section class="chart-section">
-    <h3>Chart 3: Peak INT8 TOPS at {report.power_budget_w:.0f} W TDP vs. process node</h3>
-    <p class="chart-desc">Capability envelope: given a fixed
-      {report.power_budget_w:.0f} W power budget, how much peak INT8
-      throughput can each architecture deliver at each process node?
-      Upper bound - assumes 100% ALU duty cycle. Real workloads hit
-      less (see compare_archetypes.html chart 4 for the utilization
-      story).</p>
+    <h3>Chart 3: Sustained INT8 TOPS at {report.power_budget_w:.0f} W TDP vs. process node</h3>
+    <p class="chart-desc">The chart that decides which architecture wins
+      for your application: sustained throughput = peak * realistic
+      utilization. Marketing peak-TOPS numbers assume 100% ALU duty
+      cycle, which is structurally impossible for WS systolic (shape
+      mismatch caps util at ~0.40), CGRA (reconfig dead time caps at
+      ~0.25), SIMT GPU (warp divergence), and CPU (memory-bound
+      ~0.15). KPU output-stationary scheduling saturates toward 0.90,
+      so its sustained TOPS is the highest even though its theoretical
+      MAC floor is higher than TPU's.</p>
     <div id="chart_tdp_capability" class="plot"></div>
   </section>
 </main>

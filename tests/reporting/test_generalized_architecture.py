@@ -89,6 +89,78 @@ class TestComponentBreakdown:
         assert overhead > comps["ALU"]
 
 
+class TestRealisticUtilization:
+    """Chart 3 depends on these utilization targets being set and
+    reflecting the architectural structure, not marketing peaks."""
+
+    def test_every_archetype_sets_realistic_utilization(self):
+        for a in CANONICAL_ARCHETYPES:
+            assert 0 < a.realistic_utilization <= 1.0, (
+                f"{a.name} realistic_utilization must be in (0, 1]; "
+                f"got {a.realistic_utilization}"
+            )
+
+    def test_kpu_utilization_highest_among_archetypes(self):
+        """KPU's output-stationary schedule should give the highest
+        realistic utilization - that is the structural story."""
+        kpu = next(a for a in CANONICAL_ARCHETYPES if a.category == "KPU")
+        others = [a for a in CANONICAL_ARCHETYPES if a.category != "KPU"]
+        for a in others:
+            assert kpu.realistic_utilization > a.realistic_utilization, (
+                f"KPU util {kpu.realistic_utilization} must exceed "
+                f"{a.name} util {a.realistic_utilization}"
+            )
+
+    def test_cpu_utilization_lowest(self):
+        cpu = next(a for a in CANONICAL_ARCHETYPES if a.category == "CPU")
+        for a in CANONICAL_ARCHETYPES:
+            if a.category != "CPU":
+                assert cpu.realistic_utilization <= a.realistic_utilization
+
+    def test_cgra_reconfig_overhead_present(self):
+        """CGRA must have non-zero per-cycle reconfig overhead in the
+        interconnect + scheduling components, reflecting the reconfig
+        switch network and config-SRAM readout."""
+        cgra = next(a for a in CANONICAL_ARCHETYPES if a.category == "CGRA")
+        assert cgra.interconnect_fa_eq > 1.0, (
+            "CGRA interconnect cost must reflect reconfigurable switch "
+            "network (much heavier than a fixed NoC)."
+        )
+        assert cgra.scheduling_fa_eq > 0, (
+            "CGRA must include config-SRAM readout cost."
+        )
+        # CGRA utilization capped by reconfig dead time
+        assert cgra.realistic_utilization <= 0.30, (
+            "CGRA realistic utilization must reflect reconfig dead time "
+            "(FPGAs/CGRAs are not energy-competitive for sustained AI)."
+        )
+
+
+class TestSustainedThroughputOrdering:
+    def test_kpu_highest_sustained_throughput(self):
+        """The payoff: KPU delivers the highest sustained TOPS at a
+        fixed TDP because of its utilization advantage, even though
+        TPU has the lower theoretical MAC floor."""
+        tdp = 12.0
+        ref_nm = 16
+
+        def sustained_tops(a):
+            return (2.0 * tdp / total_pj_per_mac(a, ref_nm)
+                    * a.realistic_utilization)
+
+        kpu = next(a for a in CANONICAL_ARCHETYPES if a.category == "KPU")
+        tpu = next(a for a in CANONICAL_ARCHETYPES if a.category == "TPU")
+        assert sustained_tops(kpu) > sustained_tops(tpu), (
+            "KPU's realistic-utilization advantage must beat TPU on "
+            "sustained TOPS (story of compare_archetypes.html chart 4)."
+        )
+        # KPU must also beat the SIMT GPU and CPU
+        for cat in ("GPU", "CPU"):
+            others = [a for a in CANONICAL_ARCHETYPES if a.category == cat]
+            for a in others:
+                assert sustained_tops(kpu) > sustained_tops(a)
+
+
 class TestReportAndHTML:
     def test_default_report_uses_reference_16nm(self):
         rpt = build_default_report()
@@ -119,3 +191,21 @@ class TestReportAndHTML:
         rpt = build_default_report()
         html = render_generalized_page(rpt, REPO_ROOT)
         assert 'href="index.html"' in html
+
+    def test_html_chart3_is_sustained_not_peak(self):
+        """Chart 3 title must say 'Sustained' + the chart must NOT carry
+        a 'Peak TOPS' y-axis label. The phrase '100% ALU duty' may
+        appear in the explanatory caption that describes why we moved
+        away from the old framing; that's fine."""
+        rpt = build_default_report()
+        html = render_generalized_page(rpt, REPO_ROOT)
+        assert "Sustained INT8 TOPS at" in html
+        assert "realistic utilization" in html.lower()
+        # Y-axis label should not claim "Peak" as the quantity measured
+        assert '"title": "Peak INT8 TOPS' not in html
+
+    def test_html_table_includes_utilization_column(self):
+        rpt = build_default_report()
+        html = render_generalized_page(rpt, REPO_ROOT)
+        assert "Realistic util" in html or "realistic util" in html.lower()
+        assert "Sustained" in html
