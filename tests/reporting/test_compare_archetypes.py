@@ -36,12 +36,43 @@ class TestSynthesizeUtilizationCurve:
         assert max(ys) - min(ys) < 1e-9
         assert ys[0] < 1.0
 
-    def test_unspecified_is_flat_065(self):
+    def test_unspecified_is_flat_one(self):
+        """UNSPECIFIED has no pipeline model; returns flat 1.0."""
         curve = _synthesize_utilization_curve(
             TileScheduleClass.UNSPECIFIED, fill=0, drain=0,
         )
         ys = [u for _, u in curve]
-        assert all(abs(y - 0.65) < 1e-9 for y in ys)
+        assert all(abs(y - 1.0) < 1e-9 for y in ys)
+
+    def test_simt_data_parallel_flat_and_capped(self):
+        """SIMT scheduling is flat across tile counts and capped by
+        warp divergence x occupancy x coherence."""
+        curve = _synthesize_utilization_curve(
+            TileScheduleClass.SIMT_DATA_PARALLEL, fill=0, drain=0,
+            warp_divergence_rate=0.05,
+            warp_occupancy=0.75,
+            coherence_efficiency=0.90,
+        )
+        ys = [u for _, u in curve]
+        # Flat across all tile counts
+        assert max(ys) - min(ys) < 1e-9
+        # Expected: (1 - 0.025) * 0.75 * 0.90 = 0.65812
+        expected = (1 - 0.5 * 0.05) * 0.75 * 0.90
+        assert abs(ys[0] - expected) < 1e-9
+
+    def test_simt_data_parallel_parameters_cap_utilization(self):
+        """Lower warp occupancy lowers utilization; does not amortize with M."""
+        low = _synthesize_utilization_curve(
+            TileScheduleClass.SIMT_DATA_PARALLEL, 0, 0,
+            warp_occupancy=0.30,
+        )
+        high = _synthesize_utilization_curve(
+            TileScheduleClass.SIMT_DATA_PARALLEL, 0, 0,
+            warp_occupancy=0.90,
+        )
+        # Low-occupancy < high-occupancy at every tile count
+        for (_, lu), (_, hu) in zip(low, high):
+            assert lu < hu
 
 
 class TestBuildDefaultComparison:

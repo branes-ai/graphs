@@ -64,7 +64,7 @@ flow-aware fields in addition to the legacy `array_dimensions`,
 
 | Field | Purpose |
 |-------|---------|
-| `schedule_class` | `OUTPUT_STATIONARY` (KPU), `WEIGHT_STATIONARY` (TPU), `ROW_STATIONARY`, or `UNSPECIFIED`. Governs how fill/drain amortizes. |
+| `schedule_class` | `OUTPUT_STATIONARY` (KPU), `WEIGHT_STATIONARY` (TPU), `ROW_STATIONARY`, `SIMT_DATA_PARALLEL` (GPU Tensor Core), or `UNSPECIFIED`. Governs how utilization composes with workload tile count. |
 | `pipeline_fill_cycles` | Cycles for a wavefront to propagate through the PE array; one-time per pipeline start under output-stationary scheduling. |
 | `pipeline_drain_cycles` | Cycles to drain the final wavefront. |
 | `pe_mac_energy_pj_steady_state` | Optional per-PE MAC energy in the steady-state regime. If None, derived from `CIRCUIT_TYPE_MULTIPLIER` and the precision-specific `energy_scaling`. |
@@ -114,11 +114,27 @@ util = (N * steady) / (N * steady + fill + drain)
 
 At N >= 12 and representative K = 128, util > 0.97. At N >= 32, util > 0.99.
 
-A weight-stationary systolic array cannot compose this way because
-weights are stationary inside the PE array; changing the output tile
-means unloading and reloading weights. Each tile pays its own fill and
-drain. Effective utilization is capped at `steady / (steady + fill + drain)`
-regardless of tile count.
+A weight-stationary systolic array cannot compose this way. In the
+naive model, each tile pays its own fill/drain. In practice (TPU v1
+onward), weight double-buffering amortizes the literal fill/drain,
+but the utilization floor is then dominated by **shape/tile mismatch**
+against the fixed PE dimensions and by **bandwidth-bound layers**.
+Published data shows this floor is 10-25% of peak on TPU v1
+production workloads (Jouppi et al., ISCA 2017, Table 3) and 6-25%
+on Coral Edge TPU for typical DNN inference (DeepEdgeBench 2021).
+The model represents this flat floor with the formula
+`steady / (steady + fill + drain)` and calibrated-effective fill/drain
+values, not literal wavefront cycles.
+
+A SIMT GPU (Tensor Core or CUDA core) is not a spatial fabric
+pipeline at all - CUDA cores execute the instruction stream cycle-
+by-cycle. Utilization is capped by warp divergence, warp occupancy,
+and memory coherence traffic, and does not amortize with workload
+tile count. This is the `SIMT_DATA_PARALLEL` class. The naive-CUDA
+"one thread per output" kernel has output-stationary *software data
+locality* at the thread-register level, but it runs on SIMT hardware
+and does NOT enjoy the fabric-level fill/drain amortization that
+defines the `OUTPUT_STATIONARY` class.
 
 ## How this maps to the product story
 

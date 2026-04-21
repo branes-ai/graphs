@@ -360,23 +360,38 @@ class TileScheduleClass(Enum):
             fill+drain once across N tiles. Effective utilization
             saturates near 1.0 at ~12+ tiles.
 
-        WEIGHT_STATIONARY: TPU / classic systolic. Weights must fully
-            load, sweep, and drain for each tile of output; fill+drain
-            is paid per tile (cannot overlap across weight boundaries).
-            Effective utilization is a flat floor set by
-            steady/(steady+fill+drain).
+        WEIGHT_STATIONARY: TPU / classic systolic. Weights are held in
+            the PE array while inputs stream through. Modern designs
+            (TPU v1 onward) double-buffer weights so fill/drain per
+            tile is largely amortized (Jouppi et al., ISCA 2017, §2).
+            The dominant utilization loss is *shape/tile mismatch*
+            against the fixed PE dimensions and bandwidth-bound layers,
+            NOT fill/drain. We model the combined effect as a flat
+            floor; numerical values published for real workloads vary
+            widely (10-55% of peak depending on design and workload
+            shape; Jouppi ISCA 2017 Table 3; DeepEdgeBench 2021).
 
         ROW_STATIONARY: Reserved for Eyeriss-style row-stationary
             dataflow schedules; modeled like OUTPUT_STATIONARY for M0.5.
 
-        UNSPECIFIED: No pipeline model applied (e.g., GPU Tensor Core,
-            CPU SIMD). Effective utilization is treated as 1.0 and other
-            utilization penalties (warp divergence, coherence) are
-            modeled elsewhere.
+        SIMT_DATA_PARALLEL: NVIDIA/AMD GPU and GPU-style SIMT data-
+            parallel execution. Not a spatial dataflow fabric; CUDA
+            cores execute the instruction stream cycle-by-cycle, with
+            operands supplied from registers/shared memory. Utilization
+            is capped by warp divergence, warp occupancy, and memory
+            coherence traffic, and *does not amortize* with workload
+            tile count. Distinct from the naive-CUDA-GEMM software-
+            level "one thread per output" pattern, which is output-
+            stationary at the register level but runs on SIMT hardware.
+
+        UNSPECIFIED: No pipeline model applied (e.g., CPU SIMD, DSP).
+            Effective utilization is treated as 1.0; other utilization
+            penalties are modeled elsewhere.
     """
     OUTPUT_STATIONARY = "output_stationary"
     WEIGHT_STATIONARY = "weight_stationary"
     ROW_STATIONARY = "row_stationary"
+    SIMT_DATA_PARALLEL = "simt_data_parallel"
     UNSPECIFIED = "unspecified"
 
 
@@ -429,6 +444,12 @@ class TileSpecialization:
     pipeline_drain_cycles: int = 0
     pe_mac_energy_pj_steady_state: Optional[float] = None
 
+    # SIMT_DATA_PARALLEL parameters (GPU Tensor Core, warp-level execution)
+    # Defaults are neutral (no penalty) for non-SIMT tiles.
+    warp_divergence_rate: float = 0.0    # fraction of warp-issue cycles with divergence
+    warp_occupancy: float = 1.0          # achieved warps / theoretical max warps
+    coherence_efficiency: float = 1.0    # memory coherence / reuse efficiency
+
     @property
     def pe_count(self) -> int:
         """Total processing elements in this tile's PE array."""
@@ -457,11 +478,22 @@ class TileSpecialization:
             -> util = N / (N + (fill+drain)/steady)
             Saturates near 1.0 as N grows; the KPU's signature advantage.
 
-        Weight-stationary (TPU / systolic): fill and drain paid per tile.
-            total = N * (fill + steady + drain)
-            useful = N * steady
-            -> util = steady / (steady + fill + drain)
-            A flat floor; does not improve with workload size.
+        Weight-stationary (TPU / systolic): approximated as a flat
+            utilization floor representing the combined effect of
+            shape/tile mismatch, bandwidth-bound layers, and any
+            residual fill/drain overhead after double-buffering.
+            Published values range from 10-55% on real workloads
+            (Jouppi ISCA 2017 Table 3 reports 10-25% on TPU v1
+            production workloads). Modeled as
+            steady/(steady+fill+drain) using effective fill/drain that
+            represents the combined loss mechanism, not literal
+            wavefront propagation cycles.
+
+        SIMT data-parallel (GPU Tensor Core): flat utilization capped
+            by warp divergence, warp occupancy, and memory coherence.
+            util = (1 - warp_divergence_rate * 0.5)
+                   * warp_occupancy * coherence_efficiency
+            Does not amortize with workload tile count.
 
         Unspecified: no pipeline model; returns 1.0.
         """
@@ -481,6 +513,14 @@ class TileSpecialization:
             total = num_tiles_in_workload * (steady + fill + drain)
             useful = num_tiles_in_workload * steady
             return useful / total if total > 0 else 1.0
+
+        if self.schedule_class == TileScheduleClass.SIMT_DATA_PARALLEL:
+            # Divergence: a divergent warp serializes 2 code paths, so
+            # the fractional cost is ~0.5 * divergence_rate.
+            divergence_penalty = 1.0 - 0.5 * max(0.0, min(1.0, self.warp_divergence_rate))
+            occ = max(0.0, min(1.0, self.warp_occupancy))
+            coh = max(0.0, min(1.0, self.coherence_efficiency))
+            return divergence_penalty * occ * coh
 
         # UNSPECIFIED: pipeline model not applicable for this tile class
         return 1.0

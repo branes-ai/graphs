@@ -139,6 +139,9 @@ def _synthesize_utilization_curve(
     drain: int,
     steady_cycles_per_tile: int = REPRESENTATIVE_STEADY_CYCLES_PER_TILE,
     tile_counts: Optional[List[int]] = None,
+    warp_divergence_rate: float = 0.0,
+    warp_occupancy: float = 1.0,
+    coherence_efficiency: float = 1.0,
 ) -> List[Tuple[int, float]]:
     """
     Compute effective_pipeline_utilization(N) across a sweep of N values.
@@ -149,6 +152,15 @@ def _synthesize_utilization_curve(
     steady = max(int(steady_cycles_per_tile), 1)
     counts = tile_counts if tile_counts is not None else DEFAULT_TILE_COUNTS
     out: List[Tuple[int, float]] = []
+
+    # SIMT_DATA_PARALLEL utilization is independent of tile count.
+    if schedule_class == TileScheduleClass.SIMT_DATA_PARALLEL:
+        divergence_penalty = 1.0 - 0.5 * max(0.0, min(1.0, warp_divergence_rate))
+        occ = max(0.0, min(1.0, warp_occupancy))
+        coh = max(0.0, min(1.0, coherence_efficiency))
+        simt_util = divergence_penalty * occ * coh
+        return [(n, simt_util) for n in counts]
+
     for n in counts:
         if schedule_class in (TileScheduleClass.OUTPUT_STATIONARY,
                               TileScheduleClass.ROW_STATIONARY):
@@ -160,10 +172,8 @@ def _synthesize_utilization_curve(
             useful = n * steady
             util = useful / total if total > 0 else 1.0
         else:
-            # UNSPECIFIED: no tile pipeline. Tensor Core's realistic
-            # utilization is dominated by warp divergence and coherence,
-            # not a fabric pipeline. Baseline is 0.65 for illustration.
-            util = 0.65
+            # UNSPECIFIED: no pipeline model; flat 1.0.
+            util = 1.0
         out.append((n, util))
     return out
 
@@ -263,9 +273,22 @@ def _tpu_entry(precision: Precision) -> ArchetypeEntry:
     """
     Build a Systolic (TPU) archetype entry from the Coral Edge TPU model.
 
-    The Edge TPU's pipeline_fill_cycles is already modeled in the TPU
-    resource model (coral_edge_tpu.py). We derive headline numbers from
-    that SKU and mark scheduling as WEIGHT_STATIONARY.
+    Published data shows real-world achieved-to-peak utilization on
+    weight-stationary systolic arrays is 10-55% on typical DNN
+    workloads (Jouppi et al., ISCA 2017 Table 3: TPU v1 hits 10-25%
+    on production workloads; DeepEdgeBench 2021 reports Coral Edge
+    TPU hits ~6% of peak on MobileNet V2, ~25% on EfficientNet-
+    EdgeTPU). The dominant loss is shape/tile mismatch against the
+    fixed PE dimensions and bandwidth-bound layers, NOT per-tile
+    fill/drain (which is amortized by double-buffering per Jouppi
+    2017 Section 2).
+
+    We model the combined effect as a flat utilization floor around
+    0.50 - a generous "compute-bound dense GEMM upper bound" rather
+    than real-workload average. The fill/drain values below are
+    calibrated to produce 0.50 under the steady/(steady+fill+drain)
+    formula for parity with the rest of the comparison, not to
+    represent literal wavefront-propagation cycles.
     """
     from graphs.hardware.mappers import get_mapper_by_name
     mapper = get_mapper_by_name("Google-Coral-Edge-TPU")
@@ -273,19 +296,21 @@ def _tpu_entry(precision: Precision) -> ArchetypeEntry:
         raise RuntimeError("Coral Edge TPU not in registry")
     rm = mapper.resource_model
 
-    # Edge TPU spec: 4 TOPS INT8, 2 W
-    # For the comparison, use INT8 if requested; FP16 falls back to INT8 values
     int8_peak = rm.precision_profiles[Precision.INT8].peak_ops_per_sec \
         if Precision.INT8 in rm.precision_profiles else 4e12
     tdp = 2.0
     ops_per_watt = int8_peak / tdp
 
-    # Per-op energy: well-known 0.15 pJ/MAC -> 0.075 pJ/op
+    # Per-op energy: well-known 0.15 pJ/MAC -> 0.075 pJ/op (compute-
+    # bound; does not reflect bandwidth/shape-mismatch losses).
     energy_per_op_pj = 0.075
 
-    # Systolic array: representative Edge TPU is 64x64
+    # Representative Edge TPU systolic shape
     rows, cols = 64, 64
-    fill = 64   # one column sweep
+    # Effective fill/drain calibrated to give ~0.50 flat utilization,
+    # representing combined shape/tile/bandwidth losses after double-
+    # buffering (NOT literal wavefront cycles - see docstring).
+    fill = 64
     drain = 64
 
     util_curve = _synthesize_utilization_curve(
@@ -306,17 +331,34 @@ def _tpu_entry(precision: Precision) -> ArchetypeEntry:
         pe_array_rows=rows,
         pe_array_cols=cols,
         utilization_curve=util_curve,
-        array_scaling_curve=[],  # not explored for TPU in M0.5
+        array_scaling_curve=[],
         tdp_watts=tdp,
-        notes=("Weight-stationary scheduling; fill/drain paid per tile "
-               "(no overlap across weight reloads). Utilization is a "
-               "flat floor set by steady/(steady+fill+drain)."),
+        notes=("Weight-stationary scheduling. Modeled utilization of "
+               "~0.50 is a compute-bound dense-GEMM upper bound. Real "
+               "Coral Edge TPU workloads typically achieve 6-25% of "
+               "peak (Jouppi ISCA 2017; DeepEdgeBench 2021). Dominant "
+               "losses are shape/tile mismatch and bandwidth-bound "
+               "layers, not per-tile fill/drain (which is amortized "
+               "by weight double-buffering)."),
     )
 
 
 def _tensor_core_entry(precision: Precision) -> ArchetypeEntry:
     """
     Build a SIMT + Tensor Core archetype entry from Jetson Orin AGX.
+
+    Ampere-class Tensor Core realistic utilization on mixed-precision
+    GEMM is capped by warp divergence, warp occupancy, and memory
+    coherence traffic - NOT by a spatial fabric pipeline. We model
+    this with the SIMT_DATA_PARALLEL scheduling class and
+    representative parameters for Ampere Tensor Core:
+
+      warp_divergence_rate = 0.05   (5% of cycles see divergence)
+      warp_occupancy        = 0.75   (achieved / max warps)
+      coherence_efficiency  = 0.90   (hit rate through L1/L2 and register)
+
+    Yields an effective utilization of ~0.66, independent of workload
+    tile count.
     """
     from graphs.hardware.mappers import get_mapper_by_name
     mapper = get_mapper_by_name("Jetson-Orin-AGX-64GB")
@@ -326,16 +368,22 @@ def _tensor_core_entry(precision: Precision) -> ArchetypeEntry:
     tp = rm.thermal_operating_points[rm.default_thermal_profile]
     tdp = tp.tdp_watts
 
-    # Peak INT8 at the default thermal profile
     int8_peak = rm.precision_profiles[Precision.INT8].peak_ops_per_sec \
         if Precision.INT8 in rm.precision_profiles else 0.0
     ops_per_watt = int8_peak / tdp if tdp > 0 else 0.0
-    # Tensor Core FP16 per-op energy ~1.62 pJ (8nm standard_cell x 0.85)
-    # Normalize to per-op: Tensor Core computes 2 ops/MAC
-    energy_per_op_pj = 1.62 / 2.0  # pJ/op at FP16 on Ampere Tensor Core
+    # Ampere Tensor Core FP16 per-op energy ~1.62 pJ/MAC -> 0.81 pJ/op
+    energy_per_op_pj = 1.62 / 2.0
+
+    # Representative Ampere Tensor Core parameters
+    warp_divergence_rate = 0.05
+    warp_occupancy = 0.75
+    coherence_efficiency = 0.90
 
     util_curve = _synthesize_utilization_curve(
-        TileScheduleClass.UNSPECIFIED, 0, 0,
+        TileScheduleClass.SIMT_DATA_PARALLEL, 0, 0,
+        warp_divergence_rate=warp_divergence_rate,
+        warp_occupancy=warp_occupancy,
+        coherence_efficiency=coherence_efficiency,
     )
 
     return ArchetypeEntry(
@@ -346,7 +394,7 @@ def _tensor_core_entry(precision: Precision) -> ArchetypeEntry:
         energy_per_op_pj=energy_per_op_pj,
         peak_ops_per_sec=int8_peak,
         ops_per_watt=ops_per_watt,
-        schedule_class=TileScheduleClass.UNSPECIFIED,
+        schedule_class=TileScheduleClass.SIMT_DATA_PARALLEL,
         pipeline_fill_cycles=0,
         pipeline_drain_cycles=0,
         pe_array_rows=32,
@@ -354,9 +402,13 @@ def _tensor_core_entry(precision: Precision) -> ArchetypeEntry:
         utilization_curve=util_curve,
         array_scaling_curve=[],
         tdp_watts=tdp,
-        notes=("No tile pipeline; effective utilization is dominated by "
-               "warp divergence, memory coherence, and scheduling "
-               "overhead. Baseline shown as a flat 0.65 for illustration."),
+        notes=("SIMT data-parallel scheduling. Not a spatial fabric "
+               "pipeline; CUDA cores execute the instruction stream "
+               "cycle-by-cycle. Utilization is capped by warp "
+               "divergence, warp occupancy, and coherence traffic, "
+               "and does NOT amortize with workload tile count. "
+               "Representative Ampere Tensor Core parameters: "
+               "div_rate=0.05, occ=0.75, coh=0.90 -> util=0.658."),
     )
 
 
