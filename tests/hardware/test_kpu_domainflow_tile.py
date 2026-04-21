@@ -22,14 +22,17 @@ from graphs.hardware.resource_model import (
 class TestPE_ArraySizes:
     """T64 / T128 / T256 use inverse-scaled per-tile PE array sizes."""
 
-    def test_t64_uses_32x32_pe_arrays(self):
+    def test_t64_uses_24x24_pe_arrays(self):
+        """T64 uses 24x24 (revised from 32x32 after TDP feasibility check).
+        At 6W TDP with 0.10 pJ/MAC @ 16nm, 32x32 x 64 tiles exceeded
+        the ALU power budget. 24x24 fits comfortably."""
         model = kpu_t64_resource_model()
         tp = model.thermal_operating_points[model.default_thermal_profile]
         cr = tp.performance_specs[Precision.INT8].compute_resource
         for spec in cr.tile_specializations:
-            assert spec.array_dimensions == (32, 32), (
+            assert spec.array_dimensions == (24, 24), (
                 f"T64 tile {spec.tile_type} has {spec.array_dimensions}, "
-                f"expected (32, 32)"
+                f"expected (24, 24)"
             )
 
     def test_t128_uses_24x24_pe_arrays(self):
@@ -227,16 +230,16 @@ class TestEnergyAdvantage:
             f"Tensor Core {tensor_core_pj_per_op_int8:.3f} pJ/op"
         )
 
-    def test_kpu_array_size_grows_pe_count_quadratically(self):
-        """Sanity: 32x32 has 1024 PEs, 24x24 has 576, 16x16 has 256."""
+    def test_kpu_array_size_sanity(self):
+        """Sanity: T64 and T128 use 24x24 (576 PEs); T256 uses 16x16 (256 PEs).
+        T64 was revised from 32x32 to 24x24 to fit 6W TDP at 0.10 pJ/MAC."""
         t64 = kpu_t64_resource_model()
         t128 = kpu_t128_resource_model()
         t256 = kpu_t256_resource_model()
-        # Access any tile to get PE array size
         def pe_count(m):
             tp = m.thermal_operating_points[m.default_thermal_profile]
             cr = tp.performance_specs[Precision.INT8].compute_resource
             return cr.tile_specializations[0].pe_count
-        assert pe_count(t64) == 1024
+        assert pe_count(t64) == 576
         assert pe_count(t128) == 576
         assert pe_count(t256) == 256

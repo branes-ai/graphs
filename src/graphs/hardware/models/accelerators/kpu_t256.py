@@ -109,20 +109,23 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
 
     # Matrix Tile Fabric (Tensor Core - 26 tiles @ 10%)
     # These have 8×8 systolic arrays with tensor core efficiency
+    # M0.5: matrix tile uses the SKU's uniform 16x16 PE array - no
+    # tensor-core density claim. KPU positions on energy per op via
+    # domain-flow semantics, not on peak-ops/s parity with Tensor Cores.
     matrix_fabric = ComputeFabric(
         fabric_type="kpu_matrix_tile",
-        circuit_type="tensor_core",  # 15% more efficient
+        circuit_type="standard_cell",
         num_units=26,   # 10% of 256 tiles
         ops_per_unit_per_clock={
-            Precision.INT8: 8192,  # 8×8 systolic: 64 PEs × 128 MACs/PE = 8192 ops/clock
-            Precision.BF16: 4096,  # 4096 BF16 ops/clock
+            Precision.INT8: 512,   # 16x16 PEs x 2 ops/PE/cycle = 512 ops/tile/clock
+            Precision.BF16: 256,
         },
         core_frequency_hz=baseline_freq_hz,
         process_node_nm=16,
-        energy_per_flop_fp32=get_base_alu_energy(16, 'tensor_core'),  # 2.3 pJ (15% better)
+        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),
         energy_scaling={
-            Precision.INT8: 0.125,
-            Precision.BF16: 0.5,
+            Precision.INT8: 0.15,
+            Precision.BF16: 0.50,
         }
     )
 
@@ -495,9 +498,11 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         l1_write_energy_per_byte=0.4e-12,   # 0.4 pJ
 
         # Computation energy (BLAS operators)
-        mac_energy_int8=0.3e-12,   # 0.3 pJ (INT8)
-        mac_energy_bf16=0.45e-12,  # 0.45 pJ (BF16)
-        mac_energy_fp32=0.9e-12,   # 0.9 pJ (FP32)
+        # MAC energies at 16nm optimized domain-flow (M0.5 revision).
+        # Reference: 16nm 1-bit full adder ~0.01 pJ.
+        mac_energy_int8=0.10e-12,  # 0.10 pJ @ 16nm optimized domain-flow
+        mac_energy_bf16=0.16e-12,  # 0.16 pJ
+        mac_energy_fp32=0.30e-12,  # 0.30 pJ
     )
 
     model.tile_energy_model = tile_energy_model

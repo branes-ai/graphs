@@ -340,9 +340,12 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
         l2_write_energy_per_byte=0.8e-12,
         l1_read_energy_per_byte=0.2e-12,
         l1_write_energy_per_byte=0.3e-12,
-        mac_energy_int8=0.27e-12,   # mid-range between T64 (0.25) and T256 (0.30)
-        mac_energy_bf16=0.43e-12,
-        mac_energy_fp32=0.85e-12,
+        # MAC energies at 16nm optimized domain-flow (M0.5 revision).
+        # Reference: 16nm 1-bit full adder ~0.01 pJ; INT8 MAC = ~8 FAs
+        # + overhead -> 0.10 pJ/MAC in optimized silicon.
+        mac_energy_int8=0.10e-12,   # 0.10 pJ @ 16nm optimized domain-flow
+        mac_energy_bf16=0.16e-12,   # 0.16 pJ
+        mac_energy_fp32=0.30e-12,   # 0.30 pJ
     )
 
     model.tile_energy_model = tile_energy_model

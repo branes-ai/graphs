@@ -36,6 +36,21 @@ from graphs.hardware.resource_model import (
     Precision,
     TileScheduleClass,
 )
+# Full-adder reference energies by process node (calibration baseline for
+# MAC energies). See cli/check_tdp_feasibility.py for the canonical table.
+FULL_ADDER_PJ_BY_PROCESS = {
+    28: 0.025, 22: 0.018, 16: 0.010, 14: 0.009, 12: 0.007,
+    10: 0.006, 8: 0.005, 7: 0.004, 5: 0.003, 4: 0.0025, 3: 0.002,
+}
+
+
+def _fa_energy_pj(process_nm: int) -> float:
+    if process_nm in FULL_ADDER_PJ_BY_PROCESS:
+        return FULL_ADDER_PJ_BY_PROCESS[process_nm]
+    nearest = min(FULL_ADDER_PJ_BY_PROCESS.keys(), key=lambda k: abs(k - process_nm))
+    return FULL_ADDER_PJ_BY_PROCESS[nearest]
+
+
 from graphs.reporting.microarch_html_template import (
     BRAND_LOGO_RELATIVE,
     _CSS,
@@ -82,6 +97,10 @@ class ArchetypeEntry:
     tdp_watts: float = 0.0
     notes: str = ""
 
+    # Process node + calibration reference (required when reporting energies)
+    process_node_nm: int = 16
+    full_adder_energy_pj: float = 0.010   # 1-bit CMOS FA @ nominal Vdd
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "archetype": self.archetype,
@@ -100,6 +119,8 @@ class ArchetypeEntry:
             "array_scaling_curve": list(self.array_scaling_curve),
             "tdp_watts": self.tdp_watts,
             "notes": self.notes,
+            "process_node_nm": self.process_node_nm,
+            "full_adder_energy_pj": self.full_adder_energy_pj,
         }
 
 
@@ -248,6 +269,11 @@ def _kpu_entry_from_mapper(
             "points": points,
         })
 
+    # Pull process node from the first compute fabric (KPU SKUs are 16nm
+    # for T64/T128/T256; 12nm for T768).
+    fabrics = getattr(rm, "compute_fabrics", []) or []
+    process_nm = fabrics[0].process_node_nm if fabrics else 16
+
     return ArchetypeEntry(
         archetype="Domain Flow (KPU)",
         sku=sku,
@@ -264,6 +290,8 @@ def _kpu_entry_from_mapper(
         utilization_curve=util_curve,
         array_scaling_curve=scaling,
         tdp_watts=tdp,
+        process_node_nm=process_nm,
+        full_adder_energy_pj=_fa_energy_pj(process_nm),
         notes=(f"Output-stationary scheduling; fill/drain overlaps across "
                f"adjacent tiles. Utilization saturates at ~12+ tiles."),
     )
@@ -317,6 +345,10 @@ def _tpu_entry(precision: Precision) -> ArchetypeEntry:
         TileScheduleClass.WEIGHT_STATIONARY, fill, drain,
     )
 
+    # Coral Edge TPU is 14nm (published TSMC 14nm for the original
+    # Edge TPU; exact process is confidential).
+    coral_process_nm = 14
+
     return ArchetypeEntry(
         archetype="Systolic (TPU)",
         sku="Google-Coral-Edge-TPU",
@@ -333,6 +365,8 @@ def _tpu_entry(precision: Precision) -> ArchetypeEntry:
         utilization_curve=util_curve,
         array_scaling_curve=[],
         tdp_watts=tdp,
+        process_node_nm=coral_process_nm,
+        full_adder_energy_pj=_fa_energy_pj(coral_process_nm),
         notes=("Weight-stationary scheduling. Modeled utilization of "
                "~0.50 is a compute-bound dense-GEMM upper bound. Real "
                "Coral Edge TPU workloads typically achieve 6-25% of "
@@ -386,6 +420,9 @@ def _tensor_core_entry(precision: Precision) -> ArchetypeEntry:
         coherence_efficiency=coherence_efficiency,
     )
 
+    # Jetson Orin AGX uses Samsung 8nm LPP
+    orin_process_nm = 8
+
     return ArchetypeEntry(
         archetype="SIMT + Tensor Core",
         sku="Jetson-Orin-AGX-64GB",
@@ -402,6 +439,8 @@ def _tensor_core_entry(precision: Precision) -> ArchetypeEntry:
         utilization_curve=util_curve,
         array_scaling_curve=[],
         tdp_watts=tdp,
+        process_node_nm=orin_process_nm,
+        full_adder_energy_pj=_fa_energy_pj(orin_process_nm),
         notes=("SIMT data-parallel scheduling. Not a spatial fabric "
                "pipeline; CUDA cores execute the instruction stream "
                "cycle-by-cycle. Utilization is capped by warp "
@@ -627,13 +666,16 @@ def _render_archetype_summary(report: ArchetypeComparisonReport) -> str:
             f"<td><code>{html.escape(a_d['sku'])}</code></td>"
             f"<td>{html.escape(a_d['schedule_class'].replace('_', ' '))}</td>"
             f"<td>{a_d['pe_array_rows']}x{a_d['pe_array_cols']}</td>"
+            f"<td>{a_d['process_node_nm']} nm</td>"
+            f"<td>{a_d['full_adder_energy_pj']:.3f} pJ</td>"
             f"<td>{a_d['tdp_watts']:.1f} W</td>"
             f"</tr>"
         )
     return (
         "<table>"
         "<thead><tr><th>Archetype</th><th>SKU</th><th>Scheduling</th>"
-        "<th>PE array</th><th>TDP</th></tr></thead>"
+        "<th>PE array</th><th>Process</th><th>1-bit FA ref</th>"
+        "<th>TDP</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"
     )
@@ -685,6 +727,16 @@ table th { font-size: 12px; text-transform: uppercase; color: #586374; backgroun
   a flat floor. SIMT + Tensor Core has no tile pipeline; its effective
   utilization is dominated by warp divergence and coherence traffic
   (shown as a flat baseline).
+</div>
+<div class="archetype-note">
+  <strong>Energy calibration reference.</strong> All MAC and per-op
+  energies are quoted at the SKU's manufacturing process node. The
+  table above lists the corresponding 1-bit CMOS full-adder (FA) dynamic
+  energy at nominal Vdd as a calibration baseline - an INT8 MAC requires
+  ~8 FA equivalents plus array + register-file overhead. Energies below
+  ~0.5x * 8 * FA are aggressive; above ~4x * 8 * FA are standard-cell
+  baseline. First-principles TDP feasibility can be checked with
+  <code>cli/check_tdp_feasibility.py</code>.
 </div>
 """
 

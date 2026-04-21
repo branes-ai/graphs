@@ -180,9 +180,12 @@ def test_kpu_t64_small_gemm():
 
     print_energy_breakdown("KPU-T64: 256×256 @ 256 GEMM (INT8)", result)
 
-    # Validate energy/MAC is reasonable (~0.8-1.2 pJ/MAC expected)
-    assert 0.6e-12 < result['energy_per_mac_j'] < 2.0e-12, \
-        f"Energy/MAC {result['energy_per_mac_pj']:.2f} pJ outside expected range (0.6-2.0 pJ)"
+    # Validate energy/MAC is reasonable. M0.5 revised the bare INT8 MAC
+    # energy from 0.25 pJ to 0.10 pJ (optimized 16nm domain-flow, TDP-
+    # feasibility-checked); effective per-MAC including memory hierarchy
+    # is now ~0.3-1.5 pJ for typical GEMMs.
+    assert 0.3e-12 < result['energy_per_mac_j'] < 1.5e-12, \
+        f"Energy/MAC {result['energy_per_mac_pj']:.2f} pJ outside expected range (0.3-1.5 pJ)"
 
     return result
 
@@ -209,9 +212,9 @@ def test_kpu_t256_medium_gemm():
 
     print_energy_breakdown("KPU-T256: 512×512 @ 512 GEMM (BF16)", result)
 
-    # Validate energy/MAC is better than T64 (advanced node)
-    assert 0.5e-12 < result['energy_per_mac_j'] < 1.8e-12, \
-        f"Energy/MAC {result['energy_per_mac_pj']:.2f} pJ outside expected range (0.5-1.8 pJ)"
+    # Validate energy/MAC is reasonable (M0.5 revised MAC energies)
+    assert 0.3e-12 < result['energy_per_mac_j'] < 1.5e-12, \
+        f"Energy/MAC {result['energy_per_mac_pj']:.2f} pJ outside expected range (0.3-1.5 pJ)"
 
     return result
 

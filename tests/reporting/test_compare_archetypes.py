@@ -191,6 +191,36 @@ class TestChart5Rendering:
         assert "fill/drain becomes negligible" not in html
 
 
+class TestProcessAndFullAdderReference:
+    """Energy reports must carry process node + FA reference for calibration."""
+
+    def test_every_archetype_has_process_node_and_fa_reference(self):
+        rpt = build_default_comparison(precision=Precision.INT8)
+        for a in rpt.archetypes:
+            assert a.process_node_nm > 0, (
+                f"{a.display_name} missing process_node_nm")
+            assert a.full_adder_energy_pj > 0, (
+                f"{a.display_name} missing full_adder_energy_pj")
+
+    def test_fa_reference_sanity_by_process(self):
+        """FA energy decreases monotonically with newer process nodes."""
+        rpt = build_default_comparison(precision=Precision.INT8)
+        # Pair process nm -> FA energy across all archetypes
+        points = [(a.process_node_nm, a.full_adder_energy_pj) for a in rpt.archetypes]
+        # For any two distinct points, smaller nm => smaller (or equal) FA energy
+        for (nm1, fa1), (nm2, fa2) in [(p, q) for p in points for q in points]:
+            if nm1 < nm2:
+                assert fa1 <= fa2, f"FA @ {nm1}nm ({fa1}) > FA @ {nm2}nm ({fa2})"
+
+    def test_html_shows_process_and_fa_reference(self):
+        rpt = build_default_comparison(precision=Precision.INT8)
+        html = render_archetype_page(rpt, REPO_ROOT)
+        assert " nm" in html              # process node column
+        assert "full-adder" in html.lower() or "full adder" in html.lower()
+        # Calibration note language
+        assert "calibration" in html.lower() or "reference" in html.lower()
+
+
 class TestToDict:
     """The data schema round-trips to a plain dict (for JSON emit)."""
 
@@ -199,7 +229,8 @@ class TestToDict:
         d = rpt.archetypes[0].to_dict()
         for key in ("archetype", "sku", "display_name", "energy_per_op_pj",
                     "peak_ops_per_sec", "ops_per_watt", "schedule_class",
-                    "utilization_curve", "tdp_watts"):
+                    "utilization_curve", "tdp_watts",
+                    "process_node_nm", "full_adder_energy_pj"):
             assert key in d, f"missing field {key}"
 
     def test_report_to_dict_roundtrip_stable(self):

@@ -104,17 +104,19 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     # ========================================================================
     # Matrix Tile Fabric (Classification heads, embeddings)
     # ========================================================================
+    # M0.5: matrix tile uses uniform 16x8 systolic (128 PEs) per tile.
+    # No tensor-core density claim; KPU positions on energy per op.
     matrix_tile_fabric = ComputeFabric(
         fabric_type="kpu_matrix_tile",
-        circuit_type="tensor_core",      # Matrix tiles are tensor-optimized
+        circuit_type="standard_cell",
         num_units=77,                    # 77 matrix tiles (10% of 768)
         ops_per_unit_per_clock={
-            Precision.INT8: 8192,        # 8192 INT8 ops/tile/cycle (matrix multiply)
-            Precision.BF16: 4096,        # 4096 BF16 ops/tile/cycle
+            Precision.INT8: 256,         # 16x8 PEs x 2 ops/PE/cycle = 256 ops/tile/clock
+            Precision.BF16: 128,
         },
         core_frequency_hz=sustained_clock_hz,
         process_node_nm=12,
-        energy_per_flop_fp32=get_base_alu_energy(12, 'tensor_core'),  # 2.1 pJ (15% better)
+        energy_per_flop_fp32=get_base_alu_energy(12, 'standard_cell'),
         energy_scaling={
             Precision.INT8: 0.15,
             Precision.BF16: 0.50,
@@ -423,9 +425,11 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         l1_write_energy_per_byte=0.2e-12,   # 0.2 pJ
 
         # Computation energy (BLAS operators, 7nm datacenter)
-        mac_energy_int8=0.2e-12,   # 0.2 pJ (INT8, 7nm optimized)
-        mac_energy_bf16=0.35e-12,  # 0.35 pJ (BF16)
-        mac_energy_fp32=0.5e-12,   # 0.5 pJ (FP32)
+        # MAC energies at 12nm datacenter domain-flow (M0.5 revision).
+        # 12nm 1-bit full adder ~0.007 pJ; INT8 MAC ~0.08 pJ optimized.
+        mac_energy_int8=0.08e-12,  # 0.08 pJ @ 12nm datacenter
+        mac_energy_bf16=0.13e-12,  # 0.13 pJ
+        mac_energy_fp32=0.24e-12,  # 0.24 pJ
     )
 
     model.tile_energy_model = tile_energy_model
