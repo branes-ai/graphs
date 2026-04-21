@@ -82,11 +82,32 @@ from larger per-tile PE arrays (amortize fill/drain over more
 wavefront cycles); larger engines move toward smaller tiles to
 preserve per-tile utilization across many concurrent tiles.
 
-| SKU | Tiles | PE array | PE count / tile | Default TDP | Peak INT8 |
-|-----|-------|----------|-----------------|-------------|-----------|
-| T64  | 64  | 32x32 | 1024 | 6 W  | ~118 TOPS |
-| T128 | 128 | 24x24 | 576  | 12 W | ~147 TOPS |
-| T256 | 256 | 16x16 | 256  | 30 W | ~184 TOPS |
+| SKU | Tiles | PE array | PE count / tile | Total PEs | Clock | Default TDP | Peak INT8 |
+|-----|-------|----------|-----------------|-----------|-------|-------------|-----------|
+| T64  | 64  | 24x24 | 576 | 36,864  | 900 MHz | 6 W  | ~66 TOPS |
+| T128 | 128 | 24x24 | 576 | 73,728  | 1.0 GHz | 12 W | ~148 TOPS |
+| T256 | 256 | 20x20 | 400 | 102,400 | 1.4 GHz | 30 W | ~230 TOPS |
+
+**Calibration (MAC energy at 16 nm):** all SKUs use
+`mac_energy_int8 = 0.10 pJ/MAC` (0.16 pJ BF16, 0.30 pJ FP32). For
+reference, a 16 nm 1-bit CMOS full adder dissipates ~0.01 pJ at
+nominal Vdd; an INT8 MAC requires ~8 full-adder equivalents plus
+array/register overhead, so 0.08-0.15 pJ is the aggressive-but-
+defensible range for optimized domain-flow silicon. First-principles
+TDP feasibility can be checked with
+`cli/check_tdp_feasibility.py`.
+
+**SKU parametrization rationale:**
+- T64 (24x24): smaller than T128's tiles would be physically
+  attractive, but at 6 W TDP with realistic MAC energies, 32x32
+  arrays across 64 tiles exceed the power envelope. 24x24 x 64
+  tiles is the largest array that fits 6 W.
+- T128 (24x24): sweet-spot efficiency at 12 W (12.3 TOPS/W).
+- T256 (20x20): commercially must deliver more peak than T128
+  despite more tiles. Dropping to 16x16 (the ideal inverse-scaling
+  choice) yielded fewer total PEs than T128 and an economically
+  indefensible SKU. 20x20 preserves the "smaller tiles for larger
+  engines" trend while giving T256 a ~1.56x peak advantage.
 
 These numbers use a homogeneous per-SKU PE-array size; future work will
 introduce heterogeneous tile sizes on a single SoC (mix of 8x8 through

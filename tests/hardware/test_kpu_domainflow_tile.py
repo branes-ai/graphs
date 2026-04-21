@@ -42,12 +42,16 @@ class TestPE_ArraySizes:
         for spec in cr.tile_specializations:
             assert spec.array_dimensions == (24, 24)
 
-    def test_t256_uses_16x16_pe_arrays(self):
+    def test_t256_uses_20x20_pe_arrays(self):
+        """T256 uses 20x20 (revised from 16x16 after commercial review).
+        At 16x16 x 256 tiles, T256 had fewer total PEs (65,536) than T128
+        (73,728) - making it commercially unjustifiable at 2.5x TDP.
+        20x20 x 256 = 102,400 PEs gives T256 a ~1.56x peak advantage."""
         model = kpu_t256_resource_model()
         tp = model.thermal_operating_points[model.default_thermal_profile]
         cr = tp.performance_specs[Precision.INT8].compute_resource
         for spec in cr.tile_specializations:
-            assert spec.array_dimensions == (16, 16)
+            assert spec.array_dimensions == (20, 20)
 
 
 class TestScheduleClass:
@@ -231,8 +235,13 @@ class TestEnergyAdvantage:
         )
 
     def test_kpu_array_size_sanity(self):
-        """Sanity: T64 and T128 use 24x24 (576 PEs); T256 uses 16x16 (256 PEs).
-        T64 was revised from 32x32 to 24x24 to fit 6W TDP at 0.10 pJ/MAC."""
+        """M0.5 final SKU lineup (post-TDP + commercial review):
+        T64  = 24x24 (576 PEs/tile) - shrunk from 32x32 for 6W TDP
+        T128 = 24x24 (576 PEs/tile) - sweet spot
+        T256 = 20x20 (400 PEs/tile) - commercially defensible peak
+        Inverse-scaling story: 24 >= 24 > 20 as engine grows. Larger
+        engines still get smaller per-tile arrays, just less aggressively
+        than the original 24->16 intent allowed under TDP constraints."""
         t64 = kpu_t64_resource_model()
         t128 = kpu_t128_resource_model()
         t256 = kpu_t256_resource_model()
@@ -242,4 +251,19 @@ class TestEnergyAdvantage:
             return cr.tile_specializations[0].pe_count
         assert pe_count(t64) == 576
         assert pe_count(t128) == 576
-        assert pe_count(t256) == 256
+        assert pe_count(t256) == 400
+
+    def test_t256_has_more_pes_than_t128(self):
+        """Commercial sanity: T256 at 2.5x TDP must have more PEs than
+        T128, not fewer. (The original 16x16 T256 had 65,536 PEs vs
+        T128's 73,728 - economically indefensible.)"""
+        t128 = kpu_t128_resource_model()
+        t256 = kpu_t256_resource_model()
+        def total_pes(m):
+            tp = m.thermal_operating_points[m.default_thermal_profile]
+            cr = tp.performance_specs[Precision.INT8].compute_resource
+            return cr.total_tiles * cr.tile_specializations[0].pe_count
+        assert total_pes(t256) > total_pes(t128), (
+            f"T256 ({total_pes(t256)} PEs) must have more PEs than "
+            f"T128 ({total_pes(t128)} PEs) to justify 2.5x the TDP."
+        )
