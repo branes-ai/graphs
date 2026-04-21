@@ -46,10 +46,13 @@ class SoCFabricModel:
         topology: Interconnect topology enum.
         hop_latency_ns: Per-hop latency in nanoseconds (quiet fabric).
         pj_per_flit_per_hop: Energy per flit per hop, picojoules.
-        bisection_bandwidth_gbps: Chip-wide bisection bandwidth, GB/s.
+        bisection_bandwidth_gbps: Chip-wide bisection bandwidth, gigabits
+            per second (Gbps). Per the field name, values are in bits/s;
+            consumers converting to GB/s must divide by 8.
         controller_count: Number of memory controllers on the chip.
         flit_size_bytes: Flit width in bytes (typical 32-64 on modern chips).
-        max_injection_gbps: Saturation injection rate per source, GB/s.
+        max_injection_gbps: Saturation injection rate per source,
+            gigabits per second (Gbps). Bits/s, not bytes/s.
         provenance: Source tag for these values (datasheet URL, commit, etc.).
     """
     topology: Topology = Topology.UNKNOWN

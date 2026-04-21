@@ -4,7 +4,7 @@
 **Revised:** 2026-04-20 (9-layer framing)
 **Scope:** Do the current benchmarks validate the latency and energy models from the bottom up — across the nine hardware layers defined in the [bottom-up plan](../plans/bottom-up-microbenchmark-plan.md)?
 
-**Short answer:** Partially. About 2 of 9 layers have any measurement coverage; 7 are analytical-only. Today's stack is **top-down calibrated** (composite GEMM/Conv sweeps → fitted efficiency curves → back-propagated into resource models). A **bottom-up validation path** that probes each physical layer independently does not exist, and that is where undetected model drift hides.
+**Short answer:** Partially. Only Layer 7 has partial (bandwidth-only) measurement coverage. Layers 1-6 are analytical only; Layers 8-9 have scaffolding (M0 `IntraServerFabricModel` / `ClusterInterconnectModel` dataclasses) but no validation content yet. Today's stack is **top-down calibrated** (composite GEMM/Conv sweeps → fitted efficiency curves → back-propagated into resource models). A **bottom-up validation path** that probes each physical layer independently does not exist, and that is where undetected model drift hides.
 
 This assessment uses the canonical 9-layer hierarchy:
 

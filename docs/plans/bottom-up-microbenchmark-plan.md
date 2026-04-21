@@ -48,7 +48,7 @@ Layer 8 and Layer 9 are also distinct: Layer 8 is the **load/store-semantic** fa
 
 ## Target directory layout
 
-```
+```text
 src/graphs/benchmarks/
 ├── layer1_alu/                        # FMA / precision / DVFS probes
 ├── layer2_register/                   # register file, SIMD, warp, systolic fill
