@@ -461,6 +461,15 @@ a.primary-link:hover {{ background: #15385c; }}
     trajectory + extrapolations + parity-year analysis.</p>
     <p><a class="primary-link" href="competitive_trajectory.html">Open trajectory analysis &rarr;</a></p>
   </section>
+  <section class="highlighted-link">
+    <h3>Per-structure energy accounting (SM vs. KPU tile)</h3>
+    <p>Model-validation view: itemizes every micro-architectural structure
+    that fires on the native operation (HMMA instruction for the
+    Streaming Multiprocessor, PE MAC in domain-flow wavefront for the
+    KPU tile) with citations and amortization factors. Cross-validates
+    the simplified architectural-efficiency model.</p>
+    <p><a class="primary-link" href="microarch_accounting.html">Open per-structure accounting &rarr;</a></p>
+  </section>
   <section>
     <h3>Per-SKU layer panels</h3>
     <p class="meta">Layer 1-7 content populates in milestones M1-M7.

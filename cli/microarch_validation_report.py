@@ -59,6 +59,10 @@ from graphs.reporting.competitive_trajectory import (  # noqa: E402
     build_default_report as build_trajectory_report,
     render_trajectory_page,
 )
+from graphs.reporting.microarch_accounting import (  # noqa: E402
+    build_default_report as build_accounting_report,
+    render_accounting_page,
+)
 from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
@@ -170,6 +174,15 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
     except RuntimeError as exc:
         import sys as _sys
         print(f"warning: competitive_trajectory.html skipped ({exc})", file=_sys.stderr)
+    # Per-structure micro-arch accounting (M0.5) - SM vs KPU tile validation
+    try:
+        acct_report = build_accounting_report()
+        acct_path = out_dir / "microarch_accounting.html"
+        acct_path.write_text(render_accounting_page(acct_report, _repo_root))
+        written.append(acct_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: microarch_accounting.html skipped ({exc})", file=_sys.stderr)
     return written
 
 

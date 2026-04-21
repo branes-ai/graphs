@@ -1,0 +1,164 @@
+"""Tests for per-structure micro-architectural energy accounting."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from graphs.reporting.microarch_accounting import (
+    AccountingReport,
+    MicroArchAccounting,
+    MicroStructure,
+    StructureCategory,
+    build_default_report,
+    build_kpu_tile_accounting,
+    build_nvidia_sm_accounting,
+    render_accounting_page,
+)
+from graphs.reporting.generalized_architecture import (
+    CANONICAL_ARCHETYPES,
+    total_pj_per_mac,
+)
+from graphs.reporting.native_op_energy import _fa_pj
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class TestStructureInvariants:
+    def test_every_sm_structure_has_positive_energy(self):
+        sm = build_nvidia_sm_accounting()
+        for s in sm.structures:
+            assert s.per_op_pj > 0, f"{s.name} has non-positive energy"
+            assert s.amortization_factor >= 1
+            assert s.per_mac_pj > 0
+
+    def test_every_kpu_structure_has_positive_energy(self):
+        kpu = build_kpu_tile_accounting()
+        for s in kpu.structures:
+            assert s.per_op_pj > 0, f"{s.name} has non-positive energy"
+            assert s.amortization_factor >= 1
+            assert s.per_mac_pj > 0
+
+    def test_every_structure_has_citation(self):
+        for b in build_default_report().blocks:
+            for s in b.structures:
+                assert s.citation, f"{s.name} missing citation"
+                assert len(s.citation) > 20, (
+                    f"{s.name} citation too short: {s.citation!r}")
+
+
+class TestStructuralPresenceAbsence:
+    def test_sm_has_fetch_decode_schedule(self):
+        sm = build_nvidia_sm_accounting()
+        cats = {s.category for s in sm.structures}
+        assert StructureCategory.FETCH in cats
+        assert StructureCategory.DECODE in cats
+        assert StructureCategory.SCHEDULE in cats
+
+    def test_kpu_tile_lacks_fetch_and_decode(self):
+        """Domain-flow fabric has no instruction fetch or decode."""
+        kpu = build_kpu_tile_accounting()
+        cats = {s.category for s in kpu.structures}
+        assert StructureCategory.FETCH not in cats
+        assert StructureCategory.DECODE not in cats
+
+    def test_both_blocks_have_execute(self):
+        for b in build_default_report().blocks:
+            cats = {s.category for s in b.structures}
+            assert StructureCategory.EXECUTE in cats
+
+
+class TestTotals:
+    def test_dynamic_total_is_sum_of_structures(self):
+        sm = build_nvidia_sm_accounting()
+        expected = sum(s.per_mac_pj for s in sm.structures)
+        assert abs(sm.dynamic_pj_per_mac - expected) < 1e-9
+
+    def test_total_includes_leakage(self):
+        sm = build_nvidia_sm_accounting()
+        assert sm.total_pj_per_mac > sm.dynamic_pj_per_mac
+        expected = sm.dynamic_pj_per_mac * (1.0 + sm.leakage_fraction)
+        assert abs(sm.total_pj_per_mac - expected) < 1e-9
+
+    def test_physical_plausibility(self):
+        """Per-MAC energies must be in a sensible range for modern silicon."""
+        for b in build_default_report().blocks:
+            assert 0.05 < b.total_pj_per_mac < 2.0, (
+                f"{b.building_block}: {b.total_pj_per_mac:.3f} pJ/MAC "
+                "outside plausible range [0.05, 2.0]")
+
+
+class TestCrossValidation:
+    """Detailed view totals should agree with the simplified
+    architectural-efficiency model within ~50%. The detailed view adds
+    leakage and itemizes small structures the simplified view rolls up."""
+
+    def test_sm_agrees_with_tensor_core_archetype(self):
+        r = build_default_report()
+        tc = next(a for a in CANONICAL_ARCHETYPES
+                  if a.category == "GPU" and "Tensor Core" in a.name)
+        sm = r.blocks[0]
+        sm_norm = sm.total_pj_per_mac * _fa_pj(16) / _fa_pj(sm.process_nm)
+        simp = total_pj_per_mac(tc, 16)
+        delta = abs(sm_norm - simp) / simp
+        assert delta < 0.50, (
+            f"SM cross-validation delta {delta*100:.0f}% exceeds 50%: "
+            f"detailed {sm_norm:.3f} vs simplified {simp:.3f}")
+
+    def test_kpu_agrees_with_domain_flow_archetype(self):
+        r = build_default_report()
+        kpu_a = next(a for a in CANONICAL_ARCHETYPES if a.category == "KPU")
+        kpu_det = r.blocks[1].total_pj_per_mac
+        simp = total_pj_per_mac(kpu_a, 16)
+        delta = abs(kpu_det - simp) / simp
+        assert delta < 0.50, (
+            f"KPU cross-validation delta {delta*100:.0f}% exceeds 50%: "
+            f"detailed {kpu_det:.3f} vs simplified {simp:.3f}")
+
+    def test_sm_higher_energy_than_kpu_at_matched_process(self):
+        """The architectural advantage must survive process normalization."""
+        r = build_default_report()
+        sm_norm = (r.blocks[0].total_pj_per_mac
+                   * _fa_pj(16) / _fa_pj(r.blocks[0].process_nm))
+        kpu = r.blocks[1].total_pj_per_mac
+        assert sm_norm > kpu, (
+            f"SM @ 16nm ({sm_norm:.3f}) not higher than KPU ({kpu:.3f}) "
+            "- architectural advantage lost")
+
+
+class TestHTMLRender:
+    def test_html_has_both_blocks(self):
+        r = build_default_report()
+        html = render_accounting_page(r, REPO_ROOT)
+        assert "NVIDIA Streaming Multiprocessor" in html
+        assert "KPU Compute Tile" in html
+
+    def test_html_has_two_charts(self):
+        r = build_default_report()
+        html = render_accounting_page(r, REPO_ROOT)
+        assert 'id="chart_by_category"' in html
+        assert 'id="chart_normalized"' in html
+
+    def test_html_has_citations(self):
+        r = build_default_report()
+        html = render_accounting_page(r, REPO_ROOT)
+        assert "Horowitz" in html
+        assert "domain-flow" in html.lower() or "domain flow" in html.lower()
+
+    def test_html_back_link_to_index(self):
+        r = build_default_report()
+        html = render_accounting_page(r, REPO_ROOT)
+        assert 'href="index.html"' in html
+
+    def test_html_has_process_nodes(self):
+        r = build_default_report()
+        html = render_accounting_page(r, REPO_ROOT)
+        assert "8 nm" in html
+        assert "16 nm" in html
+
+    def test_html_includes_cross_validation_note(self):
+        r = build_default_report()
+        html = render_accounting_page(r, REPO_ROOT)
+        assert "Cross-validation" in html
+        assert "generalized_architecture.py" in html
