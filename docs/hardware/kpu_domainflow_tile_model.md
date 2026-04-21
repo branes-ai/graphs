@@ -157,6 +157,58 @@ locality* at the thread-register level, but it runs on SIMT hardware
 and does NOT enjoy the fabric-level fill/drain amortization that
 defines the `OUTPUT_STATIONARY` class.
 
+## Native-op energy breakdown (theoretical floor)
+
+Independent of any workload, each architecture has a per-MAC energy
+floor determined by the native op's execution path through the
+memory hierarchy. The progression is:
+
+1. **ALU (bare MAC)** - the raw compute-cell energy at the SKU's
+   manufacturing process. Reference: a 16 nm 1-bit full adder
+   dissipates ~0.01 pJ, and an INT8 MAC requires ~8 FA-equivalents
+   plus array overhead, so the ALU floor on optimized 16 nm
+   domain-flow silicon is ~0.08-0.15 pJ/MAC.
+2. **+ Register** - operand register-file access for each MAC
+   (typically 3 byte-accesses: two operand reads + one accumulator
+   update). Scaled by process node using Horowitz's ISSCC 2014
+   baseline (0.120 pJ/byte at 45 nm, ~0.025 pJ/byte at 16 nm).
+3. **+ L1 / scratchpad** - tile-local SRAM access for operand
+   delivery, amortized by the architecture's natural reuse factor
+   (PE array column dimension for output-stationary / systolic
+   fabrics; matrix-fragment reuse for warp-level tensor cores).
+
+The progression is cumulative: at each step, the architecture's
+per-MAC energy grows by the incremental layer cost. No workload is
+assumed. This is the architectural-efficiency ceiling - the cheapest
+the architecture can possibly execute its native op in steady state.
+
+Comparison at INT8 (representative):
+
+| Archetype | Process | ALU | +Register | +L1 | (+SIMT overhead) | Total pJ/MAC |
+|-----------|---------|-----|-----------|-----|------------------|--------------|
+| KPU T128 (domain flow) | 16 nm | 0.100 | +0.075 | +0.017 | - | **0.192** |
+| Coral Edge TPU (systolic) | 14 nm | 0.070 | +0.044 | +0.002 | - | **0.116** |
+| Jetson Orin AGX (SIMT+TC) | 8 nm | 0.250 | +0.084 | +0.063 | +0.050 | **0.447** |
+
+Observations:
+- Coral Edge TPU has the lowest floor because weight-stationary
+  systolic amortizes operand delivery over K (reuse factor 64 for
+  64x64 array) and has the smallest register machinery.
+- KPU is close behind (16 nm vs. TPU's 14 nm process disadvantage)
+  and has a similar register cost. The KPU story is *not* that it
+  beats TPU at the theoretical MAC floor; it beats TPU at **real-
+  workload effective utilization** because output-stationary
+  scheduling amortizes fill/drain across tile count (chart 4 of the
+  comparison harness).
+- SIMT + Tensor Core is 2-4x the floor of the fabric approaches
+  because warp-level register files are larger and per-MAC overhead
+  includes coherence and scheduling.
+
+This breakdown is computed by
+`src/graphs/reporting/native_op_energy.py` and visualized in
+`native_op_energy.html`. All values scale with process node via the
+1-bit full-adder and register-access reference tables.
+
 ## How this maps to the product story
 
 1. **Energy per op.** KPU per-PE steady-state MAC energy is below Tensor

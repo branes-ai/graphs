@@ -47,6 +47,10 @@ from graphs.reporting.compare_archetypes import (  # noqa: E402
     build_default_comparison,
     render_archetype_page,
 )
+from graphs.reporting.native_op_energy import (  # noqa: E402
+    build_default_comparison as build_native_op_comparison,
+    render_native_op_page,
+)
 from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
@@ -125,9 +129,19 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
         arch_path.write_text(render_archetype_page(archetype_report, _repo_root))
         written.append(arch_path)
     except RuntimeError as exc:
-        # Registry missing a required SKU: skip gracefully, note on stderr
         import sys as _sys
         print(f"warning: compare_archetypes.html skipped ({exc})", file=_sys.stderr)
+    # Native-op energy breakdown (M0.5)
+    try:
+        native_op_report = build_native_op_comparison(
+            precision=Precision.INT8, kpu_sku="Stillwater-KPU-T128",
+        )
+        native_path = out_dir / "native_op_energy.html"
+        native_path.write_text(render_native_op_page(native_op_report, _repo_root))
+        written.append(native_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: native_op_energy.html skipped ({exc})", file=_sys.stderr)
     return written
 
 

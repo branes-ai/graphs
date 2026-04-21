@@ -439,6 +439,13 @@ a.primary-link:hover {{ background: #15385c; }}
     peak throughput, ops/W, pipeline utilization vs. tile count, and PE array-size scaling.</p>
     <p><a class="primary-link" href="compare_archetypes.html">Open compute-archetype comparison &rarr;</a></p>
   </section>
+  <section class="highlighted-link">
+    <h3>Native-op energy breakdown (ALU -&gt; +Register -&gt; +L1)</h3>
+    <p>Theoretical energy floor per MAC for each architecture's native operation,
+    broken down by memory-hierarchy layer. No workload assumed - this is the
+    architectural-efficiency ceiling.</p>
+    <p><a class="primary-link" href="native_op_energy.html">Open native-op breakdown &rarr;</a></p>
+  </section>
   <section>
     <h3>Per-SKU layer panels</h3>
     <p class="meta">Layer 1-7 content populates in milestones M1-M7.
