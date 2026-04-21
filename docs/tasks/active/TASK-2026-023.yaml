@@ -1,0 +1,171 @@
+# Task: M0.5 KPU Dataflow-Tile Refinement + Compute-Archetype Comparison Harness
+task_id: "TASK-2026-023"
+title: "M0.5: KPU dataflow-tile model (T64/T128/T256) + GPU/TPU/KPU comparison harness"
+version: "1.0"
+created_at: "2026-04-20T00:00:00Z"
+updated_at: "2026-04-20T00:00:00Z"
+
+ownership:
+  created_by: "claude-opus-4-7"
+  assignee: "unassigned"
+  reviewer: "@stillwater"
+  stakeholders: []
+
+classification:
+  type: "feature"
+  priority: "high"
+  milestone: "M0.5"
+  target_version: "0.10.0-microarch"
+  estimated_effort: "7-10d"
+  complexity: "high"
+
+objective: |
+  (A) Refine the KPU tile abstraction to reflect a distributed
+  dataflow fabric with perfect-pipelining semantics (not matrix
+  tiles chasing Tensor Core peak parity). Separate per-wavefront
+  fill/drain from steady-state per-PE MAC energy. Surface
+  pipeline_utilization as an explicit parameter.
+
+  (B) Configure T64, T128 (new SKU), and T256 under the refined
+  abstraction. PE array shape (16x16 / 32x32 / 64x64) is a design
+  knob explored during this milestone.
+
+  (C) Stand up the GPU vs. TPU vs. KPU compute-archetype comparison
+  harness (compare_archetypes.html) with five visualizations
+  designed around the product narrative:
+    1. Energy per op at fixed precision
+    2. Peak ops/s at fixed precision
+    3. Ops/W
+    4. Pipeline/utilization sensitivity
+    5. PE array-size scaling
+
+  (D) Internal-consistency unit tests asserting expected comparative
+  behavior.
+
+motivation: |
+  The KPU's competitive positioning is energy per op in the
+  pipelined steady state, not peak ops/s. The current tile model,
+  set up for Tensor Core peak parity, obscures that story. The
+  refined dataflow-tile model makes the energy advantage legible
+  and exposes the load-bearing perfect-pipelining assumption so the
+  story survives scrutiny.
+
+  The comparison harness is the exploration tool used during this
+  milestone to pick T64/T128/T256 array sizes, not just a
+  deliverable for later review.
+
+deliverables:
+  - path: "src/graphs/hardware/models/accelerators/kpu_t64.py"
+    type: "code"
+    description: "Re-parameterize under dataflow-tile abstraction; PE array shape as design knob"
+    acceptance: "Exposes pipeline_utilization, per-PE steady-state MAC energy, fill/drain separated"
+
+  - path: "src/graphs/hardware/models/accelerators/kpu_t128.py"
+    type: "code"
+    description: "NEW SKU sized between T64 and T256 under dataflow-tile abstraction"
+    acceptance: "Resolves via get_mapper_by_name('kpu_t128')"
+
+  - path: "src/graphs/hardware/models/accelerators/kpu_t256.py"
+    type: "code"
+    description: "Re-parameterize under dataflow-tile abstraction"
+    acceptance: "Same interface as T64; numbers reflect actual dataflow semantics"
+
+  - path: "src/graphs/hardware/mappers/accelerators/kpu.py"
+    type: "code"
+    description: "Mapper updates to support dataflow-tile abstraction if needed (additive preferred; flag if refactor required)"
+    acceptance: "T64/T128/T256 all map under the new model"
+
+  - path: "src/graphs/hardware/mappers/__init__.py"
+    type: "code"
+    description: "Register kpu_t128 in factory registry; update docstrings for refreshed T64/T256"
+    acceptance: "list_all_mappers() includes kpu_t128"
+
+  - path: "docs/hardware/kpu_dataflow_tile_model.md"
+    type: "documentation"
+    description: "Written description of the new tile model + positioning rationale (energy per op vs peak ops/s)"
+    acceptance: "Covers PE array, wavefront scheduling, fill/drain, per-PE steady-state energy, pipeline_utilization"
+
+  - path: "src/graphs/reporting/compare_archetypes.py"
+    type: "code"
+    description: "Compute-archetype comparison page; five visualizations; interactive controls (utilization slider, array-size toggle)"
+    acceptance: "compare_archetypes.html renders with Jetson Orin AGX, Coral Edge TPU, KPU T128 overlaid"
+
+  - path: "tests/hardware/test_kpu_dataflow_tile.py"
+    type: "test"
+    description: "Internal-consistency tests for KPU model"
+    acceptance: "Asserts per-PE steady-state energy below Tensor Core at matched precision; fill/drain dominant at small shapes; per-op energy decreases with array size within regime"
+
+  - path: "tests/reporting/test_compare_archetypes.py"
+    type: "test"
+    description: "Renders harness with stub data; checks all 5 charts present and interactive"
+    acceptance: "Smoke test passes"
+
+dependencies:
+  - task: "TASK-2026-022"
+    description: "M0 scaffolding (schema, dataclass stubs, HTML template)"
+
+interfaces_provided:
+  - name: "KPU dataflow-tile abstraction"
+    module: "graphs.hardware.models.accelerators.kpu_*"
+    description: "Distributed dataflow fabric with perfect-pipelining semantics; pipeline_utilization surfaced"
+  - name: "compare_archetypes page generator"
+    module: "graphs.reporting.compare_archetypes"
+
+interfaces_consumed:
+  - name: "HardwareResourceModel.field_provenance"
+    module: "graphs.hardware.resource_model"
+  - name: "SoCFabricModel (slots for M6)"
+    module: "graphs.hardware.fabric_model"
+
+acceptance_criteria:
+  - criterion: "get_mapper_by_name('kpu_t64'), 'kpu_t128', 'kpu_t256' resolve under refined dataflow-tile abstraction with pipeline_utilization surfaced"
+    verification: "python -c \"from graphs.hardware.mappers import get_mapper_by_name; [get_mapper_by_name(n) for n in ['kpu_t64','kpu_t128','kpu_t256']]\""
+  - criterion: "docs/hardware/kpu_dataflow_tile_model.md exists and describes the new model + positioning"
+    verification: "Plan-owner review"
+  - criterion: "compare_archetypes.html renders with 5 working visualizations; utilization slider and array-size toggle are interactive"
+    verification: "Manual visual review on generated HTML"
+  - criterion: "Plan-owner confirms: (a) tile model captures distributed-dataflow pipeline story; (b) comparison views useful for design-space exploration; (c) PE array sizes for T64/T128/T256 are locked before M1 starts on KPU fields"
+    verification: "Sign-off in PR review"
+  - criterion: "Internal-consistency tests pass"
+    verification: "pytest tests/hardware/test_kpu_dataflow_tile.py tests/reporting/test_compare_archetypes.py"
+
+constraints:
+  - "NO silicon measurement of KPU, TPU, or GPU"
+  - "NO TPU mapper redo; if TPU accounting granularity is insufficient for fair comparison, file a separate follow-up issue and ship an unfair comparison with a disclosure"
+  - "T768 out of scope"
+  - "Timebox array-size exploration to budget; excess spills to post-M8 follow-up"
+  - "No Layer 1-7 numeric population (M0.5 is structural + harness)"
+
+testing:
+  unit_tests:
+    required: true
+    coverage_target: 80
+    location: "tests/hardware/test_kpu_dataflow_tile.py"
+  integration_tests:
+    required: true
+    location: "tests/reporting/test_compare_archetypes.py"
+
+documentation:
+  code_comments: true
+  docstrings: true
+  design_doc: "docs/hardware/kpu_dataflow_tile_model.md"
+
+state:
+  status: "ready"
+  blocked_by: ["TASK-2026-022"]
+  blocks: ["TASK-2026-024"]
+  started_at: ""
+  completed_at: ""
+
+progress:
+  - date: "2026-04-20"
+    author: "claude-opus-4-7"
+    note: "Task created"
+
+review:
+  pull_request: ""
+
+references:
+  - type: "documentation"
+    path: "docs/plans/microarch-model-delivery-plan.md"
+    section: "M0.5 - KPU Tile Model Refinement + Compute-Archetype Comparison Harness"

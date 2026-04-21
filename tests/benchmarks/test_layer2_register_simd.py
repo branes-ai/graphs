@@ -37,7 +37,7 @@ class TestSIMDWidthSweep:
         )
         assert len(results) == 3
         assert all(r.success for r in results)
-        assert all(r.layer is LayerTag.REGISTER_SIMD for r in results)
+        assert all(r.layer is LayerTag.REGISTER for r in results)
 
     def test_wider_vectors_have_higher_throughput(self):
         from graphs.benchmarks.layer2_register_simd.simd_width import (
@@ -85,7 +85,7 @@ class TestRegisterPressure:
             num_trials=3,
         )
         assert result.success
-        assert result.layer is LayerTag.REGISTER_SIMD
+        assert result.layer is LayerTag.REGISTER
         ilp = result.extra["ilp_ratio"]
         assert ilp > 0
 
