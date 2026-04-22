@@ -160,8 +160,8 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         optimization_level={Precision.INT8: 1.0, Precision.INT4: 1.0, Precision.BF16: 0.25},
         clock_domain=t256_clock,
         schedule_class=TileScheduleClass.OUTPUT_STATIONARY,
-        pipeline_fill_cycles=16,   # one column sweep through a 16-wide array
-        pipeline_drain_cycles=16,
+        pipeline_fill_cycles=20,   # one column sweep through a 20-wide array
+        pipeline_drain_cycles=20,
     )
 
     t256_bf16_tiles = TileSpecialization(

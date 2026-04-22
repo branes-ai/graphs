@@ -1090,7 +1090,10 @@ a.nav-back:hover { text-decoration: underline; }
             if ("KPU" in b.name and "KPU" in mname):
                 matched_val = mval
                 break
-            if ("SM" in b.name and "TC path" in b.name
+            # Only the TC-path SM has an independent per-MAC counterpart
+            # in microarch_accounting; the CUDA-path SM intentionally
+            # stays on the n/a branch.
+            if ("Multiprocessor" in b.name and "TC path" in b.name
                     and "Multiprocessor" in mname):
                 matched_val = mval
                 break

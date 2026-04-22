@@ -730,10 +730,12 @@ a.nav-back:hover { text-decoration: underline; }
     tc = next(a for a in CANONICAL_ARCHETYPES
               if a.category == "GPU" and "Tensor Core" in a.name)
     kpu = next(a for a in CANONICAL_ARCHETYPES if a.category == "KPU")
-    # Compare at process-normalized 16 nm
+    # Compare at process-normalized 16 nm. Both detailed blocks are
+    # now at 8 nm (matched), so both get the same FA(16)/FA(8) scale.
     sm_total_16nm = (report.blocks[0].total_pj_per_mac
                      * _fa_pj(16) / _fa_pj(report.blocks[0].process_nm))
-    kpu_total_16nm = report.blocks[1].total_pj_per_mac
+    kpu_total_16nm = (report.blocks[1].total_pj_per_mac
+                      * _fa_pj(16) / _fa_pj(report.blocks[1].process_nm))
     sm_simplified_16nm = total_pj_per_mac(tc, 16)
     kpu_simplified_16nm = total_pj_per_mac(kpu, 16)
 
@@ -747,7 +749,7 @@ a.nav-back:hover { text-decoration: underline; }
     <strong>{sm_total_16nm:.3f} pJ/MAC</strong>.
     Simplified: <strong>{sm_simplified_16nm:.3f} pJ/MAC</strong>.
     Delta: {abs(sm_total_16nm - sm_simplified_16nm) / sm_simplified_16nm * 100:.0f}%.<br/>
-  KPU tile detailed-total at 16 nm:
+  KPU tile detailed-total normalized to 16 nm:
     <strong>{kpu_total_16nm:.3f} pJ/MAC</strong>.
     Simplified: <strong>{kpu_simplified_16nm:.3f} pJ/MAC</strong>.
     Delta: {abs(kpu_total_16nm - kpu_simplified_16nm) / kpu_simplified_16nm * 100:.0f}%.

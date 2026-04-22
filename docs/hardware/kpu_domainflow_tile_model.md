@@ -129,7 +129,7 @@ cycles (at the start of the workload) and the very last `drain`
 cycles (at the end). Over N tiles, the penalty is (fill + drain)
 cycles amortized across N * steady useful cycles:
 
-```
+```text
 util = (N * steady) / (N * steady + fill + drain)
 ```
 

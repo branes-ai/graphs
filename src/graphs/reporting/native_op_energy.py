@@ -87,13 +87,13 @@ def _fa_pj(process_nm: int) -> float:
     return FULL_ADDER_PJ_BY_PROCESS[nearest]
 
 
-def _precision_byte_width(precision: Precision) -> int:
+def _precision_byte_width(precision: Precision) -> float:
     mapping = {
-        Precision.FP64: 8, Precision.FP32: 4, Precision.TF32: 4,
-        Precision.BF16: 2, Precision.FP16: 2, Precision.FP8: 1,
-        Precision.INT8: 1, Precision.INT4: 1,
+        Precision.FP64: 8.0, Precision.FP32: 4.0, Precision.TF32: 4.0,
+        Precision.BF16: 2.0, Precision.FP16: 2.0, Precision.FP8: 1.0,
+        Precision.INT8: 1.0, Precision.INT4: 0.5,
     }
-    return mapping.get(precision, 1)
+    return mapping.get(precision, 1.0)
 
 
 # ----------------------------------------------------------------------
