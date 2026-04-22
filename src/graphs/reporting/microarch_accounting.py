@@ -71,11 +71,23 @@ class MicroStructure:
     the MAC count and `per_op_pj` to the total energy of one activation.
     For structures that fire per MAC (e.g., the MAC unit itself), set
     `amortization_factor = 1` and `per_op_pj` to the per-MAC cost.
+
+    `transistor_count_m` is the estimated silicon footprint (millions
+    of transistors) of the PHYSICAL BLOCK that implements this
+    structure. Circuit designers use it to sanity-check the energy:
+    a 1 M-transistor block dissipating 10 pJ/event is plausible for
+    CMOS at 8 nm; a 0.1 M block dissipating 100 pJ is not. Some
+    structures share the same silicon (e.g. RF read A, B, and write-C
+    all access the same register file) - the `shared_block` field
+    identifies those cases so the sum over structures does not double-
+    count the underlying hardware.
     """
     name: str
     category: StructureCategory
     per_op_pj: float                # energy per structure activation
     amortization_factor: int        # MACs amortized over one activation
+    transistor_count_m: float = 0.0  # silicon of the implementing block
+    shared_block: str = ""          # non-empty if silicon is shared
     citation: str = ""              # source / derivation
 
     @property
@@ -88,6 +100,8 @@ class MicroStructure:
             "category": self.category.value,
             "per_op_pj": self.per_op_pj,
             "amortization_factor": self.amortization_factor,
+            "transistor_count_m": self.transistor_count_m,
+            "shared_block": self.shared_block,
             "per_mac_pj": self.per_mac_pj,
             "citation": self.citation,
         }
@@ -121,6 +135,21 @@ class MicroArchAccounting:
     def full_adder_reference_pj(self) -> float:
         return _fa_pj(self.process_nm)
 
+    @property
+    def total_unique_transistor_count_m(self) -> float:
+        """Sum transistor counts once per unique block, so shared
+        silicon (e.g. the register file shared by RF-read A, B, and
+        write-C) is not double-counted."""
+        counted_blocks: set = set()
+        total = 0.0
+        for s in self.structures:
+            key = s.shared_block or s.name
+            if key in counted_blocks:
+                continue
+            counted_blocks.add(key)
+            total += s.transistor_count_m
+        return total
+
     def by_category(self) -> Dict[str, float]:
         out: Dict[str, float] = {}
         for s in self.structures:
@@ -139,6 +168,8 @@ class MicroArchAccounting:
             "leakage_pj_per_mac": self.leakage_pj_per_mac,
             "total_pj_per_mac": self.total_pj_per_mac,
             "full_adder_reference_pj": self.full_adder_reference_pj,
+            "total_unique_transistor_count_m":
+                self.total_unique_transistor_count_m,
             "structures": [s.to_dict() for s in self.structures],
             "by_category": self.by_category(),
             "color": self.color,
@@ -187,9 +218,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.FETCH,
             per_op_pj=8.0,
             amortization_factor=4096,
+            transistor_count_m=2.0,
             citation=(
-                "L0 I-cache per-access ~8 pJ at 8 nm; HMMA is a single "
-                "128-bit instruction fetched once per warp instruction."
+                "2 KB L0 I$ array x 4 sub-partitions ~2 M transistors "
+                "(6T SRAM + peripheral). Energy: ~8 pJ per access at 8 nm."
             ),
         ),
         MicroStructure(
@@ -197,9 +229,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.DECODE,
             per_op_pj=4.0,
             amortization_factor=4096,
+            transistor_count_m=0.5,
             citation=(
-                "GPU decoder is simpler than x86; ~4 pJ per instruction "
-                "at 8 nm (scaled from Horowitz 2014 decoder energy)."
+                "GPU decoder is simpler than x86; ~100 K transistors x 4 "
+                "sub-partitions = 0.5 M. Energy: ~4 pJ per instruction."
             ),
         ),
         MicroStructure(
@@ -207,9 +240,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.SCHEDULE,
             per_op_pj=6.0,
             amortization_factor=4096,
+            transistor_count_m=2.0,
             citation=(
-                "Ampere SM scheduler checks 4 warp slots per cycle; "
-                "~6 pJ per issued instruction at 8 nm."
+                "4 schedulers x ~0.5 M each = 2 M. Energy: ~6 pJ per "
+                "issued instruction at 8 nm."
             ),
         ),
         MicroStructure(
@@ -217,16 +251,21 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.SCHEDULE,
             per_op_pj=3.0,
             amortization_factor=4096,
-            citation="Operand muxing + dispatch to Tensor Core port.",
+            transistor_count_m=1.0,
+            citation=(
+                "Operand muxing + dispatch port ~0.25 M x 4 sub-"
+                "partitions = 1 M."
+            ),
         ),
         MicroStructure(
             name="Scoreboard / dependency tracking",
             category=StructureCategory.CONTROL,
             per_op_pj=2.5,
             amortization_factor=4096,
+            transistor_count_m=1.0,
             citation=(
-                "Scoreboard update per issued instruction; per-warp "
-                "RAW/WAW/WAR tracking."
+                "Per-warp RAW/WAW/WAR tracking ~0.25 M x 4 sub-partitions "
+                "= 1 M."
             ),
         ),
         # --- Per-cycle-per-thread across the 4-cycle HMMA pipeline ---
@@ -238,9 +277,12 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.REGISTER,
             per_op_pj=32 * 8 * reg_pj_byte,  # 256 * 0.014 ~ 3.6 pJ
             amortization_factor=4096,
+            transistor_count_m=20.0,
+            shared_block="SM register file (256 KB)",
             citation=(
-                f"32 threads x 8 bytes x {reg_pj_byte:.3f} pJ/byte "
-                f"@ {process_nm}nm (Horowitz 2014 scaled; 256 B fragment)."
+                f"Shared 256 KB, 4-bank RF: ~13 M SRAM + ~7 M peripheral "
+                f"= 20 M. Energy: 32 threads x 8 bytes x "
+                f"{reg_pj_byte:.3f} pJ/byte @ {process_nm}nm."
             ),
         ),
         MicroStructure(
@@ -248,39 +290,48 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.REGISTER,
             per_op_pj=32 * 8 * reg_pj_byte,
             amortization_factor=4096,
-            citation="Second operand matrix fragment.",
+            transistor_count_m=20.0,
+            shared_block="SM register file (256 KB)",
+            citation=(
+                "Second operand matrix fragment; same 20 M RF silicon "
+                "as fragment A (not double-counted in unique total)."
+            ),
         ),
         MicroStructure(
             name="Operand collector + bypass network",
             category=StructureCategory.REGISTER,
             per_op_pj=20.0,
             amortization_factor=4096,
+            transistor_count_m=10.0,
             citation=(
-                "Operand collection through 4-bank crossbar; static "
-                "network + muxing energy."
+                "4 collectors + 4-bank crossbar ~10 M. Energy dominated "
+                "by crossbar static wire capacitance (~20 pJ per issue)."
             ),
         ),
         # --- Per MAC ---
         MicroStructure(
-            name="Tensor Core bare MAC (INT8 multiply-add datapath)",
+            name="Tensor Core bare MAC array (INT8 multiply-add)",
             category=StructureCategory.EXECUTE,
             per_op_pj=0.08,
             amortization_factor=1,
+            transistor_count_m=40.0,
             citation=(
-                f"~10 FA-equivalents x {fa_pj:.3f} pJ/FA. Same physics "
-                "as a KPU PE MAC at 8 nm; the architectural advantage "
-                "comes from overhead structures below, not the datapath."
+                f"4 TCs x 1024 INT8 MAC units x ~10 K transistors each "
+                f"~40 M (bare-MAC datapath only). Energy: ~10 FA x "
+                f"{fa_pj:.3f} pJ/FA per MAC."
             ),
         ),
         # --- Per warp per cycle (amortized across 4096 MACs) ---
         MicroStructure(
-            name="Accumulator reduction tree (INT32 accum)",
+            name="Accumulator reduction tree + operand regs (TC-internal)",
             category=StructureCategory.ACCUMULATE,
             per_op_pj=40.0,
             amortization_factor=4096,
+            transistor_count_m=60.0,
             citation=(
-                "16x16 partial-sum reduction within TC; 40 pJ per "
-                "HMMA across all accumulator updates."
+                "16x16 partial-sum reduction + fragment operand registers "
+                "+ broadcast muxes inside each TC; ~60 M across 4 TCs "
+                "(rest of the ~100 M TC budget after the bare MAC array)."
             ),
         ),
         MicroStructure(
@@ -288,7 +339,12 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.REGISTER,
             per_op_pj=32 * 8 * reg_pj_byte * 1.2,  # writes ~1.2x reads
             amortization_factor=4096,
-            citation="Accumulator fragment write-back after HMMA.",
+            transistor_count_m=20.0,
+            shared_block="SM register file (256 KB)",
+            citation=(
+                "Accumulator fragment write-back uses the same RF as "
+                "read (20 M, not double-counted)."
+            ),
         ),
         # --- Shared memory (amortized across HMMA invocation) ---
         MicroStructure(
@@ -296,9 +352,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.MEMORY,
             per_op_pj=2 * 256 * smem_pj_byte,  # 2 fragments * 256 bytes * energy
             amortization_factor=4096,
+            transistor_count_m=20.0,
             citation=(
-                f"Two 16x16 matrix fragments loaded via LDSM; "
-                f"256 bytes each at {smem_pj_byte:.2f} pJ/byte (L1/SMEM)."
+                "128 KB unified L1/SMEM: ~13 M SRAM + ~7 M peripheral. "
+                f"Energy: 2 fragments x 256 B x {smem_pj_byte:.2f} pJ/B."
             ),
         ),
         MicroStructure(
@@ -306,9 +363,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.CONTROL,
             per_op_pj=1.5,
             amortization_factor=4096,
+            transistor_count_m=0.5,
             citation=(
-                "Convergence barrier + mask-stack management; "
-                "relatively small for compute-heavy HMMA."
+                "Mask-stack + convergence barrier ~0.5 M transistors; "
+                "small for compute-heavy HMMA."
             ),
         ),
         MicroStructure(
@@ -316,9 +374,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
             category=StructureCategory.CONTROL,
             per_op_pj=16.0,
             amortization_factor=4096,
+            transistor_count_m=2.0,
             citation=(
-                "SM has ~4-stage HMMA pipeline; per-stage latch "
-                "energy across 32 threads."
+                "~4-stage HMMA pipeline; per-stage latch banks x 32 "
+                "threads across 4 sub-partitions ~2 M transistors."
             ),
         ),
     ]
@@ -390,10 +449,12 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.EXECUTE,
             per_op_pj=0.050,
             amortization_factor=1,
+            transistor_count_m=6.9,  # ~12 K transistors/PE x 576 PEs
             citation=(
-                f"0.050 pJ at {process_nm}nm optimized domain-flow; "
-                f"reference: 8 FA x {fa_pj:.3f} pJ = {8*fa_pj:.3f} pJ "
-                "plus minimal carry-tree overhead."
+                f"~12 K transistors/PE (INT8 multiplier + INT32 adder) "
+                f"x {PE_COUNT} PEs = 6.9 M aggregate. Energy: 8 FA x "
+                f"{fa_pj:.3f} pJ = {8*fa_pj:.3f} pJ plus carry-tree "
+                f"overhead; 0.050 pJ at {process_nm} nm."
             ),
         ),
         MicroStructure(
@@ -401,9 +462,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.REGISTER,
             per_op_pj=2 * 1 * reg_pj_byte,
             amortization_factor=1,
+            transistor_count_m=1.2,  # ~2 K transistors/PE x 576 PEs
             citation=(
-                f"2 byte-reads x {reg_pj_byte:.3f} pJ/byte @ "
-                f"{process_nm}nm (PE-local regfile, small array)."
+                f"~2 K transistors/PE (2 byte-wide latches) x {PE_COUNT} "
+                f"= 1.2 M. Energy: 2 byte-reads x {reg_pj_byte:.3f} pJ/B."
             ),
         ),
         MicroStructure(
@@ -411,11 +473,11 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.ACCUMULATE,
             per_op_pj=0.015,
             amortization_factor=1,
+            transistor_count_m=0.2,  # ~0.4 K (32-bit reg) x 576 PEs
             citation=(
-                "INT32 accumulator is a pipeline register directly "
-                "wired to the FMA output (not a regfile read). ~32 "
-                "flip-flop toggles weighted by realistic switching "
-                "activity (~15%); ~0.015 pJ at 8 nm."
+                f"~0.4 K transistors/PE (INT32 pipeline register wired "
+                f"to FMA output) x {PE_COUNT} = 0.2 M. Energy: ~32 FF "
+                "toggles at ~15% switching activity."
             ),
         ),
         MicroStructure(
@@ -423,9 +485,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.INTERCONNECT,
             per_op_pj=1 * reg_pj_byte * 0.4,
             amortization_factor=1,
+            transistor_count_m=0.3,  # ~0.5 K (muxes) x 576 PEs
             citation=(
-                "Nearest-neighbor mesh wire; ~40% of a regfile-read "
-                "cost (short wire, low capacitance). No router."
+                f"~0.5 K transistors/PE (nearest-neighbor mesh mux) x "
+                f"{PE_COUNT} = 0.3 M. Energy: ~40% of a regfile-read."
             ),
         ),
         MicroStructure(
@@ -433,11 +496,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.CONTROL,
             per_op_pj=0.004,
             amortization_factor=1,
+            transistor_count_m=0.1,  # ~0.2 K (valid+coord cmp) x 576
             citation=(
-                "Domain-flow component that matches incoming data "
-                "tokens to the PE's FMA operation (valid-bit + "
-                "coordinate check). A few gates per incoming token; "
-                "~0.004 pJ at 8 nm."
+                f"~0.2 K transistors/PE (valid-bit + coord comparator) "
+                f"x {PE_COUNT} = 0.1 M. Energy: a few gates per token."
             ),
         ),
         MicroStructure(
@@ -445,9 +507,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.CONTROL,
             per_op_pj=0.008,
             amortization_factor=1,
+            transistor_count_m=0.5,  # tile-wide H-tree
             citation=(
-                "Single-stage pipeline in a domain-flow PE (minimal; "
-                "no deep out-of-order machinery)."
+                "Tile-wide H-tree + per-PE clock buffer ~0.5 M transistors "
+                "aggregate. Energy: single-stage pipeline in each PE."
             ),
         ),
         MicroStructure(
@@ -455,11 +518,12 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.MEMORY,
             per_op_pj=bytes_per_mac_from_scratchpad * l1_pj_byte,
             amortization_factor=1,
+            transistor_count_m=4.0,  # 64 KB SRAM + peripheral
             citation=(
-                f"{edge_reads_per_clock} edge-PE byte reads per clock "
-                f"feeding {PE_COUNT} interior MACs; average "
-                f"{bytes_per_mac_from_scratchpad:.3f} byte/MAC x "
-                f"{l1_pj_byte:.3f} pJ/byte (L1 SRAM at {process_nm} nm)."
+                f"64 KB SRAM ~3 M + peripheral ~1 M = 4 M. Energy: "
+                f"{edge_reads_per_clock} edge reads / {PE_COUNT} MACs "
+                f"average {bytes_per_mac_from_scratchpad:.3f} B/MAC x "
+                f"{l1_pj_byte:.3f} pJ/B at {process_nm} nm."
             ),
         ),
     ]
@@ -597,12 +661,21 @@ def _render_chart_js(report: AccountingReport) -> str:
 def _render_block_table(b: MicroArchAccounting) -> str:
     rows = []
     for s in b.structures:
+        # Mark rows that share silicon with another structure so the
+        # reader knows not to add up the transistor column naively.
+        shared_marker = ""
+        if s.shared_block:
+            shared_marker = (
+                f' <span class="shared" title="shared silicon">'
+                f'(shared: {html.escape(s.shared_block)})</span>'
+            )
         rows.append(
             f'<tr>'
             f'<td class="name">{html.escape(s.name)}</td>'
             f'<td><span class="cat" style="background:'
             f'{_CATEGORY_COLORS.get(s.category.value, "#888")};'
             f'">{html.escape(s.category.value)}</span></td>'
+            f'<td class="num">{s.transistor_count_m:.2f}{shared_marker}</td>'
             f'<td class="num">{s.per_op_pj:.3f}</td>'
             f'<td class="num">{s.amortization_factor:,}</td>'
             f'<td class="num"><strong>{s.per_mac_pj:.4f}</strong></td>'
@@ -613,14 +686,21 @@ def _render_block_table(b: MicroArchAccounting) -> str:
     dyn = b.dynamic_pj_per_mac
     leak = b.leakage_pj_per_mac
     tot = b.total_pj_per_mac
+    unique_tc = b.total_unique_transistor_count_m
     rows.append(
         f'<tr class="subtotal">'
-        f'<td colspan="4"><strong>Dynamic total per MAC</strong></td>'
+        f'<td colspan="2"><strong>Unique silicon footprint</strong></td>'
+        f'<td class="num"><strong>{unique_tc:.1f} M</strong></td>'
+        f'<td colspan="3" class="src">Sum across unique blocks '
+        f'(shared-silicon structures counted once).</td>'
+        f'</tr>'
+        f'<tr class="subtotal">'
+        f'<td colspan="5"><strong>Dynamic total per MAC</strong></td>'
         f'<td class="num"><strong>{dyn:.4f}</strong></td>'
         f'<td class="src">Sum of itemized structures above.</td>'
         f'</tr>'
         f'<tr class="leakage-row">'
-        f'<td colspan="4">Leakage / static '
+        f'<td colspan="5">Leakage / static '
         f'({b.leakage_fraction*100:.0f}% of dynamic)</td>'
         f'<td class="num">{leak:.4f}</td>'
         f'<td class="src">'
@@ -629,7 +709,7 @@ def _render_block_table(b: MicroArchAccounting) -> str:
         f'estimate.</td>'
         f'</tr>'
         f'<tr class="total-row">'
-        f'<td colspan="4"><strong>Total per MAC</strong></td>'
+        f'<td colspan="5"><strong>Total per MAC</strong></td>'
         f'<td class="num"><strong>{tot:.4f} pJ/MAC</strong></td>'
         f'<td class="src">Dynamic + leakage. Does not include L2/DRAM/IO.</td>'
         f'</tr>'
@@ -638,6 +718,7 @@ def _render_block_table(b: MicroArchAccounting) -> str:
         '<table class="accounting">'
         '<thead><tr>'
         '<th>Structure</th><th>Category</th>'
+        '<th>Transistors (M)</th>'
         '<th>pJ / activation</th>'
         '<th>MACs amortized</th>'
         '<th>pJ / MAC</th>'
@@ -659,6 +740,8 @@ def _render_block_header(b: MicroArchAccounting) -> str:
     <strong>Process:</strong> {b.process_nm} nm
     | <strong>Clock:</strong> {b.clock_ghz:.2f} GHz
     | <strong>MACs / native op:</strong> {b.macs_per_native_op:,}
+    | <strong>Silicon:</strong>
+        {b.total_unique_transistor_count_m:.0f} M transistors
     | <strong>1-bit FA reference:</strong> {fa:.3f} pJ
   </div>
   <p class="block-notes">{html.escape(b.notes)}</p>
@@ -700,6 +783,8 @@ table.accounting tr.total-row td { background: #eef6ea;
                                     padding: 12px 10px; font-size: 14px; }
 span.cat { display: inline-block; padding: 2px 8px; border-radius: 3px;
            color: white; font-size: 11px; font-weight: 600; }
+span.shared { font-size: 10px; color: #9aa4b1; font-style: italic;
+              margin-left: 4px; font-weight: normal; }
 section.block-header { background: #fff; padding: 14px 20px;
                         border-radius: 0 6px 6px 0;
                         margin-bottom: 12px;

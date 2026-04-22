@@ -42,6 +42,26 @@ class TestStructureInvariants:
                 assert len(s.citation) > 20, (
                     f"{s.name} citation too short: {s.citation!r}")
 
+    def test_every_structure_has_transistor_count(self):
+        for b in build_default_report().blocks:
+            for s in b.structures:
+                assert s.transistor_count_m > 0, (
+                    f"{s.name} missing transistor count")
+
+    def test_sm_unique_silicon_in_hmma_path_range(self):
+        """SM's per-MAC view itemizes the HMMA path; total unique
+        silicon should be a large fraction of the ~240 M full SM
+        but less than all of it (non-HMMA sub-units like RT cores
+        and texture are not itemized in the per-MAC view)."""
+        sm = build_default_report().blocks[0]
+        assert 100 < sm.total_unique_transistor_count_m < 240
+
+    def test_kpu_unique_silicon_matches_building_block_view(self):
+        """Per-MAC and per-clock views should agree on KPU tile
+        silicon footprint to within a few M transistors."""
+        kpu = build_default_report().blocks[1]
+        assert 10 < kpu.total_unique_transistor_count_m < 20
+
 
 class TestStructuralPresenceAbsence:
     def test_sm_has_fetch_decode_schedule(self):
