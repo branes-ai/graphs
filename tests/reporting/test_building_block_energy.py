@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from graphs.reporting.building_block_energy import (
-    BuildingBlock,
-    EngineComponent,
     SocComposition,
     build_default_report,
     build_kpu_tile_building_block,
@@ -13,7 +11,6 @@ from graphs.reporting.building_block_energy import (
     render_building_block_page,
 )
 from graphs.reporting.microarch_accounting import (
-    StructureCategory,
     build_default_report as mar_default_report,
 )
 

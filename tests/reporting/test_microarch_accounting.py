@@ -3,12 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from graphs.reporting.microarch_accounting import (
-    AccountingReport,
-    MicroArchAccounting,
-    MicroStructure,
     StructureCategory,
     build_default_report,
     build_kpu_tile_accounting,
