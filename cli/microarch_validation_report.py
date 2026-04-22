@@ -63,6 +63,10 @@ from graphs.reporting.microarch_accounting import (  # noqa: E402
     build_default_report as build_accounting_report,
     render_accounting_page,
 )
+from graphs.reporting.building_block_energy import (  # noqa: E402
+    build_default_report as build_block_energy_report,
+    render_building_block_page,
+)
 from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
@@ -183,6 +187,15 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
     except RuntimeError as exc:
         import sys as _sys
         print(f"warning: microarch_accounting.html skipped ({exc})", file=_sys.stderr)
+    # Building-block (per-clock) engine energy (M0.5) - SoC composition
+    try:
+        bb_report = build_block_energy_report()
+        bb_path = out_dir / "building_block_energy.html"
+        bb_path.write_text(render_building_block_page(bb_report, _repo_root))
+        written.append(bb_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: building_block_energy.html skipped ({exc})", file=_sys.stderr)
     return written
 
 

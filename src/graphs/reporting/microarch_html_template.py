@@ -470,6 +470,16 @@ a.primary-link:hover {{ background: #15385c; }}
     the simplified architectural-efficiency model.</p>
     <p><a class="primary-link" href="microarch_accounting.html">Open per-structure accounting &rarr;</a></p>
   </section>
+  <section class="highlighted-link">
+    <h3>Building-block energy (per-clock view, for SoC composition)</h3>
+    <p>Engine-level budget: total pJ/clock for every major component of
+    the SM (register file, instruction pipeline, warp scheduler,
+    operand collectors, CUDA cores, SFUs, Tensor Cores) and the KPU
+    tile (L1 scratchpad, 2D FMA mesh, edge injectors). Used to
+    compose SoCs and super-clusters: total power = count x utilization
+    x power-per-block + overhead. Cross-validates the per-MAC view.</p>
+    <p><a class="primary-link" href="building_block_energy.html">Open building-block energy &rarr;</a></p>
+  </section>
   <section>
     <h3>Per-SKU layer panels</h3>
     <p class="meta">Layer 1-7 content populates in milestones M1-M7.
