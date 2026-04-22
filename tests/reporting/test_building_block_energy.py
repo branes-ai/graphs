@@ -79,6 +79,22 @@ class TestEngineComposition:
                 assert c.transistor_count_m > 0, (
                     f"{c.name} missing transistor count")
 
+    def test_every_component_has_silicon_area(self):
+        for b in build_default_report().blocks:
+            for c in b.components:
+                assert c.area_mm2 > 0, f"{c.name} missing area_mm2"
+
+    def test_sm_total_area_in_ampere_range(self):
+        """Published Ampere SM is ~2-5 mm^2 of compute silicon."""
+        sm = build_nvidia_sm_building_block()
+        assert 2.0 < sm.total_area_mm2 < 6.0
+
+    def test_kpu_tile_area_much_smaller_than_sm(self):
+        """KPU tile should be order-of-magnitude smaller than an SM."""
+        sm = build_nvidia_sm_building_block()
+        tile = build_kpu_tile_building_block()
+        assert tile.total_area_mm2 < sm.total_area_mm2 / 10
+
     def test_sm_transistor_count_in_ampere_range(self):
         """Published Ampere SM lands near 240 M transistors."""
         sm = build_nvidia_sm_building_block()

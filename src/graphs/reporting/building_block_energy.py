@@ -50,18 +50,23 @@ class EngineComponent:
     One major component inside a compute engine (e.g. register file,
     tensor cores, L1 scratchpad).
 
-    Each component reports BOTH its steady-state energy contribution
-    (pJ/clock) AND an estimated silicon footprint (millions of
-    transistors). Circuit designers can immediately recognize whether
-    a block's transistor count is reasonable for what it claims to
-    be (6T SRAM array, INT8 MAC forest, operand crossbar, ...), which
-    grounds the energy numbers.
+    Each component reports THREE independent estimates so circuit
+    designers can sanity-check the model:
+      - transistor_count_m: estimated silicon, millions of transistors
+      - area_mm2: estimated silicon area at the engine's process node
+      - per_clock_pj: steady-state energy per clock
+
+    Typical density rules at 8 nm:
+      - Dense SRAM (6T cells + peripheral): ~100 M transistors / mm^2
+      - Logic (mixed std cells + flops):    ~45 M transistors / mm^2
+      - Dense MAC arrays (regular tiling):  ~80 M transistors / mm^2
     """
     name: str
     category: StructureCategory
     count: int                    # number of instances inside the engine
     size_or_spec: str             # "256 KB, 4 banks" / "576 PE (24x24)"
     transistor_count_m: float     # estimated silicon, millions of transistors
+    area_mm2: float               # estimated silicon area (mm^2)
     per_clock_pj: float           # absolute energy contribution per clock
     activity_note: str            # steady-state activity assumption
     citation: str                 # derivation / source
@@ -73,6 +78,7 @@ class EngineComponent:
             "count": self.count,
             "size_or_spec": self.size_or_spec,
             "transistor_count_m": self.transistor_count_m,
+            "area_mm2": self.area_mm2,
             "per_clock_pj": self.per_clock_pj,
             "activity_note": self.activity_note,
             "citation": self.citation,
@@ -101,6 +107,10 @@ class BuildingBlock:
     @property
     def total_transistor_count_m(self) -> float:
         return sum(c.transistor_count_m for c in self.components)
+
+    @property
+    def total_area_mm2(self) -> float:
+        return sum(c.area_mm2 for c in self.components)
 
     @property
     def execute_pj_per_clock(self) -> float:
@@ -141,6 +151,7 @@ class BuildingBlock:
             "native_op_precision": self.native_op_precision,
             "total_pj_per_clock": self.total_pj_per_clock,
             "total_transistor_count_m": self.total_transistor_count_m,
+            "total_area_mm2": self.total_area_mm2,
             "execute_pj_per_clock": self.execute_pj_per_clock,
             "execute_fraction": self.execute_fraction,
             "power_mw": self.power_mw,
@@ -240,6 +251,7 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="64K x 32b = 256 KB, 4-bank",
             transistor_count_m=20.0,
+            area_mm2=0.20,  # SRAM density ~100 MT/mm^2
             per_clock_pj=100.0,
             activity_note=(
                 "HMMA frag A+B reads ~512 B / issue; 1 MMA issue / clock "
@@ -247,8 +259,9 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             ),
             citation=(
                 "256 KB 6T SRAM array ~13 M + peripheral ~7 M = 20 M. "
+                "Area @ 8 nm SRAM density ~100 MT/mm^2 -> 0.20 mm^2. "
                 "Energy: 512 B x 0.014 pJ/B = 7 pJ/issue dynamic + "
-                "array static + clock ~95 pJ/clock at 8 nm."
+                "array static + clock ~95 pJ/clock."
             ),
         ),
         EngineComponent(
@@ -257,11 +270,13 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=4,
             size_or_spec="4 sub-partitions, 1 inst/clk each",
             transistor_count_m=8.0,
+            area_mm2=0.12,  # mixed SRAM + logic
             per_clock_pj=50.0,
             activity_note="4 schedulers issue 1 instruction/clock each",
             citation=(
-                "2 KB L0 I$ x 4 + simple decoder + IB latches ~2 M each "
-                "= 8 M. Energy: ~8 pJ fetch + ~4 pJ decode per issue x 4."
+                "2 KB L0 I$ x 4 + decoder + IB latches ~2 M each = 8 M. "
+                "Area: mixed SRAM + logic ~65 MT/mm^2 -> 0.12 mm^2. "
+                "Energy: ~8 pJ fetch + ~4 pJ decode per issue x 4."
             ),
         ),
         EngineComponent(
@@ -270,11 +285,13 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=4,
             size_or_spec="1 scheduler + scoreboard per sub-partition",
             transistor_count_m=5.0,
+            area_mm2=0.11,  # logic ~45 MT/mm^2
             per_clock_pj=40.0,
             activity_note="Ready-queue check + dependency tracking per issue",
             citation=(
-                "4 schedulers x ~1 M each = 4 M; ~1 M scoreboard. "
-                "Energy: ~10 pJ per issued instruction x 4."
+                "4 schedulers x ~1 M each + ~1 M scoreboard = 5 M. Area "
+                "at logic density 45 MT/mm^2 -> 0.11 mm^2. Energy: "
+                "~10 pJ per issued instruction x 4."
             ),
         ),
         EngineComponent(
@@ -283,11 +300,13 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=4,
             size_or_spec="1 collector per sub-partition, 4-bank xbar",
             transistor_count_m=10.0,
+            area_mm2=0.25,  # wire-heavy, lower effective density
             per_clock_pj=90.0,
             activity_note="All issues pass through operand collector",
             citation=(
-                "4 collectors + 4-bank crossbar ~10 M. Energy dominated "
-                "by the crossbar's static wire capacitance: ~22 pJ x 4."
+                "4 collectors + 4-bank crossbar ~10 M. Area is wire-"
+                "heavy (effective ~40 MT/mm^2) -> 0.25 mm^2. Energy "
+                "dominated by crossbar static capacitance (~22 pJ x 4)."
             ),
         ),
         EngineComponent(
@@ -296,11 +315,13 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=128,
             size_or_spec="128 lanes = 4 partitions x 32",
             transistor_count_m=10.0,
+            area_mm2=0.22,  # logic
             per_clock_pj=15.0,
             activity_note="Clock-gated during HMMA; only clock-tree + leakage",
             citation=(
                 "128 FP32 FMA units x ~78 K transistors each = 10 M. "
-                "Idle HMMA activity: ~5% duty yields 15 pJ/clock."
+                "Area at logic density 45 MT/mm^2 -> 0.22 mm^2. Idle "
+                "HMMA activity: ~5% duty yields 15 pJ/clock."
             ),
         ),
         EngineComponent(
@@ -309,9 +330,10 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=16,
             size_or_spec="4 SFUs per partition",
             transistor_count_m=2.0,
+            area_mm2=0.04,
             per_clock_pj=10.0,
             activity_note="Idle on pure GEMM",
-            citation="Clock-tree + leakage only; datapath gated.",
+            citation="2 M at logic density -> 0.04 mm^2. Clock+leak only.",
         ),
         EngineComponent(
             name="Tensor Cores",
@@ -319,13 +341,14 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=4,
             size_or_spec="16x16x16 HMMA, 1024 INT8 MAC/clock each",
             transistor_count_m=100.0,
+            area_mm2=1.25,  # dense MAC array ~80 MT/mm^2
             per_clock_pj=580.0,
             activity_note="All 4 TCs firing; 4096 INT8 MACs/clock aggregate",
             citation=(
                 "Per TC ~25 M: 1024 INT8 MAC units + local operand regs "
-                "+ 16x16 INT32 accum + fragment broadcast. Energy: "
-                "4096 MAC x ~0.12 pJ (bare MAC + small regs + carry) "
-                "+ ~90 pJ TC-internal crossbar/accum-reduction."
+                "+ 16x16 INT32 accum + fragment broadcast. Dense MAC "
+                "array density ~80 MT/mm^2 -> 1.25 mm^2 for 4 TCs. "
+                "Energy: 4096 MAC x ~0.12 pJ + ~90 pJ internal."
             ),
         ),
         EngineComponent(
@@ -334,11 +357,13 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="128 KB, unified L1/SMEM",
             transistor_count_m=20.0,
+            area_mm2=0.20,  # SRAM
             per_clock_pj=30.0,
             activity_note="LDSM fragment loads feed Tensor Cores",
             citation=(
-                "128 KB SRAM ~13 M + peripheral ~7 M = 20 M. Modest "
-                "traffic for HMMA via LDSM; ~30 pJ/clock steady-state."
+                "128 KB 6T SRAM ~13 M + peripheral ~7 M = 20 M. "
+                "Area at SRAM density ~100 MT/mm^2 -> 0.20 mm^2. "
+                "Modest HMMA LDSM traffic ~30 pJ/clock."
             ),
         ),
         EngineComponent(
@@ -347,9 +372,13 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="Ampere 2nd-gen, ray-triangle intersect",
             transistor_count_m=20.0,
+            area_mm2=0.40,  # logic-heavy
             per_clock_pj=10.0,
             activity_note="Idle on inference workload",
-            citation="Clock-tree + leakage only on GEMM.",
+            citation=(
+                "~20 M logic at 50 MT/mm^2 -> 0.40 mm^2. Clock-tree + "
+                "leakage only on GEMM."
+            ),
         ),
         EngineComponent(
             name="Texture / surface unit",
@@ -357,19 +386,28 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="4 texture filters + LSU",
             transistor_count_m=20.0,
+            area_mm2=0.40,  # mixed logic + small caches
             per_clock_pj=20.0,
             activity_note="Mostly idle on GEMM; light LSU traffic for weights",
-            citation="Texture filtering gated; LSU light activity.",
+            citation=(
+                "~20 M mixed logic + small filter caches at 50 MT/mm^2 "
+                "-> 0.40 mm^2. Texture gated; LSU light."
+            ),
         ),
         EngineComponent(
             name="Clock tree + leakage (SM-wide)",
             category=StructureCategory.CONTROL,
             count=1,
-            size_or_spec="H-tree + rail decoupling (~5 mm^2)",
+            size_or_spec="H-tree + rail decoupling + unaccounted infra",
             transistor_count_m=25.0,
+            area_mm2=0.65,  # distributed/structural
             per_clock_pj=80.0,
             activity_note="Always-on; includes non-itemized local infrastructure",
-            citation="~8% of dynamic engine power at 8 nm HPM.",
+            citation=(
+                "~25 M distributed transistors (clock buffers, decap, "
+                "rail muxes) -> 0.65 mm^2. ~8% of dynamic engine power "
+                "at 8 nm HPM."
+            ),
         ),
     ]
 
@@ -410,25 +448,27 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="64K x 32b = 256 KB, 4-bank",
             transistor_count_m=20.0,
+            area_mm2=0.20,
             per_clock_pj=90.0,
             activity_note=(
                 "128 lanes x ~3 operands (4 B each, FP32) per FMA; "
                 "~1.5 KB/clock RF read + ~0.5 KB writeback"
             ),
             citation=(
-                "128 x 12 B reads x 0.014 pJ/B = 21 pJ dynamic + array "
-                "static ~70 pJ at 8 nm."
+                "Same silicon as TC path. Energy: 128 x 12 B reads x "
+                "0.014 pJ/B = 21 pJ dynamic + array static ~70 pJ."
             ),
         ),
         EngineComponent(
-            name="L0 I-cache + decode + issue buffer",
+            name="Instruction pipeline (L0 I$ + decode + IB)",
             category=StructureCategory.FETCH,
             count=4,
             size_or_spec="4 sub-partitions, 1 inst/clk each",
             transistor_count_m=8.0,
+            area_mm2=0.12,
             per_clock_pj=50.0,
             activity_note="4 schedulers issue 1 instruction/clock each",
-            citation="Same as TC path (instruction stream is the same).",
+            citation="Same silicon as TC path (instruction stream same).",
         ),
         EngineComponent(
             name="Warp scheduler + scoreboard",
@@ -436,9 +476,10 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
             count=4,
             size_or_spec="1 scheduler + scoreboard per sub-partition",
             transistor_count_m=5.0,
+            area_mm2=0.11,
             per_clock_pj=40.0,
             activity_note="Ready-queue check + dependency tracking per issue",
-            citation="Same as TC path.",
+            citation="Same silicon as TC path.",
         ),
         EngineComponent(
             name="Operand collector + bypass crossbar",
@@ -446,12 +487,10 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
             count=4,
             size_or_spec="1 collector per sub-partition, 4-bank xbar",
             transistor_count_m=10.0,
+            area_mm2=0.25,
             per_clock_pj=90.0,
             activity_note="All CUDA-core issues pass through operand collector",
-            citation=(
-                "Same crossbar traffic pattern as HMMA; energy nearly "
-                "identical at ~22 pJ x 4."
-            ),
+            citation="Same silicon; comparable crossbar traffic ~22 pJ x 4.",
         ),
         EngineComponent(
             name="CUDA cores (FP32/INT32 FMA)",
@@ -459,35 +498,36 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
             count=128,
             size_or_spec="128 lanes = 4 partitions x 32, FP32 FMA",
             transistor_count_m=10.0,
+            area_mm2=0.22,
             per_clock_pj=320.0,
             activity_note="All 128 lanes firing one FP32 FMA per clock",
             citation=(
-                "FP32 FMA ~2.5 pJ at 8 nm (Horowitz-scaled; ~23 FA for "
-                "mantissa multiply + 24-bit add); 128 x 2.5 = 320 pJ."
+                "Same 10 M silicon. FP32 FMA ~2.5 pJ at 8 nm (Horowitz; "
+                "~23 FA for mantissa multiply + 24-bit add); 128 x 2.5 "
+                "= 320 pJ."
             ),
         ),
         EngineComponent(
-            name="Special Function Units (SFUs)",
+            name="SFUs (special function units)",
             category=StructureCategory.EXECUTE,
             count=16,
             size_or_spec="4 SFUs per partition",
             transistor_count_m=2.0,
+            area_mm2=0.04,
             per_clock_pj=10.0,
             activity_note="Idle on FP32 GEMM",
-            citation="Clock-tree + leakage only.",
+            citation="Same silicon; clock-tree + leakage only.",
         ),
         EngineComponent(
             name="Tensor Cores",
             category=StructureCategory.EXECUTE,
             count=4,
-            size_or_spec="16x16x16 HMMA engines",
+            size_or_spec="16x16x16 HMMA, 1024 INT8 MAC/clock each",
             transistor_count_m=100.0,
+            area_mm2=1.25,
             per_clock_pj=50.0,
             activity_note="Clock-gated; only clock-tree + leakage",
-            citation=(
-                "100 M idle transistors at 8 nm HPM leakage-dominate: "
-                "~50 pJ/clock residual."
-            ),
+            citation="Same 100 M silicon; 8 nm HPM leakage ~50 pJ/clock.",
         ),
         EngineComponent(
             name="L1 data cache / shared memory",
@@ -495,19 +535,21 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="128 KB, unified L1/SMEM",
             transistor_count_m=20.0,
+            area_mm2=0.20,
             per_clock_pj=20.0,
             activity_note="Light LSU traffic for FP32 GEMM tiles",
-            citation="Less fragment-oriented than HMMA; ~20 pJ/clock.",
+            citation="Same SRAM silicon; less fragment-heavy ~20 pJ/clock.",
         ),
         EngineComponent(
             name="RT cores (ray-tracing)",
             category=StructureCategory.EXECUTE,
             count=1,
-            size_or_spec="Ampere 2nd-gen",
+            size_or_spec="Ampere 2nd-gen, ray-triangle intersect",
             transistor_count_m=20.0,
+            area_mm2=0.40,
             per_clock_pj=10.0,
             activity_note="Idle on GEMM workload",
-            citation="Clock-tree + leakage only.",
+            citation="Same silicon; clock-tree + leakage only.",
         ),
         EngineComponent(
             name="Texture / surface unit",
@@ -515,19 +557,21 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="4 texture filters + LSU",
             transistor_count_m=20.0,
+            area_mm2=0.40,
             per_clock_pj=20.0,
             activity_note="Mostly idle on GEMM",
-            citation="Texture filtering gated; LSU light.",
+            citation="Same silicon; texture gated; LSU light.",
         ),
         EngineComponent(
             name="Clock tree + leakage (SM-wide)",
             category=StructureCategory.CONTROL,
             count=1,
-            size_or_spec="H-tree + rail decoupling",
+            size_or_spec="H-tree + rail decoupling + unaccounted infra",
             transistor_count_m=25.0,
+            area_mm2=0.65,
             per_clock_pj=80.0,
             activity_note="Always-on",
-            citation="~8% of dynamic engine power at 8 nm HPM.",
+            citation="Same silicon; ~8% of dynamic engine power.",
         ),
     ]
 
@@ -596,14 +640,16 @@ def build_kpu_tile_building_block() -> BuildingBlock:
             count=1,
             size_or_spec="64 KB SRAM, banked",
             transistor_count_m=4.0,
+            area_mm2=0.04,   # SRAM density ~100 MT/mm^2
             per_clock_pj=10.0,
             activity_note=(
                 f"{2 * PE_ROWS} edge byte-reads/clock (A-edge + B-edge) "
                 f"plus periodic output writeback"
             ),
             citation=(
-                "64 KB 6T SRAM ~3 M + peripheral ~1 M = 4 M. Energy: "
-                "48 reads x 0.15 pJ/B + writeback ~3 pJ = ~10 pJ/clock."
+                "64 KB 6T SRAM ~3 M + peripheral ~1 M = 4 M. Area at "
+                "SRAM density ~100 MT/mm^2 -> 0.04 mm^2. Energy: 48 "
+                "reads x 0.15 pJ/B + writeback ~3 pJ = ~10 pJ/clock."
             ),
         ),
         EngineComponent(
@@ -612,11 +658,13 @@ def build_kpu_tile_building_block() -> BuildingBlock:
             count=PE_COUNT,
             size_or_spec=f"{PE_ROWS}x{PE_COLS} PE grid, 1 INT8 MAC/PE/clock",
             transistor_count_m=8.6,
+            area_mm2=0.11,   # dense regular MAC array ~80 MT/mm^2
             per_clock_pj=pe_per_clock_pj,
             activity_note=f"All {PE_COUNT} PEs fire in steady-state wavefront",
             citation=(
                 "~15 K transistors/PE (INT8 MAC + 2 op regs + INT32 "
                 "accum + mesh wire + token match) x 576 = 8.6 M. "
+                "Area at dense MAC density ~80 MT/mm^2 -> 0.11 mm^2. "
                 "Energy: 0.111 pJ/PE/clock x 576 = 63.9 pJ. See "
                 "microarch_accounting.build_kpu_tile_accounting()."
             ),
@@ -627,22 +675,28 @@ def build_kpu_tile_building_block() -> BuildingBlock:
             count=2 * PE_ROWS,
             size_or_spec=f"{2 * PE_ROWS} injectors at A-edge + B-edge",
             transistor_count_m=0.1,
+            area_mm2=0.003,
             per_clock_pj=2.5,
             activity_note="Generate + dispatch one token per edge per clock",
             citation=(
-                "Edge-only control: 48 injectors x ~2 K transistors. "
-                "Energy: 48 x ~0.05 pJ token generation at 8 nm."
+                "Edge-only control: 48 injectors x ~2 K transistors = "
+                "0.1 M. Area ~0.003 mm^2. Energy: 48 x ~0.05 pJ token "
+                "generation at 8 nm."
             ),
         ),
         EngineComponent(
             name="Clock tree + leakage (tile-wide)",
             category=StructureCategory.CONTROL,
             count=1,
-            size_or_spec="H-tree + rail decoupling (~0.5 mm^2 at 8 nm)",
+            size_or_spec="H-tree + rail decoupling",
             transistor_count_m=0.5,
+            area_mm2=0.02,
             per_clock_pj=10.0,
             activity_note="Simple H-tree; no OOO machinery, no schedulers",
-            citation="~12% of dynamic fabric power at 8 nm.",
+            citation=(
+                "~0.5 M distributed clock buffers + decap. Area ~0.02 "
+                "mm^2. ~12% of dynamic fabric power at 8 nm."
+            ),
         ),
     ]
 
@@ -846,7 +900,7 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
                 names.append(c.name)
 
     col_headers = "".join(
-        f'<th colspan="2" style="text-align:center; '
+        f'<th colspan="3" style="text-align:center; '
         f'border-bottom:2px solid {b.color};">'
         f'{html.escape(b.name)}<br/>'
         f'<span style="font-weight:normal; font-size:10px; color:#586374;">'
@@ -855,7 +909,9 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
         for b in blocks
     )
     sub_headers = "".join(
-        '<th class="num">Trans. (M)</th><th class="num">pJ/clk</th>'
+        '<th class="num">Trans. (M)</th>'
+        '<th class="num">Area (mm²)</th>'
+        '<th class="num">pJ/clk</th>'
         for _ in blocks
     )
 
@@ -866,10 +922,12 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
             match = next((c for c in b.components if c.name == name), None)
             if match is None:
                 cells.append('<td class="num">&mdash;</td>'
+                             '<td class="num">&mdash;</td>'
                              '<td class="num">&mdash;</td>')
             else:
                 cells.append(
                     f'<td class="num">{match.transistor_count_m:.1f}</td>'
+                    f'<td class="num">{match.area_mm2:.3f}</td>'
                     f'<td class="num"><strong>{match.per_clock_pj:.1f}</strong></td>'
                 )
         rows.append(
@@ -881,6 +939,7 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
     for b in blocks:
         tot_cells.append(
             f'<td class="num"><strong>{b.total_transistor_count_m:.1f}</strong></td>'
+            f'<td class="num"><strong>{b.total_area_mm2:.2f}</strong></td>'
             f'<td class="num"><strong>{b.total_pj_per_clock:.0f}</strong></td>'
         )
     rows.append(
@@ -891,7 +950,7 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
     derived_cells = []
     for b in blocks:
         derived_cells.append(
-            f'<td class="num" colspan="2"><strong>'
+            f'<td class="num" colspan="3"><strong>'
             f'{b.derived_pj_per_mac:.3f} pJ/MAC</strong> '
             f'(native {b.native_macs_per_clock:,})</td>'
         )
@@ -903,7 +962,7 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
     power_cells = []
     for b in blocks:
         power_cells.append(
-            f'<td class="num" colspan="2"><strong>'
+            f'<td class="num" colspan="3"><strong>'
             f'{b.power_mw:.0f} mW</strong> '
             f'at {b.clock_ghz:.2f} GHz</td>'
         )
@@ -935,6 +994,7 @@ def _render_block_table(b: BuildingBlock) -> str:
             f'<td class="num">{c.count}</td>'
             f'<td class="spec">{html.escape(c.size_or_spec)}</td>'
             f'<td class="num">{c.transistor_count_m:.1f}</td>'
+            f'<td class="num">{c.area_mm2:.3f}</td>'
             f'<td class="num"><strong>{c.per_clock_pj:.1f}</strong></td>'
             f'<td class="num">{pct:.1f}%</td>'
             f'<td class="src">{html.escape(c.activity_note)}<br/>'
@@ -946,6 +1006,7 @@ def _render_block_table(b: BuildingBlock) -> str:
         f'<tr class="total-row">'
         f'<td colspan="4"><strong>Engine total per clock</strong></td>'
         f'<td class="num"><strong>{b.total_transistor_count_m:.1f}</strong></td>'
+        f'<td class="num"><strong>{b.total_area_mm2:.2f}</strong></td>'
         f'<td class="num"><strong>{tot:.1f} pJ/clock</strong></td>'
         f'<td class="num"><strong>100%</strong></td>'
         f'<td class="src">'
@@ -963,6 +1024,7 @@ def _render_block_table(b: BuildingBlock) -> str:
         '<th>Component</th><th>Category</th><th>Count</th>'
         '<th>Size / spec</th>'
         '<th>Trans. (M)</th>'
+        '<th>Area (mm²)</th>'
         '<th>pJ / clock</th><th>% of engine</th>'
         '<th>Activity assumption / source</th>'
         '</tr></thead>'
@@ -981,7 +1043,9 @@ def _render_block_header(b: BuildingBlock) -> str:
     | <strong>Clock:</strong> {b.clock_ghz:.2f} GHz
     | <strong>Native throughput:</strong>
         {b.native_macs_per_clock:,} MACs/clock ({b.native_op_precision})
-    | <strong>Silicon:</strong> {b.total_transistor_count_m:.0f} M transistors
+    | <strong>Silicon:</strong>
+        {b.total_transistor_count_m:.0f} M transistors
+        ({b.total_area_mm2:.2f} mm²)
     | <strong>Power:</strong> {b.power_mw:.0f} mW
     | <strong>pJ/MAC:</strong> {b.derived_pj_per_mac:.3f}
   </div>
@@ -1157,40 +1221,52 @@ a.nav-back:hover { text-decoration: underline; }
     <div class="meta">Per-clock energy of every major component as it
       is deployed on the SoC - all reported at 8 nm to match the
       Jetson Ampere baseline so direct comparisons do not need a
-      process-normalization chart. Each component also carries an
-      estimated transistor count so circuit-designer intuition can
-      sanity-check the numbers. Complements the
+      process-normalization chart. For each component we report
+      <strong>transistor count, silicon area (mm²), and energy per
+      clock</strong> so circuit-designer intuition can audit the
+      numbers. Complements the
       <a href="microarch_accounting.html">per-MAC view</a>; the two
       reconcile via <code>pJ/MAC = pJ_per_clock /
       MACs_per_clock</code>.</div>
   </section>
 
-  <section class="chart-section">
-    <h3>Side-by-side component breakdown</h3>
-    <p class="chart-desc">Transistor count and energy per clock for
-      every major component across the three building blocks. Values
-      are directly readable; the bar chart below is the same data
-      rendered visually.</p>
-    {side_by_side}
+  <section class="method-note">
+    <h3 style="margin-top:0;">Quantitative component tables</h3>
+    <p>One table per building block. Columns are
+      <strong>Transistors (M)</strong>,
+      <strong>Area (mm²)</strong>, and
+      <strong>pJ / clock</strong> - the three independent grounding
+      estimates. Energy totals are <em>not</em> normalized to pJ/MAC
+      here; this is the raw silicon budget the SoC must supply every
+      cycle. The bar graphs below visualize the same data.</p>
   </section>
 
+  {blocks_html}
+
   <section class="chart-section">
-    <h3>Engine energy per clock by component category</h3>
+    <h3>Bar-graph view: engine energy per clock by category</h3>
     <p class="chart-desc">Absolute pJ/clock at 8 nm and steady-state
-      clock. Stacked by component category.</p>
+      clock. Stacked by component category. Same data as the per-block
+      tables above.</p>
     <div id="chart_per_clock" class="plot"></div>
   </section>
 
   <section class="chart-section">
-    <h3>Silicon footprint comparison</h3>
+    <h3>Bar-graph view: silicon footprint</h3>
     <p class="chart-desc">Estimated transistor count for each building
-      block. The energy numbers above should scale approximately with
-      silicon footprint; large deviations indicate an architectural
-      advantage (or bug).</p>
+      block. Energy should scale roughly with active silicon; large
+      deviations indicate either an architectural advantage or an
+      estimation error.</p>
     <div id="chart_transistors" class="plot" style="min-height:260px;"></div>
   </section>
 
-  {blocks_html}
+  <section class="chart-section">
+    <h3>Side-by-side component comparison</h3>
+    <p class="chart-desc">Same data as the per-block tables, laid out
+      with one row per component and two columns per building block
+      (Trans. M / pJ/clk) so differences can be read column-to-column.</p>
+    {side_by_side}
+  </section>
 
   <section class="method-note">
     <h3 style="margin-top:0;">SoC composition (illustrative)</h3>
