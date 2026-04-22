@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from graphs.hardware.resource_model import Precision
 from graphs.reporting.native_op_energy import (
-    NativeOpBreakdown,
-    NativeOpComparison,
     REG_ACCESS_PJ_PER_BYTE_BY_PROCESS,
     build_default_comparison,
     build_kpu_native_op,

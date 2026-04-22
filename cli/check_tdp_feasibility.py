@@ -27,7 +27,7 @@ import json
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
@@ -205,6 +205,8 @@ def check_sku(
         if info:
             category = info.get("category", "unknown")
     except Exception:
+        # Category is cosmetic; fall back to "unknown" if the registry
+        # lookup is unavailable rather than failing the feasibility check.
         pass
 
     return FeasibilityRow(

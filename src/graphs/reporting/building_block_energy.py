@@ -28,7 +28,7 @@ import html
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from graphs.reporting.microarch_accounting import StructureCategory
 from graphs.reporting.microarch_html_template import (
@@ -37,7 +37,6 @@ from graphs.reporting.microarch_html_template import (
     _render_brand_footer,
     _render_brand_header,
 )
-from graphs.reporting.native_op_energy import _fa_pj
 
 
 @dataclass
@@ -499,7 +498,6 @@ def _render_chart_js(report: BuildingBlockReport) -> str:
                   f"@ U={s.utilization:.0%}" for s in report.socs]
     soc_power = [s.total_power_w for s in report.socs]
     soc_tops = [s.sustained_tops_int8 for s in report.socs]
-    soc_eff = [s.sustained_tops_per_watt for s in report.socs]
     chart_soc = {
         "data": [
             {
@@ -701,13 +699,11 @@ a.nav-back:hover { text-decoration: underline; }
         per_clock = b.total_pj_per_clock
         derived = b.derived_pj_per_mac
         # Match on substring - names differ slightly
-        matched_name = None
         matched_val = None
         for mname, mval in mar_blocks.items():
             if ("KPU" in b.name and "KPU" in mname) or (
                 "Multiprocessor" in b.name and "Multiprocessor" in mname
             ):
-                matched_name = mname
                 matched_val = mval
                 break
         if matched_val is None:

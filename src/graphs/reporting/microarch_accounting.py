@@ -26,7 +26,7 @@ import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from graphs.reporting.microarch_html_template import (
     _CSS,
@@ -35,8 +35,6 @@ from graphs.reporting.microarch_html_template import (
     _render_brand_header,
 )
 from graphs.reporting.native_op_energy import (
-    FULL_ADDER_PJ_BY_PROCESS,
-    REG_ACCESS_PJ_PER_BYTE_BY_PROCESS,
     register_pj_per_byte,
     _fa_pj,
 )
@@ -562,18 +560,7 @@ def _render_chart_js(report: AccountingReport) -> str:
     }
 
     # Chart 2: process-normalized view. Scale SM to 16nm so comparison is apples-apples.
-    # Total at matched 16nm process.
     # SM at 8nm -> 16nm: energies scale by FA(16)/FA(8) = 2.0
-    norm_traces = []
-    for b in bds:
-        factor = _fa_pj(16) / _fa_pj(b["process_nm"])
-        cat_totals = {k: v * factor for k, v in b["by_category"].items()}
-        for cat in all_cats:
-            ys = [b["building_block"]]
-            xs = [cat_totals.get(cat, 0.0)]
-            # Use same palette, one trace per category (flat per category)
-            pass
-
     norm_by_cat_traces = []
     for cat in all_cats:
         ys = []

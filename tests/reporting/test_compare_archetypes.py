@@ -6,9 +6,6 @@ from pathlib import Path
 from graphs.hardware.resource_model import Precision, TileScheduleClass
 from graphs.reporting.compare_archetypes import (
     ArchetypeComparisonReport,
-    ArchetypeEntry,
-    DEFAULT_TILE_COUNTS,
-    REPRESENTATIVE_STEADY_CYCLES_PER_TILE,
     build_default_comparison,
     render_archetype_page,
     _synthesize_utilization_curve,

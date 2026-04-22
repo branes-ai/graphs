@@ -52,7 +52,6 @@ def _fa_energy_pj(process_nm: int) -> float:
 
 
 from graphs.reporting.microarch_html_template import (
-    BRAND_LOGO_RELATIVE,
     _CSS,
     _load_logo,
     _render_brand_footer,

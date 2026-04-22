@@ -5,8 +5,6 @@ from pathlib import Path
 
 from graphs.reporting.competitive_trajectory import (
     JETSON_HISTORY,
-    HistoricalPoint,
-    TrajectoryReport,
     build_default_report,
     render_trajectory_page,
 )

@@ -33,7 +33,7 @@ import html
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from graphs.reporting.microarch_html_template import (
     _CSS,
@@ -42,8 +42,6 @@ from graphs.reporting.microarch_html_template import (
     _render_brand_header,
 )
 from graphs.reporting.native_op_energy import (
-    FULL_ADDER_PJ_BY_PROCESS,
-    REG_ACCESS_PJ_PER_BYTE_BY_PROCESS,
     register_pj_per_byte,
     _fa_pj,
 )

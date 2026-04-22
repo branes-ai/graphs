@@ -6,7 +6,6 @@ from pathlib import Path
 from graphs.reporting.generalized_architecture import (
     CANONICAL_ARCHETYPES,
     DEFAULT_PROCESS_NODES,
-    GeneralizedArchetype,
     build_default_report,
     compute_components_pj_per_mac,
     render_generalized_page,

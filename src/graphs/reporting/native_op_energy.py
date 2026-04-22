@@ -31,7 +31,7 @@ import html
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from graphs.hardware.resource_model import Precision
 from graphs.reporting.microarch_html_template import (
