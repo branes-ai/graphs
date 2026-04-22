@@ -156,7 +156,7 @@ class TestHTMLRender:
         r = build_default_report()
         html = render_accounting_page(r, REPO_ROOT)
         assert 'id="chart_by_category"' in html
-        assert 'id="chart_normalized"' in html
+        assert 'id="chart_linear"' in html
 
     def test_html_has_citations(self):
         r = build_default_report()
@@ -170,10 +170,12 @@ class TestHTMLRender:
         assert 'href="index.html"' in html
 
     def test_html_has_process_nodes(self):
+        """Both building blocks are now reported at 8 nm (matched to
+        the Jetson Ampere baseline so direct comparisons need no
+        renormalization)."""
         r = build_default_report()
         html = render_accounting_page(r, REPO_ROOT)
         assert "8 nm" in html
-        assert "16 nm" in html
 
     def test_html_includes_cross_validation_note(self):
         r = build_default_report()

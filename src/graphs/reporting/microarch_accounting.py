@@ -3,7 +3,11 @@ Per-structure micro-architectural energy accounting for the two
 foundational building blocks:
 
   - NVIDIA Streaming Multiprocessor (SM), Ampere generation, 8 nm
-  - KPU compute tile (24x24 PE array, domain-flow scheduled), 16 nm
+  - KPU compute tile (24x24 PE array, domain-flow scheduled), 8 nm
+
+Both reported at 8 nm to match the Jetson Ampere baseline so direct
+comparisons are immediately feasible without a process-normalization
+chart.
 
 Purpose: model validation. Each component's contribution to the
 per-MAC energy is itemized with a citation or derivation path, so the
@@ -227,22 +231,22 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
         ),
         # --- Per-cycle-per-thread across the 4-cycle HMMA pipeline ---
         # HMMA fragment A: 16x16 INT8 = 256 bytes, read across 32 threads.
-        # Per thread: 8 bytes read over 4 cycles = 2 bytes/cycle.
-        # Per-instruction RF-read energy = 32 threads * 16 bytes * reg_pj_byte
+        # Per thread: 8 bytes read over 4 cycles.
+        # Per-instruction RF-read energy = 32 threads * 8 bytes * reg_pj_byte
         MicroStructure(
             name="Register-file read (fragment A, 16x16 INT8)",
             category=StructureCategory.REGISTER,
-            per_op_pj=32 * 16 * reg_pj_byte,  # 256 * 0.014 ~ 3.6 pJ
+            per_op_pj=32 * 8 * reg_pj_byte,  # 256 * 0.014 ~ 3.6 pJ
             amortization_factor=4096,
             citation=(
-                f"32 threads x 16 bytes x {reg_pj_byte:.3f} pJ/byte "
-                f"@ {process_nm}nm (Horowitz 2014 scaled)."
+                f"32 threads x 8 bytes x {reg_pj_byte:.3f} pJ/byte "
+                f"@ {process_nm}nm (Horowitz 2014 scaled; 256 B fragment)."
             ),
         ),
         MicroStructure(
             name="Register-file read (fragment B, 16x16 INT8)",
             category=StructureCategory.REGISTER,
-            per_op_pj=32 * 16 * reg_pj_byte,
+            per_op_pj=32 * 8 * reg_pj_byte,
             amortization_factor=4096,
             citation="Second operand matrix fragment.",
         ),
@@ -282,7 +286,7 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
         MicroStructure(
             name="Register-file write (C fragment update)",
             category=StructureCategory.REGISTER,
-            per_op_pj=32 * 16 * reg_pj_byte * 1.2,  # writes ~1.2x reads
+            per_op_pj=32 * 8 * reg_pj_byte * 1.2,  # writes ~1.2x reads
             amortization_factor=4096,
             citation="Accumulator fragment write-back after HMMA.",
         ),
@@ -360,8 +364,12 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
         wires at the boundary; there is no router)
       - Schedule ROM / micro-sequencer (the schedule is encoded in the
         physical recurrence-domain topology, not a counter)
+
+    Reported at 8 nm, 1.5 GHz sustained: the KPU is a future chip, so
+    reporting it on the same process node as the Ampere Jetson baseline
+    lets the comparisons stand on their own without renormalization.
     """
-    process_nm = 16
+    process_nm = 8
     fa_pj = _fa_pj(process_nm)
     reg_pj_byte = register_pj_per_byte(process_nm)
     l1_pj_byte = reg_pj_byte * 3.0  # L1 SRAM ~3x register
@@ -380,10 +388,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
         MicroStructure(
             name="FMA unit (INT8 multiply + INT32 accumulate add)",
             category=StructureCategory.EXECUTE,
-            per_op_pj=0.10,
+            per_op_pj=0.050,
             amortization_factor=1,
             citation=(
-                f"0.10 pJ at {process_nm}nm optimized domain-flow; "
+                f"0.050 pJ at {process_nm}nm optimized domain-flow; "
                 f"reference: 8 FA x {fa_pj:.3f} pJ = {8*fa_pj:.3f} pJ "
                 "plus minimal carry-tree overhead."
             ),
@@ -401,13 +409,13 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
         MicroStructure(
             name="PE-local accumulator register update",
             category=StructureCategory.ACCUMULATE,
-            per_op_pj=0.030,
+            per_op_pj=0.015,
             amortization_factor=1,
             citation=(
                 "INT32 accumulator is a pipeline register directly "
                 "wired to the FMA output (not a regfile read). ~32 "
                 "flip-flop toggles weighted by realistic switching "
-                "activity (~15%); ~0.030 pJ at 16 nm."
+                "activity (~15%); ~0.015 pJ at 8 nm."
             ),
         ),
         MicroStructure(
@@ -423,19 +431,19 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
         MicroStructure(
             name="Token / coordinate match (domain-flow control)",
             category=StructureCategory.CONTROL,
-            per_op_pj=0.008,
+            per_op_pj=0.004,
             amortization_factor=1,
             citation=(
                 "Domain-flow component that matches incoming data "
                 "tokens to the PE's FMA operation (valid-bit + "
                 "coordinate check). A few gates per incoming token; "
-                "~0.008 pJ at 16 nm."
+                "~0.004 pJ at 8 nm."
             ),
         ),
         MicroStructure(
             name="Clock tree + pipeline latches (per PE)",
             category=StructureCategory.CONTROL,
-            per_op_pj=0.015,
+            per_op_pj=0.008,
             amortization_factor=1,
             citation=(
                 "Single-stage pipeline in a domain-flow PE (minimal; "
@@ -461,7 +469,7 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
         native_op=(f"Mesh steady-state: {PE_COUNT} MACs per clock "
                    f"({PE_ROWS}x{PE_COLS} PEs, 1 MAC/PE/clock)"),
         process_nm=process_nm,
-        clock_ghz=1.0,  # KPU T128 sustained
+        clock_ghz=1.5,  # 8 nm sustained
         macs_per_native_op=PE_COUNT,
         structures=structures,
         leakage_fraction=0.15,  # lower than SM; simpler control
@@ -550,7 +558,7 @@ def _render_chart_js(report: AccountingReport) -> str:
         "data": traces,
         "layout": {
             "title": ("Per-MAC dynamic energy by micro-architectural "
-                      "category (native process, log-scale)"),
+                      "category (8 nm, log-scale)"),
             "xaxis": {"title": "pJ / MAC", "type": "log"},
             "yaxis": {"title": "", "automargin": True},
             "barmode": "stack",
@@ -559,42 +567,23 @@ def _render_chart_js(report: AccountingReport) -> str:
         },
     }
 
-    # Chart 2: process-normalized view. Scale SM to 16nm so comparison is apples-apples.
-    # SM at 8nm -> 16nm: energies scale by FA(16)/FA(8) = 2.0
-    norm_by_cat_traces = []
-    for cat in all_cats:
-        ys = []
-        xs = []
-        for b in bds:
-            factor = _fa_pj(16) / _fa_pj(b["process_nm"])
-            ys.append(f"{b['building_block']} ({b['process_nm']}nm -> 16nm)")
-            xs.append(b["by_category"].get(cat, 0.0) * factor)
-        norm_by_cat_traces.append({
-            "type": "bar",
-            "orientation": "h",
-            "name": cat,
-            "y": ys,
-            "x": xs,
-            "marker": {"color": _CATEGORY_COLORS.get(cat, "#888")},
-            "text": [f"{v:.3f}" if v > 0.003 else "" for v in xs],
-            "textposition": "inside",
-        })
-
-    chart_normalized = {
-        "data": norm_by_cat_traces,
+    # Linear-scale view of the same data so small categories are
+    # visually comparable alongside the dominant Execute bar.
+    chart_linear = {
+        "data": traces,
         "layout": {
-            "title": "Process-normalized to 16 nm for apples-to-apples comparison",
-            "xaxis": {"title": "pJ / MAC (at 16 nm equivalent)", "type": "log"},
+            "title": "Same data, linear scale (8 nm)",
+            "xaxis": {"title": "pJ / MAC"},
             "yaxis": {"title": "", "automargin": True},
             "barmode": "stack",
-            "margin": {"t": 50, "b": 50, "l": 340, "r": 20},
+            "margin": {"t": 50, "b": 50, "l": 280, "r": 20},
             "legend": {"orientation": "h", "y": -0.2},
         },
     }
 
     payload = {
         "chart_by_category": chart_by_category,
-        "chart_normalized": chart_normalized,
+        "chart_linear": chart_linear,
     }
     return (
         f"const CHARTS = {json.dumps(payload)};\n"
@@ -798,22 +787,22 @@ a.nav-back:hover { text-decoration: underline; }
   </section>
 
   <section class="chart-section">
-    <h3>Per-MAC energy by structural category</h3>
+    <h3>Per-MAC energy by structural category (8 nm)</h3>
     <p class="chart-desc">Each building block's per-MAC energy
       decomposed by role: fetch, decode, schedule, register,
-      execute, accumulate, memory, interconnect, control. Each
-      category sums the itemized structures in its bucket. Native
-      process (SM at 8 nm, KPU tile at 16 nm).</p>
+      execute, accumulate, memory, interconnect, control. Both
+      building blocks reported at 8 nm (matched to the Jetson
+      Ampere baseline) so the comparison is direct - no process
+      normalization needed. Log-scale so small categories are
+      visible against the dominant Execute bucket.</p>
     <div id="chart_by_category" class="plot"></div>
   </section>
 
   <section class="chart-section">
-    <h3>Process-normalized comparison (both at 16 nm equivalent)</h3>
-    <p class="chart-desc">Same data with the SM's 8 nm energies scaled
-      up to a 16 nm equivalent using the full-adder energy ratio. Now
-      the comparison is pure architecture - no process advantage
-      confounding.</p>
-    <div id="chart_normalized" class="plot"></div>
+    <h3>Same data, linear scale</h3>
+    <p class="chart-desc">Linear-scale view of the category breakdown
+      so absolute contributions can be compared directly.</p>
+    <div id="chart_linear" class="plot"></div>
   </section>
 
   {_render_block_header(report.blocks[0])}
