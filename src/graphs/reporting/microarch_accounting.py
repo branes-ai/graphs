@@ -346,59 +346,54 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
 
 def build_kpu_tile_accounting() -> MicroArchAccounting:
     """
-    KPU 24x24 PE tile executing a matmul fragment as part of a SARE
-    (system of affine recurrence equations) schedule. In steady state,
-    each PE produces one MAC per cycle.
+    KPU 24x24 PE tile: a 2D mesh of FMAs. In steady state, every PE
+    produces one MAC per clock, so the tile's throughput basis is
 
-    Structures that fire per MAC (per PE per cycle):
-      - PE-local register reads (2 operands)
-      - MAC unit (bare INT8 MAC)
-      - Accumulator update (PE-local register)
-      - Operand forward to adjacent PE (systolic link)
+        MACs per clock = N x N = 576   (for a 24x24 mesh)
 
-    Structures that fire once per wavefront (amortized over wavefront
-    length; representative K=128):
-      - Tile scratchpad read for operand edge-feed
-      - Domain-flow schedule-ROM access (tiny: a counter increment,
-        not a per-cycle fetch)
+    Every structure below is per-PE-per-clock (i.e. per-MAC) except the
+    tile scratchpad edge-feed, which is an edge-only structure and is
+    averaged over the interior MACs it supports.
 
-    Structures that fire once per tile invocation (amortized over the
-    tile's MAC output count, 24x24*K = ~73k):
-      - NoC router activity (inter-tile)
-
-    No instruction fetch, no decode, no warp scheduling, no coherence,
-    no branch prediction. These are structurally absent in a statically
-    scheduled domain-flow fabric.
+    Structurally absent (do NOT appear in the table):
+      - Instruction fetch, decode, warp scheduling, coherence
+        (no centralized program flow)
+      - NoC packet router (tiles connect to neighbors via direct mesh
+        wires at the boundary; there is no router)
+      - Schedule ROM / micro-sequencer (the schedule is encoded in the
+        physical recurrence-domain topology, not a counter)
     """
     process_nm = 16
     fa_pj = _fa_pj(process_nm)
     reg_pj_byte = register_pj_per_byte(process_nm)
     l1_pj_byte = reg_pj_byte * 3.0  # L1 SRAM ~3x register
 
-    # Representative wavefront depth K (reduction dimension of a GEMM
-    # tile). Determines how much the per-wavefront costs amortize.
-    K = 128
+    PE_ROWS = 24
     PE_COLS = 24
-    # MACs per wavefront entering the tile
-    macs_per_wavefront = 24 * 24 * K  # 73,728
+    PE_COUNT = PE_ROWS * PE_COLS  # 576 MACs per clock
+    # Edge PEs that pull operand bytes from the tile scratchpad per
+    # clock. A 2-operand mesh (A streams down rows, B streams across
+    # cols) has 2 x 24 = 48 edge reads per clock, feeding 576 interior
+    # MACs. Average bytes read per MAC = 48 / 576 = 1/12.
+    edge_reads_per_clock = 2 * PE_ROWS
+    bytes_per_mac_from_scratchpad = edge_reads_per_clock / PE_COUNT
 
     structures = [
-        # --- Per-MAC structural costs ---
         MicroStructure(
-            name="MAC unit (INT8 bare, 8 FA-equivalents + carry tree)",
+            name="FMA unit (INT8 multiply + INT32 accumulate add)",
             category=StructureCategory.EXECUTE,
             per_op_pj=0.10,
             amortization_factor=1,
             citation=(
                 f"0.10 pJ at {process_nm}nm optimized domain-flow; "
                 f"reference: 8 FA x {fa_pj:.3f} pJ = {8*fa_pj:.3f} pJ "
-                "plus minimal reduction-tree overhead."
+                "plus minimal carry-tree overhead."
             ),
         ),
         MicroStructure(
-            name="PE-local register read x2 (two INT8 operands)",
+            name="PE-local operand register read x2",
             category=StructureCategory.REGISTER,
-            per_op_pj=2 * 1 * reg_pj_byte,  # 2 bytes at reg_pj_byte
+            per_op_pj=2 * 1 * reg_pj_byte,
             amortization_factor=1,
             citation=(
                 f"2 byte-reads x {reg_pj_byte:.3f} pJ/byte @ "
@@ -412,64 +407,31 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             amortization_factor=1,
             citation=(
                 "INT32 accumulator is a pipeline register directly "
-                "wired to the MAC unit output (not a regfile read). "
-                "~32 flip-flop toggles, weighted by realistic "
-                "switching activity (~15%); ~0.030 pJ at 16 nm."
+                "wired to the FMA output (not a regfile read). ~32 "
+                "flip-flop toggles weighted by realistic switching "
+                "activity (~15%); ~0.030 pJ at 16 nm."
             ),
         ),
         MicroStructure(
-            name="Operand forward to adjacent PE (systolic link)",
+            name="Operand forward to mesh neighbor (direct wire)",
             category=StructureCategory.INTERCONNECT,
-            per_op_pj=1 * reg_pj_byte * 0.4,  # short wire, low cap
+            per_op_pj=1 * reg_pj_byte * 0.4,
             amortization_factor=1,
             citation=(
-                "Forwarding to nearest-neighbor PE; ~40% of a regfile-"
-                "read cost (shorter wire, lower capacitance)."
-            ),
-        ),
-        # --- Per-wavefront (amortized) ---
-        MicroStructure(
-            name="Tile scratchpad read (L1) for operand edge-feed",
-            category=StructureCategory.MEMORY,
-            per_op_pj=2 * 1 * l1_pj_byte * K,  # K wavefront cycles, 2 bytes each
-            amortization_factor=macs_per_wavefront,
-            citation=(
-                f"Two operand bytes x {l1_pj_byte:.3f} pJ/byte x K={K} "
-                f"wavefront cycles; amortized over full PE array x K."
-            ),
-        ),
-        MicroStructure(
-            name="Domain-flow schedule counter (ROM pointer)",
-            category=StructureCategory.SCHEDULE,
-            per_op_pj=K * 0.05,  # tiny counter increment per wavefront cycle
-            amortization_factor=macs_per_wavefront,
-            citation=(
-                "SARE schedule is a statically compiled sequence; the "
-                "fabric only tracks a counter pointing into a tiny "
-                "configuration ROM. No per-MAC instruction fetch."
-            ),
-        ),
-        # --- Per-tile-invocation (amortized over tile output volume) ---
-        MicroStructure(
-            name="NoC router (tile-to-tile wavefront delivery)",
-            category=StructureCategory.INTERCONNECT,
-            per_op_pj=100.0,  # 100 pJ per hop per tile-invocation
-            amortization_factor=macs_per_wavefront,
-            citation=(
-                "One wavefront per tile invocation crosses the NoC "
-                "from neighbor tile; amortizes over all MACs in the "
-                "tile's steady phase."
+                "Nearest-neighbor mesh wire; ~40% of a regfile-read "
+                "cost (short wire, low capacitance). No router."
             ),
         ),
         MicroStructure(
             name="Token / coordinate match (domain-flow control)",
             category=StructureCategory.CONTROL,
-            per_op_pj=K * 0.1,
-            amortization_factor=macs_per_wavefront,
+            per_op_pj=0.008,
+            amortization_factor=1,
             citation=(
-                "Domain-flow verifies operand coordinates match the "
-                "PE's position in the recurrence domain; small per "
-                "wavefront cycle."
+                "Domain-flow component that matches incoming data "
+                "tokens to the PE's FMA operation (valid-bit + "
+                "coordinate check). A few gates per incoming token; "
+                "~0.008 pJ at 16 nm."
             ),
         ),
         MicroStructure(
@@ -482,25 +444,37 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
                 "no deep out-of-order machinery)."
             ),
         ),
+        MicroStructure(
+            name="Tile scratchpad edge-feed (L1 operand bytes)",
+            category=StructureCategory.MEMORY,
+            per_op_pj=bytes_per_mac_from_scratchpad * l1_pj_byte,
+            amortization_factor=1,
+            citation=(
+                f"{edge_reads_per_clock} edge-PE byte reads per clock "
+                f"feeding {PE_COUNT} interior MACs; average "
+                f"{bytes_per_mac_from_scratchpad:.3f} byte/MAC x "
+                f"{l1_pj_byte:.3f} pJ/byte (L1 SRAM at {process_nm} nm)."
+            ),
+        ),
     ]
 
     return MicroArchAccounting(
-        building_block="KPU Compute Tile (24x24 PE array)",
-        native_op=(f"PE MAC in domain-flow wavefront "
-                   f"(K={K} reductions, {macs_per_wavefront} MACs per invocation)"),
+        building_block=f"KPU Compute Tile ({PE_ROWS}x{PE_COLS} FMA mesh)",
+        native_op=(f"Mesh steady-state: {PE_COUNT} MACs per clock "
+                   f"({PE_ROWS}x{PE_COLS} PEs, 1 MAC/PE/clock)"),
         process_nm=process_nm,
         clock_ghz=1.0,  # KPU T128 sustained
-        macs_per_native_op=macs_per_wavefront,
+        macs_per_native_op=PE_COUNT,
         structures=structures,
         leakage_fraction=0.15,  # lower than SM; simpler control
         color="#3fc98a",
         notes=(
             "Tile-internal accounting. Does NOT include L3 scratchpad, "
             "memory controller, or DRAM. The absence of instruction "
-            "fetch, decode, warp scheduling, and coherence is structural "
-            "- these components do not exist in a statically scheduled "
-            "domain-flow fabric. That absence is the KPU's architectural "
-            "efficiency story."
+            "fetch, decode, warp scheduling, coherence, packet routers, "
+            "and schedule ROMs is structural - those components do not "
+            "exist in a 2D-mesh domain-flow fabric. That absence is the "
+            "KPU's architectural efficiency story."
         ),
     )
 
