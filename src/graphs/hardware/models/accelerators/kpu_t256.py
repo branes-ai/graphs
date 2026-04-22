@@ -146,7 +146,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
 
     # ========================================================================
     # T256 TILE ALLOCATION (256 tiles total, 70/20/10 ratio)
-    # M0.5: homogeneous 16x16 PE array per tile; larger engine uses smaller
+    # M0.5: homogeneous 20x20 PE array per tile; larger engine uses smaller
     # tile size to keep per-tile utilization high across many tiles.
     # Scheduling is OUTPUT_STATIONARY (distributed domain-flow fabric).
     # ========================================================================

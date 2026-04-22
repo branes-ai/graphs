@@ -86,7 +86,7 @@ preserve per-tile utilization across many concurrent tiles.
 |-----|-------|----------|-----------------|-----------|-------|-------------|-----------|
 | T64  | 64  | 24x24 | 576 | 36,864  | 900 MHz | 6 W  | ~66 TOPS |
 | T128 | 128 | 24x24 | 576 | 73,728  | 1.0 GHz | 12 W | ~148 TOPS |
-| T256 | 256 | 20x20 | 400 | 102,400 | 1.4 GHz | 30 W | ~230 TOPS |
+| T256 | 256 | 20x20 | 400 | 102,400 | 1.4 GHz | 30 W | ~287 TOPS |
 
 **Calibration (MAC energy at 16 nm):** all SKUs use
 `mac_energy_int8 = 0.10 pJ/MAC` (0.16 pJ BF16, 0.30 pJ FP32). For

@@ -287,9 +287,11 @@ def build_tensor_core_native_op(
     process_nm = 8
     bytes_per_op = _precision_byte_width(precision)
 
-    # ALU: Ampere FP16/INT8 Tensor Core bare MAC ~ 0.40 pJ @ 8nm
-    # (derived from published TC energy-per-op ~ 1.6 pJ/op /2 ops-per-MAC
-    # backing out register + coherence overhead).
+    # ALU: Ampere Tensor Core bare MAC @ 8nm.
+    #   FP16/BF16: ~0.40 pJ (derived from published TC ~1.6 pJ/op / 2
+    #              ops-per-MAC, backing out register + coherence overhead).
+    #   INT8:      ~0.25 pJ (narrower datapath - roughly 8 FA-eq vs 16
+    #              for FP16, scaled by the same register/coherence tax).
     alu_pj = 0.40 if precision in (Precision.FP16, Precision.BF16) else 0.25
 
     # Register: warp register file is substantially bigger than PE-local

@@ -140,12 +140,12 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
 
     # ========================================================================
     # T64 TILE ALLOCATION (64 tiles total, ~70/20/10 ratio)
-    # M0.5: homogeneous 32x32 PE array per tile; smaller engine uses larger
+    # M0.5: homogeneous 24x24 PE array per tile; smaller engine uses larger
     # tile size to amortize pipeline fill/drain across the workload.
     # Scheduling is OUTPUT_STATIONARY (distributed domain-flow fabric).
     # ========================================================================
     _T64_PE_ARRAY = (24, 24)
-    # 32x32 array at 2 INT8 ops/PE/clock = 2048 INT8 ops/tile/clock
+    # 24x24 array at 2 INT8 ops/PE/clock = 1152 INT8 ops/tile/clock
     t64_int8_tiles = TileSpecialization(
         tile_type="INT8-primary",
         num_tiles=44,  # 69% of 64

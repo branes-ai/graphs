@@ -363,7 +363,7 @@ class TileScheduleClass(Enum):
         WEIGHT_STATIONARY: TPU / classic systolic. Weights are held in
             the PE array while inputs stream through. Modern designs
             (TPU v1 onward) double-buffer weights so fill/drain per
-            tile is largely amortized (Jouppi et al., ISCA 2017, §2).
+            tile is largely amortized (Jouppi et al., ISCA 2017, sec. 2).
             The dominant utilization loss is *shape/tile mismatch*
             against the fixed PE dimensions and bandwidth-bound layers,
             NOT fill/drain. We model the combined effect as a flat

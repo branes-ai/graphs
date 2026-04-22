@@ -753,7 +753,7 @@ table th { font-size: 12px; text-transform: uppercase; color: #586374; backgroun
             "Chart 2: Peak throughput",
             "Higher is not always better. Tensor Core can outperform on "
             "peak, which we compensate for with larger PE arrays "
-            "(T64: 32x32, T128: 24x24, T256: 16x16).",
+            "(T64: 24x24, T128: 24x24, T256: 20x20).",
             "chart2"),
         _chart_section(
             "Chart 3: Energy efficiency (TOPS/W)",

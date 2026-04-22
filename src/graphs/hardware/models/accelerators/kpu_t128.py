@@ -1,8 +1,8 @@
 """
 KPU T128 Resource Model - mid-range SKU at 128 tiles with 24x24 PE arrays.
 
-Introduced in M0.5 to sit between T64 (64 tiles, 32x32 PEs) and T256
-(256 tiles, 16x16 PEs). The PE-array-size / tile-count tradeoff is a
+Introduced in M0.5 to sit between T64 (64 tiles, 24x24 PEs) and T256
+(256 tiles, 20x20 PEs). The PE-array-size / tile-count tradeoff is a
 core KPU design knob: smaller engines benefit from larger per-tile PE
 arrays (amortize fill/drain over more wavefront cycles), while larger
 engines move toward smaller tiles to preserve per-tile utilization

@@ -424,7 +424,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         l1_read_energy_per_byte=0.15e-12,   # 0.15 pJ (PE-local SRAM, 7nm)
         l1_write_energy_per_byte=0.2e-12,   # 0.2 pJ
 
-        # Computation energy (BLAS operators, 7nm datacenter)
+        # Computation energy (BLAS operators, 12nm datacenter)
         # MAC energies at 12nm datacenter domain-flow (M0.5 revision).
         # 12nm 1-bit full adder ~0.007 pJ; INT8 MAC ~0.08 pJ optimized.
         mac_energy_int8=0.08e-12,  # 0.08 pJ @ 12nm datacenter
