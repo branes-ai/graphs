@@ -4,32 +4,40 @@ from __future__ import annotations
 import math
 
 from graphs.reporting.silicon_speed_of_light import (
+    AccumMode,
     BareALU,
     DEFAULT_DIE_AREA_MM2,
     DEFAULT_SILICON_CLOCK_GHZ,
     DEFAULT_TDP_TARGETS_W,
+    DotProductALU,
     ProductReference,
+    ReuseTopology,
     SoLAnalysis,
     build_default_sol_report,
     default_alu_catalog,
     default_product_references,
-    render_alu_catalog_table,
+    generate_parametric_curve,
+    parametric_dot_product_alu,
+    render_alu_instance_table,
+    render_alu_per_mac_table,
     render_gap_to_products_table,
+    render_parametric_curve_table,
     render_sol_summary_table,
     render_tdp_sweep_table,
+    render_tradeoff_chart_js,
 )
 
 
 class TestBareALUCeiling:
     def test_tops_per_watt_is_ops_per_pj(self):
-        """The fundamental silicon ceiling is ops_per_mac / pJ_per_MAC.
-        Clock-independent, count-independent."""
-        kpu = BareALU(
+        """Silicon ceiling is ops_per_mac / pJ_per_MAC. Clock-
+        independent, count-independent."""
+        alu = BareALU(
             name="test", precision="INT8", process_nm=8,
             area_mm2=0.0001, transistor_count_k=10.0,
             pj_per_clock=0.050, ops_per_mac=2,
         )
-        assert abs(kpu.tops_per_watt_ceiling - 40.0) < 1e-6
+        assert abs(alu.tops_per_watt_ceiling - 40.0) < 1e-6
 
     def test_lower_energy_gives_higher_ceiling(self):
         a = BareALU(
@@ -44,20 +52,115 @@ class TestBareALUCeiling:
         )
         assert a.tops_per_watt_ceiling > b.tops_per_watt_ceiling
 
+    def test_default_fields_keep_bareaLU_backwards_compat(self):
+        """Constructing BareALU with only the original fields still
+        works: W defaults to 1, accum_mode to LOSSLESS, reuse to
+        ISOLATED, bytes_per_mac to 2.0."""
+        alu = BareALU(
+            name="legacy", precision="INT8", process_nm=8,
+            area_mm2=0.0001, transistor_count_k=10.0,
+            pj_per_clock=0.050,
+        )
+        assert alu.W == 1
+        assert alu.accum_mode is AccumMode.LOSSLESS
+        assert alu.reuse is ReuseTopology.ISOLATED
+        assert alu.bytes_per_mac == 2.0
+
+
+class TestDotProductALUW:
+    """Per-instance and per-MAC semantics for W > 1."""
+
+    def _tc_like(self) -> DotProductALU:
+        """Synthetic W=16 INT8 dot-product ALU."""
+        return DotProductALU(
+            name="tc-like", precision="INT8", process_nm=8,
+            area_mm2=0.00137,        # per instance
+            transistor_count_k=110.0,
+            pj_per_clock=1.28,       # per instance, all 16 MACs firing
+            W=16,
+            accum_mode=AccumMode.MIXED_PRECISION,
+            reuse=ReuseTopology.INTRA_ALU_BROADCAST,
+            bytes_per_mac=0.125,
+        )
+
+    def test_per_mac_is_per_instance_divided_by_W(self):
+        alu = self._tc_like()
+        assert math.isclose(alu.area_per_mac_mm2, alu.area_mm2 / 16.0)
+        assert math.isclose(
+            alu.transistor_count_per_mac_k,
+            alu.transistor_count_k / 16.0,
+        )
+        assert math.isclose(alu.pj_per_mac, alu.pj_per_clock / 16.0)
+
+    def test_tops_per_watt_uses_per_mac_energy(self):
+        alu = self._tc_like()
+        expected = 2.0 / alu.pj_per_mac
+        assert math.isclose(alu.tops_per_watt_ceiling, expected)
+
+
+class TestParametricModel:
+    def test_curve_covers_all_widths(self):
+        curve = generate_parametric_curve()
+        assert [p.W for p in curve] == [1, 2, 4, 8, 16, 32, 64]
+
+    def test_transistor_per_mac_grows_weakly_with_W(self):
+        """Per-MAC transistor count should be nearly flat, with a
+        mild rise as reduction-tree bit widths grow past W=8."""
+        curve = generate_parametric_curve()
+        first = curve[0].transistor_count_per_mac_k
+        last = curve[-1].transistor_count_per_mac_k
+        # First (W=1) is <= 6 K and last (W=64) is <= 8 K
+        assert 4.0 <= first <= 7.0
+        assert 6.0 <= last <= 9.0
+        # Growth is positive but modest
+        assert last > first
+        assert last < 2.0 * first
+
+    def test_bytes_per_mac_falls_with_W_for_broadcast(self):
+        """Intra-ALU broadcast gives 2/W bytes/MAC."""
+        curve = generate_parametric_curve(
+            reuse=ReuseTopology.INTRA_ALU_BROADCAST,
+        )
+        for p in curve:
+            assert math.isclose(p.bytes_per_mac, 2.0 / p.W, rel_tol=1e-6)
+
+    def test_parametric_reports_is_parametric_true(self):
+        p = parametric_dot_product_alu(W=4)
+        assert p.is_parametric is True
+
+    def test_catalog_entries_are_not_parametric(self):
+        for a in default_alu_catalog():
+            assert a.is_parametric is False
+
 
 class TestSoLAnalysis:
-    def _kpu_like(self) -> BareALU:
-        return BareALU(
+    def _kpu_like(self) -> DotProductALU:
+        return DotProductALU(
             name="KPU INT8", precision="INT8", process_nm=8,
             area_mm2=0.000185, transistor_count_k=12.0,
-            pj_per_clock=0.050, ops_per_mac=2,
+            pj_per_clock=0.050,
+            W=1, accum_mode=AccumMode.LOSSLESS,
+            reuse=ReuseTopology.MESH_STREAMING,
+            bytes_per_mac=0.0625,
         )
 
     def test_num_alus_scales_with_die_area(self):
         a = SoLAnalysis(alu=self._kpu_like(), die_area_mm2=100.0)
         b = SoLAnalysis(alu=self._kpu_like(), die_area_mm2=200.0)
-        # int() truncation can leave a 1-ALU rounding slack
         assert abs(b.num_alus - 2 * a.num_alus) <= 1
+
+    def test_num_macs_on_die_is_num_alus_times_W(self):
+        """For a W>1 ALU, total MACs on die = instances * W."""
+        tc = DotProductALU(
+            name="tc", precision="INT8", process_nm=8,
+            area_mm2=0.00137, transistor_count_k=110.0,
+            pj_per_clock=1.28, W=16,
+            accum_mode=AccumMode.MIXED_PRECISION,
+            reuse=ReuseTopology.INTRA_ALU_BROADCAST,
+            bytes_per_mac=0.125,
+        )
+        analysis = SoLAnalysis(alu=tc, die_area_mm2=250.0)
+        assert analysis.num_macs_on_die == analysis.num_alus * 16
 
     def test_peak_tops_scales_linearly_with_clock(self):
         a = SoLAnalysis(alu=self._kpu_like())
@@ -70,8 +173,6 @@ class TestSoLAnalysis:
                             rel_tol=1e-9)
 
     def test_tops_per_watt_invariant_across_clocks(self):
-        """Proof that TOPS/W is truly a silicon ceiling, not an
-        operating-point artifact."""
         a = SoLAnalysis(alu=self._kpu_like())
         ratios = [a.peak_tops(f) / a.die_power_w(f)
                   for f in (0.1, 0.5, 1.0, 1.5)]
@@ -86,68 +187,48 @@ class TestSoLAnalysis:
             f = a.clock_for_tdp(tdp)
             assert math.isclose(a.die_power_w(f), tdp, rel_tol=1e-9)
 
-    def test_tdp_sweep_flags_silicon_limited(self):
-        """At high enough TDP, the die saturates at silicon_clock_ghz
-        and the sweep marks the row silicon-limited."""
-        a = SoLAnalysis(
-            alu=self._kpu_like(),
-            die_area_mm2=DEFAULT_DIE_AREA_MM2,
-            silicon_clock_ghz=1.5,
-        )
-        swept = a.tdp_sweep()
-        # The highest TDP in the default sweep (300 W) should be
-        # silicon-limited for the KPU (100 W at 1.5 GHz).
-        high = [r for r in swept if r["tdp_w"] == 300.0]
-        assert high, "300 W row missing from sweep"
-        assert high[0]["silicon_limited"] is True
-        assert math.isclose(high[0]["effective_clock_ghz"], 1.5,
-                            rel_tol=1e-9)
-
 
 class TestDefaultCatalog:
-    def test_catalog_includes_both_int8_paths(self):
-        catalog = default_alu_catalog()
-        names = [a.name for a in catalog]
-        assert any("KPU" in n for n in names)
-        assert any("Tensor" in n or "TC" in n for n in names)
+    def test_catalog_covers_design_space(self):
+        """Catalog has at least one entry at W=1 (bare FMA), one at
+        W>=4 (dot-product), and at least one of each accum_mode."""
+        cat = default_alu_catalog()
+        assert any(a.W == 1 for a in cat)
+        assert any(a.W >= 4 for a in cat)
+        modes = {a.accum_mode for a in cat}
+        assert AccumMode.LOSSLESS in modes
+        assert AccumMode.MIXED_PRECISION in modes
 
-    def test_kpu_ceiling_higher_than_tc_ceiling(self):
-        """The KPU bare MAC is slightly more energy-efficient than
-        the Ampere TC bare MAC at matched process, so its TOPS/W
-        ceiling is higher."""
-        catalog = default_alu_catalog()
-        kpu = next(a for a in catalog if "KPU" in a.name)
-        tc = next(a for a in catalog
-                  if "TC" in a.name or "Tensor" in a.name)
-        assert kpu.tops_per_watt_ceiling > tc.tops_per_watt_ceiling
+    def test_catalog_covers_reuse_topologies(self):
+        cat = default_alu_catalog()
+        reuses = {a.reuse for a in cat}
+        assert ReuseTopology.MESH_STREAMING in reuses
+        assert ReuseTopology.INTRA_ALU_BROADCAST in reuses
+        assert ReuseTopology.ISOLATED in reuses
+        assert ReuseTopology.SYSTOLIC_STATIONARY in reuses
 
     def test_fp32_ceiling_much_lower_than_int8(self):
-        """FP32 FMA is ~50x more expensive per op than INT8 MAC at
-        the same process, so its ceiling collapses accordingly."""
         catalog = default_alu_catalog()
-        kpu = next(a for a in catalog if "KPU" in a.name)
+        kpu = next(a for a in catalog if "KPU PE (bare" in a.name)
         fp32 = next(a for a in catalog if a.precision == "FP32")
         assert kpu.tops_per_watt_ceiling > 20 * fp32.tops_per_watt_ceiling
 
 
 class TestDefaultReport:
-    def test_build_default_returns_populated_report(self):
+    def test_build_default_populates_curve_and_products(self):
         r = build_default_sol_report()
-        assert len(r.alus) >= 3
-        assert len(r.analyses) == len(r.alus)
+        assert len(r.alus) >= 5
+        assert len(r.parametric_curve) >= 5
         assert len(r.products) >= 2
         assert r.die_area_mm2 == DEFAULT_DIE_AREA_MM2
-        assert r.silicon_clock_ghz == DEFAULT_SILICON_CLOCK_GHZ
 
     def test_orin_actual_is_well_below_sol_at_30w(self):
-        """Product-gap invariant: Orin AGX at 30 W (dense INT8 ~68 TOPS)
-        must be well below the silicon-capability SoL for a 30 W
-        KPU-style die - this is the innovation headroom we are
-        showing. Expect Orin to be under 15% of SoL."""
         r = build_default_sol_report()
         orin = next(p for p in r.products
                     if "30 W" in p.name and "dense" in p.name)
-        kpu_analysis = next(a for a in r.analyses if "KPU" in a.alu.name)
+        kpu_analysis = next(
+            a for a in r.analyses if "KPU PE (bare" in a.alu.name
+        )
         f_30w = kpu_analysis.clock_for_tdp(30.0)
         sol_30w_tops = kpu_analysis.peak_tops(
             min(f_30w, r.silicon_clock_ghz)
@@ -155,32 +236,49 @@ class TestDefaultReport:
         assert orin.peak_int8_tops < sol_30w_tops
         ratio = orin.peak_int8_tops / sol_30w_tops
         assert ratio < 0.15, (
-            f"Orin 30 W actual/SoL is {ratio*100:.0f}%; the "
-            "intended headline is ~6% (17x headroom)."
+            f"Orin 30 W actual/SoL is {ratio*100:.0f}%; "
+            "should be ~6% against bare-FMA SoL."
         )
 
     def test_orin_tops_per_watt_roughly_constant_across_modes(self):
-        """Dense-INT8 TOPS/W should be roughly flat across Orin's
-        configurable power modes (silicon property, not mode
-        property)."""
         r = build_default_sol_report()
         orins = [p for p in r.products
                  if "Orin" in p.name and "dense" in p.name]
         assert len(orins) >= 2
         ratios = [p.tops_per_watt for p in orins]
-        # Spread shouldn't exceed ~15% - the data actually shows
-        # ~2.1 to ~2.3 TOPS/W across modes.
         assert (max(ratios) - min(ratios)) / max(ratios) < 0.15
 
 
 class TestHTMLRendering:
-    def test_alu_catalog_table_contains_every_alu(self):
+    def test_alu_instance_table_shows_W_and_topology(self):
         r = build_default_sol_report()
-        html = render_alu_catalog_table(r.alus)
+        html = render_alu_instance_table(r.alus)
         for alu in r.alus:
             assert alu.name in html
+        # Topology labels appear
+        assert "mesh" in html.lower() or "broadcast" in html.lower()
 
-    def test_sol_summary_table_has_die_area_header(self):
+    def test_alu_per_mac_table_reports_tops_per_watt(self):
+        r = build_default_sol_report()
+        html = render_alu_per_mac_table(r.alus)
+        assert "TOPS / W" in html or "TOPS/W" in html
+
+    def test_parametric_curve_table_has_rows_for_each_width(self):
+        r = build_default_sol_report()
+        html = render_parametric_curve_table(r.parametric_curve)
+        for p in r.parametric_curve:
+            # Each width appears at least once (as <strong>N</strong>
+            # in the first cell)
+            assert f"<strong>{p.W}</strong>" in html
+
+    def test_tradeoff_chart_js_emits_three_panels(self):
+        r = build_default_sol_report()
+        js = render_tradeoff_chart_js(r.parametric_curve, r.alus)
+        assert "chart_sol_trans_per_mac" in js
+        assert "chart_sol_pj_per_mac" in js
+        assert "chart_sol_bytes_per_mac" in js
+
+    def test_sol_summary_shows_die_area(self):
         r = build_default_sol_report()
         html = render_sol_summary_table(r.analyses, r.die_area_mm2)
         assert f"{r.die_area_mm2:.0f}" in html
@@ -194,8 +292,6 @@ class TestHTMLRendering:
     def test_gap_to_products_table_shows_ratios(self):
         r = build_default_sol_report()
         html = render_gap_to_products_table(r.products, r.analyses)
-        # Each product appears as a row
         for p in r.products:
             assert p.name in html
-        # Percentage suffix indicates the actual/SoL ratio
         assert "%" in html

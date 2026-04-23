@@ -1263,13 +1263,18 @@ a.nav-back:hover { text-decoration: underline; }
     from graphs.reporting.silicon_speed_of_light import (
         DEFAULT_TDP_TARGETS_W,
         build_default_sol_report,
-        render_alu_catalog_table,
+        render_alu_instance_table,
+        render_alu_per_mac_table,
         render_gap_to_products_table,
+        render_parametric_curve_table,
         render_sol_summary_table,
         render_tdp_sweep_table,
+        render_tradeoff_chart_js,
     )
     sol = build_default_sol_report()
-    sol_alu_table = render_alu_catalog_table(sol.alus)
+    sol_instance_table = render_alu_instance_table(sol.alus)
+    sol_per_mac_table = render_alu_per_mac_table(sol.alus)
+    sol_curve_table = render_parametric_curve_table(sol.parametric_curve)
     sol_summary_table = render_sol_summary_table(
         sol.analyses, sol.die_area_mm2
     )
@@ -1278,6 +1283,9 @@ a.nav-back:hover { text-decoration: underline; }
     )
     sol_gap_table = render_gap_to_products_table(
         sol.products, sol.analyses
+    )
+    sol_tradeoff_js = render_tradeoff_chart_js(
+        sol.parametric_curve, sol.alus,
     )
 
     return f"""<!DOCTYPE html>
@@ -1356,24 +1364,53 @@ a.nav-back:hover { text-decoration: underline; }
       well below their own silicon ceiling because TDP envelopes,
       packaging, and architectural scaffolding all consume power that
       bare ALUs do not.</p>
-    <p>Three metrics matter:</p>
+    <p>The ALU design space has three orthogonal axes that each
+      touch a different ceiling:</p>
     <ul>
-      <li><strong>TOPS / W ceiling</strong> = ops_per_MAC / pJ_per_MAC.
-        Clock- and count-independent. For INT8 at 8 nm: a 0.050 pJ
-        MAC has a 40 TOPS/W silicon ceiling; a 0.080 pJ MAC has a
-        25 TOPS/W ceiling.</li>
-      <li><strong>Peak TOPS on a 250 mm² die</strong> at silicon-
-        capability clock (1.5 GHz at 8 nm). This is the absolute
-        performance headroom, ignoring thermals.</li>
-      <li><strong>TDP-constrained clock sweep</strong>: for a given
-        thermal envelope, what clock can the die sustain and what
-        peak TOPS does that deliver. Rows marked <code>*</code> are
-        silicon-limited (the die saturates at the process's
-        capability clock before consuming the TDP budget).</li>
+      <li><strong>ALU width W</strong> (MACs per instance per clock):
+        W=1 bare FMA (KPU PE), W=4 small dot product (Volta/Turing
+        TC), W=16 medium (Ampere TC), W=32+ wide (Hopper TC).</li>
+      <li><strong>Accumulator mode</strong>: lossless (INT32 accum
+        from INT8), tree-rounded (FP16 at each reduction level),
+        mixed-precision (FP16 operand → FP32 accum), aggressive-
+        truncate. Accuracy ceiling drops as W and rounding increase.</li>
+      <li><strong>Reuse topology</strong>: isolated (2 B/MAC),
+        intra-ALU broadcast (2/W B/MAC), 2D-mesh streaming
+        (2/N B/MAC), systolic-stationary (1/N B/MAC). This axis
+        dominates the operand-bandwidth ceiling.</li>
     </ul>
+    <p>Three metrics - density, energy, bandwidth - each have their
+      own ceiling curve vs W, and real products sit at different
+      positions on each curve.</p>
 
-    <h4>Bare-ALU catalog (8 nm)</h4>
-    {sol_alu_table}
+    <h4>Parametric cost curve (INT8 at 8 nm, intra-ALU broadcast)</h4>
+    <p class="chart-desc">Analytical first-principles cost: W INT8
+      multipliers into a log2(W)-deep reduction tree with INT32
+      accumulator. Shows the slow rise of transistors/MAC as tree
+      bit-width growth outpaces multiplier sharing past W~8.</p>
+    {sol_curve_table}
+
+    <h4>Real-product ALU archetypes (per-instance)</h4>
+    <p class="chart-desc">The physical unit of replication for each
+      architecture. Numbers are for the whole ALU as one instance -
+      per-MAC values derive by dividing by W.</p>
+    {sol_instance_table}
+
+    <h4>Real-product ALU archetypes (per-MAC)</h4>
+    <p class="chart-desc">Same archetypes, normalized per MAC to
+      compare ceilings directly. TOPS/W = ops / pJ_per_MAC is the
+      clock-independent silicon ceiling.</p>
+    {sol_per_mac_table}
+
+    <h4>Trade-off curve with real products overlaid</h4>
+    <p class="chart-desc">Three views of the trade-off space. The
+      blue curve is the parametric first-principles model at each W;
+      the orange diamonds are real products. The gap between a
+      product and the curve shows where that product's architecture
+      is above or below the first-principles expectation.</p>
+    <div id="chart_sol_trans_per_mac" class="plot" style="min-height:340px;"></div>
+    <div id="chart_sol_pj_per_mac" class="plot" style="min-height:340px;"></div>
+    <div id="chart_sol_bytes_per_mac" class="plot" style="min-height:340px;"></div>
 
     <h4>On a 250 mm² die at silicon-capability clock (1.5 GHz)</h4>
     {sol_summary_table}
@@ -1428,6 +1465,7 @@ a.nav-back:hover { text-decoration: underline; }
 {footer}
 <script>
 {_render_chart_js(report)}
+{sol_tradeoff_js}
 </script>
 </body>
 </html>
