@@ -139,18 +139,38 @@ class TestDefaultReport:
         assert r.die_area_mm2 == DEFAULT_DIE_AREA_MM2
         assert r.silicon_clock_ghz == DEFAULT_SILICON_CLOCK_GHZ
 
-    def test_orin_actual_is_below_sol_at_30w(self):
-        """Product-gap invariant: Orin AGX deployed (30 W, ~275 TOPS)
-        must be below the silicon-capability SoL for a 30 W KPU-style
-        die - otherwise there is no innovation headroom to claim."""
+    def test_orin_actual_is_well_below_sol_at_30w(self):
+        """Product-gap invariant: Orin AGX at 30 W (dense INT8 ~68 TOPS)
+        must be well below the silicon-capability SoL for a 30 W
+        KPU-style die - this is the innovation headroom we are
+        showing. Expect Orin to be under 15% of SoL."""
         r = build_default_sol_report()
-        orin = next(p for p in r.products if "30 W" in p.name)
+        orin = next(p for p in r.products
+                    if "30 W" in p.name and "dense" in p.name)
         kpu_analysis = next(a for a in r.analyses if "KPU" in a.alu.name)
         f_30w = kpu_analysis.clock_for_tdp(30.0)
         sol_30w_tops = kpu_analysis.peak_tops(
             min(f_30w, r.silicon_clock_ghz)
         )
         assert orin.peak_int8_tops < sol_30w_tops
+        ratio = orin.peak_int8_tops / sol_30w_tops
+        assert ratio < 0.15, (
+            f"Orin 30 W actual/SoL is {ratio*100:.0f}%; the "
+            "intended headline is ~6% (17x headroom)."
+        )
+
+    def test_orin_tops_per_watt_roughly_constant_across_modes(self):
+        """Dense-INT8 TOPS/W should be roughly flat across Orin's
+        configurable power modes (silicon property, not mode
+        property)."""
+        r = build_default_sol_report()
+        orins = [p for p in r.products
+                 if "Orin" in p.name and "dense" in p.name]
+        assert len(orins) >= 2
+        ratios = [p.tops_per_watt for p in orins]
+        # Spread shouldn't exceed ~15% - the data actually shows
+        # ~2.1 to ~2.3 TOPS/W across modes.
+        assert (max(ratios) - min(ratios)) / max(ratios) < 0.15
 
 
 class TestHTMLRendering:

@@ -277,27 +277,64 @@ def default_alu_catalog() -> List[BareALU]:
 
 
 def default_product_references() -> List[ProductReference]:
-    """Shipping products at known TDPs for gap-to-SoL comparison."""
+    """Shipping products at known TDPs for gap-to-SoL comparison.
+
+    All figures are DENSE INT8 unless labelled sparse. NVIDIA's
+    "275 TOPS" headline for Jetson AGX Orin is sparse INT8 at
+    MAXN (~60 W) summed across GPU + DLA + PVA; dividing 275 by a
+    lower TDP (e.g., 30 W) double-counts the sparsity factor and
+    the power-mode. Dense numbers below are derived from NVIDIA's
+    published specs and scale linearly with the clock that the
+    sustained-TDP envelope permits.
+    """
     return [
+        # Orin AGX 64GB, dense INT8 across GPU + DLA + PVA engines.
+        # TOPS/W ~= 2.3 across all power modes (dynamic efficiency
+        # is clock-independent; lower modes trade TOPS for watts
+        # proportionally).
         ProductReference(
-            name="Jetson AGX Orin (30 W)",
+            name="Jetson AGX Orin MAXN (60 W, dense INT8)",
             process_nm=8,
             die_area_mm2=180.0,   # full SoC
-            peak_int8_tops=275.0,
+            peak_int8_tops=137.0,
+            tdp_w=60.0,
+        ),
+        ProductReference(
+            name="Jetson AGX Orin (50 W, dense INT8)",
+            process_nm=8,
+            die_area_mm2=180.0,
+            peak_int8_tops=105.0,
+            tdp_w=50.0,
+        ),
+        ProductReference(
+            name="Jetson AGX Orin (30 W, dense INT8)",
+            process_nm=8,
+            die_area_mm2=180.0,
+            peak_int8_tops=68.0,
             tdp_w=30.0,
         ),
         ProductReference(
-            name="Jetson AGX Orin (15 W)",
+            name="Jetson AGX Orin (15 W, dense INT8)",
             process_nm=8,
             die_area_mm2=180.0,
-            peak_int8_tops=138.0,
+            peak_int8_tops=34.0,
             tdp_w=15.0,
         ),
+        # Same silicon at MAXN with structured sparsity: ~2x the
+        # dense TOPS, same 60 W envelope. Included so the sparsity
+        # marketing trick is visible.
         ProductReference(
-            name="H100 SXM5 (700 W)",
+            name="Jetson AGX Orin MAXN (60 W, sparse INT8 marketing)",
+            process_nm=8,
+            die_area_mm2=180.0,
+            peak_int8_tops=275.0,
+            tdp_w=60.0,
+        ),
+        ProductReference(
+            name="H100 SXM5 (700 W, dense INT8)",
             process_nm=4,
             die_area_mm2=814.0,
-            peak_int8_tops=1979.0,   # INT8 dense (no sparsity)
+            peak_int8_tops=1979.0,
             tdp_w=700.0,
         ),
         ProductReference(
