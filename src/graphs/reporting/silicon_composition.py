@@ -323,7 +323,7 @@ def build_kpu_t128_hierarchy() -> ArchitectureHierarchy:
     mesh scaffolding) -> 32x32 Tile -> Cluster of 32 tiles ->
     T128 SoC (128 tiles = 4 clusters)."""
     return ArchitectureHierarchy(
-        name="KPU T128 (Kolmogorov PU, hypothetical 8 nm SoC)",
+        name="KPU T128 (Knowledge Processing Unit, hypothetical 8 nm SoC)",
         architecture=ArchitectureCategory.NPU,
         process_nm=8,
         notes=(
