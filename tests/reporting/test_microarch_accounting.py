@@ -157,14 +157,22 @@ class TestCrossValidation:
             f"detailed {kpu_det:.3f} vs simplified {simp:.3f}")
 
     def test_sm_higher_energy_than_kpu_at_matched_process(self):
-        """The architectural advantage must survive process normalization."""
+        """The architectural advantage must survive matched-process
+        comparison. Both blocks are already at 8 nm (see
+        test_html_has_process_nodes), so no normalization is needed
+        - compare raw totals."""
         r = build_default_report()
-        sm_norm = (r.blocks[0].total_pj_per_mac
-                   * _fa_pj(16) / _fa_pj(r.blocks[0].process_nm))
-        kpu = r.blocks[1].total_pj_per_mac
-        assert sm_norm > kpu, (
-            f"SM @ 16nm ({sm_norm:.3f}) not higher than KPU ({kpu:.3f}) "
-            "- architectural advantage lost")
+        sm = r.blocks[0]
+        kpu = r.blocks[1]
+        assert sm.process_nm == kpu.process_nm, (
+            "Cross-validation requires matched process; got "
+            f"SM={sm.process_nm} nm, KPU={kpu.process_nm} nm"
+        )
+        assert sm.total_pj_per_mac > kpu.total_pj_per_mac, (
+            f"SM @ {sm.process_nm}nm ({sm.total_pj_per_mac:.3f}) not "
+            f"higher than KPU ({kpu.total_pj_per_mac:.3f}) - "
+            "architectural advantage lost"
+        )
 
 
 class TestHTMLRender:

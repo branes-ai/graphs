@@ -58,10 +58,9 @@ from __future__ import annotations
 import html
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 # ======================================================================
@@ -130,7 +129,7 @@ DENSITY_MT_PER_MM2_DENSE_MAC: float = PROCESS_DENSITY_MT_PER_MM2[8]
 
 
 def process_density_mt_per_mm2(process_nm: int) -> float:
-    """Canonical dense-compute transistor density (MT/mm²) for
+    """Canonical dense-compute transistor density (MT/mm^2) for
     `process_nm`. If the node is not in the table, snap to the
     nearest known node."""
     if process_nm in PROCESS_DENSITY_MT_PER_MM2:
@@ -875,7 +874,7 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
         '<th>Precision</th>'
         '<th>Process (nm)</th>'
         '<th>Accumulator</th>'
-        '<th>Area / instance (μm²)</th>'
+        '<th>Area / instance (um^2)</th>'
         '<th>Trans / instance (K)</th>'
         '<th>pJ / clock / instance</th>'
         '<th>B / MAC (ALU)</th>'
@@ -908,7 +907,7 @@ def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
         '<thead><tr>'
         '<th>ALU archetype</th>'
         '<th>ALU Width</th>'
-        '<th>Area / MAC (μm²)</th>'
+        '<th>Area / MAC (um^2)</th>'
         '<th>Trans / MAC (K)</th>'
         '<th>pJ / MAC</th>'
         '<th>B / MAC (ALU)</th>'
@@ -945,8 +944,8 @@ def render_parametric_curve_table(curve: List[DotProductALU]) -> str:
         '<th>Ceiling</th>'
         '</tr><tr>'
         '<th></th>'
-        '<th>Trans (K)</th><th>Area (μm²)</th><th>pJ/clock</th>'
-        '<th>Trans/MAC (K)</th><th>Area/MAC (μm²)</th>'
+        '<th>Trans (K)</th><th>Area (um^2)</th><th>pJ/clock</th>'
+        '<th>Trans/MAC (K)</th><th>Area/MAC (um^2)</th>'
         '<th>pJ/MAC</th><th>B/MAC (ALU)</th>'
         '<th>TOPS/W</th>'
         '</tr></thead>'
@@ -976,7 +975,7 @@ def render_sol_summary_table(
     return (
         '<table class="blocks">'
         '<thead><tr>'
-        f'<th>ALU archetype (on {die_area_mm2:.0f} mm² die)</th>'
+        f'<th>ALU archetype (on {die_area_mm2:.0f} mm^2 die)</th>'
         '<th>ALU Width</th>'
         '<th># ALU instances</th>'
         '<th># MACs on die</th>'
@@ -1068,7 +1067,7 @@ def render_gap_to_products_table(
         '<table class="blocks">'
         '<thead><tr>'
         '<th rowspan="2">Product</th><th rowspan="2">Process (nm)</th>'
-        '<th rowspan="2">Die (mm²)</th>'
+        '<th rowspan="2">Die (mm^2)</th>'
         '<th rowspan="2">TDP (W)</th>'
         '<th rowspan="2">Actual TOPS</th>'
         '<th rowspan="2">Actual TOPS/W</th>'
@@ -1163,7 +1162,7 @@ def render_tradeoff_chart_js(
         "data": [
             {
                 "type": "scatter", "mode": "lines+markers",
-                "name": "Parametric ALU-level (= 2 × bytes/operand)",
+                "name": "Parametric ALU-level (= 2 x bytes/operand)",
                 "x": curve_x, "y": curve_y_bytes_per_mac_alu,
                 "line": {"color": "#5b8ff9"},
                 "marker": {"size": 6, "color": "#5b8ff9"},

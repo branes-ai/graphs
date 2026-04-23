@@ -755,11 +755,19 @@ def build_kpu_tile_building_block(
 def default_soc_compositions() -> List[SocComposition]:
     """Illustrative SoC compositions at two clock domains.
 
-    Silicon-capability clocks (1.5 GHz SM, 1.5 GHz tile) show what the
-    raw silicon can deliver; deployed-product clocks (0.65 GHz SM on
-    Orin AGX, 1.0 GHz tile on a T128 envelope) show what customers
-    actually experience. The gap between the two is pure thermal
-    constraint, not architectural limit.
+    All KPU entries below use the CANONICAL 32x32 compute tile as
+    the replication unit. This maps directly to the T64 and T128
+    product SKUs (both 32x32 per doc). It does NOT model the T256
+    product, which deliberately uses a smaller 20x20 tile for
+    per-tile utilization reasons - that SKU has its own separate
+    resource model (kpu_t256.py) and is out of scope for this
+    per-clock view.
+
+    Silicon-capability clocks (1.5 GHz SM, 1.5 GHz tile) show what
+    the raw silicon can deliver; deployed-product clocks (0.65 GHz
+    SM on Orin AGX, 1.0 GHz tile on a T128-class envelope) show
+    what customers actually experience. The gap between the two is
+    pure thermal constraint, not architectural limit.
     """
     sm_sol = build_nvidia_sm_building_block(clock_ghz=1.5)
     sm_orin = build_nvidia_sm_building_block(clock_ghz=0.65)
@@ -776,25 +784,20 @@ def default_soc_compositions() -> List[SocComposition]:
             block=sm_sol, block_count=16, utilization=0.50,
             overhead_mw=7000.0,
         ),
-        # KPU T64 at deployed 1.0 GHz
+        # 64 canonical tiles at deployed 1.0 GHz (T64-class envelope)
         SocComposition(
             block=tile_deployed, block_count=64, utilization=0.55,
             overhead_mw=1500.0,
         ),
-        # KPU T128 at deployed 1.0 GHz
+        # 128 canonical tiles at deployed 1.0 GHz (T128-class envelope)
         SocComposition(
             block=tile_deployed, block_count=128, utilization=0.55,
             overhead_mw=2500.0,
         ),
-        # KPU T128 at silicon-capability 1.5 GHz
+        # 128 canonical tiles at silicon-capability 1.5 GHz
         SocComposition(
             block=tile_sol, block_count=128, utilization=0.55,
             overhead_mw=2500.0,
-        ),
-        # KPU T256 at deployed 1.0 GHz
-        SocComposition(
-            block=tile_deployed, block_count=256, utilization=0.55,
-            overhead_mw=4500.0,
         ),
     ]
 
@@ -967,7 +970,7 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
     )
     sub_headers = "".join(
         '<th class="num">Trans. (M)</th>'
-        '<th class="num">Area (mm²)</th>'
+        '<th class="num">Area (mm^2)</th>'
         '<th class="num">pJ/clk</th>'
         for _ in blocks
     )
@@ -978,9 +981,9 @@ def _render_side_by_side_table(blocks: List[BuildingBlock]) -> str:
         for b in blocks:
             match = next((c for c in b.components if c.name == name), None)
             if match is None:
-                cells.append('<td class="num">&mdash;</td>'
-                             '<td class="num">&mdash;</td>'
-                             '<td class="num">&mdash;</td>')
+                cells.append('<td class="num">--</td>'
+                             '<td class="num">--</td>'
+                             '<td class="num">--</td>')
             else:
                 cells.append(
                     f'<td class="num">{match.transistor_count_m:.1f}</td>'
@@ -1081,7 +1084,7 @@ def _render_block_table(b: BuildingBlock) -> str:
         '<th>Component</th><th>Category</th><th>Count</th>'
         '<th>Size / spec</th>'
         '<th>Trans. (M)</th>'
-        '<th>Area (mm²)</th>'
+        '<th>Area (mm^2)</th>'
         '<th>pJ / clock</th><th>% of engine</th>'
         '<th>Activity assumption / source</th>'
         '</tr></thead>'
@@ -1102,7 +1105,7 @@ def _render_block_header(b: BuildingBlock) -> str:
         {b.native_macs_per_clock:,} MACs/clock ({b.native_op_precision})
     | <strong>Silicon:</strong>
         {b.total_transistor_count_m:.0f} M transistors
-        ({b.total_area_mm2:.2f} mm²)
+        ({b.total_area_mm2:.2f} mm^2)
     | <strong>Power:</strong> {b.power_mw:.0f} mW
     | <strong>pJ/MAC:</strong> {b.derived_pj_per_mac:.3f}
   </div>
@@ -1224,7 +1227,7 @@ a.nav-back:hover { text-decoration: underline; }
                 f'<td class="num">{per_clock:.1f}</td>'
                 f'<td class="num">{b.native_macs_per_clock:,}</td>'
                 f'<td class="num"><strong>{derived:.3f}</strong></td>'
-                f'<td class="num">&mdash;</td>'
+                f'<td class="num">--</td>'
                 f'<td class="num">n/a</td></tr>'
             )
             continue
@@ -1301,14 +1304,14 @@ a.nav-back:hover { text-decoration: underline; }
 <body>
 {header}
 <main>
-  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
   <section class="page-header">
     <h2>Engine-level energy budget: SM vs. KPU tile</h2>
     <div class="meta">Per-clock energy of every major component as it
       is deployed on the SoC - all reported at 8 nm to match the
       Jetson Ampere baseline so direct comparisons do not need a
       process-normalization chart. For each component we report
-      <strong>transistor count, silicon area (mm²), and energy per
+      <strong>transistor count, silicon area (mm^2), and energy per
       clock</strong> so circuit-designer intuition can audit the
       numbers. Complements the
       <a href="microarch_accounting.html">per-MAC view</a>; the two
@@ -1320,7 +1323,7 @@ a.nav-back:hover { text-decoration: underline; }
     <h3 style="margin-top:0;">Quantitative component tables</h3>
     <p>One table per building block. Columns are
       <strong>Transistors (M)</strong>,
-      <strong>Area (mm²)</strong>, and
+      <strong>Area (mm^2)</strong>, and
       <strong>pJ / clock</strong> - the three independent grounding
       estimates. Energy totals are <em>not</em> normalized to pJ/MAC
       here; this is the raw silicon budget the SoC must supply every
@@ -1373,14 +1376,14 @@ a.nav-back:hover { text-decoration: underline; }
         wide (Hopper TC).</li>
       <li><strong>Accumulator mode</strong>: lossless (INT32 accum
         from INT8), tree-rounded (FP16 at each reduction level),
-        mixed-precision (FP16 operand → FP32 accum), aggressive-
+        mixed-precision (FP16 operand -> FP32 accum), aggressive-
         truncate. Accuracy ceiling drops as ALU Width and rounding
         increase.</li>
       <li><strong>Reuse topology</strong> (affects <em>die-level</em>
         bandwidth, not ALU-level): isolated keeps 2 B/MAC; intra-ALU
         broadcast within a matmul tile drops to 2/tile_dim B/MAC;
         2D-mesh streaming NxN drops to 2/N B/MAC; systolic-stationary
-        NxN drops to ~1/N. Every dot-product ALU still reads 2 ×
+        NxN drops to ~1/N. Every dot-product ALU still reads 2 x
         bytes_per_operand per MAC internally - topology savings
         appear at the die-memory boundary.</li>
     </ul>
@@ -1420,10 +1423,10 @@ a.nav-back:hover { text-decoration: underline; }
     <div id="chart_sol_pj_per_mac" class="plot" style="min-height:340px;"></div>
     <div id="chart_sol_bytes_per_mac" class="plot" style="min-height:340px;"></div>
 
-    <h4>On a 250 mm² die at silicon-capability clock (1.5 GHz)</h4>
+    <h4>On a 250 mm^2 die at silicon-capability clock (1.5 GHz)</h4>
     {sol_summary_table}
 
-    <h4>TDP-constrained peak performance on 250 mm² (* = silicon-limited)</h4>
+    <h4>TDP-constrained peak performance on 250 mm^2 (* = silicon-limited)</h4>
     {sol_tdp_table}
 
     <h4>Gap to shipping products</h4>

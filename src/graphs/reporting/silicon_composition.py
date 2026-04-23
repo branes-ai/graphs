@@ -41,7 +41,7 @@ import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from graphs.reporting.silicon_speed_of_light import (
     process_density_mt_per_mm2,
@@ -716,7 +716,7 @@ def _render_hierarchy_table(h: ArchitectureHierarchy) -> str:
         '<th>Block</th>'
         '<th># children / instance</th>'
         '<th>Trans (M)</th>'
-        '<th>Area (mm²)</th>'
+        '<th>Area (mm^2)</th>'
         '<th>MACs / clock</th>'
         '<th>pJ / clock</th>'
         '<th>TOPS / W</th>'
@@ -731,7 +731,6 @@ def _render_hierarchy_table(h: ArchitectureHierarchy) -> str:
 
 def _render_efficiency_chart_js(report: CompositionReport) -> str:
     """Bar chart comparing TOPS/W at each level across architectures."""
-    levels = [bl.value for bl in BlockLevel]
     traces = []
     for h in report.hierarchies:
         ys = []
@@ -784,7 +783,7 @@ def render_composition_page(report: CompositionReport,
     header = _render_brand_header(
         assets,
         "Silicon composition hierarchy",
-        f"ALU → PE → Tile → Cluster → SoC | generated {report.generated_at}",
+        f"ALU -> PE -> Tile -> Cluster -> SoC | generated {report.generated_at}",
     )
     footer = _render_brand_footer("microarch-model-delivery-plan.md")
 
@@ -832,8 +831,8 @@ a.nav-back:hover { text-decoration: underline; }
     <strong>Category:</strong> {html.escape(h.architecture.value)}
     | <strong>Process:</strong> {h.process_nm} nm
     | <strong>Levels:</strong> {len(h.blocks)}
-    | <strong>ALU→SoC efficiency decay:</strong>
-        <strong>{decay:.0f}×</strong>
+    | <strong>ALU->SoC efficiency decay:</strong>
+        <strong>{decay:.0f}x</strong>
   </div>
   <p style="color:#3a4452; font-size:13px; margin:8px 0 0;">
     {html.escape(h.notes)}
@@ -856,9 +855,9 @@ a.nav-back:hover { text-decoration: underline; }
 <body>
 {header}
 <main>
-  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
   <section class="page-header">
-    <h2>Silicon composition: ALU → PE → Tile → Cluster → SoC</h2>
+    <h2>Silicon composition: ALU -> PE -> Tile -> Cluster -> SoC</h2>
     <div class="meta">Companion to the
       <a href="building_block_energy.html">building-block energy</a>
       and
@@ -885,7 +884,7 @@ a.nav-back:hover { text-decoration: underline; }
       <li><strong>Efficiency vs ALU</strong> shows how far the
         block's TOPS/W is below its own ALU's ceiling.</li>
       <li><strong>Decay</strong> in the arch header is the ratio
-        ALU TOPS/W / SoC TOPS/W. A 50× decay means the SoC delivers
+        ALU TOPS/W / SoC TOPS/W. A 50x decay means the SoC delivers
         1/50 the silicon efficiency of its own bare ALU.</li>
     </ul>
   </section>

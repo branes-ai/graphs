@@ -233,7 +233,7 @@ def _render_brand_header(assets: BrandAssets, page_title: str, subtitle: str) ->
 def _render_brand_footer(plan_version: str) -> str:
     return f"""
 <footer class="brand">
-  <div>Branes AI &mdash; micro-architectural model delivery</div>
+  <div>Branes AI -- micro-architectural model delivery</div>
   <div class="plan-ref">Plan: {html.escape(plan_version)}</div>
 </footer>
 """
@@ -397,7 +397,7 @@ def render_index_page(
     entries = "".join(
         f'<li><a href="hardware/{html.escape(r.sku)}.html">'
         f'{html.escape(r.display_name or r.sku)}</a> '
-        f'&mdash; <span class="meta">{html.escape(r.archetype or "unspecified")}, '
+        f'-- <span class="meta">{html.escape(r.archetype or "unspecified")}, '
         f'{html.escape(r.overall_confidence)}</span></li>'
         for r in reports
     )

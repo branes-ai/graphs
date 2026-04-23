@@ -795,7 +795,7 @@ a.nav-back:hover {{ text-decoration: underline; }}
 <body>
 {header}
 <main>
-  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
   <section class="page-header">
     <h2>Compute-archetype comparison (M0.5)</h2>
     <div class="meta">Three archetypes, one picture: why KPU wins on energy per op.</div>

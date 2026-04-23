@@ -402,7 +402,7 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
 
 
 # ----------------------------------------------------------------------
-# KPU tile accounting (16 nm, INT8 MAC in domain-flow wavefront)
+# KPU tile accounting (8 nm, INT8 MAC in domain-flow wavefront)
 # ----------------------------------------------------------------------
 
 def build_kpu_tile_accounting() -> MicroArchAccounting:
@@ -817,32 +817,40 @@ a.nav-back:hover { text-decoration: underline; }
     tc = next(a for a in CANONICAL_ARCHETYPES
               if a.category == "GPU" and "Tensor Core" in a.name)
     kpu = next(a for a in CANONICAL_ARCHETYPES if a.category == "KPU")
-    # Compare at process-normalized 16 nm. Both detailed blocks are
-    # now at 8 nm (matched), so both get the same FA(16)/FA(8) scale.
-    sm_total_16nm = (report.blocks[0].total_pj_per_mac
-                     * _fa_pj(16) / _fa_pj(report.blocks[0].process_nm))
-    kpu_total_16nm = (report.blocks[1].total_pj_per_mac
-                      * _fa_pj(16) / _fa_pj(report.blocks[1].process_nm))
-    sm_simplified_16nm = total_pj_per_mac(tc, 16)
-    kpu_simplified_16nm = total_pj_per_mac(kpu, 16)
+    # Both detailed blocks are at 8 nm (matched). Compare at the
+    # native 8 nm node. Do NOT scale the detailed totals with an
+    # FA-only ratio to an equivalent 16 nm: the detailed view
+    # includes register / L1 / leakage terms that do not scale
+    # proportionally to FA energy across process nodes, and the
+    # simplified view already computes process effects component-
+    # wise. Matched-node comparison is the honest apples-to-apples.
+    comparison_process_nm = report.blocks[0].process_nm
+    sm_total = report.blocks[0].total_pj_per_mac
+    kpu_total = report.blocks[1].total_pj_per_mac
+    sm_simplified = total_pj_per_mac(tc, comparison_process_nm)
+    kpu_simplified = total_pj_per_mac(kpu, comparison_process_nm)
 
-    sm_ratio_det = sm_total_16nm / kpu_total_16nm
-    sm_ratio_simp = sm_simplified_16nm / kpu_simplified_16nm
+    sm_ratio_det = sm_total / kpu_total if kpu_total > 0 else 0.0
+    sm_ratio_simp = (
+        sm_simplified / kpu_simplified if kpu_simplified > 0 else 0.0
+    )
     validation_note = f"""
 <section class="method-note">
   <strong>Cross-validation against simplified view</strong>
-  (<code>generalized_architecture.py</code>):<br/>
-  SM (Tensor Core) detailed-total normalized to 16 nm:
-    <strong>{sm_total_16nm:.3f} pJ/MAC</strong>.
-    Simplified: <strong>{sm_simplified_16nm:.3f} pJ/MAC</strong>.
-    Delta: {abs(sm_total_16nm - sm_simplified_16nm) / sm_simplified_16nm * 100:.0f}%.<br/>
-  KPU tile detailed-total normalized to 16 nm:
-    <strong>{kpu_total_16nm:.3f} pJ/MAC</strong>.
-    Simplified: <strong>{kpu_simplified_16nm:.3f} pJ/MAC</strong>.
-    Delta: {abs(kpu_total_16nm - kpu_simplified_16nm) / kpu_simplified_16nm * 100:.0f}%.
+  (<code>generalized_architecture.py</code>) at matched
+  {comparison_process_nm} nm:<br/>
+  SM (Tensor Core) detailed total:
+    <strong>{sm_total:.3f} pJ/MAC</strong>.
+    Simplified: <strong>{sm_simplified:.3f} pJ/MAC</strong>.
+    Delta: {abs(sm_total - sm_simplified) / sm_simplified * 100:.0f}%.<br/>
+  KPU tile detailed total:
+    <strong>{kpu_total:.3f} pJ/MAC</strong>.
+    Simplified: <strong>{kpu_simplified:.3f} pJ/MAC</strong>.
+    Delta: {abs(kpu_total - kpu_simplified) / kpu_simplified * 100:.0f}%.
   <br/>
-  SM/KPU ratio at 16 nm: detailed <strong>{sm_ratio_det:.2f}x</strong>,
-  simplified <strong>{sm_ratio_simp:.2f}x</strong>.
+  SM/KPU ratio at {comparison_process_nm} nm:
+    detailed <strong>{sm_ratio_det:.2f}x</strong>,
+    simplified <strong>{sm_ratio_simp:.2f}x</strong>.
   <br/><br/>
   Totals agree within ~50%; the detailed view explicitly adds a
   leakage term (15-20% of dynamic) and itemizes smaller structures
@@ -866,7 +874,7 @@ a.nav-back:hover { text-decoration: underline; }
 <body>
 {header}
 <main>
-  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
   <section class="page-header">
     <h2>Per-structure energy accounting: SM vs. KPU tile</h2>
     <div class="meta">Validation view - itemizes every

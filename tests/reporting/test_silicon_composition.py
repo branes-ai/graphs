@@ -5,7 +5,6 @@ from pathlib import Path
 
 from graphs.reporting.silicon_composition import (
     ArchitectureCategory,
-    ArchitectureHierarchy,
     BlockLevel,
     CompositionBlock,
     build_arm_a78_cpu_hierarchy,

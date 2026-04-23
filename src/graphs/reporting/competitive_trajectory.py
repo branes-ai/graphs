@@ -424,7 +424,7 @@ a.nav-back:hover { text-decoration: underline; }
 <body>
 {header}
 <main>
-  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
   <section class="page-header">
     <h2>How long to close the gap?</h2>
     <div class="meta">Jetson TOPS/W trajectory with extrapolations to

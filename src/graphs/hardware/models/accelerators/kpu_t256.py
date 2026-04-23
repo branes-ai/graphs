@@ -371,9 +371,18 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     # Legacy Precision Profiles (calculated from fabrics for backward compatibility)
     # ========================================================================
     # Calculate peak ops using fabrics (use 30W sustained @ 1.4 GHz as baseline)
+    # INT8 peak includes all tile classes that can run INT8 (native
+    # INT8 tiles + BF16 tiles running INT8 fallback + matrix tiles).
+    # Matches the doc claim of ~287 TOPS; omitting BF16 fallback
+    # undercounts to ~230 TOPS.
     int8_peak_from_int8_tiles = int8_fabric.get_peak_ops_per_sec(Precision.INT8)
+    int8_peak_from_bf16_tiles = bf16_fabric.get_peak_ops_per_sec(Precision.INT8)
     int8_peak_from_matrix_tiles = matrix_fabric.get_peak_ops_per_sec(Precision.INT8)
-    total_int8_peak = int8_peak_from_int8_tiles + int8_peak_from_matrix_tiles
+    total_int8_peak = (
+        int8_peak_from_int8_tiles
+        + int8_peak_from_bf16_tiles
+        + int8_peak_from_matrix_tiles
+    )
 
     bf16_peak_from_bf16_tiles = bf16_fabric.get_peak_ops_per_sec(Precision.BF16)
     bf16_peak_from_matrix_tiles = matrix_fabric.get_peak_ops_per_sec(Precision.BF16)
@@ -482,8 +491,8 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     tile_energy_model = KPUTileEnergyModel(
         # Product configuration (T256-specific)
         num_tiles=256,
-        pes_per_tile=256,
-        tile_mesh_dimensions=(16, 16),  # 16×16 checkerboard
+        pes_per_tile=_T256_PE_ARRAY[0] * _T256_PE_ARRAY[1],  # 20x20 = 400
+        tile_mesh_dimensions=(16, 16),  # 16x16 checkerboard
 
         # Memory hierarchy (4-stage)
         dram_bandwidth_gb_s=204.8,    # LPDDR5-6400 (16× channels)

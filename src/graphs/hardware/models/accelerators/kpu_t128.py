@@ -131,8 +131,8 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     # Clock domains + tile specializations (shared across thermal profiles
     # with only clock_domain varying).
     # ------------------------------------------------------------------
-    _FILL_CYCLES = 24  # one column sweep through a 24-wide PE array
-    _DRAIN_CYCLES = 24
+    _FILL_CYCLES = 32  # one column sweep through a 32-wide PE array
+    _DRAIN_CYCLES = 32
 
     def _make_tiles(clock: ClockDomain):
         return [

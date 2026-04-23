@@ -136,7 +136,9 @@ cycles amortized across N * steady useful cycles:
 util = (N * steady) / (N * steady + fill + drain)
 ```
 
-At N >= 12 and representative K = 128, util > 0.97. At N >= 32, util > 0.99.
+At N >= 12 and representative K = 128, util is about 0.96
+(with 32-cycle fill/drain for the 32x32 canonical tile: 1536/1600).
+At N >= 32, util > 0.99.
 
 A weight-stationary systolic array cannot compose this way. In the
 naive model, each tile pays its own fill/drain. In practice (TPU v1

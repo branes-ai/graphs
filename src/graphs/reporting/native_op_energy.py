@@ -211,6 +211,15 @@ def build_kpu_native_op(
     # ALU
     if precision == Precision.INT8:
         alu_pj = tem.mac_energy_int8 * 1e12
+    elif precision == Precision.INT4:
+        # INT4 is not a first-class entry in KPUTileEnergyModel; derive
+        # from INT8 using the SKU's own energy-scaling ratio (typically
+        # ~0.5x INT8 for 4-bit datapaths). Avoids falling through to
+        # FP32 and massively overcounting.
+        int8_scale = rm.energy_scaling.get(Precision.INT8, 1.0)
+        int4_scale = rm.energy_scaling.get(Precision.INT4, int8_scale * 0.5)
+        ratio = int4_scale / int8_scale if int8_scale > 0 else 0.5
+        alu_pj = tem.mac_energy_int8 * ratio * 1e12
     elif precision == Precision.BF16:
         alu_pj = tem.mac_energy_bf16 * 1e12
     else:
@@ -537,7 +546,7 @@ def _render_breakdown_table(report: NativeOpComparison) -> str:
             f'<tr><td colspan="4" class="group-header" '
             f'style="border-left: 4px solid {d["color"]};">'
             f'<strong>{html.escape(d["display_name"])}</strong> '
-            f'&mdash; {html.escape(d["archetype"])}<br/>'
+            f'-- {html.escape(d["archetype"])}<br/>'
             f'<span class="meta">Native op: {html.escape(d["native_op_name"])} '
             f'({d["macs_per_native_op"]} MACs, {d["latency_cycles"]} cycles @ '
             f'{d["clock_hz"]/1e9:.2f} GHz = {d["native_op_time_ns"]:.2f} ns) '
@@ -643,7 +652,7 @@ a.nav-back:hover { text-decoration: underline; }
 <body>
 {header}
 <main>
-  <p><a class="nav-back" href="index.html">&larr; Back to index</a></p>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
   <section class="page-header">
     <h2>Native-op energy floor: ALU -&gt; +Register -&gt; +L1</h2>
     <div class="meta">Per-MAC energy breakdown for each architecture's

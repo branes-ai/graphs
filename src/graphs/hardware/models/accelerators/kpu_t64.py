@@ -448,8 +448,8 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     tile_energy_model = KPUTileEnergyModel(
         # Product configuration (T64-specific)
         num_tiles=64,
-        pes_per_tile=256,
-        tile_mesh_dimensions=(8, 8),  # 8×8 checkerboard
+        pes_per_tile=_T64_PE_ARRAY[0] * _T64_PE_ARRAY[1],  # 32x32 = 1024
+        tile_mesh_dimensions=(8, 8),  # 8x8 checkerboard
 
         # Memory hierarchy (4-stage, edge AI optimized)
         dram_bandwidth_gb_s=64.0,     # LPDDR5 (64 GB/s)
