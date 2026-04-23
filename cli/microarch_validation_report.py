@@ -196,6 +196,22 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
     except RuntimeError as exc:
         import sys as _sys
         print(f"warning: building_block_energy.html skipped ({exc})", file=_sys.stderr)
+    # Silicon composition hierarchy (ALU -> PE -> Tile -> Cluster -> SoC)
+    try:
+        from graphs.reporting.silicon_composition import (
+            build_default_composition_report,
+            render_composition_page,
+        )
+        comp_report = build_default_composition_report()
+        comp_path = out_dir / "silicon_composition.html"
+        comp_path.write_text(render_composition_page(comp_report, _repo_root))
+        written.append(comp_path)
+    except Exception as exc:
+        # Composition report is best-effort; don't block other reports
+        # if it fails.
+        import sys as _sys
+        print(f"warning: silicon_composition.html skipped ({exc})",
+              file=_sys.stderr)
     return written
 
 

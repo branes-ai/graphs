@@ -314,7 +314,7 @@ class TestDefaultCatalog:
 
     def test_fp32_ceiling_much_lower_than_int8(self):
         catalog = default_alu_catalog()
-        kpu = next(a for a in catalog if "KPU PE (bare" in a.name)
+        kpu = next(a for a in catalog if "KPU INT8 FMA" in a.name)
         fp32 = next(a for a in catalog if a.precision == "FP32")
         assert kpu.tops_per_watt_ceiling > 20 * fp32.tops_per_watt_ceiling
 
@@ -332,7 +332,7 @@ class TestDefaultReport:
         orin = next(p for p in r.products
                     if "30 W" in p.name and "dense" in p.name)
         kpu_analysis = next(
-            a for a in r.analyses if "KPU PE (bare" in a.alu.name
+            a for a in r.analyses if "KPU INT8 FMA" in a.alu.name
         )
         f_30w = kpu_analysis.clock_for_tdp(30.0)
         sol_30w_tops = kpu_analysis.peak_tops(

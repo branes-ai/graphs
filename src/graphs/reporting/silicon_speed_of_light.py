@@ -492,15 +492,21 @@ def generate_parametric_curve(
 
 
 def default_alu_catalog() -> List[DotProductALU]:
-    """Hand-tuned ALU archetypes. Area is DERIVED from transistor
+    """Hand-tuned ALU archetypes - purely the multiply-add datapath,
+    not composite PE/Tile blocks. Area is DERIVED from transistor
     count + process density (see PROCESS_DENSITY_MT_PER_MM2), so
     every ALU at a given process node has the same density and the
     SoL invariant `die_area * density == die_transistors` holds
-    across the catalog."""
+    across the catalog.
+
+    Composite building blocks (PE, Tile, Cluster, SoC) live in the
+    silicon_composition module - that is the SoC-floorplanning view.
+    Do not add PE-or-above entries here.
+    """
     return [
-        # --------------- KPU PE (W=1, INT8, mesh) -----------------
+        # --------------- KPU INT8 FMA (W=1, mesh) -----------------
         DotProductALU(
-            name="KPU PE (bare FMA only)",
+            name="KPU INT8 FMA",
             precision="INT8",
             process_nm=8,
             W=1,
@@ -516,28 +522,8 @@ def default_alu_catalog() -> List[DotProductALU]:
                 "(~2 K) + pipeline reg (~1 K). Matches "
                 "microarch_accounting.build_kpu_tile_accounting() "
                 "'FMA unit' row at 0.050 pJ/clock. Die-level "
-                "bandwidth reflects the 32x32 mesh: only edge PEs "
-                "read from scratchpad, 64 B/clock feeding 1024 MACs."
-            ),
-        ),
-        DotProductALU(
-            name="KPU PE (full, with regs + accum + mesh mux + token)",
-            precision="INT8",
-            process_nm=8,
-            W=1,
-            accum_mode=AccumMode.LOSSLESS,
-            reuse=ReuseTopology.MESH_STREAMING,
-            area_mm2=0.0,           # derived from 15 K / 80 MT/mm^2
-            transistor_count_k=15.0,
-            pj_per_clock=0.111,
-            bytes_per_mac_alu=2.0,
-            bytes_per_mac_die=0.0625,
-            citation=(
-                "Full PE: FMA + 2 op regs + accum reg + mesh-forward "
-                "mux + token/coord comparator + clock latch. Sums to "
-                "0.111 pJ/clock in microarch_accounting per-PE "
-                "breakdown. Die-level bandwidth: 32x32 mesh edge-"
-                "feed gives 2/N = 2/32 B/MAC."
+                "bandwidth reflects the 32x32 mesh that surrounds "
+                "this ALU in a KPU tile."
             ),
         ),
 
@@ -858,7 +844,13 @@ def build_default_sol_report(
 
 
 def render_alu_instance_table(alus: List[DotProductALU]) -> str:
-    """Per-instance table: shows the physical unit of replication."""
+    """Per-instance table: shows the physical unit of replication.
+
+    Columns are pure ALU attributes. Die-level operand bandwidth
+    (bytes/MAC at the die boundary) is a topology / composition
+    property, not an ALU property - it belongs in the silicon-
+    composition view, not here.
+    """
     rows = []
     for alu in alus:
         rows.append(
@@ -868,12 +860,10 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
             f'<td>{html.escape(alu.precision)}</td>'
             f'<td class="num">{alu.process_nm}</td>'
             f'<td>{html.escape(alu.accum_mode.value)}</td>'
-            f'<td>{html.escape(alu.reuse.value)}</td>'
             f'<td class="num">{alu.area_mm2*1e6:.0f}</td>'
             f'<td class="num">{alu.transistor_count_k:.0f}</td>'
             f'<td class="num"><strong>{alu.pj_per_clock:.3f}</strong></td>'
             f'<td class="num">{alu.bytes_per_mac_alu:.2f}</td>'
-            f'<td class="num"><strong>{alu.bytes_per_mac_die:.3f}</strong></td>'
             f'<td class="src"><em>{html.escape(alu.citation)}</em></td>'
             f'</tr>'
         )
@@ -885,12 +875,10 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
         '<th>Precision</th>'
         '<th>Process (nm)</th>'
         '<th>Accumulator</th>'
-        '<th>Reuse topology</th>'
         '<th>Area / instance (μm²)</th>'
         '<th>Trans / instance (K)</th>'
         '<th>pJ / clock / instance</th>'
         '<th>B / MAC (ALU)</th>'
-        '<th>B / MAC (die)</th>'
         '<th>Derivation</th>'
         '</tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
@@ -899,7 +887,9 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
 
 
 def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
-    """Per-MAC derivation for TOPS/W ceiling comparisons."""
+    """Per-MAC derivation for TOPS/W ceiling comparisons. Pure ALU
+    attributes only; topology-dependent die bandwidth lives in the
+    silicon-composition view."""
     rows = []
     for alu in alus:
         rows.append(
@@ -910,7 +900,6 @@ def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
             f'<td class="num">{alu.transistor_count_per_mac_k:.1f}</td>'
             f'<td class="num"><strong>{alu.pj_per_mac:.3f}</strong></td>'
             f'<td class="num">{alu.bytes_per_mac_alu:.2f}</td>'
-            f'<td class="num"><strong>{alu.bytes_per_mac_die:.3f}</strong></td>'
             f'<td class="num"><strong>{alu.tops_per_watt_ceiling:.1f}</strong></td>'
             f'</tr>'
         )
@@ -923,7 +912,6 @@ def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
         '<th>Trans / MAC (K)</th>'
         '<th>pJ / MAC</th>'
         '<th>B / MAC (ALU)</th>'
-        '<th>B / MAC (die)</th>'
         '<th>TOPS / W ceiling</th>'
         '</tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'

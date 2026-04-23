@@ -480,6 +480,17 @@ a.primary-link:hover {{ background: #15385c; }}
     x power-per-block + overhead. Cross-validates the per-MAC view.</p>
     <p><a class="primary-link" href="building_block_energy.html">Open building-block energy &rarr;</a></p>
   </section>
+  <section class="highlighted-link">
+    <h3>Silicon composition hierarchy (ALU &rarr; PE &rarr; Tile &rarr; Cluster &rarr; SoC)</h3>
+    <p>Tracks silicon efficiency as an ALU is wrapped in successively
+    larger composition levels. Shows TOPS/W decay across canonical
+    hierarchies: NVIDIA Ampere GPU (Orin AGX), KPU T128 NPU,
+    ARM Cortex-A78 CPU cluster, and Qualcomm Hexagon DSP. The
+    per-level "active fraction" exposes how much silicon serves
+    coordination vs compute and is the primary input to workload-
+    driven SoC specialization.</p>
+    <p><a class="primary-link" href="silicon_composition.html">Open silicon-composition hierarchy &rarr;</a></p>
+  </section>
   <section>
     <h3>Per-SKU layer panels</h3>
     <p class="meta">Layer 1-7 content populates in milestones M1-M7.
