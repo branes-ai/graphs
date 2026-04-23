@@ -491,6 +491,20 @@ a.primary-link:hover {{ background: #15385c; }}
     driven SoC specialization.</p>
     <p><a class="primary-link" href="silicon_composition.html">Open silicon-composition hierarchy &rarr;</a></p>
   </section>
+  <section class="highlighted-link">
+    <h3>Mission Capability per Watt (embodied-AI feasibility)</h3>
+    <p>Applies the silicon-efficiency analysis to ten catalogued
+    embodied-AI missions (nano-swarm, body-worn exoskeleton,
+    30-day AUV, 6-month glider fleet, 72-hour UGV pack mule, 7-day
+    USAR microrobot, HALE pseudosatellite, LEO sat onboard AI,
+    autonomous ag tractor, 8-hour humanoid). For each mission,
+    GPU-class vs KPU-class architectures are evaluated against the
+    platform's binding physical threshold (battery, thermal
+    envelope, payload mass). Outputs a binary CAN-DO / CANNOT-DO
+    verdict plus mission-hours-enabled curves for energy-bound
+    missions.</p>
+    <p><a class="primary-link" href="mission_capability.html">Open mission-capability analysis &rarr;</a></p>
+  </section>
   <section>
     <h3>Per-SKU layer panels</h3>
     <p class="meta">Layer 1-7 content populates in milestones M1-M7.

@@ -212,6 +212,22 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
         import sys as _sys
         print(f"warning: silicon_composition.html skipped ({exc})",
               file=_sys.stderr)
+    # Mission-capability analysis (10 embodied-AI missions, GPU vs KPU)
+    try:
+        from graphs.reporting.mission_capability import (
+            build_default_report as build_mission_report,
+            render_mission_capability_page,
+        )
+        mission_report = build_mission_report()
+        mission_path = out_dir / "mission_capability.html"
+        mission_path.write_text(
+            render_mission_capability_page(mission_report, _repo_root)
+        )
+        written.append(mission_path)
+    except Exception as exc:
+        import sys as _sys
+        print(f"warning: mission_capability.html skipped ({exc})",
+              file=_sys.stderr)
     return written
 
 
