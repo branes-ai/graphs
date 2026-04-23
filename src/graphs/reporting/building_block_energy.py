@@ -234,11 +234,20 @@ class SocComposition:
 # active vs. clock-gated.
 # ----------------------------------------------------------------------
 
-def build_nvidia_sm_building_block() -> BuildingBlock:
+def build_nvidia_sm_building_block(
+    clock_ghz: float = 1.5,
+) -> BuildingBlock:
     """
     Ampere SM running an INT8 HMMA (Tensor-Core) workload at steady
     state. CUDA cores, SFUs, RT cores are clock-gated in this mode
     and contribute only static + clock-tree energy.
+
+    Default clock 1.5 GHz reflects the silicon capability at 8 nm
+    (comparable to desktop/mobile GA106 at 1.3-1.8 GHz boost). The
+    Jetson AGX Orin 30 W sustain of ~0.65 GHz is TDP-limited, not
+    silicon-limited - DVFS clamps the clock so 16 SMs fit the 30 W
+    SoC envelope. For a deployed-product view, call with
+    clock_ghz=0.65.
 
     Transistor counts reference public GA10x die-area breakdowns:
     the full GA10x SM lands at ~240-260 M transistors, dominated by
@@ -412,9 +421,12 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
     ]
 
     return BuildingBlock(
-        name="NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA)",
+        name=(
+            f"NVIDIA Streaming Multiprocessor (Ampere, TC path - "
+            f"INT8 HMMA @ {clock_ghz:.2f} GHz)"
+        ),
         process_nm=8,
-        clock_ghz=0.65,
+        clock_ghz=clock_ghz,
         native_macs_per_clock=4096,  # 4 TCs x 1024 MACs/clock
         native_op_precision="INT8 HMMA (4 TCs x 16x16x16)",
         components=components,
@@ -423,15 +435,19 @@ def build_nvidia_sm_building_block() -> BuildingBlock:
             "SM-level budget during INT8 HMMA. Excludes L2 cache, memory "
             "controller, and DRAM (SoC-level). Silicon footprint "
             "~240 M transistors, dominated by the 4 Tensor Cores "
-            "(~100 M) and local caches/RF (~60 M). Orin AGX deploys "
-            "16 SMs; the 30 W TDP envelope leaves ~10 W for compute, "
-            "consistent with 16 x ~670 mW per SM at 0.65 GHz and 100% "
-            "HMMA duty (typical sustained utilization is ~50%)."
+            "(~100 M) and local caches/RF (~60 M). At the silicon-"
+            "capability clock of 1.5 GHz, one SM draws ~1.54 W; the "
+            "Orin AGX's 0.65 GHz sustain is a TDP-limited operating "
+            "point (16 SMs x 1.54 W at 1.5 GHz = 24 W compute alone, "
+            "past the 30 W SoC envelope once L2, memory, CPU, etc. "
+            "are included)."
         ),
     )
 
 
-def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
+def build_nvidia_sm_cuda_path_building_block(
+    clock_ghz: float = 1.5,
+) -> BuildingBlock:
     """
     Ampere SM running an FP32 GEMM through the 128 CUDA-core FMA lanes.
     Tensor Cores, RT cores, SFUs are clock-gated; the CUDA cores are
@@ -439,7 +455,9 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
     path for FP32 workloads (Kalman, SLAM, HPC) that cannot use TCs.
 
     Same silicon as the TC path - only the activity-induced pJ/clock
-    values differ to reflect which units are firing.
+    values differ to reflect which units are firing. Default clock
+    1.5 GHz reflects silicon capability; call with clock_ghz=0.65
+    for the Orin AGX deployed view.
     """
     components = [
         EngineComponent(
@@ -576,9 +594,12 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
     ]
 
     return BuildingBlock(
-        name="NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA)",
+        name=(
+            f"NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - "
+            f"FP32 FMA @ {clock_ghz:.2f} GHz)"
+        ),
         process_nm=8,
-        clock_ghz=0.65,
+        clock_ghz=clock_ghz,
         native_macs_per_clock=128,       # 128 FP32 FMA lanes
         native_op_precision="FP32 FMA (128 CUDA-core lanes)",
         components=components,
@@ -605,12 +626,16 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
 # datapath).
 # ----------------------------------------------------------------------
 
-def build_kpu_tile_building_block() -> BuildingBlock:
+def build_kpu_tile_building_block(
+    clock_ghz: float = 1.5,
+) -> BuildingBlock:
     """
     One KPU compute tile: a 2D mesh of 1024 FMAs (32x32), fed by a
     tile-local L1 scratchpad at its edges.
 
-    Process: 8 nm (matched to Ampere). Clock: 1.5 GHz sustained.
+    Process: 8 nm (matched to Ampere). Default clock 1.5 GHz is the
+    silicon-capability target; a deployed T128 product inside a 12 W
+    envelope may clamp lower (e.g., 1.0 GHz).
 
     Silicon footprint is dominated by the PE array itself (INT8 MAC
     + 2 operand regs + accumulator + mesh wire + token-match per PE),
@@ -703,9 +728,9 @@ def build_kpu_tile_building_block() -> BuildingBlock:
     ]
 
     return BuildingBlock(
-        name="KPU Compute Tile (32x32 FMA mesh)",
+        name=f"KPU Compute Tile (32x32 FMA mesh @ {clock_ghz:.2f} GHz)",
         process_nm=8,
-        clock_ghz=1.5,
+        clock_ghz=clock_ghz,
         native_macs_per_clock=PE_COUNT,  # 1024
         native_op_precision="INT8 MAC (1024 PEs)",
         components=components,
@@ -728,20 +753,48 @@ def build_kpu_tile_building_block() -> BuildingBlock:
 # ----------------------------------------------------------------------
 
 def default_soc_compositions() -> List[SocComposition]:
-    sm = build_nvidia_sm_building_block()
-    tile = build_kpu_tile_building_block()
+    """Illustrative SoC compositions at two clock domains.
+
+    Silicon-capability clocks (1.5 GHz SM, 1.5 GHz tile) show what the
+    raw silicon can deliver; deployed-product clocks (0.65 GHz SM on
+    Orin AGX, 1.0 GHz tile on a T128 envelope) show what customers
+    actually experience. The gap between the two is pure thermal
+    constraint, not architectural limit.
+    """
+    sm_sol = build_nvidia_sm_building_block(clock_ghz=1.5)
+    sm_orin = build_nvidia_sm_building_block(clock_ghz=0.65)
+    tile_sol = build_kpu_tile_building_block(clock_ghz=1.5)
+    tile_deployed = build_kpu_tile_building_block(clock_ghz=1.0)
     return [
+        # Orin AGX as deployed: 16 SMs @ 0.65 GHz, 30 W envelope
         SocComposition(
-            block=sm, block_count=16, utilization=0.50, overhead_mw=7000.0,
+            block=sm_orin, block_count=16, utilization=0.50,
+            overhead_mw=7000.0,
         ),
+        # Hypothetical: same SM silicon at capability clock - blows TDP
         SocComposition(
-            block=tile, block_count=128, utilization=0.55, overhead_mw=2500.0,
+            block=sm_sol, block_count=16, utilization=0.50,
+            overhead_mw=7000.0,
         ),
+        # KPU T64 at deployed 1.0 GHz
         SocComposition(
-            block=tile, block_count=64, utilization=0.55, overhead_mw=1500.0,
+            block=tile_deployed, block_count=64, utilization=0.55,
+            overhead_mw=1500.0,
         ),
+        # KPU T128 at deployed 1.0 GHz
         SocComposition(
-            block=tile, block_count=256, utilization=0.55, overhead_mw=4500.0,
+            block=tile_deployed, block_count=128, utilization=0.55,
+            overhead_mw=2500.0,
+        ),
+        # KPU T128 at silicon-capability 1.5 GHz
+        SocComposition(
+            block=tile_sol, block_count=128, utilization=0.55,
+            overhead_mw=2500.0,
+        ),
+        # KPU T256 at deployed 1.0 GHz
+        SocComposition(
+            block=tile_deployed, block_count=256, utilization=0.55,
+            overhead_mw=4500.0,
         ),
     ]
 
@@ -1206,6 +1259,27 @@ a.nav-back:hover { text-decoration: underline; }
         for b in report.blocks
     )
 
+    # Speed-of-light analysis (silicon-capability view)
+    from graphs.reporting.silicon_speed_of_light import (
+        DEFAULT_TDP_TARGETS_W,
+        build_default_sol_report,
+        render_alu_catalog_table,
+        render_gap_to_products_table,
+        render_sol_summary_table,
+        render_tdp_sweep_table,
+    )
+    sol = build_default_sol_report()
+    sol_alu_table = render_alu_catalog_table(sol.alus)
+    sol_summary_table = render_sol_summary_table(
+        sol.analyses, sol.die_area_mm2
+    )
+    sol_tdp_table = render_tdp_sweep_table(
+        sol.analyses, DEFAULT_TDP_TARGETS_W
+    )
+    sol_gap_table = render_gap_to_products_table(
+        sol.products, sol.analyses
+    )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1270,6 +1344,49 @@ a.nav-back:hover { text-decoration: underline; }
       with one row per component and two columns per building block
       (Trans. M / pJ/clk) so differences can be read column-to-column.</p>
     {side_by_side}
+  </section>
+
+  <section class="method-note" style="background:#fff8e6;
+    border-left-color:#d4860b;">
+    <h3 style="margin-top:0;">Silicon speed-of-light</h3>
+    <p>The <em>silicon ceiling</em> is what a process node can do if
+      you fill a die with nothing but bare ALUs and clock them at the
+      silicon's capability frequency. It is the upper bound against
+      which every shipping product must be measured. Incumbents ship
+      well below their own silicon ceiling because TDP envelopes,
+      packaging, and architectural scaffolding all consume power that
+      bare ALUs do not.</p>
+    <p>Three metrics matter:</p>
+    <ul>
+      <li><strong>TOPS / W ceiling</strong> = ops_per_MAC / pJ_per_MAC.
+        Clock- and count-independent. For INT8 at 8 nm: a 0.050 pJ
+        MAC has a 40 TOPS/W silicon ceiling; a 0.080 pJ MAC has a
+        25 TOPS/W ceiling.</li>
+      <li><strong>Peak TOPS on a 250 mm² die</strong> at silicon-
+        capability clock (1.5 GHz at 8 nm). This is the absolute
+        performance headroom, ignoring thermals.</li>
+      <li><strong>TDP-constrained clock sweep</strong>: for a given
+        thermal envelope, what clock can the die sustain and what
+        peak TOPS does that deliver. Rows marked <code>*</code> are
+        silicon-limited (the die saturates at the process's
+        capability clock before consuming the TDP budget).</li>
+    </ul>
+
+    <h4>Bare-ALU catalog (8 nm)</h4>
+    {sol_alu_table}
+
+    <h4>On a 250 mm² die at silicon-capability clock (1.5 GHz)</h4>
+    {sol_summary_table}
+
+    <h4>TDP-constrained peak performance on 250 mm² (* = silicon-limited)</h4>
+    {sol_tdp_table}
+
+    <h4>Gap to shipping products</h4>
+    <p class="chart-desc" style="margin-bottom:8px;">For each product,
+      the "Actual / SoL" ratio is the shipping TOPS divided by the
+      silicon-ceiling TOPS at the product's own TDP. A 30% ratio means
+      3x of headroom is available before the silicon ceiling binds.</p>
+    {sol_gap_table}
   </section>
 
   <section class="method-note">
