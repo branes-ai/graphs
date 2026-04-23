@@ -9,6 +9,7 @@ from graphs.reporting.silicon_speed_of_light import (
     DEFAULT_DIE_AREA_MM2,
     DEFAULT_SILICON_CLOCK_GHZ,
     DEFAULT_TDP_TARGETS_W,
+    PROCESS_DENSITY_MT_PER_MM2,
     DotProductALU,
     ProductReference,
     ReuseTopology,
@@ -18,6 +19,7 @@ from graphs.reporting.silicon_speed_of_light import (
     default_product_references,
     generate_parametric_curve,
     parametric_dot_product_alu,
+    process_density_mt_per_mm2,
     render_alu_instance_table,
     render_alu_per_mac_table,
     render_gap_to_products_table,
@@ -26,6 +28,89 @@ from graphs.reporting.silicon_speed_of_light import (
     render_tdp_sweep_table,
     render_tradeoff_chart_js,
 )
+
+
+class TestDensityInvariant:
+    """On a fixed die at a fixed process node, the invariant
+
+        die_area / ALU_area  ==  die_transistors / ALU_transistors
+
+    must hold. That requires every ALU at that node to share the
+    same transistor density. This class verifies the invariant."""
+
+    def test_every_catalog_alu_matches_process_density(self):
+        for a in default_alu_catalog():
+            expected_density = process_density_mt_per_mm2(a.process_nm)
+            actual_density = a.transistor_count_k / 1000.0 / a.area_mm2
+            rel = abs(actual_density - expected_density) / expected_density
+            assert rel < 0.06, (
+                f"{a.name} has density {actual_density:.1f} MT/mm² but "
+                f"process node {a.process_nm} nm canonical density is "
+                f"{expected_density:.1f} MT/mm²"
+            )
+
+    def test_same_process_archetypes_have_equal_die_transistors(self):
+        """A 250 mm² die at 8 nm has the same total transistor count
+        regardless of which 8 nm ALU archetype is tiled across it."""
+        catalog = default_alu_catalog()
+        eight_nm = [a for a in catalog if a.process_nm == 8]
+        assert len(eight_nm) >= 2
+        die = 250.0
+        totals = []
+        for a in eight_nm:
+            n = int(die / a.area_mm2)
+            totals.append(n * a.transistor_count_k / 1000.0)
+        spread = (max(totals) - min(totals)) / max(totals)
+        assert spread < 0.02, (
+            f"8 nm die-transistor totals: {totals}, spread "
+            f"{spread*100:.1f}% exceeds 2% tolerance"
+        )
+
+    def test_die_transistors_equals_die_area_times_density(self):
+        for a in default_alu_catalog():
+            analysis = SoLAnalysis(alu=a, die_area_mm2=250.0)
+            density = process_density_mt_per_mm2(a.process_nm)
+            expected = 250.0 * density
+            assert abs(
+                analysis.die_transistor_count_m - expected
+            ) / expected < 0.02
+
+    def test_n_alus_from_area_equals_n_alus_from_transistors(self):
+        """The two equivalent formulas must agree for every
+        archetype."""
+        die_area = 250.0
+        for a in default_alu_catalog():
+            from_area = int(die_area / a.area_mm2)
+            density = process_density_mt_per_mm2(a.process_nm)
+            die_trans = die_area * density  # in M
+            from_trans = int(die_trans * 1000 / a.transistor_count_k)
+            # Allow 1-ALU slack from truncation
+            assert abs(from_area - from_trans) <= 1, (
+                f"{a.name}: N from area={from_area}, "
+                f"N from transistors={from_trans}"
+            )
+
+    def test_post_init_derives_area_when_zero(self):
+        a = DotProductALU(
+            name="t", precision="INT8", process_nm=8,
+            area_mm2=0.0, transistor_count_k=80.0,
+            pj_per_clock=1.0,
+        )
+        # 80 K / 80 MT/mm² = 0.001 mm²
+        assert abs(a.area_mm2 - 0.001) < 1e-9
+
+    def test_post_init_overrides_inconsistent_area(self):
+        """A caller-supplied area that disagrees with the canonical
+        density by more than 5% gets replaced to preserve the
+        invariant."""
+        a = DotProductALU(
+            name="t", precision="INT8", process_nm=8,
+            area_mm2=0.005,       # grossly inconsistent
+            transistor_count_k=80.0,
+            pj_per_clock=1.0,
+        )
+        # Should be recomputed to 80 K / 80 MT/mm² = 0.001 mm²
+        assert abs(a.area_mm2 - 0.001) < 1e-9
 
 
 class TestBareALUCeiling:

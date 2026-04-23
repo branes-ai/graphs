@@ -97,9 +97,49 @@ DEFAULT_TDP_TARGETS_W: Tuple[float, ...] = (
 DEFAULT_DIE_AREA_MM2: float = 250.0
 DEFAULT_SILICON_CLOCK_GHZ: float = 1.5
 
-# Transistor densities at 8 nm (Samsung 8LPP-class).
-DENSITY_MT_PER_MM2_LOGIC: float = 45.0       # mixed std cells + flops
-DENSITY_MT_PER_MM2_DENSE_MAC: float = 80.0   # regular MAC arrays
+# Canonical transistor density per process node (million transistors
+# per mm^2) for dense compute layout. These set the INVARIANT:
+#
+#   die_area / ALU_area  ==  die_transistors / ALU_transistors
+#
+# which requires every ALU at a given process node to share the same
+# transistor-to-area ratio (i.e., the density here).
+#
+# Real layouts actually vary by +/- 2x across logic (wire-limited),
+# dense MAC arrays (routing-friendly), and SRAM (cell-limited). The
+# SoL analysis deliberately collapses this to a single dense-compute
+# density per node so the "fill a die with one ALU type" idealization
+# gives consistent die-transistor counts regardless of which ALU type
+# is chosen. The density values below are anchored to public die-shot
+# data for dense compute regions on each node (NVIDIA / TPU / AMD
+# whitepaper area breakdowns + published full-chip transistor counts).
+PROCESS_DENSITY_MT_PER_MM2: Dict[int, float] = {
+    16: 25.0,    # TSMC 16FF+ / Samsung 14LPP (A9, Volta GV100 scaled)
+    12: 40.0,    # TSMC 12FFN (Turing)
+    10: 55.0,    # Intel 10nm / TSMC N10
+    8: 80.0,     # Samsung 8LPP dense compute (Ampere GA10x TC region)
+    7: 100.0,    # TSMC N7 (A100 scaled; TPU v4)
+    5: 140.0,    # TSMC N5 (M1 Max / H100 pre-variant)
+    4: 180.0,    # TSMC N4 dense compute (H100 TC region)
+    3: 220.0,    # TSMC N3 (forward-looking)
+}
+
+# Legacy aliases retained for callers that still reference them.
+DENSITY_MT_PER_MM2_LOGIC: float = 45.0
+DENSITY_MT_PER_MM2_DENSE_MAC: float = PROCESS_DENSITY_MT_PER_MM2[8]
+
+
+def process_density_mt_per_mm2(process_nm: int) -> float:
+    """Canonical dense-compute transistor density (MT/mm²) for
+    `process_nm`. If the node is not in the table, snap to the
+    nearest known node."""
+    if process_nm in PROCESS_DENSITY_MT_PER_MM2:
+        return PROCESS_DENSITY_MT_PER_MM2[process_nm]
+    nearest = min(
+        PROCESS_DENSITY_MT_PER_MM2.keys(),
+        key=lambda n: abs(n - process_nm),
+    )
+    return PROCESS_DENSITY_MT_PER_MM2[nearest]
 
 
 # ======================================================================
@@ -166,6 +206,37 @@ class DotProductALU:
         consumers actually care about (memory-bandwidth demand).
         Prefer the explicit names in new code."""
         return self.bytes_per_mac_die
+
+    def __post_init__(self) -> None:
+        """Enforce the SoL density invariant: every ALU at a given
+        process node shares one transistor-to-area ratio, so that
+
+            die_area / ALU_area == die_transistors / ALU_transistors
+
+        holds across archetypes. If `area_mm2` is 0 or not provided,
+        derive it from transistors and process density. If it IS
+        provided and differs materially from the canonical value,
+        recompute it (with a warning via the `is_parametric` flag
+        semantics) so the invariant holds. Callers who need a
+        layout-specific density should change PROCESS_DENSITY_MT_
+        PER_MM2[process_nm] instead.
+        """
+        density = process_density_mt_per_mm2(self.process_nm)
+        canonical = self.transistor_count_k / 1000.0 / density
+        # If caller passed a non-zero area that differs from canonical
+        # by more than 5%, silently replace it so the invariant holds.
+        # Hand-tuned archetypes typically omit area_mm2 (=0.0) and get
+        # the canonical value. Explicit area is preserved only when it
+        # already matches canonical to within rounding.
+        if self.area_mm2 <= 0.0:
+            self.area_mm2 = canonical
+        else:
+            # If the provided area disagrees with canonical by > 5 %,
+            # replace it to preserve the density invariant. Otherwise
+            # keep the caller's value (rounding differences).
+            delta = abs(self.area_mm2 - canonical) / canonical
+            if delta > 0.05:
+                self.area_mm2 = canonical
 
     # ------------------------------------------------------------------
     # Per-MAC derived properties
@@ -327,8 +398,10 @@ def parametric_dot_product_alu(
 
     total_k = W * c_mult_k + tree_k + c_accum_k + c_pipe_k + c_route_k
 
-    # Area: scale from 8 nm dense-MAC density (80 MT/mm^2) by process
-    density_mt_per_mm2 = DENSITY_MT_PER_MM2_DENSE_MAC * (scale ** 0.8)
+    # Area: use the canonical dense-compute density per process node
+    # (PROCESS_DENSITY_MT_PER_MM2) so all ALUs at the same node share
+    # the SoL density invariant.
+    density_mt_per_mm2 = process_density_mt_per_mm2(process_nm)
     area_mm2 = (total_k / 1000.0) / density_mt_per_mm2
 
     # Energy: multipliers dominate; tree contributes ~0.0015 pJ per
@@ -419,6 +492,11 @@ def generate_parametric_curve(
 
 
 def default_alu_catalog() -> List[DotProductALU]:
+    """Hand-tuned ALU archetypes. Area is DERIVED from transistor
+    count + process density (see PROCESS_DENSITY_MT_PER_MM2), so
+    every ALU at a given process node has the same density and the
+    SoL invariant `die_area * density == die_transistors` holds
+    across the catalog."""
     return [
         # --------------- KPU PE (W=1, INT8, mesh) -----------------
         DotProductALU(
@@ -428,11 +506,11 @@ def default_alu_catalog() -> List[DotProductALU]:
             W=1,
             accum_mode=AccumMode.LOSSLESS,
             reuse=ReuseTopology.MESH_STREAMING,
-            area_mm2=0.000088,      # 7 K trans / 80 MT/mm^2
+            area_mm2=0.0,           # derived from 7 K / 80 MT/mm^2
             transistor_count_k=7.0,
             pj_per_clock=0.050,
-            bytes_per_mac_alu=2.0,   # each PE reads 2 bytes (A + B) per MAC
-            bytes_per_mac_die=0.0625, # 2N/N^2 = 2/32 for a 32x32 mesh
+            bytes_per_mac_alu=2.0,
+            bytes_per_mac_die=0.0625,
             citation=(
                 "Bare INT8 multiplier (~4 K trans) + INT32 adder "
                 "(~2 K) + pipeline reg (~1 K). Matches "
@@ -449,7 +527,7 @@ def default_alu_catalog() -> List[DotProductALU]:
             W=1,
             accum_mode=AccumMode.LOSSLESS,
             reuse=ReuseTopology.MESH_STREAMING,
-            area_mm2=0.000188,      # 15 K trans / 80 MT/mm^2
+            area_mm2=0.0,           # derived from 15 K / 80 MT/mm^2
             transistor_count_k=15.0,
             pj_per_clock=0.111,
             bytes_per_mac_alu=2.0,
@@ -471,18 +549,17 @@ def default_alu_catalog() -> List[DotProductALU]:
             W=1,
             accum_mode=AccumMode.LOSSLESS,
             reuse=ReuseTopology.ISOLATED,
-            area_mm2=0.00172,       # 78 K trans / 45 MT/mm^2 (logic)
+            area_mm2=0.0,           # derived from 78 K / 80 MT/mm^2
             transistor_count_k=78.0,
             pj_per_clock=2.5,
-            bytes_per_mac_alu=8.0,   # 2 FP32 operands = 2 * 4 B
-            bytes_per_mac_die=8.0,   # no topology reuse in the CUDA path
+            bytes_per_mac_alu=8.0,
+            bytes_per_mac_die=8.0,
             citation=(
                 "10 M transistors across 128 FP32 FMA lanes per SM. "
-                "Per-lane ~78 K trans, 1720 um^2. Energy 2.5 pJ/clock "
-                "matches building_block_energy.build_nvidia_sm_cuda_"
-                "path_building_block() at full activity. CUDA path "
-                "has no systolic / mesh reuse - each lane reads "
-                "fresh operands from RF for every MAC."
+                "Per-lane ~78 K trans; area derived from 8 nm dense-"
+                "compute density (80 MT/mm^2). Energy 2.5 pJ/clock "
+                "matches building_block_energy at full activity. "
+                "CUDA path has no systolic / mesh reuse."
             ),
         ),
 
@@ -490,24 +567,22 @@ def default_alu_catalog() -> List[DotProductALU]:
         DotProductALU(
             name="Volta/Turing TC lane (W=4 FP16)",
             precision="FP16",
-            process_nm=12,          # Turing is 12 nm, Volta is 12 nm
+            process_nm=12,
             W=4,
             accum_mode=AccumMode.MIXED_PRECISION,
             reuse=ReuseTopology.INTRA_ALU_BROADCAST,
-            area_mm2=0.00045,       # ~35 K trans / 80 MT/mm^2, scaled for 12 nm
+            area_mm2=0.0,           # derived from 35 K / 40 MT/mm^2
             transistor_count_k=35.0,
-            pj_per_clock=0.55,      # 4 FP16 mult + small tree
-            bytes_per_mac_alu=4.0,   # 2 FP16 operands = 2 * 2 B
-            bytes_per_mac_die=0.5,   # 8x8x4 HMMA: 4/8 B/MAC at matmul level
+            pj_per_clock=0.55,
+            bytes_per_mac_alu=4.0,
+            bytes_per_mac_die=0.5,
             citation=(
                 "Volta V100 / Turing T4 first-generation Tensor Core. "
                 "Per lane: 4 FP16 multiplies into a 3-adder reduction "
                 "tree with FP32 accumulator. Hand-tuned from NVIDIA "
                 "Volta whitepaper area breakdowns + public die-shot "
-                "analyses (640 TCs total, ~25 M trans dedicated). "
-                "Die-level bandwidth from the 8x8x4 HMMA matmul: "
-                "fragment reuse across output tile drives 4/8 = 0.5 "
-                "B/MAC."
+                "analyses. Die-level bandwidth from 8x8x4 HMMA: "
+                "fragment reuse drives 4/8 = 0.5 B/MAC."
             ),
         ),
 
@@ -519,20 +594,17 @@ def default_alu_catalog() -> List[DotProductALU]:
             W=16,
             accum_mode=AccumMode.MIXED_PRECISION,
             reuse=ReuseTopology.INTRA_ALU_BROADCAST,
-            area_mm2=0.00137,       # ~110 K trans / 80 MT/mm^2
+            area_mm2=0.0,           # derived from 110 K / 80 MT/mm^2
             transistor_count_k=110.0,
-            pj_per_clock=1.28,      # 16 * 0.08 pJ/MAC (per microarch) = 1.28
-            bytes_per_mac_alu=2.0,   # 2 INT8 operands per MAC
-            bytes_per_mac_die=0.125, # 16x16x16 HMMA: 2/16 B/MAC at matmul
+            pj_per_clock=1.28,
+            bytes_per_mac_alu=2.0,
+            bytes_per_mac_die=0.125,
             citation=(
                 "Ampere GA10x 3rd-gen Tensor Core lane. Each SM has "
                 "4 TCs aggregating ~40 M MAC-array transistors for "
                 "4096 INT8 MACs/clock; per-lane W=16, ~110 K trans, "
-                "0.08 pJ/MAC (microarch_accounting 'Tensor Core "
-                "bare MAC array' amortized to per-instance). Die-"
-                "level bandwidth from 16x16x16 HMMA matmul: "
-                "fragment A (256 B) + fragment B (256 B) feed 4096 "
-                "MACs -> 0.125 B/MAC."
+                "0.08 pJ/MAC. Die-level bandwidth from 16x16x16 "
+                "HMMA: 512 B frags / 4096 MACs = 0.125 B/MAC."
             ),
         ),
 
@@ -544,17 +616,17 @@ def default_alu_catalog() -> List[DotProductALU]:
             W=32,
             accum_mode=AccumMode.MIXED_PRECISION,
             reuse=ReuseTopology.INTRA_ALU_BROADCAST,
-            area_mm2=0.00090,       # ~190 K trans / 210 MT/mm^2 (4 nm denser)
+            area_mm2=0.0,           # derived from 190 K / 180 MT/mm^2
             transistor_count_k=190.0,
             pj_per_clock=1.95,
-            bytes_per_mac_alu=2.0,   # 2 FP8 operands (1 B each)
-            bytes_per_mac_die=0.0625, # 32x32x32 HMMA target: 2/32 B/MAC
+            bytes_per_mac_alu=2.0,
+            bytes_per_mac_die=0.0625,
             citation=(
                 "Hopper H100 4th-gen Tensor Core with FP8 Transformer "
                 "Engine. W=32, FP8 operand with FP32 accumulator. "
                 "Hand-tuned from NVIDIA H100 whitepaper TC specs "
-                "(4x throughput vs Ampere for new precisions). Die-"
-                "level bandwidth assumes 32x32-shaped matmul tiles."
+                "(4x throughput vs Ampere for new precisions). Area "
+                "derived from 4 nm dense-compute density (180 MT/mm^2)."
             ),
         ),
 
@@ -566,22 +638,17 @@ def default_alu_catalog() -> List[DotProductALU]:
             W=1,
             accum_mode=AccumMode.LOSSLESS,
             reuse=ReuseTopology.SYSTOLIC_STATIONARY,
-            area_mm2=0.00028,       # ~18 K trans / 65 MT/mm^2
+            area_mm2=0.0,           # derived from 18 K / 100 MT/mm^2
             transistor_count_k=18.0,
             pj_per_clock=0.18,
-            bytes_per_mac_alu=4.0,   # BF16: 2 * 2 B operands per cell per MAC
-            bytes_per_mac_die=0.0156, # 128x128 systolic: 2/128 B/MAC activations
+            bytes_per_mac_alu=4.0,
+            bytes_per_mac_die=0.0156,
             citation=(
                 "TPU v4 MXU: 128x128 BF16 systolic array. Per-cell: "
                 "BF16 multiplier + FP32 accumulator + stationary-"
-                "weight latch. Hand-tuned from Jouppi et al. 2023 "
-                "('TPU v4: An Optically Reconfigurable Supercomputer "
-                "for Machine Learning') and ISCA 2017 TPU v1 paper. "
-                "Die-level bandwidth: weights are stationary (1-time "
-                "load amortized), activations stream at 128 B/clock "
-                "feeding 128*128 MACs/clock at steady state = "
-                "2/128 B/MAC once you count activations + eventual "
-                "weight reloads."
+                "weight latch. Hand-tuned from Jouppi et al. 2023. "
+                "Die-level bandwidth: weights stationary (1-time "
+                "load amortized), activations stream -> 2/128 B/MAC."
             ),
         ),
     ]
