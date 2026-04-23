@@ -1367,15 +1367,17 @@ a.nav-back:hover { text-decoration: underline; }
     <p>The ALU design space has three orthogonal axes that each
       touch a different ceiling:</p>
     <ul>
-      <li><strong>ALU width W</strong> (MACs per instance per clock):
-        W=1 bare FMA (KPU PE), W=4 small dot product (Volta/Turing
-        TC), W=16 medium (Ampere TC), W=32+ wide (Hopper TC).</li>
+      <li><strong>ALU Width</strong> (MACs per instance per clock):
+        Width = 1 bare FMA (KPU PE), Width = 4 small dot product
+        (Volta/Turing TC), Width = 16 medium (Ampere TC), Width = 32+
+        wide (Hopper TC).</li>
       <li><strong>Accumulator mode</strong>: lossless (INT32 accum
         from INT8), tree-rounded (FP16 at each reduction level),
         mixed-precision (FP16 operand → FP32 accum), aggressive-
-        truncate. Accuracy ceiling drops as W and rounding increase.</li>
+        truncate. Accuracy ceiling drops as ALU Width and rounding
+        increase.</li>
       <li><strong>Reuse topology</strong>: isolated (2 B/MAC),
-        intra-ALU broadcast (2/W B/MAC), 2D-mesh streaming
+        intra-ALU broadcast (2/Width B/MAC), 2D-mesh streaming
         (2/N B/MAC), systolic-stationary (1/N B/MAC). This axis
         dominates the operand-bandwidth ceiling.</li>
     </ul>

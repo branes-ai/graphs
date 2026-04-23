@@ -750,7 +750,7 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
         '<table class="blocks">'
         '<thead><tr>'
         '<th>ALU archetype</th>'
-        '<th>W (MAC/clk)</th>'
+        '<th>ALU Width (MAC/clk)</th>'
         '<th>Precision</th>'
         '<th>Process (nm)</th>'
         '<th>Accumulator</th>'
@@ -785,7 +785,7 @@ def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
         '<table class="blocks">'
         '<thead><tr>'
         '<th>ALU archetype</th>'
-        '<th>W</th>'
+        '<th>ALU Width</th>'
         '<th>Area / MAC (μm²)</th>'
         '<th>Trans / MAC (K)</th>'
         '<th>pJ / MAC</th>'
@@ -817,7 +817,7 @@ def render_parametric_curve_table(curve: List[DotProductALU]) -> str:
     header = (
         '<table class="blocks">'
         '<thead><tr>'
-        '<th>W</th>'
+        '<th>ALU Width</th>'
         '<th colspan="3" style="text-align:center;">Per instance</th>'
         '<th colspan="4" style="text-align:center;">Per MAC</th>'
         '<th>Ceiling</th>'
@@ -855,7 +855,7 @@ def render_sol_summary_table(
         '<table class="blocks">'
         '<thead><tr>'
         f'<th>ALU archetype (on {die_area_mm2:.0f} mm² die)</th>'
-        '<th>W</th>'
+        '<th>ALU Width</th>'
         '<th># ALU instances</th>'
         '<th># MACs on die</th>'
         '<th>Die trans (M)</th>'
@@ -1011,7 +1011,7 @@ def render_tradeoff_chart_js(
         layout: Dict[str, Any] = {
             "title": title,
             "xaxis": {
-                "title": "ALU width W (MACs per instance per clock)",
+                "title": "ALU Width (MACs per instance per clock)",
                 "type": "log", "tickvals": [1, 2, 4, 8, 16, 32, 64],
             },
             "yaxis": {"title": ytitle},
