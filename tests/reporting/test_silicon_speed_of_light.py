@@ -353,6 +353,25 @@ class TestDefaultReport:
         ratios = [p.tops_per_watt for p in orins]
         assert (max(ratios) - min(ratios)) / max(ratios) < 0.15
 
+    def test_product_catalog_is_embedded_only(self):
+        """Gap-to-product table scope is embedded AI at 8 nm /
+        5-60 W TDP class. Datacenter parts (H100, MI300, TPU v4
+        pod, etc.) should not regress into the default catalog -
+        they belong in a separate datacenter-specific comparison."""
+        for p in default_product_references():
+            assert p.tdp_w <= 60.0, (
+                f"{p.name} at {p.tdp_w} W exceeds embedded-AI "
+                "TDP class"
+            )
+            assert p.process_nm == 8, (
+                f"{p.name} at {p.process_nm} nm is not 8 nm - "
+                "mixed-process references muddy the comparison"
+            )
+            assert p.die_area_mm2 <= 250.0, (
+                f"{p.name} die is {p.die_area_mm2} mm² - too "
+                "large for the embedded-AI class"
+            )
+
 
 class TestHTMLRendering:
     def test_alu_instance_table_shows_W_and_topology(self):

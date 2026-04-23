@@ -756,11 +756,23 @@ class ProductReference:
 
 
 def default_product_references() -> List[ProductReference]:
-    """Shipping products for gap-to-SoL comparison. Dense INT8 unless
+    """Shipping and target products for gap-to-SoL comparison in the
+    embedded-AI space (8 nm, 5-60 W TDP class).
+
+    Scope is deliberately embedded: all references are on the same
+    8 nm process and target the same deployment envelope so the
+    Actual / SoL ratios are directly comparable. Dense INT8 unless
     labelled sparse. NVIDIA's 275 TOPS Orin AGX headline is sparse
     INT8 at MAXN across GPU + DLA + PVA; dense numbers below come
     from NVIDIA published specs scaled by the sustained clock each
-    TDP mode permits."""
+    TDP mode permits.
+
+    Datacenter parts (H100 etc.) deliberately are NOT included:
+    different market, different process, different TDP class, and
+    different customer-competition dynamics. Mixing them into this
+    table makes the edge-AI narrative less clean and introduces
+    apples-vs-oranges process comparisons.
+    """
     return [
         ProductReference(
             name="Jetson AGX Orin MAXN (60 W, dense INT8)",
@@ -786,11 +798,6 @@ def default_product_references() -> List[ProductReference]:
             name="Jetson AGX Orin MAXN (60 W, sparse INT8 marketing)",
             process_nm=8, die_area_mm2=180.0,
             peak_int8_tops=275.0, tdp_w=60.0,
-        ),
-        ProductReference(
-            name="H100 SXM5 (700 W, dense INT8)",
-            process_nm=4, die_area_mm2=814.0,
-            peak_int8_tops=1979.0, tdp_w=700.0,
         ),
         ProductReference(
             name="KPU T128 (hypothetical, 12 W)",
