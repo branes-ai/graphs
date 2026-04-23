@@ -64,7 +64,7 @@ class EngineComponent:
     name: str
     category: StructureCategory
     count: int                    # number of instances inside the engine
-    size_or_spec: str             # "256 KB, 4 banks" / "576 PE (24x24)"
+    size_or_spec: str             # "256 KB, 4 banks" / "1024 PE (32x32)"
     transistor_count_m: float     # estimated silicon, millions of transistors
     area_mm2: float               # estimated silicon area (mm^2)
     per_clock_pj: float           # absolute energy contribution per clock
@@ -607,20 +607,20 @@ def build_nvidia_sm_cuda_path_building_block() -> BuildingBlock:
 
 def build_kpu_tile_building_block() -> BuildingBlock:
     """
-    One KPU compute tile: a 2D mesh of 576 FMAs (24x24), fed by a
+    One KPU compute tile: a 2D mesh of 1024 FMAs (32x32), fed by a
     tile-local L1 scratchpad at its edges.
 
     Process: 8 nm (matched to Ampere). Clock: 1.5 GHz sustained.
 
     Silicon footprint is dominated by the PE array itself (INT8 MAC
     + 2 operand regs + accumulator + mesh wire + token-match per PE),
-    roughly 15 K transistors/PE x 576 = 8.6 M. With the L1 scratchpad
-    (~4 M) and local control (~1 M), the whole tile lands near 13 M
-    transistors - about 1/18 the silicon of one Ampere SM.
+    roughly 15 K transistors/PE x 1024 = 15.3 M. With the L1 scratchpad
+    (~6 M) and local control (~1.5 M), the whole tile lands near 23 M
+    transistors - still about 1/10 the silicon of one Ampere SM.
     """
-    PE_ROWS = 24
-    PE_COLS = 24
-    PE_COUNT = PE_ROWS * PE_COLS  # 576
+    PE_ROWS = 32
+    PE_COLS = 32
+    PE_COUNT = PE_ROWS * PE_COLS  # 1024
 
     # Per-PE per-clock fabric cost at 8 nm (scaled from the per-MAC
     # view in microarch_accounting.build_kpu_tile_accounting):
@@ -631,25 +631,26 @@ def build_kpu_tile_building_block() -> BuildingBlock:
     #   token mtch 0.004  (valid-bit + coord check)
     #   clock      0.008  (H-tree)
     # Total: 0.111 pJ/PE/clock
-    pe_per_clock_pj = 0.111 * PE_COUNT  # ~63.9 pJ/clock
+    pe_per_clock_pj = 0.111 * PE_COUNT  # ~113.7 pJ/clock
 
     components = [
         EngineComponent(
             name="L1 scratchpad (tile-local, edge-feed)",
             category=StructureCategory.MEMORY,
             count=1,
-            size_or_spec="64 KB SRAM, banked",
-            transistor_count_m=4.0,
-            area_mm2=0.04,   # SRAM density ~100 MT/mm^2
-            per_clock_pj=10.0,
+            size_or_spec="96 KB SRAM, banked",
+            transistor_count_m=6.0,
+            area_mm2=0.06,   # SRAM density ~100 MT/mm^2
+            per_clock_pj=14.0,
             activity_note=(
                 f"{2 * PE_ROWS} edge byte-reads/clock (A-edge + B-edge) "
                 f"plus periodic output writeback"
             ),
             citation=(
-                "64 KB 6T SRAM ~3 M + peripheral ~1 M = 4 M. Area at "
-                "SRAM density ~100 MT/mm^2 -> 0.04 mm^2. Energy: 48 "
-                "reads x 0.15 pJ/B + writeback ~3 pJ = ~10 pJ/clock."
+                "96 KB 6T SRAM ~4.5 M + peripheral ~1.5 M = 6 M (sized "
+                "up from 64 KB to feed 64 B/clock edge reads). Area at "
+                "SRAM density ~100 MT/mm^2 -> 0.06 mm^2. Energy: 64 "
+                "reads x 0.15 pJ/B + writeback ~4 pJ = ~14 pJ/clock."
             ),
         ),
         EngineComponent(
@@ -657,15 +658,15 @@ def build_kpu_tile_building_block() -> BuildingBlock:
             category=StructureCategory.EXECUTE,
             count=PE_COUNT,
             size_or_spec=f"{PE_ROWS}x{PE_COLS} PE grid, 1 INT8 MAC/PE/clock",
-            transistor_count_m=8.6,
-            area_mm2=0.11,   # dense regular MAC array ~80 MT/mm^2
+            transistor_count_m=15.3,
+            area_mm2=0.19,   # dense regular MAC array ~80 MT/mm^2
             per_clock_pj=pe_per_clock_pj,
             activity_note=f"All {PE_COUNT} PEs fire in steady-state wavefront",
             citation=(
                 "~15 K transistors/PE (INT8 MAC + 2 op regs + INT32 "
-                "accum + mesh wire + token match) x 576 = 8.6 M. "
-                "Area at dense MAC density ~80 MT/mm^2 -> 0.11 mm^2. "
-                "Energy: 0.111 pJ/PE/clock x 576 = 63.9 pJ. See "
+                "accum + mesh wire + token match) x 1024 = 15.3 M. "
+                "Area at dense MAC density ~80 MT/mm^2 -> 0.19 mm^2. "
+                "Energy: 0.111 pJ/PE/clock x 1024 = 113.7 pJ. See "
                 "microarch_accounting.build_kpu_tile_accounting()."
             ),
         ),
@@ -674,14 +675,14 @@ def build_kpu_tile_building_block() -> BuildingBlock:
             category=StructureCategory.CONTROL,
             count=2 * PE_ROWS,
             size_or_spec=f"{2 * PE_ROWS} injectors at A-edge + B-edge",
-            transistor_count_m=0.1,
-            area_mm2=0.003,
-            per_clock_pj=2.5,
+            transistor_count_m=0.2,
+            area_mm2=0.005,
+            per_clock_pj=3.3,
             activity_note="Generate + dispatch one token per edge per clock",
             citation=(
-                "Edge-only control: 48 injectors x ~2 K transistors = "
-                "0.1 M. Area ~0.003 mm^2. Energy: 48 x ~0.05 pJ token "
-                "generation at 8 nm."
+                f"Edge-only control: {2 * PE_ROWS} injectors x ~2 K "
+                f"transistors = 0.2 M. Area ~0.005 mm^2. Energy: "
+                f"{2 * PE_ROWS} x ~0.05 pJ token generation at 8 nm."
             ),
         ),
         EngineComponent(
@@ -689,32 +690,35 @@ def build_kpu_tile_building_block() -> BuildingBlock:
             category=StructureCategory.CONTROL,
             count=1,
             size_or_spec="H-tree + rail decoupling",
-            transistor_count_m=0.5,
-            area_mm2=0.02,
-            per_clock_pj=10.0,
+            transistor_count_m=0.7,
+            area_mm2=0.03,
+            per_clock_pj=13.0,
             activity_note="Simple H-tree; no OOO machinery, no schedulers",
             citation=(
-                "~0.5 M distributed clock buffers + decap. Area ~0.02 "
-                "mm^2. ~12% of dynamic fabric power at 8 nm."
+                "~0.7 M distributed clock buffers + decap (scales with "
+                "1024-PE mesh). Area ~0.03 mm^2. ~10% of dynamic fabric "
+                "power at 8 nm."
             ),
         ),
     ]
 
     return BuildingBlock(
-        name="KPU Compute Tile (24x24 FMA mesh)",
+        name="KPU Compute Tile (32x32 FMA mesh)",
         process_nm=8,
         clock_ghz=1.5,
-        native_macs_per_clock=PE_COUNT,  # 576
-        native_op_precision="INT8 MAC (576 PEs)",
+        native_macs_per_clock=PE_COUNT,  # 1024
+        native_op_precision="INT8 MAC (1024 PEs)",
         components=components,
         color="#3fc98a",
         notes=(
             "Tile-level budget in steady-state mesh throughput at 8 nm, "
-            "1.5 GHz. Silicon footprint ~13 M transistors - roughly "
-            "1/18 the size of one Ampere SM. At 1.5 GHz sustained, "
-            "~130 mW/tile; a T128 deploying 128 tiles at ~55% utilization "
-            "fits in the 12 W TDP envelope (128 x 130 mW x 0.55 + "
-            "~2.5 W overhead = ~11.6 W)."
+            "1.5 GHz. Silicon footprint ~22 M transistors - roughly "
+            "1/10 the size of one Ampere SM. At 1.5 GHz sustained, "
+            "~215 mW/tile; a T128 deploying 128 tiles at ~55% utilization "
+            "draws ~15 W compute (128 x 215 mW x 0.55 + ~3 W overhead = "
+            "~18 W), which exceeds the previous 12 W T128 target. Either "
+            "bump the TDP envelope to match or rebalance via clock / "
+            "tile count. See cli/check_tdp_feasibility.py."
         ),
     )
 

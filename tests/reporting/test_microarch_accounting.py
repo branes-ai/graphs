@@ -58,9 +58,11 @@ class TestStructureInvariants:
 
     def test_kpu_unique_silicon_matches_building_block_view(self):
         """Per-MAC and per-clock views should agree on KPU tile
-        silicon footprint to within a few M transistors."""
+        silicon footprint to within a few M transistors. At 32x32
+        the per-MAC view lands around 22 M; the per-clock view is
+        close (both scale per-PE counts the same way)."""
         kpu = build_default_report().blocks[1]
-        assert 10 < kpu.total_unique_transistor_count_m < 20
+        assert 18 < kpu.total_unique_transistor_count_m < 30
 
 
 class TestStructuralPresenceAbsence:
@@ -101,8 +103,8 @@ class TestStructuralPresenceAbsence:
         """Native-op throughput basis for a 2D mesh is PE count per
         clock, not some invented wavefront total."""
         kpu = build_kpu_tile_accounting()
-        assert kpu.macs_per_native_op == 576, (
-            f"24x24 mesh does 576 MACs per clock, got "
+        assert kpu.macs_per_native_op == 1024, (
+            f"32x32 mesh does 1024 MACs per clock, got "
             f"{kpu.macs_per_native_op}")
 
 

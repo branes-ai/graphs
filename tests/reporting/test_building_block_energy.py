@@ -39,7 +39,7 @@ class TestEngineTotals:
         sm = build_nvidia_sm_building_block()
         assert sm.native_macs_per_clock == 4096  # 4 TCs x 1024 MACs/clock
         tile = build_kpu_tile_building_block()
-        assert tile.native_macs_per_clock == 576  # 24 x 24
+        assert tile.native_macs_per_clock == 1024  # 32 x 32
 
 
 class TestEngineComposition:
@@ -170,8 +170,8 @@ class TestSocComposition:
     def test_peak_tops_is_block_count_times_macs_per_clock(self):
         tile = build_kpu_tile_building_block()
         soc = SocComposition(tile, 128, 0.55, 2500.0)
-        # 128 tiles, 576 MACs/clk at the tile's native clock (1.5 GHz).
-        macs_per_sec = 128 * 576 * tile.clock_ghz * 1e9
+        # 128 tiles, 1024 MACs/clk at the tile's native clock (1.5 GHz).
+        macs_per_sec = 128 * 1024 * tile.clock_ghz * 1e9
         expected = macs_per_sec * 2 / 1e12
         assert abs(soc.peak_tops_int8 - expected) < 1e-6
 

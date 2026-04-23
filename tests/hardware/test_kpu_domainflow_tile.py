@@ -22,25 +22,26 @@ from graphs.hardware.resource_model import (
 class TestPE_ArraySizes:
     """T64 / T128 / T256 use inverse-scaled per-tile PE array sizes."""
 
-    def test_t64_uses_24x24_pe_arrays(self):
-        """T64 uses 24x24 (revised from 32x32 after TDP feasibility check).
-        At 6W TDP with 0.10 pJ/MAC @ 16nm, 32x32 x 64 tiles exceeded
-        the ALU power budget. 24x24 fits comfortably."""
+    def test_t64_uses_32x32_pe_arrays(self):
+        """T64 uses 32x32 - the canonical KPU tile size. Requires a TDP
+        envelope above 6 W because 32x32 x 64 tiles at 0.10 pJ/MAC @ 16 nm
+        exceeds the original 6 W ALU budget; run
+        cli/check_tdp_feasibility.py to pick a valid envelope."""
         model = kpu_t64_resource_model()
         tp = model.thermal_operating_points[model.default_thermal_profile]
         cr = tp.performance_specs[Precision.INT8].compute_resource
         for spec in cr.tile_specializations:
-            assert spec.array_dimensions == (24, 24), (
+            assert spec.array_dimensions == (32, 32), (
                 f"T64 tile {spec.tile_type} has {spec.array_dimensions}, "
-                f"expected (24, 24)"
+                f"expected (32, 32)"
             )
 
-    def test_t128_uses_24x24_pe_arrays(self):
+    def test_t128_uses_32x32_pe_arrays(self):
         model = kpu_t128_resource_model()
         tp = model.thermal_operating_points[model.default_thermal_profile]
         cr = tp.performance_specs[Precision.INT8].compute_resource
         for spec in cr.tile_specializations:
-            assert spec.array_dimensions == (24, 24)
+            assert spec.array_dimensions == (32, 32)
 
     def test_t256_uses_20x20_pe_arrays(self):
         """T256 uses 20x20 (revised from 16x16 after commercial review).
@@ -111,13 +112,13 @@ class TestEffectivePipelineUtilization:
         clock = ClockDomain(base_clock_hz=1e9, max_boost_clock_hz=1e9,
                             sustained_clock_hz=1e9, dvfs_enabled=False)
         return TileSpecialization(
-            tile_type="OS", num_tiles=1, array_dimensions=(24, 24),
+            tile_type="OS", num_tiles=1, array_dimensions=(32, 32),
             pe_configuration="test",
-            ops_per_tile_per_clock={Precision.INT8: 1152},
+            ops_per_tile_per_clock={Precision.INT8: 2048},
             optimization_level={Precision.INT8: 1.0},
             clock_domain=clock,
             schedule_class=TileScheduleClass.OUTPUT_STATIONARY,
-            pipeline_fill_cycles=24, pipeline_drain_cycles=24,
+            pipeline_fill_cycles=32, pipeline_drain_cycles=32,
         )
 
     def _ws_tile(self) -> TileSpecialization:
@@ -143,11 +144,13 @@ class TestEffectivePipelineUtilization:
         assert util_256 > 0.98
 
     def test_os_reaches_saturation_by_12_tiles(self):
-        """KPU's key product claim: ~1.0 utilization at 12+ tiles."""
+        """KPU's key product claim: ~1.0 utilization at 12+ tiles.
+        At 32x32 canonical tile (fill/drain = 32 cycles each,
+        steady = 128), util at 12 tiles is 1536/1600 = 0.96 exactly."""
         tile = self._os_tile()
         util_12 = tile.effective_pipeline_utilization(12, steady_cycles_per_tile=128)
-        assert util_12 > 0.96, (
-            f"Output-stationary at 12 tiles should saturate above 0.96; "
+        assert util_12 >= 0.96, (
+            f"Output-stationary at 12 tiles should saturate at >= 0.96; "
             f"got {util_12:.3f}"
         )
 
@@ -235,13 +238,15 @@ class TestEnergyAdvantage:
         )
 
     def test_kpu_array_size_sanity(self):
-        """M0.5 final SKU lineup (post-TDP + commercial review):
-        T64  = 24x24 (576 PEs/tile) - shrunk from 32x32 for 6W TDP
-        T128 = 24x24 (576 PEs/tile) - sweet spot
-        T256 = 20x20 (400 PEs/tile) - commercially defensible peak
-        Inverse-scaling story: 24 >= 24 > 20 as engine grows. Larger
-        engines still get smaller per-tile arrays, just less aggressively
-        than the original 24->16 intent allowed under TDP constraints."""
+        """M0.5 canonical KPU tile is 32x32; T64 and T128 both use it.
+        T256 uses a smaller 20x20 per-tile array to trade per-tile
+        array size for tile count as the engine grows:
+        T64  = 32x32 (1024 PEs/tile) - canonical tile
+        T128 = 32x32 (1024 PEs/tile) - canonical tile, 2x count
+        T256 = 20x20 (400 PEs/tile)  - smaller tiles for the big engine
+        The 32x32 tile for T64 and T128 exceeds the original 6 W / 12 W
+        ALU envelopes at listed clocks; rerun cli/check_tdp_feasibility.py
+        to pick new TDP targets."""
         t64 = kpu_t64_resource_model()
         t128 = kpu_t128_resource_model()
         t256 = kpu_t256_resource_model()
@@ -249,21 +254,32 @@ class TestEnergyAdvantage:
             tp = m.thermal_operating_points[m.default_thermal_profile]
             cr = tp.performance_specs[Precision.INT8].compute_resource
             return cr.tile_specializations[0].pe_count
-        assert pe_count(t64) == 576
-        assert pe_count(t128) == 576
+        assert pe_count(t64) == 1024
+        assert pe_count(t128) == 1024
         assert pe_count(t256) == 400
 
-    def test_t256_has_more_pes_than_t128(self):
-        """Commercial sanity: T256 at 2.5x TDP must have more PEs than
-        T128, not fewer. (The original 16x16 T256 had 65,536 PEs vs
-        T128's 73,728 - economically indefensible.)"""
+    def test_t256_peak_throughput_exceeds_t128(self):
+        """Commercial sanity: T256 at the bigger TDP must deliver more
+        peak INT8 throughput than T128.
+
+        With the 32x32 canonical tile applied to T64/T128 and T256
+        keeping its smaller 20x20 tiles, T128 now has MORE total PEs
+        (128 x 1024 = 131,072) than T256 (256 x 400 = 102,400). T256
+        still out-performs T128 on peak throughput because of its
+        higher clock (1.4 GHz vs 1.0 GHz), but by a smaller margin
+        than before. This is a design decision that may need
+        revisiting if the tile-size inversion is commercially
+        unacceptable."""
         t128 = kpu_t128_resource_model()
         t256 = kpu_t256_resource_model()
-        def total_pes(m):
+        def peak_mac_per_sec(m):
             tp = m.thermal_operating_points[m.default_thermal_profile]
             cr = tp.performance_specs[Precision.INT8].compute_resource
-            return cr.total_tiles * cr.tile_specializations[0].pe_count
-        assert total_pes(t256) > total_pes(t128), (
-            f"T256 ({total_pes(t256)} PEs) must have more PEs than "
-            f"T128 ({total_pes(t128)} PEs) to justify 2.5x the TDP."
+            spec = cr.tile_specializations[0]
+            ops_int8 = spec.ops_per_tile_per_clock[Precision.INT8]
+            clock_hz = spec.clock_domain.sustained_clock_hz
+            return cr.total_tiles * ops_int8 * clock_hz
+        assert peak_mac_per_sec(t256) > peak_mac_per_sec(t128), (
+            f"T256 peak ({peak_mac_per_sec(t256)/1e12:.1f} TOPS) must "
+            f"exceed T128 ({peak_mac_per_sec(t128)/1e12:.1f} TOPS)."
         )

@@ -74,7 +74,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     # T256 had fewer total PEs (65,536) than T128 (73,728) - making it
     # commercially unjustifiable at its 2.5x TDP. 20x20 x 256 = 102,400
     # PEs gives T256 a genuine ~2x peak advantage (287 TOPS vs 148 TOPS).
-    # Inverse-scaling story still holds (T64/T128 = 24x24 > T256 = 20x20).
+    # Inverse-scaling story still holds (T64/T128 = 32x32 > T256 = 20x20).
 
     # INT8 Tile Fabric (Standard Cell - 179 tiles @ 70%)
     # 20x20 PE array = 400 PEs/tile x 2 ops/PE/cycle = 800 INT8 ops/tile/clock

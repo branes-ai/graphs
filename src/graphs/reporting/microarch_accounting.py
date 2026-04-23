@@ -3,7 +3,7 @@ Per-structure micro-architectural energy accounting for the two
 foundational building blocks:
 
   - NVIDIA Streaming Multiprocessor (SM), Ampere generation, 8 nm
-  - KPU compute tile (24x24 PE array, domain-flow scheduled), 8 nm
+  - KPU compute tile (32x32 PE array, domain-flow scheduled), 8 nm
 
 Both reported at 8 nm to match the Jetson Ampere baseline so direct
 comparisons are immediately feasible without a process-normalization
@@ -407,10 +407,10 @@ def build_nvidia_sm_accounting() -> MicroArchAccounting:
 
 def build_kpu_tile_accounting() -> MicroArchAccounting:
     """
-    KPU 24x24 PE tile: a 2D mesh of FMAs. In steady state, every PE
+    KPU 32x32 PE tile: a 2D mesh of FMAs. In steady state, every PE
     produces one MAC per clock, so the tile's throughput basis is
 
-        MACs per clock = N x N = 576   (for a 24x24 mesh)
+        MACs per clock = N x N = 1024   (for a 32x32 mesh)
 
     Every structure below is per-PE-per-clock (i.e. per-MAC) except the
     tile scratchpad edge-feed, which is an edge-only structure and is
@@ -433,13 +433,13 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
     reg_pj_byte = register_pj_per_byte(process_nm)
     l1_pj_byte = reg_pj_byte * 3.0  # L1 SRAM ~3x register
 
-    PE_ROWS = 24
-    PE_COLS = 24
-    PE_COUNT = PE_ROWS * PE_COLS  # 576 MACs per clock
+    PE_ROWS = 32
+    PE_COLS = 32
+    PE_COUNT = PE_ROWS * PE_COLS  # 1024 MACs per clock
     # Edge PEs that pull operand bytes from the tile scratchpad per
     # clock. A 2-operand mesh (A streams down rows, B streams across
-    # cols) has 2 x 24 = 48 edge reads per clock, feeding 576 interior
-    # MACs. Average bytes read per MAC = 48 / 576 = 1/12.
+    # cols) has 2 x 32 = 64 edge reads per clock, feeding 1024 interior
+    # MACs. Average bytes read per MAC = 64 / 1024 = 1/16.
     edge_reads_per_clock = 2 * PE_ROWS
     bytes_per_mac_from_scratchpad = edge_reads_per_clock / PE_COUNT
 
@@ -449,10 +449,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.EXECUTE,
             per_op_pj=0.050,
             amortization_factor=1,
-            transistor_count_m=6.9,  # ~12 K transistors/PE x 576 PEs
+            transistor_count_m=12.3,  # ~12 K transistors/PE x 1024 PEs
             citation=(
                 f"~12 K transistors/PE (INT8 multiplier + INT32 adder) "
-                f"x {PE_COUNT} PEs = 6.9 M aggregate. Energy: 8 FA x "
+                f"x {PE_COUNT} PEs = 12.3 M aggregate. Energy: 8 FA x "
                 f"{fa_pj:.3f} pJ = {8*fa_pj:.3f} pJ plus carry-tree "
                 f"overhead; 0.050 pJ at {process_nm} nm."
             ),
@@ -462,10 +462,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.REGISTER,
             per_op_pj=2 * 1 * reg_pj_byte,
             amortization_factor=1,
-            transistor_count_m=1.2,  # ~2 K transistors/PE x 576 PEs
+            transistor_count_m=2.0,  # ~2 K transistors/PE x 1024 PEs
             citation=(
                 f"~2 K transistors/PE (2 byte-wide latches) x {PE_COUNT} "
-                f"= 1.2 M. Energy: 2 byte-reads x {reg_pj_byte:.3f} pJ/B."
+                f"= 2.0 M. Energy: 2 byte-reads x {reg_pj_byte:.3f} pJ/B."
             ),
         ),
         MicroStructure(
@@ -473,10 +473,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.ACCUMULATE,
             per_op_pj=0.015,
             amortization_factor=1,
-            transistor_count_m=0.2,  # ~0.4 K (32-bit reg) x 576 PEs
+            transistor_count_m=0.4,  # ~0.4 K (32-bit reg) x 1024 PEs
             citation=(
                 f"~0.4 K transistors/PE (INT32 pipeline register wired "
-                f"to FMA output) x {PE_COUNT} = 0.2 M. Energy: ~32 FF "
+                f"to FMA output) x {PE_COUNT} = 0.4 M. Energy: ~32 FF "
                 "toggles at ~15% switching activity."
             ),
         ),
@@ -485,10 +485,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.INTERCONNECT,
             per_op_pj=1 * reg_pj_byte * 0.4,
             amortization_factor=1,
-            transistor_count_m=0.3,  # ~0.5 K (muxes) x 576 PEs
+            transistor_count_m=0.5,  # ~0.5 K (muxes) x 1024 PEs
             citation=(
                 f"~0.5 K transistors/PE (nearest-neighbor mesh mux) x "
-                f"{PE_COUNT} = 0.3 M. Energy: ~40% of a regfile-read."
+                f"{PE_COUNT} = 0.5 M. Energy: ~40% of a regfile-read."
             ),
         ),
         MicroStructure(
@@ -496,10 +496,10 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.CONTROL,
             per_op_pj=0.004,
             amortization_factor=1,
-            transistor_count_m=0.1,  # ~0.2 K (valid+coord cmp) x 576
+            transistor_count_m=0.2,  # ~0.2 K (valid+coord cmp) x 1024
             citation=(
                 f"~0.2 K transistors/PE (valid-bit + coord comparator) "
-                f"x {PE_COUNT} = 0.1 M. Energy: a few gates per token."
+                f"x {PE_COUNT} = 0.2 M. Energy: a few gates per token."
             ),
         ),
         MicroStructure(
@@ -507,9 +507,9 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.CONTROL,
             per_op_pj=0.008,
             amortization_factor=1,
-            transistor_count_m=0.5,  # tile-wide H-tree
+            transistor_count_m=0.7,  # tile-wide H-tree, scales with PE count
             citation=(
-                "Tile-wide H-tree + per-PE clock buffer ~0.5 M transistors "
+                "Tile-wide H-tree + per-PE clock buffer ~0.7 M transistors "
                 "aggregate. Energy: single-stage pipeline in each PE."
             ),
         ),
@@ -518,11 +518,13 @@ def build_kpu_tile_accounting() -> MicroArchAccounting:
             category=StructureCategory.MEMORY,
             per_op_pj=bytes_per_mac_from_scratchpad * l1_pj_byte,
             amortization_factor=1,
-            transistor_count_m=4.0,  # 64 KB SRAM + peripheral
+            transistor_count_m=6.0,  # 96 KB SRAM + peripheral (sized for 64 B/clock)
             citation=(
-                f"64 KB SRAM ~3 M + peripheral ~1 M = 4 M. Energy: "
-                f"{edge_reads_per_clock} edge reads / {PE_COUNT} MACs "
-                f"average {bytes_per_mac_from_scratchpad:.3f} B/MAC x "
+                f"96 KB SRAM ~4.5 M + peripheral ~1.5 M = 6 M "
+                f"(sized up from 64 KB to feed 64 B/clock edge reads). "
+                f"Energy: {edge_reads_per_clock} edge reads / "
+                f"{PE_COUNT} MACs average "
+                f"{bytes_per_mac_from_scratchpad:.3f} B/MAC x "
                 f"{l1_pj_byte:.3f} pJ/B at {process_nm} nm."
             ),
         ),

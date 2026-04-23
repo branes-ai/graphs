@@ -1,7 +1,7 @@
 """
-KPU T128 Resource Model - mid-range SKU at 128 tiles with 24x24 PE arrays.
+KPU T128 Resource Model - mid-range SKU at 128 tiles with 32x32 PE arrays.
 
-Introduced in M0.5 to sit between T64 (64 tiles, 24x24 PEs) and T256
+Introduced in M0.5 to sit between T64 (64 tiles, 32x32 PEs) and T256
 (256 tiles, 20x20 PEs). The PE-array-size / tile-count tradeoff is a
 core KPU design knob: smaller engines benefit from larger per-tile PE
 arrays (amortize fill/drain over more wavefront cycles), while larger
@@ -38,7 +38,7 @@ from ...resource_model import (
 
 def kpu_t128_resource_model() -> HardwareResourceModel:
     """
-    Stillwater KPU-T128 with 128 homogeneous tiles, 24x24 PE array per tile.
+    Stillwater KPU-T128 with 128 homogeneous tiles, 32x32 PE array per tile.
 
     ============================================================================
     MID-RANGE EDGE AI / EMBODIED AI ALLOCATION (128 tiles)
@@ -46,7 +46,7 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
 
     Target: Higher-throughput robotics, embodied AI, vision-rich edge
     - 70/20/10 role split (INT8/BF16/Matrix) preserved for comparison
-      with T64 and T256; tile array size is uniform at 24x24
+      with T64 and T256; tile array size is uniform at 32x32
     - 89 INT8 tiles (69%): vision, detection, convolutional workloads
     - 26 BF16 tiles (20%): normalization, attention, sensor fusion
     - 13 Matrix tiles (11%): classification heads, embeddings
@@ -64,13 +64,13 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     """
     sustained_clock_hz = 1.0e9  # 1.0 GHz sustained at 12W (default)
 
-    _T128_PE_ARRAY = (24, 24)
-    # 24x24 PE array at 2 INT8 ops/PE/clock = 1152 INT8 ops/tile/clock
-    # (ratio 1152/576 = 2 INT8 ops per PE per cycle)
+    _T128_PE_ARRAY = (32, 32)
+    # 32x32 PE array at 2 INT8 ops/PE/clock = 2048 INT8 ops/tile/clock
+    # (ratio 2048/1024 = 2 INT8 ops per PE per cycle)
     _PE_COUNT = _T128_PE_ARRAY[0] * _T128_PE_ARRAY[1]
-    _INT8_OPS_PER_TILE = _PE_COUNT * 2    # 1152
-    _BF16_OPS_PER_TILE = _PE_COUNT * 1    # 576
-    _INT4_OPS_PER_TILE = _PE_COUNT * 4    # 2304
+    _INT8_OPS_PER_TILE = _PE_COUNT * 2    # 2048
+    _BF16_OPS_PER_TILE = _PE_COUNT * 1    # 1024
+    _INT4_OPS_PER_TILE = _PE_COUNT * 4    # 4096
 
     int8_tile_fabric = ComputeFabric(
         fabric_type="kpu_int8_tile",
@@ -268,7 +268,7 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
         precision_profiles={
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                # 128 tiles x 1152 INT8 ops/tile x 1.0 GHz ~= 147 TOPS peak
+                # 128 tiles x 2048 INT8 ops/tile x 1.0 GHz ~= 262 TOPS peak
                 peak_ops_per_sec=128 * _INT8_OPS_PER_TILE * sustained_clock_hz,
                 tensor_core_supported=True,
                 relative_speedup=2.0,
@@ -314,7 +314,7 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
             volume_tier="10K+",
             process_node="16nm",
             year=2026,
-            notes="Mid-range KPU for embodied AI. 24x24 PE array per tile "
+            notes="Mid-range KPU for embodied AI. 32x32 PE array per tile "
                   "balances pipeline utilization against tile count.",
         ),
     )
