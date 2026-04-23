@@ -55,7 +55,7 @@ class TestBareALUCeiling:
     def test_default_fields_keep_bareaLU_backwards_compat(self):
         """Constructing BareALU with only the original fields still
         works: W defaults to 1, accum_mode to LOSSLESS, reuse to
-        ISOLATED, bytes_per_mac to 2.0."""
+        ISOLATED, both bandwidth fields to 2.0 B/MAC."""
         alu = BareALU(
             name="legacy", precision="INT8", process_nm=8,
             area_mm2=0.0001, transistor_count_k=10.0,
@@ -64,7 +64,10 @@ class TestBareALUCeiling:
         assert alu.W == 1
         assert alu.accum_mode is AccumMode.LOSSLESS
         assert alu.reuse is ReuseTopology.ISOLATED
-        assert alu.bytes_per_mac == 2.0
+        assert alu.bytes_per_mac_alu == 2.0
+        assert alu.bytes_per_mac_die == 2.0
+        # deprecated alias still works
+        assert alu.bytes_per_mac == alu.bytes_per_mac_die
 
 
 class TestDotProductALUW:
@@ -80,7 +83,8 @@ class TestDotProductALUW:
             W=16,
             accum_mode=AccumMode.MIXED_PRECISION,
             reuse=ReuseTopology.INTRA_ALU_BROADCAST,
-            bytes_per_mac=0.125,
+            bytes_per_mac_alu=2.0,    # 2 * 1 B (INT8) per MAC, regardless of W
+            bytes_per_mac_die=0.125,  # 16x16 matmul reuses frags -> 2/16 B/MAC
         )
 
     def test_per_mac_is_per_instance_divided_by_W(self):
@@ -116,13 +120,29 @@ class TestParametricModel:
         assert last > first
         assert last < 2.0 * first
 
-    def test_bytes_per_mac_falls_with_W_for_broadcast(self):
-        """Intra-ALU broadcast gives 2/W bytes/MAC."""
-        curve = generate_parametric_curve(
-            reuse=ReuseTopology.INTRA_ALU_BROADCAST,
-        )
+    def test_bytes_per_mac_alu_is_constant_across_W(self):
+        """A dot-product ALU of width W reads W A-operands + W B-
+        operands per clock and produces W MACs - 2 bytes/MAC at the
+        ALU level, regardless of W. There is NO reuse inside a
+        single dot-product ALU; operand-reuse savings happen at the
+        TOPOLOGY level (mesh, systolic, cross-ALU broadcast)."""
+        curve = generate_parametric_curve(precision="INT8")
         for p in curve:
-            assert math.isclose(p.bytes_per_mac, 2.0 / p.W, rel_tol=1e-6)
+            # All INT8 parametric ALUs have bytes_per_mac_alu = 2.0
+            assert math.isclose(p.bytes_per_mac_alu, 2.0, rel_tol=1e-6), (
+                f"W={p.W} gave ALU-level {p.bytes_per_mac_alu} B/MAC"
+            )
+
+    def test_bytes_per_mac_alu_scales_with_precision(self):
+        """FP32 parametric ALU reads 2 * 4 = 8 B/MAC at ALU level."""
+        a = parametric_dot_product_alu(W=1, precision="FP32")
+        assert math.isclose(a.bytes_per_mac_alu, 8.0, rel_tol=1e-6)
+
+    def test_bytes_per_mac_die_defaults_to_alu_level(self):
+        """Parametric model does not assume any topology, so die-
+        level bandwidth equals ALU-level bandwidth."""
+        for p in generate_parametric_curve():
+            assert math.isclose(p.bytes_per_mac_alu, p.bytes_per_mac_die)
 
     def test_parametric_reports_is_parametric_true(self):
         p = parametric_dot_product_alu(W=4)
@@ -141,7 +161,7 @@ class TestSoLAnalysis:
             pj_per_clock=0.050,
             W=1, accum_mode=AccumMode.LOSSLESS,
             reuse=ReuseTopology.MESH_STREAMING,
-            bytes_per_mac=0.0625,
+            bytes_per_mac_alu=2.0, bytes_per_mac_die=0.0625,
         )
 
     def test_num_alus_scales_with_die_area(self):
@@ -157,7 +177,7 @@ class TestSoLAnalysis:
             pj_per_clock=1.28, W=16,
             accum_mode=AccumMode.MIXED_PRECISION,
             reuse=ReuseTopology.INTRA_ALU_BROADCAST,
-            bytes_per_mac=0.125,
+            bytes_per_mac_alu=2.0, bytes_per_mac_die=0.125,
         )
         analysis = SoLAnalysis(alu=tc, die_area_mm2=250.0)
         assert analysis.num_macs_on_die == analysis.num_alus * 16

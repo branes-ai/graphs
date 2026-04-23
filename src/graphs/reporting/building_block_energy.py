@@ -1376,14 +1376,20 @@ a.nav-back:hover { text-decoration: underline; }
         mixed-precision (FP16 operand → FP32 accum), aggressive-
         truncate. Accuracy ceiling drops as ALU Width and rounding
         increase.</li>
-      <li><strong>Reuse topology</strong>: isolated (2 B/MAC),
-        intra-ALU broadcast (2/Width B/MAC), 2D-mesh streaming
-        (2/N B/MAC), systolic-stationary (1/N B/MAC). This axis
-        dominates the operand-bandwidth ceiling.</li>
+      <li><strong>Reuse topology</strong> (affects <em>die-level</em>
+        bandwidth, not ALU-level): isolated keeps 2 B/MAC; intra-ALU
+        broadcast within a matmul tile drops to 2/tile_dim B/MAC;
+        2D-mesh streaming NxN drops to 2/N B/MAC; systolic-stationary
+        NxN drops to ~1/N. Every dot-product ALU still reads 2 ×
+        bytes_per_operand per MAC internally - topology savings
+        appear at the die-memory boundary.</li>
     </ul>
     <p>Three metrics - density, energy, bandwidth - each have their
-      own ceiling curve vs W, and real products sit at different
-      positions on each curve.</p>
+      own ceiling. Density and energy are ALU-level properties that
+      track with ALU Width. Bandwidth is fundamentally a topology
+      property: the ALU-level bandwidth is constant (2 B/MAC for
+      INT8 dot products no matter how wide), and the die-level
+      bandwidth drops only when multiple ALUs share operands.</p>
 
     <h4>Parametric cost curve (INT8 at 8 nm, intra-ALU broadcast)</h4>
     <p class="chart-desc">Analytical first-principles cost: W INT8

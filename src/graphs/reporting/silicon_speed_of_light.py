@@ -122,6 +122,22 @@ class DotProductALU:
     BareALU: required fields come first, design-space axes are
     defaulted. A W=1 / ISOLATED / LOSSLESS ALU with a user-supplied
     area/transistors/pJ is identical to the old BareALU contract.
+
+    Operand-bandwidth has TWO levels:
+
+    * `bytes_per_mac_alu`: bandwidth THE ALU ITSELF demands from its
+      operand feeders (RF, operand collector, edge injector, etc.).
+      For ANY dot-product ALU this is 2 * bytes_per_operand - each
+      MAC needs its own A operand and B operand, regardless of W.
+      This number does NOT go down with ALU width.
+
+    * `bytes_per_mac_die`: bandwidth the DIE AS A WHOLE demands from
+      main memory (or the next cache level) in steady state. This
+      IS sensitive to topology: mesh / systolic / broadcast-across-
+      ALUs all recover operand reuse at levels above the single ALU.
+      For an NxN mesh the floor is 2/N B/MAC. For a Wm x Wn matmul
+      tile it is 1/Wm + 1/Wn B/MAC. For a fully-isolated FMA it
+      stays at 2 * bytes_per_operand (no reuse anywhere).
     """
     name: str
     precision: str                 # "INT8", "FP16", "BF16", "FP32", "FP8"
@@ -136,13 +152,20 @@ class DotProductALU:
     W: int = 1                     # MACs per ALU per clock (== native width)
     accum_mode: AccumMode = AccumMode.LOSSLESS
     reuse: ReuseTopology = ReuseTopology.ISOLATED
-    # Per-MAC operand bandwidth after topology-level reuse. 2 B/MAC
-    # for INT8 isolated, dropping to 2/W or 2/N for broadcast / mesh
-    # topologies when running their target workload.
-    bytes_per_mac: float = 2.0
+    # Per-MAC operand bandwidth. See class docstring for the ALU vs
+    # die-level distinction.
+    bytes_per_mac_alu: float = 2.0   # 2 * bytes_per_op for INT8 dot products
+    bytes_per_mac_die: float = 2.0   # topology-level; same as ALU if isolated
     ops_per_mac: int = 2           # 1 FMA = 2 ops (multiply + add)
     is_parametric: bool = False    # True for analytically-derived curve points
     citation: str = ""
+
+    @property
+    def bytes_per_mac(self) -> float:
+        """Deprecated alias for bytes_per_mac_die - the number most
+        consumers actually care about (memory-bandwidth demand).
+        Prefer the explicit names in new code."""
+        return self.bytes_per_mac_die
 
     # ------------------------------------------------------------------
     # Per-MAC derived properties
@@ -180,7 +203,8 @@ class DotProductALU:
             "transistor_count_per_mac_k": self.transistor_count_per_mac_k,
             "pj_per_clock": self.pj_per_clock,
             "pj_per_mac": self.pj_per_mac,
-            "bytes_per_mac": self.bytes_per_mac,
+            "bytes_per_mac_alu": self.bytes_per_mac_alu,
+            "bytes_per_mac_die": self.bytes_per_mac_die,
             "ops_per_mac": self.ops_per_mac,
             "tops_per_watt_ceiling": self.tops_per_watt_ceiling,
             "is_parametric": self.is_parametric,
@@ -313,19 +337,22 @@ def parametric_dot_product_alu(
     e_overhead_pj = (c_accum_k + c_pipe_k + c_route_k) * 0.0010
     pj_per_clock = W * e_mult_pj + e_tree_pj + e_overhead_pj
 
-    # Bytes/MAC by topology. Default assumes 1-byte operands (INT8);
-    # scale for wider precisions.
+    # Operand bandwidth.
+    #
+    # AT THE ALU LEVEL: a dot-product ALU of width W reads W A-
+    # operands + W B-operands per clock and produces W MACs. So at
+    # the ALU level, bytes_per_mac = 2 * bytes_per_op ALWAYS, for
+    # any W. There is NO reuse inside a single dot-product ALU.
+    #
+    # AT THE DIE LEVEL: topology-level reuse (mesh, systolic,
+    # broadcast-across-ALUs) drives memory-side bandwidth much
+    # lower. We only know that for a SPECIFIC topology + workload;
+    # the parametric curve does not know how many instances tile
+    # together, so we default die-level to ALU-level (no reuse
+    # assumed). Real-product archetypes override bytes_per_mac_die.
     bytes_per_op = _precision_byte_width(precision)
-    if reuse == ReuseTopology.ISOLATED:
-        bytes_per_mac = 2.0 * bytes_per_op
-    elif reuse == ReuseTopology.INTRA_ALU_BROADCAST:
-        bytes_per_mac = 2.0 * bytes_per_op / W
-    elif reuse == ReuseTopology.MESH_STREAMING:
-        n = max(1, int(math.sqrt(W)))
-        bytes_per_mac = 2.0 * bytes_per_op / n
-    else:  # SYSTOLIC_STATIONARY
-        n = max(1, int(math.sqrt(W)))
-        bytes_per_mac = bytes_per_op / n
+    bytes_per_mac_alu = 2.0 * bytes_per_op
+    bytes_per_mac_die = bytes_per_mac_alu  # no topology-level reuse assumed
 
     return DotProductALU(
         name=f"Parametric {precision} W={W}",
@@ -337,13 +364,18 @@ def parametric_dot_product_alu(
         area_mm2=area_mm2,
         transistor_count_k=total_k,
         pj_per_clock=pj_per_clock,
-        bytes_per_mac=bytes_per_mac,
+        bytes_per_mac_alu=bytes_per_mac_alu,
+        bytes_per_mac_die=bytes_per_mac_die,
         is_parametric=True,
         citation=(
             f"Analytical: {W} * {c_mult_k} K mult + "
             f"{tree_k:.1f} K tree + {c_accum_k:.1f} K accum + "
             f"{c_pipe_k:.1f} K pipe + {c_route_k:.1f} K route. "
-            f"Density {density_mt_per_mm2:.0f} MT/mm^2 at {process_nm} nm."
+            f"Density {density_mt_per_mm2:.0f} MT/mm^2 at {process_nm} nm. "
+            f"ALU-level bandwidth is 2*{bytes_per_op:.1f} = "
+            f"{bytes_per_mac_alu:.1f} B/MAC (constant across W); die-"
+            f"level bandwidth equals ALU-level for the parametric "
+            f"curve since no topology is assumed."
         ),
     )
 
@@ -399,12 +431,15 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.000088,      # 7 K trans / 80 MT/mm^2
             transistor_count_k=7.0,
             pj_per_clock=0.050,
-            bytes_per_mac=0.0625,   # 2/32 for a 32x32 mesh
+            bytes_per_mac_alu=2.0,   # each PE reads 2 bytes (A + B) per MAC
+            bytes_per_mac_die=0.0625, # 2N/N^2 = 2/32 for a 32x32 mesh
             citation=(
                 "Bare INT8 multiplier (~4 K trans) + INT32 adder "
                 "(~2 K) + pipeline reg (~1 K). Matches "
                 "microarch_accounting.build_kpu_tile_accounting() "
-                "'FMA unit' row at 0.050 pJ/clock."
+                "'FMA unit' row at 0.050 pJ/clock. Die-level "
+                "bandwidth reflects the 32x32 mesh: only edge PEs "
+                "read from scratchpad, 64 B/clock feeding 1024 MACs."
             ),
         ),
         DotProductALU(
@@ -417,12 +452,14 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.000188,      # 15 K trans / 80 MT/mm^2
             transistor_count_k=15.0,
             pj_per_clock=0.111,
-            bytes_per_mac=0.0625,
+            bytes_per_mac_alu=2.0,
+            bytes_per_mac_die=0.0625,
             citation=(
                 "Full PE: FMA + 2 op regs + accum reg + mesh-forward "
                 "mux + token/coord comparator + clock latch. Sums to "
                 "0.111 pJ/clock in microarch_accounting per-PE "
-                "breakdown."
+                "breakdown. Die-level bandwidth: 32x32 mesh edge-"
+                "feed gives 2/N = 2/32 B/MAC."
             ),
         ),
 
@@ -437,12 +474,15 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.00172,       # 78 K trans / 45 MT/mm^2 (logic)
             transistor_count_k=78.0,
             pj_per_clock=2.5,
-            bytes_per_mac=8.0,      # 2 FP32 operands per FMA, no reuse
+            bytes_per_mac_alu=8.0,   # 2 FP32 operands = 2 * 4 B
+            bytes_per_mac_die=8.0,   # no topology reuse in the CUDA path
             citation=(
                 "10 M transistors across 128 FP32 FMA lanes per SM. "
                 "Per-lane ~78 K trans, 1720 um^2. Energy 2.5 pJ/clock "
                 "matches building_block_energy.build_nvidia_sm_cuda_"
-                "path_building_block() at full activity."
+                "path_building_block() at full activity. CUDA path "
+                "has no systolic / mesh reuse - each lane reads "
+                "fresh operands from RF for every MAC."
             ),
         ),
 
@@ -457,13 +497,17 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.00045,       # ~35 K trans / 80 MT/mm^2, scaled for 12 nm
             transistor_count_k=35.0,
             pj_per_clock=0.55,      # 4 FP16 mult + small tree
-            bytes_per_mac=0.5,      # 2/W = 2/4 B/MAC when fed FP16 frags
+            bytes_per_mac_alu=4.0,   # 2 FP16 operands = 2 * 2 B
+            bytes_per_mac_die=0.5,   # 8x8x4 HMMA: 4/8 B/MAC at matmul level
             citation=(
                 "Volta V100 / Turing T4 first-generation Tensor Core. "
                 "Per lane: 4 FP16 multiplies into a 3-adder reduction "
                 "tree with FP32 accumulator. Hand-tuned from NVIDIA "
                 "Volta whitepaper area breakdowns + public die-shot "
-                "analyses (640 TCs total, ~25 M trans dedicated)."
+                "analyses (640 TCs total, ~25 M trans dedicated). "
+                "Die-level bandwidth from the 8x8x4 HMMA matmul: "
+                "fragment reuse across output tile drives 4/8 = 0.5 "
+                "B/MAC."
             ),
         ),
 
@@ -478,13 +522,17 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.00137,       # ~110 K trans / 80 MT/mm^2
             transistor_count_k=110.0,
             pj_per_clock=1.28,      # 16 * 0.08 pJ/MAC (per microarch) = 1.28
-            bytes_per_mac=0.125,    # 2/16 when feeding a 16x16 matmul frag
+            bytes_per_mac_alu=2.0,   # 2 INT8 operands per MAC
+            bytes_per_mac_die=0.125, # 16x16x16 HMMA: 2/16 B/MAC at matmul
             citation=(
                 "Ampere GA10x 3rd-gen Tensor Core lane. Each SM has "
                 "4 TCs aggregating ~40 M MAC-array transistors for "
                 "4096 INT8 MACs/clock; per-lane W=16, ~110 K trans, "
                 "0.08 pJ/MAC (microarch_accounting 'Tensor Core "
-                "bare MAC array' amortized to per-instance)."
+                "bare MAC array' amortized to per-instance). Die-"
+                "level bandwidth from 16x16x16 HMMA matmul: "
+                "fragment A (256 B) + fragment B (256 B) feed 4096 "
+                "MACs -> 0.125 B/MAC."
             ),
         ),
 
@@ -499,12 +547,14 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.00090,       # ~190 K trans / 210 MT/mm^2 (4 nm denser)
             transistor_count_k=190.0,
             pj_per_clock=1.95,
-            bytes_per_mac=0.0625,   # 2/32 for W=32 broadcast
+            bytes_per_mac_alu=2.0,   # 2 FP8 operands (1 B each)
+            bytes_per_mac_die=0.0625, # 32x32x32 HMMA target: 2/32 B/MAC
             citation=(
                 "Hopper H100 4th-gen Tensor Core with FP8 Transformer "
                 "Engine. W=32, FP8 operand with FP32 accumulator. "
                 "Hand-tuned from NVIDIA H100 whitepaper TC specs "
-                "(4x throughput vs Ampere for new precisions)."
+                "(4x throughput vs Ampere for new precisions). Die-"
+                "level bandwidth assumes 32x32-shaped matmul tiles."
             ),
         ),
 
@@ -519,13 +569,19 @@ def default_alu_catalog() -> List[DotProductALU]:
             area_mm2=0.00028,       # ~18 K trans / 65 MT/mm^2
             transistor_count_k=18.0,
             pj_per_clock=0.18,
-            bytes_per_mac=0.0078,   # 1/128 for a 128x128 systolic
+            bytes_per_mac_alu=4.0,   # BF16: 2 * 2 B operands per cell per MAC
+            bytes_per_mac_die=0.0156, # 128x128 systolic: 2/128 B/MAC activations
             citation=(
                 "TPU v4 MXU: 128x128 BF16 systolic array. Per-cell: "
                 "BF16 multiplier + FP32 accumulator + stationary-"
                 "weight latch. Hand-tuned from Jouppi et al. 2023 "
                 "('TPU v4: An Optically Reconfigurable Supercomputer "
-                "for Machine Learning') and ISCA 2017 TPU v1 paper."
+                "for Machine Learning') and ISCA 2017 TPU v1 paper. "
+                "Die-level bandwidth: weights are stationary (1-time "
+                "load amortized), activations stream at 128 B/clock "
+                "feeding 128*128 MACs/clock at steady state = "
+                "2/128 B/MAC once you count activations + eventual "
+                "weight reloads."
             ),
         ),
     ]
@@ -742,7 +798,8 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
             f'<td class="num">{alu.area_mm2*1e6:.0f}</td>'
             f'<td class="num">{alu.transistor_count_k:.0f}</td>'
             f'<td class="num"><strong>{alu.pj_per_clock:.3f}</strong></td>'
-            f'<td class="num">{alu.bytes_per_mac:.3f}</td>'
+            f'<td class="num">{alu.bytes_per_mac_alu:.2f}</td>'
+            f'<td class="num"><strong>{alu.bytes_per_mac_die:.3f}</strong></td>'
             f'<td class="src"><em>{html.escape(alu.citation)}</em></td>'
             f'</tr>'
         )
@@ -758,7 +815,8 @@ def render_alu_instance_table(alus: List[DotProductALU]) -> str:
         '<th>Area / instance (μm²)</th>'
         '<th>Trans / instance (K)</th>'
         '<th>pJ / clock / instance</th>'
-        '<th>Bytes / MAC</th>'
+        '<th>B / MAC (ALU)</th>'
+        '<th>B / MAC (die)</th>'
         '<th>Derivation</th>'
         '</tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
@@ -777,7 +835,8 @@ def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
             f'<td class="num">{alu.area_per_mac_mm2*1e6:.1f}</td>'
             f'<td class="num">{alu.transistor_count_per_mac_k:.1f}</td>'
             f'<td class="num"><strong>{alu.pj_per_mac:.3f}</strong></td>'
-            f'<td class="num">{alu.bytes_per_mac:.3f}</td>'
+            f'<td class="num">{alu.bytes_per_mac_alu:.2f}</td>'
+            f'<td class="num"><strong>{alu.bytes_per_mac_die:.3f}</strong></td>'
             f'<td class="num"><strong>{alu.tops_per_watt_ceiling:.1f}</strong></td>'
             f'</tr>'
         )
@@ -789,7 +848,8 @@ def render_alu_per_mac_table(alus: List[DotProductALU]) -> str:
         '<th>Area / MAC (μm²)</th>'
         '<th>Trans / MAC (K)</th>'
         '<th>pJ / MAC</th>'
-        '<th>Bytes / MAC</th>'
+        '<th>B / MAC (ALU)</th>'
+        '<th>B / MAC (die)</th>'
         '<th>TOPS / W ceiling</th>'
         '</tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
@@ -810,7 +870,7 @@ def render_parametric_curve_table(curve: List[DotProductALU]) -> str:
             f'<td class="num">{alu.transistor_count_per_mac_k:.2f}</td>'
             f'<td class="num">{alu.area_per_mac_mm2*1e6:.1f}</td>'
             f'<td class="num">{alu.pj_per_mac:.4f}</td>'
-            f'<td class="num">{alu.bytes_per_mac:.4f}</td>'
+            f'<td class="num">{alu.bytes_per_mac_alu:.2f}</td>'
             f'<td class="num"><strong>{alu.tops_per_watt_ceiling:.0f}</strong></td>'
             f'</tr>'
         )
@@ -825,7 +885,7 @@ def render_parametric_curve_table(curve: List[DotProductALU]) -> str:
         '<th></th>'
         '<th>Trans (K)</th><th>Area (μm²)</th><th>pJ/clock</th>'
         '<th>Trans/MAC (K)</th><th>Area/MAC (μm²)</th>'
-        '<th>pJ/MAC</th><th>B/MAC</th>'
+        '<th>pJ/MAC</th><th>B/MAC (ALU)</th>'
         '<th>TOPS/W</th>'
         '</tr></thead>'
     )
@@ -970,19 +1030,24 @@ def render_tradeoff_chart_js(
       - bytes per MAC
     Real products appear as labelled markers.
     """
-    # Curve series (from parametric model)
+    # Curve series (from parametric model). Parametric curve assumes
+    # no topology-level reuse, so bytes_per_mac_alu == bytes_per_mac_die.
     curve_x = [p.W for p in curve]
     curve_y_trans_per_mac = [p.transistor_count_per_mac_k for p in curve]
     curve_y_pj_per_mac = [p.pj_per_mac for p in curve]
-    curve_y_bytes_per_mac = [p.bytes_per_mac for p in curve]
+    curve_y_bytes_per_mac_alu = [p.bytes_per_mac_alu for p in curve]
 
-    # Product points (non-parametric)
+    # Product points (non-parametric). Real products report BOTH ALU-
+    # level demand (what the ALU itself reads) and die-level demand
+    # (what the die as a whole reads from memory after topology-level
+    # reuse).
     real = [a for a in alus if not a.is_parametric]
     real_x = [a.W for a in real]
     real_labels = [a.name for a in real]
     real_y_trans = [a.transistor_count_per_mac_k for a in real]
     real_y_pj = [a.pj_per_mac for a in real]
-    real_y_bytes = [a.bytes_per_mac for a in real]
+    real_y_bytes_alu = [a.bytes_per_mac_alu for a in real]
+    real_y_bytes_die = [a.bytes_per_mac_die for a in real]
 
     def panel(y_curve: List[float], y_real: List[float],
               title: str, ytitle: str, log_y: bool = False) -> Dict[str, Any]:
@@ -1023,6 +1088,67 @@ def render_tradeoff_chart_js(
             layout["yaxis"]["type"] = "log"
         return {"data": traces, "layout": layout}
 
+    # Bandwidth panel is special: the ALU-level bandwidth is a
+    # constant (per precision) across W - the curve is flat. The
+    # die-level bandwidth drops steeply for mesh / systolic / tiled-
+    # matmul topologies but has nothing to do with W directly; it is
+    # a topology-level property. Show both so the reader sees:
+    #   - the flat ALU-level line (a dot-product ALU always reads
+    #     2 * bytes_per_op per MAC, no matter how wide it is)
+    #   - the scattered die-level points (orange diamonds at lower
+    #     B/MAC values where topology reuse kicks in)
+    bandwidth_panel = {
+        "data": [
+            {
+                "type": "scatter", "mode": "lines+markers",
+                "name": "Parametric ALU-level (= 2 × bytes/operand)",
+                "x": curve_x, "y": curve_y_bytes_per_mac_alu,
+                "line": {"color": "#5b8ff9"},
+                "marker": {"size": 6, "color": "#5b8ff9"},
+            },
+            {
+                "type": "scatter", "mode": "markers+text",
+                "name": "Real products - ALU-level",
+                "x": real_x, "y": real_y_bytes_alu,
+                "text": [n for n in real_labels],
+                "textposition": "top right",
+                "textfont": {"size": 9, "color": "#586374"},
+                "marker": {
+                    "size": 9, "color": "#9db4e0",
+                    "symbol": "circle-open",
+                    "line": {"width": 1.5, "color": "#5b8ff9"},
+                },
+            },
+            {
+                "type": "scatter", "mode": "markers+text",
+                "name": "Real products - die-level (after topology reuse)",
+                "x": real_x, "y": real_y_bytes_die,
+                "text": real_labels,
+                "textposition": "bottom right",
+                "textfont": {"size": 10, "color": "#0a2540"},
+                "marker": {
+                    "size": 11, "color": "#d4860b",
+                    "symbol": "diamond",
+                    "line": {"width": 1, "color": "#0a2540"},
+                },
+            },
+        ],
+        "layout": {
+            "title": (
+                "Operand bandwidth per MAC: ALU-level (constant) "
+                "vs die-level (topology-dependent)"
+            ),
+            "xaxis": {
+                "title": "ALU Width (MACs per instance per clock)",
+                "type": "log", "tickvals": [1, 2, 4, 8, 16, 32, 64],
+            },
+            "yaxis": {"title": "Bytes / MAC", "type": "log"},
+            "margin": {"t": 50, "b": 60, "l": 70, "r": 20},
+            "showlegend": True,
+            "legend": {"orientation": "h", "y": -0.2},
+        },
+    }
+
     payload = {
         "chart_sol_trans_per_mac": panel(
             curve_y_trans_per_mac, real_y_trans,
@@ -1034,11 +1160,7 @@ def render_tradeoff_chart_js(
             "Energy per MAC vs ALU width",
             "pJ / MAC", log_y=True,
         ),
-        "chart_sol_bytes_per_mac": panel(
-            curve_y_bytes_per_mac, real_y_bytes,
-            "Operand bandwidth per MAC vs ALU width",
-            "Bytes / MAC", log_y=True,
-        ),
+        "chart_sol_bytes_per_mac": bandwidth_panel,
     }
     return (
         f"const SOL_CHARTS = {json.dumps(payload)};\n"
