@@ -233,7 +233,7 @@ def _render_brand_header(assets: BrandAssets, page_title: str, subtitle: str) ->
 def _render_brand_footer(plan_version: str) -> str:
     return f"""
 <footer class="brand">
-  <div>Branes AI &mdash; micro-architectural model delivery</div>
+  <div>Branes AI -- micro-architectural model delivery</div>
   <div class="plan-ref">Plan: {html.escape(plan_version)}</div>
 </footer>
 """
@@ -397,7 +397,7 @@ def render_index_page(
     entries = "".join(
         f'<li><a href="hardware/{html.escape(r.sku)}.html">'
         f'{html.escape(r.display_name or r.sku)}</a> '
-        f'&mdash; <span class="meta">{html.escape(r.archetype or "unspecified")}, '
+        f'-- <span class="meta">{html.escape(r.archetype or "unspecified")}, '
         f'{html.escape(r.overall_confidence)}</span></li>'
         for r in reports
     )
@@ -413,6 +413,16 @@ ul.sku-list li {{ padding: 10px 14px; background: #fff; margin-bottom: 6px;
 ul.sku-list a {{ color: #0a2540; text-decoration: none; font-weight: 600; }}
 ul.sku-list a:hover {{ text-decoration: underline; }}
 .meta {{ color: #586374; font-size: 13px; font-weight: 400; }}
+section.highlighted-link {{ background: #fff; border-left: 4px solid #3fc98a;
+                             padding: 14px 18px; border-radius: 4px;
+                             margin-bottom: 18px;
+                             box-shadow: 0 1px 3px rgba(0,0,0,0.04); }}
+section.highlighted-link h3 {{ margin: 0 0 6px; color: #0a2540; }}
+section.highlighted-link p {{ margin: 6px 0; color: #3a4452; }}
+a.primary-link {{ display: inline-block; padding: 8px 16px; background: #0a2540;
+                  color: #fff; border-radius: 4px; text-decoration: none;
+                  font-weight: 600; }}
+a.primary-link:hover {{ background: #15385c; }}
   </style>
 </head>
 <body>
@@ -420,13 +430,87 @@ ul.sku-list a:hover {{ text-decoration: underline; }}
 <main>
   <section class="page-header">
     <h2>Report index</h2>
-    <div class="meta">Per-SKU layer panels + cross-SKU comparison.</div>
+    <div class="meta">Per-SKU layer panels, cross-SKU comparison, and the compute-archetype exploration harness.</div>
   </section>
   {_render_legend()}
+  <section class="highlighted-link">
+    <h3>Compute-archetype comparison (GPU vs. TPU vs. KPU)</h3>
+    <p>The M0.5 exploration harness: five Plotly charts comparing energy per op,
+    peak throughput, ops/W, pipeline utilization vs. tile count, and PE array-size scaling.</p>
+    <p><a class="primary-link" href="compare_archetypes.html">Open compute-archetype comparison &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Native-op energy breakdown (specific products)</h3>
+    <p>Theoretical energy floor per MAC for each <em>shipping product</em>'s
+    native operation, broken down by memory-hierarchy layer. Coral (14nm)
+    vs. KPU T128 (16nm) vs. Jetson Orin AGX (8nm) - process advantages
+    mixed in.</p>
+    <p><a class="primary-link" href="native_op_energy.html">Open native-op breakdown &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Generalized architecture comparison (apples-to-apples)</h3>
+    <p>Same data but with the process-technology advantage stripped out:
+    CPU / GPU / TPU / KPU / DSP / DFM / CGRA at matched process, plus
+    process-scaling curves and peak-TOPS-at-fixed-TDP envelopes.</p>
+    <p><a class="primary-link" href="generalized_architecture.html">Open generalized comparison &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Competitive trajectory: Jetson vs. KPU target</h3>
+    <p>How long would NVIDIA's Jetson line take to reach the KPU T128
+    TOPS/W target at its demonstrated rate of improvement? Historical
+    trajectory + extrapolations + parity-year analysis.</p>
+    <p><a class="primary-link" href="competitive_trajectory.html">Open trajectory analysis &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Per-structure energy accounting (SM vs. KPU tile)</h3>
+    <p>Model-validation view: itemizes every micro-architectural structure
+    that fires on the native operation (HMMA instruction for the
+    Streaming Multiprocessor, PE MAC in domain-flow wavefront for the
+    KPU tile) with citations and amortization factors. Cross-validates
+    the simplified architectural-efficiency model.</p>
+    <p><a class="primary-link" href="microarch_accounting.html">Open per-structure accounting &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Building-block energy (per-clock view, for SoC composition)</h3>
+    <p>Engine-level budget: total pJ/clock for every major component of
+    the SM (register file, instruction pipeline, warp scheduler,
+    operand collectors, CUDA cores, SFUs, Tensor Cores) and the KPU
+    tile (L1 scratchpad, 2D FMA mesh, edge injectors). Used to
+    compose SoCs and super-clusters: total power = count x utilization
+    x power-per-block + overhead. Cross-validates the per-MAC view.</p>
+    <p><a class="primary-link" href="building_block_energy.html">Open building-block energy &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Silicon composition hierarchy (ALU &rarr; PE &rarr; Tile &rarr; Cluster &rarr; SoC)</h3>
+    <p>Tracks silicon efficiency as an ALU is wrapped in successively
+    larger composition levels. Shows TOPS/W decay across canonical
+    hierarchies: NVIDIA Ampere GPU (Orin AGX), KPU T128 NPU,
+    ARM Cortex-A78 CPU cluster, and Qualcomm Hexagon DSP. The
+    per-level "active fraction" exposes how much silicon serves
+    coordination vs compute and is the primary input to workload-
+    driven SoC specialization.</p>
+    <p><a class="primary-link" href="silicon_composition.html">Open silicon-composition hierarchy &rarr;</a></p>
+  </section>
+  <section class="highlighted-link">
+    <h3>Mission Capability per Watt (embodied-AI feasibility)</h3>
+    <p>Applies the silicon-efficiency analysis to ten catalogued
+    embodied-AI missions (nano-swarm, body-worn exoskeleton,
+    30-day AUV, 6-month glider fleet, 72-hour UGV pack mule, 7-day
+    USAR microrobot, HALE pseudosatellite, LEO sat onboard AI,
+    autonomous ag tractor, 8-hour humanoid). For each mission,
+    GPU-class vs KPU-class architectures are evaluated against the
+    platform's binding physical threshold (battery, thermal
+    envelope, payload mass). Outputs a binary CAN-DO / CANNOT-DO
+    verdict plus mission-hours-enabled curves for energy-bound
+    missions.</p>
+    <p><a class="primary-link" href="mission_capability.html">Open mission-capability analysis &rarr;</a></p>
+  </section>
   <section>
-    <h3>SKUs</h3>
+    <h3>Per-SKU layer panels</h3>
+    <p class="meta">Layer 1-7 content populates in milestones M1-M7.
+    Panels currently show <em>NOT YET POPULATED</em> placeholders by design.</p>
     <ul class="sku-list">{entries}</ul>
-    <p><a href="compare.html">Cross-SKU comparison &rarr;</a></p>
+    <p><a href="compare.html">Cross-SKU layer comparison (shell, populated at M8) &rarr;</a></p>
   </section>
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}

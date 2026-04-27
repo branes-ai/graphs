@@ -58,9 +58,9 @@ phase (measurement-driven calibration) completes.
 | `jetson_orin_agx_64gb` | SIMT GPU + Tensor Cores | LPDDR5 | Primary edge SKU |
 | `intel_core_i7_12700k` | CPU (P+E core) | DDR5 | x86 desktop |
 | `ryzen_9_8945hs` | CPU (Zen 4) | DDR5 | x86 mobile |
-| `kpu_t64`  | Distributed dataflow | on-die | Refreshed at M0.5 |
-| `kpu_t128` | Distributed dataflow | on-die | New SKU at M0.5 |
-| `kpu_t256` | Distributed dataflow | on-die | Refreshed at M0.5 |
+| `kpu_t64`  | Distributed domain flow | on-die | Refreshed at M0.5 |
+| `kpu_t128` | Distributed domain flow | on-die | New SKU at M0.5 |
+| `kpu_t256` | Distributed domain flow | on-die | Refreshed at M0.5 |
 | `coral_edge_tpu` | Systolic weight-stationary | internal | Edge inference |
 | `hailo8`  | Edge DSP | internal | Edge inference |
 | `hailo10h` | Edge DSP | internal | Edge inference |

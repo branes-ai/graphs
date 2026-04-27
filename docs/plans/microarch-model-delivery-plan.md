@@ -68,12 +68,12 @@ Foundation that every subsequent milestone depends on. No layer content yet.
 Prerequisite for any KPU coverage in M1–M7. This milestone does two things: (1) refines the KPU tile abstraction to reflect what the architecture actually is, and (2) stands up the three-way GPU vs. TPU vs. KPU comparison view that the product positioning lives or dies by.
 
 **Context — why the KPU tile model needs refinement.**
-The current KPU tile model was set up as a matrix tile to reach peak-ops/s parity with NVIDIA Tensor Cores. Tensor Cores are concurrent dot products with reduction trees; modeling the KPU tile the same way was a convenient apples-to-apples shortcut but misrepresents the architecture. The KPU is a **distributed dataflow fabric**: each tile executes **dot-product wavefronts** across a PE array and relies on **perfect pipelining** for high utilization and low energy per op. The competitive story follows from that: the KPU **does not win on peak ops/s** (Tensor Cores do; we compensate with larger PE arrays such as 32×32), it **wins on energy per op** in the steady-state pipelined regime. Modeling the tile as "big matrix multiplier" erases that story. Modeling it as "dataflow pipeline with fill/drain separated from per-PE steady-state MAC energy" surfaces it.
+The current KPU tile model was set up as a matrix tile to reach peak-ops/s parity with NVIDIA Tensor Cores. Tensor Cores are concurrent dot products with reduction trees; modeling the KPU tile the same way was a convenient apples-to-apples shortcut but misrepresents the architecture. The KPU is a **distributed domain-flow fabric**: each tile executes **dot-product wavefronts** across a PE array and relies on **perfect pipelining** for high utilization and low energy per op. The competitive story follows from that: the KPU **does not win on peak ops/s** (Tensor Cores do; we compensate with larger PE arrays such as 32×32), it **wins on energy per op** in the steady-state pipelined regime. Modeling the tile as "big matrix multiplier" erases that story. Modeling it as "domain-flow pipeline with fill/drain separated from per-PE steady-state MAC energy" surfaces it.
 
 This milestone is partly exploratory — PE array shape and tile count for T64 / T128 / T256 are design levers, and we need the comparison harness in place to play with them before committing.
 
 **Part A — KPU tile abstraction refinement:**
-- Replace the matrix-tile abstraction in `src/graphs/hardware/models/accelerators/kpu_*.py` with a dataflow-tile abstraction carrying:
+- Replace the matrix-tile abstraction in `src/graphs/hardware/models/accelerators/kpu_*.py` with a domain-flow-tile abstraction carrying:
   - PE array shape per tile (design knob; 16×16 is today's default, 32×32 is the likely target).
   - Wavefront scheduling model: dot-product wavefronts streaming through the PE array, with **per-wavefront fill and drain cycles accounted separately** from the steady-state MAC energy.
   - Per-PE steady-state MAC energy — the field where the KPU energy advantage is expressed and defended.
@@ -83,13 +83,13 @@ This milestone is partly exploratory — PE array shape and tile count for T64 /
 - Document the new tile model in `docs/hardware/` so the story is written down explicitly, not implicit in code.
 
 **Part B — Configure T64 / T128 / T256 under the refined abstraction:**
-- Re-parameterize T64 and T256 against the dataflow-tile abstraction. Larger PE arrays (32×32) are on the table as a design-space lever; the three SKUs may shift shape during exploration.
-- Build T128 as a new SKU sized between T64 and T256 in dataflow-tile terms.
+- Re-parameterize T64 and T256 against the domain-flow-tile abstraction. Larger PE arrays (32×32) are on the table as a design-space lever; the three SKUs may shift shape during exploration.
+- Build T128 as a new SKU sized between T64 and T256 in domain-flow-tile terms.
 - Register all three in `hardware/mappers/__init__.py` and the factory registry.
 - T768 remains out of scope.
 
 **Part C — GPU vs. TPU vs. KPU comparison harness:**
-Add a dedicated **compute-archetype comparison page** (`compare_archetypes.html`) to the M0 report skeleton, representing the three archetypes with Jetson Orin AGX Tensor Cores (SIMT + reduction trees), Coral Edge TPU (systolic weight-stationary), and KPU T128 (distributed dataflow). The page stands up at M0.5 with the limited data available at this stage and gains detail as M1–M7 land.
+Add a dedicated **compute-archetype comparison page** (`compare_archetypes.html`) to the M0 report skeleton, representing the three archetypes with Jetson Orin AGX Tensor Cores (SIMT + reduction trees), Coral Edge TPU (systolic weight-stationary), and KPU T128 (distributed domain-flow). The page stands up at M0.5 with the limited data available at this stage and gains detail as M1–M7 land.
 
 Five visualizations, each designed around the product narrative:
 1. **Energy per op** at fixed precision across archetypes — KPU's argument.
@@ -111,10 +111,10 @@ The comparison harness is the exploration tool we use during M0.5 to decide the 
 - Layer 1–7 numeric population — starts in M1. M0.5 produces the structural KPU config plus the comparison scaffolding; per-layer numeric content fills in as the layer milestones progress.
 
 **Exit criteria:**
-- `get_mapper_by_name('kpu_t64')`, `kpu_t128`, `kpu_t256` resolve under the refined dataflow-tile abstraction with `pipeline_utilization` surfaced.
+- `get_mapper_by_name('kpu_t64')`, `kpu_t128`, `kpu_t256` resolve under the refined domain-flow-tile abstraction with `pipeline_utilization` surfaced.
 - `docs/hardware/` carries a written description of the new tile model and the positioning rationale.
 - `compare_archetypes.html` renders with all five visualizations, populated from whatever analytical data is available at this point (stub values where M1–M7 haven't landed yet); every visualization has working interactivity (e.g., the utilization slider for chart 4, the array-size toggle for chart 5).
-- Plan-owner review confirms (a) the tile model captures the distributed-dataflow pipeline story, (b) the comparison views are useful for design-space exploration, and (c) the chosen PE array sizes for T64 / T128 / T256 are the ones to lock before M1 populates numeric content.
+- Plan-owner review confirms (a) the tile model captures the distributed domain-flow pipeline story, (b) the comparison views are useful for design-space exploration, and (c) the chosen PE array sizes for T64 / T128 / T256 are the ones to lock before M1 populates numeric content.
 
 **Risks specific to this milestone:**
 - **Array-size exploration open-ended.** Trying 16×16 vs. 32×32 vs. 64×64 for each SKU can consume unbounded time. Timebox to the ~7–10 day budget; exploration beyond that spills to a post-M8 follow-up issue.
@@ -249,7 +249,7 @@ Once M8 ships, the bottom-up microbenchmark plan re-activates. Its Phase 0 scaff
 
 ## Timeline
 
-~7–9 weeks for one developer end to end. The plan owner is the dedicated reviewer, so milestone sign-offs are not rate-limited by external schedule. M0.5 is now the widest milestone (7–10 days) because it absorbs both the KPU dataflow-tile refinement and the compute-archetype comparison harness that drives product-positioning exploration. Parallelizable across two developers at the M1 / M2 split and again at M4 / M5; M0.5's harness work can partially overlap with M1 on non-KPU SKUs if a second developer is available.
+~7–9 weeks for one developer end to end. The plan owner is the dedicated reviewer, so milestone sign-offs are not rate-limited by external schedule. M0.5 is now the widest milestone (7–10 days) because it absorbs both the KPU domain-flow-tile refinement and the compute-archetype comparison harness that drives product-positioning exploration. Parallelizable across two developers at the M1 / M2 split and again at M4 / M5; M0.5's harness work can partially overlap with M1 on non-KPU SKUs if a second developer is available.
 
 | Week | Milestones                         |
 |------|------------------------------------|
@@ -264,7 +264,7 @@ Once M8 ships, the bottom-up microbenchmark plan re-activates. Its Phase 0 scaff
 
 ## Risks
 
-1. **M0.5 scope and exploration budget.** M0.5 combines the KPU dataflow-tile refinement (Parts A–B), the compute-archetype comparison harness (Part C), and internal-consistency tests (Part D). Array-size exploration and the pipeline-utilization sensitivity view are inherently open-ended. If the KPU mapper or energy model needs changes beyond configuration to support the dataflow-tile abstraction, or if the TPU mapper needs refactoring for fair comparison, M0.5 slips. Mitigate by timeboxing to the 7–10 day budget, by spilling excess array-size exploration to a post-M8 follow-up, and by handling any TPU-mapper gap as a separate tracked issue rather than an M0.5 detour.
+1. **M0.5 scope and exploration budget.** M0.5 combines the KPU domain-flow-tile refinement (Parts A–B), the compute-archetype comparison harness (Part C), and internal-consistency tests (Part D). Array-size exploration and the pipeline-utilization sensitivity view are inherently open-ended. If the KPU mapper or energy model needs changes beyond configuration to support the domain-flow-tile abstraction, or if the TPU mapper needs refactoring for fair comparison, M0.5 slips. Mitigate by timeboxing to the 7–10 day budget, by spilling excess array-size exploration to a post-M8 follow-up, and by handling any TPU-mapper gap as a separate tracked issue rather than an M0.5 detour.
 2. **"THEORETICAL" misread by external audiences.** The artifact ships externally with Branes branding. Mitigate with a prominent confidence-ladder legend on the landing page and a provenance badge next to every number.
 3. **M6 (SoC fabric) datasheet scarcity.** Topology and per-hop numbers are thinner in public sources, especially for the accelerator SKUs (KPU, Hailo, Edge TPU). Mitigate by allocating the 5–7 day budget (double other cache layers) and flagging slippage at the end of week 4 if sources aren't pinned down.
 4. **SKU list drift.** Stakeholders may ask for additional SKUs mid-plan (T768, datacenter GPUs, etc.). The list is locked as of 2026-04-20; add-ons become a post-M8 follow-up.
@@ -276,7 +276,7 @@ Proposed epic and child issues (not yet filed — pending review):
 
 - **Epic:** Micro-architectural model delivery M0–M8 (Layers 1–7).
   - M0: Scaffolding (schema + dataclasses + CLI skeleton + branded HTML template + JSON contract).
-  - M0.5: KPU dataflow-tile refinement (T64/T128/T256) + compute-archetype comparison harness (GPU/TPU/KPU).
+  - M0.5: KPU domain-flow-tile refinement (T64/T128/T256) + compute-archetype comparison harness (GPU/TPU/KPU).
   - M1: Layer 1 (ALU) model population + panel.
   - M2: Layer 2 (register file) model population + panel.
   - M3: Layer 3 (L1 cache) model population + panel.
@@ -291,7 +291,7 @@ Each child issue carries an acceptance-criteria block explicitly stating: "No me
 ## Decisions locked during plan review (2026-04-20)
 
 - **SKU list:** Jetson Orin AGX, i7-12700K, Ryzen 9 8945HS, KPU T64 / T128 (new) / T256, Coral Edge TPU, Hailo-8, Hailo-10H. T768 out of scope.
-- **KPU dataflow-tile refinement is a prerequisite** (M0.5), sequenced between M0 and M1. KPU tiles are modeled as distributed dataflow fabrics with perfect-pipelining semantics, not matrix tiles; product positioning targets energy per op, not peak ops/s. M0.5 also delivers the GPU/TPU/KPU compute-archetype comparison harness that makes the positioning legible.
+- **KPU domain-flow-tile refinement is a prerequisite** (M0.5), sequenced between M0 and M1. KPU tiles are modeled as distributed domain-flow fabrics with perfect-pipelining semantics, not matrix tiles; product positioning targets energy per op, not peak ops/s. M0.5 also delivers the GPU/TPU/KPU compute-archetype comparison harness that makes the positioning legible.
 - **Reviewer:** plan owner is the dedicated reviewer; no bandwidth bottleneck.
 - **M8 output:** one deck, internal engineering audience. Investor due-diligence slide is a downstream derivation from the engineering deck.
 - **Branding:** Branes logo (`docs/img/Branes_Logo.jpg`) integrated in M0 HTML template and M8 PPT master; artifacts ship externally with Branes identity.

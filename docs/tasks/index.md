@@ -60,7 +60,7 @@ This directory contains task specifications for delegatable work items.
 |----|-------|----------|--------|------------|--------|
 | TASK-2026-021 | Micro-arch model delivery (umbrella, Layers 1-7) | high | ready | - | 0.10.0-microarch |
 | TASK-2026-022 | M0: Scaffolding (schema, dataclass stubs, branded CLI+HTML) | high | ready | - | 0.10.0-microarch |
-| TASK-2026-023 | M0.5: KPU dataflow-tile model + GPU/TPU/KPU comparison harness | high | ready | 022 | 0.10.0-microarch |
+| TASK-2026-023 | M0.5: KPU domain-flow-tile model + GPU/TPU/KPU comparison harness | high | ready | 022 | 0.10.0-microarch |
 | TASK-2026-024 | M1: Layer 1 (ALU) model population + panel | high | ready | 022, 023 | 0.10.0-microarch |
 | TASK-2026-025 | M2: Layer 2 (register file) model population + panel | high | ready | 024 | 0.10.0-microarch |
 | TASK-2026-026 | M3: Layer 3 (L1 cache) model population + panel | high | ready | 025 | 0.10.0-microarch |
@@ -133,7 +133,7 @@ TASK-2026-021 (Umbrella / epic) [ready]
      |
      +---> TASK-2026-022 (M0: Scaffolding) [ready]
                 |
-                +---> TASK-2026-023 (M0.5: KPU dataflow-tile + comparison harness) [ready]
+                +---> TASK-2026-023 (M0.5: KPU domain-flow-tile + comparison harness) [ready]
                            |
                            v
                       TASK-2026-024 (M1: Layer 1 ALU) [ready]

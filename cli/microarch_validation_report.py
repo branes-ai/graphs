@@ -43,6 +43,31 @@ from graphs.reporting import (  # noqa: E402
     render_comparison_page,
     render_index_page,
 )
+from graphs.reporting.compare_archetypes import (  # noqa: E402
+    build_default_comparison,
+    render_archetype_page,
+)
+from graphs.reporting.native_op_energy import (  # noqa: E402
+    build_default_comparison as build_native_op_comparison,
+    render_native_op_page,
+)
+from graphs.reporting.generalized_architecture import (  # noqa: E402
+    build_default_report as build_generalized_report,
+    render_generalized_page,
+)
+from graphs.reporting.competitive_trajectory import (  # noqa: E402
+    build_default_report as build_trajectory_report,
+    render_trajectory_page,
+)
+from graphs.reporting.microarch_accounting import (  # noqa: E402
+    build_default_report as build_accounting_report,
+    render_accounting_page,
+)
+from graphs.reporting.building_block_energy import (  # noqa: E402
+    build_default_report as build_block_energy_report,
+    render_building_block_page,
+)
+from graphs.hardware.resource_model import Precision  # noqa: E402
 
 
 DEFAULT_SKU_LIST = [
@@ -64,9 +89,9 @@ SKU_ARCHETYPE = {
     "jetson_orin_agx_64gb": "simt",
     "intel_core_i7_12700k": "cpu",
     "ryzen_9_8945hs": "cpu",
-    "kpu_t64": "dataflow",
-    "kpu_t128": "dataflow",
-    "kpu_t256": "dataflow",
+    "kpu_t64": "domainflow",
+    "kpu_t128": "domainflow",
+    "kpu_t256": "domainflow",
     "coral_edge_tpu": "systolic",
     "hailo8": "dsp",
     "hailo10h": "dsp",
@@ -92,7 +117,7 @@ def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
 
 
 def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:
-    """Write index.html, compare.html, and one hardware/<sku>.html per SKU."""
+    """Write index.html, compare.html, compare_archetypes.html, and one hardware/<sku>.html per SKU."""
     hw_dir = out_dir / "hardware"
     hw_dir.mkdir(parents=True, exist_ok=True)
     written = []
@@ -105,10 +130,104 @@ def write_html_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Pat
         p = hw_dir / f"{r.sku}.html"
         p.write_text(render_sku_page(r, _repo_root))
         written.append(p)
-    # Comparison shell
+    # Comparison shell (M0 stub, M8 fills in)
     compare_path = out_dir / "compare.html"
     compare_path.write_text(render_comparison_page(reports, _repo_root))
     written.append(compare_path)
+    # Compute-archetype comparison (M0.5)
+    try:
+        archetype_report = build_default_comparison(
+            precision=Precision.INT8,
+            kpu_sku="Stillwater-KPU-T128",
+            kpu_display_name="KPU T128",
+        )
+        arch_path = out_dir / "compare_archetypes.html"
+        arch_path.write_text(render_archetype_page(archetype_report, _repo_root))
+        written.append(arch_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: compare_archetypes.html skipped ({exc})", file=_sys.stderr)
+    # Native-op energy breakdown (M0.5) - specific shipping products
+    try:
+        native_op_report = build_native_op_comparison(
+            precision=Precision.INT8, kpu_sku="Stillwater-KPU-T128",
+        )
+        native_path = out_dir / "native_op_energy.html"
+        native_path.write_text(render_native_op_page(native_op_report, _repo_root))
+        written.append(native_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: native_op_energy.html skipped ({exc})", file=_sys.stderr)
+    # Generalized architecture comparison (M0.5) - process-normalized
+    try:
+        gen_report = build_generalized_report(
+            reference_process_nm=16, power_budget_w=12.0,
+        )
+        gen_path = out_dir / "generalized_architecture.html"
+        gen_path.write_text(render_generalized_page(gen_report, _repo_root))
+        written.append(gen_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: generalized_architecture.html skipped ({exc})", file=_sys.stderr)
+    # Competitive trajectory (M0.5) - Jetson history + KPU target extrapolation
+    try:
+        traj_report = build_trajectory_report()
+        traj_path = out_dir / "competitive_trajectory.html"
+        traj_path.write_text(render_trajectory_page(traj_report, _repo_root))
+        written.append(traj_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: competitive_trajectory.html skipped ({exc})", file=_sys.stderr)
+    # Per-structure micro-arch accounting (M0.5) - SM vs KPU tile validation
+    try:
+        acct_report = build_accounting_report()
+        acct_path = out_dir / "microarch_accounting.html"
+        acct_path.write_text(render_accounting_page(acct_report, _repo_root))
+        written.append(acct_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: microarch_accounting.html skipped ({exc})", file=_sys.stderr)
+    # Building-block (per-clock) engine energy (M0.5) - SoC composition
+    try:
+        bb_report = build_block_energy_report()
+        bb_path = out_dir / "building_block_energy.html"
+        bb_path.write_text(render_building_block_page(bb_report, _repo_root))
+        written.append(bb_path)
+    except RuntimeError as exc:
+        import sys as _sys
+        print(f"warning: building_block_energy.html skipped ({exc})", file=_sys.stderr)
+    # Silicon composition hierarchy (ALU -> PE -> Tile -> Cluster -> SoC)
+    try:
+        from graphs.reporting.silicon_composition import (
+            build_default_composition_report,
+            render_composition_page,
+        )
+        comp_report = build_default_composition_report()
+        comp_path = out_dir / "silicon_composition.html"
+        comp_path.write_text(render_composition_page(comp_report, _repo_root))
+        written.append(comp_path)
+    except Exception as exc:
+        # Composition report is best-effort; don't block other reports
+        # if it fails.
+        import sys as _sys
+        print(f"warning: silicon_composition.html skipped ({exc})",
+              file=_sys.stderr)
+    # Mission-capability analysis (10 embodied-AI missions, GPU vs KPU)
+    try:
+        from graphs.reporting.mission_capability import (
+            build_default_report as build_mission_report,
+            render_mission_capability_page,
+        )
+        mission_report = build_mission_report()
+        mission_path = out_dir / "mission_capability.html"
+        mission_path.write_text(
+            render_mission_capability_page(mission_report, _repo_root)
+        )
+        written.append(mission_path)
+    except Exception as exc:
+        import sys as _sys
+        print(f"warning: mission_capability.html skipped ({exc})",
+              file=_sys.stderr)
     return written
 
 
