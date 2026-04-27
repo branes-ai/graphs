@@ -5,8 +5,6 @@ from pathlib import Path
 
 from graphs.reporting.mission_capability import (
     ArchProfile,
-    Mission,
-    MissionCategory,
     PhysicsThreshold,
     build_default_report,
     default_mission_catalog,
