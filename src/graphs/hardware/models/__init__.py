@@ -36,6 +36,8 @@ from .edge.jetson_orin_nano_8gb import jetson_orin_nano_8gb_resource_model
 from .edge.jetson_orin_agx_cpu import jetson_orin_agx_cpu_resource_model
 from .edge.coral_edge_tpu import coral_edge_tpu_resource_model
 from .edge.qrb5165 import qrb5165_resource_model
+from .edge.intel_core_i7_12700k import intel_core_i7_12700k_resource_model
+from .edge.ryzen_9_8945hs import ryzen_9_8945hs_resource_model
 from .automotive.jetson_thor_128gb import jetson_thor_128gb_resource_model
 from .automotive.ti_tda4vm import ti_tda4vm_resource_model
 from .automotive.ti_tda4vl import ti_tda4vl_resource_model
@@ -73,6 +75,8 @@ __all__ = [
     'jetson_orin_agx_cpu_resource_model',
     'coral_edge_tpu_resource_model',
     'qrb5165_resource_model',
+    'intel_core_i7_12700k_resource_model',
+    'ryzen_9_8945hs_resource_model',
     'jetson_thor_128gb_resource_model',
     'ti_tda4vm_resource_model',
     'ti_tda4vl_resource_model',
