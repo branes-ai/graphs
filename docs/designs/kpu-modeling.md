@@ -1,8 +1,9 @@
 # KPU Modeling
 
 This document describes how the `graphs` repository models the **Stillwater
-Knowledge Processing Unit (KPU)** — a programmable spatial-dataflow
-accelerator in the `DOMAIN_FLOW` architecture class. Read
+Knowledge Processing Unit (KPU)** — a programmable distributed domain-flow
+accelerator in the `DOMAIN_FLOW` architecture class, capable of direct
+execution of systems of affine recurrence equations (SARE). Read
 [`micro-architecture-modeling-methodology.md`](./micro-architecture-modeling-methodology.md)
 first for the shared latency/energy methodology; this document only
 covers KPU-specific mechanisms.

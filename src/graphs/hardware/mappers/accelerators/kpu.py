@@ -524,6 +524,29 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
     return KPUMapper(model, thermal_profile=thermal_profile)
 
 
+def create_kpu_t128_mapper(thermal_profile: str = None) -> KPUMapper:
+    """
+    Create KPU mapper for Stillwater KPU-T128 (mid-range embodied AI).
+
+    Introduced in M0.5. 128 tiles with 24x24 PE arrays per tile,
+    scheduled OUTPUT_STATIONARY on a distributed domain-flow fabric.
+
+    Args:
+        thermal_profile: Thermal profile name (e.g., "6W", "12W", "18W")
+                        If None, uses default ("12W")
+
+    Returns:
+        KPUMapper configured for KPU-T128 with heterogeneous tile roles (89/26/13)
+    """
+    from ...models.accelerators.kpu_t128 import kpu_t128_resource_model
+    from ...architectural_energy import KPUTileEnergyAdapter
+
+    model = kpu_t128_resource_model()
+    model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
+
+    return KPUMapper(model, thermal_profile=thermal_profile)
+
+
 def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     """
     Create KPU mapper for Stillwater KPU-T256 (high-performance edge/datacenter AI).

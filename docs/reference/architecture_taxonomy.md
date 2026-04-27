@@ -28,7 +28,8 @@ This document provides a comprehensive taxonomy of the hardware architectures mo
 Hardware architectures differ fundamentally in **how they execute computational graphs**:
 - **Sequential control flow** (CPU): One instruction stream controlling multiple data
 - **Parallel control flow** (GPU): Multiple instruction streams with lockstep execution
-- **Dataflow execution** (KPU, CGRA): Data movement drives computation
+- **Domain-flow execution** (KPU): Distributed domain-flow fabric executes systems of affine recurrence equations directly
+- **Spatial dataflow** (CGRA): Reconfigurable data movement drives computation
 - **Systolic arrays** (TPU): Weight-stationary dataflow with pipeline propagation
 
 Each paradigm has different performance characteristics, bottlenecks, and optimal workload profiles.
@@ -45,7 +46,7 @@ Each paradigm has different performance characteristics, bottlenecks, and optima
 | **GPU** | SIMT | Single (per warp) | Multiple (lockstep) | Data Parallel |
 | **DSP** | VLIW/SIMD | Explicitly parallel | Vector/Scalar | Hybrid |
 | **TPU** | Systolic Array | Weight-stationary | Streaming | Dataflow |
-| **KPU** | MIMD (Domain Flow) | Data-driven | Streaming | Spatial Dataflow |
+| **KPU** | MIMD (Domain Flow) | Data-driven | Streaming | Distributed Domain Flow (SARE execution) |
 | **DPU** | Tile-based VLIW | Per-tile control | Scratchpad | Reconfigurable |
 | **CGRA** | Spatial Dataflow | Fabric configuration | Streaming | Reconfigurable |
 

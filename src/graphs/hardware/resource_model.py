@@ -341,6 +341,60 @@ class ComputeResource:
                 self.clock_domain.sustained_clock_hz)
 
 
+class TileScheduleClass(Enum):
+    """
+    Scheduling discipline that governs how a tile's fill/drain overhead
+    composes across an N-tile workload.
+
+    This is the key lever that distinguishes the KPU's domain-flow advantage
+    from a systolic weight-stationary architecture. The KPU is a distributed
+    domain-flow machine capable of direct execution of systems of affine
+    recurrence equations; the chart-4 "effective pipeline utilization vs.
+    workload tile count" plot is driven by this enum.
+
+    See ``docs/hardware/kpu_domainflow_tile_model.md``.
+
+    Values:
+        OUTPUT_STATIONARY: KPU. Fill and drain of tile N overlap with
+            fill and drain of tile N+1 on the fabric; the workload pays
+            fill+drain once across N tiles. Effective utilization
+            saturates near 1.0 at ~12+ tiles.
+
+        WEIGHT_STATIONARY: TPU / classic systolic. Weights are held in
+            the PE array while inputs stream through. Modern designs
+            (TPU v1 onward) double-buffer weights so fill/drain per
+            tile is largely amortized (Jouppi et al., ISCA 2017, sec. 2).
+            The dominant utilization loss is *shape/tile mismatch*
+            against the fixed PE dimensions and bandwidth-bound layers,
+            NOT fill/drain. We model the combined effect as a flat
+            floor; numerical values published for real workloads vary
+            widely (10-55% of peak depending on design and workload
+            shape; Jouppi ISCA 2017 Table 3; DeepEdgeBench 2021).
+
+        ROW_STATIONARY: Reserved for Eyeriss-style row-stationary
+            dataflow schedules; modeled like OUTPUT_STATIONARY for M0.5.
+
+        SIMT_DATA_PARALLEL: NVIDIA/AMD GPU and GPU-style SIMT data-
+            parallel execution. Not a spatial dataflow fabric; CUDA
+            cores execute the instruction stream cycle-by-cycle, with
+            operands supplied from registers/shared memory. Utilization
+            is capped by warp divergence, warp occupancy, and memory
+            coherence traffic, and *does not amortize* with workload
+            tile count. Distinct from the naive-CUDA-GEMM software-
+            level "one thread per output" pattern, which is output-
+            stationary at the register level but runs on SIMT hardware.
+
+        UNSPECIFIED: No pipeline model applied (e.g., CPU SIMD, DSP).
+            Effective utilization is treated as 1.0; other utilization
+            penalties are modeled elsewhere.
+    """
+    OUTPUT_STATIONARY = "output_stationary"
+    WEIGHT_STATIONARY = "weight_stationary"
+    ROW_STATIONARY = "row_stationary"
+    SIMT_DATA_PARALLEL = "simt_data_parallel"
+    UNSPECIFIED = "unspecified"
+
+
 @dataclass
 class TileSpecialization:
     """
@@ -356,6 +410,16 @@ class TileSpecialization:
     - 10 tiles: TC32 units (large matmuls)
 
     All precisions are native (no emulation) - just on different tile types.
+
+    Domain-flow-tile fields (added M0.5):
+        schedule_class: scheduling discipline governing fill/drain composition.
+        pipeline_fill_cycles: cycles for a wavefront to propagate through
+            the PE array (one-time per pipeline start).
+        pipeline_drain_cycles: cycles to drain the final wavefront.
+        pe_mac_energy_pj_steady_state: optional per-PE MAC energy in the
+            steady-state pipelined regime (pJ). If None, the architectural
+            energy model derives it from CIRCUIT_TYPE_MULTIPLIER and the
+            precision-specific energy_scaling.
     """
     tile_type: str                # "INT8-primary", "BF16-primary", "Matrix-8x8"
     num_tiles: int                # Count of tiles with this specialization
@@ -373,6 +437,93 @@ class TileSpecialization:
     # Array processor characteristics
     array_dimensions: Tuple[int, int] = (16, 8)  # e.g., 16×8 systolic array
     pe_configuration: str = "Mixed"              # "INT8-MAC", "BF16-FMA", "Mixed"
+
+    # Domain-flow-tile scheduling parameters (M0.5)
+    schedule_class: TileScheduleClass = TileScheduleClass.UNSPECIFIED
+    pipeline_fill_cycles: int = 0
+    pipeline_drain_cycles: int = 0
+    pe_mac_energy_pj_steady_state: Optional[float] = None
+
+    # SIMT_DATA_PARALLEL parameters (GPU Tensor Core, warp-level execution)
+    # Defaults are neutral (no penalty) for non-SIMT tiles.
+    warp_divergence_rate: float = 0.0    # fraction of warp-issue cycles with divergence
+    warp_occupancy: float = 1.0          # achieved warps / theoretical max warps
+    coherence_efficiency: float = 1.0    # memory coherence / reuse efficiency
+
+    @property
+    def pe_count(self) -> int:
+        """Total processing elements in this tile's PE array."""
+        rows, cols = self.array_dimensions
+        return rows * cols
+
+    def effective_pipeline_utilization(
+        self,
+        num_tiles_in_workload: int,
+        steady_cycles_per_tile: int = 128,
+    ) -> float:
+        """
+        Effective pipeline utilization given the workload's tile-count shape.
+
+        Args:
+            num_tiles_in_workload: how many tiles the workload decomposes
+                into along the sequential pipeline.
+            steady_cycles_per_tile: steady-state wavefront duration per
+                tile, in cycles. For a GEMM tile this is the reduction
+                dimension K; default 128 is representative of a mid-size
+                model's inner-dimension.
+
+        Output-stationary (KPU): fill and drain amortize across N tiles.
+            total = fill + N * steady + drain
+            useful = N * steady
+            -> util = N / (N + (fill+drain)/steady)
+            Saturates near 1.0 as N grows; the KPU's signature advantage.
+
+        Weight-stationary (TPU / systolic): approximated as a flat
+            utilization floor representing the combined effect of
+            shape/tile mismatch, bandwidth-bound layers, and any
+            residual fill/drain overhead after double-buffering.
+            Published values range from 10-55% on real workloads
+            (Jouppi ISCA 2017 Table 3 reports 10-25% on TPU v1
+            production workloads). Modeled as
+            steady/(steady+fill+drain) using effective fill/drain that
+            represents the combined loss mechanism, not literal
+            wavefront propagation cycles.
+
+        SIMT data-parallel (GPU Tensor Core): flat utilization capped
+            by warp divergence, warp occupancy, and memory coherence.
+            util = (1 - warp_divergence_rate * 0.5)
+                   * warp_occupancy * coherence_efficiency
+            Does not amortize with workload tile count.
+
+        Unspecified: no pipeline model; returns 1.0.
+        """
+        if num_tiles_in_workload <= 0:
+            return 0.0
+        fill = int(self.pipeline_fill_cycles)
+        drain = int(self.pipeline_drain_cycles)
+        steady = max(int(steady_cycles_per_tile), 1)
+
+        if self.schedule_class == TileScheduleClass.OUTPUT_STATIONARY or \
+           self.schedule_class == TileScheduleClass.ROW_STATIONARY:
+            total = num_tiles_in_workload * steady + fill + drain
+            useful = num_tiles_in_workload * steady
+            return useful / total if total > 0 else 1.0
+
+        if self.schedule_class == TileScheduleClass.WEIGHT_STATIONARY:
+            total = num_tiles_in_workload * (steady + fill + drain)
+            useful = num_tiles_in_workload * steady
+            return useful / total if total > 0 else 1.0
+
+        if self.schedule_class == TileScheduleClass.SIMT_DATA_PARALLEL:
+            # Divergence: a divergent warp serializes 2 code paths, so
+            # the fractional cost is ~0.5 * divergence_rate.
+            divergence_penalty = 1.0 - 0.5 * max(0.0, min(1.0, self.warp_divergence_rate))
+            occ = max(0.0, min(1.0, self.warp_occupancy))
+            coh = max(0.0, min(1.0, self.coherence_efficiency))
+            return divergence_penalty * occ * coh
+
+        # UNSPECIFIED: pipeline model not applicable for this tile class
+        return 1.0
 
 
 @dataclass

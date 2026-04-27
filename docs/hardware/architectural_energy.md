@@ -53,7 +53,7 @@
 
   ## KPU (Domain-Flow) Energy Model
 
-  The KPU's energy model is based on a programmable distributed dataflow architecture that eliminates traditional instruction processing in favor of token-based execution. This results in a unique energy profile:
+  The KPU's energy model is based on a programmable distributed domain-flow architecture that eliminates traditional instruction processing in favor of token-based execution on an affine-recurrence-scheduled fabric. This results in a unique energy profile:
 
    * Token-Based Execution: The core of the architecture's efficiency.
        * Data Token Signature Matching: Energy is spent in hardware to match incoming data tokens (operands) with the instruction tokens to which they belong. When all operands of the instruction token are available, the instruction token is ready to be dispatched to the target ALU.

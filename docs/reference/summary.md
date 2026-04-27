@@ -62,14 +62,14 @@
 
 ## Energy efficiency
 
-**The Stillwater KPU achieves superior energy efficiency over GPUs by using a distributed dataflow architecture that minimizes control overhead, exploits fine-grained parallelism, and avoids speculative execution. It executes ML workloads with lower power by aligning computation with operand availability and precision needs.**
+**The Stillwater KPU achieves superior energy efficiency over GPUs by using a distributed domain-flow architecture that minimizes control overhead, exploits fine-grained parallelism, and avoids speculative execution. Programs are expressed as systems of affine recurrence equations and statically scheduled onto the fabric, so the KPU executes ML workloads with lower power by aligning computation with operand availability and precision needs.**
 
 ---
 
 ### Key Architectural Features Driving Energy Efficiency
 
-- **Distributed Dataflow Execution**  
-  Unlike GPUs, which rely on centralized control and SIMD-style execution, the KPU uses a *dataflow model* where operations are triggered by operand availability. This avoids wasted cycles and speculative execution, reducing dynamic power draw.
+- **Distributed Domain-Flow Execution**  
+  Unlike GPUs, which rely on centralized control and SIMD-style execution, the KPU uses a *domain-flow model* where operations are triggered by operand availability on a fabric statically scheduled from an affine-recurrence program. This avoids wasted cycles and speculative execution, reducing dynamic power draw.
 
 - **Precision-Adaptive Compute**  
   The KPU supports *mixed-precision arithmetic*, including posit and logfloat formats, allowing it to use just enough precision for each operation. This reduces switching activity and memory bandwidth compared to fixed-width FP32/FP16 on GPUs.
