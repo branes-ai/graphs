@@ -69,10 +69,7 @@ from graphs.reporting.building_block_energy import (  # noqa: E402
 )
 from graphs.hardware.resource_model import Precision  # noqa: E402
 from graphs.benchmarks.schema import LayerTag  # noqa: E402
-from graphs.reporting.layer_panels import (  # noqa: E402
-    build_layer1_panel,
-    cross_sku_layer1_chart,
-)
+from graphs.reporting.layer_panels import build_layer1_panel  # noqa: E402
 
 
 DEFAULT_SKU_LIST = [

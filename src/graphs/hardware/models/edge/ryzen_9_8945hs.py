@@ -163,7 +163,11 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
 
         peak_bandwidth=89.6e9,  # LPDDR5x-7500 dual-channel
         l1_cache_per_unit=32 * 1024,        # 32 KB L1D per Zen 4 core
-        l2_cache_total=16 * 1024 * 1024,    # 16 MB L3 LLC (Phoenix)
+        # Schema convention: ``l2_cache_total`` is the Last-Level
+        # Cache (LLC), not the physical L2. For Phoenix this is the
+        # 16 MB L3. See the i7-12700K mapper in
+        # ``graphs.hardware.mappers.cpu`` for the full rationale.
+        l2_cache_total=16 * 1024 * 1024,    # 16 MB L3 (LLC)
         main_memory=32 * 1024**3,
 
         energy_per_flop_fp32=z4_fabric.energy_per_flop_fp32,

@@ -133,6 +133,18 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
     p_fabric = _i7_12700k_p_core_fabric(p_core_freq_hz)
     e_fabric = _i7_12700k_e_core_fabric(e_core_freq_hz)
 
+    # Hybrid-core thread budget: P-cores SMT (16 threads), E-cores do not
+    # (4 threads). The legacy compute_units / threads_per_unit pair is
+    # used by some consumers as compute_units * threads_per_unit, so
+    # express the effective core count and weighted threads_per_unit
+    # the same way the existing mapper in graphs.hardware.mappers.cpu
+    # does: 8 P + 0.6 * 4 E = 10 effective cores, threads_per_unit=2
+    # (P-core-dominant), giving 20 runnable threads.
+    p_cores = 8
+    e_cores = 4
+    e_core_efficiency = 0.6
+    effective_cores = p_cores + int(e_cores * e_core_efficiency)  # 10
+
     # Aggregate peak ops across both fabrics, per precision
     def _peak(prec: Precision) -> float:
         p = p_fabric.get_peak_ops_per_sec(prec)
@@ -151,11 +163,13 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         hardware_type=HardwareType.CPU,
         compute_fabrics=[p_fabric, e_fabric],
 
-        # Legacy compatibility
-        compute_units=12,            # 8 P + 4 E physical cores
-        threads_per_unit=2,          # weighted (P=2 / E=1)
+        # Legacy compatibility -- effective_cores * threads_per_unit
+        # gives the realistic 20-thread budget (8 P-cores SMT'd + 4
+        # non-SMT E-cores, with E-core derate applied).
+        compute_units=effective_cores,   # 10 effective cores
+        threads_per_unit=2,              # P-core-dominant (E-cores no SMT)
         warps_per_unit=1,
-        warp_size=8,                 # 256-bit AVX2 -> 8 FP32 lanes
+        warp_size=8,                     # 256-bit AVX2 -> 8 FP32 lanes
 
         precision_profiles={
             Precision.FP64: PrecisionProfile(
@@ -207,7 +221,12 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
 
         peak_bandwidth=76.8e9,  # DDR5-4800 dual-channel ~76.8 GB/s
         l1_cache_per_unit=48 * 1024,        # 48 KB L1D per P-core
-        l2_cache_total=25 * 1024 * 1024,    # 25 MB L3 LLC
+        # Schema convention: ``l2_cache_total`` is the Last-Level Cache
+        # (the cache that determines DRAM-spill behavior), not the
+        # physical L2. For Alder Lake this is the 25 MB L3. See the
+        # i7-12700K mapper in ``graphs.hardware.mappers.cpu`` for the
+        # full rationale.
+        l2_cache_total=25 * 1024 * 1024,    # 25 MB L3 (LLC)
         main_memory=64 * 1024**3,
 
         energy_per_flop_fp32=p_fabric.energy_per_flop_fp32,

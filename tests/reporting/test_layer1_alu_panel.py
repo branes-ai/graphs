@@ -8,7 +8,6 @@ from graphs.core.confidence import ConfidenceLevel
 from graphs.hardware.resource_model import Precision
 from graphs.reporting.layer_panels import (
     build_layer1_panel,
-    build_layer1_panels_for_skus,
     cross_sku_layer1_chart,
     resolve_sku_resource_model,
 )
@@ -19,8 +18,8 @@ from graphs.reporting.layer_panels.layer1_alu import (
 )
 
 
-# The 9 SKUs the M1 microarch report ships against.
-TARGET_SKUS = [
+# SKUs that must always resolve (no optional dependency on Hailo SDK).
+REQUIRED_SKUS = [
     "jetson_orin_agx_64gb",
     "intel_core_i7_12700k",
     "ryzen_9_8945hs",
@@ -28,20 +27,32 @@ TARGET_SKUS = [
     "kpu_t128",
     "kpu_t256",
     "coral_edge_tpu",
-    "hailo8",
-    "hailo10h",
 ]
+
+# Hailo SKUs are optional in the runtime contract; tests must mirror that.
+OPTIONAL_SKUS = ["hailo8", "hailo10h"]
+
+TARGET_SKUS = REQUIRED_SKUS + OPTIONAL_SKUS
 
 
 class TestSKUResolution:
-    @pytest.mark.parametrize("sku", TARGET_SKUS)
-    def test_every_target_sku_resolves(self, sku):
-        """Every M1 target SKU must resolve to a HardwareResourceModel."""
+    @pytest.mark.parametrize("sku", REQUIRED_SKUS)
+    def test_required_sku_resolves(self, sku):
+        """Required SKUs must always resolve."""
         m = resolve_sku_resource_model(sku)
         assert m is not None, f"{sku} did not resolve"
 
-    @pytest.mark.parametrize("sku", TARGET_SKUS)
-    def test_every_target_sku_has_compute_fabrics(self, sku):
+    @pytest.mark.parametrize("sku", OPTIONAL_SKUS)
+    def test_optional_sku_resolves_or_skips(self, sku):
+        """Hailo SKUs are optional: either resolve and have fabrics,
+        or return None when their model module fails to import."""
+        m = resolve_sku_resource_model(sku)
+        if m is None:
+            pytest.skip(f"{sku} model unavailable in this environment")
+        assert m.compute_fabrics, f"{sku} resolved but has no compute_fabrics"
+
+    @pytest.mark.parametrize("sku", REQUIRED_SKUS)
+    def test_required_sku_has_compute_fabrics(self, sku):
         m = resolve_sku_resource_model(sku)
         assert m is not None
         assert m.compute_fabrics, f"{sku} has no compute_fabrics"
@@ -117,15 +128,23 @@ class TestNewCPUResourceModels:
                 )
 
 
+def _skip_if_optional_unresolved(sku: str) -> None:
+    """Skip the test when an optional SKU's model module is missing."""
+    if sku in OPTIONAL_SKUS and resolve_sku_resource_model(sku) is None:
+        pytest.skip(f"{sku} model unavailable in this environment")
+
+
 class TestPanelBuilder:
     @pytest.mark.parametrize("sku", TARGET_SKUS)
     def test_panel_is_alu_layer(self, sku):
+        _skip_if_optional_unresolved(sku)
         panel = build_layer1_panel(sku)
         assert panel.layer is LayerTag.ALU
         assert "ALU" in panel.title
 
     @pytest.mark.parametrize("sku", TARGET_SKUS)
     def test_panel_has_status_and_metrics(self, sku):
+        _skip_if_optional_unresolved(sku)
         panel = build_layer1_panel(sku)
         assert panel.status != "not_populated", (
             f"{sku} produced an unpopulated panel"
@@ -134,6 +153,7 @@ class TestPanelBuilder:
 
     @pytest.mark.parametrize("sku", TARGET_SKUS)
     def test_panel_has_summary_text(self, sku):
+        _skip_if_optional_unresolved(sku)
         panel = build_layer1_panel(sku)
         assert panel.summary
         assert "compute fabric" in panel.summary
@@ -200,6 +220,7 @@ class TestPhysicalPlausibility:
     def test_int8_peak_in_plausible_range(self, sku):
         """INT8 peak ops/sec must be in [1 GOPS, 1 POPS] for any
         embodied-AI-class SKU."""
+        _skip_if_optional_unresolved(sku)
         m = resolve_sku_resource_model(sku)
         peak = _peak_ops_per_sec(m, Precision.INT8)
         if peak == 0:
@@ -212,6 +233,8 @@ class TestPhysicalPlausibility:
         """If any precision is THEORETICAL, the panel cannot be CALIBRATED."""
         for sku in TARGET_SKUS:
             m = resolve_sku_resource_model(sku)
+            if m is None:
+                continue  # optional SKU unavailable
             tags = {
                 _provenance_tag(m, p)
                 for p in LAYER1_PRECISIONS

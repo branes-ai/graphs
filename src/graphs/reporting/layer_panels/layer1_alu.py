@@ -42,6 +42,16 @@ LAYER1_PRECISIONS: Tuple[Precision, ...] = (
 )
 
 
+# Confidence-tag rank: higher = better. Derived from ConfidenceLevel
+# so adding a new level requires only updating this single map.
+_CONFIDENCE_RANK: Dict[str, int] = {
+    ConfidenceLevel.CALIBRATED.value.upper():   3,
+    ConfidenceLevel.INTERPOLATED.value.upper(): 2,
+    ConfidenceLevel.THEORETICAL.value.upper():  1,
+    ConfidenceLevel.UNKNOWN.value.upper():      0,
+}
+
+
 # --------------------------------------------------------------------
 # SKU id -> resource model resolution
 # --------------------------------------------------------------------
@@ -84,18 +94,19 @@ def _build_sku_factory_map() -> Dict[str, Callable[[], HardwareResourceModel]]:
         "coral_edge_tpu":        coral_edge_tpu_resource_model,
     }
 
-    # Hailo SKUs are optional (model files exist but may fail to import
-    # in trimmed environments). Fall back to None on import error.
+    # Hailo SKUs are optional. ImportError covers the trimmed-deps
+    # case (module not present); other exceptions during model
+    # construction should propagate so they don't get swallowed.
     try:
         from graphs.hardware.models.edge.hailo8 import hailo8_resource_model
         factory["hailo8"] = hailo8_resource_model
-    except Exception:
-        pass
+    except ImportError:
+        pass  # hailo8 model unavailable in this environment
     try:
         from graphs.hardware.models.edge.hailo10h import hailo10h_resource_model
         factory["hailo10h"] = hailo10h_resource_model
-    except Exception:
-        pass
+    except ImportError:
+        pass  # hailo10h model unavailable in this environment
 
     return factory
 
@@ -198,8 +209,7 @@ def _aggregate_status(
             levels.append(_provenance_tag(model, p))
     if not levels:
         return "not_populated"
-    rank = {"CALIBRATED": 3, "INTERPOLATED": 2, "THEORETICAL": 1, "UNKNOWN": 0}
-    worst = min(levels, key=lambda x: rank.get(x, 0))
+    worst = min(levels, key=lambda x: _CONFIDENCE_RANK.get(x, 0))
     return worst.lower()
 
 
@@ -324,10 +334,16 @@ def cross_sku_layer1_chart(
     chart = CrossSKUChart(precisions=[], skus=list(sku_ids),
                           peak_ops={}, provenance={})
 
+    # Resolve once per SKU; the inner loop iterates 8 precisions, so
+    # caching avoids 7x redundant factory-map rebuilds per SKU.
+    models: Dict[str, Optional[HardwareResourceModel]] = {
+        sku: resolve_sku_resource_model(sku) for sku in sku_ids
+    }
+
     for prec in LAYER1_PRECISIONS:
         any_value = False
         for sku in sku_ids:
-            model = resolve_sku_resource_model(sku)
+            model = models.get(sku)
             if model is None:
                 continue
             peak = _peak_ops_per_sec(model, prec)
