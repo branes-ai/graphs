@@ -412,7 +412,7 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
     # ========================================================================
     # Hardware Resource Model (uses NEW thermal operating points + compute fabrics)
     # ========================================================================
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name="Jetson-Orin-AGX-64GB",
         hardware_type=HardwareType.GPU,
 
@@ -496,6 +496,33 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         max_concurrent_kernels=8,
         wave_quantization=4,
         bom_cost_profile=bom_cost,
+
+        # M3 Layer 3: Ampere SM L1 / shared-memory unified store.
+        # Hardware-managed when used as L1, software-managed when
+        # configured as shared memory; classified as cache because
+        # the dominant deployment uses unified L1 cache mode.
+        l1_storage_kind="cache",
     )
+
+    # M3 Layer 3 provenance for L1 cache fields
+    from graphs.core.confidence import EstimationConfidence
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Ampere SM Architecture Whitepaper: 192 KB unified "
+                    "L1 / shared, of which 128 KB configurable as L1"),
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.80,
+            source=("Ampere unified L1: hardware-managed when used as "
+                    "L1, software-managed when configured as shared mem"),
+        ),
+    )
+
+    return model
 
 

@@ -457,6 +457,83 @@ def _render_layer2_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_layer3_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render an L1 capacity / energy / storage-kind table across SKUs.
+
+    Pulls data from cross_sku_layer3_chart so the values stay in sync
+    with each per-SKU panel.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer3_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer3_chart(sku_ids)
+    if not chart.l1_per_unit_bytes:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    def _kib_str(b):
+        if b is None:
+            return "--"
+        if b >= 1024 * 1024:
+            return f"{b / (1024*1024):.1f} MiB"
+        return f"{b / 1024:.0f} KiB"
+
+    def _row(label, getter, fmt):
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in chart.skus:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+            else:
+                cells.append(f"<td>{fmt(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    rows = (
+        _row("L1 per unit",
+             lambda s: chart.l1_per_unit_bytes.get(s), _kib_str)
+        + _row("L1 total",
+               lambda s: chart.l1_total_bytes.get(s), _kib_str)
+        + _row("Storage kind",
+               lambda s: chart.storage_kind.get(s),
+               lambda v: html.escape(v))
+        + _row("Energy (pJ/byte)",
+               lambda s: chart.energy_pj_per_byte.get(s),
+               lambda v: f"{v:.3f}")
+    )
+
+    badge_cells = []
+    for sku in chart.skus:
+        prov = chart.provenance.get(sku, "UNKNOWN")
+        badge = _safe_status_class(prov.lower())
+        badge_cells.append(
+            f'<td><span class="badge {badge}">{html.escape(prov)}</span></td>'
+        )
+    rows += "<tr><th>Provenance</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Layer 3: L1 cache / scratchpad capacity across SKUs</h3>
+  <p class="meta">Cache-managed SKUs (CPU, GPU L1) carry a per-op-type
+  hit rate; scratchpad-managed SKUs (KPU tile-local SRAM, TPU unified
+  buffer, Hailo on-chip SRAM) are deterministic 1.0 by design and
+  rely on the host compiler for staging.</p>
+  <table class="layer3-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -468,8 +545,9 @@ def render_comparison_page(
       - SKU summary table (always)
       - Layer 1 peak-TOPS-per-precision table (M1)
       - Layer 2 register-energy table (M2)
+      - Layer 3 L1-capacity / storage-kind table (M3)
 
-    M3-M8 add later layer comparison sections.
+    M4-M8 add later layer comparison sections.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -481,6 +559,7 @@ def render_comparison_page(
     )
     layer1_section = _render_layer1_cross_sku_table(reports)
     layer2_section = _render_layer2_cross_sku_table(reports)
+    layer3_section = _render_layer3_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -490,8 +569,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
-table.layer1-cross td, table.layer2-cross td {{ text-align: right; }}
-table.layer1-cross th:first-child, table.layer2-cross th:first-child {{ text-align: left; }}
+table.layer1-cross td, table.layer2-cross td, table.layer3-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -500,7 +579,8 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child {{ text-ali
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      Layer 1 (ALU) lands at M1; remaining layer comparisons follow at M2-M8.
+      Layers 1-3 (ALU, Register File, L1 Cache / Scratchpad) populated;
+      remaining layer comparisons follow at M4-M8.
     </div>
   </section>
   {_render_legend()}
@@ -512,6 +592,7 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child {{ text-ali
   </section>
   {layer1_section}
   {layer2_section}
+  {layer3_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>

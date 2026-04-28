@@ -196,6 +196,9 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
             "matrix":      0.85,
             "default":     0.75,
         },
+
+        # M3 Layer 3: hardware-managed L1 per Zen 4 core.
+        l1_storage_kind="cache",
     )
 
     for prec in (Precision.FP64, Precision.FP32, Precision.FP16,
@@ -227,5 +230,21 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
                         "VDPBF16PS + VPDPBUSD native)"),
             ),
         )
+
+    # M3 Layer 3 provenance for L1 cache fields
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source="AMD Ryzen 9 8945HS (Phoenix, Zen 4): 32 KB L1D per core",
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="x86 architectural fact: hardware-managed coherent L1",
+        ),
+    )
 
     return model
