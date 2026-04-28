@@ -28,21 +28,17 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from graphs.benchmarks.schema import LayerTag
-from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
+from graphs.core.confidence import ConfidenceLevel
 from graphs.hardware.resource_model import (
     HardwareResourceModel,
     HardwareType,
-    Precision,
 )
 from graphs.hardware.technology_profile import (
     MemoryType,
     TechnologyProfile,
 )
 from graphs.reporting.microarch_schema import LayerPanel
-from graphs.reporting.layer_panels.layer1_alu import (
-    _CONFIDENCE_RANK,
-    resolve_sku_resource_model,
-)
+from graphs.reporting.layer_panels.layer1_alu import resolve_sku_resource_model
 
 
 # Per-SKU mapping to the deployment market used by TechnologyProfile.

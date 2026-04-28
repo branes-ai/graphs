@@ -5,7 +5,6 @@ import pytest
 
 from graphs.benchmarks.schema import LayerTag
 from graphs.core.confidence import ConfidenceLevel
-from graphs.hardware.resource_model import HardwareType
 from graphs.reporting.layer_panels import (
     build_layer2_register_panel,
     cross_sku_layer2_chart,
@@ -15,7 +14,6 @@ from graphs.reporting.layer_panels.layer2_register import (
     _kpu_fill_drain_overhead,
     _process_node_nm,
     _representative_alu_energy_pj,
-    _tech_profile_for,
 )
 
 
