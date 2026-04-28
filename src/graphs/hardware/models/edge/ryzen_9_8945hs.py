@@ -187,6 +187,15 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
 
         thermal_operating_points={"45W-mobile": thermal_45w},
         default_thermal_profile="45W-mobile",
+
+        # M2 Layer 2: native AVX-512 (with AVX-512_BF16 / AVX-512_VNNI),
+        # no hybrid scheduling, all 8 cores symmetric. Slightly higher
+        # SIMD efficiency than Alder Lake at every op-kind.
+        simd_efficiency={
+            "elementwise": 0.97,
+            "matrix":      0.85,
+            "default":     0.75,
+        },
     )
 
     for prec in (Precision.FP64, Precision.FP32, Precision.FP16,
@@ -204,6 +213,18 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
             EstimationConfidence.theoretical(
                 score=0.45,
                 source="Horowitz / process-node-energy table at 4nm",
+            ),
+        )
+
+    # M2 Layer 2 provenance for SIMD-efficiency coefficients
+    for op_kind in ("elementwise", "matrix", "default"):
+        model.set_provenance(
+            f"simd_efficiency.{op_kind}",
+            EstimationConfidence.theoretical(
+                score=0.55,
+                source=("CPUMapper analytical default scaled up for "
+                        "Zen 4 native AVX-512 (no hybrid scheduling, "
+                        "VDPBF16PS + VPDPBUSD native)"),
             ),
         )
 
