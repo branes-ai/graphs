@@ -335,13 +335,74 @@ def render_sku_page(
 """
 
 
+def _render_layer1_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render a peak-TOPS table per precision across all SKUs.
+
+    Pulls data via the layer-panel builder so the table reflects the
+    same ComputeFabric numbers as the per-SKU panels.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer1_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer1_chart(sku_ids)
+    if not chart.precisions:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    body_rows = []
+    for prec in chart.precisions:
+        cells = [f"<th>{html.escape(prec.upper())}</th>"]
+        for sku in chart.skus:
+            peak = chart.peak_ops.get((prec, sku))
+            if peak is None:
+                cells.append("<td>--</td>")
+                continue
+            tops = peak / 1e12
+            prov = chart.provenance.get((prec, sku), "UNKNOWN")
+            badge = _safe_status_class(prov.lower())
+            cells.append(
+                f'<td>{tops:.2f}<br/>'
+                f'<span class="badge {badge}">{html.escape(prov)}</span>'
+                f'</td>'
+            )
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+    body = "".join(body_rows)
+
+    return f"""
+<section>
+  <h3>Layer 1: peak ALU throughput across SKUs (TOPS)</h3>
+  <p class="meta">Sum across populated ComputeFabrics per SKU. Provenance
+  badge tracks how each per-precision rate was sourced.</p>
+  <table class="layer1-cross">
+    <thead><tr><th>Precision</th>{header_cells}</tr></thead>
+    <tbody>{body}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
 ) -> str:
     """
-    Render a cross-SKU comparison shell. M0 ships the shell only; M8
-    fills in the interactive Plotly charts.
+    Render a cross-SKU comparison page.
+
+    Currently surfaces:
+      - SKU summary table (always)
+      - Layer 1 peak-TOPS-per-precision table (M1 onward, when any
+        SKU has populated ComputeFabrics)
+
+    M2-M8 add layer-by-layer comparison sections.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -351,6 +412,7 @@ def render_comparison_page(
         f"<td>{html.escape(r.overall_confidence)}</td></tr>"
         for r in reports
     )
+    layer1_section = _render_layer1_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -360,6 +422,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
+table.layer1-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -368,7 +432,7 @@ table th {{ font-size: 12px; text-transform: uppercase; color: #586374; backgrou
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      M0 ships the shell; interactive Plotly comparison charts land at M8.
+      Layer 1 (ALU) lands at M1; remaining layer comparisons follow at M2-M8.
     </div>
   </section>
   {_render_legend()}
@@ -378,6 +442,7 @@ table th {{ font-size: 12px; text-transform: uppercase; color: #586374; backgrou
       <tbody>{rows}</tbody>
     </table>
   </section>
+  {layer1_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>

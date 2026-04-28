@@ -1,4 +1,8 @@
-"""Smoke tests for cli/microarch_validation_report.py at M0 (empty panels)."""
+"""Smoke tests for cli/microarch_validation_report.py.
+
+M0 shipped empty panels; M1 populates the Layer 1 (ALU) panel with
+per-precision peak throughput from each SKU's ComputeFabric.
+"""
 from __future__ import annotations
 
 import json
@@ -45,7 +49,14 @@ def test_json_bundle_emits_one_file_per_sku(tmp_path: Path, cli_main):
         "soc_data_movement", "external_memory",
     ]
     assert layer_tags == expected
-    assert all(p["status"] == "not_populated" for p in payload["layers"])
+    # M1: Layer 1 (ALU) is populated; layers 2-7 remain not_populated
+    layer_status = {p["layer"]: p["status"] for p in payload["layers"]}
+    assert layer_status["alu"] != "not_populated", (
+        f"Layer 1 should be populated at M1, got {layer_status['alu']}"
+    )
+    for tag in ("register", "l1_cache", "l2_cache", "l3_cache",
+                "soc_data_movement", "external_memory"):
+        assert layer_status[tag] == "not_populated"
 
 
 def test_html_bundle_writes_index_hardware_compare(tmp_path: Path, cli_main):

@@ -68,6 +68,8 @@ from graphs.reporting.building_block_energy import (  # noqa: E402
     render_building_block_page,
 )
 from graphs.hardware.resource_model import Precision  # noqa: E402
+from graphs.benchmarks.schema import LayerTag  # noqa: E402
+from graphs.reporting.layer_panels import build_layer1_panel  # noqa: E402
 
 
 DEFAULT_SKU_LIST = [
@@ -101,7 +103,25 @@ SKU_ARCHETYPE = {
 def build_empty_report_for(sku: str) -> MicroarchReport:
     report = empty_report(sku=sku, display_name=sku)
     report.archetype = SKU_ARCHETYPE.get(sku, "")
+    _populate_layer1_alu(report)
     return report
+
+
+def _populate_layer1_alu(report: MicroarchReport) -> None:
+    """
+    Replace the Layer 1 (ALU) panel in-place with a populated one.
+
+    Other layers (2-7) remain at status='not_populated' until their
+    respective milestones land.
+    """
+    panel = build_layer1_panel(report.sku)
+    for i, existing in enumerate(report.layers):
+        if existing.layer is LayerTag.ALU:
+            report.layers[i] = panel
+            break
+    # Drive the overall confidence from the worst populated layer
+    if panel.status not in {"not_populated", ""}:
+        report.overall_confidence = panel.status.upper()
 
 
 def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:
