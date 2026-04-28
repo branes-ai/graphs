@@ -50,20 +50,14 @@ def test_json_bundle_emits_one_file_per_sku(tmp_path: Path, cli_main):
         "soc_data_movement", "external_memory",
     ]
     assert layer_tags == expected
-    # M3: layers 1+2+3 populated; layers 4-7 remain not_populated.
+    # M4: layers 1-4 populated as 'theoretical'; layers 5-7 remain
+    # 'not_populated' until their milestones land.
     layer_status = {p["layer"]: p["status"] for p in payload["layers"]}
-    assert layer_status["alu"] != "not_populated", (
-        f"Layer 1 should be populated at M1, got {layer_status['alu']}"
-    )
-    assert layer_status["register"] != "not_populated", (
-        f"Layer 2 should be populated at M2, got {layer_status['register']}"
-    )
-    assert layer_status["l1_cache"] != "not_populated", (
-        f"Layer 3 should be populated at M3, got {layer_status['l1_cache']}"
-    )
-    assert layer_status["l2_cache"] != "not_populated", (
-        f"Layer 4 should be populated at M4, got {layer_status['l2_cache']}"
-    )
+    for tag in ("alu", "register", "l1_cache", "l2_cache"):
+        assert layer_status[tag] == "theoretical", (
+            f"Layer for {tag} should be 'theoretical' at M4, "
+            f"got {layer_status[tag]!r}"
+        )
     for tag in ("l3_cache", "soc_data_movement", "external_memory"):
         assert layer_status[tag] == "not_populated"
 

@@ -216,7 +216,13 @@ class TestCrossSKUChart:
         chart = cross_sku_layer4_chart(REQUIRED_SKUS)
         for sku in REQUIRED_SKUS:
             m = resolve_sku_resource_model(sku)
-            expected = m.l2_cache_per_unit * (m.compute_units or 1)
+            # Don't paper over a missing compute_units with `or 1` --
+            # tighten the contract so a regression that drops the field
+            # surfaces directly here.
+            assert m.compute_units is not None and m.compute_units > 0, (
+                f"{sku} missing compute_units"
+            )
+            expected = m.l2_cache_per_unit * m.compute_units
             assert chart.l2_total_bytes[sku] == expected
 
     def test_cpu_l2_per_unit_above_kpu(self):
@@ -226,17 +232,37 @@ class TestCrossSKUChart:
         assert (chart.l2_per_unit_bytes["intel_core_i7_12700k"]
                 > chart.l2_per_unit_bytes["kpu_t128"] * 10)
 
-    def test_kpu_dominates_aggregate_at_t256(self):
-        """T256 has 256 tiles * 32 KiB = 8 MiB total L2, larger than
-        most cache-based SKUs in absolute terms."""
+    def test_kpu_t256_aggregate_l2_is_8_mib(self):
+        """T256 = 256 tiles * 32 KiB per-tile L2 = exactly 8 MiB total.
+        Tight bound to catch any double-counting regression."""
         chart = cross_sku_layer4_chart(REQUIRED_SKUS)
         kpu_t256_total = chart.l2_total_bytes["kpu_t256"]
-        # Assert it's at least 4 MiB
-        assert kpu_t256_total >= 4 * 1024 * 1024
+        assert kpu_t256_total == 8 * 1024 * 1024, (
+            f"T256 aggregate L2 expected 8 MiB, got "
+            f"{kpu_t256_total / (1024*1024):.2f} MiB"
+        )
+
+    def test_i7_aggregate_l2_matches_datasheet_12mb(self):
+        """The major M4 review fix: 8 P x 1.25 + 4 E (cluster) = 12 MB.
+        per_unit * effective_cores must land within one cache line
+        of 12 MiB. (Exact equality is impossible because 12 MiB / 10
+        effective cores is not an integer; the small rounding gap is
+        intentional and stays well below a 64-byte cache line.)"""
+        chart = cross_sku_layer4_chart(["intel_core_i7_12700k"])
+        total = chart.l2_total_bytes["intel_core_i7_12700k"]
+        target = 12 * 1024 * 1024
+        assert abs(total - target) < 64, (
+            f"i7 aggregate L2 {total} differs from 12 MiB by "
+            f"{target - total} bytes (>= 64 B cache line)"
+        )
 
     def test_provenance_all_theoretical(self):
         chart = cross_sku_layer4_chart(REQUIRED_SKUS)
-        assert all(p == "THEORETICAL" for p in chart.provenance.values())
+        # Compare against the canonical enum value rather than a
+        # hard-coded string so the test survives any future renaming
+        # of ConfidenceLevel.THEORETICAL.
+        expected = ConfidenceLevel.THEORETICAL.value.upper()
+        assert all(p == expected for p in chart.provenance.values())
 
 
 class TestTopologyValidation:

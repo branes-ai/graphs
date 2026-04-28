@@ -37,9 +37,6 @@ from graphs.reporting.layer_panels.layer2_register import (
     _process_node_nm,
     _tech_profile_for,
 )
-from graphs.reporting.layer_panels.layer3_l1_cache import (
-    _has_positive_l1,  # used to mirror semantics for L2
-)
 
 
 # Valid topology values for the L2 layer.

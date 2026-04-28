@@ -261,12 +261,14 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         # / Gracemont core.
         l1_storage_kind="cache",
 
-        # M4 Layer 4: physical L2 per core. Golden Cove P-cores carry
-        # 1.25 MB private L2; Gracemont E-cores share 2 MB per E-core
-        # cluster (4 cores). Reported as the P-core value (P-cores
-        # dominate compute throughput); legacy l2_cache_total still
-        # holds the LLC (= L3 = 25 MB).
-        l2_cache_per_unit=int(1.25 * 1024 * 1024),  # 1.25 MB per P-core
+        # M4 Layer 4: physical L2 capacity. Golden Cove P-cores carry
+        # 1.25 MB private L2 each (8 P x 1.25 MB = 10 MB); Gracemont
+        # E-cores share 2 MB per cluster (4 E in 1 cluster = 2 MB);
+        # physical total = 12 MB. Report as 12 MB / effective_cores so
+        # the Layer 4 cross-SKU chart's per_unit * compute_units
+        # derivation lands on the true physical 12 MB total. Legacy
+        # l2_cache_total still holds the LLC (= L3 = 25 MB).
+        l2_cache_per_unit=(12 * 1024 * 1024) // effective_cores,  # ~1.2 MB
         l2_topology="per-unit",
     )
 
@@ -328,9 +330,11 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         "l2_cache_per_unit",
         EstimationConfidence.theoretical(
             score=0.85,
-            source=("Intel Core i7-12700K datasheet: 1.25 MB private L2 "
-                    "per Golden Cove P-core (Gracemont E-cores share "
-                    "2 MB per cluster; P-core value reported as primary)"),
+            source=("Intel Core i7-12700K datasheet: 12 MB physical L2 "
+                    "(8 P-cores * 1.25 MB private + 4 E-cores * 2 MB / "
+                    "cluster), reported as physical_total / "
+                    "effective_cores so the Layer 4 cross-SKU "
+                    "aggregate matches the datasheet"),
         ),
     )
     model.set_provenance(
