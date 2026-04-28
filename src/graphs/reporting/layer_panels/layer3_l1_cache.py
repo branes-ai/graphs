@@ -35,6 +35,37 @@ from graphs.reporting.layer_panels.layer2_register import (
 )
 
 
+# The two valid values for HardwareResourceModel.l1_storage_kind.
+# Anything else is a typo or stale data and should fail loudly rather
+# than silently fall through to "scratchpad" in the rendering branch.
+VALID_L1_STORAGE_KINDS = {"cache", "scratchpad"}
+
+
+def _normalize_storage_kind(raw_kind: Optional[str], sku_id: str) -> str:
+    """
+    Normalize ``l1_storage_kind`` to canonical lowercase form.
+
+    Default to ``"cache"`` when the field is unset (matches the panel's
+    fall-through assumption for SKUs that don't carry the field yet).
+    Raise on unknown values so a typo doesn't silently misclassify
+    storage semantics for the entire downstream pipeline.
+    """
+    kind = (raw_kind or "cache").strip().lower()
+    if kind not in VALID_L1_STORAGE_KINDS:
+        raise ValueError(
+            f"Invalid l1_storage_kind '{raw_kind}' for SKU '{sku_id}'. "
+            f"Expected one of: {sorted(VALID_L1_STORAGE_KINDS)}."
+        )
+    return kind
+
+
+def _has_positive_l1(model: Optional[HardwareResourceModel]) -> bool:
+    """Tighter guard than truthiness: rejects None, 0, and negatives."""
+    return (model is not None
+            and model.l1_cache_per_unit is not None
+            and model.l1_cache_per_unit > 0)
+
+
 # Per-op-type hit rates exposed in the panel for cache-based SKUs.
 # Pulled from DataParallelEnergyModel defaults so the table stays in
 # sync with the analytical model. This keeps the constant in one
@@ -103,7 +134,7 @@ def build_layer3_l1_cache_panel(
 
     title = "Layer 3: L1 Cache / Scratchpad"
 
-    if model is None or not model.l1_cache_per_unit:
+    if not _has_positive_l1(model):
         return LayerPanel(
             layer=LayerTag.L1_CACHE,
             title=title,
@@ -113,7 +144,7 @@ def build_layer3_l1_cache_panel(
 
     bytes_per_unit = model.l1_cache_per_unit
     units = model.compute_units or 1
-    storage_kind = model.l1_storage_kind or "cache"
+    storage_kind = _normalize_storage_kind(model.l1_storage_kind, sku_id)
     energy_pj_per_byte = _l1_energy_pj_per_byte(model, sku_id)
 
     metrics: Dict[str, Dict] = {
@@ -238,13 +269,15 @@ def cross_sku_layer3_chart(sku_ids: List[str]) -> CrossSKULayer3Chart:
 
     for sku in sku_ids:
         m = models.get(sku)
-        if m is None or not m.l1_cache_per_unit:
+        if not _has_positive_l1(m):
             continue
         per_unit = m.l1_cache_per_unit
         units = m.compute_units or 1
         chart.l1_per_unit_bytes[sku] = per_unit
         chart.l1_total_bytes[sku] = per_unit * units
-        chart.storage_kind[sku] = m.l1_storage_kind or "cache"
+        chart.storage_kind[sku] = _normalize_storage_kind(
+            m.l1_storage_kind, sku
+        )
         chart.energy_pj_per_byte[sku] = _l1_energy_pj_per_byte(m, sku)
         chart.provenance[sku] = _provenance_or_theoretical(
             m, "l1_cache_per_unit"

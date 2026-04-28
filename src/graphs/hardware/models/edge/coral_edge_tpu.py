@@ -217,8 +217,9 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         # near 0.15 -- one-shot fill amortized over many output rows.
         pipeline_fill_overhead=0.15,
 
-        # M3 Layer 3: software-managed unified buffer (8 MB on the
-        # die, exposed as 512 KB per systolic tile).
+        # M3 Layer 3: software-managed unified buffer.
+        # The Coral Edge TPU has a single systolic tile (compute_units=1)
+        # exposing 512 KB of L1-equivalent SRAM in this abstraction.
         l1_storage_kind="scratchpad",
     )
 
@@ -242,8 +243,8 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         "l1_cache_per_unit",
         EstimationConfidence.theoretical(
             score=0.80,
-            source=("Coral Edge TPU on-chip unified buffer (~8 MB, "
-                    "modeled as 512 KB per systolic tile)"),
+            source=("Coral Edge TPU on-chip unified buffer "
+                    "(modeled as 512 KB per systolic tile)"),
         ),
     )
     model.set_provenance(

@@ -579,7 +579,8 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      Layer 1 (ALU) lands at M1; remaining layer comparisons follow at M2-M8.
+      Layers 1-3 (ALU, Register File, L1 Cache / Scratchpad) populated;
+      remaining layer comparisons follow at M4-M8.
     </div>
   </section>
   {_render_legend()}

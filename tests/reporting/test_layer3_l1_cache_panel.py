@@ -109,6 +109,32 @@ class TestEnergyModelLookup:
         assert (m.shared_mem_l1_hit_rate
                 == m.shared_mem_l1_hit_rate_by_op["matrix"])
 
+    def test_per_op_lookup_drives_compute_energy(self):
+        """The per-op-type lookup must actually flow through the
+        compute_architectural_energy() path, otherwise the lookup is
+        decorative. The explanation string must echo the chosen op_kind
+        and percentage.
+        """
+        from graphs.hardware.technology_profile import EDGE_8NM_LPDDR5
+        m = DataParallelEnergyModel(tech_profile=EDGE_8NM_LPDDR5)
+        m.shared_mem_l1_hit_rate_by_op = {
+            "matrix":      0.95,
+            "elementwise": 0.50,
+            "default":     0.50,
+        }
+        e_matrix = m.compute_architectural_energy(
+            ops=10000, bytes_transferred=40000,
+            execution_context={"op_kind": "matrix"},
+        )
+        e_elem = m.compute_architectural_energy(
+            ops=10000, bytes_transferred=40000,
+            execution_context={"op_kind": "elementwise"},
+        )
+        assert "op_kind=matrix" in e_matrix.explanation
+        assert "op_kind=elementwise" in e_elem.explanation
+        assert "95% hit rate" in e_matrix.explanation
+        assert "50% hit rate" in e_elem.explanation
+
 
 class TestPanelBuilder:
     @pytest.mark.parametrize("sku", TARGET_SKUS)
@@ -196,6 +222,77 @@ class TestCrossSKUChart:
     def test_provenance_all_theoretical(self):
         chart = cross_sku_layer3_chart(REQUIRED_SKUS)
         assert all(p == "THEORETICAL" for p in chart.provenance.values())
+
+
+class TestStorageKindValidation:
+    """l1_storage_kind must be normalized + validated to avoid silent
+    misclassification on typos."""
+
+    def test_normalization_canonicalizes_case(self):
+        from graphs.reporting.layer_panels.layer3_l1_cache import (
+            _normalize_storage_kind,
+        )
+        assert _normalize_storage_kind("Cache", "x") == "cache"
+        assert _normalize_storage_kind(" SCRATCHPAD ", "x") == "scratchpad"
+
+    def test_normalization_defaults_when_unset(self):
+        from graphs.reporting.layer_panels.layer3_l1_cache import (
+            _normalize_storage_kind,
+        )
+        assert _normalize_storage_kind(None, "x") == "cache"
+        assert _normalize_storage_kind("", "x") == "cache"
+
+    def test_normalization_rejects_unknown_value(self):
+        from graphs.reporting.layer_panels.layer3_l1_cache import (
+            _normalize_storage_kind,
+        )
+        with pytest.raises(ValueError, match="Invalid l1_storage_kind"):
+            _normalize_storage_kind("buffer", "test_sku")
+
+    def test_panel_raises_on_invalid_kind(self):
+        """Panel construction surfaces the invalid value loudly rather
+        than silently misreporting hit-rate semantics."""
+        m = resolve_sku_resource_model("kpu_t128")
+        original = m.l1_storage_kind
+        try:
+            m.l1_storage_kind = "BUFFER_TYPO"
+            with pytest.raises(ValueError):
+                build_layer3_l1_cache_panel("kpu_t128", model=m)
+        finally:
+            m.l1_storage_kind = original
+
+
+class TestPositiveCapacityGuard:
+    """The capacity guard rejects None, zero, and negative values
+    rather than relying on truthiness."""
+
+    def test_zero_capacity_marks_unpopulated(self):
+        """Mutate a real SKU's L1 to 0 and confirm the panel marks
+        it not_populated rather than rendering a bogus 0 KiB cache."""
+        m = resolve_sku_resource_model("kpu_t128")
+        original = m.l1_cache_per_unit
+        try:
+            m.l1_cache_per_unit = 0
+            panel = build_layer3_l1_cache_panel("kpu_t128", model=m)
+            assert panel.status == "not_populated"
+        finally:
+            m.l1_cache_per_unit = original
+
+    def test_negative_capacity_marks_unpopulated(self):
+        m = resolve_sku_resource_model("kpu_t128")
+        original = m.l1_cache_per_unit
+        try:
+            m.l1_cache_per_unit = -1
+            panel = build_layer3_l1_cache_panel("kpu_t128", model=m)
+            assert panel.status == "not_populated"
+        finally:
+            m.l1_cache_per_unit = original
+
+    def test_helper_rejects_none(self):
+        from graphs.reporting.layer_panels.layer3_l1_cache import (
+            _has_positive_l1,
+        )
+        assert _has_positive_l1(None) is False
 
 
 class TestNoDoubleCounting:

@@ -301,8 +301,10 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.85,
             source=("Intel Core i7-12700K datasheet: 48 KB L1D per "
-                    "Golden Cove P-core (32 KB on Gracemont E-core; "
-                    "weighted average reported)"),
+                    "Golden Cove P-core; model reports the P-core "
+                    "value as the per-unit L1 (Gracemont E-core L1D "
+                    "is 32 KB but a smaller fraction of compute "
+                    "throughput)"),
         ),
     )
     model.set_provenance(
