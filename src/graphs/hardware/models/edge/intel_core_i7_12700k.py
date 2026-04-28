@@ -260,6 +260,14 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         # M3 Layer 3: hardware-managed L1 (split D + I) per Golden Cove
         # / Gracemont core.
         l1_storage_kind="cache",
+
+        # M4 Layer 4: physical L2 per core. Golden Cove P-cores carry
+        # 1.25 MB private L2; Gracemont E-cores share 2 MB per E-core
+        # cluster (4 cores). Reported as the P-core value (P-cores
+        # dominate compute throughput); legacy l2_cache_total still
+        # holds the LLC (= L3 = 25 MB).
+        l2_cache_per_unit=int(1.25 * 1024 * 1024),  # 1.25 MB per P-core
+        l2_topology="per-unit",
     )
 
     # ------------------------------------------------------------------
@@ -312,6 +320,24 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="x86 architectural fact: hardware-managed coherent L1",
+        ),
+    )
+
+    # M4 Layer 4 provenance for L2 cache fields
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Intel Core i7-12700K datasheet: 1.25 MB private L2 "
+                    "per Golden Cove P-core (Gracemont E-cores share "
+                    "2 MB per cluster; P-core value reported as primary)"),
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Alder Lake architectural fact: private per-core L2",
         ),
     )
 

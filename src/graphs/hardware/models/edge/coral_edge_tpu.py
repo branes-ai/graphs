@@ -221,6 +221,13 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         # The Coral Edge TPU has a single systolic tile (compute_units=1)
         # exposing 512 KB of L1-equivalent SRAM in this abstraction.
         l1_storage_kind="scratchpad",
+
+        # M4 Layer 4: TPU architectures collapse the conventional L2
+        # into the unified buffer (UB). Modeled as 0 to signal "no
+        # distinct L2 layer"; the ``shared-llc`` topology + the panel
+        # note explain the architectural choice.
+        l2_cache_per_unit=0,
+        l2_topology="shared-llc",
     )
 
     # Attach tile energy model
@@ -252,6 +259,23 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Edge TPU architectural fact: software-managed UB",
+        ),
+    )
+
+    # M4 Layer 4 provenance: TPU collapses L2 into the unified buffer
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Coral Edge TPU has no distinct L2 layer; the "
+                    "unified buffer covers L1 + L2 staging by design"),
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="TPU architectural fact: UB is the LLC",
         ),
     )
 

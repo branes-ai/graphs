@@ -1,7 +1,8 @@
 """Smoke tests for cli/microarch_validation_report.py.
 
 M0 shipped empty panels; M1 populates Layer 1 (ALU); M2 populates
-Layer 2 (Register File); M3 populates Layer 3 (L1 cache / scratchpad).
+Layer 2 (Register File); M3 populates Layer 3 (L1 cache / scratchpad);
+M4 populates Layer 4 (L2 cache).
 """
 from __future__ import annotations
 
@@ -60,8 +61,10 @@ def test_json_bundle_emits_one_file_per_sku(tmp_path: Path, cli_main):
     assert layer_status["l1_cache"] != "not_populated", (
         f"Layer 3 should be populated at M3, got {layer_status['l1_cache']}"
     )
-    for tag in ("l2_cache", "l3_cache",
-                "soc_data_movement", "external_memory"):
+    assert layer_status["l2_cache"] != "not_populated", (
+        f"Layer 4 should be populated at M4, got {layer_status['l2_cache']}"
+    )
+    for tag in ("l3_cache", "soc_data_movement", "external_memory"):
         assert layer_status[tag] == "not_populated"
 
 

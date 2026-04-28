@@ -458,6 +458,27 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     l3_hit_rate: float = 0.95                      # 95% L3 hits (of L2 misses)
     # DRAM gets remaining misses
 
+    # M4 Layer 4: per-op-type L2 hit rate. Same shape as the M3 Layer
+    # 3 lookup. Matrix workloads with weight reuse hit L2 ~95% of L1
+    # misses; elementwise streams (no reuse) drop to ~80%; default is
+    # the original 90%. ``l2_hit_rate`` (above) acts as the fallback
+    # when the op-kind is not in this table.
+    l2_hit_rate_by_op: Dict[str, float] = field(
+        default_factory=lambda: {
+            "matrix":      0.95,
+            "elementwise": 0.80,
+            "default":     0.90,
+        }
+    )
+
+    # M4 Layer 4: hardware prefetch effectiveness. Fraction of cache
+    # misses that the hardware prefetcher converts back into hits
+    # before the demand load arrives. Higher on workloads with
+    # regular stride; near-zero on pointer-chasing. THEORETICAL:
+    # not currently consumed by the energy formula but exposed for
+    # downstream models / panel rendering.
+    prefetch_effectiveness: float = 0.85
+
     # ============================================================
     # ALU Energy - Derived from tech_profile in __post_init__
     # ============================================================
@@ -844,6 +865,26 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         }
     )
 
+    # M4 Layer 4: per-op-type L2 hit rate (of L1 misses). Same pattern
+    # as the M3 L1 lookup. Matrix workloads with weight reuse retain
+    # locality at L2 (~95%); elementwise streams that miss L1 don't
+    # have much reuse left (~80%); default keeps the historical 90%.
+    # ``l2_hit_rate`` (above) acts as fallback.
+    l2_hit_rate_by_op: Dict[str, float] = field(
+        default_factory=lambda: {
+            "matrix":      0.95,
+            "elementwise": 0.80,
+            "default":     0.90,
+        }
+    )
+
+    # M4 Layer 4: hardware prefetch effectiveness. Fraction of cache
+    # misses converted to hits by the prefetcher. THEORETICAL: not
+    # currently consumed by the energy formula (GPU prefetch is
+    # implicit in the SIMT memory pipeline) but exposed for
+    # downstream models / panel rendering.
+    prefetch_effectiveness: float = 0.85
+
     # Instruction pipeline stages - derived from tech_profile
     instruction_decode_energy: float = field(init=False)
     instruction_execute_energy: float = field(init=False)
@@ -993,9 +1034,14 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         shared_mem_l1_accesses = int(num_memory_accesses * shared_l1_hit_rate)
         shared_mem_l1_energy = shared_mem_l1_accesses * self.shared_memory_l1_unified_energy_per_byte * 4
 
-        # L2 cache hits (90% of Shared/L1 misses)
+        # L2 cache hits (M4: per-op-type lookup with scalar fallback).
+        # ``op_kind`` is reused from the L1 path above.
+        l2_hit_rate = self.l2_hit_rate_by_op.get(
+            op_kind,
+            self.l2_hit_rate_by_op.get("default", self.l2_hit_rate),
+        )
         shared_l1_misses = num_memory_accesses - shared_mem_l1_accesses
-        l2_accesses = int(shared_l1_misses * self.l2_hit_rate)
+        l2_accesses = int(shared_l1_misses * l2_hit_rate)
         l2_energy = l2_accesses * self.l2_cache_energy_per_byte * 4
 
         # DRAM accesses (remaining L2 misses)
@@ -1065,7 +1111,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             f"\n"
             f"3. MEMORY HIERARCHY (NVIDIA Ampere Nomenclature):\n"
             f"   Shared Memory/L1 (unified): {shared_mem_l1_energy*1e12:.2f} pJ ({shared_mem_l1_accesses:,} accesses, {shared_l1_hit_rate*100:.0f}% hit rate, op_kind={op_kind})\n"
-            f"   L2 Cache:                   {l2_energy*1e12:.2f} pJ ({l2_accesses:,} hits, {self.l2_hit_rate*100:.0f}% of Shared/L1 misses)\n"
+            f"   L2 Cache:                   {l2_energy*1e12:.2f} pJ ({l2_accesses:,} hits, {l2_hit_rate*100:.0f}% of Shared/L1 misses, op_kind={op_kind})\n"
             f"   DRAM:                       {dram_energy*1e12:.2f} pJ ({dram_accesses:,} accesses)\n"
             f"\n"
             f"4. SIMT CONTROL OVERHEADS:\n"
