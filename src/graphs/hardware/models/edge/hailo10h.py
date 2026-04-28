@@ -225,6 +225,12 @@ def hailo10h_resource_model() -> HardwareResourceModel:
         # transformer-optimized; the larger L2 (12 MB) holds the KV
         # cache. L1 still scratchpad-managed by the compiler.
         l1_storage_kind="scratchpad",
+
+        # M4 Layer 4: Hailo-10H expands L2 to 12 MB to hold the
+        # transformer KV cache. 12 MB / 40 dataflow units ~= 307 KiB
+        # per-unit share. LLC by design.
+        l2_cache_per_unit=(12 * 1024 * 1024) // 40,  # ~307 KiB per unit
+        l2_topology="shared-llc",
     )
 
     # M3 Layer 3 provenance
@@ -243,6 +249,24 @@ def hailo10h_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Hailo dataflow architecture: software-managed, no L1 cache",
+        ),
+    )
+
+    # M4 Layer 4 provenance for the transformer-sized L2 SRAM layer
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.70,
+            source=("Hailo-10H architecture brief: ~12 MB inter-unit "
+                    "shared SRAM (~307 KiB per-unit share), sized to "
+                    "hold the KV cache for transformer inference"),
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source="Hailo dataflow architecture: shared LLC over per-unit L1",
         ),
     )
 

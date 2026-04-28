@@ -534,6 +534,84 @@ def _render_layer3_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_layer4_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render an L2 capacity / topology / energy table across SKUs.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer4_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer4_chart(sku_ids)
+    if not chart.l2_per_unit_bytes:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    def _kib_str(b):
+        if b is None:
+            return "--"
+        if b == 0:
+            return "collapsed"
+        if b >= 1024 * 1024:
+            return f"{b / (1024*1024):.1f} MiB"
+        return f"{b / 1024:.0f} KiB"
+
+    def _row(label, getter, fmt):
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in chart.skus:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+            else:
+                cells.append(f"<td>{fmt(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    rows = (
+        _row("L2 per unit",
+             lambda s: chart.l2_per_unit_bytes.get(s), _kib_str)
+        + _row("L2 total",
+               lambda s: chart.l2_total_bytes.get(s), _kib_str)
+        + _row("Topology",
+               lambda s: chart.topology.get(s),
+               lambda v: html.escape(v))
+        + _row("Energy (pJ/byte)",
+               lambda s: chart.energy_pj_per_byte.get(s),
+               lambda v: f"{v:.3f}")
+    )
+
+    badge_cells = []
+    for sku in chart.skus:
+        prov = chart.provenance.get(sku, "UNKNOWN")
+        badge = _safe_status_class(prov.lower())
+        badge_cells.append(
+            f'<td><span class="badge {badge}">{html.escape(prov)}</span></td>'
+        )
+    rows += "<tr><th>Provenance</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Layer 4: L2 cache capacity / topology across SKUs</h3>
+  <p class="meta">Physical L2 from
+  <code>l2_cache_per_unit</code> (M4 field). Topology distinguishes
+  private per-core L2 (CPUs, KPU tile-local) from shared L2 and
+  shared-LLC (Ampere SoCs, TPU UB collapse, Hailo on-chip SRAM).
+  &quot;collapsed&quot; means the SKU has no distinct L2 layer
+  -- the unified buffer covers L1 + L2 staging by design.</p>
+  <table class="layer4-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -546,8 +624,9 @@ def render_comparison_page(
       - Layer 1 peak-TOPS-per-precision table (M1)
       - Layer 2 register-energy table (M2)
       - Layer 3 L1-capacity / storage-kind table (M3)
+      - Layer 4 L2-capacity / topology table (M4)
 
-    M4-M8 add later layer comparison sections.
+    M5-M8 add later layer comparison sections.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -560,6 +639,7 @@ def render_comparison_page(
     layer1_section = _render_layer1_cross_sku_table(reports)
     layer2_section = _render_layer2_cross_sku_table(reports)
     layer3_section = _render_layer3_cross_sku_table(reports)
+    layer4_section = _render_layer4_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -569,8 +649,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
-table.layer1-cross td, table.layer2-cross td, table.layer3-cross td {{ text-align: right; }}
-table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child {{ text-align: left; }}
+table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -579,8 +659,8 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      Layers 1-3 (ALU, Register File, L1 Cache / Scratchpad) populated;
-      remaining layer comparisons follow at M4-M8.
+      Layers 1-4 (ALU, Register File, L1 Cache / Scratchpad, L2 Cache)
+      populated; remaining layer comparisons follow at M5-M8.
     </div>
   </section>
   {_render_legend()}
@@ -593,6 +673,7 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   {layer1_section}
   {layer2_section}
   {layer3_section}
+  {layer4_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>

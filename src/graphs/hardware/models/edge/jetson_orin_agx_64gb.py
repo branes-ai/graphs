@@ -502,6 +502,12 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         # configured as shared memory; classified as cache because
         # the dominant deployment uses unified L1 cache mode.
         l1_storage_kind="cache",
+
+        # M4 Layer 4: Orin's L2 is a single 4 MB shared structure.
+        # Ampere SoCs do not have a distinct L3 -- L2 is the LLC.
+        # ``l2_cache_per_unit`` reports the per-SM share (4 MB / 16 SMs).
+        l2_cache_per_unit=(4 * 1024 * 1024) // 16,  # 256 KiB per SM
+        l2_topology="shared-llc",
     )
 
     # M3 Layer 3 provenance for L1 cache fields
@@ -520,6 +526,24 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
             score=0.80,
             source=("Ampere unified L1: hardware-managed when used as "
                     "L1, software-managed when configured as shared mem"),
+        ),
+    )
+
+    # M4 Layer 4 provenance for L2 (== LLC on Orin AGX)
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Jetson Orin AGX datasheet: 4 MB shared L2 across "
+                    "16 Ampere SMs (256 KiB per-SM share)"),
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source=("Ampere SoC architectural fact: L2 is the LLC "
+                    "(no distinct L3 layer)"),
         ),
     )
 

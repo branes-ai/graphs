@@ -219,6 +219,12 @@ def hailo8_resource_model() -> HardwareResourceModel:
         # dataflow unit. Hailo's compiler statically allocates the
         # working set; no hardware cache.
         l1_storage_kind="scratchpad",
+
+        # M4 Layer 4: Hailo-8's inter-unit shared SRAM acts as the
+        # L2 layer above per-unit L1 partitions. 8 MB shared / 32
+        # units = 256 KiB per-unit share.
+        l2_cache_per_unit=(8 * 1024 * 1024) // 32,  # 256 KiB per unit
+        l2_topology="shared-llc",
     )
 
     # M3 Layer 3 provenance
@@ -236,6 +242,24 @@ def hailo8_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Hailo dataflow architecture: software-managed, no L1 cache",
+        ),
+    )
+
+    # M4 Layer 4 provenance for the shared L2 SRAM layer
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.70,
+            source=("Hailo-8 architecture brief: ~8 MB inter-unit "
+                    "shared SRAM (256 KiB per-unit share). LLC by "
+                    "design; no DRAM-side cache."),
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source="Hailo dataflow architecture: shared LLC over per-unit L1",
         ),
     )
 

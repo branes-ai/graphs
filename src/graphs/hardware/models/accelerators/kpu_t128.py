@@ -355,6 +355,11 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     # compiler stages tiles), so hit rate is deterministic 1.0.
     model.l1_storage_kind = "scratchpad"
 
+    # M4 Layer 4: per-tile L2 SRAM, modeled in M0.5 KPUTileEnergyModel
+    # as 32 KiB. Read directly to avoid drift from the energy model.
+    model.l2_cache_per_unit = tile_energy_model.l2_size_per_tile
+    model.l2_topology = "per-unit"
+
     from graphs.core.confidence import EstimationConfidence
     model.set_provenance(
         "l1_cache_per_unit",
@@ -369,6 +374,24 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="KPU domain-flow architecture: tile-local SRAM, no L1 cache",
+        ),
+    )
+
+    # M4 Layer 4 provenance: per-tile L2 from M0.5 tile energy model
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Stillwater KPU-T128: 32 KiB per-tile L2 SRAM, "
+                    "read from KPUTileEnergyModel.l2_size_per_tile "
+                    "(M0.5 abstraction)"),
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="KPU domain-flow architecture: private per-tile L2",
         ),
     )
 
