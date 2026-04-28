@@ -73,6 +73,7 @@ from graphs.reporting.layer_panels import (  # noqa: E402
     build_layer1_panel,
     build_layer2_register_panel,
     build_layer3_l1_cache_panel,
+    build_layer4_l2_cache_panel,
 )
 
 
@@ -110,6 +111,7 @@ def build_empty_report_for(sku: str) -> MicroarchReport:
     _populate_layer1_alu(report)
     _populate_layer2_register(report)
     _populate_layer3_l1_cache(report)
+    _populate_layer4_l2_cache(report)
     return report
 
 
@@ -147,6 +149,12 @@ def _populate_layer3_l1_cache(report: MicroarchReport) -> None:
     """Replace the Layer 3 (L1 cache / scratchpad) panel in-place."""
     panel = build_layer3_l1_cache_panel(report.sku)
     _replace_layer_panel(report, LayerTag.L1_CACHE, panel)
+
+
+def _populate_layer4_l2_cache(report: MicroarchReport) -> None:
+    """Replace the Layer 4 (L2 cache) panel in-place."""
+    panel = build_layer4_l2_cache_panel(report.sku)
+    _replace_layer_panel(report, LayerTag.L2_CACHE, panel)
 
 
 def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:

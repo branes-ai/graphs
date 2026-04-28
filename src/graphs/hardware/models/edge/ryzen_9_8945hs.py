@@ -199,6 +199,11 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
 
         # M3 Layer 3: hardware-managed L1 per Zen 4 core.
         l1_storage_kind="cache",
+
+        # M4 Layer 4: Zen 4 carries 1 MB private L2 per core. Legacy
+        # l2_cache_total holds the 16 MB L3 LLC.
+        l2_cache_per_unit=1 * 1024 * 1024,  # 1 MB per Zen 4 core
+        l2_topology="per-unit",
     )
 
     for prec in (Precision.FP64, Precision.FP32, Precision.FP16,
@@ -244,6 +249,22 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="x86 architectural fact: hardware-managed coherent L1",
+        ),
+    )
+
+    # M4 Layer 4 provenance for L2 cache fields
+    model.set_provenance(
+        "l2_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source="AMD Ryzen 9 8945HS (Phoenix, Zen 4): 1 MB private L2 per core",
+        ),
+    )
+    model.set_provenance(
+        "l2_topology",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Zen 4 architectural fact: private per-core L2",
         ),
     )
 

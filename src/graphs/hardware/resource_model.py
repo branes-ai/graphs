@@ -824,6 +824,25 @@ class HardwareResourceModel:
     # Provenance: ``l1_storage_kind``.
     l1_storage_kind: Optional[str] = None
 
+    # M4 Layer 4: physical L2 capacity per unit. Distinct from the
+    # legacy ``l2_cache_total`` field, which (per M1 schema convention)
+    # holds the LLC -- on x86 CPUs that's L3, on GPUs / scratchpad
+    # accelerators that's the L2 itself. ``l2_cache_per_unit`` is
+    # always physical L2, so the Layer 4 panel can compare apples to
+    # apples across architectures.
+    # Provenance: ``l2_cache_per_unit``.
+    l2_cache_per_unit: Optional[int] = None
+
+    # M4 Layer 4: L2 topology classifier.
+    # ``"per-unit"`` -- private L2 per core / SM / tile (CPU L2 caches,
+    # KPU tile-local L2, Hailo per-unit L2).
+    # ``"shared"``   -- L2 is a single shared structure (GPU L2 on
+    # discrete GPUs with a distinct L3, multi-GPU systems).
+    # ``"shared-llc"`` -- L2 is shared AND is the last-level cache
+    # (no distinct L3): Ampere SoC GPUs, TPU unified buffer collapse.
+    # Provenance: ``l2_topology``.
+    l2_topology: Optional[str] = None
+
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.
