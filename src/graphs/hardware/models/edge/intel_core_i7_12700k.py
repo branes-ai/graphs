@@ -256,6 +256,10 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
             "matrix":      0.80,
             "default":     0.70,
         },
+
+        # M3 Layer 3: hardware-managed L1 (split D + I) per Golden Cove
+        # / Gracemont core.
+        l1_storage_kind="cache",
     )
 
     # ------------------------------------------------------------------
@@ -290,5 +294,25 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
                         "Alder Lake (no AVX-512, hybrid scheduling)"),
             ),
         )
+
+    # M3 Layer 3 provenance for L1 cache fields
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Intel Core i7-12700K datasheet: 48 KB L1D per "
+                    "Golden Cove P-core; model reports the P-core "
+                    "value as the per-unit L1 (Gracemont E-core L1D "
+                    "is 32 KB but a smaller fraction of compute "
+                    "throughput)"),
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="x86 architectural fact: hardware-managed coherent L1",
+        ),
+    )
 
     return model

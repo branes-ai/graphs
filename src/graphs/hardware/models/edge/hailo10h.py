@@ -166,7 +166,7 @@ def hailo10h_resource_model() -> HardwareResourceModel:
     # ========================================================================
     # Hardware Resource Model
     # ========================================================================
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name="Hailo-10H",
         hardware_type=HardwareType.KPU,  # Enhanced dataflow for transformers
 
@@ -220,4 +220,30 @@ def hailo10h_resource_model() -> HardwareResourceModel:
 
         # BOM cost
         bom_cost_profile=bom_cost,
+
+        # M3 Layer 3: software-managed on-chip SRAM. Hailo-10H is
+        # transformer-optimized; the larger L2 (12 MB) holds the KV
+        # cache. L1 still scratchpad-managed by the compiler.
+        l1_storage_kind="scratchpad",
     )
+
+    # M3 Layer 3 provenance
+    from graphs.core.confidence import EstimationConfidence
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.75,
+            source=("Hailo-10H Architecture Brief: ~20 MB total on-chip "
+                    "SRAM across 40 dataflow units (~512 KB/unit), "
+                    "transformer-optimized with KV-cache-sized L2"),
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Hailo dataflow architecture: software-managed, no L1 cache",
+        ),
+    )
+
+    return model

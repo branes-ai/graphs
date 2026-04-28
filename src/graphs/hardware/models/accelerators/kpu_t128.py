@@ -350,4 +350,26 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
 
     model.tile_energy_model = tile_energy_model
 
+    # M3 Layer 3: tile-local SRAM is the L1-equivalent under the
+    # M0.5 dataflow-tile abstraction. Software-managed (the host
+    # compiler stages tiles), so hit rate is deterministic 1.0.
+    model.l1_storage_kind = "scratchpad"
+
+    from graphs.core.confidence import EstimationConfidence
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Stillwater KPU-T128 datasheet: 256 KB tile-local "
+                    "SRAM per dataflow tile (M0.5 tile abstraction)"),
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="KPU domain-flow architecture: tile-local SRAM, no L1 cache",
+        ),
+    )
+
     return model

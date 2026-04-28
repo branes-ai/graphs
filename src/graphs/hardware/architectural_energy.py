@@ -827,9 +827,22 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     dram_energy_per_byte: float = field(init=False)
 
     # Memory access patterns (fixed)
-    shared_mem_l1_hit_rate: float = 0.95                        # 95% hit in Shared Mem/L1
+    shared_mem_l1_hit_rate: float = 0.95                        # 95% hit in Shared Mem/L1 (default / matrix ops)
     l2_hit_rate: float = 0.90                                   # 90% L2 hits (of Shared/L1 misses)
     shared_mem_explicit_usage: float = 0.40                     # 40% explicitly use shared memory
+
+    # M3 Layer 3: per-op-type L1 hit rate. Lifts the single-rate
+    # assumption: matrix ops with weight reuse hit ~95%, elementwise
+    # streams with poor locality drop to ~85%, mixed workloads land in
+    # between. ``shared_mem_l1_hit_rate`` (above) acts as the fallback
+    # when the op-type is not in this table.
+    shared_mem_l1_hit_rate_by_op: Dict[str, float] = field(
+        default_factory=lambda: {
+            "matrix":      0.95,  # GEMM / Conv with weight reuse
+            "elementwise": 0.85,  # ReLU / Add / Norm streams (poor locality)
+            "default":     0.85,  # Conservative for unmodeled ops
+        }
+    )
 
     # Instruction pipeline stages - derived from tech_profile
     instruction_decode_energy: float = field(init=False)
@@ -965,9 +978,19 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         cache_line_size = execution_context.get('cache_line_size', 128)  # H100 uses 128B
         num_memory_accesses = max(1, int(float(bytes_transferred) / 4))  # Assume 4-byte elements
 
-        # Shared Memory / L1 unified (95% hit rate)
-        # This is a single hardware structure with configurable carveout
-        shared_mem_l1_accesses = int(num_memory_accesses * self.shared_mem_l1_hit_rate)
+        # Shared Memory / L1 unified hit rate.
+        # M3: per-op-type lookup, with the scalar field as fallback.
+        # ``execution_context["op_kind"]`` may be "matrix" (GEMM /
+        # Conv with weight reuse, ~95%), "elementwise" (poor locality
+        # streams, ~85%), or "default" for unmodeled workloads.
+        op_kind = str(execution_context.get("op_kind", "default"))
+        shared_l1_hit_rate = self.shared_mem_l1_hit_rate_by_op.get(
+            op_kind,
+            self.shared_mem_l1_hit_rate_by_op.get(
+                "default", self.shared_mem_l1_hit_rate
+            ),
+        )
+        shared_mem_l1_accesses = int(num_memory_accesses * shared_l1_hit_rate)
         shared_mem_l1_energy = shared_mem_l1_accesses * self.shared_memory_l1_unified_energy_per_byte * 4
 
         # L2 cache hits (90% of Shared/L1 misses)
@@ -1041,7 +1064,7 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
             f"   Execute: {instruction_execute_energy_total*1e12:.2f} pJ\n"
             f"\n"
             f"3. MEMORY HIERARCHY (NVIDIA Ampere Nomenclature):\n"
-            f"   Shared Memory/L1 (unified): {shared_mem_l1_energy*1e12:.2f} pJ ({shared_mem_l1_accesses:,} accesses, {self.shared_mem_l1_hit_rate*100:.0f}% hit rate)\n"
+            f"   Shared Memory/L1 (unified): {shared_mem_l1_energy*1e12:.2f} pJ ({shared_mem_l1_accesses:,} accesses, {shared_l1_hit_rate*100:.0f}% hit rate, op_kind={op_kind})\n"
             f"   L2 Cache:                   {l2_energy*1e12:.2f} pJ ({l2_accesses:,} hits, {self.l2_hit_rate*100:.0f}% of Shared/L1 misses)\n"
             f"   DRAM:                       {dram_energy*1e12:.2f} pJ ({dram_accesses:,} accesses)\n"
             f"\n"
