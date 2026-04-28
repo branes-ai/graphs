@@ -246,6 +246,16 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
 
         thermal_operating_points={"125W-PL1": thermal_125w},
         default_thermal_profile="125W-PL1",
+
+        # M2 Layer 2: AVX2-only retail Alder Lake. Hybrid scheduling
+        # (P-core SMT + non-SMT E-core) and the lack of AVX-512 keep
+        # vector efficiency below Zen 4. Reference values from
+        # CPUMapper._analyze_vectorization (0.95 / 0.80 / 0.70).
+        simd_efficiency={
+            "elementwise": 0.95,
+            "matrix":      0.80,
+            "default":     0.70,
+        },
     )
 
     # ------------------------------------------------------------------
@@ -267,6 +277,17 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
             EstimationConfidence.theoretical(
                 score=0.45,
                 source="Horowitz / process-node-energy table at 10nm",
+            ),
+        )
+
+    # M2 Layer 2 provenance for SIMD-efficiency coefficients
+    for op_kind in ("elementwise", "matrix", "default"):
+        model.set_provenance(
+            f"simd_efficiency.{op_kind}",
+            EstimationConfidence.theoretical(
+                score=0.50,
+                source=("CPUMapper analytical default for AVX2 hybrid "
+                        "Alder Lake (no AVX-512, hybrid scheduling)"),
             ),
         )
 

@@ -390,6 +390,73 @@ def _render_layer1_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_layer2_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render a register-energy table across all SKUs.
+
+    Surfaces register read / write energy and the read-as-fraction-
+    of-ALU ratio. Pulls data from the same builder the per-SKU panels
+    use so values stay consistent.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer2_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer2_chart(sku_ids)
+    if not chart.register_read_pj:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    def _row(label: str, getter, fmt: str) -> str:
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in chart.skus:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+                continue
+            cells.append(f"<td>{fmt.format(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    rows = (
+        _row("Register read (pJ)",
+             lambda s: chart.register_read_pj.get(s), "{:.3f}")
+        + _row("Register write (pJ)",
+               lambda s: chart.register_write_pj.get(s), "{:.3f}")
+        + _row("Read / ALU ratio",
+               lambda s: chart.read_alu_ratio.get(s), "{:.2f}")
+    )
+
+    badge_cells = []
+    for sku in chart.skus:
+        prov = chart.provenance.get(sku, "UNKNOWN")
+        badge = _safe_status_class(prov.lower())
+        badge_cells.append(
+            f'<td><span class="badge {badge}">{html.escape(prov)}</span></td>'
+        )
+    rows += "<tr><th>Provenance</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Layer 2: register-file energy across SKUs</h3>
+  <p class="meta">Read / write energies sourced from
+  TechnologyProfile keyed by each SKU's process node and deployment
+  market. Read / ALU ratio quantifies operand-fetch overhead -- the
+  KPU's domain-flow fabric is intentionally absent from this fetch.</p>
+  <table class="layer2-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -399,10 +466,10 @@ def render_comparison_page(
 
     Currently surfaces:
       - SKU summary table (always)
-      - Layer 1 peak-TOPS-per-precision table (M1 onward, when any
-        SKU has populated ComputeFabrics)
+      - Layer 1 peak-TOPS-per-precision table (M1)
+      - Layer 2 register-energy table (M2)
 
-    M2-M8 add layer-by-layer comparison sections.
+    M3-M8 add later layer comparison sections.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -413,6 +480,7 @@ def render_comparison_page(
         for r in reports
     )
     layer1_section = _render_layer1_cross_sku_table(reports)
+    layer2_section = _render_layer2_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -422,8 +490,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
-table.layer1-cross td {{ text-align: right; }}
-table.layer1-cross th:first-child {{ text-align: left; }}
+table.layer1-cross td, table.layer2-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child, table.layer2-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -443,6 +511,7 @@ table.layer1-cross th:first-child {{ text-align: left; }}
     </table>
   </section>
   {layer1_section}
+  {layer2_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>
