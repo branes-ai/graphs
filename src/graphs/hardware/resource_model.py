@@ -797,6 +797,23 @@ class HardwareResourceModel:
     # NEW: BOM cost modeling for market analysis
     bom_cost_profile: Optional[BOMCostProfile] = None
 
+    # M2 Layer 2: per-SKU SIMD-vectorization efficiency.
+    # Maps an op-kind label ('elementwise', 'matrix', 'default') to the
+    # fraction of theoretical SIMD throughput that survives ISA overhead,
+    # alignment, and tail-loop costs. Populated by CPU/DSP SKUs; left
+    # None on architectures without a SIMD ISA (KPU, TPU, GPU shader
+    # cores). Provenance lives in field_provenance under the key
+    # ``simd_efficiency.<op_kind>``.
+    simd_efficiency: Optional[Dict[str, float]] = None
+
+    # M2 Layer 2: per-SKU systolic / wavefront pipeline-fill overhead.
+    # The fraction of cycles spent filling and draining the pipeline
+    # before sustained throughput is reached. Populated on TPU SKUs;
+    # KPU SKUs read fill/drain from the attached
+    # tile_energy_model / TileSpecialization (no double-counting).
+    # Provenance: ``pipeline_fill_overhead``.
+    pipeline_fill_overhead: Optional[float] = None
+
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.

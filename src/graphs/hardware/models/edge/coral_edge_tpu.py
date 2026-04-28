@@ -207,10 +207,31 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         thermal_operating_points=thermal_operating_points,
         default_thermal_profile="2W",
         bom_cost_profile=bom_cost,
+
+        # M2 Layer 2: per-SKU systolic pipeline-fill overhead.
+        # Coral Edge TPU is a 64x64 INT8 systolic array. Reference
+        # formula in TPUMapper._analyze_systolic_utilization computes
+        # this as pipeline_depth / (matrix_depth + pipeline_depth) and
+        # tops out near 0.5 for tiny matrices. Average across realistic
+        # edge-AI workloads (mobile-net / detection backbones) lands
+        # near 0.15 -- one-shot fill amortized over many output rows.
+        pipeline_fill_overhead=0.15,
     )
 
     # Attach tile energy model
     model.tile_energy_model = tile_energy_model
+
+    # M2 Layer 2 provenance for the systolic fill overhead
+    from graphs.core.confidence import EstimationConfidence
+    model.set_provenance(
+        "pipeline_fill_overhead",
+        EstimationConfidence.theoretical(
+            score=0.50,
+            source=("Coral Edge TPU 64x64 systolic array, derived from "
+                    "TPUMapper._analyze_systolic_utilization formula "
+                    "averaged over typical edge-AI matrix shapes"),
+        ),
+    )
 
     return model
 
