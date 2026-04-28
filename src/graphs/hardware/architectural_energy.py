@@ -827,9 +827,22 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     dram_energy_per_byte: float = field(init=False)
 
     # Memory access patterns (fixed)
-    shared_mem_l1_hit_rate: float = 0.95                        # 95% hit in Shared Mem/L1
+    shared_mem_l1_hit_rate: float = 0.95                        # 95% hit in Shared Mem/L1 (default / matrix ops)
     l2_hit_rate: float = 0.90                                   # 90% L2 hits (of Shared/L1 misses)
     shared_mem_explicit_usage: float = 0.40                     # 40% explicitly use shared memory
+
+    # M3 Layer 3: per-op-type L1 hit rate. Lifts the single-rate
+    # assumption: matrix ops with weight reuse hit ~95%, elementwise
+    # streams with poor locality drop to ~85%, mixed workloads land in
+    # between. ``shared_mem_l1_hit_rate`` (above) acts as the fallback
+    # when the op-type is not in this table.
+    shared_mem_l1_hit_rate_by_op: Dict[str, float] = field(
+        default_factory=lambda: {
+            "matrix":      0.95,  # GEMM / Conv with weight reuse
+            "elementwise": 0.85,  # ReLU / Add / Norm streams (poor locality)
+            "default":     0.85,  # Conservative for unmodeled ops
+        }
+    )
 
     # Instruction pipeline stages - derived from tech_profile
     instruction_decode_energy: float = field(init=False)

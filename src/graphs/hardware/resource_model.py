@@ -814,6 +814,16 @@ class HardwareResourceModel:
     # Provenance: ``pipeline_fill_overhead``.
     pipeline_fill_overhead: Optional[float] = None
 
+    # M3 Layer 3: storage kind for the innermost on-chip memory.
+    # ``"cache"`` -- hardware-managed (CPU L1, GPU shared mem / L1).
+    # Has a hit rate that depends on access pattern.
+    # ``"scratchpad"`` -- software-managed (KPU tile-local SRAM,
+    # TPU unified buffer, Hailo on-chip memory). Hit rate is
+    # deterministic 1.0 by design; the cost lives in the host
+    # software's tiling decisions, not in the runtime.
+    # Provenance: ``l1_storage_kind``.
+    l1_storage_kind: Optional[str] = None
+
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.

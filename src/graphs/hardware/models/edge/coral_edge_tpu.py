@@ -216,6 +216,10 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         # edge-AI workloads (mobile-net / detection backbones) lands
         # near 0.15 -- one-shot fill amortized over many output rows.
         pipeline_fill_overhead=0.15,
+
+        # M3 Layer 3: software-managed unified buffer (8 MB on the
+        # die, exposed as 512 KB per systolic tile).
+        l1_storage_kind="scratchpad",
     )
 
     # Attach tile energy model
@@ -230,6 +234,23 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
             source=("Coral Edge TPU 64x64 systolic array, derived from "
                     "TPUMapper._analyze_systolic_utilization formula "
                     "averaged over typical edge-AI matrix shapes"),
+        ),
+    )
+
+    # M3 Layer 3 provenance: software-managed unified buffer
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.80,
+            source=("Coral Edge TPU on-chip unified buffer (~8 MB, "
+                    "modeled as 512 KB per systolic tile)"),
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Edge TPU architectural fact: software-managed UB",
         ),
     )
 

@@ -20,6 +20,12 @@ from .layer2_register import (
     cross_sku_layer2_chart,
     CrossSKULayer2Chart,
 )
+from .layer3_l1_cache import (
+    build_layer3_l1_cache_panel,
+    build_layer3_panels_for_skus,
+    cross_sku_layer3_chart,
+    CrossSKULayer3Chart,
+)
 
 __all__ = [
     "build_layer1_panel",
@@ -30,4 +36,8 @@ __all__ = [
     "build_layer2_panels_for_skus",
     "cross_sku_layer2_chart",
     "CrossSKULayer2Chart",
+    "build_layer3_l1_cache_panel",
+    "build_layer3_panels_for_skus",
+    "cross_sku_layer3_chart",
+    "CrossSKULayer3Chart",
 ]

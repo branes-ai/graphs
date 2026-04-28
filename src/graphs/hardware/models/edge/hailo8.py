@@ -160,7 +160,7 @@ def hailo8_resource_model() -> HardwareResourceModel:
     # ========================================================================
     # Hardware Resource Model
     # ========================================================================
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name="Hailo-8",
         hardware_type=HardwareType.KPU,  # Dataflow architecture (similar to KPU)
 
@@ -214,4 +214,29 @@ def hailo8_resource_model() -> HardwareResourceModel:
 
         # BOM cost
         bom_cost_profile=bom_cost,
+
+        # M3 Layer 3: software-managed on-chip SRAM partitioned per
+        # dataflow unit. Hailo's compiler statically allocates the
+        # working set; no hardware cache.
+        l1_storage_kind="scratchpad",
     )
+
+    # M3 Layer 3 provenance
+    from graphs.core.confidence import EstimationConfidence
+    model.set_provenance(
+        "l1_cache_per_unit",
+        EstimationConfidence.theoretical(
+            score=0.75,
+            source=("Hailo-8 Architecture Brief: ~16 MB total on-chip "
+                    "SRAM partitioned across 32 dataflow units (~512 KB/unit)"),
+        ),
+    )
+    model.set_provenance(
+        "l1_storage_kind",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Hailo dataflow architecture: software-managed, no L1 cache",
+        ),
+    )
+
+    return model
