@@ -4,6 +4,7 @@ Kpu T256 Resource Model hardware resource model.
 Extracted from resource_model.py during refactoring.
 """
 
+from ...fabric_model import SoCFabricModel, Topology
 from ...resource_model import (
     HardwareResourceModel,
     HardwareType,
@@ -539,6 +540,21 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     )
     model.coherence_protocol = "none"
 
+    # M6 Layer 6: 2D mesh fabric tied to M0.5 tile abstraction.
+    model.soc_fabric = SoCFabricModel(
+        topology=Topology.MESH_2D,
+        hop_latency_ns=1.0,
+        pj_per_flit_per_hop=0.5,
+        bisection_bandwidth_gbps=256.0,
+        controller_count=tile_energy_model.num_tiles,
+        flit_size_bytes=16,
+        mesh_dimensions=tile_energy_model.tile_mesh_dimensions,
+        routing_distance_factor=1.2,
+        provenance=("Stillwater KPU-T256 tile mesh (M0.5 "
+                    "dataflow-tile abstraction)"),
+    )
+    tile_energy_model.soc_fabric = model.soc_fabric
+
     from graphs.core.confidence import EstimationConfidence
     model.set_provenance(
         "l1_cache_per_unit",
@@ -596,6 +612,16 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
             score=0.95,
             source=("KPU domain-flow: software-managed distributed L3 "
                     "scratchpad; no inter-tile coherence protocol"),
+        ),
+    )
+
+    # M6 Layer 6 provenance
+    model.set_provenance(
+        "soc_fabric",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Stillwater KPU-T256: tile mesh tied to M0.5 "
+                    "KPUTileEnergyModel"),
         ),
     )
 

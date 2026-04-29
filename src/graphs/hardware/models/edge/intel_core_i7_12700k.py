@@ -21,6 +21,7 @@ from ...resource_model import (
     get_base_alu_energy,
     ThermalOperatingPoint,
 )
+from ...fabric_model import SoCFabricModel, Topology
 from graphs.core.confidence import EstimationConfidence
 
 
@@ -275,6 +276,21 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         l3_present=True,
         l3_cache_total=25 * 1024 * 1024,  # 25 MiB shared L3
         coherence_protocol="snoopy_mesi",
+
+        # M6 Layer 6: Alder Lake double ring bus carries L2->L3 / L3
+        # snoop traffic between cores. 12 stops on the ring (8 P + 4 E
+        # cores + cache slices); avg latency ~1.5 ns / stop, ~5 pJ/flit.
+        soc_fabric=SoCFabricModel(
+            topology=Topology.RING,
+            hop_latency_ns=1.5,
+            pj_per_flit_per_hop=5.0,
+            bisection_bandwidth_gbps=512.0,  # ~64 GB/s ring half-bandwidth
+            controller_count=12,             # 8 P + 4 E ring stops
+            flit_size_bytes=32,
+            routing_distance_factor=1.0,     # XY-style routing on ring
+            provenance=("Intel Core i7-12700K Alder Lake double ring "
+                        "bus (~12 stops, snoop coherence carrier)"),
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -371,6 +387,17 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
             score=0.95,
             source=("x86 multi-core: snoopy MESI/MOESI on the ring "
                     "interconnect; PROTOCOL energy modeled at Layer 5"),
+        ),
+    )
+
+    # M6 Layer 6 provenance for the on-chip fabric
+    model.set_provenance(
+        "soc_fabric",
+        EstimationConfidence.theoretical(
+            score=0.75,
+            source=("Alder Lake double ring bus topology: per-hop "
+                    "latency / energy from analytical model + Intel "
+                    "OPT manual"),
         ),
     )
 

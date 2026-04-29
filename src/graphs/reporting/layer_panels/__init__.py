@@ -38,6 +38,12 @@ from .layer5_l3_cache import (
     cross_sku_layer5_chart,
     CrossSKULayer5Chart,
 )
+from .layer6_soc_fabric import (
+    build_layer6_soc_fabric_panel,
+    build_layer6_panels_for_skus,
+    cross_sku_layer6_chart,
+    CrossSKULayer6Chart,
+)
 
 __all__ = [
     "build_layer1_panel",
@@ -60,4 +66,8 @@ __all__ = [
     "build_layer5_panels_for_skus",
     "cross_sku_layer5_chart",
     "CrossSKULayer5Chart",
+    "build_layer6_soc_fabric_panel",
+    "build_layer6_panels_for_skus",
+    "cross_sku_layer6_chart",
+    "CrossSKULayer6Chart",
 ]

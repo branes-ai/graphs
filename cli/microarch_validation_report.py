@@ -75,6 +75,7 @@ from graphs.reporting.layer_panels import (  # noqa: E402
     build_layer3_l1_cache_panel,
     build_layer4_l2_cache_panel,
     build_layer5_l3_cache_panel,
+    build_layer6_soc_fabric_panel,
 )
 
 
@@ -114,6 +115,7 @@ def build_empty_report_for(sku: str) -> MicroarchReport:
     _populate_layer3_l1_cache(report)
     _populate_layer4_l2_cache(report)
     _populate_layer5_l3_cache(report)
+    _populate_layer6_soc_fabric(report)
     return report
 
 
@@ -163,6 +165,12 @@ def _populate_layer5_l3_cache(report: MicroarchReport) -> None:
     """Replace the Layer 5 (L3 / LLC) panel in-place."""
     panel = build_layer5_l3_cache_panel(report.sku)
     _replace_layer_panel(report, LayerTag.L3_CACHE, panel)
+
+
+def _populate_layer6_soc_fabric(report: MicroarchReport) -> None:
+    """Replace the Layer 6 (SoC data movement) panel in-place."""
+    panel = build_layer6_soc_fabric_panel(report.sku)
+    _replace_layer_panel(report, LayerTag.SOC_DATA_MOVEMENT, panel)
 
 
 def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:

@@ -705,6 +705,87 @@ def _render_layer5_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_layer6_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render a SoC fabric topology + hop / energy table across SKUs.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer6_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer6_chart(sku_ids)
+    if not chart.topology:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    def _row(label, getter, fmt):
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in chart.skus:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+            else:
+                cells.append(f"<td>{fmt(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    rows = (
+        _row("Topology",
+             lambda s: chart.topology.get(s),
+             lambda v: html.escape(v))
+        + _row("Avg hops",
+               lambda s: chart.avg_hop_count.get(s),
+               lambda v: f"{v:.2f}")
+        + _row("Hop latency (ns)",
+               lambda s: chart.hop_latency_ns.get(s),
+               lambda v: f"{v:.2f}")
+        + _row("pJ / flit / hop",
+               lambda s: chart.pj_per_flit_per_hop.get(s),
+               lambda v: f"{v:.2f}")
+        + _row("Bisection BW (Gbps)",
+               lambda s: chart.bisection_bandwidth_gbps.get(s),
+               lambda v: f"{v:.0f}")
+    )
+
+    # Confidence row: blends provenance with the low_confidence flag
+    badge_cells = []
+    for sku in chart.skus:
+        lc = chart.low_confidence.get(sku, False)
+        prov = chart.provenance.get(sku, "UNKNOWN")
+        if lc:
+            label = "LOW-CONFIDENCE"
+            badge = "theoretical"  # show as theoretical-style badge
+        else:
+            label = prov
+            badge = _safe_status_class(prov.lower())
+        badge_cells.append(
+            f'<td><span class="badge {badge}">{html.escape(label)}</span></td>'
+        )
+    rows += "<tr><th>Confidence</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Layer 6: on-chip fabric / NoC across SKUs</h3>
+  <p class="meta">Topology and per-hop coefficients for the on-chip
+  interconnect that moves packets between cores, caches, and memory
+  controllers. Layer 6 owns the TRANSPORT cost; the coherence
+  PROTOCOL cost stays at Layer 5. SKUs whose vendors do not publish
+  NoC details ship with a LOW-CONFIDENCE badge per the M6 issue
+  constraint.</p>
+  <table class="layer6-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -719,8 +800,9 @@ def render_comparison_page(
       - Layer 3 L1-capacity / storage-kind table (M3)
       - Layer 4 L2-capacity / topology table (M4)
       - Layer 5 L3-presence / coherence table (M5)
+      - Layer 6 SoC fabric topology + hop coefficients (M6)
 
-    M6-M8 add later layer comparison sections.
+    M7-M8 add later layer comparison sections.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -735,6 +817,7 @@ def render_comparison_page(
     layer3_section = _render_layer3_cross_sku_table(reports)
     layer4_section = _render_layer4_cross_sku_table(reports)
     layer5_section = _render_layer5_cross_sku_table(reports)
+    layer6_section = _render_layer6_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -744,8 +827,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
-table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td, table.layer5-cross td {{ text-align: right; }}
-table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child, table.layer5-cross th:first-child {{ text-align: left; }}
+table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td, table.layer5-cross td, table.layer6-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child, table.layer5-cross th:first-child, table.layer6-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -754,8 +837,9 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      Layers 1-5 (ALU, Register File, L1 Cache / Scratchpad, L2 Cache,
-      L3 / LLC) populated; remaining layer comparisons follow at M6-M8.
+      Layers 1-6 (ALU, Register File, L1 Cache / Scratchpad, L2 Cache,
+      L3 / LLC, SoC Data Movement) populated; remaining layer
+      comparisons follow at M7-M8.
     </div>
   </section>
   {_render_legend()}
@@ -770,6 +854,7 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   {layer3_section}
   {layer4_section}
   {layer5_section}
+  {layer6_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>
