@@ -77,31 +77,31 @@ Stages 1-4 fire ONCE PER SUBPARTITION (each Ampere subpartition has its own L0 I
 
 ## 3. Baseline ALU energy (irreducible compute floor)
 
-Single ALU stripped of all SIMT overhead: input flip-flops wired directly to the ALU inputs, output flip-flop on the result. No register file, no operand collector, no instruction fetch / decode / scheduler / dispatch.
+Single ALU stripped of all SIMT overhead: input flip-flops wired directly to the ALU inputs, output flip-flop on the result. No register file, no operand collector, no instruction fetch / decode / scheduler / dispatch. **All values in pJ**, for one ALU performing one op.
 
 ### 3.FADD
 
 **FADD fp32**  (2 source operands, 1 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.107 | -- | 0.418 | 0.053 | 0.578 |
+| Energy | 0.107 | -- | 0.418 | 0.053 | 0.578 |
 
 Per-op total: **0.578 pJ**, per-FLOP: **0.578 pJ/FLOP**.
 
 **FADD fp16**  (2 source operands, 1 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.107 | -- | 0.209 | 0.053 | 0.369 |
+| Energy | 0.107 | -- | 0.209 | 0.053 | 0.369 |
 
 Per-op total: **0.369 pJ**, per-FLOP: **0.369 pJ/FLOP**.
 
 **FADD int8**  (2 source operands, 1 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.107 | -- | 0.084 | 0.053 | 0.244 |
+| Energy | 0.107 | -- | 0.084 | 0.053 | 0.244 |
 
 Per-op total: **0.244 pJ**, per-FLOP: **0.244 pJ/FLOP**.
 
@@ -109,25 +109,25 @@ Per-op total: **0.244 pJ**, per-FLOP: **0.244 pJ/FLOP**.
 
 **FMUL fp32**  (2 source operands, 1 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.107 | 1.672 | -- | 0.053 | 1.832 |
+| Energy | 0.107 | 1.672 | -- | 0.053 | 1.832 |
 
 Per-op total: **1.832 pJ**, per-FLOP: **1.832 pJ/FLOP**.
 
 **FMUL fp16**  (2 source operands, 1 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.107 | 0.836 | -- | 0.053 | 0.996 |
+| Energy | 0.107 | 0.836 | -- | 0.053 | 0.996 |
 
 Per-op total: **0.996 pJ**, per-FLOP: **0.996 pJ/FLOP**.
 
 **FMUL int8**  (2 source operands, 1 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.107 | 0.334 | -- | 0.053 | 0.495 |
+| Energy | 0.107 | 0.334 | -- | 0.053 | 0.495 |
 
 Per-op total: **0.495 pJ**, per-FLOP: **0.495 pJ/FLOP**.
 
@@ -135,36 +135,40 @@ Per-op total: **0.495 pJ**, per-FLOP: **0.495 pJ/FLOP**.
 
 **FMA fp32**  (3 source operands, 2 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.160 | 1.672 | 0.228 | 0.053 | 2.114 |
+| Energy | 0.160 | 1.672 | 0.228 | 0.053 | 2.114 |
 
 Per-op total: **2.114 pJ**, per-FLOP: **1.057 pJ/FLOP**.
 
 **FMA fp16**  (3 source operands, 2 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.160 | 0.836 | 0.114 | 0.053 | 1.164 |
+| Energy | 0.160 | 0.836 | 0.114 | 0.053 | 1.164 |
 
 Per-op total: **1.164 pJ**, per-FLOP: **0.582 pJ/FLOP**.
 
 **FMA int8**  (3 source operands, 2 FLOP/op)
 
-| Stage | FF_read | MUL | ADD | FF_write | Total |
+| Stage (pJ) | FF_read | MUL | ADD | FF_write | Total |
 |---|---|---|---|---|---|
-| pJ | 0.160 | 0.334 | 0.046 | 0.053 | 0.594 |
+| Energy | 0.160 | 0.334 | 0.046 | 0.053 | 0.594 |
 
 Per-op total: **0.594 pJ**, per-FLOP: **0.297 pJ/FLOP**.
 
 ## 4. SIMT pipeline energy (one SM-cycle, 128 lanes)
 
-Rows trace each operand / control flow through the 9 pipeline stages; each cell is the energy attributable to that operation at that stage. The Stage total row at the bottom sums vertically; the Row total column on the right sums horizontally; the bold corner cell is the per-instruction total.
+Rows trace each operand / control flow through the 9 pipeline stages; each cell is the **energy in pJ** attributable to that operation at that stage. All values are SM-level totals (the x4 subpartition fanout is already applied). The Stage total row at the bottom sums vertically; the Row total column on the right sums horizontally; the bold corner cell is the per-instruction total.
+
+Each precision section also has a collapsible "Stage activity" table showing how each Stage total decomposes into `activity_count x pJ_each` (e.g. an FMA fp32 Rd column of 527 pJ resolves to `12 wide-bank reads x 43.89 pJ each`). Treat the cells in the main energy table as **pJ totals**, not access counts.
 
 ### 4.FADD
 
 **FADD fp32** -- 128 lanes x 1 packed = 128 ops (128 FLOPS)
 
+*All values in pJ; SM-level totals.*
+
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
@@ -173,11 +177,29 @@ Rows trace each operand / control flow through the 9 pipeline stages; each cell 
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 53.5 | -- | 53.5 |
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 53.5 | 219 | **752** |
+
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 8 | 43.9 | 351 |
+| OC | 8 | 4.389 | 35.1 |
+| Disp | 256 | 0.343 | 87.8 |
+| Exe | 128 | 0.418 | 53.5 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
 
 Per-instruction: **752 pJ**, per-op: **5.873 pJ/op**, per-FLOP: **5.873 pJ**.
 
 **FADD fp16** -- 128 lanes x 2 packed = 256 ops (256 FLOPS)
 
+*All values in pJ; SM-level totals.*
+
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
@@ -187,9 +209,27 @@ Per-instruction: **752 pJ**, per-op: **5.873 pJ/op**, per-FLOP: **5.873 pJ**.
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 53.5 | 219 | **752** |
 
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 8 | 43.9 | 351 |
+| OC | 8 | 4.389 | 35.1 |
+| Disp | 256 | 0.343 | 87.8 |
+| Exe | 128 | 0.418 | 53.5 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
+
 Per-instruction: **752 pJ**, per-op: **2.937 pJ/op**, per-FLOP: **2.937 pJ**.
 
 **FADD int8** -- 128 lanes x 4 packed = 512 ops (512 IntOPS)
+
+*All values in pJ; SM-level totals.*
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -200,12 +240,30 @@ Per-instruction: **752 pJ**, per-op: **2.937 pJ/op**, per-FLOP: **2.937 pJ**.
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 42.8 | 219 | **741** |
 
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 8 | 43.9 | 351 |
+| OC | 8 | 4.389 | 35.1 |
+| Disp | 256 | 0.343 | 87.8 |
+| Exe | 128 | 0.334 | 42.8 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
+
 Per-instruction: **741 pJ**, per-op: **1.447 pJ/op**, per-IntOP: **1.447 pJ**.
 
 ### 4.FMUL
 
 **FMUL fp32** -- 128 lanes x 1 packed = 128 ops (128 FLOPS)
 
+*All values in pJ; SM-level totals.*
+
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
@@ -214,11 +272,29 @@ Per-instruction: **741 pJ**, per-op: **1.447 pJ/op**, per-IntOP: **1.447 pJ**.
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 214 | -- | 214 |
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 214 | 219 | **912** |
+
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 8 | 43.9 | 351 |
+| OC | 8 | 4.389 | 35.1 |
+| Disp | 256 | 0.343 | 87.8 |
+| Exe | 128 | 1.672 | 214 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
 
 Per-instruction: **912 pJ**, per-op: **7.127 pJ/op**, per-FLOP: **7.127 pJ**.
 
 **FMUL fp16** -- 128 lanes x 2 packed = 256 ops (256 FLOPS)
 
+*All values in pJ; SM-level totals.*
+
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
@@ -228,9 +304,27 @@ Per-instruction: **912 pJ**, per-op: **7.127 pJ/op**, per-FLOP: **7.127 pJ**.
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 214 | 219 | **912** |
 
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 8 | 43.9 | 351 |
+| OC | 8 | 4.389 | 35.1 |
+| Disp | 256 | 0.343 | 87.8 |
+| Exe | 128 | 1.672 | 214 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
+
 Per-instruction: **912 pJ**, per-op: **3.564 pJ/op**, per-FLOP: **3.564 pJ**.
 
 **FMUL int8** -- 128 lanes x 4 packed = 512 ops (512 IntOPS)
+
+*All values in pJ; SM-level totals.*
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -241,12 +335,30 @@ Per-instruction: **912 pJ**, per-op: **3.564 pJ/op**, per-FLOP: **3.564 pJ**.
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 171 | 219 | **869** |
 
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 8 | 43.9 | 351 |
+| OC | 8 | 4.389 | 35.1 |
+| Disp | 256 | 0.343 | 87.8 |
+| Exe | 128 | 1.338 | 171 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
+
 Per-instruction: **869 pJ**, per-op: **1.698 pJ/op**, per-IntOP: **1.698 pJ**.
 
 ### 4.FMA
 
 **FMA fp32** -- 128 lanes x 1 packed = 128 ops (256 FLOPS)
 
+*All values in pJ; SM-level totals.*
+
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
@@ -256,11 +368,29 @@ Per-instruction: **869 pJ**, per-op: **1.698 pJ/op**, per-IntOP: **1.698 pJ**.
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 243 | -- | 243 |
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 527 | 52.7 | 132 | 243 | 219 | **1178** |
+
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 12 | 43.9 | 527 |
+| OC | 12 | 4.389 | 52.7 |
+| Disp | 384 | 0.343 | 132 |
+| Exe | 128 | 1.900 | 243 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
 
 Per-instruction: **1178 pJ**, per-op: **9.207 pJ/op**, per-FLOP: **4.603 pJ**.
 
 **FMA fp16** -- 128 lanes x 2 packed = 256 ops (512 FLOPS)
 
+*All values in pJ; SM-level totals.*
+
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
@@ -271,9 +401,27 @@ Per-instruction: **1178 pJ**, per-op: **9.207 pJ/op**, per-FLOP: **4.603 pJ**.
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 527 | 52.7 | 132 | 243 | 219 | **1178** |
 
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 12 | 43.9 | 527 |
+| OC | 12 | 4.389 | 52.7 |
+| Disp | 384 | 0.343 | 132 |
+| Exe | 128 | 1.900 | 243 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
+
 Per-instruction: **1178 pJ**, per-op: **4.603 pJ/op**, per-FLOP: **2.302 pJ**.
 
 **FMA int8** -- 128 lanes x 4 packed = 512 ops (1024 IntOPS)
+
+*All values in pJ; SM-level totals.*
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -284,6 +432,22 @@ Per-instruction: **1178 pJ**, per-op: **4.603 pJ/op**, per-FLOP: **2.302 pJ**.
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 195 | -- | 195 |
 | Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
 | **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 527 | 52.7 | 132 | 195 | 219 | **1130** |
+
+<details><summary>Stage activity (count x pJ/event)</summary>
+
+| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |
+|---|---|---|---|
+| Fch | 4 | 0.570 | 2.280 |
+| Dec | 4 | 0.304 | 1.216 |
+| Sch | 4 | 0.152 | 0.608 |
+| Dsp | 4 | 0.190 | 0.760 |
+| Rd | 12 | 43.9 | 527 |
+| OC | 12 | 4.389 | 52.7 |
+| Disp | 384 | 0.343 | 132 |
+| Exe | 128 | 1.520 | 195 |
+| WB | 4 | 54.9 | 219 |
+
+</details>
 
 Per-instruction: **1130 pJ**, per-op: **2.207 pJ/op**, per-IntOP: **1.103 pJ**.
 

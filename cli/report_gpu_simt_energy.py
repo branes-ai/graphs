@@ -104,25 +104,36 @@ _BASELINE_COLS = ["FF_read", "MUL", "ADD", "FF_write", "Total"]
 
 
 def _render_baseline_table(b: BaselineALUEnergy) -> str:
+    """Single-row energy table (cells in pJ)."""
     row = b.as_row()
-    header = "| Stage | " + " | ".join(_BASELINE_COLS) + " |"
+    header = "| Stage (pJ) | " + " | ".join(_BASELINE_COLS) + " |"
     sep    = "|---|" + "---|" * len(_BASELINE_COLS)
-    cells = ["pJ"] + [_fmt_pj(row[c]) for c in _BASELINE_COLS]
+    cells = ["Energy"] + [_fmt_pj(row[c]) for c in _BASELINE_COLS]
     body = "| " + " | ".join(cells) + " |"
     return "\n".join([header, sep, body])
 
 
 def _render_simt_table(s: SIMTInstructionEnergy) -> str:
-    """Render the gantt-style table: rows = operations, cols = stages.
+    """Render the gantt-style energy table: rows = operations, cols =
+    stages. Every cell is in **pJ** -- the product of activity-count
+    and per-event energy. The corresponding activity counts are
+    rendered separately by ``_render_activity_table`` so the reader
+    can see how each cell decomposes.
 
-    Energy at each cell, totals at the right and bottom.
+    All values are SM-level totals (i.e. the ``Fch`` cell already
+    includes the x4 subpartition fanout).
     """
     rows = list(s.rows.keys())
     cols = STAGE_LABELS
     header = "| Operation | " + " | ".join(cols) + " | Row total |"
     sep    = "|---|" + "---|" * (len(cols) + 1)
 
-    lines = [header, sep]
+    lines = [
+        "*All values in pJ; SM-level totals.*",
+        "",
+        header,
+        sep,
+    ]
     for r in rows:
         cells = [r]
         row_total = 0.0
@@ -137,6 +148,30 @@ def _render_simt_table(s: SIMTInstructionEnergy) -> str:
     grand = sum(stage_totals)
     cells = ["**Stage total**"] + [_fmt_pj(v) for v in stage_totals] + [f"**{_fmt_pj(grand)}**"]
     lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _render_activity_table(s: SIMTInstructionEnergy) -> str:
+    """Render the activity-count breakdown for each pipeline stage.
+
+    Shows how each ``Stage total`` in the energy table decomposes
+    into ``activity_count x pJ_each``. This is what tells the reader
+    "176 pJ = 4 wide-bank reads x 43.89 pJ" rather than mistakenly
+    reading the energy cell as an access count.
+    """
+    lines = [
+        "<details><summary>Stage activity (count x pJ/event)</summary>",
+        "",
+        "| Stage | Activity count (per SM-cycle) | pJ / event | Total pJ |",
+        "|---|---|---|---|",
+    ]
+    for stg in s.stages:
+        lines.append(
+            f"| {stg.label} | {stg.activity_count} | "
+            f"{_fmt_pj(stg.pj_each)} | {_fmt_pj(stg.total_pj)} |"
+        )
+    lines.append("")
+    lines.append("</details>")
     return "\n".join(lines)
 
 
@@ -238,7 +273,8 @@ def _build_report(profile_key: str) -> str:
         "Single ALU stripped of all SIMT overhead: input flip-flops "
         "wired directly to the ALU inputs, output flip-flop on the "
         "result. No register file, no operand collector, no "
-        "instruction fetch / decode / scheduler / dispatch.\n"
+        "instruction fetch / decode / scheduler / dispatch. **All "
+        "values in pJ**, for one ALU performing one op.\n"
     )
     for op in (OpKind.FADD, OpKind.FMUL, OpKind.FMA):
         parts.append(f"### 3.{op.value}\n")
@@ -255,11 +291,20 @@ def _build_report(profile_key: str) -> str:
     parts.append("## 4. SIMT pipeline energy (one SM-cycle, 128 lanes)\n")
     parts.append(
         "Rows trace each operand / control flow through the 9 "
-        "pipeline stages; each cell is the energy attributable to "
-        "that operation at that stage. The Stage total row at the "
-        "bottom sums vertically; the Row total column on the right "
-        "sums horizontally; the bold corner cell is the per-instruction "
-        "total.\n"
+        "pipeline stages; each cell is the **energy in pJ** "
+        "attributable to that operation at that stage. All values "
+        "are SM-level totals (the x4 subpartition fanout is already "
+        "applied). The Stage total row at the bottom sums vertically; "
+        "the Row total column on the right sums horizontally; the "
+        "bold corner cell is the per-instruction total.\n"
+    )
+    parts.append(
+        "Each precision section also has a collapsible \"Stage "
+        "activity\" table showing how each Stage total decomposes "
+        "into `activity_count x pJ_each` (e.g. an FMA fp32 Rd column "
+        "of 527 pJ resolves to `12 wide-bank reads x 43.89 pJ each`). "
+        "Treat the cells in the main energy table as **pJ totals**, "
+        "not access counts.\n"
     )
     for op in (OpKind.FADD, OpKind.FMUL, OpKind.FMA):
         parts.append(f"### 4.{op.value}\n")
@@ -274,6 +319,8 @@ def _build_report(profile_key: str) -> str:
                 f"({s.flops_executed} {'FLOPS' if prec is not Precision.INT8 else 'IntOPS'})\n"
             )
             parts.append(_render_simt_table(s))
+            parts.append("")
+            parts.append(_render_activity_table(s))
             parts.append(
                 f"\nPer-instruction: **{_fmt_pj(s.total_pj)} pJ**, "
                 f"per-op: **{_fmt_pj(s.pj_per_op)} pJ/op**, "
