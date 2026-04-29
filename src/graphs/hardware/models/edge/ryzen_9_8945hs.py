@@ -212,6 +212,12 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
         l3_cache_total=16 * 1024 * 1024,
         coherence_protocol="snoopy_mesi",
 
+        # M7 Layer 7: LPDDR5x mobile DRAM. Lower energy than DDR5
+        # desktop (mobile-optimized PHY).
+        memory_technology="LPDDR5x",
+        memory_read_energy_per_byte_pj=18.0,
+        memory_write_energy_per_byte_pj=22.0,
+
         # M6 Layer 6: Zen 4 Phoenix has a single CCX with all 8 cores
         # on one Infinity Fabric ring (no inter-CCX hop). N4 process
         # gives slightly lower per-flit energy than Alder Lake at 10nm.
@@ -326,5 +332,18 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
                     "values estimated from N4 process"),
         ),
     )
+
+    # M7 Layer 7 provenance
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.80,
+                source=("LPDDR5x mobile DRAM (Phoenix laptop config); "
+                        "energy from JEDEC LPDDR5x reference"),
+            ),
+        )
 
     return model

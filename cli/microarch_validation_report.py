@@ -76,6 +76,7 @@ from graphs.reporting.layer_panels import (  # noqa: E402
     build_layer4_l2_cache_panel,
     build_layer5_l3_cache_panel,
     build_layer6_soc_fabric_panel,
+    build_layer7_external_memory_panel,
 )
 
 
@@ -116,6 +117,7 @@ def build_empty_report_for(sku: str) -> MicroarchReport:
     _populate_layer4_l2_cache(report)
     _populate_layer5_l3_cache(report)
     _populate_layer6_soc_fabric(report)
+    _populate_layer7_external_memory(report)
     return report
 
 
@@ -171,6 +173,12 @@ def _populate_layer6_soc_fabric(report: MicroarchReport) -> None:
     """Replace the Layer 6 (SoC data movement) panel in-place."""
     panel = build_layer6_soc_fabric_panel(report.sku)
     _replace_layer_panel(report, LayerTag.SOC_DATA_MOVEMENT, panel)
+
+
+def _populate_layer7_external_memory(report: MicroarchReport) -> None:
+    """Replace the Layer 7 (external memory) panel in-place."""
+    panel = build_layer7_external_memory_panel(report.sku)
+    _replace_layer_panel(report, LayerTag.EXTERNAL_MEMORY, panel)
 
 
 def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:

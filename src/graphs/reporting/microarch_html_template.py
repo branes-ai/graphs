@@ -786,6 +786,85 @@ def _render_layer6_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_layer7_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render the Layer 7 external-memory comparison: technology,
+    bandwidth, R/W energy, asymmetry. The bandwidth-vs-pJ/byte
+    column pair gives the visually striking comparison from the M7
+    motivation -- DDR5 pays >2x the pJ/byte of LPDDR5 at lower BW.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer7_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer7_chart(sku_ids)
+    if not chart.memory_technology:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    def _row(label, getter, fmt):
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in chart.skus:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+            else:
+                cells.append(f"<td>{fmt(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    rows = (
+        _row("Memory technology",
+             lambda s: chart.memory_technology.get(s),
+             lambda v: html.escape(v))
+        + _row("Peak BW (GB/s)",
+               lambda s: chart.peak_bandwidth_gbps.get(s),
+               lambda v: f"{v:.1f}")
+        + _row("Read energy (pJ/B)",
+               lambda s: chart.read_energy_pj.get(s),
+               lambda v: f"{v:.2f}")
+        + _row("Write energy (pJ/B)",
+               lambda s: chart.write_energy_pj.get(s),
+               lambda v: f"{v:.2f}")
+        + _row("W/R asymmetry",
+               lambda s: chart.asymmetry.get(s),
+               lambda v: f"{v:.2f}x")
+    )
+
+    badge_cells = []
+    for sku in chart.skus:
+        prov = chart.provenance.get(sku, "UNKNOWN")
+        badge = _safe_status_class(prov.lower())
+        badge_cells.append(
+            f'<td><span class="badge {badge}">{html.escape(prov)}</span></td>'
+        )
+    rows += "<tr><th>Provenance</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Layer 7: external memory across SKUs</h3>
+  <p class="meta">External-memory characteristics. Bandwidth and
+  pJ/byte trade off across technology generations: DDR5 desktop
+  pays the highest energy per byte; LPDDR5 mobile / on-package
+  is the sweet spot for edge inference; HBM3 (not in this catalog
+  yet) drops below 10 pJ/B at the cost of die area. Hailo SKUs
+  load weights from host DRAM at initialization and serve
+  steady-state inference from on-chip SRAM, so their host-side
+  numbers describe the cold-start path.</p>
+  <table class="layer7-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -801,8 +880,9 @@ def render_comparison_page(
       - Layer 4 L2-capacity / topology table (M4)
       - Layer 5 L3-presence / coherence table (M5)
       - Layer 6 SoC fabric topology + hop coefficients (M6)
+      - Layer 7 external-memory technology + bandwidth + pJ/B (M7)
 
-    M7-M8 add later layer comparison sections.
+    M8 adds the engineering-deck export.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -818,6 +898,7 @@ def render_comparison_page(
     layer4_section = _render_layer4_cross_sku_table(reports)
     layer5_section = _render_layer5_cross_sku_table(reports)
     layer6_section = _render_layer6_cross_sku_table(reports)
+    layer7_section = _render_layer7_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -827,8 +908,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
-table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td, table.layer5-cross td, table.layer6-cross td {{ text-align: right; }}
-table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child, table.layer5-cross th:first-child, table.layer6-cross th:first-child {{ text-align: left; }}
+table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td, table.layer5-cross td, table.layer6-cross td, table.layer7-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child, table.layer5-cross th:first-child, table.layer6-cross th:first-child, table.layer7-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -837,9 +918,9 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      Layers 1-6 (ALU, Register File, L1 Cache / Scratchpad, L2 Cache,
-      L3 / LLC, SoC Data Movement) populated; remaining layer
-      comparisons follow at M7-M8.
+      All seven layers populated (ALU, Register File, L1 Cache /
+      Scratchpad, L2 Cache, L3 / LLC, SoC Data Movement, External
+      Memory). Engineering-deck export lands at M8.
     </div>
   </section>
   {_render_legend()}
@@ -855,6 +936,7 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   {layer4_section}
   {layer5_section}
   {layer6_section}
+  {layer7_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>

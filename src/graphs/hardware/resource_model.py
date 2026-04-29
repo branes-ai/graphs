@@ -880,6 +880,23 @@ class HardwareResourceModel:
     # Provenance: ``soc_fabric``.
     soc_fabric: Optional["SoCFabricModel"] = None
 
+    # M7 Layer 7: explicit external memory technology naming.
+    # Examples: "DDR5", "LPDDR5", "LPDDR5x", "HBM3", "HBM3e",
+    # "GDDR6", "on-chip" (for accelerators with no DRAM).
+    # Provenance: ``memory_technology``.
+    memory_technology: Optional[str] = None
+
+    # M7 Layer 7: read / write energy asymmetry. Modern DRAM costs
+    # ~1.2 - 1.5x more per byte for writes than reads (write-buffer
+    # tail-end energy + bank precharge). Defaults to None when only
+    # the legacy symmetric ``energy_per_byte`` is populated; the
+    # Layer 7 panel falls back to that field when these are unset.
+    # Values are picojoules per byte (panel-friendly units).
+    # Provenance: ``memory_read_energy_per_byte_pj``,
+    # ``memory_write_energy_per_byte_pj``.
+    memory_read_energy_per_byte_pj: Optional[float] = None
+    memory_write_energy_per_byte_pj: Optional[float] = None
+
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.
