@@ -255,6 +255,15 @@ def hailo8_resource_model() -> HardwareResourceModel:
         l3_cache_total=0,
         coherence_protocol="none",
 
+        # M7 Layer 7: Hailo-8 deployments load model weights once at
+        # initialization, then run inference entirely from on-chip
+        # SRAM. The legacy energy_per_byte=2 pJ/B reflects on-chip
+        # SRAM access, not DRAM. Model the host-side DRAM here as
+        # LPDDR4 for the cold-start / weight-load path.
+        memory_technology="LPDDR4 (host) + on-chip SRAM (steady-state)",
+        memory_read_energy_per_byte_pj=22.0,
+        memory_write_energy_per_byte_pj=27.0,
+
         # M6 Layer 6: dataflow mesh between 32 PE units. Hailo does
         # NOT publish per-hop NoC details, so this entry ships with
         # low_confidence=True per issue M6 constraint. Mesh
@@ -332,5 +341,20 @@ def hailo8_resource_model() -> HardwareResourceModel:
                     "panel ships with low_confidence=True flag"),
         ),
     )
+
+    # M7 Layer 7 provenance: Hailo deploys with weights resident
+    # in on-chip SRAM; DRAM only on the cold-start path.
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.55,
+                source=("Hailo-8 host-side LPDDR4 for weight load; "
+                        "steady-state inference is on-chip SRAM "
+                        "(legacy 2 pJ/B value reflects SRAM, not DRAM)"),
+            ),
+        )
 
     return model

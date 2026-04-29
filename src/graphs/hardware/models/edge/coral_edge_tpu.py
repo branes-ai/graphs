@@ -236,6 +236,12 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         l3_cache_total=0,
         coherence_protocol="none",
 
+        # M7 Layer 7: USB / LPDDR4 narrow path (4 GB/s). Higher per-byte
+        # cost reflects narrow bus + USB packetization on USB variants.
+        memory_technology="LPDDR4",
+        memory_read_energy_per_byte_pj=20.0,
+        memory_write_energy_per_byte_pj=24.0,
+
         # M6 Layer 6: single systolic tile + unified buffer; the
         # "fabric" is a trivial direct-connect between the systolic
         # array and the UB, modeled as a 1-port crossbar.
@@ -333,6 +339,20 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
             source="Coral Edge TPU: trivial single-tile direct-connect fabric",
         ),
     )
+
+    # M7 Layer 7 provenance
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.70,
+                source=("Coral Edge TPU: narrow LPDDR4 / USB-bound; "
+                        "energy reflects packetization overhead on "
+                        "USB variants"),
+            ),
+        )
 
     return model
 
