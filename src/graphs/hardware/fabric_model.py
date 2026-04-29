@@ -16,9 +16,10 @@ data movement milestone).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 import json
 from pathlib import Path
 
@@ -54,6 +55,15 @@ class SoCFabricModel:
         max_injection_gbps: Saturation injection rate per source,
             gigabits per second (Gbps). Bits/s, not bytes/s.
         provenance: Source tag for these values (datasheet URL, commit, etc.).
+        mesh_dimensions: For ``MESH_2D`` topology, the (width, height) tile
+            grid. Used by ``hop_count_avg`` and the KPU-NoC formula.
+        routing_distance_factor: Multiplier on shortest-path hop count to
+            account for non-Manhattan routes (~1.0 for ideal XY routing,
+            ~1.2 for typical real NoC routing). Replaces the
+            ``KPUTileEnergyModel.l3_routing_distance_factor`` constant.
+        low_confidence: Set when datasheet sources for the topology are
+            insufficient. Per issue M6 constraint, the panel surfaces the
+            assumption rather than leaving fields blank.
     """
     topology: Topology = Topology.UNKNOWN
     hop_latency_ns: float = 0.0
@@ -63,6 +73,64 @@ class SoCFabricModel:
     flit_size_bytes: int = 0
     max_injection_gbps: Optional[float] = None
     provenance: str = ""
+
+    # M6 additions
+    mesh_dimensions: Optional[Tuple[int, int]] = None
+    routing_distance_factor: float = 1.0
+    low_confidence: bool = False
+
+    # ------------------------------------------------------------------
+    # Analytical hop-count curve
+    # ------------------------------------------------------------------
+    def hop_count_avg(self, node_count: Optional[int] = None) -> float:
+        """
+        Average hop count between two random nodes for this topology.
+
+        ``node_count`` defaults to the implied count from
+        ``mesh_dimensions`` for ``MESH_2D``, ``controller_count`` for
+        bus-style topologies. The result is the analytical average,
+        not a worst case, and includes ``routing_distance_factor``.
+
+        Returns 0.0 when topology is UNKNOWN or node_count cannot be
+        inferred.
+        """
+        # Resolve node_count from topology-specific defaults
+        if node_count is None:
+            if self.topology is Topology.MESH_2D and self.mesh_dimensions:
+                w, h = self.mesh_dimensions
+                node_count = w * h
+            elif self.controller_count > 0:
+                node_count = self.controller_count
+            else:
+                return 0.0
+
+        if node_count <= 1:
+            return 0.0
+
+        topo = self.topology
+        rdf = self.routing_distance_factor
+
+        if topo is Topology.CROSSBAR or topo is Topology.FULL_MESH:
+            # Single-hop across the fabric.
+            return 1.0 * rdf
+        if topo is Topology.RING:
+            # Bidirectional ring: average path = N/4.
+            return (node_count / 4.0) * rdf
+        if topo is Topology.MESH_2D:
+            # Average Manhattan distance on a w x h mesh:
+            #   E[|x1-x2|] + E[|y1-y2|] = (w + h) / 3.
+            if self.mesh_dimensions:
+                w, h = self.mesh_dimensions
+                return ((w + h) / 3.0) * rdf
+            # Fall back to sqrt-N approximation
+            side = math.sqrt(node_count)
+            return ((2 * side) / 3.0) * rdf
+        if topo is Topology.CLOS:
+            # 3-stage Clos: O(log N) avg path; use ceil(log2(N)) as
+            # a rough proxy.
+            return max(1.0, math.log2(node_count)) * rdf
+        # UNKNOWN
+        return 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -74,6 +142,11 @@ class SoCFabricModel:
             "flit_size_bytes": self.flit_size_bytes,
             "max_injection_gbps": self.max_injection_gbps,
             "provenance": self.provenance,
+            "mesh_dimensions": (
+                list(self.mesh_dimensions) if self.mesh_dimensions else None
+            ),
+            "routing_distance_factor": self.routing_distance_factor,
+            "low_confidence": self.low_confidence,
         }
 
     @classmethod
@@ -81,6 +154,8 @@ class SoCFabricModel:
         data = dict(data)
         if "topology" in data and isinstance(data["topology"], str):
             data["topology"] = Topology(data["topology"])
+        if isinstance(data.get("mesh_dimensions"), list):
+            data["mesh_dimensions"] = tuple(data["mesh_dimensions"])
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
     def save(self, path: Path) -> None:

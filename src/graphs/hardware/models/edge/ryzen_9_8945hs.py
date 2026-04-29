@@ -21,6 +21,7 @@ from ...resource_model import (
     get_base_alu_energy,
     ThermalOperatingPoint,
 )
+from ...fabric_model import SoCFabricModel, Topology
 from graphs.core.confidence import EstimationConfidence
 
 
@@ -210,6 +211,22 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
         l3_present=True,
         l3_cache_total=16 * 1024 * 1024,
         coherence_protocol="snoopy_mesi",
+
+        # M6 Layer 6: Zen 4 Phoenix has a single CCX with all 8 cores
+        # on one Infinity Fabric ring (no inter-CCX hop). N4 process
+        # gives slightly lower per-flit energy than Alder Lake at 10nm.
+        soc_fabric=SoCFabricModel(
+            topology=Topology.RING,
+            hop_latency_ns=1.2,
+            pj_per_flit_per_hop=2.5,
+            bisection_bandwidth_gbps=480.0,
+            controller_count=8,
+            flit_size_bytes=32,
+            routing_distance_factor=1.0,
+            provenance=("AMD Ryzen 9 8945HS Phoenix Zen 4 single-CCX "
+                        "Infinity Fabric ring (8 cores, no inter-CCX "
+                        "hop)"),
+        ),
     )
 
     for prec in (Precision.FP64, Precision.FP32, Precision.FP16,
@@ -296,6 +313,17 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
             score=0.95,
             source=("AMD Infinity Fabric coherence: snoopy MESI on the "
                     "intra-CCX bus"),
+        ),
+    )
+
+    # M6 Layer 6 provenance
+    model.set_provenance(
+        "soc_fabric",
+        EstimationConfidence.theoretical(
+            score=0.70,
+            source=("Phoenix Zen 4 Infinity Fabric: single-CCX ring; "
+                    "AMD does not publish per-hop NoC details, energy "
+                    "values estimated from N4 process"),
         ),
     )
 

@@ -21,6 +21,7 @@ from ...resource_model import (
     ThermalOperatingPoint,
     BOMCostProfile,
 )
+from ...fabric_model import SoCFabricModel, Topology
 
 
 def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
@@ -513,6 +514,21 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         l3_present=False,
         l3_cache_total=0,
         coherence_protocol="none",  # SIMT memory model, not snoopy
+
+        # M6 Layer 6: SM-to-L2 crossbar interconnect. 16 SMs * 4 L2
+        # slices = 64-port crossbar; effectively single-hop access
+        # across the full L2.
+        soc_fabric=SoCFabricModel(
+            topology=Topology.CROSSBAR,
+            hop_latency_ns=2.0,
+            pj_per_flit_per_hop=8.0,
+            bisection_bandwidth_gbps=2048.0,  # ~256 GB/s SM<->L2
+            controller_count=16,              # 16 SMs as crossbar ports
+            flit_size_bytes=32,
+            routing_distance_factor=1.0,
+            provenance=("Jetson Orin AGX Ampere SoC: SM-to-L2 crossbar "
+                        "interconnect (NVIDIA architectural fact)"),
+        ),
     )
 
     # M3 Layer 3 provenance for L1 cache fields
@@ -574,6 +590,16 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
             score=0.90,
             source=("SIMT shared-memory model: not snoopy / coherent in "
                     "the CPU sense (warp-level memory ordering only)"),
+        ),
+    )
+
+    # M6 Layer 6 provenance: SM-to-L2 crossbar
+    model.set_provenance(
+        "soc_fabric",
+        EstimationConfidence.theoretical(
+            score=0.75,
+            source=("Ampere SM-to-L2 crossbar topology is documented; "
+                    "per-flit energy estimated from 8nm process baseline"),
         ),
     )
 

@@ -14,6 +14,7 @@ Configuration:
 Competitor to: KPU-T64, Google Coral Edge TPU, Qualcomm QCS6490
 """
 
+from ...fabric_model import SoCFabricModel, Topology
 from ...resource_model import (
     HardwareResourceModel,
     HardwareType,
@@ -27,6 +28,29 @@ from ...resource_model import (
     ThermalOperatingPoint,
     BOMCostProfile,
 )
+
+
+def _get_hailo8_fabric() -> SoCFabricModel:
+    """M6 Layer 6 fabric for Hailo-8.
+
+    Hailo does not publish NoC details. Per the issue M6 constraint
+    we ship with ``low_confidence=True`` and document the assumption:
+    32 dataflow units laid out as an 8x4 mesh, hop coefficients
+    estimated from the 16nm process baseline.
+    """
+    return SoCFabricModel(
+        topology=Topology.MESH_2D,
+        hop_latency_ns=1.5,
+        pj_per_flit_per_hop=1.5,
+        bisection_bandwidth_gbps=64.0,
+        controller_count=32,
+        flit_size_bytes=16,
+        mesh_dimensions=(8, 4),
+        routing_distance_factor=1.1,
+        low_confidence=True,
+        provenance=("Hailo-8: no public NoC topology data; assumed "
+                    "8x4 mesh estimated from compute_units=32 layout"),
+    )
 
 
 def hailo8_resource_model() -> HardwareResourceModel:
@@ -230,6 +254,13 @@ def hailo8_resource_model() -> HardwareResourceModel:
         l3_present=False,
         l3_cache_total=0,
         coherence_protocol="none",
+
+        # M6 Layer 6: dataflow mesh between 32 PE units. Hailo does
+        # NOT publish per-hop NoC details, so this entry ships with
+        # low_confidence=True per issue M6 constraint. Mesh
+        # dimensions are estimated as a near-square 8x4 layout of
+        # the 32 dataflow units.
+        soc_fabric=_get_hailo8_fabric(),
     )
 
     # M3 Layer 3 provenance
@@ -289,6 +320,16 @@ def hailo8_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Hailo dataflow: no inter-unit coherence (compiler-routed)",
+        ),
+    )
+
+    # M6 Layer 6 provenance (low confidence - thin datasheet)
+    model.set_provenance(
+        "soc_fabric",
+        EstimationConfidence.theoretical(
+            score=0.40,
+            source=("Hailo-8 NoC topology not publicly documented; "
+                    "panel ships with low_confidence=True flag"),
         ),
     )
 
