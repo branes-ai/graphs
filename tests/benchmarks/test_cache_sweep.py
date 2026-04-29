@@ -7,6 +7,8 @@ synthetic curves with known plateau structure.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from graphs.benchmarks.cache_sweep import (
     CacheLevel,
     SweepConfig,
@@ -17,7 +19,7 @@ from graphs.benchmarks.cache_sweep import (
 
 
 def _point(bytes_resident: int, bandwidth: float,
-           energy_pj: float = None) -> WorkingSetPoint:
+           energy_pj: Optional[float] = None) -> WorkingSetPoint:
     return WorkingSetPoint(
         bytes_resident=bytes_resident,
         iterations=1,

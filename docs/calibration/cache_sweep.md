@@ -19,7 +19,7 @@ calibrates the per-cache-level energy coefficients on
 ```json
 {
   "schema_version": "1.0",
-  "tool": "cli/run_cache_sweep.py",
+  "tool": "cli/benchmark_cache_sweep.py",
   "hardware_id": "intel_core_i7_12700k",
   "timestamp": "2026-04-29T...",
   "config": {
@@ -58,18 +58,18 @@ calibrates the per-cache-level energy coefficients on
 
 ```bash
 # Default 24-point sweep on the host CPU, ~12 s + warmup:
-python cli/run_cache_sweep.py \
+python cli/benchmark_cache_sweep.py \
     --hardware intel_core_i7_12700k \
     --output sweeps/i7_12700k.json
 
 # Tighter sweep for quick iteration:
-python cli/run_cache_sweep.py \
+python cli/benchmark_cache_sweep.py \
     --hardware intel_core_i7_12700k \
     --output sweeps/i7_quick.json \
     --num-points 16 --seconds-per-point 0.3 --repeats 2
 
 # Force time-only (no RAPL):
-python cli/run_cache_sweep.py \
+python cli/benchmark_cache_sweep.py \
     --hardware intel_core_i7_12700k \
     --output sweeps/i7_time_only.json \
     --no-energy
@@ -80,7 +80,7 @@ python cli/run_cache_sweep.py \
 A clean run on a 12-core x86 CPU (i7-12700K) shows plateaus at
 roughly:
 
-```
+```text
 working_set     bandwidth     plateau
 8 - 32 KiB      ~rising       (call-overhead amortization region)
 50 KiB - 1 MiB  ~75 GB/s      (L1 + L2 - kernel is bandwidth-bound)

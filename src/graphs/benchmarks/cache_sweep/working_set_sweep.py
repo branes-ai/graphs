@@ -94,7 +94,15 @@ class _RAPLProbe:
         self._path = Path(
             f"/sys/class/powercap/{zone}/energy_uj"
         )
-        self._available = self._path.exists() and self._path.is_file()
+        # Existence alone isn't enough: on some kernels the RAPL sysfs
+        # node is root-only and exists() returns True for an
+        # unreadable file. Mirror RAPLPowerCollector's behaviour and
+        # try an actual read.
+        try:
+            self._path.read_text()
+            self._available = True
+        except (OSError, ValueError):
+            self._available = False
 
     @property
     def available(self) -> bool:
@@ -108,6 +116,16 @@ class _RAPLProbe:
         except (OSError, ValueError):
             return None
         return uj / 1e6  # joules
+
+
+def rapl_available(zone: str = "intel-rapl:0") -> bool:
+    """Return True when the named RAPL zone is readable.
+
+    Public helper for CLI / external callers that need to detect
+    energy-capture availability without instantiating the private
+    probe class.
+    """
+    return _RAPLProbe(zone=zone).available
 
 
 # --------------------------------------------------------------------
@@ -190,6 +208,7 @@ def run_sweep(
         # Repeats: take the min wallclock + average energy
         best_elapsed = float("inf")
         energy_samples: List[float] = []
+        energy_wraps = 0
         for _ in range(config.repeats_per_point):
             energy_start = rapl.sample() if rapl_ok else None
             t0 = time.perf_counter()
@@ -200,9 +219,14 @@ def run_sweep(
             if elapsed < best_elapsed:
                 best_elapsed = elapsed
             if (energy_start is not None
-                    and energy_end is not None
-                    and energy_end >= energy_start):
-                energy_samples.append(energy_end - energy_start)
+                    and energy_end is not None):
+                if energy_end >= energy_start:
+                    energy_samples.append(energy_end - energy_start)
+                else:
+                    # RAPL counter wrapped during the measurement
+                    # interval. Drop the sample but surface the count
+                    # so the operator can spot pathological cases.
+                    energy_wraps += 1
 
         bytes_streamed = float(size) * iters
         bandwidth_gbps = (
@@ -229,6 +253,7 @@ def run_sweep(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "rapl_available": rapl_ok,
                 "repeats": config.repeats_per_point,
+                "energy_wraps": energy_wraps,
             },
         )
 
@@ -237,4 +262,5 @@ __all__ = [
     "SweepConfig",
     "WorkingSetPoint",
     "run_sweep",
+    "rapl_available",
 ]

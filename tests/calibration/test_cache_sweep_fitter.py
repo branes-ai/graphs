@@ -1,6 +1,8 @@
 """Tests for CacheSweepFitter (Path B PR-1)."""
 from __future__ import annotations
 
+from typing import Optional
+
 from graphs.benchmarks.cache_sweep import WorkingSetPoint
 from graphs.calibration.fitters.cache_sweep_fitter import (
     CacheFitResult,
@@ -10,7 +12,7 @@ from graphs.core.confidence import ConfidenceLevel
 
 
 def _point(bytes_resident: int, bandwidth: float,
-           energy_pj: float = None) -> WorkingSetPoint:
+           energy_pj: Optional[float] = None) -> WorkingSetPoint:
     return WorkingSetPoint(
         bytes_resident=bytes_resident,
         iterations=1,

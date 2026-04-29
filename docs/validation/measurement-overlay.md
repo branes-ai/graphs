@@ -98,7 +98,7 @@ sections are worse than visible empty sections.
 
 ## Data flow
 
-```
+```text
 calibration_data/<dir>/measurements/<prec>/<model>_b<batch>.json
                          |
                          v

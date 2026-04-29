@@ -10,7 +10,7 @@ plateau calibrates the per-level energy coefficients on
 
 Pipeline:
 
-    cli/run_cache_sweep.py
+    cli/benchmark_cache_sweep.py
         -> cache_sweep.working_set_sweep.run_sweep()    [ runs on hardware ]
         -> JSON file                                      [ persisted ]
         -> cache_sweep.analysis.detect_levels()           [ pure analysis ]
@@ -25,6 +25,7 @@ even with NumPy-level overhead.
 from .working_set_sweep import (
     SweepConfig,
     WorkingSetPoint,
+    rapl_available,
     run_sweep,
 )
 from .analysis import (
@@ -38,6 +39,7 @@ from .analysis import (
 __all__ = [
     "SweepConfig",
     "WorkingSetPoint",
+    "rapl_available",
     "run_sweep",
     "CacheLevel",
     "DetectedLevels",

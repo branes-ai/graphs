@@ -10,7 +10,7 @@ CALIBRATED provenance into a HardwareResourceModel.
 
 Usage:
 
-    python cli/run_cache_sweep.py --hardware intel_core_i7_12700k \\
+    python cli/benchmark_cache_sweep.py --hardware intel_core_i7_12700k \\
         --output sweeps/i7_12700k_cache_sweep.json
 
 The ``--hardware`` argument is a free-form SKU id used only to tag
@@ -40,16 +40,14 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from graphs.benchmarks.cache_sweep import (  # noqa: E402
     SweepConfig,
+    rapl_available,
     run_sweep,
-)
-from graphs.benchmarks.cache_sweep.working_set_sweep import (  # noqa: E402
-    _RAPLProbe,
 )
 
 
 def parse_args(argv):
     p = argparse.ArgumentParser(
-        prog="run_cache_sweep",
+        prog="benchmark_cache_sweep",
         description=("Run the Path B cache-sweep microbenchmark on the "
                      "host CPU and persist per-point results to JSON."),
     )
@@ -127,8 +125,7 @@ def main(argv):
         rapl_zone=args.rapl_zone,
     )
 
-    rapl = _RAPLProbe(zone=args.rapl_zone)
-    rapl_ok = (not args.no_energy) and rapl.available
+    rapl_ok = (not args.no_energy) and rapl_available(zone=args.rapl_zone)
     if not rapl_ok:
         print(
             "warning: RAPL energy capture unavailable -- result will be "
@@ -172,7 +169,7 @@ def main(argv):
 
     payload = {
         "schema_version": "1.0",
-        "tool": "cli/run_cache_sweep.py",
+        "tool": "cli/benchmark_cache_sweep.py",
         "hardware_id": args.hardware,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "config": {
