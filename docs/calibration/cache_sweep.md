@@ -1,5 +1,10 @@
 # Cache-sweep microbenchmark — Path B PR-1
 
+For the complementary *model-level* validation overlay (Path A),
+see [docs/validation/measurement-overlay.md](../validation/measurement-overlay.md).
+Path A flips an SKU's aggregate confidence badge; Path B (this doc)
+flips per-field provenance on `HardwareResourceModel`.
+
 ## What it measures
 
 A working-set-size sweep that streams an in-place kernel over a
