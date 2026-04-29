@@ -270,3 +270,27 @@ class TestSerialization:
         d = f.to_dict()
         r = SoCFabricModel.from_dict(d)
         assert r.low_confidence is True
+
+    def test_from_dict_rejects_malformed_mesh_dimensions(self):
+        """A malformed mesh_dimensions blob must fail at
+        deserialization, not later in hop_count_avg() where the
+        (w, h) unpack would crash."""
+        bad_inputs = [
+            {"topology": "mesh_2d", "mesh_dimensions": [16]},        # too short
+            {"topology": "mesh_2d", "mesh_dimensions": [16, 8, 4]},  # too long
+            {"topology": "mesh_2d", "mesh_dimensions": [0, 8]},      # zero
+            {"topology": "mesh_2d", "mesh_dimensions": [-4, 8]},     # negative
+            {"topology": "mesh_2d", "mesh_dimensions": ["a", "b"]},  # non-int
+            {"topology": "mesh_2d", "mesh_dimensions": "16x8"},      # string
+        ]
+        for blob in bad_inputs:
+            with pytest.raises(ValueError, match="mesh_dimensions"):
+                SoCFabricModel.from_dict(blob)
+
+    def test_from_dict_accepts_well_formed_mesh_dimensions(self):
+        f = SoCFabricModel.from_dict({
+            "topology": "mesh_2d",
+            "mesh_dimensions": [16, 8],
+        })
+        assert f.mesh_dimensions == (16, 8)
+        assert f.hop_count_avg() == (16 + 8) / 3.0  # rdf default = 1.0

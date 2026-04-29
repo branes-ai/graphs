@@ -154,8 +154,23 @@ class SoCFabricModel:
         data = dict(data)
         if "topology" in data and isinstance(data["topology"], str):
             data["topology"] = Topology(data["topology"])
-        if isinstance(data.get("mesh_dimensions"), list):
-            data["mesh_dimensions"] = tuple(data["mesh_dimensions"])
+        # Validate mesh_dimensions shape early so a malformed JSON
+        # blob fails at deserialization rather than deep inside
+        # hop_count_avg() where the (w, h) unpack would crash.
+        dims = data.get("mesh_dimensions")
+        if dims is not None:
+            if isinstance(dims, list):
+                dims = tuple(dims)
+            if (
+                not isinstance(dims, tuple)
+                or len(dims) != 2
+                or not all(isinstance(v, int) and v > 0 for v in dims)
+            ):
+                raise ValueError(
+                    f"mesh_dimensions must be a pair of positive "
+                    f"integers; got {data.get('mesh_dimensions')!r}"
+                )
+            data["mesh_dimensions"] = dims
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
     def save(self, path: Path) -> None:
