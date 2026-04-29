@@ -34,13 +34,12 @@ Design notes:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Sequence
+from dataclasses import dataclass
+from typing import Optional, Sequence
 
 from graphs.benchmarks.cache_sweep.analysis import (
     CacheLevel,
     DetectedLevels,
-    PerLevelEnergy,
     detect_levels,
     estimate_per_level_energy,
 )

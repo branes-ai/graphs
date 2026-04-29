@@ -7,11 +7,8 @@ synthetic curves with known plateau structure.
 """
 from __future__ import annotations
 
-import pytest
-
 from graphs.benchmarks.cache_sweep import (
     CacheLevel,
-    PerLevelEnergy,
     SweepConfig,
     WorkingSetPoint,
     detect_levels,
