@@ -77,6 +77,7 @@ from graphs.reporting.layer_panels import (  # noqa: E402
     build_layer5_l3_cache_panel,
     build_layer6_soc_fabric_panel,
     build_layer7_external_memory_panel,
+    build_validation_panel,
 )
 
 
@@ -108,7 +109,10 @@ SKU_ARCHETYPE = {
 }
 
 
-def build_empty_report_for(sku: str) -> MicroarchReport:
+def build_empty_report_for(
+    sku: str,
+    with_validation: bool = False,
+) -> MicroarchReport:
     report = empty_report(sku=sku, display_name=sku)
     report.archetype = SKU_ARCHETYPE.get(sku, "")
     _populate_layer1_alu(report)
@@ -118,6 +122,8 @@ def build_empty_report_for(sku: str) -> MicroarchReport:
     _populate_layer5_l3_cache(report)
     _populate_layer6_soc_fabric(report)
     _populate_layer7_external_memory(report)
+    if with_validation:
+        _populate_validation(report)
     return report
 
 
@@ -179,6 +185,29 @@ def _populate_layer7_external_memory(report: MicroarchReport) -> None:
     """Replace the Layer 7 (external memory) panel in-place."""
     panel = build_layer7_external_memory_panel(report.sku)
     _replace_layer_panel(report, LayerTag.EXTERNAL_MEMORY, panel)
+
+
+def _populate_validation(report: MicroarchReport) -> None:
+    """Append the Path A measurement-validation panel.
+
+    The validation panel uses ``LayerTag.COMPOSITE`` and is appended
+    after the seven layer panels (rather than replacing one of them)
+    so the seven-layer layout stays intact while the validation
+    summary surfaces alongside.
+
+    When the validation panel promotes the SKU's confidence to
+    ``interpolated`` (median MAPE within tolerance), propagate that
+    upward to ``report.overall_confidence`` so the per-SKU page
+    header and the cross-SKU summary table both reflect the
+    promoted state. When validation can't promote (no measurement
+    data, or measured MAPE exceeded tolerance), leave the layer-
+    level THEORETICAL value the per-layer hooks already set.
+    """
+    panel = build_validation_panel(report.sku)
+    report.layers.append(panel)
+    if (panel.status == "interpolated"
+            and report.overall_confidence == "THEORETICAL"):
+        report.overall_confidence = "INTERPOLATED"
 
 
 def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:
@@ -409,6 +438,15 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
               "Default: all."),
     )
     p.add_argument(
+        "--with-validation",
+        action="store_true",
+        help=("Path A: append a measurement-validation panel that "
+              "compares M1-M7 analytical predictions against measured "
+              "model-level latencies in calibration_data/. Adds ~60 s "
+              "per validated SKU because each measurement triggers "
+              "a UnifiedAnalyzer prediction."),
+    )
+    p.add_argument(
         "--serve",
         action="store_true",
         help="Reserved for future use (serve HTML over http.server).",
@@ -426,7 +464,10 @@ def main(argv: List[str]) -> int:
     out_dir = Path(args.output).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    reports = [build_empty_report_for(sku) for sku in args.hardware]
+    reports = [
+        build_empty_report_for(sku, with_validation=args.with_validation)
+        for sku in args.hardware
+    ]
 
     produced: List[Path] = []
     fmt = args.format
