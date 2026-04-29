@@ -225,6 +225,11 @@ def hailo8_resource_model() -> HardwareResourceModel:
         # units = 256 KiB per-unit share.
         l2_cache_per_unit=(8 * 1024 * 1024) // 32,  # 256 KiB per unit
         l2_topology="shared-llc",
+
+        # M5 Layer 5: Hailo dataflow has no inter-cluster cache.
+        l3_present=False,
+        l3_cache_total=0,
+        coherence_protocol="none",
     )
 
     # M3 Layer 3 provenance
@@ -260,6 +265,22 @@ def hailo8_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.90,
             source="Hailo dataflow architecture: shared LLC over per-unit L1",
+        ),
+    )
+
+    # M5 Layer 5 provenance
+    model.set_provenance(
+        "l3_present",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Hailo dataflow: no inter-cluster cache layer",
+        ),
+    )
+    model.set_provenance(
+        "coherence_protocol",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Hailo dataflow: no inter-unit coherence (compiler-routed)",
         ),
     )
 

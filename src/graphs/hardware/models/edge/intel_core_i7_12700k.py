@@ -270,6 +270,11 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         # l2_cache_total still holds the LLC (= L3 = 25 MB).
         l2_cache_per_unit=(12 * 1024 * 1024) // effective_cores,  # ~1.2 MB
         l2_topology="per-unit",
+
+        # M5 Layer 5: distinct 25 MB shared L3 LLC across all cores.
+        l3_present=True,
+        l3_cache_total=25 * 1024 * 1024,  # 25 MiB shared L3
+        coherence_protocol="snoopy_mesi",
     )
 
     # ------------------------------------------------------------------
@@ -342,6 +347,30 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Alder Lake architectural fact: private per-core L2",
+        ),
+    )
+
+    # M5 Layer 5 provenance for L3 + coherence
+    model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source="Intel Core i7-12700K datasheet: 25 MB shared L3 (LLC)",
+        ),
+    )
+    model.set_provenance(
+        "l3_present",
+        EstimationConfidence.theoretical(
+            score=0.99,
+            source="Alder Lake architectural fact: distinct L3 LLC",
+        ),
+    )
+    model.set_provenance(
+        "coherence_protocol",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source=("x86 multi-core: snoopy MESI/MOESI on the ring "
+                    "interconnect; PROTOCOL energy modeled at Layer 5"),
         ),
     )
 

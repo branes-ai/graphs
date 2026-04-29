@@ -508,6 +508,11 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         # ``l2_cache_per_unit`` reports the per-SM share (4 MB / 16 SMs).
         l2_cache_per_unit=(4 * 1024 * 1024) // 16,  # 256 KiB per SM
         l2_topology="shared-llc",
+
+        # M5 Layer 5: Ampere SoC has no distinct L3 layer.
+        l3_present=False,
+        l3_cache_total=0,
+        coherence_protocol="none",  # SIMT memory model, not snoopy
     )
 
     # M3 Layer 3 provenance for L1 cache fields
@@ -544,6 +549,23 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
             score=0.90,
             source=("Ampere SoC architectural fact: L2 is the LLC "
                     "(no distinct L3 layer)"),
+        ),
+    )
+
+    # M5 Layer 5 provenance: Orin has no distinct L3
+    model.set_provenance(
+        "l3_present",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Ampere SoC architectural fact: no distinct L3 layer",
+        ),
+    )
+    model.set_provenance(
+        "coherence_protocol",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source=("SIMT shared-memory model: not snoopy / coherent in "
+                    "the CPU sense (warp-level memory ordering only)"),
         ),
     )
 

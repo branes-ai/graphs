@@ -491,6 +491,11 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     model.l2_cache_per_unit = tile_energy_model.l2_size_per_tile
     model.l2_topology = "per-unit"
 
+    # M5 Layer 5: KPU has no L3 layer (mesh-routed, not coherent)
+    model.l3_present = False
+    model.l3_cache_total = 0
+    model.coherence_protocol = "none"
+
     from graphs.core.confidence import EstimationConfidence
     model.set_provenance(
         "l1_cache_per_unit",
@@ -522,6 +527,23 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="KPU domain-flow architecture: private per-tile L2",
+        ),
+    )
+
+    # M5 Layer 5 provenance
+    model.set_provenance(
+        "l3_present",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="KPU domain-flow architecture: no L3 layer (mesh routing)",
+        ),
+    )
+    model.set_provenance(
+        "coherence_protocol",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source=("KPU domain-flow: token-routed mesh; no inter-tile "
+                    "coherence (data routing is Layer 6 transport)"),
         ),
     )
 

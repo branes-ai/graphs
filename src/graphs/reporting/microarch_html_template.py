@@ -612,6 +612,85 @@ def _render_layer4_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_layer5_cross_sku_table(reports: List[MicroarchReport]) -> str:
+    """
+    Render an L3 / LLC presence + capacity + coherence table across SKUs.
+    """
+    try:
+        from graphs.reporting.layer_panels import cross_sku_layer5_chart
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_layer5_chart(sku_ids)
+    if not chart.l3_present:
+        return ""
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in chart.skus
+    )
+
+    def _row(label, getter, fmt):
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in chart.skus:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+            else:
+                cells.append(f"<td>{fmt(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    def _cap(b):
+        if b is None or b == 0:
+            return "no L3"
+        if b >= 1024 * 1024:
+            return f"{b / (1024 * 1024):.1f} MiB"
+        return f"{b / 1024:.0f} KiB"
+
+    rows = (
+        _row("L3 present",
+             lambda s: chart.l3_present.get(s),
+             lambda v: "yes" if v else "no")
+        + _row("L3 total",
+               lambda s: chart.l3_total_bytes.get(s), _cap)
+        + _row("Coherence",
+               lambda s: chart.coherence_protocol.get(s),
+               lambda v: html.escape(v))
+        + _row("Coherence pJ/req",
+               lambda s: chart.coherence_pj_per_request.get(s),
+               lambda v: f"{v:.2f}")
+        + _row("L3 energy (pJ/byte)",
+               lambda s: chart.energy_pj_per_byte.get(s),
+               lambda v: f"{v:.3f}")
+    )
+
+    badge_cells = []
+    for sku in chart.skus:
+        prov = chart.provenance.get(sku, "UNKNOWN")
+        badge = _safe_status_class(prov.lower())
+        badge_cells.append(
+            f'<td><span class="badge {badge}">{html.escape(prov)}</span></td>'
+        )
+    rows += "<tr><th>Provenance</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Layer 5: L3 / LLC presence + coherence across SKUs</h3>
+  <p class="meta">CPUs carry a distinct L3 (LLC); GPU SoCs collapse
+  L2 into the LLC; KPU / TPU / Hailo dataflow architectures have no
+  L3-equivalent and route data through the mesh fabric.
+  Layer 5 owns the coherence-PROTOCOL energy cost (snoop messages,
+  state transitions); the TRANSPORT cost (NoC hops) is M6 (Layer 6).</p>
+  <table class="layer5-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -625,8 +704,9 @@ def render_comparison_page(
       - Layer 2 register-energy table (M2)
       - Layer 3 L1-capacity / storage-kind table (M3)
       - Layer 4 L2-capacity / topology table (M4)
+      - Layer 5 L3-presence / coherence table (M5)
 
-    M5-M8 add later layer comparison sections.
+    M6-M8 add later layer comparison sections.
     """
     assets = _load_logo(repo_root)
     rows = "".join(
@@ -640,6 +720,7 @@ def render_comparison_page(
     layer2_section = _render_layer2_cross_sku_table(reports)
     layer3_section = _render_layer3_cross_sku_table(reports)
     layer4_section = _render_layer4_cross_sku_table(reports)
+    layer5_section = _render_layer5_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -649,8 +730,8 @@ def render_comparison_page(
 table {{ width: 100%; border-collapse: collapse; background: #fff; }}
 table th, table td {{ padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }}
 table th {{ font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }}
-table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td {{ text-align: right; }}
-table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child {{ text-align: left; }}
+table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td, table.layer5-cross td {{ text-align: right; }}
+table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child, table.layer5-cross th:first-child {{ text-align: left; }}
   </style>
 </head>
 <body>
@@ -659,8 +740,8 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   <section class="page-header">
     <h2>Compare across SKUs</h2>
     <div class="meta">
-      Layers 1-4 (ALU, Register File, L1 Cache / Scratchpad, L2 Cache)
-      populated; remaining layer comparisons follow at M5-M8.
+      Layers 1-5 (ALU, Register File, L1 Cache / Scratchpad, L2 Cache,
+      L3 / LLC) populated; remaining layer comparisons follow at M6-M8.
     </div>
   </section>
   {_render_legend()}
@@ -674,6 +755,7 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   {layer2_section}
   {layer3_section}
   {layer4_section}
+  {layer5_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>

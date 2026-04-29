@@ -843,6 +843,35 @@ class HardwareResourceModel:
     # Provenance: ``l2_topology``.
     l2_topology: Optional[str] = None
 
+    # M5 Layer 5: explicit presence flag for the L3 / LLC layer.
+    # True  -- the SKU has a distinct L3 cache (CPU LLC).
+    # False -- the SKU has no L3 layer; either L2 is the LLC
+    # (GPU SoCs) or the on-chip SRAM model has no inter-cluster
+    # cache layer (KPU dataflow, TPU UB, Hailo).
+    # Provenance: ``l3_present``.
+    l3_present: Optional[bool] = None
+
+    # M5 Layer 5: physical L3 capacity in bytes. Zero / None when
+    # ``l3_present`` is False. Distinct from the legacy
+    # ``l2_cache_total`` field (which carries the LLC value, == L3
+    # on x86 by M1 schema convention; the new ``l3_cache_total`` is
+    # explicit so the Layer 5 panel does not have to disambiguate).
+    # Provenance: ``l3_cache_total``.
+    l3_cache_total: Optional[int] = None
+
+    # M5 Layer 5: cache-coherence protocol class.
+    # ``"snoopy_mesi"`` -- snoopy MESI / MOESI on shared bus or
+    # ring (CPU multi-core, single-socket).
+    # ``"directory"``   -- directory-based coherence
+    # (multi-socket NUMA).
+    # ``"none"``        -- no inter-core coherence; SIMT / dataflow
+    # / systolic architectures route data via shared memory or
+    # explicit NoC tokens, not a coherence protocol.
+    # Layer 5 owns the PROTOCOL energy cost (snoop messages, state
+    # transitions); Layer 6 owns the TRANSPORT cost (NoC hops).
+    # Provenance: ``coherence_protocol``.
+    coherence_protocol: Optional[str] = None
+
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.
