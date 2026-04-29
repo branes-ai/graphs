@@ -73,10 +73,15 @@ def build_validation_panel(
     title = "Validation: predicted vs measured"
     model = resolve_sku_resource_model(sku_id)
     if model is None:
+        # Use ``theoretical`` here rather than ``not_populated``: the
+        # generic renderer collapses every ``not_populated`` panel to
+        # a "NOT YET POPULATED" placeholder and drops the custom
+        # summary / notes. A theoretical-tagged panel preserves the
+        # explanatory text we want the reader to see.
         return LayerPanel(
             layer=LayerTag.COMPOSITE,
             title=title,
-            status="not_populated",
+            status="theoretical",
             summary=f"Resource model unavailable for {sku_id}.",
         )
 
@@ -85,7 +90,7 @@ def build_validation_panel(
         return LayerPanel(
             layer=LayerTag.COMPOSITE,
             title=title,
-            status="not_populated",
+            status="theoretical",
             summary=(
                 f"No measurement data registered for {sku_id}; the "
                 "SKU's aggregate confidence stays at THEORETICAL "
@@ -104,7 +109,7 @@ def build_validation_panel(
         return LayerPanel(
             layer=LayerTag.COMPOSITE,
             title=title,
-            status="not_populated",
+            status="theoretical",
             summary=(
                 f"Calibration data registered for {sku_id} but no "
                 "measurement files matched the available models / "
@@ -112,13 +117,13 @@ def build_validation_panel(
             ),
         )
 
-    # Side-effect: write the per-result MAPE values into the model's
-    # validation_results dict (keyed by "<model>:<precision>") so the
-    # cross-SKU comparison and JSON export can read them out.
-    model.validation_results.update({
-        f"{r.measurement.model}:{r.measurement.precision}": r.mape_pct
-        for r in summary_obj.results
-    })
+    # The per-result MAPE values are surfaced through the panel's
+    # own metrics dict (below) which is what flows into the JSON
+    # export. We deliberately avoid mutating ``model`` here -- since
+    # ``resolve_sku_resource_model`` returns a fresh instance each
+    # call, mutations on it would not survive a second resolution.
+    # Downstream consumers should read from ``report.layers[i]
+    # .metrics`` instead.
 
     metrics: Dict[str, Dict] = {
         "Models validated": {

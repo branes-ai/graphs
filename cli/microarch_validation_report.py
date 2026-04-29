@@ -194,9 +194,20 @@ def _populate_validation(report: MicroarchReport) -> None:
     after the seven layer panels (rather than replacing one of them)
     so the seven-layer layout stays intact while the validation
     summary surfaces alongside.
+
+    When the validation panel promotes the SKU's confidence to
+    ``interpolated`` (median MAPE within tolerance), propagate that
+    upward to ``report.overall_confidence`` so the per-SKU page
+    header and the cross-SKU summary table both reflect the
+    promoted state. When validation can't promote (no measurement
+    data, or measured MAPE exceeded tolerance), leave the layer-
+    level THEORETICAL value the per-layer hooks already set.
     """
     panel = build_validation_panel(report.sku)
     report.layers.append(panel)
+    if (panel.status == "interpolated"
+            and report.overall_confidence == "THEORETICAL"):
+        report.overall_confidence = "INTERPOLATED"
 
 
 def write_json_bundle(reports: List[MicroarchReport], out_dir: Path) -> List[Path]:

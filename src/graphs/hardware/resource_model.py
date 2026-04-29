@@ -897,17 +897,6 @@ class HardwareResourceModel:
     memory_read_energy_per_byte_pj: Optional[float] = None
     memory_write_energy_per_byte_pj: Optional[float] = None
 
-    # Path A measurement validation: per-(model, precision) MAPE
-    # values from the calibration_data measurement set. Populated by
-    # ``graphs.reporting.validation.validate_sku``; left empty for
-    # SKUs without measurement data. Each key is a string of the
-    # form ``"<model>:<precision>"`` (e.g., ``"resnet18:fp32"``);
-    # each value is the MAPE percent (predicted vs measured latency).
-    # Used to drive an aggregate-confidence promotion from
-    # THEORETICAL -> INTERPOLATED at the SKU level when the median
-    # MAPE is within tolerance.
-    validation_results: Dict[str, float] = field(default_factory=dict)
-
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.

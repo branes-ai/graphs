@@ -1,19 +1,13 @@
 """Tests for the Path A measurement-validation pipeline."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Optional
-
 import pytest
 
+import graphs.reporting.layer_panels.validation_panel as vp
 from graphs.benchmarks.schema import LayerTag
 from graphs.reporting.layer_panels import (
     build_validation_panel,
     cross_sku_validation_chart,
-)
-from graphs.reporting.layer_panels.validation_panel import (
-    clear_validation_cache,
 )
 from graphs.reporting.validation import (
     MeasurementRecord,
@@ -183,16 +177,15 @@ class TestSKUValidationSummary:
 @pytest.fixture(autouse=True)
 def _clear_cache():
     """Each test gets a clean validation cache."""
-    clear_validation_cache()
+    vp.clear_validation_cache()
     yield
-    clear_validation_cache()
+    vp.clear_validation_cache()
 
 
 def _monkey_validate(monkeypatch, summary: SKUValidationSummary):
     """Replace validate_sku in the validation_panel module with a
     stub that returns a pre-baked summary, dodging the UnifiedAnalyzer
     cost in tests."""
-    import graphs.reporting.layer_panels.validation_panel as vp
     monkeypatch.setattr(vp, "validate_sku", lambda sku, **kw: summary)
 
 
@@ -236,34 +229,37 @@ class TestValidationPanel:
         assert "Median MAPE" in panel.metrics
 
     def test_sku_without_calibration_renders_empty_state(self):
+        """SKUs without measurement data return a theoretical-tagged
+        panel so the explanatory text survives the renderer (panels
+        tagged 'not_populated' get collapsed to a generic placeholder
+        that drops the custom summary / notes)."""
         panel = build_validation_panel("kpu_t128")
-        assert panel.status == "not_populated"
+        assert panel.status == "theoretical"
         assert "no measurement" in panel.summary.lower()
 
-    def test_unknown_sku_returns_unpopulated(self):
+    def test_unknown_sku_returns_theoretical_with_text(self):
         panel = build_validation_panel("definitely_not_a_sku")
-        assert panel.status == "not_populated"
+        assert panel.status == "theoretical"
+        assert "unavailable" in panel.summary.lower()
 
-    def test_validation_results_written_back_to_model(self, monkeypatch):
-        """The panel side-effect: per-result MAPE values land in the
-        resource model's validation_results dict for downstream use."""
-        from graphs.reporting.layer_panels.layer1_alu import (
-            resolve_sku_resource_model,
-        )
+    def test_per_result_mape_surfaces_in_panel_metrics(self, monkeypatch):
+        """MAPE for each (model, precision) combination surfaces
+        through the panel's metrics dict (which serializes to JSON).
+        This replaces an earlier side-effect that wrote into a
+        throwaway HardwareResourceModel.validation_results dict --
+        ``resolve_sku_resource_model`` returns a fresh instance each
+        call, so the side-effect was unobservable downstream. Reading
+        from the panel itself (or from ``report.layers[i].metrics``)
+        is the persistent path."""
         s = SKUValidationSummary(sku_id="intel_core_i7_12700k", results=[
             _synth_result("resnet18", "fp32", 10.0, 11.0),
             _synth_result("resnet50", "fp32", 20.0, 24.0),
         ])
         _monkey_validate(monkeypatch, s)
-        m = resolve_sku_resource_model("intel_core_i7_12700k")
-        # Reset the dict to simulate first-run state
-        m.validation_results = {}
-        build_validation_panel("intel_core_i7_12700k")
-        m_again = resolve_sku_resource_model("intel_core_i7_12700k")
-        # Note: resolve_sku_resource_model returns a fresh object each
-        # call (factory pattern), so we cannot rely on side-effects
-        # persisting across resolves. Verify the call did not raise.
-        assert isinstance(m_again.validation_results, dict)
+        panel = build_validation_panel("intel_core_i7_12700k")
+        # Best-3 MAPE entries surface as named metrics
+        keys = [k for k in panel.metrics if "Best (" in k]
+        assert keys, f"Expected per-result Best (...) metrics; got {list(panel.metrics)}"
 
 
 # --------------------------------------------------------------------
@@ -272,8 +268,6 @@ class TestValidationPanel:
 
 class TestCrossSKUValidationChart:
     def test_chart_skips_skus_without_data(self, monkeypatch):
-        import graphs.reporting.layer_panels.validation_panel as vp
-
         def fake_validate(sku, **kw):
             if sku == "intel_core_i7_12700k":
                 return SKUValidationSummary(sku_id=sku, results=[
@@ -292,7 +286,6 @@ class TestCrossSKUValidationChart:
         assert "kpu_t128" not in chart.n_results
 
     def test_within_tolerance_flag_propagates(self, monkeypatch):
-        import graphs.reporting.layer_panels.validation_panel as vp
         monkeypatch.setattr(
             vp, "validate_sku",
             lambda sku, **kw: SKUValidationSummary(sku_id=sku, results=[
@@ -301,3 +294,51 @@ class TestCrossSKUValidationChart:
         )
         chart = cross_sku_validation_chart(["intel_core_i7_12700k"])
         assert chart.within_tolerance["intel_core_i7_12700k"] is True
+
+
+class TestHTMLGating:
+    """The cross-SKU validation section must not silently invoke
+    validate_sku() when --with-validation was off (the validate_sku
+    call triggers UnifiedAnalyzer and pays ~60s/SKU). Render-time
+    gating: only emit the section when at least one report has a
+    LayerTag.COMPOSITE panel attached."""
+
+    def test_render_omits_section_when_no_validation_panel(self):
+        from graphs.reporting.microarch_html_template import (
+            render_comparison_page,
+        )
+        from graphs.reporting.microarch_schema import empty_report
+        from pathlib import Path
+
+        # Build reports without a validation panel -- mirrors
+        # default CLI behaviour (--with-validation off).
+        reports = [
+            empty_report(sku="intel_core_i7_12700k"),
+            empty_report(sku="kpu_t128"),
+        ]
+        html = render_comparison_page(reports, Path("."))
+        assert "Path A: end-to-end measurement validation" not in html
+
+    def test_render_emits_section_when_validation_panel_present(
+        self, monkeypatch,
+    ):
+        from graphs.reporting.microarch_html_template import (
+            render_comparison_page,
+        )
+        from graphs.reporting.microarch_schema import empty_report
+        from pathlib import Path
+
+        # Stub validate_sku so cross_sku_validation_chart returns
+        # data without actually running UnifiedAnalyzer.
+        monkeypatch.setattr(
+            vp, "validate_sku",
+            lambda sku, **kw: SKUValidationSummary(sku_id=sku, results=[
+                _synth_result("a", "fp32", 10.0, 11.0),
+            ]),
+        )
+
+        report = empty_report(sku="intel_core_i7_12700k")
+        # Append a synthetic validation panel so the gate triggers
+        report.layers.append(build_validation_panel("intel_core_i7_12700k"))
+        html = render_comparison_page([report], Path("."))
+        assert "Path A: end-to-end measurement validation" in html

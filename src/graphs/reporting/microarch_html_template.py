@@ -871,11 +871,25 @@ def _render_validation_cross_sku_table(
     """
     Render the Path A measurement-validation cross-SKU summary.
 
-    Only emits a table when at least one SKU in the report set has
-    validation results attached. Reads from the in-process cache the
-    validation panel populated, so this is a free read (no extra
-    UnifiedAnalyzer calls).
+    Only emits a table when at least one report in the set has the
+    validation panel attached -- i.e., the CLI was run with
+    ``--with-validation`` and the validation panel got appended to
+    ``report.layers``. Without this gate the cross-SKU helper would
+    invoke ``cross_sku_validation_chart()``, which runs the
+    expensive ``validate_sku()`` -> ``UnifiedAnalyzer`` path even
+    when validation was opt-out at the CLI level.
     """
+    # Detect the presence of the validation panel by tag rather than
+    # by index so the schema-level layer ordering can change without
+    # breaking the gate.
+    from graphs.benchmarks.schema import LayerTag
+    has_any_validation_panel = any(
+        any(layer.layer is LayerTag.COMPOSITE for layer in r.layers)
+        for r in reports
+    )
+    if not has_any_validation_panel:
+        return ""
+
     try:
         from graphs.reporting.layer_panels import (
             cross_sku_validation_chart,
@@ -908,7 +922,7 @@ def _render_validation_cross_sku_table(
     rows = (
         _row("Models validated",
              lambda s: chart.n_results.get(s),
-             lambda v: str(v))
+             str)
         + _row("Median MAPE",
                lambda s: chart.median_mape_pct.get(s),
                lambda v: f"{v:.1f}%")

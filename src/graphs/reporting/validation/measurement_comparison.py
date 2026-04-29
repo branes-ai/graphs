@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from graphs.reporting.validation.sku_id_resolution import (
     sku_id_to_calibration_dir,
@@ -345,6 +345,13 @@ def validate_sku(
                 batch_size=batch_size,
             )
             if prediction.error or prediction.predicted_latency_ms <= 0:
+                continue
+
+            # Skip pathological measurements where measured latency
+            # is zero / negative (malformed calibration data) -- the
+            # ratio computation would raise ZeroDivisionError and
+            # MAPE would already be inf, so the result has no signal.
+            if measurement.measured_latency_ms <= 0:
                 continue
 
             mape = compute_mape(
