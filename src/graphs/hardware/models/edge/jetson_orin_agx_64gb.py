@@ -561,6 +561,14 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         ),
     )
     model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source=("Ampere SoC: Layer 5 cache absent by design "
+                    "(L2 is the LLC), capacity fixed at 0 bytes"),
+        ),
+    )
+    model.set_provenance(
         "coherence_protocol",
         EstimationConfidence.theoretical(
             score=0.90,

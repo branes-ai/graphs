@@ -360,11 +360,16 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     model.l2_cache_per_unit = tile_energy_model.l2_size_per_tile
     model.l2_topology = "per-unit"
 
-    # M5 Layer 5: KPU domain-flow fabric has no L3-equivalent layer.
-    # Tokens hop directly between tiles via the mesh; cross-tile
-    # data routing energy lives at Layer 6 (NoC), not here.
-    model.l3_present = False
-    model.l3_cache_total = 0
+    # M5 Layer 5: distributed per-tile L3 scratchpad. The M0.5
+    # KPUTileEnergyModel models an L3 layer (256 KiB / tile, with
+    # explicit l3_*_energy_per_byte charges); reflect that here so
+    # the Layer 5 panel and the energy model agree. Coherence stays
+    # 'none' because the L3 is software-managed scratchpad routed
+    # via the mesh, not a coherent shared cache.
+    model.l3_present = True
+    model.l3_cache_total = (
+        tile_energy_model.l3_size_per_tile * tile_energy_model.num_tiles
+    )
     model.coherence_protocol = "none"
 
     from graphs.core.confidence import EstimationConfidence
@@ -407,15 +412,26 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
         "l3_present",
         EstimationConfidence.theoretical(
             score=0.95,
-            source="KPU domain-flow architecture: no L3 layer (mesh routing)",
+            source=("KPU domain-flow: distributed per-tile L3 SRAM "
+                    "scratchpad (M0.5 KPUTileEnergyModel)"),
+        ),
+    )
+    model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Stillwater KPU-T128: 256 KiB per-tile L3 SRAM x "
+                    "128 tiles = 32 MiB distributed L3 (read from "
+                    "KPUTileEnergyModel.l3_size_per_tile * num_tiles)"),
         ),
     )
     model.set_provenance(
         "coherence_protocol",
         EstimationConfidence.theoretical(
             score=0.95,
-            source=("KPU domain-flow: token-routed mesh; no inter-tile "
-                    "coherence (data routing is Layer 6 transport)"),
+            source=("KPU domain-flow: software-managed distributed L3 "
+                    "scratchpad; no inter-tile coherence protocol "
+                    "(data routing is Layer 6 transport)"),
         ),
     )
 

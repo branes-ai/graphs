@@ -294,6 +294,14 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         ),
     )
     model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source=("TPU architectural fact: Layer 5 cache absent by "
+                    "design, capacity fixed at 0 bytes"),
+        ),
+    )
+    model.set_provenance(
         "coherence_protocol",
         EstimationConfidence.theoretical(
             score=0.95,

@@ -531,9 +531,12 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     model.l2_cache_per_unit = tile_energy_model.l2_size_per_tile
     model.l2_topology = "per-unit"
 
-    # M5 Layer 5: KPU has no L3 layer (mesh-routed, not coherent)
-    model.l3_present = False
-    model.l3_cache_total = 0
+    # M5 Layer 5: distributed per-tile L3 scratchpad (M0.5 abstraction).
+    # Coherence stays 'none' -- compiler-managed, not a coherent cache.
+    model.l3_present = True
+    model.l3_cache_total = (
+        tile_energy_model.l3_size_per_tile * tile_energy_model.num_tiles
+    )
     model.coherence_protocol = "none"
 
     from graphs.core.confidence import EstimationConfidence
@@ -575,15 +578,24 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         "l3_present",
         EstimationConfidence.theoretical(
             score=0.95,
-            source="KPU domain-flow architecture: no L3 layer (mesh routing)",
+            source=("KPU domain-flow: distributed per-tile L3 SRAM "
+                    "scratchpad (M0.5 KPUTileEnergyModel)"),
+        ),
+    )
+    model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source=("Stillwater KPU-T256: per-tile L3 SRAM size x "
+                    "num_tiles, read from KPUTileEnergyModel"),
         ),
     )
     model.set_provenance(
         "coherence_protocol",
         EstimationConfidence.theoretical(
             score=0.95,
-            source=("KPU domain-flow: token-routed mesh; no inter-tile "
-                    "coherence (data routing is Layer 6 transport)"),
+            source=("KPU domain-flow: software-managed distributed L3 "
+                    "scratchpad; no inter-tile coherence protocol"),
         ),
     )
 

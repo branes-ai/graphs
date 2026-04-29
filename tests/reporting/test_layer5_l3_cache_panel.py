@@ -33,11 +33,15 @@ REQUIRED_SKUS = [
 OPTIONAL_SKUS = ["hailo8", "hailo10h"]
 TARGET_SKUS = REQUIRED_SKUS + OPTIONAL_SKUS
 
-# Architectural partitioning the panel relies on
-L3_PRESENT_SKUS = ["intel_core_i7_12700k", "ryzen_9_8945hs"]
+# Architectural partitioning the panel relies on. Note: KPU SKUs
+# carry a distributed per-tile L3 SRAM scratchpad via the M0.5
+# KPUTileEnergyModel abstraction, so they classify as l3_present=True
+# even though their coherence_protocol is 'none' (software-managed).
+COHERENT_L3_SKUS = ["intel_core_i7_12700k", "ryzen_9_8945hs"]
+SCRATCHPAD_L3_SKUS = ["kpu_t64", "kpu_t128", "kpu_t256"]
+L3_PRESENT_SKUS = COHERENT_L3_SKUS + SCRATCHPAD_L3_SKUS
 NO_L3_SKUS = [
-    "jetson_orin_agx_64gb", "kpu_t64", "kpu_t128", "kpu_t256",
-    "coral_edge_tpu", "hailo8", "hailo10h",
+    "jetson_orin_agx_64gb", "coral_edge_tpu", "hailo8", "hailo10h",
 ]
 
 
@@ -54,12 +58,21 @@ class TestPerSKUSchemaFields:
         assert m.l3_cache_total is not None
         assert m.coherence_protocol in VALID_COHERENCE_PROTOCOLS
 
-    @pytest.mark.parametrize("sku", L3_PRESENT_SKUS)
-    def test_cpu_skus_have_l3(self, sku):
+    @pytest.mark.parametrize("sku", COHERENT_L3_SKUS)
+    def test_cpu_skus_have_coherent_l3(self, sku):
         m = resolve_sku_resource_model(sku)
         assert m.l3_present is True
         assert m.l3_cache_total > 0
         assert m.coherence_protocol == "snoopy_mesi"
+
+    @pytest.mark.parametrize("sku", SCRATCHPAD_L3_SKUS)
+    def test_kpu_skus_have_scratchpad_l3(self, sku):
+        """KPU SKUs carry a distributed per-tile L3 SRAM via M0.5,
+        but coherence is 'none' (software-managed)."""
+        m = resolve_sku_resource_model(sku)
+        assert m.l3_present is True
+        assert m.l3_cache_total > 0
+        assert m.coherence_protocol == "none"
 
     @pytest.mark.parametrize("sku", NO_L3_SKUS)
     def test_no_l3_skus_classified(self, sku):
@@ -136,15 +149,26 @@ class TestPanelBuilder:
         assert panel.metrics
         assert "Coherence protocol" in panel.metrics
 
-    @pytest.mark.parametrize("sku", L3_PRESENT_SKUS)
-    def test_cpu_panel_includes_per_op_hit_rates(self, sku):
+    @pytest.mark.parametrize("sku", COHERENT_L3_SKUS)
+    def test_coherent_l3_panel_includes_per_op_hit_rates(self, sku):
         panel = build_layer5_l3_cache_panel(sku)
-        hit_metrics = [k for k in panel.metrics if "Hit rate (" in k]
+        hit_metrics = [k for k in panel.metrics if "Hit rate (" in k
+                       and "deterministic" not in k]
         assert len(hit_metrics) >= 3, (
             f"{sku} expected per-op L3 hit rates, got {hit_metrics}"
         )
-        # And L3 capacity surfaced
         assert "L3 total" in panel.metrics
+
+    @pytest.mark.parametrize("sku", SCRATCHPAD_L3_SKUS)
+    def test_scratchpad_l3_panel_marks_deterministic(self, sku):
+        panel = build_layer5_l3_cache_panel(sku)
+        # KPU panels show capacity but no per-op cache hit rates.
+        assert "L3 total" in panel.metrics
+        assert "Hit rate (deterministic)" in panel.metrics
+        assert not any(
+            "Hit rate (" in k and "deterministic" not in k
+            for k in panel.metrics
+        )
 
     @pytest.mark.parametrize("sku", NO_L3_SKUS)
     def test_no_l3_panel_marks_status(self, sku):
@@ -188,7 +212,9 @@ class TestCrossSKUChart:
             expected = m.l3_cache_total or 0
             assert chart.l3_total_bytes[sku] == expected
 
-    def test_only_cpus_have_l3_in_catalog(self):
+    def test_l3_presence_matches_partitioning(self):
+        """CPUs and KPU (distributed scratchpad) carry l3_present=True;
+        Orin / Coral / Hailo do not."""
         chart = cross_sku_layer5_chart(REQUIRED_SKUS)
         for sku, present in chart.l3_present.items():
             if sku in L3_PRESENT_SKUS:
@@ -196,15 +222,36 @@ class TestCrossSKUChart:
             else:
                 assert present is False, f"{sku} should not have L3"
 
+    def test_no_phantom_energies_for_skus_without_l3(self):
+        """When l3_present=False, the chart must not advertise a
+        non-zero L3 energy or coherence cost (would contradict the
+        per-SKU panel)."""
+        chart = cross_sku_layer5_chart(REQUIRED_SKUS)
+        for sku in NO_L3_SKUS:
+            if sku not in chart.l3_total_bytes:
+                continue  # optional SKU unresolved
+            assert chart.l3_total_bytes[sku] == 0
+            assert chart.energy_pj_per_byte[sku] == 0.0
+
+    def test_no_phantom_coherence_when_protocol_none(self):
+        """SKUs with coherence='none' must show 0 coherence pJ/req."""
+        chart = cross_sku_layer5_chart(REQUIRED_SKUS)
+        for sku, proto in chart.coherence_protocol.items():
+            if proto == "none":
+                assert chart.coherence_pj_per_request[sku] == 0.0
+
     def test_coherence_protocol_categorical(self):
         chart = cross_sku_layer5_chart(REQUIRED_SKUS)
         for proto in chart.coherence_protocol.values():
             assert proto in VALID_COHERENCE_PROTOCOLS
 
-    def test_cpu_l3_energy_in_plausible_range(self):
+    def test_l3_energy_in_plausible_range(self):
+        """L3 read energy should be in [0.1, 10.0] pJ/byte across the
+        catalog. CPUs at 4-10 nm land near 1 pJ/byte; KPU at 16 nm
+        lands near 7 pJ/byte (older process, larger SRAM cells)."""
         chart = cross_sku_layer5_chart(L3_PRESENT_SKUS)
         for sku, e in chart.energy_pj_per_byte.items():
-            assert 0.1 < e < 5.0, (
+            assert 0.1 < e < 10.0, (
                 f"{sku} L3 energy {e:.3f} pJ/byte out of plausible range"
             )
 

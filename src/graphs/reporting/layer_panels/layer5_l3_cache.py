@@ -154,20 +154,36 @@ def build_layer5_l3_cache_panel(
             "provenance": "THEORETICAL",
         }
 
-        # Per-op hit rates (CPU-style)
-        for op_kind, rate in _default_l3_hit_rate_table().items():
-            metrics[f"Hit rate ({op_kind})"] = {
-                "value": f"{rate * 100:.0f}",
+        # Per-op hit rates apply only to coherent caches. Scratchpad-
+        # managed L3 (KPU distributed SRAM) is software-staged so
+        # the hit rate is deterministic 1.0 by construction.
+        is_coherent = (model.coherence_protocol or "none").lower() != "none"
+        if is_coherent:
+            for op_kind, rate in _default_l3_hit_rate_table().items():
+                metrics[f"Hit rate ({op_kind})"] = {
+                    "value": f"{rate * 100:.0f}",
+                    "unit":  "%",
+                    "provenance": "THEORETICAL",
+                }
+            notes.append(
+                "Per-op-type L3 hit rates from "
+                "StoredProgramEnergyModel.l3_hit_rate_by_op (M5 lift). "
+                "Matrix workloads with weight reuse retain L3 locality "
+                "(~95% of L2 misses); elementwise streams that miss "
+                "L1 + L2 have little reuse left (~70%)."
+            )
+        else:
+            metrics["Hit rate (deterministic)"] = {
+                "value": "100",
                 "unit":  "%",
-                "provenance": "THEORETICAL",
+                "provenance": "n/a",
             }
-        notes.append(
-            "Per-op-type L3 hit rates from "
-            "StoredProgramEnergyModel.l3_hit_rate_by_op (M5 lift). "
-            "Matrix workloads with weight reuse retain L3 locality "
-            "(~95% of L2 misses); elementwise streams that miss L1 + "
-            "L2 have little reuse left (~70%)."
-        )
+            notes.append(
+                "Software-managed distributed L3 SRAM: the host "
+                "compiler stages data through this layer, so the hit "
+                "rate is deterministic 1.0 by construction. Matches "
+                "the M0.5 KPUTileEnergyModel abstraction."
+            )
     else:
         # No L3: route via topology to pick the right note
         topology = (model.l2_topology or "").strip().lower()
@@ -279,13 +295,23 @@ def cross_sku_layer5_chart(sku_ids: List[str]) -> CrossSKULayer5Chart:
         m = models.get(sku)
         if m is None:
             continue
-        chart.l3_present[sku] = bool(m.l3_present)
-        chart.l3_total_bytes[sku] = m.l3_cache_total or 0
-        chart.coherence_protocol[sku] = _normalize_coherence(
-            m.coherence_protocol, sku
+        # Gate L3 capacity / energy on _has_l3 so scratchpad SKUs
+        # don't show phantom hardware-cache numbers, and gate
+        # coherence energy on coherence != "none" so SIMT / dataflow
+        # SKUs don't show phantom snoop costs. Keeps the chart
+        # consistent with the per-SKU panel's classification.
+        has_l3 = _has_l3(m)
+        coherence = _normalize_coherence(m.coherence_protocol, sku)
+
+        chart.l3_present[sku] = has_l3
+        chart.l3_total_bytes[sku] = (m.l3_cache_total or 0) if has_l3 else 0
+        chart.coherence_protocol[sku] = coherence
+        chart.coherence_pj_per_request[sku] = (
+            _coherence_protocol_pj(m, sku) if coherence != "none" else 0.0
         )
-        chart.coherence_pj_per_request[sku] = _coherence_protocol_pj(m, sku)
-        chart.energy_pj_per_byte[sku] = _l3_energy_pj_per_byte(m, sku)
+        chart.energy_pj_per_byte[sku] = (
+            _l3_energy_pj_per_byte(m, sku) if has_l3 else 0.0
+        )
         chart.provenance[sku] = _provenance_or_theoretical(m, "l3_present")
 
     return chart

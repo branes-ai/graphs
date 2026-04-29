@@ -649,6 +649,20 @@ def _render_layer5_cross_sku_table(reports: List[MicroarchReport]) -> str:
             return f"{b / (1024 * 1024):.1f} MiB"
         return f"{b / 1024:.0f} KiB"
 
+    # Suppress numeric energy rows when the SKU explicitly has no
+    # Layer 5 (no L3, no coherence). Otherwise the table renders a
+    # phantom non-zero value next to a "no L3" cell, which contradicts
+    # the per-SKU panel's classification.
+    def _l3_energy_or_dash(s):
+        if not chart.l3_present.get(s):
+            return None
+        return chart.energy_pj_per_byte.get(s)
+
+    def _coherence_pj_or_dash(s):
+        if chart.coherence_protocol.get(s) == "none":
+            return None
+        return chart.coherence_pj_per_request.get(s)
+
     rows = (
         _row("L3 present",
              lambda s: chart.l3_present.get(s),
@@ -659,10 +673,10 @@ def _render_layer5_cross_sku_table(reports: List[MicroarchReport]) -> str:
                lambda s: chart.coherence_protocol.get(s),
                lambda v: html.escape(v))
         + _row("Coherence pJ/req",
-               lambda s: chart.coherence_pj_per_request.get(s),
+               _coherence_pj_or_dash,
                lambda v: f"{v:.2f}")
         + _row("L3 energy (pJ/byte)",
-               lambda s: chart.energy_pj_per_byte.get(s),
+               _l3_energy_or_dash,
                lambda v: f"{v:.3f}")
     )
 
