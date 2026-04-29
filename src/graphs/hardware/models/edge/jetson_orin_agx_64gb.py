@@ -515,6 +515,11 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         l3_cache_total=0,
         coherence_protocol="none",  # SIMT memory model, not snoopy
 
+        # M7 Layer 7: 256-bit LPDDR5 (204.8 GB/s).
+        memory_technology="LPDDR5",
+        memory_read_energy_per_byte_pj=15.0,
+        memory_write_energy_per_byte_pj=18.0,
+
         # M6 Layer 6: SM-to-L2 crossbar interconnect. 16 SMs * 4 L2
         # slices = 64-port crossbar; effectively single-hop access
         # across the full L2.
@@ -602,6 +607,19 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
                     "per-flit energy estimated from 8nm process baseline"),
         ),
     )
+
+    # M7 Layer 7 provenance
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.85,
+                source=("Jetson Orin AGX: 256-bit LPDDR5 @ 204.8 GB/s "
+                        "(NVIDIA datasheet); JEDEC LPDDR5 energy"),
+            ),
+        )
 
     return model
 

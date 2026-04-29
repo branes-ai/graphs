@@ -1,9 +1,8 @@
 """Smoke tests for cli/microarch_validation_report.py.
 
-M0 shipped empty panels; M1 populates Layer 1 (ALU); M2 populates
-Layer 2 (Register File); M3 populates Layer 3 (L1 cache / scratchpad);
-M4 populates Layer 4 (L2 cache); M5 populates Layer 5 (L3 / LLC);
-M6 populates Layer 6 (SoC data movement).
+M0 shipped empty panels; M1-M7 populate all seven layers (ALU,
+Register File, L1 cache, L2 cache, L3/LLC, SoC fabric, External
+memory).
 """
 from __future__ import annotations
 
@@ -51,16 +50,14 @@ def test_json_bundle_emits_one_file_per_sku(tmp_path: Path, cli_main):
         "soc_data_movement", "external_memory",
     ]
     assert layer_tags == expected
-    # M6: layers 1-6 populated as 'theoretical'; layer 7 remains
-    # 'not_populated' until M7 lands.
+    # M7: all seven layers populated as 'theoretical'.
     layer_status = {p["layer"]: p["status"] for p in payload["layers"]}
     for tag in ("alu", "register", "l1_cache", "l2_cache", "l3_cache",
-                "soc_data_movement"):
+                "soc_data_movement", "external_memory"):
         assert layer_status[tag] == "theoretical", (
-            f"Layer for {tag} should be 'theoretical' at M6, "
+            f"Layer for {tag} should be 'theoretical' at M7, "
             f"got {layer_status[tag]!r}"
         )
-    assert layer_status["external_memory"] == "not_populated"
 
 
 def test_html_bundle_writes_index_hardware_compare(tmp_path: Path, cli_main):
@@ -75,7 +72,7 @@ def test_html_bundle_writes_index_hardware_compare(tmp_path: Path, cli_main):
     assert (tmp_path / "compare.html").exists()
 
 
-def test_html_has_branes_branding_and_placeholder(tmp_path: Path, cli_main):
+def test_html_has_branes_branding_and_layer_titles(tmp_path: Path, cli_main):
     cli_main.main([
         "--hardware", "kpu_t128",
         "--format", "html",
@@ -88,8 +85,9 @@ def test_html_has_branes_branding_and_placeholder(tmp_path: Path, cli_main):
     assert "CALIBRATED" in sku_html
     assert "INTERPOLATED" in sku_html
     assert "THEORETICAL" in sku_html
-    # M0 placeholder text
-    assert "NOT YET POPULATED" in sku_html
+    # M7 contract: all seven layers populated, so the M0 placeholder
+    # text "NOT YET POPULATED" must not appear in any per-SKU page.
+    assert "NOT YET POPULATED" not in sku_html
     # All seven layer titles present
     for expected_title in [
         "Layer 1: ALU",

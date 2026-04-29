@@ -373,6 +373,11 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     )
     model.coherence_protocol = "none"
 
+    # M7 Layer 7: 96 GB/s LPDDR5 (4GB on-package).
+    model.memory_technology = "LPDDR5"
+    model.memory_read_energy_per_byte_pj = 12.0
+    model.memory_write_energy_per_byte_pj = 14.4
+
     # M6 Layer 6: 2D mesh fabric tied to the M0.5 tile abstraction.
     # routing_distance_factor=1.2 matches the legacy constant in
     # KPUTileEnergyModel; attaching the fabric here lets
@@ -465,5 +470,18 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
                     "preserves legacy energy formula)"),
         ),
     )
+
+    # M7 Layer 7 provenance
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.80,
+                source=("Stillwater KPU-T128: 96 GB/s LPDDR5 "
+                        "on-package (4GB); JEDEC LPDDR5 reference"),
+            ),
+        )
 
     return model

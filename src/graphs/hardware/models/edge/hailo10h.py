@@ -256,6 +256,14 @@ def hailo10h_resource_model() -> HardwareResourceModel:
         l3_cache_total=0,
         coherence_protocol="none",
 
+        # M7 Layer 7: Hailo-10H is transformer-optimized; host-side
+        # DRAM holds the model weights (LPDDR5 to keep BW up for KV
+        # cache spills). Steady-state still serves attention from
+        # on-chip 12 MB L2 SRAM.
+        memory_technology="LPDDR5 (host) + on-chip SRAM (KV cache)",
+        memory_read_energy_per_byte_pj=15.0,
+        memory_write_energy_per_byte_pj=18.0,
+
         # M6 Layer 6: dataflow mesh between 40 PE units (low confidence).
         soc_fabric=_get_hailo10h_fabric(),
     )
@@ -330,5 +338,19 @@ def hailo10h_resource_model() -> HardwareResourceModel:
                     "panel ships with low_confidence=True flag"),
         ),
     )
+
+    # M7 Layer 7 provenance
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.55,
+                source=("Hailo-10H host-side LPDDR5 for transformer "
+                        "weights + KV cache; steady-state attention "
+                        "from on-chip 12 MB L2"),
+            ),
+        )
 
     return model

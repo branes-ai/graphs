@@ -277,6 +277,13 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
         l3_cache_total=25 * 1024 * 1024,  # 25 MiB shared L3
         coherence_protocol="snoopy_mesi",
 
+        # M7 Layer 7: DDR5 dual-channel external memory.
+        # Reads ~25 pJ/B; writes ~30 pJ/B (~1.2x asymmetry from
+        # write-buffer + bank precharge tail).
+        memory_technology="DDR5",
+        memory_read_energy_per_byte_pj=25.0,
+        memory_write_energy_per_byte_pj=30.0,
+
         # M6 Layer 6: Alder Lake double ring bus carries L2->L3 / L3
         # snoop traffic between cores. 12 stops on the ring (8 P + 4 E
         # cores + cache slices); avg latency ~1.5 ns / stop, ~5 pJ/flit.
@@ -400,5 +407,19 @@ def intel_core_i7_12700k_resource_model() -> HardwareResourceModel:
                     "OPT manual"),
         ),
     )
+
+    # M7 Layer 7 provenance for external memory
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.80,
+                source=("DDR5-4800 dual-channel desktop config; "
+                        "energy from JEDEC DDR5 reference + ~1.2x R/W "
+                        "asymmetry"),
+            ),
+        )
 
     return model

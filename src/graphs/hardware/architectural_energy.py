@@ -493,6 +493,21 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
         }
     )
 
+    # M7 Layer 7: external-memory access-pattern overhead. Sequential
+    # access amortizes row-buffer activations across many bytes (1.0x
+    # baseline); strided access misses the row buffer more often
+    # (~1.3x); random access pays full row activation per request
+    # (~2.0x). Tagged THEORETICAL; downstream consumers may multiply
+    # ``energy_per_byte`` by the appropriate pattern to model
+    # workload-specific DRAM energy.
+    memory_access_pattern_multiplier: Dict[str, float] = field(
+        default_factory=lambda: {
+            "sequential": 1.0,
+            "strided":    1.3,
+            "random":     2.0,
+        }
+    )
+
     # M5 Layer 5: cache-coherence PROTOCOL energy per request. Cost
     # of the snoop / directory message itself: state-transition
     # logic, broadcast write to coherence directory, snooper-side
@@ -919,6 +934,16 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     # so this value is panel-facing rather than energy-path-facing.
     # Derived from TechnologyProfile in __post_init__.
     coherence_protocol_overhead_pj_per_request: float = field(init=False)
+
+    # M7 Layer 7: external-memory access-pattern overhead. Same
+    # semantics and defaults as the StoredProgramEnergyModel field.
+    memory_access_pattern_multiplier: Dict[str, float] = field(
+        default_factory=lambda: {
+            "sequential": 1.0,
+            "strided":    1.3,
+            "random":     2.0,
+        }
+    )
 
     # Instruction pipeline stages - derived from tech_profile
     instruction_decode_energy: float = field(init=False)

@@ -500,6 +500,11 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     )
     model.coherence_protocol = "none"
 
+    # M7 Layer 7: 64 GB/s LPDDR5 on-package.
+    model.memory_technology = "LPDDR5"
+    model.memory_read_energy_per_byte_pj = 12.0
+    model.memory_write_energy_per_byte_pj = 14.4
+
     # M6 Layer 6: 2D mesh fabric tied to M0.5 tile abstraction.
     model.soc_fabric = SoCFabricModel(
         topology=Topology.MESH_2D,
@@ -584,6 +589,18 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
                     "KPUTileEnergyModel"),
         ),
     )
+
+    # M7 Layer 7 provenance
+    for key in ("memory_technology",
+                "memory_read_energy_per_byte_pj",
+                "memory_write_energy_per_byte_pj"):
+        model.set_provenance(
+            key,
+            EstimationConfidence.theoretical(
+                score=0.80,
+                source="Stillwater KPU-T64: 64 GB/s LPDDR5 on-package",
+            ),
+        )
 
     return model
 

@@ -44,6 +44,12 @@ from .layer6_soc_fabric import (
     cross_sku_layer6_chart,
     CrossSKULayer6Chart,
 )
+from .layer7_external_memory import (
+    build_layer7_external_memory_panel,
+    build_layer7_panels_for_skus,
+    cross_sku_layer7_chart,
+    CrossSKULayer7Chart,
+)
 
 __all__ = [
     "build_layer1_panel",
@@ -70,4 +76,8 @@ __all__ = [
     "build_layer6_panels_for_skus",
     "cross_sku_layer6_chart",
     "CrossSKULayer6Chart",
+    "build_layer7_external_memory_panel",
+    "build_layer7_panels_for_skus",
+    "cross_sku_layer7_chart",
+    "CrossSKULayer7Chart",
 ]
