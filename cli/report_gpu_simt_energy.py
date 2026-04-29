@@ -43,6 +43,10 @@ from graphs.reporting.baseline_alu_energy import (  # noqa: E402
     Precision,
     baseline_alu_energy,
 )
+from graphs.reporting.gpu_register_file import (  # noqa: E402
+    GPURegisterFileBankModel,
+    default_ampere_subpartition_rf,
+)
 from graphs.reporting.gpu_simt_energy import (  # noqa: E402
     DEFAULT_LANES_PER_SUBPART,
     DEFAULT_SUBPARTITIONS,
@@ -176,6 +180,45 @@ def _build_report(profile_key: str) -> str:
         "| Packing factor    | FP32 : FP16 : INT8 = 1 : 2 : 4 (HFMA2 / DP4A semantics) |\n"
     )
 
+    # ---------- RF bank model ----------
+    rf = default_ampere_subpartition_rf(profile)
+    parts.append("## 1b. Banked SRAM register file (the SIMT energy story)\n")
+    parts.append(
+        "A SIMT pipeline only works when many warps are in flight "
+        "concurrently; that requires hundreds-to-thousands of "
+        "registers per subpartition, which can only come from a "
+        "banked SRAM. The banked-SRAM cost IS the GPU's "
+        "architectural overhead vs accelerators (TPU / KPU / CGRA) "
+        "that either eliminate the general-purpose register file "
+        "(systolic data flows bank-to-bank) or replace it with "
+        "FIFOs (dataflow streams). Quantifying this cost is the "
+        "purpose of this report.\n"
+    )
+    parts.append(
+        "| Bank-model field | Value |\n|---|---|\n"
+        f"| Bytes per subpartition | {rf.bytes_per_subpartition // 1024} KiB |\n"
+        f"| Number of banks | {rf.num_banks} |\n"
+        f"| Bank size | {rf.bank_size_bytes // 1024} KiB |\n"
+        f"| Bank access width | {rf.bank_width_bits} bits ({rf.bytes_per_bank_access} bytes) |\n"
+        f"| Per-byte SRAM dynamic energy | {rf.sram_energy_per_byte_pj:.3f} pJ "
+        f"(`get_sram_energy_per_byte_pj({profile.process_node_nm}, 'register_file')`) |\n"
+        f"| Wide-bank read energy | **{rf.bank_read_energy_pj():.2f} pJ** (per access) |\n"
+        f"| Wide-bank write energy | **{rf.bank_write_energy_pj():.2f} pJ** (per access) |\n"
+        f"| Reads per warp source operand | {rf.reads_per_warp_source()} (1024-bit bank "
+        f"matches 32 threads x 32 bits exactly) |\n"
+    )
+    parts.append(
+        "At the SM level, one SIMT instruction issues across "
+        f"{DEFAULT_SUBPARTITIONS} subpartitions in parallel. RF "
+        "activity per cycle:\n\n"
+        "| Op kind | RF reads (SM-cycle) | RF writes (SM-cycle) |\n"
+        "|---|---|---|\n"
+        f"| FADD / FMUL (2 sources) | {rf.sm_bank_reads_per_instruction(DEFAULT_SUBPARTITIONS, 2)} | "
+        f"{rf.sm_bank_writes_per_instruction(DEFAULT_SUBPARTITIONS)} |\n"
+        f"| FMA (3 sources) | {rf.sm_bank_reads_per_instruction(DEFAULT_SUBPARTITIONS, 3)} | "
+        f"{rf.sm_bank_writes_per_instruction(DEFAULT_SUBPARTITIONS)} |\n"
+    )
+
     # ---------- Pipeline-stage glossary ----------
     parts.append("## 2. SIMT pipeline stages\n")
     parts.append(
@@ -276,48 +319,66 @@ def _build_report(profile_key: str) -> str:
     # ---------- Commentary ----------
     parts.append("## 6. Architectural reading\n")
     parts.append(
-        "1. **Cheap compute = high overhead share.** FADD has the "
+        "1. **Banked SRAM RF traffic dominates SIMT energy.** Stage "
+        "5 (Rd) + stage 9 (WB) together exceed the ALU compute (stage "
+        "8) for every (op, precision) combo. This is the GPU's "
+        "architectural \"tax\" for keeping hundreds of warps in "
+        "flight: a 64 KiB banked RF per subpartition that costs "
+        "tens of pJ per wide-bank access. Accelerators that "
+        "eliminate the RF (TPU systolic, KPU dataflow, CGRA spatial) "
+        "skip this tax entirely -- which is exactly the energy gap "
+        "this report quantifies.\n\n"
+        "2. **Cheap compute = high overhead share.** FADD has the "
         "smallest ALU energy per op, so a larger fraction of the "
-        "instruction energy goes into RF reads, the operand "
-        "collector, and the writeback. The SIMT/baseline overhead "
-        "ratio is highest for FADD and lowest for FMA.\n\n"
-        "2. **Packing recovers narrow-precision energy efficiency.** "
+        "instruction energy is fixed RF + control overhead. The "
+        "SIMT/baseline ratio is highest for FADD and lowest for "
+        "FMA.\n\n"
+        "3. **Packing recovers narrow-precision energy efficiency.** "
         "Per-instruction energy is approximately constant across "
         "fp32 / fp16-packed / int8-packed, because the same 32-bit "
-        "datapath does 1, 2, or 4 useful ops respectively. Per-op "
-        "energy halves (fp16) or quarters (int8) -- not from "
+        "datapath does 1, 2, or 4 useful ops respectively, AND the "
+        "same wide-bank RF reads supply data regardless of packing. "
+        "Per-op energy halves (fp16) or quarters (int8) -- not from "
         "shrinking the RF, but from amortizing it over more useful "
         "work.\n\n"
-        "3. **Per-subpartition control is x4 at SM level.** Each "
+        "4. **Per-subpartition control is x4 at SM level.** Each "
         "Ampere subpartition runs its own fetch / decode / scheduler "
         "/ dispatch. Counting any of these once at SM level (the "
         "naive accounting) under-reports the control-overhead share "
-        "by 4x.\n\n"
-        "4. **The TechnologyProfile RF energies are derived from a "
-        "CPU-style scaling.** Published GPU RF reads at 8nm are "
-        "typically 3-5x higher than the values used here, because "
-        "GPU register files are larger, more banked, and have more "
-        "ports. The model's relative energy decomposition is correct; "
-        "absolute SIMT/baseline ratios scale with the assumed RF "
-        "energy.\n\n"
-        "5. **Operand collector is poorly characterized in public "
-        "literature.** This report models it as a per-operand flop "
-        "write + read. Real GPU operand collectors are more complex "
-        "(multi-entry, cross-bar to RF banks). Treat the OC column "
-        "as INTERPOLATED.\n"
+        "by 4x. Same applies to the RF: each subpartition's banks "
+        "fire independently in parallel.\n\n"
+        "5. **The wide-bank read assumption.** This model assumes the "
+        "1024-bit bank width matches a warp's source operand exactly "
+        "(32 threads x 32 bits) so 1 wide-bank read suffices per "
+        "source. Real GPUs have register-bank-conflict cycles when "
+        "two source operands map to the same bank; the operand "
+        "collector hides these by buffering operands across cycles. "
+        "Modeling bank conflicts is future work; the current model "
+        "captures the no-conflict case (the optimistic floor for "
+        "RF energy).\n\n"
+        "6. **Operand collector is poorly characterized in public "
+        "literature.** This report models it as a per-operand wide-"
+        "buffer flop write + read at 5% of bank-read energy. Real "
+        "GPU operand collectors are multi-entry with crossbars to "
+        "RF banks. Treat the OC column as INTERPOLATED.\n"
     )
 
     # ---------- Validation gates ----------
     parts.append("## 7. Self-validation\n")
     parts.append(
         "These are the sanity checks the test suite runs against the "
-        "model output. They are stable across TechnologyProfile "
-        "changes within +/-30% RF energy.\n\n"
+        "model output.\n\n"
         "- fp16-packed / fp32 per-op ratio in [0.45, 0.55] for every op.\n"
         "- int8-packed / fp32 per-op ratio in [0.20, 0.30] for every op.\n"
         "- FMA ALU energy / FMUL ALU energy in [1.10, 1.18] (FMA = MUL + small ADD).\n"
         "- SIMT FADD overhead ratio > FMUL > FMA at every precision.\n"
         "- Stages 1-4 each fire `sm_subpartitions` times, not once.\n"
+        "- **RF traffic (Rd + WB) > ALU compute (Exe).** This is the "
+        "  architectural punchline; if it ever flips, the bank model "
+        "  is mis-parameterised.\n"
+        "- Default Ampere bank model: 4 banks of 16 KiB / 1024-bit wide "
+        "  -> 1 wide-bank read per warp source operand.\n"
+        "- Per-bank read energy at 8 nm in [30, 80] pJ.\n"
     )
     return "\n".join(parts)
 

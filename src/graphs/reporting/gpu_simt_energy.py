@@ -50,6 +50,10 @@ from graphs.reporting.baseline_alu_energy import (
     Precision,
     _alu_energies_pj as _baseline_alu_energies_pj,
 )
+from graphs.reporting.gpu_register_file import (
+    GPURegisterFileBankModel,
+    default_ampere_subpartition_rf,
+)
 
 
 # --------------------------------------------------------------------
@@ -155,6 +159,7 @@ class SIMTInstructionEnergy:
     - ``stages``: 9 StageEnergy entries in pipeline order
     - ``rows``: row x stage matrix (operation -> {stage label -> pJ})
                 so a caller can render the gantt-style energy table
+    - ``rf_model``: the banked-SRAM register-file model in use
     - aggregate totals + per-op normalization
     """
     op_kind: OpKind
@@ -164,6 +169,8 @@ class SIMTInstructionEnergy:
     sources_per_op: int
     flops_per_op: int
     packing_factor: int
+
+    rf_model: GPURegisterFileBankModel
 
     stages: List[StageEnergy]
     rows: Dict[str, Dict[str, float]]
@@ -211,17 +218,26 @@ def simt_instruction_energy(
     precision: Precision,
     sm_subpartitions: int = DEFAULT_SUBPARTITIONS,
     lanes_per_subpartition: int = DEFAULT_LANES_PER_SUBPART,
+    rf_model: GPURegisterFileBankModel | None = None,
 ) -> SIMTInstructionEnergy:
     """Build the 9-stage energy report for one SIMT instruction.
 
+    The register file is modelled as banked SRAM (the key SIMT
+    architectural overhead -- many threads in flight require a large
+    multi-banked RF, not flip-flops). Stage 5 (Rd) and stage 9 (WB)
+    are wide-bank accesses, NOT individual register-per-thread reads.
+
     Args:
-        profile: TechnologyProfile (the canonical case is
+        profile: TechnologyProfile (canonical case:
             ``EDGE_8NM_LPDDR5`` for Jetson Orin GA10B).
         op_kind: FADD / FMUL / FMA.
         precision: FP32 / FP16 / INT8 (narrow precisions are
             assumed to be packed: HFMA2 for fp16, DP4A for int8).
         sm_subpartitions: typically 4 on Ampere (GA100/GA10B).
         lanes_per_subpartition: typically 32.
+        rf_model: banked-SRAM register file. Defaults to the Ampere
+            subpartition layout (64 KiB / 4 banks / 1024-bit wide)
+            parameterised by the profile.
 
     Returns:
         ``SIMTInstructionEnergy`` with per-stage + per-row breakdowns.
@@ -231,55 +247,75 @@ def simt_instruction_energy(
     packing = _PACKING_FACTOR[precision]
     lanes = sm_subpartitions * lanes_per_subpartition
 
-    rf_read_pj = profile.register_read_energy_pj
-    rf_write_pj = profile.register_write_energy_pj
+    if rf_model is None:
+        rf_model = default_ampere_subpartition_rf(profile)
+
+    # Banked SRAM RF: per-access energies + concurrency counts.
+    bank_read_pj = rf_model.bank_read_energy_pj()
+    bank_write_pj = rf_model.bank_write_energy_pj()
+    rf_read_count = rf_model.sm_bank_reads_per_instruction(
+        sm_subpartitions, sources,
+    )
+    rf_write_count = rf_model.sm_bank_writes_per_instruction(
+        sm_subpartitions,
+    )
+    reads_per_warp_source = rf_model.reads_per_warp_source()
+
+    # Pipeline-front-end energies (per subpartition).
     fetch_pj = profile.instruction_fetch_energy_pj
     decode_pj = profile.instruction_decode_energy_pj
     dispatch_pj = profile.instruction_dispatch_energy_pj
-    # Schedule energy isn't a separate field in TechnologyProfile;
-    # we treat it as a small multiple of decode (scoreboard read +
-    # priority arbitration is a similar amount of toggling logic).
-    sched_pj = decode_pj * 0.5
-    # Operand collector: 1 flop write + 1 flop read per operand.
-    oc_per_op_pj = rf_read_pj * _OC_FLOP_FRACTION * 2
-    # ALU dispatch wire: per-lane per-source operand wire drive.
-    alu_disp_pj = rf_read_pj * _ALU_DISPATCH_WIRE_FRACTION
-    # ALU compute: a single 32-bit-lane FMA/FMUL/FADD; precision
-    # scaling applies because narrow precision uses narrower ALUs
-    # (HFMA2 area ~= 1x fp32 FMA but does 2 ops, etc.).
-    mul_pj, add_pj = _baseline_alu_energies_pj(profile, op_kind, precision)
-    alu_per_lane_pj = (mul_pj or 0.0) + (add_pj or 0.0)
-    # Packed precision: per-lane ALU energy stays roughly constant
-    # (the same 32-bit datapath does 2 fp16 or 4 int8 ops). The
-    # baseline scaler shrinks per-narrow-op cost; multiplying by the
-    # packing factor restores the per-instruction cost to ~fp32.
-    alu_per_lane_pj *= packing
+    sched_pj = decode_pj * 0.5  # scoreboard + arbitration
 
-    # Per-subpartition costs (stages 1-4) fire 4x because each
-    # subpartition has its own fetch / decode / scheduler / dispatch.
+    # Operand collector: per source-operand-warp it buffers one wide
+    # operand (a flop write + read at warp width). Scale by the same
+    # bytes_per_bank_access since OC entries match the RF bank width.
+    oc_per_op_pj = bank_read_pj * _OC_FLOP_FRACTION * 2
+
+    # ALU dispatch wire: per-lane per-source operand wire drive from
+    # the operand collector to the ALU. Scaled relative to a wide-
+    # bank read since the wires fan out from the OC at bank width.
+    alu_disp_pj = bank_read_pj * _ALU_DISPATCH_WIRE_FRACTION / lanes_per_subpartition
+    # (The /lanes_per_subpartition splits the bank-wide energy across
+    # the per-thread fanout wires it represents.)
+
+    # ALU compute: per-lane FADD/FMUL/FMA energy from the baseline
+    # model, scaled by the precision packing so per-instruction
+    # compute energy stays approximately constant across precisions
+    # (same 32-bit datapath, doing 1/2/4 useful ops).
+    mul_pj, add_pj = _baseline_alu_energies_pj(profile, op_kind, precision)
+    alu_per_lane_pj = ((mul_pj or 0.0) + (add_pj or 0.0)) * packing
+
+    # Stages -- 1-4 fire per subpartition; 5-9 fire at the bank /
+    # lane / wire activity counts derived above.
+    oc_count = sm_subpartitions * sources * reads_per_warp_source
+    alu_disp_count = sources * lanes
     stages: List[StageEnergy] = [
         StageEnergy("Fch",  STAGE_DESCRIPTIONS["Fch"],
-                    fetch_pj,   sm_subpartitions),
+                    fetch_pj,    sm_subpartitions),
         StageEnergy("Dec",  STAGE_DESCRIPTIONS["Dec"],
-                    decode_pj,  sm_subpartitions),
+                    decode_pj,   sm_subpartitions),
         StageEnergy("Sch",  STAGE_DESCRIPTIONS["Sch"],
-                    sched_pj,   sm_subpartitions),
+                    sched_pj,    sm_subpartitions),
         StageEnergy("Dsp",  STAGE_DESCRIPTIONS["Dsp"],
                     dispatch_pj, sm_subpartitions),
+        # Stage 5: banked SRAM RF reads -- the SIMT energy story.
         StageEnergy("Rd",   STAGE_DESCRIPTIONS["Rd"],
-                    rf_read_pj, sources * lanes),
+                    bank_read_pj, rf_read_count),
         StageEnergy("OC",   STAGE_DESCRIPTIONS["OC"],
-                    oc_per_op_pj, sources * lanes),
+                    oc_per_op_pj, oc_count),
         StageEnergy("Disp", STAGE_DESCRIPTIONS["Disp"],
-                    alu_disp_pj, sources * lanes),
+                    alu_disp_pj, alu_disp_count),
         StageEnergy("Exe",  STAGE_DESCRIPTIONS["Exe"],
                     alu_per_lane_pj, lanes),
+        # Stage 9: banked SRAM RF writes.
         StageEnergy("WB",   STAGE_DESCRIPTIONS["WB"],
-                    rf_write_pj, lanes),
+                    bank_write_pj, rf_write_count),
     ]
 
-    # Build the row x stage matrix. Rows trace the lifetime of each
-    # operand / control flow through the pipeline.
+    # Build the row x stage matrix. Each source operand row owns
+    # `reads_per_warp_source` wide-bank reads (1 for a perfect-fit
+    # Ampere RF; more for narrower banks).
     rows: Dict[str, Dict[str, float]] = {}
     rows["Instruction control"] = {
         "Fch":  stages[0].total_pj,
@@ -287,16 +323,19 @@ def simt_instruction_energy(
         "Sch":  stages[2].total_pj,
         "Dsp":  stages[3].total_pj,
     }
-    # Source operand rows: split the per-source-stage costs evenly
-    # across the (sources) source operands.
     src_labels = ["Src operand A", "Src operand B"]
     if sources == 3:
         src_labels.append("Src operand C")
     for src in src_labels:
+        # Per source operand: sm_subpartitions wide-bank reads
+        # (one per subpartition's warp), each at bank_read_pj.
+        per_src_read_count = sm_subpartitions * reads_per_warp_source
+        per_src_oc_count = sm_subpartitions * reads_per_warp_source
+        per_src_disp_count = lanes
         rows[src] = {
-            "Rd":   rf_read_pj * lanes,
-            "OC":   oc_per_op_pj * lanes,
-            "Disp": alu_disp_pj * lanes,
+            "Rd":   bank_read_pj * per_src_read_count,
+            "OC":   oc_per_op_pj * per_src_oc_count,
+            "Disp": alu_disp_pj * per_src_disp_count,
         }
     rows["ALU compute"] = {
         "Exe":  stages[7].total_pj,
@@ -311,8 +350,11 @@ def simt_instruction_energy(
         source=(
             f"gpu_simt: TechnologyProfile['{profile.name}'] "
             f"on {sm_subpartitions}x{lanes_per_subpartition} SIMT; "
-            f"oc_fraction={_OC_FLOP_FRACTION}, "
-            f"alu_disp_fraction={_ALU_DISPATCH_WIRE_FRACTION}; "
+            f"RF banked SRAM "
+            f"({rf_model.bytes_per_subpartition // 1024} KiB/subpart, "
+            f"{rf_model.num_banks} banks, "
+            f"{rf_model.bank_width_bits}-bit wide), "
+            f"per-bank-read {bank_read_pj:.2f} pJ; "
             f"per-subpartition control fanout x{sm_subpartitions}"
         ),
     )
@@ -325,6 +367,7 @@ def simt_instruction_energy(
         sources_per_op=sources,
         flops_per_op=flops,
         packing_factor=packing,
+        rf_model=rf_model,
         stages=stages,
         rows=rows,
         confidence=confidence,

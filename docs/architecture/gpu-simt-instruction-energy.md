@@ -37,6 +37,28 @@ Derived-from-base ratios used in this report:
 | Precision scaling | FP32 : FP16 : INT8 = 1.00 : 0.50 : 0.20 (multiplier area scales with bits-squared) |
 | Packing factor    | FP32 : FP16 : INT8 = 1 : 2 : 4 (HFMA2 / DP4A semantics) |
 
+## 1b. Banked SRAM register file (the SIMT energy story)
+
+A SIMT pipeline only works when many warps are in flight concurrently; that requires hundreds-to-thousands of registers per subpartition, which can only come from a banked SRAM. The banked-SRAM cost IS the GPU's architectural overhead vs accelerators (TPU / KPU / CGRA) that either eliminate the general-purpose register file (systolic data flows bank-to-bank) or replace it with FIFOs (dataflow streams). Quantifying this cost is the purpose of this report.
+
+| Bank-model field | Value |
+|---|---|
+| Bytes per subpartition | 64 KiB |
+| Number of banks | 4 |
+| Bank size | 16 KiB |
+| Bank access width | 1024 bits (128 bytes) |
+| Per-byte SRAM dynamic energy | 0.343 pJ (`get_sram_energy_per_byte_pj(8, 'register_file')`) |
+| Wide-bank read energy | **43.89 pJ** (per access) |
+| Wide-bank write energy | **54.86 pJ** (per access) |
+| Reads per warp source operand | 1 (1024-bit bank matches 32 threads x 32 bits exactly) |
+
+At the SM level, one SIMT instruction issues across 4 subpartitions in parallel. RF activity per cycle:
+
+| Op kind | RF reads (SM-cycle) | RF writes (SM-cycle) |
+|---|---|---|
+| FADD / FMUL (2 sources) | 8 | 4 |
+| FMA (3 sources) | 12 | 4 |
+
 ## 2. SIMT pipeline stages
 
 Stages 1-4 fire ONCE PER SUBPARTITION (each Ampere subpartition has its own L0 I-cache, decoder, warp scheduler, and dispatch -- so they are counted x4). Stages 5-9 fire at the full SM lane count.
@@ -146,39 +168,39 @@ Rows trace each operand / control flow through the 9 pipeline stages; each cell 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 53.5 | -- | 53.5 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 274 | 27.4 | 68.4 | 53.5 | 164 | **592** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 53.5 | 219 | **752** |
 
-Per-instruction: **592 pJ**, per-op: **4.624 pJ/op**, per-FLOP: **4.624 pJ**.
+Per-instruction: **752 pJ**, per-op: **5.873 pJ/op**, per-FLOP: **5.873 pJ**.
 
 **FADD fp16** -- 128 lanes x 2 packed = 256 ops (256 FLOPS)
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 53.5 | -- | 53.5 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 274 | 27.4 | 68.4 | 53.5 | 164 | **592** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 53.5 | 219 | **752** |
 
-Per-instruction: **592 pJ**, per-op: **2.312 pJ/op**, per-FLOP: **2.312 pJ**.
+Per-instruction: **752 pJ**, per-op: **2.937 pJ/op**, per-FLOP: **2.937 pJ**.
 
 **FADD int8** -- 128 lanes x 4 packed = 512 ops (512 IntOPS)
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 42.8 | -- | 42.8 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 274 | 27.4 | 68.4 | 42.8 | 164 | **581** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 42.8 | 219 | **741** |
 
-Per-instruction: **581 pJ**, per-op: **1.135 pJ/op**, per-IntOP: **1.135 pJ**.
+Per-instruction: **741 pJ**, per-op: **1.447 pJ/op**, per-IntOP: **1.447 pJ**.
 
 ### 4.FMUL
 
@@ -187,39 +209,39 @@ Per-instruction: **581 pJ**, per-op: **1.135 pJ/op**, per-IntOP: **1.135 pJ**.
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 214 | -- | 214 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 274 | 27.4 | 68.4 | 214 | 164 | **752** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 214 | 219 | **912** |
 
-Per-instruction: **752 pJ**, per-op: **5.878 pJ/op**, per-FLOP: **5.878 pJ**.
+Per-instruction: **912 pJ**, per-op: **7.127 pJ/op**, per-FLOP: **7.127 pJ**.
 
 **FMUL fp16** -- 128 lanes x 2 packed = 256 ops (256 FLOPS)
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 214 | -- | 214 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 274 | 27.4 | 68.4 | 214 | 164 | **752** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 214 | 219 | **912** |
 
-Per-instruction: **752 pJ**, per-op: **2.939 pJ/op**, per-FLOP: **2.939 pJ**.
+Per-instruction: **912 pJ**, per-op: **3.564 pJ/op**, per-FLOP: **3.564 pJ**.
 
 **FMUL int8** -- 128 lanes x 4 packed = 512 ops (512 IntOPS)
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 171 | -- | 171 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 274 | 27.4 | 68.4 | 171 | 164 | **710** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 351 | 35.1 | 87.8 | 171 | 219 | **869** |
 
-Per-instruction: **710 pJ**, per-op: **1.386 pJ/op**, per-IntOP: **1.386 pJ**.
+Per-instruction: **869 pJ**, per-op: **1.698 pJ/op**, per-IntOP: **1.698 pJ**.
 
 ### 4.FMA
 
@@ -228,42 +250,42 @@ Per-instruction: **710 pJ**, per-op: **1.386 pJ/op**, per-IntOP: **1.386 pJ**.
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand C | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand C | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 243 | -- | 243 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 410 | 41.0 | 103 | 243 | 164 | **966** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 527 | 52.7 | 132 | 243 | 219 | **1178** |
 
-Per-instruction: **966 pJ**, per-op: **7.549 pJ/op**, per-FLOP: **3.774 pJ**.
+Per-instruction: **1178 pJ**, per-op: **9.207 pJ/op**, per-FLOP: **4.603 pJ**.
 
 **FMA fp16** -- 128 lanes x 2 packed = 256 ops (512 FLOPS)
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand C | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand C | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 243 | -- | 243 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 410 | 41.0 | 103 | 243 | 164 | **966** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 527 | 52.7 | 132 | 243 | 219 | **1178** |
 
-Per-instruction: **966 pJ**, per-op: **3.774 pJ/op**, per-FLOP: **1.887 pJ**.
+Per-instruction: **1178 pJ**, per-op: **4.603 pJ/op**, per-FLOP: **2.302 pJ**.
 
 **FMA int8** -- 128 lanes x 4 packed = 512 ops (1024 IntOPS)
 
 | Operation | Fch | Dec | Sch | Dsp | Rd | OC | Disp | Exe | WB | Row total |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Instruction control | 2.280 | 1.216 | 0.608 | 0.760 | -- | -- | -- | -- | -- | 4.864 |
-| Src operand A | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand B | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
-| Src operand C | -- | -- | -- | -- | 137 | 13.7 | 34.2 | -- | -- | 185 |
+| Src operand A | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand B | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
+| Src operand C | -- | -- | -- | -- | 176 | 17.6 | 43.9 | -- | -- | 237 |
 | ALU compute | -- | -- | -- | -- | -- | -- | -- | 195 | -- | 195 |
-| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 164 | 164 |
-| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 410 | 41.0 | 103 | 195 | 164 | **918** |
+| Dest writeback | -- | -- | -- | -- | -- | -- | -- | -- | 219 | 219 |
+| **Stage total** | 2.280 | 1.216 | 0.608 | 0.760 | 527 | 52.7 | 132 | 195 | 219 | **1130** |
 
-Per-instruction: **918 pJ**, per-op: **1.792 pJ/op**, per-IntOP: **0.896 pJ**.
+Per-instruction: **1130 pJ**, per-op: **2.207 pJ/op**, per-IntOP: **1.103 pJ**.
 
 ## 5. Cross-comparison summary
 
@@ -271,34 +293,39 @@ Headline: per-op energy in the full SIMT pipeline vs the irreducible baseline AL
 
 | Op | Precision | Baseline pJ/op | SIMT pJ/op | SIMT pJ/FLOP | SIMT/Baseline | Compute % | RF+OC+wire % |
 |---|---|---|---|---|---|---|---|
-| FADD | fp32 | 0.578 | 4.624 | 4.624 | 8.0x | 9.0% | 90.1% |
-| FADD | fp16 | 0.369 | 2.312 | 2.312 | 6.3x | 9.0% | 90.1% |
-| FADD | int8 | 0.244 | 1.135 | 1.135 | 4.7x | 7.4% | 91.8% |
-| FMUL | fp32 | 1.832 | 5.878 | 5.878 | 3.2x | 28.4% | 70.9% |
-| FMUL | fp16 | 0.996 | 2.939 | 2.939 | 2.9x | 28.4% | 70.9% |
-| FMUL | int8 | 0.495 | 1.386 | 1.386 | 2.8x | 24.1% | 75.2% |
-| FMA | fp32 | 2.114 | 7.549 | 3.774 | 3.6x | 25.2% | 74.3% |
-| FMA | fp16 | 1.164 | 3.774 | 1.887 | 3.2x | 25.2% | 74.3% |
-| FMA | int8 | 0.594 | 1.792 | 0.896 | 3.0x | 21.2% | 78.3% |
+| FADD | fp32 | 0.578 | 5.873 | 5.873 | 10.2x | 7.1% | 92.2% |
+| FADD | fp16 | 0.369 | 2.937 | 2.937 | 8.0x | 7.1% | 92.2% |
+| FADD | int8 | 0.244 | 1.447 | 1.447 | 5.9x | 5.8% | 93.6% |
+| FMUL | fp32 | 1.832 | 7.127 | 7.127 | 3.9x | 23.5% | 76.0% |
+| FMUL | fp16 | 0.996 | 3.564 | 3.564 | 3.6x | 23.5% | 76.0% |
+| FMUL | int8 | 0.495 | 1.698 | 1.698 | 3.4x | 19.7% | 79.7% |
+| FMA | fp32 | 2.114 | 9.207 | 4.603 | 4.4x | 20.6% | 78.9% |
+| FMA | fp16 | 1.164 | 4.603 | 2.302 | 4.0x | 20.6% | 78.9% |
+| FMA | int8 | 0.594 | 2.207 | 1.103 | 3.7x | 17.2% | 82.3% |
 
 ## 6. Architectural reading
 
-1. **Cheap compute = high overhead share.** FADD has the smallest ALU energy per op, so a larger fraction of the instruction energy goes into RF reads, the operand collector, and the writeback. The SIMT/baseline overhead ratio is highest for FADD and lowest for FMA.
+1. **Banked SRAM RF traffic dominates SIMT energy.** Stage 5 (Rd) + stage 9 (WB) together exceed the ALU compute (stage 8) for every (op, precision) combo. This is the GPU's architectural "tax" for keeping hundreds of warps in flight: a 64 KiB banked RF per subpartition that costs tens of pJ per wide-bank access. Accelerators that eliminate the RF (TPU systolic, KPU dataflow, CGRA spatial) skip this tax entirely -- which is exactly the energy gap this report quantifies.
 
-2. **Packing recovers narrow-precision energy efficiency.** Per-instruction energy is approximately constant across fp32 / fp16-packed / int8-packed, because the same 32-bit datapath does 1, 2, or 4 useful ops respectively. Per-op energy halves (fp16) or quarters (int8) -- not from shrinking the RF, but from amortizing it over more useful work.
+2. **Cheap compute = high overhead share.** FADD has the smallest ALU energy per op, so a larger fraction of the instruction energy is fixed RF + control overhead. The SIMT/baseline ratio is highest for FADD and lowest for FMA.
 
-3. **Per-subpartition control is x4 at SM level.** Each Ampere subpartition runs its own fetch / decode / scheduler / dispatch. Counting any of these once at SM level (the naive accounting) under-reports the control-overhead share by 4x.
+3. **Packing recovers narrow-precision energy efficiency.** Per-instruction energy is approximately constant across fp32 / fp16-packed / int8-packed, because the same 32-bit datapath does 1, 2, or 4 useful ops respectively, AND the same wide-bank RF reads supply data regardless of packing. Per-op energy halves (fp16) or quarters (int8) -- not from shrinking the RF, but from amortizing it over more useful work.
 
-4. **The TechnologyProfile RF energies are derived from a CPU-style scaling.** Published GPU RF reads at 8nm are typically 3-5x higher than the values used here, because GPU register files are larger, more banked, and have more ports. The model's relative energy decomposition is correct; absolute SIMT/baseline ratios scale with the assumed RF energy.
+4. **Per-subpartition control is x4 at SM level.** Each Ampere subpartition runs its own fetch / decode / scheduler / dispatch. Counting any of these once at SM level (the naive accounting) under-reports the control-overhead share by 4x. Same applies to the RF: each subpartition's banks fire independently in parallel.
 
-5. **Operand collector is poorly characterized in public literature.** This report models it as a per-operand flop write + read. Real GPU operand collectors are more complex (multi-entry, cross-bar to RF banks). Treat the OC column as INTERPOLATED.
+5. **The wide-bank read assumption.** This model assumes the 1024-bit bank width matches a warp's source operand exactly (32 threads x 32 bits) so 1 wide-bank read suffices per source. Real GPUs have register-bank-conflict cycles when two source operands map to the same bank; the operand collector hides these by buffering operands across cycles. Modeling bank conflicts is future work; the current model captures the no-conflict case (the optimistic floor for RF energy).
+
+6. **Operand collector is poorly characterized in public literature.** This report models it as a per-operand wide-buffer flop write + read at 5% of bank-read energy. Real GPU operand collectors are multi-entry with crossbars to RF banks. Treat the OC column as INTERPOLATED.
 
 ## 7. Self-validation
 
-These are the sanity checks the test suite runs against the model output. They are stable across TechnologyProfile changes within +/-30% RF energy.
+These are the sanity checks the test suite runs against the model output.
 
 - fp16-packed / fp32 per-op ratio in [0.45, 0.55] for every op.
 - int8-packed / fp32 per-op ratio in [0.20, 0.30] for every op.
 - FMA ALU energy / FMUL ALU energy in [1.10, 1.18] (FMA = MUL + small ADD).
 - SIMT FADD overhead ratio > FMUL > FMA at every precision.
 - Stages 1-4 each fire `sm_subpartitions` times, not once.
+- **RF traffic (Rd + WB) > ALU compute (Exe).** This is the   architectural punchline; if it ever flips, the bank model   is mis-parameterised.
+- Default Ampere bank model: 4 banks of 16 KiB / 1024-bit wide   -> 1 wide-bank read per warp source operand.
+- Per-bank read energy at 8 nm in [30, 80] pJ.

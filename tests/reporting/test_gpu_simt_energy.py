@@ -53,25 +53,30 @@ class TestPipelineStructure:
                 f"expected {DEFAULT_SUBPARTITIONS} (one per subpartition)"
             )
 
-    def test_rf_read_count_matches_sources(self):
-        # FMUL: 2 sources x 128 lanes = 256
+    def test_rf_read_count_matches_banked_sram(self):
+        """RF reads are wide-bank SRAM accesses, not per-thread reads.
+        With Ampere defaults (4 subparts, 1 read per warp source):
+            FMUL/FADD: 4 subparts x 2 sources x 1 = 8 wide-bank reads
+            FMA:       4 subparts x 3 sources x 1 = 12 wide-bank reads
+        """
         s_fmul = simt_instruction_energy(
             EDGE_8NM_LPDDR5, OpKind.FMUL, Precision.FP32
         )
         rd = next(st for st in s_fmul.stages if st.label == "Rd")
-        assert rd.activity_count == 256
+        assert rd.activity_count == 8
 
-        # FMA: 3 sources x 128 lanes = 384
         s_fma = simt_instruction_energy(
             EDGE_8NM_LPDDR5, OpKind.FMA, Precision.FP32
         )
         rd = next(st for st in s_fma.stages if st.label == "Rd")
-        assert rd.activity_count == 384
+        assert rd.activity_count == 12
 
-    def test_writeback_count_is_lanes(self):
+    def test_writeback_count_matches_banked_sram(self):
+        """RF writes are wide-bank SRAM accesses: 1 dest per warp x
+        4 subparts x 1 read-per-source = 4 wide-bank writes."""
         s = simt_instruction_energy(EDGE_8NM_LPDDR5, OpKind.FMA, Precision.FP32)
         wb = next(st for st in s.stages if st.label == "WB")
-        assert wb.activity_count == 128
+        assert wb.activity_count == 4
 
     def test_compute_count_is_lanes(self):
         s = simt_instruction_energy(EDGE_8NM_LPDDR5, OpKind.FMA, Precision.FP32)
@@ -93,6 +98,27 @@ class TestPipelineStructure:
         assert s.lanes == 32
         for stage in s.stages[:4]:
             assert stage.activity_count == 2
+
+    def test_rf_model_attached(self):
+        s = simt_instruction_energy(EDGE_8NM_LPDDR5, OpKind.FMA, Precision.FP32)
+        assert s.rf_model is not None
+        assert s.rf_model.bytes_per_subpartition == 64 * 1024
+        assert s.rf_model.num_banks == 4
+        assert s.rf_model.bank_width_bits == 1024
+
+    def test_rf_dominates_simt_energy(self):
+        """The architectural punchline: banked SRAM RF reads + writes
+        should be the largest single energy bucket in a SIMT
+        instruction, not the compute. This is what makes a GPU
+        more expensive per useful op than a TPU/KPU."""
+        s = simt_instruction_energy(EDGE_8NM_LPDDR5, OpKind.FMA, Precision.FP32)
+        rd = next(st for st in s.stages if st.label == "Rd").total_pj
+        wb = next(st for st in s.stages if st.label == "WB").total_pj
+        exe = next(st for st in s.stages if st.label == "Exe").total_pj
+        assert (rd + wb) > exe, (
+            f"RF traffic should exceed compute; got Rd+WB={rd+wb:.0f} pJ vs "
+            f"Exe={exe:.0f} pJ"
+        )
 
 
 class TestNormalization:
