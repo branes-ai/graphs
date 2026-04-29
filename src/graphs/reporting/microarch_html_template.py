@@ -865,6 +865,96 @@ def _render_layer7_cross_sku_table(reports: List[MicroarchReport]) -> str:
 """
 
 
+def _render_validation_cross_sku_table(
+    reports: List[MicroarchReport],
+) -> str:
+    """
+    Render the Path A measurement-validation cross-SKU summary.
+
+    Only emits a table when at least one report in the set has the
+    validation panel attached -- i.e., the CLI was run with
+    ``--with-validation`` and the validation panel got appended to
+    ``report.layers``. Without this gate the cross-SKU helper would
+    invoke ``cross_sku_validation_chart()``, which runs the
+    expensive ``validate_sku()`` -> ``UnifiedAnalyzer`` path even
+    when validation was opt-out at the CLI level.
+    """
+    # Detect the presence of the validation panel by tag rather than
+    # by index so the schema-level layer ordering can change without
+    # breaking the gate.
+    from graphs.benchmarks.schema import LayerTag
+    has_any_validation_panel = any(
+        any(layer.layer is LayerTag.COMPOSITE for layer in r.layers)
+        for r in reports
+    )
+    if not has_any_validation_panel:
+        return ""
+
+    try:
+        from graphs.reporting.layer_panels import (
+            cross_sku_validation_chart,
+        )
+    except Exception:
+        return ""
+
+    sku_ids = [r.sku for r in reports]
+    chart = cross_sku_validation_chart(sku_ids)
+    if not chart.n_results:
+        return ""  # Nothing validated; suppress the section entirely
+
+    name_lookup = {r.sku: (r.display_name or r.sku) for r in reports}
+    only_validated = [s for s in chart.skus if s in chart.n_results]
+    header_cells = "".join(
+        f"<th>{html.escape(name_lookup.get(sku, sku))}</th>"
+        for sku in only_validated
+    )
+
+    def _row(label, getter, fmt):
+        cells = [f"<th>{html.escape(label)}</th>"]
+        for sku in only_validated:
+            v = getter(sku)
+            if v is None:
+                cells.append("<td>--</td>")
+            else:
+                cells.append(f"<td>{fmt(v)}</td>")
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    rows = (
+        _row("Models validated",
+             lambda s: chart.n_results.get(s),
+             str)
+        + _row("Median MAPE",
+               lambda s: chart.median_mape_pct.get(s),
+               lambda v: f"{v:.1f}%")
+    )
+    badge_cells = []
+    for sku in only_validated:
+        ok = chart.within_tolerance.get(sku, False)
+        cls = "interpolated" if ok else "theoretical"
+        label = "INTERPOLATED" if ok else "THEORETICAL"
+        badge_cells.append(
+            f'<td><span class="badge {cls}">{label}</span></td>'
+        )
+    rows += "<tr><th>Aggregate confidence</th>" + "".join(badge_cells) + "</tr>"
+
+    return f"""
+<section>
+  <h3>Path A: end-to-end measurement validation</h3>
+  <p class="meta">SKUs with measurement data in
+  <code>calibration_data/</code> have their M1-M7 analytical
+  predictions compared against measured per-model latency. Median
+  MAPE within +/-30% promotes the SKU's aggregate confidence from
+  THEORETICAL to INTERPOLATED. SKUs without measurements are
+  omitted from this table; their confidence stays at THEORETICAL
+  until a calibration campaign lands.</p>
+  <table class="validation-cross">
+    <thead><tr><th></th>{header_cells}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+"""
+
+
 def render_comparison_page(
     reports: List[MicroarchReport],
     repo_root: Path,
@@ -881,6 +971,7 @@ def render_comparison_page(
       - Layer 5 L3-presence / coherence table (M5)
       - Layer 6 SoC fabric topology + hop coefficients (M6)
       - Layer 7 external-memory technology + bandwidth + pJ/B (M7)
+      - Path A measurement validation summary (when --with-validation)
 
     M8 adds the engineering-deck export.
     """
@@ -899,6 +990,7 @@ def render_comparison_page(
     layer5_section = _render_layer5_cross_sku_table(reports)
     layer6_section = _render_layer6_cross_sku_table(reports)
     layer7_section = _render_layer7_cross_sku_table(reports)
+    validation_section = _render_validation_cross_sku_table(reports)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -937,6 +1029,7 @@ table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.laye
   {layer5_section}
   {layer6_section}
   {layer7_section}
+  {validation_section}
 </main>
 {_render_brand_footer("microarch-model-delivery-plan.md")}
 </body>
