@@ -204,6 +204,12 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
         # l2_cache_total holds the 16 MB L3 LLC.
         l2_cache_per_unit=1 * 1024 * 1024,  # 1 MB per Zen 4 core
         l2_topology="per-unit",
+
+        # M5 Layer 5: Phoenix has a unified 16 MB L3 across all 8 cores
+        # (single CCX; no inter-CCX hop). Snoopy MESI on the IF.
+        l3_present=True,
+        l3_cache_total=16 * 1024 * 1024,
+        coherence_protocol="snoopy_mesi",
     )
 
     for prec in (Precision.FP64, Precision.FP32, Precision.FP16,
@@ -265,6 +271,31 @@ def ryzen_9_8945hs_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Zen 4 architectural fact: private per-core L2",
+        ),
+    )
+
+    # M5 Layer 5 provenance for L3 + coherence
+    model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.90,
+            source=("AMD Ryzen 9 8945HS (Phoenix, Zen 4): 16 MB unified "
+                    "L3 across single CCX of 8 cores (no inter-CCX hop)"),
+        ),
+    )
+    model.set_provenance(
+        "l3_present",
+        EstimationConfidence.theoretical(
+            score=0.99,
+            source="Zen 4 architectural fact: distinct L3 LLC",
+        ),
+    )
+    model.set_provenance(
+        "coherence_protocol",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source=("AMD Infinity Fabric coherence: snoopy MESI on the "
+                    "intra-CCX bus"),
         ),
     )
 

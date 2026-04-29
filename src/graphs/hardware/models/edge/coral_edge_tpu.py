@@ -228,6 +228,12 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         # note explain the architectural choice.
         l2_cache_per_unit=0,
         l2_topology="shared-llc",
+
+        # M5 Layer 5: TPU has no distinct L3; UB is the only on-chip
+        # SRAM layer above the systolic array.
+        l3_present=False,
+        l3_cache_total=0,
+        coherence_protocol="none",
     )
 
     # Attach tile energy model
@@ -276,6 +282,30 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="TPU architectural fact: UB is the LLC",
+        ),
+    )
+
+    # M5 Layer 5 provenance: TPU has no L3
+    model.set_provenance(
+        "l3_present",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="TPU architectural fact: no inter-tile cache layer",
+        ),
+    )
+    model.set_provenance(
+        "l3_cache_total",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source=("TPU architectural fact: Layer 5 cache absent by "
+                    "design, capacity fixed at 0 bytes"),
+        ),
+    )
+    model.set_provenance(
+        "coherence_protocol",
+        EstimationConfidence.theoretical(
+            score=0.95,
+            source="Systolic array: no inter-core coherence by design",
         ),
     )
 
