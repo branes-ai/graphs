@@ -11,7 +11,8 @@ This package does not modify the analytical model; it only validates
 its outputs against measured ground truth.
 """
 from .measurement_comparison import (
-    MeasurementRecord,
+    MeasurementSummary,
+    MeasurementRecord,  # deprecated alias for back-compat
     PredictionRecord,
     ValidationResult,
     SKUValidationSummary,
@@ -28,7 +29,8 @@ from .sku_id_resolution import (
 )
 
 __all__ = [
-    "MeasurementRecord",
+    "MeasurementSummary",
+    "MeasurementRecord",  # deprecated alias for back-compat
     "PredictionRecord",
     "ValidationResult",
     "SKUValidationSummary",

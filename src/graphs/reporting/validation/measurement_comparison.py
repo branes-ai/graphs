@@ -1,10 +1,13 @@
 """
 Measurement-vs-prediction comparison for the M1-M7 micro-arch model.
 
-Loads per-model latency measurements from ``calibration_data/`` and
-runs the M1-M7 analytical chain via ``UnifiedAnalyzer`` for the same
-(SKU, model, precision, batch_size) tuple. Reports MAPE per
-combination and aggregates across a SKU's measurement set.
+Loads per-model latency measurements via ``GroundTruthLoader`` (the
+canonical entry point into ``calibration_data/`` -- per the
+data-hygiene rules, no module outside the loader itself reads the
+measurement JSON files directly) and runs the M1-M7 analytical
+chain via ``UnifiedAnalyzer`` for the same (SKU, model, precision,
+batch_size) tuple. Reports MAPE per combination and aggregates
+across a SKU's measurement set.
 
 Energy comparisons are intentionally out of scope at this stage --
 the calibration data we have is latency-only at the model level.
@@ -13,11 +16,11 @@ Energy validation belongs to Path B (microbenchmark fitting).
 This module is deliberately import-light: ``UnifiedAnalyzer`` is
 loaded lazily inside ``predict_via_unified_analyzer`` so the panel
 builder can introspect available measurements without paying the
-PyTorch import cost.
+PyTorch import cost. ``GroundTruthLoader`` is also lazy-imported
+to keep the validation package usable in trimmed environments.
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -29,9 +32,19 @@ from graphs.reporting.validation.sku_id_resolution import (
 )
 
 
-# Repository root, used to locate calibration_data/.
+# Repository root, used to construct relative source paths in records.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_CALIBRATION_ROOT = _REPO_ROOT / "calibration_data"
+
+
+def _ground_truth_loader():
+    """Lazy import + construct a default GroundTruthLoader.
+
+    Centralises the data-hygiene contract: every measurement read in
+    this module flows through this helper, so the
+    ci/check_no_legacy_json_reads.sh sweep stays clean.
+    """
+    from graphs.calibration.ground_truth import GroundTruthLoader
+    return GroundTruthLoader()
 
 
 # --------------------------------------------------------------------
@@ -39,15 +52,24 @@ _CALIBRATION_ROOT = _REPO_ROOT / "calibration_data"
 # --------------------------------------------------------------------
 
 @dataclass
-class MeasurementRecord:
-    """A single per-model measurement loaded from calibration_data/."""
+class MeasurementSummary:
+    """A one-line summary of a measurement loaded via GroundTruthLoader.
+
+    Distinct from ``graphs.calibration.ground_truth.MeasurementRecord``,
+    which carries the full per-subgraph payload. The validation panel
+    only needs the top-level latency + identification.
+    """
     sku_id: str
     model: str
     precision: str               # "fp32" / "fp16" / "bf16"
     batch_size: int
     measured_latency_ms: float
     measurement_date: str = ""
-    source_path: str = ""
+    source_path: str = ""        # relative to repo root, for display
+
+
+# Backwards-compat alias so tests and callers using the old name keep working.
+MeasurementRecord = MeasurementSummary
 
 
 @dataclass
@@ -65,7 +87,7 @@ class PredictionRecord:
 @dataclass
 class ValidationResult:
     """One (measurement, prediction) pair plus derived metrics."""
-    measurement: MeasurementRecord
+    measurement: MeasurementSummary
     prediction: PredictionRecord
     mape_pct: float              # |predicted - measured| / measured * 100
     ratio: float                 # predicted / measured
@@ -123,38 +145,60 @@ def load_measurement(
     model: str,
     precision: str = "fp32",
     batch_size: int = 1,
-) -> Optional[MeasurementRecord]:
-    """Load one measurement file. Returns None when missing.
+) -> Optional[MeasurementSummary]:
+    """Load one measurement summary via ``GroundTruthLoader``.
 
-    Looks in: ``<repo>/calibration_data/<dir>/measurements/<precision>/<model>_b<batch>.json``
+    Returns None when the SKU has no calibration_data registration
+    or when the requested (model, precision, batch) combination is
+    not present. All filesystem access flows through
+    ``GroundTruthLoader`` per the data-hygiene contract.
     """
     calib_dir = sku_id_to_calibration_dir(sku_id)
     if calib_dir is None:
         return None
 
-    base = _CALIBRATION_ROOT / calib_dir / "measurements" / precision.lower()
-    path = base / f"{model}_b{batch_size}.json"
-    if not path.exists():
-        return None
-
     try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        loader = _ground_truth_loader()
+        record = loader.load(
+            hardware_id=calib_dir,
+            model=model,
+            precision=precision,
+            batch_size=batch_size,
+        )
+    except FileNotFoundError:
+        return None
+    except Exception:
+        # Loader raised on malformed file or unreachable schema --
+        # treat as "no usable measurement" rather than crashing the
+        # panel build.
         return None
 
-    summary = data.get("model_summary") or {}
-    latency_ms = summary.get("total_latency_ms")
-    if latency_ms is None:
+    summary = record.model_summary
+    if summary is None or not getattr(summary, "total_latency_ms", 0):
         return None
 
-    return MeasurementRecord(
+    # Build the relative source path for display.
+    cfg_path: Optional[Path] = None
+    for cfg in loader.list_configurations(calib_dir):
+        if (cfg["model"] == record.model
+                and cfg["precision"].lower() == record.precision.lower()
+                and cfg["batch_size"] == record.batch_size):
+            cfg_path = (
+                loader.data_dir / calib_dir / cfg["file"]
+            )
+            break
+    rel_source = (
+        str(cfg_path.relative_to(_REPO_ROOT)) if cfg_path else ""
+    )
+
+    return MeasurementSummary(
         sku_id=sku_id,
-        model=data.get("model", model),
-        precision=data.get("precision", precision).lower(),
-        batch_size=int(data.get("batch_size", batch_size)),
-        measured_latency_ms=float(latency_ms),
-        measurement_date=str(data.get("measurement_date", "")),
-        source_path=str(path.relative_to(_REPO_ROOT)),
+        model=record.model,
+        precision=record.precision.lower(),
+        batch_size=record.batch_size,
+        measured_latency_ms=float(summary.total_latency_ms),
+        measurement_date=str(record.measurement_date or ""),
+        source_path=rel_source,
     )
 
 
@@ -163,25 +207,19 @@ def list_available_measurements(
     precision: str = "fp32",
 ) -> List[str]:
     """Return the list of model names with measurement files for the
-    given (SKU, precision). Sorted; empty when no data."""
+    given (SKU, precision). Sorted; empty when no data.
+
+    Delegates to ``GroundTruthLoader.list_models`` per the
+    data-hygiene contract.
+    """
     calib_dir = sku_id_to_calibration_dir(sku_id)
     if calib_dir is None:
         return []
-
-    base = _CALIBRATION_ROOT / calib_dir / "measurements" / precision.lower()
-    if not base.is_dir():
+    try:
+        loader = _ground_truth_loader()
+        return loader.list_models(calib_dir, precision=precision)
+    except Exception:
         return []
-
-    models = set()
-    for f in base.glob("*_b*.json"):
-        # Filename: ``<model>_b<batch>.json``; strip the ``_b<n>`` tail
-        stem = f.stem
-        # Find the last "_b" followed by digits
-        idx = stem.rfind("_b")
-        if idx <= 0 or not stem[idx + 2:].isdigit():
-            continue
-        models.add(stem[:idx])
-    return sorted(models)
 
 
 # --------------------------------------------------------------------
@@ -328,7 +366,8 @@ def validate_sku(
 
 
 __all__ = [
-    "MeasurementRecord",
+    "MeasurementSummary",
+    "MeasurementRecord",  # deprecated alias for back-compat
     "PredictionRecord",
     "ValidationResult",
     "SKUValidationSummary",
