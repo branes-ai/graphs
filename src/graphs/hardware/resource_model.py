@@ -35,6 +35,7 @@ FusionReport = PartitionReport
 
 if TYPE_CHECKING:
     from graphs.hardware.architectural_energy import ArchitecturalEnergyModel
+    from graphs.hardware.fabric_model import SoCFabricModel
 
 
 class HardwareType(Enum):
@@ -871,6 +872,13 @@ class HardwareResourceModel:
     # transitions); Layer 6 owns the TRANSPORT cost (NoC hops).
     # Provenance: ``coherence_protocol``.
     coherence_protocol: Optional[str] = None
+
+    # M6 Layer 6: on-chip fabric / NoC topology + characteristics.
+    # Captures the TRANSPORT cost of routing packets between cores,
+    # caches, and memory controllers (NoC hops, bisection bandwidth,
+    # per-flit energy). The PROTOCOL cost lives at Layer 5.
+    # Provenance: ``soc_fabric``.
+    soc_fabric: Optional["SoCFabricModel"] = None
 
     # Provenance of individual resource-model fields.
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to

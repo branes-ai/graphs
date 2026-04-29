@@ -27,6 +27,7 @@ from typing import Dict, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from graphs.hardware.technology_profile import TechnologyProfile
     from graphs.hardware.operand_fetch import OperandFetchBreakdown
+    from graphs.hardware.fabric_model import SoCFabricModel
 
 
 class ArchitectureClass(Enum):
@@ -2748,9 +2749,19 @@ class KPUTileEnergyModel:
     sure_program_load_energy: float = 50e-12  # ~50 pJ per program broadcast
     sure_program_cache_hit_energy: float = 1e-12  # ~1 pJ (cache hit, no broadcast)
 
-    # L3 distributed scratchpad routing (UNIQUE TO KPU)
+    # L3 distributed scratchpad routing (UNIQUE TO KPU).
+    # M6: routing_distance_factor moved to SoCFabricModel; this field
+    # is the fall-back default when no soc_fabric is attached. When
+    # ``soc_fabric`` is populated below, ``_estimate_l3_routing_distance``
+    # reads from there instead.
     l3_routing_distance_factor: float = 1.2  # Average routing distance multiplier
     l3_noc_energy_per_hop: float = 0.5e-12  # ~0.5 pJ per NoC hop
+
+    # M6: optional Layer 6 fabric model. When attached, the
+    # ``_estimate_l3_routing_distance`` formula reads
+    # ``routing_distance_factor`` from this model so KPU SKUs and the
+    # Layer 6 panel use a single source of truth.
+    soc_fabric: Optional['SoCFabricModel'] = None
 
     # Operator fusion benefits (UNIQUE TO KPU - HARDWARE FUSION)
     fusion_l2_traffic_reduction: float = 0.7  # 70% of intermediate data eliminated
@@ -3129,10 +3140,23 @@ class KPUTileEnergyModel:
         L3 is distributed across tiles, so data must route through NoC.
         Average distance depends on mesh dimensions.
 
-        For 2D mesh: average distance ≈ (width + height) / 3
+        For 2D mesh: average distance is (width + height) / 3, scaled
+        by ``routing_distance_factor`` to account for non-Manhattan
+        routes.
+
+        M6: when ``self.soc_fabric`` is populated, route the lookup
+        through the SoCFabricModel so the Layer 6 panel and the KPU
+        energy model share one source of truth. Falls back to the
+        local ``l3_routing_distance_factor`` constant when no fabric
+        is attached (preserves the original numeric output for
+        unmigrated callers).
         """
         width, height = self.tile_mesh_dimensions
-        return (width + height) / 3.0 * self.l3_routing_distance_factor
+        if self.soc_fabric is not None:
+            rdf = self.soc_fabric.routing_distance_factor
+        else:
+            rdf = self.l3_routing_distance_factor
+        return (width + height) / 3.0 * rdf
 
     def _estimate_token_routing_distance(self) -> float:
         """

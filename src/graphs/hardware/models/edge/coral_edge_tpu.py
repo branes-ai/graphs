@@ -20,6 +20,7 @@ from ...resource_model import (
     BOMCostProfile,
 )
 from ...architectural_energy import TPUTileEnergyModel
+from ...fabric_model import SoCFabricModel, Topology
 
 
 def coral_edge_tpu_resource_model() -> HardwareResourceModel:
@@ -234,6 +235,21 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         l3_present=False,
         l3_cache_total=0,
         coherence_protocol="none",
+
+        # M6 Layer 6: single systolic tile + unified buffer; the
+        # "fabric" is a trivial direct-connect between the systolic
+        # array and the UB, modeled as a 1-port crossbar.
+        soc_fabric=SoCFabricModel(
+            topology=Topology.CROSSBAR,
+            hop_latency_ns=1.0,
+            pj_per_flit_per_hop=3.0,
+            bisection_bandwidth_gbps=128.0,
+            controller_count=1,
+            flit_size_bytes=16,
+            routing_distance_factor=1.0,
+            provenance=("Coral Edge TPU: single systolic tile + UB; "
+                        "trivial direct-connect fabric"),
+        ),
     )
 
     # Attach tile energy model
@@ -306,6 +322,15 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         EstimationConfidence.theoretical(
             score=0.95,
             source="Systolic array: no inter-core coherence by design",
+        ),
+    )
+
+    # M6 Layer 6 provenance
+    model.set_provenance(
+        "soc_fabric",
+        EstimationConfidence.theoretical(
+            score=0.85,
+            source="Coral Edge TPU: trivial single-tile direct-connect fabric",
         ),
     )
 
