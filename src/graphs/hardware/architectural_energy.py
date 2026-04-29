@@ -479,6 +479,27 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
     # downstream models / panel rendering.
     prefetch_effectiveness: float = 0.85
 
+    # M5 Layer 5: per-op-type L3 hit rate (of L2 misses). Same
+    # pattern as the M3 / M4 lookups. Matrix workloads with weight
+    # reuse retain locality at L3 (~95%); elementwise streams that
+    # miss L1+L2 have little reuse left (~70%); default keeps the
+    # historical 95%. ``l3_hit_rate`` (above) acts as fallback.
+    l3_hit_rate_by_op: Dict[str, float] = field(
+        default_factory=lambda: {
+            "matrix":      0.95,
+            "elementwise": 0.70,
+            "default":     0.95,
+        }
+    )
+
+    # M5 Layer 5: cache-coherence PROTOCOL energy per request. Cost
+    # of the snoop / directory message itself: state-transition
+    # logic, broadcast write to coherence directory, snooper-side
+    # tag lookup. Distinct from the TRANSPORT cost (NoC hop energy)
+    # which lives at Layer 6. Defaults to the TechnologyProfile
+    # value in __post_init__; can be overridden per SKU.
+    coherence_protocol_overhead_pj_per_request: float = field(init=False)
+
     # ============================================================
     # ALU Energy - Derived from tech_profile in __post_init__
     # ============================================================
@@ -520,6 +541,12 @@ class StoredProgramEnergyModel(ArchitecturalEnergyModel):
 
         # Branch prediction scales with process node
         self.branch_prediction_overhead = tp.branch_mispredict_energy_pj * 1e-12
+
+        # M5 Layer 5: coherence-protocol overhead per request
+        # (PROTOCOL only -- transport energy stays in Layer 6).
+        self.coherence_protocol_overhead_pj_per_request = (
+            tp.coherence_energy_per_request_pj
+        )
 
         # Initialize operand fetch model
         from graphs.hardware.operand_fetch import CPUOperandFetchModel
@@ -885,6 +912,13 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
     # downstream models / panel rendering.
     prefetch_effectiveness: float = 0.85
 
+    # M5 Layer 5: coherence-protocol overhead in pJ per request.
+    # GPUs typically have 'none' as the coherence_protocol on the
+    # resource model side (SIMT shared-memory model is not snoopy),
+    # so this value is panel-facing rather than energy-path-facing.
+    # Derived from TechnologyProfile in __post_init__.
+    coherence_protocol_overhead_pj_per_request: float = field(init=False)
+
     # Instruction pipeline stages - derived from tech_profile
     instruction_decode_energy: float = field(init=False)
     instruction_execute_energy: float = field(init=False)
@@ -921,6 +955,11 @@ class DataParallelEnergyModel(ArchitecturalEnergyModel):
         # SIMT control overhead (scales with process node)
         process_scale = tp.process_node_nm / 7.0
         self.coherence_energy_per_request = tp.coherence_energy_per_request_pj * 1e-12
+
+        # M5 Layer 5: panel-facing PROTOCOL overhead in pJ/request.
+        self.coherence_protocol_overhead_pj_per_request = (
+            tp.coherence_energy_per_request_pj
+        )
         self.barrier_sync_energy = tp.barrier_sync_energy_pj * 1e-12
         self.warp_divergence_penalty = tp.warp_divergence_energy_pj * 1e-12
         self.thread_scheduling_overhead = 1.0e-12 * process_scale
