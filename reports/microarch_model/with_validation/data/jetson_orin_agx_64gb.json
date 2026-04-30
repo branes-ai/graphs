@@ -1,0 +1,377 @@
+{
+  "sku": "jetson_orin_agx_64gb",
+  "display_name": "jetson_orin_agx_64gb",
+  "generated_at": "2026-04-29T19:38:31.288755+00:00",
+  "plan_version": "microarch-model-delivery-plan.md",
+  "layers": [
+    {
+      "layer": "alu",
+      "title": "Layer 1: ALU / MAC / Tensor Core",
+      "status": "theoretical",
+      "summary": "Per-precision peak throughput from 2 compute fabric(s): cuda_core (2048 units @ 0.65 GHz, 8 nm); tensor_core (64 units @ 0.65 GHz, 8 nm). Provenance reflects whether the per-precision ops/clock came from a datasheet (THEORETICAL), an interpolated calibration (INTERPOLATED), or a measured Layer-1 FMA-rate sweep (CALIBRATED).",
+      "metrics": {
+        "FP64 peak": {
+          "value": "2.66",
+          "unit": "TOPS",
+          "provenance": "THEORETICAL"
+        },
+        "FP32 peak": {
+          "value": "2.66",
+          "unit": "TOPS",
+          "provenance": "THEORETICAL"
+        },
+        "FP16 peak": {
+          "value": "10.65",
+          "unit": "TOPS",
+          "provenance": "THEORETICAL"
+        },
+        "INT8 peak": {
+          "value": "21.30",
+          "unit": "TOPS",
+          "provenance": "THEORETICAL"
+        },
+        "cuda_core (fp64)": {
+          "value": "2048 x 2",
+          "unit": "ops/clk",
+          "provenance": "n/a"
+        },
+        "tensor_core (int8)": {
+          "value": "64 x 512",
+          "unit": "ops/clk",
+          "provenance": "n/a"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "Layer 1 panel sums peak ops/sec across every populated ComputeFabric. The Layer 1 fitter (graphs.calibration.fitters.layer1_alu_fitter) replaces datasheet rates with measured values when available."
+      ]
+    },
+    {
+      "layer": "register",
+      "title": "Layer 2: Register File",
+      "status": "theoretical",
+      "summary": "Register-file read costs 1.07 pJ per access at 8 nm (edge market), or 0.56 pJ per pJ of representative ALU work. Domain-flow architectures (KPU) avoid this fetch entirely.",
+      "metrics": {
+        "Register read": {
+          "value": "1.07",
+          "unit": "pJ/access",
+          "provenance": "THEORETICAL"
+        },
+        "Register write": {
+          "value": "1.28",
+          "unit": "pJ/access",
+          "provenance": "THEORETICAL"
+        },
+        "Read / ALU ratio": {
+          "value": "0.56",
+          "unit": "pJ/pJ",
+          "provenance": "THEORETICAL"
+        },
+        "Process / market": {
+          "value": "8 nm / edge",
+          "unit": "",
+          "provenance": "n/a"
+        }
+      },
+      "charts": [],
+      "notes": []
+    },
+    {
+      "layer": "l1_cache",
+      "title": "Layer 3: L1 Cache / Scratchpad",
+      "status": "theoretical",
+      "summary": "L1-equivalent storage for jetson_orin_agx_64gb: 128 KiB per unit (2.0 MiB total). Cache-managed at 0.914 pJ/byte read.",
+      "metrics": {
+        "L1 per unit": {
+          "value": "128",
+          "unit": "KiB",
+          "provenance": "THEORETICAL"
+        },
+        "L1 total": {
+          "value": "2.0 MiB total",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Storage kind": {
+          "value": "cache",
+          "unit": "",
+          "provenance": "THEORETICAL"
+        },
+        "L1 read energy": {
+          "value": "0.914",
+          "unit": "pJ/byte",
+          "provenance": "THEORETICAL"
+        },
+        "Process / market": {
+          "value": "8 nm",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Hit rate (matrix)": {
+          "value": "95",
+          "unit": "%",
+          "provenance": "THEORETICAL"
+        },
+        "Hit rate (elementwise)": {
+          "value": "85",
+          "unit": "%",
+          "provenance": "THEORETICAL"
+        },
+        "Hit rate (default)": {
+          "value": "85",
+          "unit": "%",
+          "provenance": "THEORETICAL"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "Per-op-type L1 hit rates from DataParallelEnergyModel.shared_mem_l1_hit_rate_by_op. Matrix workloads with weight reuse hit ~95%; elementwise streams with poor locality drop to ~85%. M3 lifts this from a single-rate constant."
+      ]
+    },
+    {
+      "layer": "l2_cache",
+      "title": "Layer 4: L2 Cache",
+      "status": "theoretical",
+      "summary": "L2 layer for jetson_orin_agx_64gb: 256 KiB per unit (4.0 MiB total) at 1.714 pJ/byte. Topology: shared-llc.",
+      "metrics": {
+        "L2 per unit": {
+          "value": "256",
+          "unit": "KiB",
+          "provenance": "THEORETICAL"
+        },
+        "L2 total": {
+          "value": "4.0 MiB total",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Topology": {
+          "value": "shared-llc",
+          "unit": "",
+          "provenance": "THEORETICAL"
+        },
+        "L2 read energy": {
+          "value": "1.714",
+          "unit": "pJ/byte",
+          "provenance": "THEORETICAL"
+        },
+        "Process / market": {
+          "value": "8 nm",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Hit rate (matrix)": {
+          "value": "95",
+          "unit": "%",
+          "provenance": "THEORETICAL"
+        },
+        "Hit rate (elementwise)": {
+          "value": "80",
+          "unit": "%",
+          "provenance": "THEORETICAL"
+        },
+        "Hit rate (default)": {
+          "value": "90",
+          "unit": "%",
+          "provenance": "THEORETICAL"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "On this SKU L2 is the last-level cache: there is no distinct L3 layer between L2 and DRAM. The Layer 5 panel (LLC, future M5) will surface zero capacity here.",
+        "Per-op-type L2 hit rates from DataParallelEnergyModel.l2_hit_rate_by_op (M4 lift). Matrix workloads with weight reuse retain L2 locality (~95% of L1 misses); elementwise streams that miss L1 have little reuse left (~80%)."
+      ]
+    },
+    {
+      "layer": "l3_cache",
+      "title": "Layer 5: L3 / Last-Level Cache",
+      "status": "theoretical",
+      "summary": "L3 / LLC layer for jetson_orin_agx_64gb: no distinct L3 by design. Coherence: none.",
+      "metrics": {
+        "L3 status": {
+          "value": "no L3 by design",
+          "unit": "",
+          "provenance": "THEORETICAL"
+        },
+        "Coherence protocol": {
+          "value": "none",
+          "unit": "",
+          "provenance": "THEORETICAL"
+        },
+        "Process / market": {
+          "value": "8 nm",
+          "unit": "",
+          "provenance": "n/a"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "L2 is the last-level cache on this SKU. There is no distinct L3 layer; demand misses go directly from L2 to DRAM.",
+        "No inter-core coherence: SIMT / dataflow / systolic architectures route data through shared memory or the mesh fabric rather than a coherence protocol. Layer 5 PROTOCOL cost is zero by design."
+      ]
+    },
+    {
+      "layer": "soc_data_movement",
+      "title": "Layer 6: SoC Data Movement",
+      "status": "theoretical",
+      "summary": "On-chip fabric for jetson_orin_agx_64gb: crossbar (16 ports). Avg path = 1.00 hops at 2.0 ns / hop and 8.0 pJ / flit / hop.",
+      "metrics": {
+        "Topology": {
+          "value": "crossbar (16 ports)",
+          "unit": "",
+          "provenance": "THEORETICAL"
+        },
+        "Avg hop count": {
+          "value": "1.00",
+          "unit": "hops",
+          "provenance": "THEORETICAL"
+        },
+        "Hop latency": {
+          "value": "2.00",
+          "unit": "ns",
+          "provenance": "THEORETICAL"
+        },
+        "Energy / flit / hop": {
+          "value": "8.00",
+          "unit": "pJ",
+          "provenance": "THEORETICAL"
+        },
+        "Bisection bandwidth": {
+          "value": "2048",
+          "unit": "Gbps",
+          "provenance": "THEORETICAL"
+        },
+        "Controller count": {
+          "value": "16",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Flit size": {
+          "value": "32",
+          "unit": "B",
+          "provenance": "n/a"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "Crossbar topology: every source has a direct dedicated path to every destination. Latency is constant (1 hop) regardless of source / destination pair. Used for GPU SM-to-L2 fabrics and small single-tile accelerators."
+      ]
+    },
+    {
+      "layer": "external_memory",
+      "title": "Layer 7: External Memory",
+      "status": "theoretical",
+      "summary": "External memory for jetson_orin_agx_64gb: LPDDR5, 204.8 GB/s peak. Reads at 15.00 pJ/B; writes at 18.00 pJ/B (1.20x asymmetry).",
+      "metrics": {
+        "Memory technology": {
+          "value": "LPDDR5",
+          "unit": "",
+          "provenance": "THEORETICAL"
+        },
+        "Peak bandwidth": {
+          "value": "204.8",
+          "unit": "GB/s",
+          "provenance": "THEORETICAL"
+        },
+        "Read energy": {
+          "value": "15.00",
+          "unit": "pJ/B",
+          "provenance": "THEORETICAL"
+        },
+        "Write energy": {
+          "value": "18.00",
+          "unit": "pJ/B",
+          "provenance": "THEORETICAL"
+        },
+        "W/R asymmetry": {
+          "value": "1.20x",
+          "unit": "ratio",
+          "provenance": "n/a"
+        },
+        "Access pattern (sequential)": {
+          "value": "1.00x",
+          "unit": "ratio",
+          "provenance": "THEORETICAL"
+        },
+        "Access pattern (strided)": {
+          "value": "1.30x",
+          "unit": "ratio",
+          "provenance": "THEORETICAL"
+        },
+        "Access pattern (random)": {
+          "value": "2.00x",
+          "unit": "ratio",
+          "provenance": "THEORETICAL"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "Layer 7 captures the cost of moving bytes between the chip and external memory. Access-pattern multipliers model row-buffer locality: sequential streams amortize row activation across many bytes; random access pays full row-activation energy per request."
+      ]
+    },
+    {
+      "layer": "composite",
+      "title": "Validation: predicted vs measured",
+      "status": "theoretical",
+      "summary": "Validated against 45 measured models for jetson_orin_agx_64gb; median MAPE 69.8%.",
+      "metrics": {
+        "Models validated": {
+          "value": "45",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Median MAPE": {
+          "value": "69.8",
+          "unit": "%",
+          "provenance": "CALIBRATED"
+        },
+        "Mean MAPE": {
+          "value": "69.6",
+          "unit": "%",
+          "provenance": "CALIBRATED"
+        },
+        "Within tolerance": {
+          "value": "0/45",
+          "unit": "",
+          "provenance": "n/a"
+        },
+        "Best (vit_l_16:fp16)": {
+          "value": "30.9",
+          "unit": "% MAPE",
+          "provenance": "CALIBRATED"
+        },
+        "Best (vit_b_16:fp16)": {
+          "value": "48.1",
+          "unit": "% MAPE",
+          "provenance": "CALIBRATED"
+        },
+        "Best (mobilenet_v2:fp32)": {
+          "value": "51.1",
+          "unit": "% MAPE",
+          "provenance": "CALIBRATED"
+        },
+        "Worst (resnet50:bf16)": {
+          "value": "94.4",
+          "unit": "% MAPE",
+          "provenance": "CALIBRATED"
+        },
+        "Worst (resnet34:bf16)": {
+          "value": "95.0",
+          "unit": "% MAPE",
+          "provenance": "CALIBRATED"
+        },
+        "Worst (resnet18:bf16)": {
+          "value": "95.0",
+          "unit": "% MAPE",
+          "provenance": "CALIBRATED"
+        }
+      },
+      "charts": [],
+      "notes": [
+        "End-to-end validation: median MAPE 69.8% across 45 models -- exceeds the +/-30% tolerance. The drift is reported per-model so a downstream Path B microbenchmark campaign can target the layers most responsible.",
+        "Predicted latency is from the M1-M7 analytical chain via UnifiedAnalyzer. Measured latency is from the per-model files under calibration_data/."
+      ]
+    }
+  ],
+  "archetype": "simt",
+  "overall_confidence": "THEORETICAL"
+}

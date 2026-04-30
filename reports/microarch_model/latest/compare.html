@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Cross-SKU comparison</title>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+table { width: 100%; border-collapse: collapse; background: #fff; }
+table th, table td { padding: 10px 12px; border-bottom: 1px solid #e3e6eb; text-align: left; }
+table th { font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }
+table.layer1-cross td, table.layer2-cross td, table.layer3-cross td, table.layer4-cross td, table.layer5-cross td, table.layer6-cross td, table.layer7-cross td { text-align: right; }
+table.layer1-cross th:first-child, table.layer2-cross th:first-child, table.layer3-cross th:first-child, table.layer4-cross th:first-child, table.layer5-cross th:first-child, table.layer6-cross th:first-child, table.layer7-cross th:first-child { text-align: left; }
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Cross-SKU comparison</h1>
+    <div class="subtitle">Micro-architectural model delivery</div>
+  </div>
+</header>
+
+<main>
+  <section class="page-header">
+    <h2>Compare across SKUs</h2>
+    <div class="meta">
+      All seven layers populated (ALU, Register File, L1 Cache /
+      Scratchpad, L2 Cache, L3 / LLC, SoC Data Movement, External
+      Memory). Engineering-deck export lands at M8.
+    </div>
+  </section>
+  
+<section class="legend">
+  <div><strong>Confidence ladder:</strong> every metric ships with one of the
+  tags below. A higher tag only lands when measurement backs it up.</div>
+  <div class="ladder">
+    <span class="calibrated">CALIBRATED</span>
+    <span class="interpolated">INTERPOLATED</span>
+    <span class="theoretical">THEORETICAL</span>
+    <span class="unknown">UNKNOWN</span>
+  </div>
+</section>
+
+  <section>
+    <table>
+      <thead><tr><th>SKU</th><th>ID</th><th>Archetype</th><th>Confidence</th></tr></thead>
+      <tbody><tr><td>jetson_orin_agx_64gb</td><td><code>jetson_orin_agx_64gb</code></td><td>simt</td><td>THEORETICAL</td></tr><tr><td>intel_core_i7_12700k</td><td><code>intel_core_i7_12700k</code></td><td>cpu</td><td>THEORETICAL</td></tr><tr><td>ryzen_9_8945hs</td><td><code>ryzen_9_8945hs</code></td><td>cpu</td><td>THEORETICAL</td></tr><tr><td>kpu_t64</td><td><code>kpu_t64</code></td><td>domainflow</td><td>THEORETICAL</td></tr><tr><td>kpu_t128</td><td><code>kpu_t128</code></td><td>domainflow</td><td>THEORETICAL</td></tr><tr><td>kpu_t256</td><td><code>kpu_t256</code></td><td>domainflow</td><td>THEORETICAL</td></tr><tr><td>coral_edge_tpu</td><td><code>coral_edge_tpu</code></td><td>systolic</td><td>THEORETICAL</td></tr><tr><td>hailo8</td><td><code>hailo8</code></td><td>dsp</td><td>THEORETICAL</td></tr><tr><td>hailo10h</td><td><code>hailo10h</code></td><td>dsp</td><td>THEORETICAL</td></tr></tbody>
+    </table>
+  </section>
+  
+<section>
+  <h3>Layer 1: peak ALU throughput across SKUs (TOPS)</h3>
+  <p class="meta">Sum across populated ComputeFabrics per SKU. Provenance
+  badge tracks how each per-precision rate was sourced.</p>
+  <table class="layer1-cross">
+    <thead><tr><th>Precision</th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>FP64</th><td>2.66<br/><span class="badge theoretical">THEORETICAL</span></td><td>0.36<br/><span class="badge theoretical">THEORETICAL</span></td><td>0.56<br/><span class="badge theoretical">THEORETICAL</span></td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr><tr><th>FP32</th><td>2.66<br/><span class="badge theoretical">THEORETICAL</span></td><td>0.72<br/><span class="badge theoretical">THEORETICAL</span></td><td>1.13<br/><span class="badge theoretical">THEORETICAL</span></td><td>1.50<br/><span class="badge theoretical">THEORETICAL</span></td><td>13.31<br/><span class="badge theoretical">THEORETICAL</span></td><td>14.28<br/><span class="badge theoretical">THEORETICAL</span></td><td>--</td><td>--</td><td>--</td></tr><tr><th>BF16</th><td>--</td><td>0.18<br/><span class="badge theoretical">THEORETICAL</span></td><td>2.25<br/><span class="badge theoretical">THEORETICAL</span></td><td>22.58<br/><span class="badge theoretical">THEORETICAL</span></td><td>131.07<br/><span class="badge theoretical">THEORETICAL</span></td><td>143.36<br/><span class="badge theoretical">THEORETICAL</span></td><td>--</td><td>--</td><td>--</td></tr><tr><th>FP16</th><td>10.65<br/><span class="badge theoretical">THEORETICAL</span></td><td>0.18<br/><span class="badge theoretical">THEORETICAL</span></td><td>0.14<br/><span class="badge theoretical">THEORETICAL</span></td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr><tr><th>INT8</th><td>21.30<br/><span class="badge theoretical">THEORETICAL</span></td><td>2.87<br/><span class="badge theoretical">THEORETICAL</span></td><td>2.25<br/><span class="badge theoretical">THEORETICAL</span></td><td>39.17<br/><span class="badge theoretical">THEORETICAL</span></td><td>262.14<br/><span class="badge theoretical">THEORETICAL</span></td><td>286.72<br/><span class="badge theoretical">THEORETICAL</span></td><td>4.10<br/><span class="badge theoretical">THEORETICAL</span></td><td>25.60<br/><span class="badge theoretical">THEORETICAL</span></td><td>20.00<br/><span class="badge theoretical">THEORETICAL</span></td></tr><tr><th>INT4</th><td>--</td><td>5.73<br/><span class="badge theoretical">THEORETICAL</span></td><td>4.51<br/><span class="badge theoretical">THEORETICAL</span></td><td>40.55<br/><span class="badge theoretical">THEORETICAL</span></td><td>364.54<br/><span class="badge theoretical">THEORETICAL</span></td><td>400.96<br/><span class="badge theoretical">THEORETICAL</span></td><td>--</td><td>51.20<br/><span class="badge theoretical">THEORETICAL</span></td><td>40.00<br/><span class="badge theoretical">THEORETICAL</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+<section>
+  <h3>Layer 2: register-file energy across SKUs</h3>
+  <p class="meta">Read / write energies sourced from
+  TechnologyProfile keyed by each SKU's process node and deployment
+  market. Read / ALU ratio quantifies operand-fetch overhead -- the
+  KPU's domain-flow fabric is intentionally absent from this fetch.</p>
+  <table class="layer2-cross">
+    <thead><tr><th></th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>Register read (pJ)</th><td>1.069</td><td>1.706</td><td>0.569</td><td>1.519</td><td>1.519</td><td>1.519</td><td>1.463</td><td>1.519</td><td>1.519</td></tr><tr><th>Register write (pJ)</th><td>1.282</td><td>2.048</td><td>0.682</td><td>1.823</td><td>1.823</td><td>1.823</td><td>1.755</td><td>1.823</td><td>1.823</td></tr><tr><th>Read / ALU ratio</th><td>0.56</td><td>0.90</td><td>0.49</td><td>0.56</td><td>0.56</td><td>0.56</td><td>0.56</td><td>0.56</td><td>0.56</td></tr><tr><th>Provenance</th><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+<section>
+  <h3>Layer 3: L1 cache / scratchpad capacity across SKUs</h3>
+  <p class="meta">Cache-managed SKUs (CPU, GPU L1) carry a per-op-type
+  hit rate; scratchpad-managed SKUs (KPU tile-local SRAM, TPU unified
+  buffer, Hailo on-chip SRAM) are deterministic 1.0 by design and
+  rely on the host compiler for staging.</p>
+  <table class="layer3-cross">
+    <thead><tr><th></th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>L1 per unit</th><td>128 KiB</td><td>48 KiB</td><td>32 KiB</td><td>256 KiB</td><td>256 KiB</td><td>256 KiB</td><td>512 KiB</td><td>512 KiB</td><td>512 KiB</td></tr><tr><th>L1 total</th><td>2.0 MiB</td><td>480 KiB</td><td>256 KiB</td><td>16.0 MiB</td><td>32.0 MiB</td><td>64.0 MiB</td><td>512 KiB</td><td>16.0 MiB</td><td>20.0 MiB</td></tr><tr><th>Storage kind</th><td>cache</td><td>cache</td><td>cache</td><td>scratchpad</td><td>scratchpad</td><td>scratchpad</td><td>scratchpad</td><td>scratchpad</td><td>scratchpad</td></tr><tr><th>Energy (pJ/byte)</th><td>0.914</td><td>1.143</td><td>0.503</td><td>1.829</td><td>1.829</td><td>1.829</td><td>1.600</td><td>1.829</td><td>1.829</td></tr><tr><th>Provenance</th><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+<section>
+  <h3>Layer 4: L2 cache capacity / topology across SKUs</h3>
+  <p class="meta">Physical L2 from
+  <code>l2_cache_per_unit</code> (M4 field). Topology distinguishes
+  private per-core L2 (CPUs, KPU tile-local) from shared L2 and
+  shared-LLC (Ampere SoCs, TPU UB collapse, Hailo on-chip SRAM).
+  &quot;collapsed&quot; means the SKU has no distinct L2 layer
+  -- the unified buffer covers L1 + L2 staging by design.</p>
+  <table class="layer4-cross">
+    <thead><tr><th></th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>L2 per unit</th><td>256 KiB</td><td>1.2 MiB</td><td>1.0 MiB</td><td>32 KiB</td><td>32 KiB</td><td>32 KiB</td><td>collapsed</td><td>256 KiB</td><td>307 KiB</td></tr><tr><th>L2 total</th><td>4.0 MiB</td><td>12.0 MiB</td><td>8.0 MiB</td><td>2.0 MiB</td><td>4.0 MiB</td><td>8.0 MiB</td><td>collapsed</td><td>8.0 MiB</td><td>12.0 MiB</td></tr><tr><th>Topology</th><td>shared-llc</td><td>per-unit</td><td>per-unit</td><td>per-unit</td><td>per-unit</td><td>per-unit</td><td>shared-llc</td><td>shared-llc</td><td>shared-llc</td></tr><tr><th>Energy (pJ/byte)</th><td>1.714</td><td>2.143</td><td>0.943</td><td>3.429</td><td>3.429</td><td>3.429</td><td>3.000</td><td>3.429</td><td>3.429</td></tr><tr><th>Provenance</th><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+<section>
+  <h3>Layer 5: L3 / LLC presence + coherence across SKUs</h3>
+  <p class="meta">CPUs carry a distinct L3 (LLC); GPU SoCs collapse
+  L2 into the LLC; KPU / TPU / Hailo dataflow architectures have no
+  L3-equivalent and route data through the mesh fabric.
+  Layer 5 owns the coherence-PROTOCOL energy cost (snoop messages,
+  state transitions); the TRANSPORT cost (NoC hops) is M6 (Layer 6).</p>
+  <table class="layer5-cross">
+    <thead><tr><th></th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>L3 present</th><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>no</td><td>no</td><td>no</td></tr><tr><th>L3 total</th><td>no L3</td><td>25.0 MiB</td><td>16.0 MiB</td><td>16.0 MiB</td><td>32.0 MiB</td><td>64.0 MiB</td><td>no L3</td><td>no L3</td><td>no L3</td></tr><tr><th>Coherence</th><td>none</td><td>snoopy_mesi</td><td>snoopy_mesi</td><td>none</td><td>none</td><td>none</td><td>none</td><td>none</td><td>none</td></tr><tr><th>Coherence pJ/req</th><td>--</td><td>10.71</td><td>0.86</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr><tr><th>L3 energy (pJ/byte)</th><td>--</td><td>4.286</td><td>1.886</td><td>6.857</td><td>6.857</td><td>6.857</td><td>--</td><td>--</td><td>--</td></tr><tr><th>Provenance</th><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+<section>
+  <h3>Layer 6: on-chip fabric / NoC across SKUs</h3>
+  <p class="meta">Topology and per-hop coefficients for the on-chip
+  interconnect that moves packets between cores, caches, and memory
+  controllers. Layer 6 owns the TRANSPORT cost; the coherence
+  PROTOCOL cost stays at Layer 5. SKUs whose vendors do not publish
+  NoC details ship with a LOW-CONFIDENCE badge per the M6 issue
+  constraint.</p>
+  <table class="layer6-cross">
+    <thead><tr><th></th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>Topology</th><td>crossbar (16 ports)</td><td>ring (12 ports)</td><td>ring (8 ports)</td><td>mesh_2d (8x8)</td><td>mesh_2d (16x8)</td><td>mesh_2d (16x16)</td><td>crossbar</td><td>mesh_2d (8x4)</td><td>mesh_2d (8x5)</td></tr><tr><th>Avg hops</th><td>1.00</td><td>3.00</td><td>2.00</td><td>6.40</td><td>9.60</td><td>12.80</td><td>0.00</td><td>4.40</td><td>4.77</td></tr><tr><th>Hop latency (ns)</th><td>2.00</td><td>1.50</td><td>1.20</td><td>1.00</td><td>1.00</td><td>1.00</td><td>1.00</td><td>1.50</td><td>1.50</td></tr><tr><th>pJ / flit / hop</th><td>8.00</td><td>5.00</td><td>2.50</td><td>0.50</td><td>0.50</td><td>0.50</td><td>3.00</td><td>1.50</td><td>1.50</td></tr><tr><th>Bisection BW (Gbps)</th><td>2048</td><td>512</td><td>480</td><td>64</td><td>128</td><td>256</td><td>128</td><td>64</td><td>80</td></tr><tr><th>Confidence</th><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">LOW-CONFIDENCE</span></td><td><span class="badge theoretical">LOW-CONFIDENCE</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+<section>
+  <h3>Layer 7: external memory across SKUs</h3>
+  <p class="meta">External-memory characteristics. Bandwidth and
+  pJ/byte trade off across technology generations: DDR5 desktop
+  pays the highest energy per byte; LPDDR5 mobile / on-package
+  is the sweet spot for edge inference; HBM3 (not in this catalog
+  yet) drops below 10 pJ/B at the cost of die area. Hailo SKUs
+  load weights from host DRAM at initialization and serve
+  steady-state inference from on-chip SRAM, so their host-side
+  numbers describe the cold-start path.</p>
+  <table class="layer7-cross">
+    <thead><tr><th></th><th>jetson_orin_agx_64gb</th><th>intel_core_i7_12700k</th><th>ryzen_9_8945hs</th><th>kpu_t64</th><th>kpu_t128</th><th>kpu_t256</th><th>coral_edge_tpu</th><th>hailo8</th><th>hailo10h</th></tr></thead>
+    <tbody><tr><th>Memory technology</th><td>LPDDR5</td><td>DDR5</td><td>LPDDR5x</td><td>LPDDR5</td><td>LPDDR5</td><td>LPDDR5</td><td>LPDDR4</td><td>LPDDR4 (host) + on-chip SRAM (steady-state)</td><td>LPDDR5 (host) + on-chip SRAM (KV cache)</td></tr><tr><th>Peak BW (GB/s)</th><td>204.8</td><td>76.8</td><td>89.6</td><td>64.0</td><td>96.0</td><td>256.0</td><td>4.0</td><td>200.0</td><td>40.0</td></tr><tr><th>Read energy (pJ/B)</th><td>15.00</td><td>25.00</td><td>18.00</td><td>12.00</td><td>12.00</td><td>11.00</td><td>20.00</td><td>22.00</td><td>15.00</td></tr><tr><th>Write energy (pJ/B)</th><td>18.00</td><td>30.00</td><td>22.00</td><td>14.40</td><td>14.40</td><td>13.20</td><td>24.00</td><td>27.00</td><td>18.00</td></tr><tr><th>W/R asymmetry</th><td>1.20x</td><td>1.20x</td><td>1.22x</td><td>1.20x</td><td>1.20x</td><td>1.20x</td><td>1.20x</td><td>1.23x</td><td>1.20x</td></tr><tr><th>Provenance</th><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td><td><span class="badge theoretical">THEORETICAL</span></td></tr></tbody>
+  </table>
+</section>
+
+  
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+</body>
+</html>
