@@ -44,7 +44,6 @@ from graphs.reporting.baseline_alu_energy import (  # noqa: E402
     baseline_alu_energy,
 )
 from graphs.reporting.gpu_register_file import (  # noqa: E402
-    GPURegisterFileBankModel,
     default_ampere_subpartition_rf,
 )
 from graphs.reporting.gpu_simt_energy import (  # noqa: E402

@@ -39,8 +39,7 @@ repo.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from typing import Dict, List
 
 from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
