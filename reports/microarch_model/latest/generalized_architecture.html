@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Generalized architecture comparison</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+table.generalized { width: 100%; border-collapse: collapse; background: #fff;
+                    margin-bottom: 18px; }
+table.generalized th, table.generalized td { padding: 8px 10px;
+                                              border-bottom: 1px solid #e3e6eb;
+                                              vertical-align: top; font-size: 13px; }
+table.generalized th { font-size: 12px; text-transform: uppercase;
+                       color: #586374; background: #f3f5f8; text-align: left; }
+table.generalized td.num { text-align: right; font-variant-numeric: tabular-nums; }
+section.method-note { background: #eef2f7; padding: 14px 18px;
+                      border-left: 3px solid #0a2540; border-radius: 4px;
+                      margin-bottom: 18px; }
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+  margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px; margin: 0 0 12px; }
+.plot { width: 100%; min-height: 420px; }
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+             font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Generalized architecture comparison</h1>
+    <div class="subtitle">Apples-to-apples at 16 nm | Power budget 12 W | Generated 2026-04-29T19:11:57.123157+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>Apples-to-apples architectural comparison</h2>
+    <div class="meta">CPU vs. GPU vs. TPU vs. KPU vs. DSP vs. DFM vs. CGRA
+      at the same process - pure architectural pros/cons.</div>
+  </section>
+  <section class="method-note"><strong>Methodology.</strong> Each generic archetype is specified by full-adder-equivalent multipliers for its logic components (bare MAC, fetch/decode, scheduling/coherence, interconnect) and byte-access-equivalents for its memory components (register file, L1/scratchpad). The same multipliers apply at every process node; only the base energies (FA per process, register-access per process) vary. This strips out process-technology advantages so pure architectural cost can be compared. Logic energies scale via Horowitz ISSCC 2014 FA table; memory energies scale similarly. Values are analytical estimates calibrated against Jouppi ISCA 2017 (TPU), Ampere whitepapers (Tensor Core), and published CPU/GPU benchmarks. They ship as THEORETICAL confidence and graduate to CALIBRATED as silicon measurements come in.</section>
+  <section class="method-note" style="border-left-color:#3fc98a;"><strong>Companion view:</strong> this page compares <em>generic architectures at matched process</em>. For comparison of specific <em>shipping products</em> with their native process nodes (Coral 14nm vs. KPU 16nm vs. Jetson 8nm), see <a href="native_op_energy.html">native_op_energy.html</a>.</section>
+  <section class="chart-section">
+    <h3>Chart 1: Per-MAC energy at 16 nm, component breakdown</h3>
+    <p class="chart-desc">Each stacked bar shows the generic architecture's
+      per-MAC energy decomposed by contributing component. Process-
+      technology advantage is held constant so bar length measures
+      pure architectural cost.</p>
+    <div id="chart_same_process" class="plot"></div>
+  </section>
+  <section class="chart-section">
+    <h3>Chart 2: Process-scaling - pJ/MAC vs. node per architecture</h3>
+    <p class="chart-desc">How each architecture scales from 28 nm down
+      to 2 nm. Log-log axes: ratios between architectures stay
+      roughly constant; absolute energies drop as process shrinks.</p>
+    <div id="chart_process_scaling" class="plot"></div>
+  </section>
+  <section class="chart-section">
+    <h3>Chart 3: Sustained INT8 TOPS at 16 nm, 12 W TDP (bar view)</h3>
+    <p class="chart-desc">The headline story in one picture: sustained
+      throughput = peak * realistic utilization, ranked at a single
+      process node and power budget. Gray segments show the peak-TOPS
+      headroom that each architecture can never reach due to its
+      structural utilization ceiling. KPU wins sustained throughput
+      even though TPU has the lower theoretical MAC floor.</p>
+    <div id="chart_sustained_bar" class="plot"></div>
+  </section>
+  <table class="generalized"><thead><tr><th>Architecture</th><th>Category</th><th>Total pJ/MAC @ 16nm</th><th>Realistic util</th><th>Peak TOPS @ 12W</th><th>Sustained TOPS @ 12W</th></tr></thead><tbody><tr><td style="border-left:4px solid #7f3b8d;padding-left:10px;"><strong>CPU (OOO superscalar, SIMD)</strong></td><td>CPU</td><td class="num">0.723</td><td class="num">0.15</td><td class="num">33.2</td><td class="num"><strong>5.0</strong></td></tr><tr><td style="border-left:4px solid #5b8ff9;padding-left:10px;"><strong>GPU (SIMT, CUDA core)</strong></td><td>GPU</td><td class="num">0.383</td><td class="num">0.35</td><td class="num">62.7</td><td class="num"><strong>22.0</strong></td></tr><tr><td style="border-left:4px solid #8bbafc;padding-left:10px;"><strong>GPU Tensor Core</strong></td><td>GPU</td><td class="num">0.280</td><td class="num">0.50</td><td class="num">85.7</td><td class="num"><strong>42.9</strong></td></tr><tr><td style="border-left:4px solid #e98c3f;padding-left:10px;"><strong>TPU (Weight-Stationary Systolic)</strong></td><td>TPU</td><td class="num">0.134</td><td class="num">0.40</td><td class="num">179.4</td><td class="num"><strong>71.8</strong></td></tr><tr><td style="border-left:4px solid #3fc98a;padding-left:10px;"><strong>KPU (Domain Flow)</strong></td><td>KPU</td><td class="num">0.163</td><td class="num">0.90</td><td class="num">147.2</td><td class="num"><strong>132.5</strong></td></tr><tr><td style="border-left:4px solid #d4860b;padding-left:10px;"><strong>DSP (VLIW + SIMD)</strong></td><td>DSP</td><td class="num">0.213</td><td class="num">0.60</td><td class="num">112.9</td><td class="num"><strong>67.8</strong></td></tr><tr><td style="border-left:4px solid #586374;padding-left:10px;"><strong>DFM (Data-Flow Machine, token-based)</strong></td><td>DFM</td><td class="num">0.518</td><td class="num">0.50</td><td class="num">46.4</td><td class="num"><strong>23.2</strong></td></tr><tr><td style="border-left:4px solid #a04bdd;padding-left:10px;"><strong>CGRA (Coarse-Grained Reconfigurable Array)</strong></td><td>CGRA</td><td class="num">0.218</td><td class="num">0.25</td><td class="num">110.3</td><td class="num"><strong>27.6</strong></td></tr></tbody></table>
+  <section class="chart-section">
+    <h3>Chart 4: Sustained INT8 TOPS at 12 W TDP vs. process node (trend)</h3>
+    <p class="chart-desc">Same sustained-TOPS story as chart 3, but
+      as a function of process node. Ratios are preserved across
+      processes; absolute throughput grows as process shrinks.</p>
+    <div id="chart_tdp_capability" class="plot"></div>
+  </section>
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const CHARTS = {"chart_same_process": {"data": [{"type": "bar", "orientation": "h", "name": "ALU", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08], "marker": {"color": "#3fc98a"}, "text": ["0.080", "0.080", "0.080", "0.080", "0.080", "0.080", "0.080", "0.080"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Instruction fetch", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.3, 0.02, 0.005, 0.0, 0.0, 0.04, 0.0, 0.0], "marker": {"color": "#7f3b8d"}, "text": ["0.300", "0.020", "", "", "", "0.040", "", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Decode", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.15, 0.01, 0.0025, 0.0, 0.0, 0.015, 0.0, 0.0], "marker": {"color": "#a04bdd"}, "text": ["0.150", "0.010", "", "", "", "0.015", "", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Scheduling / coherence", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.08, 0.1, 0.03, 0.0, 0.0, 0.0, 0.25, 0.05], "marker": {"color": "#5b8ff9"}, "text": ["0.080", "0.100", "0.030", "", "", "", "0.250", "0.050"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Interconnect / routing", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.0, 0.0, 0.0, 0.0, 0.002, 0.0, 0.1, 0.03], "marker": {"color": "#8bbafc"}, "text": ["", "", "", "", "", "", "0.100", "0.030"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Register file", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.07500000000000001, 0.15000000000000002, 0.125, 0.05, 0.07500000000000001, 0.0625, 0.05, 0.05], "marker": {"color": "#d4860b"}, "text": ["0.075", "0.150", "0.125", "0.050", "0.075", "0.062", "0.050", "0.050"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "L1 / scratchpad", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "GPU Tensor Core", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)", "DSP (VLIW + SIMD)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)"], "x": [0.037500000000000006, 0.022500000000000003, 0.037500000000000006, 0.0037500000000000007, 0.006000000000000001, 0.015000000000000003, 0.037500000000000006, 0.0075000000000000015], "marker": {"color": "#e98c3f"}, "text": ["0.038", "0.023", "0.038", "", "0.006", "0.015", "0.038", "0.008"], "textposition": "inside"}], "layout": {"title": "Per-MAC energy at 16 nm: generic architectures (component breakdown)", "xaxis": {"title": "pJ / MAC"}, "yaxis": {"title": "", "automargin": true}, "barmode": "stack", "margin": {"t": 50, "b": 50, "l": 240, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}, "chart_process_scaling": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "CPU (OOO superscalar, SIMD)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [1.795, 1.3005, 0.7225, 0.648, 0.508, 0.43799999999999994, 0.368, 0.29800000000000004, 0.22349999999999998, 0.22349999999999998, 0.14900000000000002, 0.14900000000000002], "line": {"color": "#7f3b8d", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "GPU (SIMT, CUDA core)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [0.9390000000000001, 0.6885, 0.38250000000000006, 0.3408, 0.2712, 0.2364, 0.2016, 0.1668, 0.1251, 0.1251, 0.0834, 0.0834], "line": {"color": "#5b8ff9", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "GPU Tensor Core", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [0.68375, 0.504, 0.28, 0.24875, 0.19925, 0.17450000000000002, 0.14975, 0.125, 0.09375, 0.09375, 0.0625, 0.0625], "line": {"color": "#8bbafc", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "TPU (Weight-Stationary Systolic)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [0.329, 0.24075, 0.13375, 0.11929999999999999, 0.09469999999999999, 0.0824, 0.07010000000000001, 0.057800000000000004, 0.04334999999999999, 0.04334999999999999, 0.028900000000000002, 0.028900000000000002], "line": {"color": "#e98c3f", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "KPU (Domain Flow)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [0.39940000000000003, 0.29339999999999994, 0.16300000000000003, 0.14508, 0.11572, 0.10104, 0.08636, 0.07168, 0.053759999999999995, 0.053759999999999995, 0.03584, 0.03584], "line": {"color": "#3fc98a", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "DSP (VLIW + SIMD)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [0.5235000000000001, 0.38249999999999995, 0.21250000000000002, 0.18969999999999998, 0.15030000000000002, 0.13060000000000002, 0.11090000000000001, 0.09119999999999999, 0.0684, 0.0684, 0.045599999999999995, 0.045599999999999995], "line": {"color": "#d4860b", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "DFM (Data-Flow Machine, token-based)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [1.285, 0.9315, 0.5175000000000001, 0.46399999999999997, 0.364, 0.31400000000000006, 0.264, 0.21400000000000002, 0.16049999999999998, 0.16049999999999998, 0.10700000000000001, 0.10700000000000001], "line": {"color": "#586374", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "CGRA (Coarse-Grained Reconfigurable Array)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [0.538, 0.3915, 0.21750000000000003, 0.1946, 0.15339999999999998, 0.1328, 0.1122, 0.0916, 0.0687, 0.0687, 0.0458, 0.0458], "line": {"color": "#a04bdd", "width": 2}, "marker": {"size": 8}}], "layout": {"title": "Per-MAC energy vs. process node, by architecture", "xaxis": {"title": "Process node (nm)", "autorange": "reversed", "type": "log", "tickmode": "array", "tickvals": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "ticktext": ["28", "22", "16", "14", "12", "10", "8", "7", "5", "4", "3", "2"]}, "yaxis": {"title": "pJ / MAC", "type": "log"}, "margin": {"t": 50, "b": 50, "l": 60, "r": 20}, "legend": {"orientation": "h", "y": -0.3}}}, "chart_sustained_bar": {"data": [{"type": "bar", "orientation": "h", "name": "Sustained", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)", "GPU Tensor Core", "DSP (VLIW + SIMD)", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)"], "x": [4.982698961937715, 21.960784313725487, 23.188405797101446, 27.586206896551722, 42.857142857142854, 67.76470588235293, 71.77570093457943, 132.51533742331287], "marker": {"color": ["#7f3b8d", "#5b8ff9", "#586374", "#a04bdd", "#8bbafc", "#d4860b", "#e98c3f", "#3fc98a"]}, "text": ["5", "22", "23", "28", "43", "68", "72", "133"], "textposition": "inside", "insidetextanchor": "end"}, {"type": "bar", "orientation": "h", "name": "Headroom (util-capped)", "y": ["CPU (OOO superscalar, SIMD)", "GPU (SIMT, CUDA core)", "DFM (Data-Flow Machine, token-based)", "CGRA (Coarse-Grained Reconfigurable Array)", "GPU Tensor Core", "DSP (VLIW + SIMD)", "TPU (Weight-Stationary Systolic)", "KPU (Domain Flow)"], "x": [28.235294117647058, 40.78431372549019, 23.188405797101446, 82.75862068965517, 42.857142857142854, 45.17647058823529, 107.66355140186916, 14.723926380368084], "marker": {"color": "#e3e6eb"}, "text": ["peak 33", "peak 63", "peak 46", "peak 110", "peak 86", "peak 113", "peak 179", "peak 147"], "textposition": "outside"}], "layout": {"title": "Sustained INT8 TOPS at 16 nm, 12 W TDP (colored = sustained, gray = util-capped headroom)", "xaxis": {"title": "INT8 TOPS"}, "yaxis": {"title": "", "automargin": true}, "barmode": "stack", "margin": {"t": 50, "b": 50, "l": 240, "r": 100}, "legend": {"orientation": "h", "y": -0.15}}}, "chart_tdp_capability": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "CPU (OOO superscalar, SIMD) (util 0.15)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [2.0055710306406684, 2.768166089965398, 4.982698961937715, 5.555555555555555, 7.086614173228346, 8.219178082191782, 9.782608695652174, 12.080536912751677, 16.107382550335572, 16.107382550335572, 24.161073825503355, 24.161073825503355], "line": {"color": "#7f3b8d", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "GPU (SIMT, CUDA core) (util 0.35)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [8.945686900958465, 12.200435729847493, 21.960784313725487, 24.64788732394366, 30.973451327433626, 35.53299492385786, 41.666666666666664, 50.35971223021582, 67.14628297362111, 67.14628297362111, 100.71942446043164, 100.71942446043164], "line": {"color": "#5b8ff9", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "GPU Tensor Core (util 0.50)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [17.550274223034737, 23.80952380952381, 42.857142857142854, 48.24120603015076, 60.22584692597239, 68.76790830945558, 80.13355592654425, 96.0, 128.0, 128.0, 192.0, 192.0], "line": {"color": "#8bbafc", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "TPU (Weight-Stationary Systolic) (util 0.40)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [29.17933130699088, 39.87538940809969, 71.77570093457943, 80.46940486169322, 101.37275607180572, 116.50485436893206, 136.9472182596291, 166.08996539792386, 221.4532871972319, 221.4532871972319, 332.1799307958477, 332.1799307958477], "line": {"color": "#e98c3f", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "KPU (Domain Flow) (util 0.90)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [54.08112168252378, 73.6196319018405, 132.51533742331287, 148.88337468982633, 186.65744901486346, 213.7767220902613, 250.11579434923573, 301.3392857142858, 401.78571428571433, 401.78571428571433, 602.6785714285716, 602.6785714285716], "line": {"color": "#3fc98a", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "DSP (VLIW + SIMD) (util 0.60)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [27.50716332378223, 37.64705882352942, 67.76470588235293, 75.90933052187665, 95.80838323353292, 110.26033690658497, 129.84670874661856, 157.8947368421053, 210.52631578947367, 210.52631578947367, 315.7894736842106, 315.7894736842106], "line": {"color": "#d4860b", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "DFM (Data-Flow Machine, token-based) (util 0.50)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [9.33852140077821, 12.882447665056361, 23.188405797101446, 25.862068965517242, 32.96703296703297, 38.216560509554135, 45.45454545454545, 56.074766355140184, 74.76635514018693, 74.76635514018693, 112.14953271028037, 112.14953271028037], "line": {"color": "#586374", "width": 2}, "marker": {"size": 8}}, {"type": "scatter", "mode": "lines+markers", "name": "CGRA (Coarse-Grained Reconfigurable Array) (util 0.25)", "x": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "y": [11.152416356877323, 15.32567049808429, 27.586206896551722, 30.832476875642342, 39.11342894393742, 45.18072289156626, 53.475935828877006, 65.50218340611353, 87.33624454148472, 87.33624454148472, 131.00436681222706, 131.00436681222706], "line": {"color": "#a04bdd", "width": 2}, "marker": {"size": 8}}], "layout": {"title": "Sustained INT8 TOPS at 12 W TDP vs. process node (realistic utilization)", "xaxis": {"title": "Process node (nm)", "autorange": "reversed", "type": "log", "tickmode": "array", "tickvals": [28, 22, 16, 14, 12, 10, 8, 7, 5, 4, 3, 2], "ticktext": ["28", "22", "16", "14", "12", "10", "8", "7", "5", "4", "3", "2"]}, "yaxis": {"title": "Sustained INT8 TOPS", "type": "log"}, "margin": {"t": 50, "b": 50, "l": 60, "r": 20}, "legend": {"orientation": "h", "y": -0.3}}}};
+for (const [id, spec] of Object.entries(CHARTS)) {
+  Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>

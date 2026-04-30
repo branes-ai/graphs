@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Native-op energy breakdown</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+table.breakdown { width: 100%; border-collapse: collapse; background: #fff;
+                  margin-bottom: 18px; }
+table.breakdown th { font-size: 12px; text-transform: uppercase;
+                     color: #586374; background: #f3f5f8;
+                     padding: 8px 10px; text-align: left; }
+table.breakdown td { padding: 6px 10px; border-bottom: 1px solid #e3e6eb;
+                     vertical-align: top; font-size: 13px; }
+table.breakdown td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.breakdown td.src { color: #586374; font-size: 12px; }
+table.breakdown td.layer-name { padding-left: 24px; color: #3a4452; }
+table.breakdown td.group-header { padding: 10px 12px; background: #f8f9fb;
+                                  border-left-width: 4px; border-left-style: solid; }
+table.breakdown tr.total-row td { background: #eef6ea;
+                                   border-bottom: 2px solid #c3e1b0;
+                                   padding-top: 10px; padding-bottom: 10px; }
+section.method-note { background: #eef2f7; padding: 14px 18px;
+                      border-left: 3px solid #0a2540; border-radius: 4px;
+                      margin-bottom: 18px; }
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+  margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px; margin: 0 0 12px; }
+.plot { width: 100%; min-height: 360px; }
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+             font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Native-op energy breakdown</h1>
+    <div class="subtitle">Theoretical floor per MAC | precision int8 | generated 2026-04-29T19:11:57.122969+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>Native-op energy floor: ALU -&gt; +Register -&gt; +L1</h2>
+    <div class="meta">Per-MAC energy breakdown for each architecture's
+      native operation, no workload assumed.</div>
+  </section>
+  
+<section class="method-note">
+  <strong>Methodology.</strong> Each row shows the incremental and cumulative
+  energy-per-MAC cost as the native operation descends the memory hierarchy,
+  in steady state. The "ALU" layer is the bare-cell MAC energy at the SKU's
+  manufacturing process. The "+Register" layer adds operand register-file
+  access (3 byte-accesses per MAC: two operand reads + accumulator update)
+  scaled by process node using Horowitz's ISSCC 2014 baseline. The "+L1"
+  layer adds local scratchpad / shared-memory access for operand delivery,
+  amortized by the architecture's natural reuse factor (PE array column
+  dimension for output-stationary / systolic fabrics; matrix-fragment reuse
+  for warp-level tensor cores). No workload is assumed - this is the
+  theoretical energy floor of the native op itself.
+</section>
+
+  <section class="chart-section">
+    <h3>Stacked layer breakdown (incremental)</h3>
+    <p class="chart-desc">Each segment is the incremental cost of adding
+    one layer of the memory hierarchy. Total bar length is the total
+    native-op energy per MAC.</p>
+    <div id="chart_progression" class="plot"></div>
+  </section>
+  <section class="chart-section">
+    <h3>Cumulative progression</h3>
+    <p class="chart-desc">Same data viewed as the cumulative per-MAC cost
+    as you descend from ALU through register file to L1.</p>
+    <div id="chart_cumulative" class="plot"></div>
+  </section>
+  <table class="breakdown"><thead><tr><th>Layer</th><th>Incremental (pJ/MAC)</th><th>Cumulative (pJ/MAC)</th><th>Source</th></tr></thead><tbody><tr><td colspan="4" class="group-header" style="border-left: 4px solid #5b8ff9;"><strong>Jetson Orin AGX (TC)</strong> -- SIMT + Tensor Core<br/><span class="meta">Native op: HMMA m16n16k16.int8 (4096 MACs, 4 cycles @ 0.65 GHz = 6.15 ns) | 8 nm | 1-bit FA ref 0.005 pJ</span></td></tr><tr><td class="layer-name">ALU (bare MAC)</td><td class="num">0.2500</td><td class="num"><strong>0.2500</strong></td><td class="src">Ampere HMMA bare MAC @ 8nm, derived from published ~1.6 pJ/op</td></tr><tr><td class="layer-name">+ Register</td><td class="num">0.0840</td><td class="num"><strong>0.3340</strong></td><td class="src">3 byte-accesses x 2x Horowitz baseline at 8nm (0.028 pJ/byte, warp regfile)</td></tr><tr><td class="layer-name">+ L1 (shared mem)</td><td class="num">0.0625</td><td class="num"><strong>0.3965</strong></td><td class="src">2 bytes x 0.50 pJ/byte / 16x frag reuse</td></tr><tr><td class="layer-name">+ Warp sched / coherence</td><td class="num">0.0500</td><td class="num"><strong>0.4465</strong></td><td class="src">Dynamic warp scheduling + memory coherence, amortized</td></tr><tr class="total-row"><td><strong>Total native-op energy floor</strong></td><td></td><td class="num"><strong>0.4465 pJ/MAC</strong></td><td></td></tr><tr><td colspan="4" class="group-header" style="border-left: 4px solid #e98c3f;"><strong>Coral Edge TPU</strong> -- Systolic (TPU)<br/><span class="meta">Native op: Systolic PE MAC (weight-stationary) (1 MACs, 1 cycles @ 0.50 GHz = 2.00 ns) | 14 nm | 1-bit FA ref 0.009 pJ</span></td></tr><tr><td class="layer-name">ALU (bare MAC)</td><td class="num">0.0700</td><td class="num"><strong>0.0700</strong></td><td class="src">14nm INT8 MAC bare-cell energy</td></tr><tr><td class="layer-name">+ Register (PE-local)</td><td class="num">0.0440</td><td class="num"><strong>0.1140</strong></td><td class="src">Weight stationary: 1 input read + 1 acc update per MAC @ 0.022 pJ/byte</td></tr><tr><td class="layer-name">+ L1 (UB)</td><td class="num">0.0016</td><td class="num"><strong>0.1156</strong></td><td class="src">1.0 byte x 0.10 pJ/byte / 64x row reuse (weight amortized over K)</td></tr><tr class="total-row"><td><strong>Total native-op energy floor</strong></td><td></td><td class="num"><strong>0.1156 pJ/MAC</strong></td><td></td></tr><tr><td colspan="4" class="group-header" style="border-left: 4px solid #3fc98a;"><strong>KPU T128</strong> -- Domain Flow (KPU)<br/><span class="meta">Native op: PE MAC (SARE-scheduled) (1 MACs, 1 cycles @ 1.00 GHz = 1.00 ns) | 16 nm | 1-bit FA ref 0.010 pJ</span></td></tr><tr><td class="layer-name">ALU (bare MAC)</td><td class="num">0.1000</td><td class="num"><strong>0.1000</strong></td><td class="src">tile_energy_model.mac_energy_int8 @ 16nm domain-flow</td></tr><tr><td class="layer-name">+ Register</td><td class="num">0.0750</td><td class="num"><strong>0.1750</strong></td><td class="src">3 byte-accesses x 0.025 pJ/byte (Horowitz 2014 scaled to 16nm)</td></tr><tr><td class="layer-name">+ L1 scratchpad</td><td class="num">0.0125</td><td class="num"><strong>0.1875</strong></td><td class="src">2 operand bytes x 0.20 pJ/byte / 32x reuse along PE column</td></tr><tr class="total-row"><td><strong>Total native-op energy floor</strong></td><td></td><td class="num"><strong>0.1875 pJ/MAC</strong></td><td></td></tr></tbody></table>
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const CHARTS = {"chart_progression": {"data": [{"type": "bar", "orientation": "h", "name": "ALU (bare MAC)", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.25, 0.07, 0.1], "text": ["0.250", "0.070", "0.100"], "textposition": "inside", "marker": {"color": "#5b8ff9"}}, {"type": "bar", "orientation": "h", "name": "+ Register", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.084, 0.0, 0.07500000000000001], "text": ["0.084", "", "0.075"], "textposition": "inside", "marker": {"color": "#d4860b"}}, {"type": "bar", "orientation": "h", "name": "+ L1 (shared mem)", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.0625, 0.0, 0.0], "text": ["0.062", "", ""], "textposition": "inside", "marker": {"color": "#e98c3f"}}, {"type": "bar", "orientation": "h", "name": "+ Warp sched / coherence", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.05, 0.0, 0.0], "text": ["0.050", "", ""], "textposition": "inside", "marker": {"color": "#7f3b8d"}}, {"type": "bar", "orientation": "h", "name": "+ Register (PE-local)", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.0, 0.044, 0.0], "text": ["", "0.044", ""], "textposition": "inside", "marker": {"color": "#5b8ff9"}}, {"type": "bar", "orientation": "h", "name": "+ L1 (UB)", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.0, 0.0015625, 0.0], "text": ["", "0.002", ""], "textposition": "inside", "marker": {"color": "#d4860b"}}, {"type": "bar", "orientation": "h", "name": "+ L1 scratchpad", "y": ["Jetson Orin AGX (TC)", "Coral Edge TPU", "KPU T128"], "x": [0.0, 0.0, 0.0125], "text": ["", "", "0.013"], "textposition": "inside", "marker": {"color": "#e98c3f"}}], "layout": {"title": "Native-op energy floor per MAC (cumulative by layer)", "xaxis": {"title": "pJ / MAC"}, "yaxis": {"title": "", "automargin": true}, "barmode": "stack", "margin": {"t": 50, "b": 50, "l": 120, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}, "chart_cumulative": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "Jetson Orin AGX (TC)", "x": [1, 2, 3, 4], "y": [0.25, 0.334, 0.3965, 0.4465], "line": {"color": "#5b8ff9", "width": 3}, "marker": {"size": 10}}, {"type": "scatter", "mode": "lines+markers", "name": "Coral Edge TPU", "x": [1, 2, 3], "y": [0.07, 0.114, 0.1155625], "line": {"color": "#e98c3f", "width": 3}, "marker": {"size": 10}}, {"type": "scatter", "mode": "lines+markers", "name": "KPU T128", "x": [1, 2, 3], "y": [0.1, 0.17500000000000002, 0.18750000000000003], "line": {"color": "#3fc98a", "width": 3}, "marker": {"size": 10}}], "layout": {"title": "Energy accumulation through the memory hierarchy", "xaxis": {"title": "Layer depth (progressive)", "tickmode": "array", "tickvals": [1, 2, 3, 4], "ticktext": ["Layer 1", "Layer 2", "Layer 3", "Layer 4"]}, "yaxis": {"title": "Cumulative pJ / MAC"}, "margin": {"t": 50, "b": 50, "l": 60, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}};
+for (const [id, spec] of Object.entries(CHARTS)) {
+  Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>

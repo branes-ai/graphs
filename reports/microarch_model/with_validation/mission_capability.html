@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Mission Capability per Watt</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+table.blocks { width: 100%; border-collapse: collapse; background: #fff;
+               margin-bottom: 18px; font-size: 13px; }
+table.blocks th, table.blocks td { padding: 7px 10px;
+                                     border-bottom: 1px solid #e3e6eb;
+                                     vertical-align: top; }
+table.blocks th { font-size: 11px; text-transform: uppercase;
+                  color: #586374; background: #f3f5f8; text-align: left; }
+table.blocks td.name { font-weight: 600; color: #0a2540; }
+table.blocks td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.blocks tr.total-row td { background: #eef6ea;
+                                border-top: 2px solid #3fc98a;
+                                border-bottom: 2px solid #3fc98a;
+                                padding: 12px 10px; font-size: 14px; }
+span.cat { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           color: white; font-size: 10px; font-weight: 600; }
+section.mission-card { background: #fff; padding: 16px 20px;
+                       border-radius: 6px; margin-bottom: 14px;
+                       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                       border-left: 4px solid #0a2540; }
+section.mission-card h3 { margin: 0 0 6px; color: #0a2540; }
+section.mission-card .meta { color: #586374; font-size: 13px;
+                              margin-bottom: 8px; }
+section.mission-card .mission-desc { color: #3a4452; font-size: 13px;
+                                       margin: 6px 0 12px; }
+section.mission-card .mission-cite { color: #586374; font-size: 11px;
+                                       margin: 10px 0 0; }
+.mission-grid { display: grid;
+                grid-template-columns: 1fr 1fr; gap: 12px; }
+.arch-col { background: #f3f5f8; padding: 10px 14px; border-radius: 4px; }
+.arch-col h4 { margin: 0 0 6px; font-size: 13px; color: #0a2540; }
+.arch-col p { margin: 0; font-size: 13px; color: #3a4452; }
+.arch-col.gpu { border-left: 3px solid #5b8ff9; }
+.arch-col.kpu { border-left: 3px solid #3fc98a; }
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+                 margin-bottom: 18px;
+                 box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px;
+                             margin: 0 0 12px; }
+.plot { width: 100%; min-height: 360px; }
+section.method-note { background: #eef2f7; padding: 14px 18px;
+                      border-left: 3px solid #0a2540; border-radius: 4px;
+                      margin: 18px 0; }
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+             font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Mission Capability per Watt (embodied AI)</h1>
+    <div class="subtitle">GPU vs KPU feasibility across 10 missions | generated 2026-04-29T19:38:54.811538+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>Mission Capability per Watt for embodied AI</h2>
+    <div class="meta">Applies the silicon speed-of-light analysis
+      to 10 catalogued embodied-AI missions. For each mission we
+      quantify whether a GPU-class or KPU-class architecture fits
+      the platform's physical budget (battery, thermal envelope,
+      payload mass). The GPU/KPU feasibility column is a binary
+      outcome driven by hard physical thresholds; the
+      mission-hours-enabled curve shows the margin for energy-bound
+      missions. See
+      <a href="../../../docs/analysis/mission-capability-per-watt.md">
+      docs/analysis/mission-capability-per-watt.md</a> for the
+      narrative companion.</div>
+  </section>
+
+  <section class="chart-section">
+    <h3>Feasibility summary (GPU vs KPU across 10 missions)</h3>
+    <p class="chart-desc">One row per mission. The final "Feasibility
+      tally" row is the investor headline - how many of the catalog's
+      mission categories each architecture can address.</p>
+    <table class="blocks"><thead><tr><th>Mission</th><th>Category</th><th>Req. TOPS</th><th>Hours</th><th>Binding threshold</th><th>GPU compute W</th><th>GPU verdict</th><th>KPU compute W</th><th>KPU verdict</th></tr></thead><tbody><tr><td class="name">Urban counter-SUAS nano-swarm</td><td>Small aerial / UAV</td><td class="num">35</td><td class="num">0.2</td><td>payload mass</td><td class="num">15.4 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">1.59 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">Body-worn tactical / medical exoskeleton</td><td>Body-worn</td><td class="num">20</td><td class="num">12.0</td><td>thermal dissipation</td><td class="num">8.8 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">0.91 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">30-day abyssal AUV</td><td>Maritime / subsea</td><td class="num">20</td><td class="num">720.0</td><td>energy x duration (battery)</td><td class="num">8.8 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">0.91 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">6-month oceanographic glider fleet</td><td>Maritime / subsea</td><td class="num">5</td><td class="num">4320.0</td><td>energy x duration (battery)</td><td class="num">5.0 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">0.50 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">72-hour autonomous UGV pack mule</td><td>Ground UGV</td><td class="num">100</td><td class="num">72.0</td><td>energy x duration (battery)</td><td class="num">44.1 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">4.55 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">7-day sealed USAR micro-robot</td><td>Search and rescue</td><td class="num">10</td><td class="num">168.0</td><td>energy x duration (battery)</td><td class="num">5.0 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">0.50 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">24/7 HALE solar pseudosatellite</td><td>HALE solar</td><td class="num">30</td><td class="num">12.0</td><td>thermal dissipation</td><td class="num">13.2 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">1.36 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">On-board AI for small LEO imaging satellite</td><td>Space</td><td class="num">100</td><td class="num">24.0</td><td>thermal dissipation</td><td class="num">44.1 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">4.55 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">All-day autonomous agricultural tractor</td><td>Agriculture</td><td class="num">200</td><td class="num">10.0</td><td>concurrent-model thermal density</td><td class="num">88.1 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">9.09 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr><td class="name">8-hour-shift industrial humanoid robot</td><td>Humanoid</td><td class="num">500</td><td class="num">8.0</td><td>energy x duration (battery)</td><td class="num">220.3 W</td><td><span class="cat" style="background:#d4860b;">CANNOT DO</span></td><td class="num">22.73 W</td><td><span class="cat" style="background:#3fc98a;">CAN DO</span></td></tr><tr class="total-row"><td colspan="5"><strong>Feasibility tally</strong></td><td></td><td><strong>0 / 10 missions feasible</strong></td><td></td><td><strong>10 / 10 missions feasible</strong></td></tr></tbody></table>
+  </section>
+
+  <section class="chart-section">
+    <h3>Compute wattage vs platform budget</h3>
+    <p class="chart-desc">Per-mission compute wattage for GPU (blue)
+      and KPU (green). Orange tick marks the maximum wattage the
+      platform can spend on compute without violating its binding
+      physical threshold. Bars above the orange tick are
+      infeasible.</p>
+    <div id="chart_wattage_vs_budget" class="plot"
+         style="min-height:440px;"></div>
+  </section>
+
+  <section class="method-note">
+    <h3 style="margin-top:0;">How to read the per-mission cards</h3>
+    <p>Each card below shows the mission parameters, the GPU and KPU
+      compute wattage at the required TOPS, and the verdict
+      (CAN DO / CANNOT DO) for each architecture. For energy-bound
+      missions, the chart below the card plots mission-hours enabled
+      as a function of required TOPS, for both architectures. The
+      orange star marks the mission's (required TOPS, required hours)
+      point; curves above the star support the mission, curves below
+      do not.</p>
+  </section>
+
+  
+<section class="mission-card">
+  <h3>Urban counter-SUAS nano-swarm</h3>
+  <div class="meta">
+    <strong>Category:</strong> Small aerial / UAV
+    | <strong>Required TOPS:</strong> 35
+    | <strong>Duration:</strong> 0.2 h
+    | <strong>Binding:</strong> payload mass
+  </div>
+  <p class="mission-desc">30-50 g quadcopter, indoor building clearing, 5-10 min flight. VIO SLAM + obstacle avoidance + target detection + swarm coordination.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (35 TOPS @ 15.4 W)</h4>
+      <p>CANNOT DO - thermal: 15.4 W compute dissipation vs 5.0 W envelope</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (35 TOPS @ 1.59 W)</h4>
+      <p>CAN DO (0.6 h enabled, 3.0x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>DARPA OFFSET / indoor-swarm programs. Target 50 g AUW leaves ~15 g for avionics + compute.</em></p>
+</section>
+
+<div id="chart_mission_73291793" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>Body-worn tactical / medical exoskeleton</h3>
+  <div class="meta">
+    <strong>Category:</strong> Body-worn
+    | <strong>Required TOPS:</strong> 20
+    | <strong>Duration:</strong> 12.0 h
+    | <strong>Binding:</strong> thermal dissipation
+  </div>
+  <p class="mission-desc">Skin-contact wearable, 12 h shift, gait + terrain + intent recognition.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (20 TOPS @ 8.8 W)</h4>
+      <p>CANNOT DO - energy: 142 Wh needed vs 50 Wh battery</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (20 TOPS @ 0.91 W)</h4>
+      <p>CAN DO (12.8 h enabled, 1.1x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>IEC 60601-1 skin-temperature limits for applied parts. ~3 W sustained dissipation against body surface.</em></p>
+</section>
+
+<div id="chart_mission_aefd94eb" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>30-day abyssal AUV</h3>
+  <div class="meta">
+    <strong>Category:</strong> Maritime / subsea
+    | <strong>Required TOPS:</strong> 20
+    | <strong>Duration:</strong> 720.0 h
+    | <strong>Binding:</strong> energy x duration (battery)
+  </div>
+  <p class="mission-desc">50 kg AUV, pipeline inspection, 30-day mission, battery-only (no recharge). Acoustic + vision fusion + SLAM + anomaly detection.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (20 TOPS @ 8.8 W)</h4>
+      <p>CANNOT DO - energy: 19304 Wh needed vs 15000 Wh battery</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (20 TOPS @ 0.91 W)</h4>
+      <p>CAN DO (793.3 h enabled, 1.1x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>Oil and gas ROV / AUV inspection missions. 15 kWh Li-ion typical for 50 kg class. Slow transit ~1 m/s, continuous sonar + vision hotel load.</em></p>
+</section>
+
+<div id="chart_mission_6ad8bde0" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>6-month oceanographic glider fleet</h3>
+  <div class="meta">
+    <strong>Category:</strong> Maritime / subsea
+    | <strong>Required TOPS:</strong> 5
+    | <strong>Duration:</strong> 4320.0 h
+    | <strong>Binding:</strong> energy x duration (battery)
+  </div>
+  <p class="mission-desc">60 kg buoyancy-driven glider, 6-month deployment, fleet of 100 for basin-scale monitoring. Species classification + underwater vision.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (5 TOPS @ 5.0 W)</h4>
+      <p>CANNOT DO - energy: 23328 Wh needed vs 10000 Wh battery</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (5 TOPS @ 0.50 W)</h4>
+      <p>CAN DO (11111.1 h enabled, 2.6x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>Teledyne Slocum / Kongsberg Seaglider class. ~10 kWh battery for 6-month endurance at ~0.4 W hotel load.</em></p>
+</section>
+
+<div id="chart_mission_95e3b67f" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>72-hour autonomous UGV pack mule</h3>
+  <div class="meta">
+    <strong>Category:</strong> Ground UGV
+    | <strong>Required TOPS:</strong> 100
+    | <strong>Duration:</strong> 72.0 h
+    | <strong>Binding:</strong> energy x duration (battery)
+  </div>
+  <p class="mission-desc">100 kg ground robot, small-unit escort, 72 h autonomous mission with useful payload. Multi-sensor perception + cooperative behavior + path planning.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (100 TOPS @ 44.1 W)</h4>
+      <p>CANNOT DO - energy: 10372 Wh needed vs 10000 Wh battery</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (100 TOPS @ 4.55 W)</h4>
+      <p>CAN DO (95.7 h enabled, 1.3x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>Ghost Robotics Vision 60 / Boston Dynamics Spot-class pack robots. Battery-to-payload tradeoff is the main design axis.</em></p>
+</section>
+
+<div id="chart_mission_d500287" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>7-day sealed USAR micro-robot</h3>
+  <div class="meta">
+    <strong>Category:</strong> Search and rescue
+    | <strong>Required TOPS:</strong> 10
+    | <strong>Duration:</strong> 168.0 h
+    | <strong>Binding:</strong> energy x duration (battery)
+  </div>
+  <p class="mission-desc">Sealed enclosure, deployed in collapsed structure, no recharge. SLAM + victim detection + acoustic localization.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (10 TOPS @ 5.0 W)</h4>
+      <p>CANNOT DO - energy: 924 Wh needed vs 200 Wh battery</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (10 TOPS @ 0.50 W)</h4>
+      <p>CAN DO (200.0 h enabled, 1.2x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>FEMA / ISAR-class sealed micro-robots deployed post-collapse. Typical Li-ion pack &lt;250 Wh, no forced cooling.</em></p>
+</section>
+
+<div id="chart_mission_d6780433" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>24/7 HALE solar pseudosatellite</h3>
+  <div class="meta">
+    <strong>Category:</strong> HALE solar
+    | <strong>Required TOPS:</strong> 30
+    | <strong>Duration:</strong> 12.0 h
+    | <strong>Binding:</strong> thermal dissipation
+  </div>
+  <p class="mission-desc">75 kg fixed-wing solar UAV at 60 kft. Continuous day + night station-keeping for wide-area ISR.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (30 TOPS @ 13.2 W)</h4>
+      <p>CANNOT DO - thermal: 13.2 W compute dissipation vs 5.0 W envelope</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (30 TOPS @ 1.36 W)</h4>
+      <p>CAN DO (114.6 h enabled, 3.7x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>Airbus Zephyr / BAE PHASA-35 class. Night phase battery reserve is the binding design constraint.</em></p>
+</section>
+
+<div id="chart_mission_725a876a" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+<section class="mission-card">
+  <h3>On-board AI for small LEO imaging satellite</h3>
+  <div class="meta">
+    <strong>Category:</strong> Space
+    | <strong>Required TOPS:</strong> 100
+    | <strong>Duration:</strong> 24.0 h
+    | <strong>Binding:</strong> thermal dissipation
+  </div>
+  <p class="mission-desc">150 kg LEO sat, ship / vehicle / change detection for downlink reduction. 50 W total power budget.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (100 TOPS @ 44.1 W)</h4>
+      <p>CANNOT DO - thermal: 44.1 W compute dissipation vs 40.0 W envelope</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (100 TOPS @ 4.55 W)</h4>
+      <p>CAN DO (inf h enabled, 8.8x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>Planet Labs / Satellogic-class small sats. Payload power envelope typically 30-50 W.</em></p>
+</section>
+
+
+<section class="mission-card">
+  <h3>All-day autonomous agricultural tractor</h3>
+  <div class="meta">
+    <strong>Category:</strong> Agriculture
+    | <strong>Required TOPS:</strong> 200
+    | <strong>Duration:</strong> 10.0 h
+    | <strong>Binding:</strong> concurrent-model thermal density
+  </div>
+  <p class="mission-desc">5000 kg tractor, 12 cameras + 2 LIDAR + IMU fusion, crop/weed recognition, humans-in-field, path planning - all concurrent in RF-denied fields.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (200 TOPS @ 88.1 W)</h4>
+      <p>CANNOT DO - thermal: 88.1 W compute dissipation vs 15.0 W envelope</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (200 TOPS @ 9.09 W)</h4>
+      <p>CAN DO (inf h enabled, 1.6x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>John Deere Autonomous 8R and similar. Dust-sealed (IP65+) cab enclosures limit single-chip dissipation to ~15 W without active cooling.</em></p>
+</section>
+
+
+<section class="mission-card">
+  <h3>8-hour-shift industrial humanoid robot</h3>
+  <div class="meta">
+    <strong>Category:</strong> Humanoid
+    | <strong>Required TOPS:</strong> 500
+    | <strong>Duration:</strong> 8.0 h
+    | <strong>Binding:</strong> energy x duration (battery)
+  </div>
+  <p class="mission-desc">30-80 kg humanoid, 8 h shift, battery-powered. Full-body motor control + multimodal perception + VLM grounding + task planning.</p>
+  <div class="mission-grid">
+    <div class="arch-col gpu">
+      <h4>GPU (500 TOPS @ 220.3 W)</h4>
+      <p>CANNOT DO - energy: 3762 Wh needed vs 3000 Wh battery</p>
+    </div>
+    <div class="arch-col kpu">
+      <h4>KPU (500 TOPS @ 22.73 W)</h4>
+      <p>CAN DO (11.0 h enabled, 1.4x budget)</p>
+    </div>
+  </div>
+  <p class="mission-cite"><em>Figure 01 / Tesla Optimus / Boston Dynamics Atlas-class humanoids. Typical 2.5-3 kWh battery for 8 h shift.</em></p>
+</section>
+
+<div id="chart_mission_bd876da0" class="plot" style="min-height:340px; margin: -8px 0 18px;"></div>
+
+  <section class="method-note">
+    <h3 style="margin-top:0;">Caveats</h3>
+    <ul>
+      <li>The required-TOPS numbers are engineering estimates, not
+        workload-measured. See
+        <a href="../../../docs/analysis/mission-capability-validation-template.md">
+        mission-capability-validation-template.md</a> for the expert-
+        validation template.</li>
+      <li>GPU TOPS/W is fixed at 2.27 (Orin AGX dense INT8) across all
+        power modes. Real GPUs vary modestly (2.0 - 2.5).</li>
+      <li>KPU TOPS/W is the T128 target (22 TOPS/W dense INT8);
+        calibration to measured silicon will sharpen the numbers.</li>
+      <li>Non-compute power (motors, sensors, comms) is a flat
+        average; real missions have duty cycles that would refine
+        the mission-hours-enabled curves.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const WATT_CHARTS = {"chart_wattage_vs_budget": {"data": [{"type": "bar", "name": "GPU compute wattage", "x": ["Urban counter-SUAS nano-swarm", "Body-worn tactical / medical exoskeleton", "30-day abyssal AUV", "6-month oceanographic glider fleet", "72-hour autonomous UGV pack mule", "7-day sealed USAR micro-robot", "24/7 HALE solar pseudosatellite", "On-board AI for small LEO imaging satellite", "All-day autonomous agricultural tractor", "8-hour-shift industrial humanoid robot"], "y": [15.418502202643172, 8.810572687224669, 8.810572687224669, 5.0, 44.052863436123346, 5.0, 13.215859030837004, 44.052863436123346, 88.10572687224669, 220.26431718061673], "marker": {"color": "#5b8ff9"}, "text": ["15.4 W", "8.8 W", "8.8 W", "5.0 W", "44.1 W", "5.0 W", "13.2 W", "44.1 W", "88.1 W", "220.3 W"], "textposition": "outside"}, {"type": "bar", "name": "KPU compute wattage", "x": ["Urban counter-SUAS nano-swarm", "Body-worn tactical / medical exoskeleton", "30-day abyssal AUV", "6-month oceanographic glider fleet", "72-hour autonomous UGV pack mule", "7-day sealed USAR micro-robot", "24/7 HALE solar pseudosatellite", "On-board AI for small LEO imaging satellite", "All-day autonomous agricultural tractor", "8-hour-shift industrial humanoid robot"], "y": [1.5909090909090908, 0.9090909090909091, 0.9090909090909091, 0.5, 4.545454545454546, 0.5, 1.3636363636363635, 4.545454545454546, 9.090909090909092, 22.727272727272727], "marker": {"color": "#3fc98a"}, "text": ["1.59 W", "0.91 W", "0.91 W", "0.50 W", "4.55 W", "0.50 W", "1.36 W", "4.55 W", "9.09 W", "22.73 W"], "textposition": "outside"}, {"type": "scatter", "mode": "markers", "name": "Platform compute budget", "x": ["Urban counter-SUAS nano-swarm", "Body-worn tactical / medical exoskeleton", "30-day abyssal AUV", "6-month oceanographic glider fleet", "72-hour autonomous UGV pack mule", "7-day sealed USAR micro-robot", "24/7 HALE solar pseudosatellite", "On-board AI for small LEO imaging satellite", "All-day autonomous agricultural tractor", "8-hour-shift industrial humanoid robot"], "y": [0.0, 0.0, 2.833333333333332, 1.914814814814815, 38.888888888888886, 0.6904761904761905, 2.0, 30.0, 15.0, 125.0], "marker": {"size": 16, "color": "#d4860b", "symbol": "line-ew-open", "line": {"width": 4}}}], "layout": {"title": "Compute wattage vs platform budget per mission (log-scale; anything above the orange bar is infeasible)", "xaxis": {"title": "", "tickangle": -30}, "yaxis": {"title": "Wattage (W)", "type": "log"}, "barmode": "group", "margin": {"t": 50, "b": 160, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.4}}}};
+for (const [id, spec] of Object.entries(WATT_CHARTS)) {
+  const el = document.getElementById(id);
+  if (el) Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+const MISSION_CHARTS = {"chart_mission_73291793": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4866105933456593, 0.45988328435620696, 0.4311091224532625, 0.40064709198224474, 0.3689660244689631, 0.33662009432756884, 0.3042121409953737, 0.2723496199212889, 0.2415998388454283, 0.21245132048528795, 0.18528657762855885, 0.16036887289825377, 0.13784260065121356, 0.11774463205373283, 0.10002276910917098, 0.084557358384073, 0.07118280011458095, 0.05970673158269274, 0.049925712023892906, 0.04163707952954879, 0.034647215217289674, 0.028776755560930577, 0.023863402849804483, 0.019762966748160433, 0.016349186128270736, 0.013512771608838708, 0.011160000983259998], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6451612903225806, 0.6421497576704868, 0.6371080386869086, 0.6310869735865186, 0.6239217106664343, 0.6154306136014684, 0.605418377052339, 0.5936816388291097, 0.5800177322402209, 0.5642370893436343, 0.5461794662220486, 0.5257335561324937, 0.5028586763362423, 0.4776061502561655, 0.45013699031595555, 0.4207318882240157, 0.3897897581689187, 0.35781244203005574, 0.3253756137352971, 0.2930888821561546, 0.26155069306104434, 0.23130495791757336, 0.20280589161511367, 0.17639549230883333, 0.15229519519023202, 0.13061043667223027, 0.1113449226455545, 0.09442060085836909], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [35.0], "y": [0.17], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "Urban counter-SUAS nano-swarm - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 0.17, "y1": 0.17, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 35.0, "x1": 35.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_aefd94eb": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 5.847739144575075, 5.131021824023274, 4.465887337541492, 3.8581371990167006, 3.310651731809073, 2.82372929936863, 2.3955770546251633, 2.0228574482194697, 1.7012151662303117, 1.4257359965942735, 1.1913143611776191, 0.9929255946800752, 0.8258113909945736, 0.6855930406390359, 0.5683288340401995, 0.47053102448189355, 0.3891554063799257, 0.3215738027858137, 0.2655371155974316, 0.219134334082775, 0.18075110292292818, 0.1490301011552514, 0.12283451362810308, 0.1012152091153888, 0.08338180012530431, 0.06867748586153291, 0.056557421978164345], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 14.285714285714286, 13.99505151536748, 13.528413004273641, 13.001613773925579, 12.414181034157076, 11.7680689185288, 11.068060702174156, 10.32195286679976, 9.540433122050738, 8.736606046255845, 7.925185890125067, 7.121450164299441, 6.340106390526598, 5.594246716972599, 4.894542516284117, 4.2487721626914485, 3.6617010893877957, 3.1352674559452236, 2.6689853733690803, 2.2604650042951353, 1.9059594987039938, 1.6008724793483535, 1.3401867904330567, 1.1187987234945438, 0.9317588513072339, 0.774430654510766, 0.6425825827977705, 0.5324298160696999], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [20.0], "y": [12.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "Body-worn tactical / medical exoskeleton - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 12.0, "y1": 12.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 20.0, "x1": 20.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_6ad8bde0": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 652.1739130434783, 636.9342098808136, 606.1916978476215, 572.6068700964914, 536.4879382681605, 498.29307250830084, 458.61630258087297, 418.15579096164385, 377.66717630491627, 337.908189061593, 299.58294316673914, 263.29439143358155, 229.51136563987876, 198.55317516704588, 170.5910924567113, 145.66326085140767, 123.69816066526252, 104.54172828737747, 87.98412403092331, 73.78346049559062, 61.68510303210237, 51.43618663741951, 42.795677119535846, 35.54066789206886, 29.469727349733606, 24.404083123224687, 20.187321414158937, 16.68414295934067], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 810.8108108108108, 807.6373901873925, 802.3138726800227, 795.9385291274026, 788.3263824661271, 779.2699460791926, 768.5409256135341, 755.8942899855996, 741.0755162534997, 723.8318082218248, 703.9279085309944, 681.1666799137367, 655.4138518988719, 626.6252092335922, 594.8731611588045, 560.36837853536, 523.4714896461313, 484.6902070602041, 444.6590565723862, 404.10198363594844, 363.7818231974736, 324.4437990879624, 286.7617459519999, 251.29504453461396, 218.46159730443344, 188.5285174130013, 161.61875561570142, 137.7295492487479], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [20.0], "y": [720.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "30-day abyssal AUV - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 720.0, "y1": 720.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 20.0, "x1": 20.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_95e3b67f": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1851.8518518518517, 1680.5838630979172, 1399.6491393685865, 1163.334043847203, 965.2861784720425, 799.8229844977618, 661.941297800989, 547.2915192177387, 452.13045330579, 373.263075069792, 307.98032863964767, 253.99760388243604, 209.39671767809304, 172.57293851591484, 142.18771949729458, 117.12723976372156, 96.4665101607946, 79.43860737991889, 65.40851106634723, 53.85099387392382, 44.33202964589453, 36.49322247559275, 30.038807933465474, 24.724829973767612, 20.350148539153583, 16.74898115540901, 13.784725587732728, 11.344849438354986], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 11111.111111111111, 10280.753115205249, 9124.711898386871, 8027.766712396211, 7004.508524528967, 6065.070502504837, 5215.115067505443, 4456.239425814329, 3786.6564311773514, 3202.0019468275505, 2696.1443097948063, 2261.9102518700292, 1891.6812022126762, 1577.846075130131, 1313.1184306083144, 1090.7378582916613, 904.5798759774059, 749.1982016532417, 619.8202106426528, 512.312334200992, 423.12807874513743, 349.24775399783755, 288.1160854197334, 237.58165969363858, 195.8405299155074, 161.3851755113311, 132.95925627951613, 109.51812027080842], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [5.0], "y": [4320.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "6-month oceanographic glider fleet - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 4320.0, "y1": 4320.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 5.0, "x1": 5.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_d500287": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 95.23809523809524, 94.74154757325294, 93.68151205481269, 92.42487286541683, 90.9424733515361, 89.20386457939198, 87.17857710783017, 84.83793564743506, 82.15744774690974, 79.11971025173696, 75.71764832836773, 71.95774346083596, 67.86275198863255, 63.473318570079904, 58.847912607939904, 54.0607061292721, 49.197364989112984, 44.34916765493319, 39.60626579550847, 35.051119281363064, 30.753093153535175, 26.76491281377685, 23.121243415623184, 19.839233973254448, 16.920562396193237, 14.354384802659041, 12.12061521498921, 10.1930848675348], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.50248756218906, 99.43056969200909, 99.30888463235003, 99.16141525624597, 98.98280134765643, 98.76661685884379, 98.50518069868001, 98.18934469572709, 97.80826141378273, 97.34913800071844, 96.79698741537547, 96.13439566880714, 95.34133356498178, 94.39505406537629, 93.27013159071316, 91.9387161668752, 90.37109069047025, 88.5366289657208, 86.40524817333262, 83.94942229137214, 81.14676212862685, 77.98306553560442, 74.45559988741616, 70.57621687726783, 66.37375779700173, 61.89514518165753, 57.20463476556897, 52.38095238095237], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [100.0], "y": [72.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "72-hour autonomous UGV pack mule - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 72.0, "y1": 72.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 100.0, "x1": 100.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_d6780433": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 36.36363636363637, 33.05614108905284, 27.606587424081535, 22.999124234932378, 19.12114975370341, 15.869531529252159, 13.151768965843488, 10.886250856655531, 9.001908695524552, 7.4375000599637024, 6.140694441870125, 5.067081811261354, 4.179183280945808, 3.4455127477226117, 2.8397166615845997, 2.3398042471438774, 1.9274708393627917, 1.5875110509275188, 1.3073151259681037, 1.0764402037303091, 0.8862477013242035, 0.7295981956191497, 0.6005957468664517, 0.49437436625386205, 0.406920161925684, 0.33492352682978643, 0.27565651326073687, 0.22687125056530416], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 186.4469152557458, 167.23456565701608, 148.62413538120515, 130.91987657554265, 114.36508689939738, 99.1324310040331, 85.32260878449846, 72.97000522775961, 62.05309754509042, 52.50721588264453, 44.237590443968195, 37.131219740274474, 31.06673622441467, 25.9219822852003, 21.579382669471666, 17.92941166970284, 14.87253923656432, 12.320042101945512, 10.19402145475603, 8.426904973789474, 6.960645182991394, 5.745767228777783, 4.740370941913339, 3.909154888660976, 3.2225028683167314, 2.6556541875332225, 2.1879661859771256], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [10.0], "y": [168.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "7-day sealed USAR micro-robot - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 168.0, "y1": 168.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 10.0, "x1": 10.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_725a876a": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 62.5, 58.47739144575075, 51.31021824023274, 44.65887337541493, 38.58137199016701, 33.10651731809073, 28.2372929936863, 23.955770546251635, 20.2285744821947, 17.01215166230312, 14.257359965942735, 11.91314361177619, 9.929255946800753, 8.258113909945736, 6.855930406390359, 5.683288340401996, 4.705310244818936, 3.8915540637992567, 3.215738027858137, 2.655371155974316, 2.19134334082775, 1.8075110292292818, 1.490301011552514, 1.2283451362810307, 1.012152091153888, 0.8338180012530432, 0.6867748586153292, 0.5655742197816435], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 142.85714285714286, 139.95051515367481, 135.2841300427364, 130.01613773925578, 124.14181034157076, 117.680689185288, 110.68060702174155, 103.21952866799761, 95.40433122050737, 87.36606046255845, 79.25185890125067, 71.2145016429944, 63.401063905265985, 55.94246716972599, 48.945425162841175, 42.487721626914485, 36.61701089387796, 31.352674559452232, 26.689853733690803, 22.604650042951352, 19.05959498703994, 16.008724793483534, 13.401867904330567, 11.187987234945439, 9.317588513072339, 7.74430654510766, 6.425825827977705, 5.324298160696999], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [30.0], "y": [12.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "24/7 HALE solar pseudosatellite - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 12.0, "y1": 12.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 30.0, "x1": 30.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}, "chart_mission_bd876da0": {"data": [{"type": "scatter", "mode": "lines", "name": "GPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.764705882352942, 11.739371260551545, 11.684761598388349, 11.619080830728624, 11.540253736684672, 11.445892160151036, 11.333282065660049, 11.199387259741156, 11.04087843164951, 10.854198029219166, 10.635672662541287, 10.38168435049085, 10.08890883004784, 9.754622064019944, 9.377064074634667, 8.955832447484632, 8.492258431896, 7.989701275668271, 7.453688324560952, 6.891836851280187, 6.313522679647982, 5.729307577290632, 5.150190798389841, 4.586793230634016, 4.048599908358849, 3.543371640417074, 3.076794864733432, 2.6523855890944494], "line": {"color": "#5b8ff9", "width": 2}}, {"type": "scatter", "mode": "lines", "name": "KPU hours-enabled", "x": [1.0, 1.2151833063783384, 1.4766704681005907, 1.7944253018577248, 2.1805556713604175, 2.6497748504657896, 3.2199621639471863, 3.912844268798491, 4.754823035902081, 5.777981578011381, 7.021306758160998, 8.532174761478656, 10.368156337251447, 12.599210498948729, 15.310350271869195, 18.604882065180508, 22.608342102745084, 27.473279908146377, 33.38507111583888, 40.56898110222105, 49.298748592197306, 59.9070163145808, 72.79800616041335, 88.46292182376177, 107.49866583368734, 130.63058417904023, 158.74010519681985, 192.89832588791688, 234.40682544732516, 284.8472611847307, 346.1416366592754, 420.6255385108274, 511.13713263475603, 621.1253108478464, 754.7811089113595, 917.1974035188149, 1114.5629734096199, 1354.398319194773, 1645.842227672369, 2000.0000000000002], "y": [11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.976047904191617, 11.97257364081549, 11.966688329106743, 11.959544379502919, 11.950874643207156, 11.940356227483521, 11.92759931791458, 11.912133974888295, 11.893394641393844, 11.870702118998478, 11.84324282470686, 11.810045252740316, 11.769953758907857, 11.721600096700886, 11.663373608444669, 11.593391664817064, 11.509472907836725, 11.40911713310876, 11.289497261943708, 11.147470747930548, 10.979619753088445, 10.782331131668704, 10.551928013270995, 10.284863601641655, 9.977983468494951, 9.628853901760616, 9.236140107377983, 8.799999999999999], "line": {"color": "#3fc98a", "width": 2}}, {"type": "scatter", "mode": "markers+text", "name": "Mission requirement", "x": [500.0], "y": [8.0], "marker": {"size": 14, "color": "#d4860b", "symbol": "star"}, "text": ["required (TOPS, hours)"], "textposition": "top right"}], "layout": {"title": "8-hour-shift industrial humanoid robot - mission-hours enabled vs required TOPS", "xaxis": {"title": "Required TOPS (log)", "type": "log"}, "yaxis": {"title": "Mission-hours enabled (log)", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "shapes": [{"type": "line", "x0": 0.9, "x1": 2100, "y0": 8.0, "y1": 8.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}, {"type": "line", "x0": 500.0, "x1": 500.0, "y0": 0.001, "y1": 1000000.0, "xref": "x", "yref": "y", "line": {"color": "#d4860b", "dash": "dot", "width": 1}}]}}};
+for (const [id, spec] of Object.entries(MISSION_CHARTS)) {
+  const el = document.getElementById(id);
+  if (el) Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>

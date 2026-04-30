@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Competitive trajectory: Jetson vs. KPU</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+table.trajectory { width: 100%; border-collapse: collapse; background: #fff;
+                   margin-bottom: 18px; }
+table.trajectory th, table.trajectory td { padding: 8px 10px;
+                                            border-bottom: 1px solid #e3e6eb;
+                                            vertical-align: top; font-size: 13px; }
+table.trajectory th { font-size: 12px; text-transform: uppercase;
+                      color: #586374; background: #f3f5f8; text-align: left; }
+table.trajectory td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.trajectory td.src { color: #586374; font-size: 12px; }
+section.method-note { background: #eef2f7; padding: 14px 18px;
+                      border-left: 3px solid #0a2540; border-radius: 4px;
+                      margin-bottom: 18px; }
+section.method-note.target { border-left-color: #3fc98a; }
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+  margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px; margin: 0 0 12px; }
+.plot { width: 100%; min-height: 460px; }
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+             font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Competitive trajectory: Jetson vs. KPU target</h1>
+    <div class="subtitle">Dense INT8 TOPS/W | anchor: Jetson Orin AGX (60W) (2022.5, 2.28 TOPS/W) | demonstrated Xavier-&gt;Orin CAGR: 24%/yr | generated 2026-04-29T19:38:54.806350+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>How long to close the gap?</h2>
+    <div class="meta">Jetson TOPS/W trajectory with extrapolations to
+      KPU T128 target, at a range of growth rates.</div>
+  </section>
+  
+<section class="method-note">
+  <strong>Methodology.</strong> Historical data points are each shipping
+  Jetson product's dense INT8 peak TOPS / rated TDP. Pre-Xavier
+  generations had no INT8 Tensor Cores and are excluded. Published
+  "AI TOPS" numbers using FP16 sparse or FP4 multipliers are NOT used -
+  we compare dense INT8 peak apples-to-apples. The extrapolations
+  anchor on the Orin AGX 60W operating point (2.28 TOPS/W, 2022) which
+  represents the flagship dense INT8 ceiling at that generation.
+  Demonstrated Xavier-to-Orin CAGR is <strong>24.1%/yr</strong>.
+</section>
+
+  
+<section class="method-note target">
+  <strong>Targets.</strong> KPU T128 peak (12.30
+  TOPS/W) and sustained (11.04 TOPS/W)
+  values are the M0.5 parametrization at 16 nm domain-flow silicon,
+  verified by <code>cli/check_tdp_feasibility.py</code>. Peak = 12.3
+  TOPS/W from 12 W TDP / 147 TOPS peak; sustained = 11.04 TOPS/W with
+  0.90 realistic utilization (output-stationary schedule saturates).
+  These are THEORETICAL model numbers until silicon measurement
+  graduates them to CALIBRATED.
+</section>
+
+  <section class="chart-section">
+    <h3>TOPS/W trajectory (log scale)</h3>
+    <p class="chart-desc">Blue markers: shipping Jetson products (dense
+      INT8 peak). Dashed lines: extrapolations from Orin AGX (2022) at
+      15/20/25/30 percent annual growth. Solid green: KPU T128 peak
+      target; dashed green: KPU T128 sustained target. Annotations show
+      the year each extrapolation crosses the sustained target.</p>
+    <div id="chart_trajectory" class="plot"></div>
+  </section>
+  <h3>Years to parity</h3>
+  <table class="trajectory"><thead><tr><th>Growth rate</th><th>Years to peak (12.3 TOPS/W)</th><th>Parity year (peak)</th><th>Years to sustained (11.0 TOPS/W)</th><th>Parity year (sustained)</th></tr></thead><tbody><tr><td><strong>15%/yr</strong></td><td class="num">+12.1 yr</td><td class="num">2035</td><td class="num">+11.3 yr</td><td class="num">2034</td></tr><tr><td><strong>20%/yr</strong></td><td class="num">+9.2 yr</td><td class="num">2032</td><td class="num">+8.7 yr</td><td class="num">2031</td></tr><tr><td><strong>25%/yr</strong></td><td class="num">+7.6 yr</td><td class="num">2030</td><td class="num">+7.1 yr</td><td class="num">2030</td></tr><tr><td><strong>30%/yr</strong></td><td class="num">+6.4 yr</td><td class="num">2029</td><td class="num">+6.0 yr</td><td class="num">2029</td></tr></tbody></table>
+  <h3>Jetson historical data (dense INT8)</h3>
+  <table class="trajectory"><thead><tr><th>Year</th><th>Product</th><th>Peak INT8 TOPS (dense)</th><th>TDP (W)</th><th>TOPS/W</th><th>Notes</th></tr></thead><tbody><tr><td>2019.00</td><td><strong>Jetson Xavier AGX</strong></td><td class="num">32</td><td class="num">30</td><td class="num"><strong>1.07</strong></td><td class="src">First Jetson with INT8 Tensor Cores (Volta GV10B).</td></tr><tr><td>2020.00</td><td><strong>Jetson Xavier NX</strong></td><td class="num">21</td><td class="num">15</td><td class="num"><strong>1.40</strong></td><td class="src">Cut-down Xavier for embedded.</td></tr><tr><td>2022.00</td><td><strong>Jetson Orin Nano</strong></td><td class="num">40</td><td class="num">15</td><td class="num"><strong>2.67</strong></td><td class="src">Ampere SMs + Tensor Cores, LPDDR5.</td></tr><tr><td>2022.25</td><td><strong>Jetson Orin NX</strong></td><td class="num">100</td><td class="num">25</td><td class="num"><strong>4.00</strong></td><td class="src">Mid-range Ampere.</td></tr><tr><td>2022.50</td><td><strong>Jetson Orin AGX (60W)</strong></td><td class="num">137</td><td class="num">60</td><td class="num"><strong>2.28</strong></td><td class="src">Full Orin at 60W. Published &#x27;AI TOPS&#x27; uses FP16 sparse = 275; dense INT8 is 137.</td></tr></tbody></table>
+  <section class="method-note">
+    <strong>Load-bearing assumptions.</strong>
+    (1) NVIDIA maintains a Tensor Core-based SIMT architecture (CUDA
+    compatibility moat). An architectural pivot to dataflow/systolic
+    could change these numbers.
+    (2) Process scaling continues at historical pace; post-3 nm cost
+    per transistor is flat.
+    (3) Comparison uses dense INT8, not sparsity-inflated FP4
+    marketing figures. Switching to FP4-sparse accounting would close
+    the gap by 3-4x nominally but would not reflect actual per-op
+    energy improvement.
+    (4) KPU utilization = 0.90 holds. If real-workload utilization
+    comes in at 0.70, the sustained target drops from 11.04 to 8.6
+    TOPS/W and parity years shrink by ~1.5 years per growth rate.
+  </section>
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const CHARTS = {"chart_trajectory": {"data": [{"type": "scatter", "mode": "markers+text", "name": "Jetson (shipping)", "x": [2019.0, 2020.0, 2022.0, 2022.25, 2022.5], "y": [1.07, 1.4, 2.67, 4.0, 2.28], "marker": {"size": 12, "color": "#5b8ff9", "line": {"color": "#0a2540", "width": 1.5}}, "text": ["Xavier AGX", "Xavier NX", "Orin Nano", "Orin NX", "Orin AGX (60W)"], "textposition": "top center", "textfont": {"size": 10, "color": "#3a4452"}, "hovertemplate": "<b>%{text}</b><br>Year: %{x}<br>TOPS/W: %{y:.2f}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "15%/yr extrapolation", "x": [2022.5, 2023.0, 2023.5, 2024.0, 2024.5, 2025.0, 2025.5, 2026.0, 2026.5, 2027.0, 2027.5, 2028.0, 2028.5, 2029.0, 2029.5, 2030.0, 2030.5, 2031.0, 2031.5, 2032.0, 2032.5, 2033.0, 2033.5, 2034.0, 2034.5, 2035.0, 2035.5, 2036.0, 2036.5, 2037.0, 2037.5, 2038.0, 2038.5, 2039.0, 2039.5, 2040.0], "y": [2.28, 2.4450276072061023, 2.6219999999999994, 2.8117817482870175, 3.0152999999999994, 3.23354901053007, 3.4675949999999993, 3.7185813621095805, 3.987734249999998, 4.276368566426017, 4.585894387499998, 4.917823851389919, 5.273778545624998, 5.655497429098407, 6.064845327468746, 6.503822043463167, 6.974572126589058, 7.479395349982641, 8.020757945577415, 8.601304652480037, 9.223871637414026, 9.891500350352041, 10.60745238302613, 11.375225402904848, 12.198570240480048, 13.081509213340572, 14.028355776552054, 15.043735595341658, 16.132609143034863, 17.300295934642904, 18.55250051449009, 19.89534032483934, 21.3353755916636, 22.879641373565235, 24.53568193041314, 26.31158757960002], "line": {"color": "#d4860b", "width": 2, "dash": "dot"}, "hovertemplate": "<b>15%/yr</b><br>Year: %{x:.1f}<br>TOPS/W: %{y:.2f}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "20%/yr extrapolation", "x": [2022.5, 2023.0, 2023.5, 2024.0, 2024.5, 2025.0, 2025.5, 2026.0, 2026.5, 2027.0, 2027.5, 2028.0, 2028.5, 2029.0, 2029.5, 2030.0, 2030.5, 2031.0, 2031.5, 2032.0, 2032.5, 2033.0, 2033.5, 2034.0, 2034.5, 2035.0, 2035.5, 2036.0, 2036.5, 2037.0, 2037.5, 2038.0, 2038.5, 2039.0, 2039.5, 2040.0], "y": [2.28, 2.497614862223557, 2.7359999999999998, 2.997137834668268, 3.2831999999999995, 3.596565401601922, 3.939839999999999, 4.315878481922306, 4.727808, 5.179054178306767, 5.673369599999998, 6.2148650139681205, 6.808043519999998, 7.457838016761745, 8.169652223999998, 8.949405620114094, 9.803582668799995, 10.73928674413691, 11.764299202559995, 12.887144092964293, 14.117159043071993, 15.46457291155715, 16.94059085168639, 18.55748749386858, 20.32870902202367, 22.268984992642295, 24.3944508264284, 26.722781991170756, 29.27334099171408, 32.0673383894049, 35.12800919005689, 38.48080606728589, 42.153611028068276, 46.17696728074306, 50.584333233681924, 55.41236073689167], "line": {"color": "#e98c3f", "width": 2, "dash": "dot"}, "hovertemplate": "<b>20%/yr</b><br>Year: %{x:.1f}<br>TOPS/W: %{y:.2f}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "25%/yr extrapolation", "x": [2022.5, 2023.0, 2023.5, 2024.0, 2024.5, 2025.0, 2025.5, 2026.0, 2026.5, 2027.0, 2027.5, 2028.0, 2028.5, 2029.0, 2029.5, 2030.0, 2030.5, 2031.0, 2031.5, 2032.0, 2032.5, 2033.0, 2033.5, 2034.0, 2034.5, 2035.0, 2035.5, 2036.0, 2036.5, 2037.0, 2037.5, 2038.0, 2038.5, 2039.0, 2039.5, 2040.0], "y": [2.28, 2.54911749434976, 2.8499999999999996, 3.1863968679372, 3.5624999999999996, 3.9829960849215, 4.453125, 4.978745106151875, 5.566406249999999, 6.223431382689844, 6.958007812499999, 7.7792892283623045, 8.697509765625, 9.72411153545288, 10.871887207031248, 12.155139419316102, 13.58985900878906, 15.193924274145125, 16.987323760986328, 18.99240534268141, 21.234154701232907, 23.74050667835176, 26.542693376541134, 29.6756333479397, 33.17836672067642, 37.09454168492462, 41.47295840084552, 46.368177106155784, 51.8411980010569, 57.960221382694726, 64.80149750132114, 72.45027672836841, 81.00187187665142, 90.56284591046051, 101.25233984581426, 113.20355738807564], "line": {"color": "#7f3b8d", "width": 2, "dash": "dot"}, "hovertemplate": "<b>25%/yr</b><br>Year: %{x:.1f}<br>TOPS/W: %{y:.2f}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "30%/yr extrapolation", "x": [2022.5, 2023.0, 2023.5, 2024.0, 2024.5, 2025.0, 2025.5, 2026.0, 2026.5, 2027.0, 2027.5, 2028.0, 2028.5, 2029.0, 2029.5, 2030.0, 2030.5, 2031.0, 2031.5, 2032.0, 2032.5, 2033.0, 2033.5, 2034.0, 2034.5, 2035.0, 2035.5, 2036.0, 2036.5, 2037.0, 2037.5, 2038.0, 2038.5, 2039.0, 2039.5, 2040.0], "y": [2.28, 2.5995999692260345, 2.964, 3.3794799599938448, 3.8532, 4.393323947991998, 5.00916, 5.711321132389599, 6.511908000000001, 7.424717472106479, 8.4654804, 9.652132713738423, 11.00512452, 12.547772527859948, 14.306661876000003, 16.312104286217934, 18.598660438800003, 21.205735572083316, 24.178258570440004, 27.567456243708307, 31.43173614157201, 35.8376931168208, 40.86125698404361, 46.589001051867044, 53.1196340792567, 60.56570136742717, 69.0555243030337, 78.73541177765532, 89.77218159394383, 102.35603531095191, 116.70383607212698, 133.0628459042375, 151.71498689376506, 172.98169967550874, 197.2294829618946, 224.87620957816137], "line": {"color": "#a04bdd", "width": 2, "dash": "dot"}, "hovertemplate": "<b>30%/yr</b><br>Year: %{x:.1f}<br>TOPS/W: %{y:.2f}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "KPU T128 peak (12.3 TOPS/W)", "x": [2019.0, 2040], "y": [12.3, 12.3], "line": {"color": "#3fc98a", "width": 3}}, {"type": "scatter", "mode": "lines", "name": "KPU T128 sustained (11.0 TOPS/W)", "x": [2019.0, 2040], "y": [11.04, 11.04], "line": {"color": "#3fc98a", "width": 2, "dash": "dash"}}], "layout": {"title": "Jetson dense INT8 TOPS/W trajectory vs. KPU T128 target", "xaxis": {"title": "Year", "range": [2018.5, 2040.5]}, "yaxis": {"title": "Dense INT8 TOPS / W (log scale)", "type": "log"}, "margin": {"t": 60, "b": 50, "l": 60, "r": 20}, "legend": {"orientation": "h", "y": -0.15}, "annotations": [{"x": 2033.7859736425855, "y": 11.04, "text": "15%: 2034", "showarrow": true, "arrowhead": 2, "ax": 0, "ay": 30, "font": {"size": 10, "color": "#d4860b"}}, {"x": 2031.1514706522894, "y": 11.04, "text": "20%: 2031", "showarrow": true, "arrowhead": 2, "ax": 0, "ay": 50, "font": {"size": 10, "color": "#e98c3f"}}, {"x": 2029.5687662206358, "y": 11.04, "text": "25%: 2030", "showarrow": true, "arrowhead": 2, "ax": 0, "ay": 70, "font": {"size": 10, "color": "#7f3b8d"}}, {"x": 2028.5120596114111, "y": 11.04, "text": "30%: 2029", "showarrow": true, "arrowhead": 2, "ax": 0, "ay": 90, "font": {"size": 10, "color": "#a04bdd"}}]}}};
+for (const [id, spec] of Object.entries(CHARTS)) {
+  Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>

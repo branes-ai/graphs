@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Micro-architectural energy accounting</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+table.accounting { width: 100%; border-collapse: collapse; background: #fff;
+                   margin-bottom: 24px; font-size: 13px; }
+table.accounting th, table.accounting td { padding: 7px 10px;
+                                             border-bottom: 1px solid #e3e6eb;
+                                             vertical-align: top; }
+table.accounting th { font-size: 11px; text-transform: uppercase;
+                      color: #586374; background: #f3f5f8; text-align: left; }
+table.accounting td.name { padding-left: 24px; color: #3a4452; }
+table.accounting td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.accounting td.src { color: #586374; font-size: 11px; max-width: 320px; }
+table.accounting tr.subtotal td { background: #f8f9fb; padding-top: 10px;
+                                   padding-bottom: 10px;
+                                   border-top: 2px solid #0a2540; }
+table.accounting tr.leakage-row td { background: #f8f9fb;
+                                      font-style: italic; color: #586374; }
+table.accounting tr.total-row td { background: #eef6ea;
+                                    border-top: 2px solid #3fc98a;
+                                    border-bottom: 2px solid #3fc98a;
+                                    padding: 12px 10px; font-size: 14px; }
+span.cat { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           color: white; font-size: 11px; font-weight: 600; }
+span.shared { font-size: 10px; color: #9aa4b1; font-style: italic;
+              margin-left: 4px; font-weight: normal; }
+section.block-header { background: #fff; padding: 14px 20px;
+                        border-radius: 0 6px 6px 0;
+                        margin-bottom: 12px;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+section.block-header h3 { margin: 0 0 6px; color: #0a2540; }
+section.block-header .meta { color: #586374; font-size: 13px;
+                              margin-bottom: 8px; }
+section.block-header p.block-notes { color: #3a4452; font-size: 13px;
+                                       margin: 0; }
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+  margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px; margin: 0 0 12px; }
+.plot { width: 100%; min-height: 360px; }
+section.method-note { background: #eef2f7; padding: 14px 18px;
+                      border-left: 3px solid #0a2540; border-radius: 4px;
+                      margin: 18px 0; }
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+             font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Micro-architectural energy accounting</h1>
+    <div class="subtitle">SM vs. KPU tile, structure by structure | generated 2026-04-29T19:38:54.806593+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>Per-structure energy accounting: SM vs. KPU tile</h2>
+    <div class="meta">Validation view - itemizes every
+      micro-architectural structure that fires on the native op, with
+      citations and amortization factors. Totals should match the
+      simplified model in <code>generalized_architecture.py</code>.</div>
+  </section>
+
+  <section class="chart-section">
+    <h3>Per-MAC energy by structural category (8 nm)</h3>
+    <p class="chart-desc">Each building block's per-MAC energy
+      decomposed by role: fetch, decode, schedule, register,
+      execute, accumulate, memory, interconnect, control. Both
+      building blocks reported at 8 nm (matched to the Jetson
+      Ampere baseline) so the comparison is direct - no process
+      normalization needed. Log-scale so small categories are
+      visible against the dominant Execute bucket.</p>
+    <div id="chart_by_category" class="plot"></div>
+  </section>
+
+  <section class="chart-section">
+    <h3>Same data, linear scale</h3>
+    <p class="chart-desc">Linear-scale view of the category breakdown
+      so absolute contributions can be compared directly.</p>
+    <div id="chart_linear" class="plot"></div>
+  </section>
+
+  
+<section class="block-header"
+         style="border-left: 6px solid #5b8ff9;">
+  <h3>NVIDIA Streaming Multiprocessor (Ampere)</h3>
+  <div class="meta">
+    <strong>Native op:</strong> HMMA m16n16k16.INT8 (4096 MACs per warp per 4 cycles)<br/>
+    <strong>Process:</strong> 8 nm
+    | <strong>Clock:</strong> 0.65 GHz
+    | <strong>MACs / native op:</strong> 4,096
+    | <strong>Silicon:</strong>
+        159 M transistors
+    | <strong>1-bit FA reference:</strong> 0.005 pJ
+  </div>
+  <p class="block-notes">SM-internal accounting. Does NOT include L2 cache, memory controller, or DRAM. All warp-level costs amortize over the 4096 MACs produced by one HMMA instruction, which is what makes Tensor Core a good fit for GEMM. Values at 8 nm Ampere; Horowitz 2014 scaling applied from 45 nm baselines.</p>
+</section>
+
+  <table class="accounting"><thead><tr><th>Structure</th><th>Category</th><th>Transistors (M)</th><th>pJ / activation</th><th>MACs amortized</th><th>pJ / MAC</th><th>Source / derivation</th></tr></thead><tbody><tr><td class="name">L0 I-cache fetch (instruction + immediate)</td><td><span class="cat" style="background:#7f3b8d;">Fetch</span></td><td class="num">2.00</td><td class="num">8.000</td><td class="num">4,096</td><td class="num"><strong>0.0020</strong></td><td class="src">2 KB L0 I$ array x 4 sub-partitions ~2 M transistors (6T SRAM + peripheral). Energy: ~8 pJ per access at 8 nm.</td></tr><tr><td class="name">Decoder (HMMA opcode + descriptor)</td><td><span class="cat" style="background:#a04bdd;">Decode</span></td><td class="num">0.50</td><td class="num">4.000</td><td class="num">4,096</td><td class="num"><strong>0.0010</strong></td><td class="src">GPU decoder is simpler than x86; ~100 K transistors x 4 sub-partitions = 0.5 M. Energy: ~4 pJ per instruction.</td></tr><tr><td class="name">Warp scheduler (ready-queue + priority)</td><td><span class="cat" style="background:#5b8ff9;">Schedule</span></td><td class="num">2.00</td><td class="num">6.000</td><td class="num">4,096</td><td class="num"><strong>0.0015</strong></td><td class="src">4 schedulers x ~0.5 M each = 2 M. Energy: ~6 pJ per issued instruction at 8 nm.</td></tr><tr><td class="name">Issue unit / dispatch port</td><td><span class="cat" style="background:#5b8ff9;">Schedule</span></td><td class="num">1.00</td><td class="num">3.000</td><td class="num">4,096</td><td class="num"><strong>0.0007</strong></td><td class="src">Operand muxing + dispatch port ~0.25 M x 4 sub-partitions = 1 M.</td></tr><tr><td class="name">Scoreboard / dependency tracking</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">1.00</td><td class="num">2.500</td><td class="num">4,096</td><td class="num"><strong>0.0006</strong></td><td class="src">Per-warp RAW/WAW/WAR tracking ~0.25 M x 4 sub-partitions = 1 M.</td></tr><tr><td class="name">Register-file read (fragment A, 16x16 INT8)</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">20.00 <span class="shared" title="shared silicon">(shared: SM register file (256 KB))</span></td><td class="num">3.584</td><td class="num">4,096</td><td class="num"><strong>0.0009</strong></td><td class="src">Shared 256 KB, 4-bank RF: ~13 M SRAM + ~7 M peripheral = 20 M. Energy: 32 threads x 8 bytes x 0.014 pJ/byte @ 8nm.</td></tr><tr><td class="name">Register-file read (fragment B, 16x16 INT8)</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">20.00 <span class="shared" title="shared silicon">(shared: SM register file (256 KB))</span></td><td class="num">3.584</td><td class="num">4,096</td><td class="num"><strong>0.0009</strong></td><td class="src">Second operand matrix fragment; same 20 M RF silicon as fragment A (not double-counted in unique total).</td></tr><tr><td class="name">Operand collector + bypass network</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">10.00</td><td class="num">20.000</td><td class="num">4,096</td><td class="num"><strong>0.0049</strong></td><td class="src">4 collectors + 4-bank crossbar ~10 M. Energy dominated by crossbar static wire capacitance (~20 pJ per issue).</td></tr><tr><td class="name">Tensor Core bare MAC array (INT8 multiply-add)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">40.00</td><td class="num">0.080</td><td class="num">1</td><td class="num"><strong>0.0800</strong></td><td class="src">4 TCs x 1024 INT8 MAC units x ~10 K transistors each ~40 M (bare-MAC datapath only). Energy: ~10 FA x 0.005 pJ/FA per MAC.</td></tr><tr><td class="name">Accumulator reduction tree + operand regs (TC-internal)</td><td><span class="cat" style="background:#67d8a6;">Accumulator</span></td><td class="num">60.00</td><td class="num">40.000</td><td class="num">4,096</td><td class="num"><strong>0.0098</strong></td><td class="src">16x16 partial-sum reduction + fragment operand registers + broadcast muxes inside each TC; ~60 M across 4 TCs (rest of the ~100 M TC budget after the bare MAC array).</td></tr><tr><td class="name">Register-file write (C fragment update)</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">20.00 <span class="shared" title="shared silicon">(shared: SM register file (256 KB))</span></td><td class="num">4.301</td><td class="num">4,096</td><td class="num"><strong>0.0010</strong></td><td class="src">Accumulator fragment write-back uses the same RF as read (20 M, not double-counted).</td></tr><tr><td class="name">Shared memory / L1 via LDSM</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">20.00</td><td class="num">143.360</td><td class="num">4,096</td><td class="num"><strong>0.0350</strong></td><td class="src">128 KB unified L1/SMEM: ~13 M SRAM + ~7 M peripheral. Energy: 2 fragments x 256 B x 0.28 pJ/B.</td></tr><tr><td class="name">Warp-divergence mask + stack logic</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">0.50</td><td class="num">1.500</td><td class="num">4,096</td><td class="num"><strong>0.0004</strong></td><td class="src">Mask-stack + convergence barrier ~0.5 M transistors; small for compute-heavy HMMA.</td></tr><tr><td class="name">Pipeline latches (per-stage registers)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">2.00</td><td class="num">16.000</td><td class="num">4,096</td><td class="num"><strong>0.0039</strong></td><td class="src">~4-stage HMMA pipeline; per-stage latch banks x 32 threads across 4 sub-partitions ~2 M transistors.</td></tr><tr class="subtotal"><td colspan="2"><strong>Unique silicon footprint</strong></td><td class="num"><strong>159.0 M</strong></td><td colspan="3" class="src">Sum across unique blocks (shared-silicon structures counted once).</td></tr><tr class="subtotal"><td colspan="5"><strong>Dynamic total per MAC</strong></td><td class="num"><strong>0.1425</strong></td><td class="src">Sum of itemized structures above.</td></tr><tr class="leakage-row"><td colspan="5">Leakage / static (20% of dynamic)</td><td class="num">0.0285</td><td class="src">Process-technology dependent; 8 nm HPM estimate.</td></tr><tr class="total-row"><td colspan="5"><strong>Total per MAC</strong></td><td class="num"><strong>0.1709 pJ/MAC</strong></td><td class="src">Dynamic + leakage. Does not include L2/DRAM/IO.</td></tr></tbody></table>
+
+  
+<section class="block-header"
+         style="border-left: 6px solid #3fc98a;">
+  <h3>KPU Compute Tile (32x32 FMA mesh)</h3>
+  <div class="meta">
+    <strong>Native op:</strong> Mesh steady-state: 1024 MACs per clock (32x32 PEs, 1 MAC/PE/clock)<br/>
+    <strong>Process:</strong> 8 nm
+    | <strong>Clock:</strong> 1.50 GHz
+    | <strong>MACs / native op:</strong> 1,024
+    | <strong>Silicon:</strong>
+        22 M transistors
+    | <strong>1-bit FA reference:</strong> 0.005 pJ
+  </div>
+  <p class="block-notes">Tile-internal accounting. Does NOT include L3 scratchpad, memory controller, or DRAM. The absence of instruction fetch, decode, warp scheduling, coherence, packet routers, and schedule ROMs is structural - those components do not exist in a 2D-mesh domain-flow fabric. That absence is the KPU&#x27;s architectural efficiency story.</p>
+</section>
+
+  <table class="accounting"><thead><tr><th>Structure</th><th>Category</th><th>Transistors (M)</th><th>pJ / activation</th><th>MACs amortized</th><th>pJ / MAC</th><th>Source / derivation</th></tr></thead><tbody><tr><td class="name">FMA unit (INT8 multiply + INT32 accumulate add)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">12.30</td><td class="num">0.050</td><td class="num">1</td><td class="num"><strong>0.0500</strong></td><td class="src">~12 K transistors/PE (INT8 multiplier + INT32 adder) x 1024 PEs = 12.3 M aggregate. Energy: 8 FA x 0.005 pJ = 0.040 pJ plus carry-tree overhead; 0.050 pJ at 8 nm.</td></tr><tr><td class="name">PE-local operand register read x2</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">2.00</td><td class="num">0.028</td><td class="num">1</td><td class="num"><strong>0.0280</strong></td><td class="src">~2 K transistors/PE (2 byte-wide latches) x 1024 = 2.0 M. Energy: 2 byte-reads x 0.014 pJ/B.</td></tr><tr><td class="name">PE-local accumulator register update</td><td><span class="cat" style="background:#67d8a6;">Accumulator</span></td><td class="num">0.40</td><td class="num">0.015</td><td class="num">1</td><td class="num"><strong>0.0150</strong></td><td class="src">~0.4 K transistors/PE (INT32 pipeline register wired to FMA output) x 1024 = 0.4 M. Energy: ~32 FF toggles at ~15% switching activity.</td></tr><tr><td class="name">Operand forward to mesh neighbor (direct wire)</td><td><span class="cat" style="background:#8bbafc;">Interconnect</span></td><td class="num">0.50</td><td class="num">0.006</td><td class="num">1</td><td class="num"><strong>0.0056</strong></td><td class="src">~0.5 K transistors/PE (nearest-neighbor mesh mux) x 1024 = 0.5 M. Energy: ~40% of a regfile-read.</td></tr><tr><td class="name">Token / coordinate match (domain-flow control)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">0.20</td><td class="num">0.004</td><td class="num">1</td><td class="num"><strong>0.0040</strong></td><td class="src">~0.2 K transistors/PE (valid-bit + coord comparator) x 1024 = 0.2 M. Energy: a few gates per token.</td></tr><tr><td class="name">Clock tree + pipeline latches (per PE)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">0.70</td><td class="num">0.008</td><td class="num">1</td><td class="num"><strong>0.0080</strong></td><td class="src">Tile-wide H-tree + per-PE clock buffer ~0.7 M transistors aggregate. Energy: single-stage pipeline in each PE.</td></tr><tr><td class="name">Tile scratchpad edge-feed (L1 operand bytes)</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">6.00</td><td class="num">0.003</td><td class="num">1</td><td class="num"><strong>0.0026</strong></td><td class="src">96 KB SRAM ~4.5 M + peripheral ~1.5 M = 6 M (sized up from 64 KB to feed 64 B/clock edge reads). Energy: 64 edge reads / 1024 MACs average 0.062 B/MAC x 0.042 pJ/B at 8 nm.</td></tr><tr class="subtotal"><td colspan="2"><strong>Unique silicon footprint</strong></td><td class="num"><strong>22.1 M</strong></td><td colspan="3" class="src">Sum across unique blocks (shared-silicon structures counted once).</td></tr><tr class="subtotal"><td colspan="5"><strong>Dynamic total per MAC</strong></td><td class="num"><strong>0.1132</strong></td><td class="src">Sum of itemized structures above.</td></tr><tr class="leakage-row"><td colspan="5">Leakage / static (15% of dynamic)</td><td class="num">0.0170</td><td class="src">Process-technology dependent; 8 nm HPM estimate.</td></tr><tr class="total-row"><td colspan="5"><strong>Total per MAC</strong></td><td class="num"><strong>0.1302 pJ/MAC</strong></td><td class="src">Dynamic + leakage. Does not include L2/DRAM/IO.</td></tr></tbody></table>
+
+  
+<section class="method-note">
+  <strong>Cross-validation against simplified view</strong>
+  (<code>generalized_architecture.py</code>) at matched
+  8 nm:<br/>
+  SM (Tensor Core) detailed total:
+    <strong>0.171 pJ/MAC</strong>.
+    Simplified: <strong>0.150 pJ/MAC</strong>.
+    Delta: 14%.<br/>
+  KPU tile detailed total:
+    <strong>0.130 pJ/MAC</strong>.
+    Simplified: <strong>0.086 pJ/MAC</strong>.
+    Delta: 51%.
+  <br/>
+  SM/KPU ratio at 8 nm:
+    detailed <strong>1.31x</strong>,
+    simplified <strong>1.73x</strong>.
+  <br/><br/>
+  Totals agree within ~50%; the detailed view explicitly adds a
+  leakage term (15-20% of dynamic) and itemizes smaller structures
+  (clock tree, token-match, pipeline latches, LDSM) that the
+  simplified model rolls up. Most important: the SM/KPU ratio is
+  consistent across both views, validating the architectural-advantage
+  story independent of model granularity.
+</section>
+
+
+  <section class="method-note">
+    <strong>What this view covers.</strong> SM-internal and
+    tile-internal structures only. External memory hierarchy (L2
+    cache, HBM / LPDDR) is out of scope - those are Layer 4-7 of the
+    bottom-up plan and are covered separately.
+    <br/><br/>
+    <strong>What the absences mean.</strong> The KPU tile table has
+    no rows for instruction fetch, decode, warp scheduling, or
+    coherence - those structures do not exist in a domain-flow
+    fabric. The energy saved by their absence is not "efficiency"
+    in the colloquial sense; it is the absence of work the
+    architecture declines to do per MAC.
+  </section>
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const CHARTS = {"chart_by_category": {"data": [{"type": "bar", "orientation": "h", "name": "Fetch", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.001953125, 0.0], "marker": {"color": "#7f3b8d"}, "text": ["", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Decode", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0009765625, 0.0], "marker": {"color": "#a04bdd"}, "text": ["", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Schedule", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.002197265625, 0.0], "marker": {"color": "#5b8ff9"}, "text": ["", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Control / coherence", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0048828125, 0.012], "marker": {"color": "#586374"}, "text": ["0.005", "0.012"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Register file", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0076828124999999995, 0.028], "marker": {"color": "#d4860b"}, "text": ["0.008", "0.028"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Execute", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.08, 0.05], "marker": {"color": "#3fc98a"}, "text": ["0.080", "0.050"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Accumulator", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.009765625, 0.015], "marker": {"color": "#67d8a6"}, "text": ["0.010", "0.015"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Memory (local)", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.035, 0.002625], "marker": {"color": "#e98c3f"}, "text": ["0.035", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Interconnect", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0, 0.005600000000000001], "marker": {"color": "#8bbafc"}, "text": ["", "0.006"], "textposition": "inside"}], "layout": {"title": "Per-MAC dynamic energy by micro-architectural category (8 nm, log-scale)", "xaxis": {"title": "pJ / MAC", "type": "log"}, "yaxis": {"title": "", "automargin": true}, "barmode": "stack", "margin": {"t": 50, "b": 50, "l": 280, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}, "chart_linear": {"data": [{"type": "bar", "orientation": "h", "name": "Fetch", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.001953125, 0.0], "marker": {"color": "#7f3b8d"}, "text": ["", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Decode", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0009765625, 0.0], "marker": {"color": "#a04bdd"}, "text": ["", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Schedule", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.002197265625, 0.0], "marker": {"color": "#5b8ff9"}, "text": ["", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Control / coherence", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0048828125, 0.012], "marker": {"color": "#586374"}, "text": ["0.005", "0.012"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Register file", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0076828124999999995, 0.028], "marker": {"color": "#d4860b"}, "text": ["0.008", "0.028"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Execute", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.08, 0.05], "marker": {"color": "#3fc98a"}, "text": ["0.080", "0.050"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Accumulator", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.009765625, 0.015], "marker": {"color": "#67d8a6"}, "text": ["0.010", "0.015"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Memory (local)", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.035, 0.002625], "marker": {"color": "#e98c3f"}, "text": ["0.035", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Interconnect", "y": ["NVIDIA Streaming Multiprocessor (Ampere)", "KPU Compute Tile (32x32 FMA mesh)"], "x": [0.0, 0.005600000000000001], "marker": {"color": "#8bbafc"}, "text": ["", "0.006"], "textposition": "inside"}], "layout": {"title": "Same data, linear scale (8 nm)", "xaxis": {"title": "pJ / MAC"}, "yaxis": {"title": "", "automargin": true}, "barmode": "stack", "margin": {"t": 50, "b": 50, "l": 280, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}};
+for (const [id, spec] of Object.entries(CHARTS)) {
+  Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>

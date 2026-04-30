@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Building-block energy accounting</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+table.blocks { width: 100%; border-collapse: collapse; background: #fff;
+               margin-bottom: 18px; font-size: 13px; }
+table.blocks th, table.blocks td { padding: 7px 10px;
+                                     border-bottom: 1px solid #e3e6eb;
+                                     vertical-align: top; }
+table.blocks th { font-size: 11px; text-transform: uppercase;
+                  color: #586374; background: #f3f5f8; text-align: left; }
+table.blocks td.name { font-weight: 600; color: #0a2540; }
+table.blocks td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.blocks td.spec { color: #3a4452; font-size: 12px; }
+table.blocks td.src { color: #586374; font-size: 11px; max-width: 320px; }
+table.blocks tr.total-row td { background: #eef6ea;
+                                border-top: 2px solid #3fc98a;
+                                border-bottom: 2px solid #3fc98a;
+                                padding: 12px 10px; font-size: 14px; }
+table.side-by-side th.num { text-align: right; }
+table.side-by-side tbody tr td:not(.name) { text-align: right; }
+span.cat { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           color: white; font-size: 11px; font-weight: 600; }
+section.block-header { background: #fff; padding: 14px 20px;
+                        border-radius: 0 6px 6px 0;
+                        margin-bottom: 12px;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+section.block-header h3 { margin: 0 0 6px; color: #0a2540; }
+section.block-header .meta { color: #586374; font-size: 13px;
+                              margin-bottom: 8px; }
+section.block-header p.block-notes { color: #3a4452; font-size: 13px;
+                                       margin: 0; }
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+  margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px; margin: 0 0 12px; }
+.plot { width: 100%; min-height: 360px; }
+section.method-note { background: #eef2f7; padding: 14px 18px;
+                      border-left: 3px solid #0a2540; border-radius: 4px;
+                      margin: 18px 0; }
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+             font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>Building-block energy accounting (per clock)</h1>
+    <div class="subtitle">Engine-level budget for SM vs. KPU tile | generated 2026-04-29T19:38:54.806886+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>Engine-level energy budget: SM vs. KPU tile</h2>
+    <div class="meta">Per-clock energy of every major component as it
+      is deployed on the SoC - all reported at 8 nm to match the
+      Jetson Ampere baseline so direct comparisons do not need a
+      process-normalization chart. For each component we report
+      <strong>transistor count, silicon area (mm^2), and energy per
+      clock</strong> so circuit-designer intuition can audit the
+      numbers. Complements the
+      <a href="microarch_accounting.html">per-MAC view</a>; the two
+      reconcile via <code>pJ/MAC = pJ_per_clock /
+      MACs_per_clock</code>.</div>
+  </section>
+
+  <section class="method-note">
+    <h3 style="margin-top:0;">Quantitative component tables</h3>
+    <p>One table per building block. Columns are
+      <strong>Transistors (M)</strong>,
+      <strong>Area (mm^2)</strong>, and
+      <strong>pJ / clock</strong> - the three independent grounding
+      estimates. Energy totals are <em>not</em> normalized to pJ/MAC
+      here; this is the raw silicon budget the SoC must supply every
+      cycle. The bar graphs below visualize the same data.</p>
+  </section>
+
+  
+<section class="block-header"
+         style="border-left: 6px solid #5b8ff9;">
+  <h3>NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)</h3>
+  <div class="meta">
+    <strong>Process:</strong> 8 nm
+    | <strong>Clock:</strong> 1.50 GHz
+    | <strong>Native throughput:</strong>
+        4,096 MACs/clock (INT8 HMMA (4 TCs x 16x16x16))
+    | <strong>Silicon:</strong>
+        240 M transistors
+        (3.84 mm^2)
+    | <strong>Power:</strong> 1538 mW
+    | <strong>pJ/MAC:</strong> 0.250
+  </div>
+  <p class="block-notes">SM-level budget during INT8 HMMA. Excludes L2 cache, memory controller, and DRAM (SoC-level). Silicon footprint ~240 M transistors, dominated by the 4 Tensor Cores (~100 M) and local caches/RF (~60 M). At the silicon-capability clock of 1.5 GHz, one SM draws ~1.54 W; the Orin AGX&#x27;s 0.65 GHz sustain is a TDP-limited operating point (16 SMs x 1.54 W at 1.5 GHz = 24 W compute alone, past the 30 W SoC envelope once L2, memory, CPU, etc. are included).</p>
+</section>
+<table class="blocks"><thead><tr><th>Component</th><th>Category</th><th>Count</th><th>Size / spec</th><th>Trans. (M)</th><th>Area (mm^2)</th><th>pJ / clock</th><th>% of engine</th><th>Activity assumption / source</th></tr></thead><tbody><tr><td class="name">Register file (main)</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">64K x 32b = 256 KB, 4-bank</td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>100.0</strong></td><td class="num">9.8%</td><td class="src">HMMA frag A+B reads ~512 B / issue; 1 MMA issue / clock distributed across 4 TC partitions<br/><em>256 KB 6T SRAM array ~13 M + peripheral ~7 M = 20 M. Area @ 8 nm SRAM density ~100 MT/mm^2 -&gt; 0.20 mm^2. Energy: 512 B x 0.014 pJ/B = 7 pJ/issue dynamic + array static + clock ~95 pJ/clock.</em></td></tr><tr><td class="name">Instruction pipeline (L0 I$ + decode + IB)</td><td><span class="cat" style="background:#7f3b8d;">Fetch</span></td><td class="num">4</td><td class="spec">4 sub-partitions, 1 inst/clk each</td><td class="num">8.0</td><td class="num">0.120</td><td class="num"><strong>50.0</strong></td><td class="num">4.9%</td><td class="src">4 schedulers issue 1 instruction/clock each<br/><em>2 KB L0 I$ x 4 + decoder + IB latches ~2 M each = 8 M. Area: mixed SRAM + logic ~65 MT/mm^2 -&gt; 0.12 mm^2. Energy: ~8 pJ fetch + ~4 pJ decode per issue x 4.</em></td></tr><tr><td class="name">Warp scheduler + scoreboard</td><td><span class="cat" style="background:#5b8ff9;">Schedule</span></td><td class="num">4</td><td class="spec">1 scheduler + scoreboard per sub-partition</td><td class="num">5.0</td><td class="num">0.110</td><td class="num"><strong>40.0</strong></td><td class="num">3.9%</td><td class="src">Ready-queue check + dependency tracking per issue<br/><em>4 schedulers x ~1 M each + ~1 M scoreboard = 5 M. Area at logic density 45 MT/mm^2 -&gt; 0.11 mm^2. Energy: ~10 pJ per issued instruction x 4.</em></td></tr><tr><td class="name">Operand collector + bypass crossbar</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">4</td><td class="spec">1 collector per sub-partition, 4-bank xbar</td><td class="num">10.0</td><td class="num">0.250</td><td class="num"><strong>90.0</strong></td><td class="num">8.8%</td><td class="src">All issues pass through operand collector<br/><em>4 collectors + 4-bank crossbar ~10 M. Area is wire-heavy (effective ~40 MT/mm^2) -&gt; 0.25 mm^2. Energy dominated by crossbar static capacitance (~22 pJ x 4).</em></td></tr><tr><td class="name">CUDA cores (FP32/INT32 FMA)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">128</td><td class="spec">128 lanes = 4 partitions x 32</td><td class="num">10.0</td><td class="num">0.220</td><td class="num"><strong>15.0</strong></td><td class="num">1.5%</td><td class="src">Clock-gated during HMMA; only clock-tree + leakage<br/><em>128 FP32 FMA units x ~78 K transistors each = 10 M. Area at logic density 45 MT/mm^2 -&gt; 0.22 mm^2. Idle HMMA activity: ~5% duty yields 15 pJ/clock.</em></td></tr><tr><td class="name">SFUs (special function units)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">16</td><td class="spec">4 SFUs per partition</td><td class="num">2.0</td><td class="num">0.040</td><td class="num"><strong>10.0</strong></td><td class="num">1.0%</td><td class="src">Idle on pure GEMM<br/><em>2 M at logic density -&gt; 0.04 mm^2. Clock+leak only.</em></td></tr><tr><td class="name">Tensor Cores</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">4</td><td class="spec">16x16x16 HMMA, 1024 INT8 MAC/clock each</td><td class="num">100.0</td><td class="num">1.250</td><td class="num"><strong>580.0</strong></td><td class="num">56.6%</td><td class="src">All 4 TCs firing; 4096 INT8 MACs/clock aggregate<br/><em>Per TC ~25 M: 1024 INT8 MAC units + local operand regs + 16x16 INT32 accum + fragment broadcast. Dense MAC array density ~80 MT/mm^2 -&gt; 1.25 mm^2 for 4 TCs. Energy: 4096 MAC x ~0.12 pJ + ~90 pJ internal.</em></td></tr><tr><td class="name">L1 data cache / shared memory</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">128 KB, unified L1/SMEM</td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>30.0</strong></td><td class="num">2.9%</td><td class="src">LDSM fragment loads feed Tensor Cores<br/><em>128 KB 6T SRAM ~13 M + peripheral ~7 M = 20 M. Area at SRAM density ~100 MT/mm^2 -&gt; 0.20 mm^2. Modest HMMA LDSM traffic ~30 pJ/clock.</em></td></tr><tr><td class="name">RT cores (ray-tracing)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">1</td><td class="spec">Ampere 2nd-gen, ray-triangle intersect</td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>10.0</strong></td><td class="num">1.0%</td><td class="src">Idle on inference workload<br/><em>~20 M logic at 50 MT/mm^2 -&gt; 0.40 mm^2. Clock-tree + leakage only on GEMM.</em></td></tr><tr><td class="name">Texture / surface unit</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">4 texture filters + LSU</td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>20.0</strong></td><td class="num">2.0%</td><td class="src">Mostly idle on GEMM; light LSU traffic for weights<br/><em>~20 M mixed logic + small filter caches at 50 MT/mm^2 -&gt; 0.40 mm^2. Texture gated; LSU light.</em></td></tr><tr><td class="name">Clock tree + leakage (SM-wide)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">1</td><td class="spec">H-tree + rail decoupling + unaccounted infra</td><td class="num">25.0</td><td class="num">0.650</td><td class="num"><strong>80.0</strong></td><td class="num">7.8%</td><td class="src">Always-on; includes non-itemized local infrastructure<br/><em>~25 M distributed transistors (clock buffers, decap, rail muxes) -&gt; 0.65 mm^2. ~8% of dynamic engine power at 8 nm HPM.</em></td></tr><tr class="total-row"><td colspan="4"><strong>Engine total per clock</strong></td><td class="num"><strong>240.0</strong></td><td class="num"><strong>3.84</strong></td><td class="num"><strong>1025.0 pJ/clock</strong></td><td class="num"><strong>100%</strong></td><td class="src">Execute fraction: <strong>60.0%</strong>. Power at 1.50 GHz: <strong>1538 mW</strong>. Derived pJ/MAC (cross-check): <strong>0.250</strong> (native throughput 4,096 MACs/clock).</td></tr></tbody></table>
+
+<section class="block-header"
+         style="border-left: 6px solid #9db4e0;">
+  <h3>NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)</h3>
+  <div class="meta">
+    <strong>Process:</strong> 8 nm
+    | <strong>Clock:</strong> 1.50 GHz
+    | <strong>Native throughput:</strong>
+        128 MACs/clock (FP32 FMA (128 CUDA-core lanes))
+    | <strong>Silicon:</strong>
+        240 M transistors
+        (3.84 mm^2)
+    | <strong>Power:</strong> 1170 mW
+    | <strong>pJ/MAC:</strong> 6.094
+  </div>
+  <p class="block-notes">Same SM silicon, different workload: the 128 CUDA-core lanes execute one FP32 FMA per clock while Tensor Cores leak. FP32 GEMM, Kalman filters, and other non-DNN workloads cannot use TC and pay the per-lane FMA cost. Per-MAC energy is ~20x the TC path - the quantitative reason Tensor Cores exist.</p>
+</section>
+<table class="blocks"><thead><tr><th>Component</th><th>Category</th><th>Count</th><th>Size / spec</th><th>Trans. (M)</th><th>Area (mm^2)</th><th>pJ / clock</th><th>% of engine</th><th>Activity assumption / source</th></tr></thead><tbody><tr><td class="name">Register file (main)</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">64K x 32b = 256 KB, 4-bank</td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>90.0</strong></td><td class="num">11.5%</td><td class="src">128 lanes x ~3 operands (4 B each, FP32) per FMA; ~1.5 KB/clock RF read + ~0.5 KB writeback<br/><em>Same silicon as TC path. Energy: 128 x 12 B reads x 0.014 pJ/B = 21 pJ dynamic + array static ~70 pJ.</em></td></tr><tr><td class="name">Instruction pipeline (L0 I$ + decode + IB)</td><td><span class="cat" style="background:#7f3b8d;">Fetch</span></td><td class="num">4</td><td class="spec">4 sub-partitions, 1 inst/clk each</td><td class="num">8.0</td><td class="num">0.120</td><td class="num"><strong>50.0</strong></td><td class="num">6.4%</td><td class="src">4 schedulers issue 1 instruction/clock each<br/><em>Same silicon as TC path (instruction stream same).</em></td></tr><tr><td class="name">Warp scheduler + scoreboard</td><td><span class="cat" style="background:#5b8ff9;">Schedule</span></td><td class="num">4</td><td class="spec">1 scheduler + scoreboard per sub-partition</td><td class="num">5.0</td><td class="num">0.110</td><td class="num"><strong>40.0</strong></td><td class="num">5.1%</td><td class="src">Ready-queue check + dependency tracking per issue<br/><em>Same silicon as TC path.</em></td></tr><tr><td class="name">Operand collector + bypass crossbar</td><td><span class="cat" style="background:#d4860b;">Register file</span></td><td class="num">4</td><td class="spec">1 collector per sub-partition, 4-bank xbar</td><td class="num">10.0</td><td class="num">0.250</td><td class="num"><strong>90.0</strong></td><td class="num">11.5%</td><td class="src">All CUDA-core issues pass through operand collector<br/><em>Same silicon; comparable crossbar traffic ~22 pJ x 4.</em></td></tr><tr><td class="name">CUDA cores (FP32/INT32 FMA)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">128</td><td class="spec">128 lanes = 4 partitions x 32, FP32 FMA</td><td class="num">10.0</td><td class="num">0.220</td><td class="num"><strong>320.0</strong></td><td class="num">41.0%</td><td class="src">All 128 lanes firing one FP32 FMA per clock<br/><em>Same 10 M silicon. FP32 FMA ~2.5 pJ at 8 nm (Horowitz; ~23 FA for mantissa multiply + 24-bit add); 128 x 2.5 = 320 pJ.</em></td></tr><tr><td class="name">SFUs (special function units)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">16</td><td class="spec">4 SFUs per partition</td><td class="num">2.0</td><td class="num">0.040</td><td class="num"><strong>10.0</strong></td><td class="num">1.3%</td><td class="src">Idle on FP32 GEMM<br/><em>Same silicon; clock-tree + leakage only.</em></td></tr><tr><td class="name">Tensor Cores</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">4</td><td class="spec">16x16x16 HMMA, 1024 INT8 MAC/clock each</td><td class="num">100.0</td><td class="num">1.250</td><td class="num"><strong>50.0</strong></td><td class="num">6.4%</td><td class="src">Clock-gated; only clock-tree + leakage<br/><em>Same 100 M silicon; 8 nm HPM leakage ~50 pJ/clock.</em></td></tr><tr><td class="name">L1 data cache / shared memory</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">128 KB, unified L1/SMEM</td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>20.0</strong></td><td class="num">2.6%</td><td class="src">Light LSU traffic for FP32 GEMM tiles<br/><em>Same SRAM silicon; less fragment-heavy ~20 pJ/clock.</em></td></tr><tr><td class="name">RT cores (ray-tracing)</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">1</td><td class="spec">Ampere 2nd-gen, ray-triangle intersect</td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>10.0</strong></td><td class="num">1.3%</td><td class="src">Idle on GEMM workload<br/><em>Same silicon; clock-tree + leakage only.</em></td></tr><tr><td class="name">Texture / surface unit</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">4 texture filters + LSU</td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>20.0</strong></td><td class="num">2.6%</td><td class="src">Mostly idle on GEMM<br/><em>Same silicon; texture gated; LSU light.</em></td></tr><tr><td class="name">Clock tree + leakage (SM-wide)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">1</td><td class="spec">H-tree + rail decoupling + unaccounted infra</td><td class="num">25.0</td><td class="num">0.650</td><td class="num"><strong>80.0</strong></td><td class="num">10.3%</td><td class="src">Always-on<br/><em>Same silicon; ~8% of dynamic engine power.</em></td></tr><tr class="total-row"><td colspan="4"><strong>Engine total per clock</strong></td><td class="num"><strong>240.0</strong></td><td class="num"><strong>3.84</strong></td><td class="num"><strong>780.0 pJ/clock</strong></td><td class="num"><strong>100%</strong></td><td class="src">Execute fraction: <strong>50.0%</strong>. Power at 1.50 GHz: <strong>1170 mW</strong>. Derived pJ/MAC (cross-check): <strong>6.094</strong> (native throughput 128 MACs/clock).</td></tr></tbody></table>
+
+<section class="block-header"
+         style="border-left: 6px solid #3fc98a;">
+  <h3>KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)</h3>
+  <div class="meta">
+    <strong>Process:</strong> 8 nm
+    | <strong>Clock:</strong> 1.50 GHz
+    | <strong>Native throughput:</strong>
+        1,024 MACs/clock (INT8 MAC (1024 PEs))
+    | <strong>Silicon:</strong>
+        22 M transistors
+        (0.29 mm^2)
+    | <strong>Power:</strong> 216 mW
+    | <strong>pJ/MAC:</strong> 0.141
+  </div>
+  <p class="block-notes">Tile-level budget in steady-state mesh throughput at 8 nm, 1.5 GHz. Silicon footprint ~22 M transistors - roughly 1/10 the size of one Ampere SM. At 1.5 GHz sustained, ~215 mW/tile; a T128 deploying 128 tiles at ~55% utilization draws ~15 W compute (128 x 215 mW x 0.55 + ~3 W overhead = ~18 W), which exceeds the previous 12 W T128 target. Either bump the TDP envelope to match or rebalance via clock / tile count. See cli/check_tdp_feasibility.py.</p>
+</section>
+<table class="blocks"><thead><tr><th>Component</th><th>Category</th><th>Count</th><th>Size / spec</th><th>Trans. (M)</th><th>Area (mm^2)</th><th>pJ / clock</th><th>% of engine</th><th>Activity assumption / source</th></tr></thead><tbody><tr><td class="name">L1 scratchpad (tile-local, edge-feed)</td><td><span class="cat" style="background:#e98c3f;">Memory (local)</span></td><td class="num">1</td><td class="spec">96 KB SRAM, banked</td><td class="num">6.0</td><td class="num">0.060</td><td class="num"><strong>14.0</strong></td><td class="num">9.7%</td><td class="src">64 edge byte-reads/clock (A-edge + B-edge) plus periodic output writeback<br/><em>96 KB 6T SRAM ~4.5 M + peripheral ~1.5 M = 6 M (sized up from 64 KB to feed 64 B/clock edge reads). Area at SRAM density ~100 MT/mm^2 -&gt; 0.06 mm^2. Energy: 64 reads x 0.15 pJ/B + writeback ~4 pJ = ~14 pJ/clock.</em></td></tr><tr><td class="name">2D mesh of FMAs</td><td><span class="cat" style="background:#3fc98a;">Execute</span></td><td class="num">1024</td><td class="spec">32x32 PE grid, 1 INT8 MAC/PE/clock</td><td class="num">15.3</td><td class="num">0.190</td><td class="num"><strong>113.7</strong></td><td class="num">79.0%</td><td class="src">All 1024 PEs fire in steady-state wavefront<br/><em>~15 K transistors/PE (INT8 MAC + 2 op regs + INT32 accum + mesh wire + token match) x 1024 = 15.3 M. Area at dense MAC density ~80 MT/mm^2 -&gt; 0.19 mm^2. Energy: 0.111 pJ/PE/clock x 1024 = 113.7 pJ. See microarch_accounting.build_kpu_tile_accounting().</em></td></tr><tr><td class="name">Token / coordinate generators (mesh edges)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">64</td><td class="spec">64 injectors at A-edge + B-edge</td><td class="num">0.2</td><td class="num">0.005</td><td class="num"><strong>3.3</strong></td><td class="num">2.3%</td><td class="src">Generate + dispatch one token per edge per clock<br/><em>Edge-only control: 64 injectors x ~2 K transistors = 0.2 M. Area ~0.005 mm^2. Energy: 64 x ~0.05 pJ token generation at 8 nm.</em></td></tr><tr><td class="name">Clock tree + leakage (tile-wide)</td><td><span class="cat" style="background:#586374;">Control / coherence</span></td><td class="num">1</td><td class="spec">H-tree + rail decoupling</td><td class="num">0.7</td><td class="num">0.030</td><td class="num"><strong>13.0</strong></td><td class="num">9.0%</td><td class="src">Simple H-tree; no OOO machinery, no schedulers<br/><em>~0.7 M distributed clock buffers + decap (scales with 1024-PE mesh). Area ~0.03 mm^2. ~10% of dynamic fabric power at 8 nm.</em></td></tr><tr class="total-row"><td colspan="4"><strong>Engine total per clock</strong></td><td class="num"><strong>22.2</strong></td><td class="num"><strong>0.29</strong></td><td class="num"><strong>144.0 pJ/clock</strong></td><td class="num"><strong>100%</strong></td><td class="src">Execute fraction: <strong>79.0%</strong>. Power at 1.50 GHz: <strong>216 mW</strong>. Derived pJ/MAC (cross-check): <strong>0.141</strong> (native throughput 1,024 MACs/clock).</td></tr></tbody></table>
+
+  <section class="chart-section">
+    <h3>Bar-graph view: engine energy per clock by category</h3>
+    <p class="chart-desc">Absolute pJ/clock at 8 nm and steady-state
+      clock. Stacked by component category. Same data as the per-block
+      tables above.</p>
+    <div id="chart_per_clock" class="plot"></div>
+  </section>
+
+  <section class="chart-section">
+    <h3>Bar-graph view: silicon footprint</h3>
+    <p class="chart-desc">Estimated transistor count for each building
+      block. Energy should scale roughly with active silicon; large
+      deviations indicate either an architectural advantage or an
+      estimation error.</p>
+    <div id="chart_transistors" class="plot" style="min-height:260px;"></div>
+  </section>
+
+  <section class="chart-section">
+    <h3>Side-by-side component comparison</h3>
+    <p class="chart-desc">Same data as the per-block tables, laid out
+      with one row per component and two columns per building block
+      (Trans. M / pJ/clk) so differences can be read column-to-column.</p>
+    <table class="blocks side-by-side"><thead><tr><th rowspan="2">Component</th><th colspan="3" style="text-align:center; border-bottom:2px solid #5b8ff9;">NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">8 nm, 1.50 GHz, 4,096 MACs/clk</span></th><th colspan="3" style="text-align:center; border-bottom:2px solid #9db4e0;">NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">8 nm, 1.50 GHz, 128 MACs/clk</span></th><th colspan="3" style="text-align:center; border-bottom:2px solid #3fc98a;">KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">8 nm, 1.50 GHz, 1,024 MACs/clk</span></th></tr><tr><th class="num">Trans. (M)</th><th class="num">Area (mm^2)</th><th class="num">pJ/clk</th><th class="num">Trans. (M)</th><th class="num">Area (mm^2)</th><th class="num">pJ/clk</th><th class="num">Trans. (M)</th><th class="num">Area (mm^2)</th><th class="num">pJ/clk</th></tr></thead><tbody><tr><td class="name">Register file (main)</td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>100.0</strong></td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>90.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">Instruction pipeline (L0 I$ + decode + IB)</td><td class="num">8.0</td><td class="num">0.120</td><td class="num"><strong>50.0</strong></td><td class="num">8.0</td><td class="num">0.120</td><td class="num"><strong>50.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">Warp scheduler + scoreboard</td><td class="num">5.0</td><td class="num">0.110</td><td class="num"><strong>40.0</strong></td><td class="num">5.0</td><td class="num">0.110</td><td class="num"><strong>40.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">Operand collector + bypass crossbar</td><td class="num">10.0</td><td class="num">0.250</td><td class="num"><strong>90.0</strong></td><td class="num">10.0</td><td class="num">0.250</td><td class="num"><strong>90.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">CUDA cores (FP32/INT32 FMA)</td><td class="num">10.0</td><td class="num">0.220</td><td class="num"><strong>15.0</strong></td><td class="num">10.0</td><td class="num">0.220</td><td class="num"><strong>320.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">SFUs (special function units)</td><td class="num">2.0</td><td class="num">0.040</td><td class="num"><strong>10.0</strong></td><td class="num">2.0</td><td class="num">0.040</td><td class="num"><strong>10.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">Tensor Cores</td><td class="num">100.0</td><td class="num">1.250</td><td class="num"><strong>580.0</strong></td><td class="num">100.0</td><td class="num">1.250</td><td class="num"><strong>50.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">L1 data cache / shared memory</td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>30.0</strong></td><td class="num">20.0</td><td class="num">0.200</td><td class="num"><strong>20.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">RT cores (ray-tracing)</td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>10.0</strong></td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>10.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">Texture / surface unit</td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>20.0</strong></td><td class="num">20.0</td><td class="num">0.400</td><td class="num"><strong>20.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">Clock tree + leakage (SM-wide)</td><td class="num">25.0</td><td class="num">0.650</td><td class="num"><strong>80.0</strong></td><td class="num">25.0</td><td class="num">0.650</td><td class="num"><strong>80.0</strong></td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr><tr><td class="name">L1 scratchpad (tile-local, edge-feed)</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">6.0</td><td class="num">0.060</td><td class="num"><strong>14.0</strong></td></tr><tr><td class="name">2D mesh of FMAs</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">15.3</td><td class="num">0.190</td><td class="num"><strong>113.7</strong></td></tr><tr><td class="name">Token / coordinate generators (mesh edges)</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">0.2</td><td class="num">0.005</td><td class="num"><strong>3.3</strong></td></tr><tr><td class="name">Clock tree + leakage (tile-wide)</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">0.7</td><td class="num">0.030</td><td class="num"><strong>13.0</strong></td></tr><tr class="total-row"><td><strong>Engine total</strong></td><td class="num"><strong>240.0</strong></td><td class="num"><strong>3.84</strong></td><td class="num"><strong>1025</strong></td><td class="num"><strong>240.0</strong></td><td class="num"><strong>3.84</strong></td><td class="num"><strong>780</strong></td><td class="num"><strong>22.2</strong></td><td class="num"><strong>0.29</strong></td><td class="num"><strong>144</strong></td></tr><tr class="total-row"><td><strong>Derived pJ/MAC</strong></td><td class="num" colspan="3"><strong>0.250 pJ/MAC</strong> (native 4,096)</td><td class="num" colspan="3"><strong>6.094 pJ/MAC</strong> (native 128)</td><td class="num" colspan="3"><strong>0.141 pJ/MAC</strong> (native 1,024)</td></tr><tr class="total-row"><td><strong>Engine power</strong></td><td class="num" colspan="3"><strong>1538 mW</strong> at 1.50 GHz</td><td class="num" colspan="3"><strong>1170 mW</strong> at 1.50 GHz</td><td class="num" colspan="3"><strong>216 mW</strong> at 1.50 GHz</td></tr></tbody></table>
+  </section>
+
+  <section class="method-note" style="background:#fff8e6;
+    border-left-color:#d4860b;">
+    <h3 style="margin-top:0;">Silicon speed-of-light</h3>
+    <p>The <em>silicon ceiling</em> is what a process node can do if
+      you fill a die with nothing but bare ALUs and clock them at the
+      silicon's capability frequency. It is the upper bound against
+      which every shipping product must be measured. Incumbents ship
+      well below their own silicon ceiling because TDP envelopes,
+      packaging, and architectural scaffolding all consume power that
+      bare ALUs do not.</p>
+    <p>The ALU design space has three orthogonal axes that each
+      touch a different ceiling:</p>
+    <ul>
+      <li><strong>ALU Width</strong> (MACs per instance per clock):
+        Width = 1 bare FMA (KPU PE), Width = 4 small dot product
+        (Volta/Turing TC), Width = 16 medium (Ampere TC), Width = 32+
+        wide (Hopper TC).</li>
+      <li><strong>Accumulator mode</strong>: lossless (INT32 accum
+        from INT8), tree-rounded (FP16 at each reduction level),
+        mixed-precision (FP16 operand -> FP32 accum), aggressive-
+        truncate. Accuracy ceiling drops as ALU Width and rounding
+        increase.</li>
+      <li><strong>Reuse topology</strong> (affects <em>die-level</em>
+        bandwidth, not ALU-level): isolated keeps 2 B/MAC; intra-ALU
+        broadcast within a matmul tile drops to 2/tile_dim B/MAC;
+        2D-mesh streaming NxN drops to 2/N B/MAC; systolic-stationary
+        NxN drops to ~1/N. Every dot-product ALU still reads 2 x
+        bytes_per_operand per MAC internally - topology savings
+        appear at the die-memory boundary.</li>
+    </ul>
+    <p>Three metrics - density, energy, bandwidth - each have their
+      own ceiling. Density and energy are ALU-level properties that
+      track with ALU Width. Bandwidth is fundamentally a topology
+      property: the ALU-level bandwidth is constant (2 B/MAC for
+      INT8 dot products no matter how wide), and the die-level
+      bandwidth drops only when multiple ALUs share operands.</p>
+
+    <h4>Parametric cost curve (INT8 at 8 nm, intra-ALU broadcast)</h4>
+    <p class="chart-desc">Analytical first-principles cost: W INT8
+      multipliers into a log2(W)-deep reduction tree with INT32
+      accumulator. Shows the slow rise of transistors/MAC as tree
+      bit-width growth outpaces multiplier sharing past W~8.</p>
+    <table class="blocks"><thead><tr><th>ALU Width</th><th colspan="3" style="text-align:center;">Per instance</th><th colspan="4" style="text-align:center;">Per MAC</th><th>Ceiling</th></tr><tr><th></th><th>Trans (K)</th><th>Area (um^2)</th><th>pJ/clock</th><th>Trans/MAC (K)</th><th>Area/MAC (um^2)</th><th>pJ/MAC</th><th>B/MAC (ALU)</th><th>TOPS/W</th></tr></thead><tbody><tr><td class="num"><strong>1</strong></td><td class="num">5.5</td><td class="num">69</td><td class="num">0.046</td><td class="num">5.50</td><td class="num">68.7</td><td class="num">0.0465</td><td class="num">2.00</td><td class="num"><strong>43</strong></td></tr><tr><td class="num"><strong>2</strong></td><td class="num">12.0</td><td class="num">150</td><td class="num">0.095</td><td class="num">6.00</td><td class="num">75.0</td><td class="num">0.0475</td><td class="num">2.00</td><td class="num"><strong>42</strong></td></tr><tr><td class="num"><strong>4</strong></td><td class="num">25.2</td><td class="num">315</td><td class="num">0.192</td><td class="num">6.30</td><td class="num">78.8</td><td class="num">0.0481</td><td class="num">2.00</td><td class="num"><strong>42</strong></td></tr><tr><td class="num"><strong>8</strong></td><td class="num">51.8</td><td class="num">648</td><td class="num">0.387</td><td class="num">6.47</td><td class="num">80.9</td><td class="num">0.0484</td><td class="num">2.00</td><td class="num"><strong>41</strong></td></tr><tr><td class="num"><strong>16</strong></td><td class="num">105.2</td><td class="num">1315</td><td class="num">0.777</td><td class="num">6.58</td><td class="num">82.2</td><td class="num">0.0486</td><td class="num">2.00</td><td class="num"><strong>41</strong></td></tr><tr><td class="num"><strong>32</strong></td><td class="num">212.2</td><td class="num">2652</td><td class="num">1.558</td><td class="num">6.63</td><td class="num">82.9</td><td class="num">0.0487</td><td class="num">2.00</td><td class="num"><strong>41</strong></td></tr><tr><td class="num"><strong>64</strong></td><td class="num">426.4</td><td class="num">5330</td><td class="num">3.119</td><td class="num">6.66</td><td class="num">83.3</td><td class="num">0.0487</td><td class="num">2.00</td><td class="num"><strong>41</strong></td></tr></tbody></table>
+
+    <h4>Real-product ALU archetypes (per-instance)</h4>
+    <p class="chart-desc">The physical unit of replication for each
+      architecture. Numbers are for the whole ALU as one instance -
+      per-MAC values derive by dividing by W.</p>
+    <table class="blocks"><thead><tr><th>ALU archetype</th><th>ALU Width (MAC/clk)</th><th>Precision</th><th>Process (nm)</th><th>Accumulator</th><th>Area / instance (um^2)</th><th>Trans / instance (K)</th><th>pJ / clock / instance</th><th>B / MAC (ALU)</th><th>Derivation</th></tr></thead><tbody><tr><td class="name">KPU INT8 FMA</td><td class="num">1</td><td>INT8</td><td class="num">8</td><td>lossless (INT32 accum from INT8 mult)</td><td class="num">88</td><td class="num">7</td><td class="num"><strong>0.050</strong></td><td class="num">2.00</td><td class="src"><em>Bare INT8 multiplier (~4 K trans) + INT32 adder (~2 K) + pipeline reg (~1 K). Matches microarch_accounting.build_kpu_tile_accounting() &#x27;FMA unit&#x27; row at 0.050 pJ/clock. Die-level bandwidth reflects the 32x32 mesh that surrounds this ALU in a KPU tile.</em></td></tr><tr><td class="name">Ampere CUDA-core FMA (FP32)</td><td class="num">1</td><td>FP32</td><td class="num">8</td><td>lossless (INT32 accum from INT8 mult)</td><td class="num">975</td><td class="num">78</td><td class="num"><strong>2.500</strong></td><td class="num">8.00</td><td class="src"><em>10 M transistors across 128 FP32 FMA lanes per SM. Per-lane ~78 K trans; area derived from 8 nm dense-compute density (80 MT/mm^2). Energy 2.5 pJ/clock matches building_block_energy at full activity. CUDA path has no systolic / mesh reuse.</em></td></tr><tr><td class="name">Volta/Turing TC lane (W=4 FP16)</td><td class="num">4</td><td>FP16</td><td class="num">12</td><td>mixed (FP16 operand, FP32 accum)</td><td class="num">875</td><td class="num">35</td><td class="num"><strong>0.550</strong></td><td class="num">4.00</td><td class="src"><em>Volta V100 / Turing T4 first-generation Tensor Core. Per lane: 4 FP16 multiplies into a 3-adder reduction tree with FP32 accumulator. Hand-tuned from NVIDIA Volta whitepaper area breakdowns + public die-shot analyses. Die-level bandwidth from 8x8x4 HMMA: fragment reuse drives 4/8 = 0.5 B/MAC.</em></td></tr><tr><td class="name">Ampere TC lane (W=16 INT8)</td><td class="num">16</td><td>INT8</td><td class="num">8</td><td>mixed (FP16 operand, FP32 accum)</td><td class="num">1375</td><td class="num">110</td><td class="num"><strong>1.280</strong></td><td class="num">2.00</td><td class="src"><em>Ampere GA10x 3rd-gen Tensor Core lane. Each SM has 4 TCs aggregating ~40 M MAC-array transistors for 4096 INT8 MACs/clock; per-lane W=16, ~110 K trans, 0.08 pJ/MAC. Die-level bandwidth from 16x16x16 HMMA: 512 B frags / 4096 MACs = 0.125 B/MAC.</em></td></tr><tr><td class="name">Hopper TC lane (W=32 FP8)</td><td class="num">32</td><td>FP8</td><td class="num">4</td><td>mixed (FP16 operand, FP32 accum)</td><td class="num">1056</td><td class="num">190</td><td class="num"><strong>1.950</strong></td><td class="num">2.00</td><td class="src"><em>Hopper H100 4th-gen Tensor Core with FP8 Transformer Engine. W=32, FP8 operand with FP32 accumulator. Hand-tuned from NVIDIA H100 whitepaper TC specs (4x throughput vs Ampere for new precisions). Area derived from 4 nm dense-compute density (180 MT/mm^2).</em></td></tr><tr><td class="name">TPU v4 MXU cell (BF16 systolic)</td><td class="num">1</td><td>BF16</td><td class="num">7</td><td>lossless (INT32 accum from INT8 mult)</td><td class="num">180</td><td class="num">18</td><td class="num"><strong>0.180</strong></td><td class="num">4.00</td><td class="src"><em>TPU v4 MXU: 128x128 BF16 systolic array. Per-cell: BF16 multiplier + FP32 accumulator + stationary-weight latch. Hand-tuned from Jouppi et al. 2023. Die-level bandwidth: weights stationary (1-time load amortized), activations stream -&gt; 2/128 B/MAC.</em></td></tr></tbody></table>
+
+    <h4>Real-product ALU archetypes (per-MAC)</h4>
+    <p class="chart-desc">Same archetypes, normalized per MAC to
+      compare ceilings directly. TOPS/W = ops / pJ_per_MAC is the
+      clock-independent silicon ceiling.</p>
+    <table class="blocks"><thead><tr><th>ALU archetype</th><th>ALU Width</th><th>Area / MAC (um^2)</th><th>Trans / MAC (K)</th><th>pJ / MAC</th><th>B / MAC (ALU)</th><th>TOPS / W ceiling</th></tr></thead><tbody><tr><td class="name">KPU INT8 FMA</td><td class="num">1</td><td class="num">87.5</td><td class="num">7.0</td><td class="num"><strong>0.050</strong></td><td class="num">2.00</td><td class="num"><strong>40.0</strong></td></tr><tr><td class="name">Ampere CUDA-core FMA (FP32)</td><td class="num">1</td><td class="num">975.0</td><td class="num">78.0</td><td class="num"><strong>2.500</strong></td><td class="num">8.00</td><td class="num"><strong>0.8</strong></td></tr><tr><td class="name">Volta/Turing TC lane (W=4 FP16)</td><td class="num">4</td><td class="num">218.8</td><td class="num">8.8</td><td class="num"><strong>0.138</strong></td><td class="num">4.00</td><td class="num"><strong>14.5</strong></td></tr><tr><td class="name">Ampere TC lane (W=16 INT8)</td><td class="num">16</td><td class="num">85.9</td><td class="num">6.9</td><td class="num"><strong>0.080</strong></td><td class="num">2.00</td><td class="num"><strong>25.0</strong></td></tr><tr><td class="name">Hopper TC lane (W=32 FP8)</td><td class="num">32</td><td class="num">33.0</td><td class="num">5.9</td><td class="num"><strong>0.061</strong></td><td class="num">2.00</td><td class="num"><strong>32.8</strong></td></tr><tr><td class="name">TPU v4 MXU cell (BF16 systolic)</td><td class="num">1</td><td class="num">180.0</td><td class="num">18.0</td><td class="num"><strong>0.180</strong></td><td class="num">4.00</td><td class="num"><strong>11.1</strong></td></tr></tbody></table>
+
+    <h4>Trade-off curve with real products overlaid</h4>
+    <p class="chart-desc">Three views of the trade-off space. The
+      blue curve is the parametric first-principles model at each W;
+      the orange diamonds are real products. The gap between a
+      product and the curve shows where that product's architecture
+      is above or below the first-principles expectation.</p>
+    <div id="chart_sol_trans_per_mac" class="plot" style="min-height:340px;"></div>
+    <div id="chart_sol_pj_per_mac" class="plot" style="min-height:340px;"></div>
+    <div id="chart_sol_bytes_per_mac" class="plot" style="min-height:340px;"></div>
+
+    <h4>On a 250 mm^2 die at silicon-capability clock (1.5 GHz)</h4>
+    <table class="blocks"><thead><tr><th>ALU archetype (on 250 mm^2 die)</th><th>ALU Width</th><th># ALU instances</th><th># MACs on die</th><th>Die trans (M)</th><th>Peak TOPS @ 1.5 GHz</th><th>Die power (W)</th><th>TOPS / W ceiling</th></tr></thead><tbody><tr><td class="name">KPU INT8 FMA</td><td class="num">1</td><td class="num">2,857,142</td><td class="num">2,857,142</td><td class="num">20000</td><td class="num"><strong>8,571</strong></td><td class="num">214</td><td class="num"><strong>40.0</strong></td></tr><tr><td class="name">Ampere CUDA-core FMA (FP32)</td><td class="num">1</td><td class="num">256,410</td><td class="num">256,410</td><td class="num">20000</td><td class="num"><strong>769</strong></td><td class="num">962</td><td class="num"><strong>0.8</strong></td></tr><tr><td class="name">Volta/Turing TC lane (W=4 FP16)</td><td class="num">4</td><td class="num">285,714</td><td class="num">1,142,856</td><td class="num">10000</td><td class="num"><strong>3,429</strong></td><td class="num">236</td><td class="num"><strong>14.5</strong></td></tr><tr><td class="name">Ampere TC lane (W=16 INT8)</td><td class="num">16</td><td class="num">181,818</td><td class="num">2,909,088</td><td class="num">20000</td><td class="num"><strong>8,727</strong></td><td class="num">349</td><td class="num"><strong>25.0</strong></td></tr><tr><td class="name">Hopper TC lane (W=32 FP8)</td><td class="num">32</td><td class="num">236,842</td><td class="num">7,578,944</td><td class="num">45000</td><td class="num"><strong>22,737</strong></td><td class="num">693</td><td class="num"><strong>32.8</strong></td></tr><tr><td class="name">TPU v4 MXU cell (BF16 systolic)</td><td class="num">1</td><td class="num">1,388,888</td><td class="num">1,388,888</td><td class="num">25000</td><td class="num"><strong>4,167</strong></td><td class="num">375</td><td class="num"><strong>11.1</strong></td></tr></tbody></table>
+
+    <h4>TDP-constrained peak performance on 250 mm^2 (* = silicon-limited)</h4>
+    <table class="blocks"><thead><tr><th rowspan="2">TDP target</th><th class="num" colspan="2">KPU INT8 FMA</th><th class="num" colspan="2">Ampere CUDA-core FMA (FP32)</th><th class="num" colspan="2">Volta/Turing TC lane (W=4 FP16)</th><th class="num" colspan="2">Ampere TC lane (W=16 INT8)</th><th class="num" colspan="2">Hopper TC lane (W=32 FP8)</th><th class="num" colspan="2">TPU v4 MXU cell (BF16 systolic)</th></tr><tr><th class="num">Clock (GHz)</th><th class="num">Peak TOPS</th><th class="num">Clock (GHz)</th><th class="num">Peak TOPS</th><th class="num">Clock (GHz)</th><th class="num">Peak TOPS</th><th class="num">Clock (GHz)</th><th class="num">Peak TOPS</th><th class="num">Clock (GHz)</th><th class="num">Peak TOPS</th><th class="num">Clock (GHz)</th><th class="num">Peak TOPS</th></tr></thead><tbody><tr><td class="name">5 W</td><td class="num">0.04</td><td class="num"><strong>200</strong></td><td class="num">0.01</td><td class="num"><strong>4</strong></td><td class="num">0.03</td><td class="num"><strong>73</strong></td><td class="num">0.02</td><td class="num"><strong>125</strong></td><td class="num">0.01</td><td class="num"><strong>164</strong></td><td class="num">0.02</td><td class="num"><strong>56</strong></td></tr><tr><td class="name">15 W</td><td class="num">0.11</td><td class="num"><strong>600</strong></td><td class="num">0.02</td><td class="num"><strong>12</strong></td><td class="num">0.10</td><td class="num"><strong>218</strong></td><td class="num">0.06</td><td class="num"><strong>375</strong></td><td class="num">0.03</td><td class="num"><strong>492</strong></td><td class="num">0.06</td><td class="num"><strong>167</strong></td></tr><tr><td class="name">30 W</td><td class="num">0.21</td><td class="num"><strong>1,200</strong></td><td class="num">0.05</td><td class="num"><strong>24</strong></td><td class="num">0.19</td><td class="num"><strong>436</strong></td><td class="num">0.13</td><td class="num"><strong>750</strong></td><td class="num">0.06</td><td class="num"><strong>985</strong></td><td class="num">0.12</td><td class="num"><strong>333</strong></td></tr><tr><td class="name">60 W</td><td class="num">0.42</td><td class="num"><strong>2,400</strong></td><td class="num">0.09</td><td class="num"><strong>48</strong></td><td class="num">0.38</td><td class="num"><strong>873</strong></td><td class="num">0.26</td><td class="num"><strong>1,500</strong></td><td class="num">0.13</td><td class="num"><strong>1,969</strong></td><td class="num">0.24</td><td class="num"><strong>667</strong></td></tr><tr><td class="name">150 W</td><td class="num">1.05</td><td class="num"><strong>6,000</strong></td><td class="num">0.23</td><td class="num"><strong>120</strong></td><td class="num">0.95</td><td class="num"><strong>2,182</strong></td><td class="num">0.64</td><td class="num"><strong>3,750</strong></td><td class="num">0.32</td><td class="num"><strong>4,923</strong></td><td class="num">0.60</td><td class="num"><strong>1,667</strong></td></tr><tr><td class="name">300 W</td><td class="num">1.50 *</td><td class="num"><strong>8,571</strong></td><td class="num">0.47</td><td class="num"><strong>240</strong></td><td class="num">1.50 *</td><td class="num"><strong>3,429</strong></td><td class="num">1.29</td><td class="num"><strong>7,500</strong></td><td class="num">0.65</td><td class="num"><strong>9,846</strong></td><td class="num">1.20</td><td class="num"><strong>3,333</strong></td></tr></tbody></table>
+
+    <h4>Gap to shipping products</h4>
+    <p class="chart-desc" style="margin-bottom:8px;">For each product,
+      the "Actual / SoL" ratio is the shipping TOPS divided by the
+      silicon-ceiling TOPS at the product's own TDP. A 30% ratio means
+      3x of headroom is available before the silicon ceiling binds.</p>
+    <table class="blocks"><thead><tr><th rowspan="2">Product</th><th rowspan="2">Process (nm)</th><th rowspan="2">Die (mm^2)</th><th rowspan="2">TDP (W)</th><th rowspan="2">Actual TOPS</th><th rowspan="2">Actual TOPS/W</th><th class="num" colspan="2">KPU INT8 FMA<br/><span style="font-weight:normal; font-size:10px; color:#586374;">SoL @ product TDP</span></th><th class="num" colspan="2">Ampere CUDA-core FMA (FP32)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">SoL @ product TDP</span></th><th class="num" colspan="2">Volta/Turing TC lane (W=4 FP16)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">SoL @ product TDP</span></th><th class="num" colspan="2">Ampere TC lane (W=16 INT8)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">SoL @ product TDP</span></th><th class="num" colspan="2">Hopper TC lane (W=32 FP8)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">SoL @ product TDP</span></th><th class="num" colspan="2">TPU v4 MXU cell (BF16 systolic)<br/><span style="font-weight:normal; font-size:10px; color:#586374;">SoL @ product TDP</span></th></tr><tr><th class="num">SoL TOPS</th><th class="num">Actual / SoL</th><th class="num">SoL TOPS</th><th class="num">Actual / SoL</th><th class="num">SoL TOPS</th><th class="num">Actual / SoL</th><th class="num">SoL TOPS</th><th class="num">Actual / SoL</th><th class="num">SoL TOPS</th><th class="num">Actual / SoL</th><th class="num">SoL TOPS</th><th class="num">Actual / SoL</th></tr></thead><tbody><tr><td class="name">Jetson AGX Orin MAXN (60 W, dense INT8)</td><td class="num">8</td><td class="num">180</td><td class="num">60 W</td><td class="num"><strong>137</strong></td><td class="num">2.3</td><td class="num">2,400</td><td class="num"><strong>6%</strong></td><td class="num">48</td><td class="num"><strong>285%</strong></td><td class="num">873</td><td class="num"><strong>16%</strong></td><td class="num">1,500</td><td class="num"><strong>9%</strong></td><td class="num">1,969</td><td class="num"><strong>7%</strong></td><td class="num">667</td><td class="num"><strong>21%</strong></td></tr><tr><td class="name">Jetson AGX Orin (50 W, dense INT8)</td><td class="num">8</td><td class="num">180</td><td class="num">50 W</td><td class="num"><strong>105</strong></td><td class="num">2.1</td><td class="num">2,000</td><td class="num"><strong>5%</strong></td><td class="num">40</td><td class="num"><strong>262%</strong></td><td class="num">727</td><td class="num"><strong>14%</strong></td><td class="num">1,250</td><td class="num"><strong>8%</strong></td><td class="num">1,641</td><td class="num"><strong>6%</strong></td><td class="num">556</td><td class="num"><strong>19%</strong></td></tr><tr><td class="name">Jetson AGX Orin (30 W, dense INT8)</td><td class="num">8</td><td class="num">180</td><td class="num">30 W</td><td class="num"><strong>68</strong></td><td class="num">2.3</td><td class="num">1,200</td><td class="num"><strong>6%</strong></td><td class="num">24</td><td class="num"><strong>283%</strong></td><td class="num">436</td><td class="num"><strong>16%</strong></td><td class="num">750</td><td class="num"><strong>9%</strong></td><td class="num">985</td><td class="num"><strong>7%</strong></td><td class="num">333</td><td class="num"><strong>20%</strong></td></tr><tr><td class="name">Jetson AGX Orin (15 W, dense INT8)</td><td class="num">8</td><td class="num">180</td><td class="num">15 W</td><td class="num"><strong>34</strong></td><td class="num">2.3</td><td class="num">600</td><td class="num"><strong>6%</strong></td><td class="num">12</td><td class="num"><strong>283%</strong></td><td class="num">218</td><td class="num"><strong>16%</strong></td><td class="num">375</td><td class="num"><strong>9%</strong></td><td class="num">492</td><td class="num"><strong>7%</strong></td><td class="num">167</td><td class="num"><strong>20%</strong></td></tr><tr><td class="name">Jetson AGX Orin MAXN (60 W, sparse INT8 marketing)</td><td class="num">8</td><td class="num">180</td><td class="num">60 W</td><td class="num"><strong>275</strong></td><td class="num">4.6</td><td class="num">2,400</td><td class="num"><strong>11%</strong></td><td class="num">48</td><td class="num"><strong>573%</strong></td><td class="num">873</td><td class="num"><strong>32%</strong></td><td class="num">1,500</td><td class="num"><strong>18%</strong></td><td class="num">1,969</td><td class="num"><strong>14%</strong></td><td class="num">667</td><td class="num"><strong>41%</strong></td></tr><tr><td class="name">KPU T128 (hypothetical, 12 W)</td><td class="num">8</td><td class="num">80</td><td class="num">12 W</td><td class="num"><strong>262</strong></td><td class="num">21.8</td><td class="num">480</td><td class="num"><strong>55%</strong></td><td class="num">10</td><td class="num"><strong>2729%</strong></td><td class="num">175</td><td class="num"><strong>150%</strong></td><td class="num">300</td><td class="num"><strong>87%</strong></td><td class="num">394</td><td class="num"><strong>67%</strong></td><td class="num">133</td><td class="num"><strong>196%</strong></td></tr></tbody></table>
+  </section>
+
+  <section class="method-note">
+    <h3 style="margin-top:0;">SoC composition (illustrative)</h3>
+    <p>Aggregating building blocks into a SoC: <strong>total power =
+      count x utilization x power-per-block + SoC overhead</strong>.
+      The overhead term covers L2/L3 caches, memory controller,
+      NVLink/PCIe, display, and other non-compute IP. Utilization is
+      the fraction of blocks active per clock on realistic workloads.</p>
+    <table class="blocks"><thead><tr><th>Building block</th><th># blocks</th><th>Utilization</th><th>Clock</th><th>Compute power</th><th>SoC overhead</th><th>Total SoC power</th><th>Peak TOPS</th><th>Sustained TOPS</th><th>Sustained TOPS/W</th></tr></thead><tbody><tr><td>NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 0.65 GHz)</td><td class="num">16</td><td class="num">50%</td><td class="num">0.65 GHz</td><td class="num">5.33 W</td><td class="num">7.00 W</td><td class="num"><strong>12.33 W</strong></td><td class="num">85.2</td><td class="num">42.6</td><td class="num"><strong>3.45</strong></td></tr><tr><td>NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)</td><td class="num">16</td><td class="num">50%</td><td class="num">1.50 GHz</td><td class="num">12.30 W</td><td class="num">7.00 W</td><td class="num"><strong>19.30 W</strong></td><td class="num">196.6</td><td class="num">98.3</td><td class="num"><strong>5.09</strong></td></tr><tr><td>KPU Compute Tile (32x32 FMA mesh @ 1.00 GHz)</td><td class="num">64</td><td class="num">55%</td><td class="num">1.00 GHz</td><td class="num">5.07 W</td><td class="num">1.50 W</td><td class="num"><strong>6.57 W</strong></td><td class="num">131.1</td><td class="num">72.1</td><td class="num"><strong>10.98</strong></td></tr><tr><td>KPU Compute Tile (32x32 FMA mesh @ 1.00 GHz)</td><td class="num">128</td><td class="num">55%</td><td class="num">1.00 GHz</td><td class="num">10.14 W</td><td class="num">2.50 W</td><td class="num"><strong>12.64 W</strong></td><td class="num">262.1</td><td class="num">144.2</td><td class="num"><strong>11.41</strong></td></tr><tr><td>KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)</td><td class="num">128</td><td class="num">55%</td><td class="num">1.50 GHz</td><td class="num">15.20 W</td><td class="num">2.50 W</td><td class="num"><strong>17.70 W</strong></td><td class="num">393.2</td><td class="num">216.3</td><td class="num"><strong>12.22</strong></td></tr></tbody></table>
+    <div id="chart_soc" class="plot" style="margin-top: 12px;"></div>
+  </section>
+
+  <section class="method-note">
+    <h3 style="margin-top:0;">Cross-validation with per-MAC view</h3>
+    <p>The derived pJ/MAC from this per-clock view must agree with the
+      independent per-MAC accounting in
+      <code>microarch_accounting.py</code>. Agreement validates that
+      both analytical models converge on the same silicon cost.</p>
+    <table class="blocks"><thead><tr><th>Engine</th><th>Per-clock total (pJ)</th><th>Native MACs/clock</th><th>Derived pJ/MAC</th><th>Independent pJ/MAC (microarch_accounting)</th><th>Delta</th></tr></thead><tbody><tr><td>NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)</td><td class="num">1025.0</td><td class="num">4,096</td><td class="num"><strong>0.250</strong></td><td class="num">0.171</td><td class="num">46%</td></tr><tr><td>NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)</td><td class="num">780.0</td><td class="num">128</td><td class="num"><strong>6.094</strong></td><td class="num">--</td><td class="num">n/a</td></tr><tr><td>KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)</td><td class="num">144.0</td><td class="num">1,024</td><td class="num"><strong>0.141</strong></td><td class="num">0.130</td><td class="num">8%</td></tr></tbody></table>
+  </section>
+
+  <section class="method-note">
+    <strong>Which view for which question?</strong>
+    <ul>
+      <li><strong>pJ/MAC view</strong> (microarch_accounting.py):
+        performance under a fixed power budget. "At 12 W, how much
+        compute will this engine deliver on workload X?"</li>
+      <li><strong>pJ/clock view</strong> (this page): SoC composition
+        and super-cluster design. "If I deploy N engines at F GHz with
+        U utilization, what is the total power and sustained TOPS?"</li>
+      <li><strong>Transistor count</strong>: circuit-designer sanity
+        check. Silicon footprint should roughly track energy per clock;
+        large departures indicate either an architectural advantage
+        or an estimation error.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const CHARTS = {"chart_per_clock": {"data": [{"type": "bar", "orientation": "h", "name": "Memory (local)", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [150.0, 130.0, 14.0], "marker": {"color": "#e98c3f"}, "text": ["150", "130", "14"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Fetch", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [50.0, 50.0, 0.0], "marker": {"color": "#7f3b8d"}, "text": ["50", "50", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Schedule", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [40.0, 40.0, 0.0], "marker": {"color": "#5b8ff9"}, "text": ["40", "40", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Register file", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [90.0, 90.0, 0.0], "marker": {"color": "#d4860b"}, "text": ["90", "90", ""], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Execute", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [615.0, 390.0, 113.664], "marker": {"color": "#3fc98a"}, "text": ["615", "390", "114"], "textposition": "inside"}, {"type": "bar", "orientation": "h", "name": "Control / coherence", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [80.0, 80.0, 16.3], "marker": {"color": "#586374"}, "text": ["80", "80", "16"], "textposition": "inside"}], "layout": {"title": "Engine energy per clock by component category (pJ/clock)", "xaxis": {"title": "pJ / clock"}, "yaxis": {"title": "", "automargin": true}, "barmode": "stack", "margin": {"t": 50, "b": 50, "l": 340, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}, "chart_transistors": {"data": [{"type": "bar", "orientation": "h", "name": "Transistors (M)", "y": ["NVIDIA Streaming Multiprocessor (Ampere, TC path - INT8 HMMA @ 1.50 GHz)", "NVIDIA Streaming Multiprocessor (Ampere, CUDA-core path - FP32 FMA @ 1.50 GHz)", "KPU Compute Tile (32x32 FMA mesh @ 1.50 GHz)"], "x": [240.0, 240.0, 22.2], "marker": {"color": ["#5b8ff9", "#9db4e0", "#3fc98a"]}, "text": ["240 M", "240 M", "22 M"], "textposition": "outside"}], "layout": {"title": "Silicon footprint (millions of transistors)", "xaxis": {"title": "Transistors (millions)"}, "yaxis": {"title": "", "automargin": true}, "margin": {"t": 50, "b": 50, "l": 340, "r": 60}, "showlegend": false}}, "chart_soc": {"data": [{"type": "bar", "name": "Power (W)", "x": ["NVIDIA Streaming Multiprocessor x16 @ U=50%", "NVIDIA Streaming Multiprocessor x16 @ U=50%", "KPU Compute Tile x64 @ U=55%", "KPU Compute Tile x128 @ U=55%", "KPU Compute Tile x128 @ U=55%"], "y": [12.33, 19.3, 6.5675328, 12.6350656, 17.702598400000003], "marker": {"color": "#586374"}, "text": ["12.3 W", "19.3 W", "6.6 W", "12.6 W", "17.7 W"], "textposition": "outside"}, {"type": "bar", "name": "Sustained TOPS (INT8)", "x": ["NVIDIA Streaming Multiprocessor x16 @ U=50%", "NVIDIA Streaming Multiprocessor x16 @ U=50%", "KPU Compute Tile x64 @ U=55%", "KPU Compute Tile x128 @ U=55%", "KPU Compute Tile x128 @ U=55%"], "y": [42.5984, 98.304, 72.0896, 144.1792, 216.26880000000003], "yaxis": "y2", "marker": {"color": "#3fc98a"}, "text": ["43", "98", "72", "144", "216"], "textposition": "outside"}], "layout": {"title": "SoC composition: power & sustained INT8 TOPS", "xaxis": {"title": "Configuration"}, "yaxis": {"title": "Power (W)", "side": "left"}, "yaxis2": {"title": "Sustained TOPS", "overlaying": "y", "side": "right"}, "barmode": "group", "margin": {"t": 50, "b": 120, "l": 60, "r": 60}}}};
+for (const [id, spec] of Object.entries(CHARTS)) {
+  Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+const SOL_CHARTS = {"chart_sol_trans_per_mac": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "Parametric curve (INT8, 8 nm)", "x": [1, 2, 4, 8, 16, 32, 64], "y": [5.5, 6.0, 6.3, 6.475, 6.575, 6.63125, 6.6625], "line": {"color": "#5b8ff9"}, "marker": {"size": 6, "color": "#5b8ff9"}}, {"type": "scatter", "mode": "markers+text", "name": "Real products", "x": [1, 1, 4, 16, 32, 1], "y": [7.0, 78.0, 8.75, 6.875, 5.9375, 18.0], "text": ["KPU INT8 FMA", "Ampere CUDA-core FMA (FP32)", "Volta/Turing TC lane (W=4 FP16)", "Ampere TC lane (W=16 INT8)", "Hopper TC lane (W=32 FP8)", "TPU v4 MXU cell (BF16 systolic)"], "textposition": "top right", "textfont": {"size": 10, "color": "#0a2540"}, "marker": {"size": 11, "color": "#d4860b", "symbol": "diamond", "line": {"width": 1, "color": "#0a2540"}}}], "layout": {"title": "Transistors per MAC vs ALU width", "xaxis": {"title": "ALU Width (MACs per instance per clock)", "type": "log", "tickvals": [1, 2, 4, 8, 16, 32, 64]}, "yaxis": {"title": "K transistors / MAC"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "showlegend": true, "legend": {"orientation": "h", "y": -0.2}}}, "chart_sol_pj_per_mac": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "Parametric curve (INT8, 8 nm)", "x": [1, 2, 4, 8, 16, 32, 64], "y": [0.0465, 0.0475, 0.048075, 0.0484, 0.04858125, 0.048681249999999995, 0.0487359375], "line": {"color": "#5b8ff9"}, "marker": {"size": 6, "color": "#5b8ff9"}}, {"type": "scatter", "mode": "markers+text", "name": "Real products", "x": [1, 1, 4, 16, 32, 1], "y": [0.05, 2.5, 0.1375, 0.08, 0.0609375, 0.18], "text": ["KPU INT8 FMA", "Ampere CUDA-core FMA (FP32)", "Volta/Turing TC lane (W=4 FP16)", "Ampere TC lane (W=16 INT8)", "Hopper TC lane (W=32 FP8)", "TPU v4 MXU cell (BF16 systolic)"], "textposition": "top right", "textfont": {"size": 10, "color": "#0a2540"}, "marker": {"size": 11, "color": "#d4860b", "symbol": "diamond", "line": {"width": 1, "color": "#0a2540"}}}], "layout": {"title": "Energy per MAC vs ALU width", "xaxis": {"title": "ALU Width (MACs per instance per clock)", "type": "log", "tickvals": [1, 2, 4, 8, 16, 32, 64]}, "yaxis": {"title": "pJ / MAC", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "showlegend": true, "legend": {"orientation": "h", "y": -0.2}}}, "chart_sol_bytes_per_mac": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "Parametric ALU-level (= 2 x bytes/operand)", "x": [1, 2, 4, 8, 16, 32, 64], "y": [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0], "line": {"color": "#5b8ff9"}, "marker": {"size": 6, "color": "#5b8ff9"}}, {"type": "scatter", "mode": "markers+text", "name": "Real products - ALU-level", "x": [1, 1, 4, 16, 32, 1], "y": [2.0, 8.0, 4.0, 2.0, 2.0, 4.0], "text": ["KPU INT8 FMA", "Ampere CUDA-core FMA (FP32)", "Volta/Turing TC lane (W=4 FP16)", "Ampere TC lane (W=16 INT8)", "Hopper TC lane (W=32 FP8)", "TPU v4 MXU cell (BF16 systolic)"], "textposition": "top right", "textfont": {"size": 9, "color": "#586374"}, "marker": {"size": 9, "color": "#9db4e0", "symbol": "circle-open", "line": {"width": 1.5, "color": "#5b8ff9"}}}, {"type": "scatter", "mode": "markers+text", "name": "Real products - die-level (after topology reuse)", "x": [1, 1, 4, 16, 32, 1], "y": [0.0625, 8.0, 0.5, 0.125, 0.0625, 0.0156], "text": ["KPU INT8 FMA", "Ampere CUDA-core FMA (FP32)", "Volta/Turing TC lane (W=4 FP16)", "Ampere TC lane (W=16 INT8)", "Hopper TC lane (W=32 FP8)", "TPU v4 MXU cell (BF16 systolic)"], "textposition": "bottom right", "textfont": {"size": 10, "color": "#0a2540"}, "marker": {"size": 11, "color": "#d4860b", "symbol": "diamond", "line": {"width": 1, "color": "#0a2540"}}}], "layout": {"title": "Operand bandwidth per MAC: ALU-level (constant) vs die-level (topology-dependent)", "xaxis": {"title": "ALU Width (MACs per instance per clock)", "type": "log", "tickvals": [1, 2, 4, 8, 16, 32, 64]}, "yaxis": {"title": "Bytes / MAC", "type": "log"}, "margin": {"t": 50, "b": 60, "l": 70, "r": 20}, "showlegend": true, "legend": {"orientation": "h", "y": -0.2}}}};
+for (const [id, spec] of Object.entries(SOL_CHARTS)) {
+  const el = document.getElementById(id);
+  if (el) Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>

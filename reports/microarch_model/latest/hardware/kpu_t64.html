@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Micro-arch report: kpu_t64</title>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+</style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAlgCWAAD/4QAiRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAEAAAAAAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABQAMcDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD6poooBoAKKM0UAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUU3d70uaSd9gFoprOAcE80ueKYC0UUUAFfJf7Y95fW/jLw3BY3lxb+baMCIpWQEmTGTivrSvkX9s9xH458LSN91bUk/QS0AQr+z38TI1WaHxXYeYBuXGoXAP57OKs/D34neNPAPxBtvB/wARpZru2mkSDfOwkkiLkBJFk/jXnnJP6Yr04ftHfD2O3H+n3rMF+6LR8mvG3u5Pjt8crC+06NLHStPEQzM6iQwo5cnbnJYkngcDvQB9lBgo70eYucc187ftl395YeGPDbWN3PbM95IGaGQoSNntXN+BLjx58WviKPFGnapNo+gaZL5cLnlNoxmMJkB2YcsTxz9BQB9X7hTVlRj8rA464NfJnxO8f+K/iR4/m8EeAJZobKJ2glkhfyzMVOHd3HSMHjHf3yBR/wAKD+IXhWBNW8NeKkl1WIbzBC7xlj3UMeG/4EADQB9abx70GRRnrXxd4J8e+IfF3x+8KNrck1tPCy2dxbIzIrOiPuZk6Ak5JGKufFXxj4j8N/tH60vh2aaa5kSG1t7VmLJvkt4wCE6ZDEH60AfYhlQEAsAT0yacGB6V8la38AviFrFg+tan4pS711l8w2jyOeeu0SZwD2wAB710X7K/xD1nVNR1Lwh4knluLqyiMsEk7EyqFYK8bE9cEjGeetAH0mWApomQttDAt6Zr5d+L3xI8UeL/AB63gP4cTSRCNzDPcQPseVx9/wCf+FF5BI6/lWZcfs5eNrCxGpad4qSXWEG/ykeSM7v9mXPX3IFAH1uGB6UFgOtfP37OPxP1bXr++8JeL3c65YhjHLKuJJApw6P/ALS+vcZ9K4j4ka94p+Kfxgu/Avh/Ujp2m2rvEV8wor+WPnd8ctzkAfT3NAH1ssqN91gfoaeDmvkXUPgT8QvBm3VfB3iV726i5aK3doJCPQBiVYexP4GvpzwKmuR+FdPXxVLby60Ix9peBdq7v8cYyRxnOBQBvHpVTUblbSzlnkOAi55q0xA61w/xI1TyoILGM/NMdxH06D8/5Vz4mbhTbW5vhqTrVFBGTba9Lbapb3Ejt5Lvhix4I716Wp3AEV5j8QtKbT/AltcIv72z2mQj0b7364rf+FniFdf8JW8hYme3PkS565HQ/liufAYedCLjN36nbjKcKlJV6a0Ts/0PPfjlqs9j4q02GKeSMNCpwrEfxmvcIP8AVJ9K+dP2i2I8e6OM8G3T/wBGGvoyPhEA9K9SdHkipdzPFOPsKSitbO5JRRRWZ54V8jftmhW8d+FVcZVrUgj1/e19c18u/tZ+FfEWveLfD914f0W/1FLe0YM9vA0iq3mZAOKAPWovgp8O2hQnwtZZKgk7n/8Aiq+f/wBpD4d6R8OZNF1/wfLJp0klwY/s6ysxR1G4OhJJAGMHnuK0V+IXx7ChV8OXQAGBnSDVO0+GXxM+KniS1vfiEZrHTourThEKpkZWOJehPqR9TQBZ/aR1i51/4MfDrVb7H2q7/eykDALGIZOPfrXvfwl0pNJ+Dug22nRokj6aswwPvSSJuJP1Zq8z/ak8GajfeCfCuleFNHuryGwmMaw2sTSGOMRhVz+XU17T8Praez8CeHra6heG4h0+COSN1wyMI1BBHYigD5m/Yya3j8Y+Jo7vjUjbIU3/AHtokO/r7lc19cscCvlj4p/CjxV4V8dSeNPhkJZDLI08kEGDJC7cuAh++jc8c9cYqknxH+NnimE6NZeHJbK4ceW92unyQsueCS8h2r9eD6UAZSSWcv7ZEbacUMP9p4Yp08wREP8A+Pbqu+KI0l/bTt0kUMv2y1OD6i2Qj9RTfB3wk8R+DPjj4WmmtrrULNdtzdX8UTNEkjI+5S3s3c+oroNe8J6/L+1pb67Fo2oPpC3NuxvVgYxAC2VSd3TgjH4UAfT5HHFfIvwUAT9qfxSsYwN1+AB/10FfXXavmL4S+E9f079pHxFq99o1/b6ZM975d1JCVjfdICuGxg5oA8j+Hnh/xTrvxH16z8Ka3Ho+tK0zO7zvE0iiT5lBUEnnBx/hXrA+Ffxt/wCh9H/gwm/+Jq98aPhB4gg8YDxv8N2dNS3+dNbQkI4k7yJng7u6nrz1zXNJ8XfjQkX9mt4Tla++75x0ibzPrgHb+OMUAdJ8Kfg54u8OfFO38S+IdX0+9YLIbkpM7yyF0ZQTlRnn37VZ+KvwN1e/8XTeK/AOrrY6pK3myQs7RESYwWjdemfQ+vWnfBDwF49HjWfxl431K5tZp0KNaM4LzgjgOo+VVXqAOc+nfB8d+Hvi/wCDfG+o+JPDl/da3a3TbmESBxsHRGg9hwCo/LNAGVfeLfjj8NoftviSFr7SYWAd51jmTBOBl0+YZ6ZNfRvwr8aW3jzwZZ67bQm3MpaOWEnd5cinBGe47g+9fNHiHxn8XfiPo8vhpvCklvBc4Sd47CWHcAQcM8h2qMgeldn4p8EeLvA37Plno3hV7iXVftPn6kbDcZNjAkhMckA7AcckA9s0AfSEjjYxPAHPNfO/inxpA3jA6hJGbm2glGyPdtDBen6jNSfCW48d2PwY1VtcttTnvZZvK0+O4VmuFjYAMTkbtoOSM/yxXZfBnwi9noU97rlkBd3UpxFPGCyIvAyD3JyfyqJQ57X2PWwE6WHpzr1NXskcfrnxvgv9NurCbQcxTxtE2LnnBGP7tZn7OviI2fii40ieQCG/TdGCf+Wq88fUZ/Kvok6Npv8A0D7T/vyv+FeAfGjwjrOk/EDSvEPhHR7i5U7JpEtIiwWSMjqB0BGP1r0cN7KadNqza3E8XRlTlShHlT8yh+01ceV4/wBEUd7ZD/5FavpqL/Vr9K+Yv2hNC8Q+JPF3hvUNI0LU7iA2URk2QMTExkJKtxwRnkV9PR/cHFTiZqVKnFbpM8+c+aKXYfRRRXGZFPUL+OyVTKGO7gYqrBrlvLMkarJljgZFVvFCsyQbVYnJ6CsjTo3F/AWRgA45Ir57F5jiKWLVKC930O6lQpypc7epu3viG1tLl4ZEkLL1wBUllrdvdpM0aSARLubcO1cr4gikbV7gojFSRyB7VZ8PxulvqAZGGYcDjr1rOnmWJlinSa93XoaSwtJUlNPUuf8ACcab/wA87j/vkf41dufE1nb6TDqDpKYJW2qABnPPv7V5d9nnz/qZf++DXS6vFK3gTTkEblhLyu05H3q6MNj69RyUlt5HTWwNCDgovd66m9D440yaaOJY7jc7BRlR3/Gk1/xvpuhX/wBku47lpdgf92oIwfqa88023uBqNqTDKAJU52H1FO+KlvPL4qLRxSuvkIMqpI7114fE1Jwblubf2bhvrEad9Gn1PRPD3jbTtdvHtrSO4WRELkyKAMZA7E+tYMnxe8PxyOjQ35KkjiNf/iq5/wCE1vPF4iuGlhkRTbMMspHcV5bc2F4bmYi0uD85/wCWbetdkZycUzSlleFniJ03LRJW1PodviFpQ8KS+IDDd/YYpPKZdg35yB0zjuO9c6Pjf4aJAFvqXP8A0yX/AOKrkZLS4/4UZqEIgmMxvFIj2HdjenbrXkyaZfb1zZXPX/nk3+FdEdVqPDZXhaiqOUtm7an1D4y+Jui+E7m1g1KK8d7iITJ5MYYbScc5I5qr4S+K+g+J9dh0vT4b5LiVWZTLGqrwMnOGPpXln7QdndXOt6Ibe2mkC2CglELYO4+lY/wNsLuD4j6fJPazxxiOXLPGQB8h7muxYem6XP1OOOBoPDOq373qeval8avDenajdWU9vqJltpWhcrEpGVODj5unFbGl/ErRtS8K6j4ggivBZWDbZVaMBz06DPPX1r5m8ZadfSeLtbZLO5ZWvpiCImwRvPtXf+DbO5j+B3jCGS2mWV5PlQodx4ToK2nhKSjFp6uxz1MNSjBNPU7UfHrwr/z7ar/35X/4qug8YfFHQ/CunaTealDetFqcXmwCGNWIGFPzZYYPzCvkg6TqH/Phd4/64t/hXqfx/sbufwp4DSC1nkdLMhwkZJU7I+uOldNXL8PGrCEXo99TOrQhFqx6h4X+NXhnxJr1no+nwakt1dMVjMsKhQQCeTuPpUfij44+FvDOv3mj6hBqjXVq+yQwwKyE4B4O4evpXgHwS02/g+KWgSTWVzHGsrEu8TAD923fFUfjfpl/P8VfEUkNjdSRtOMMsTEH5F6HFTLA0FX9nfS3c55wjF6H1H4S+K+g+KNF1rU9Nhv1t9Ji824E0aqxG1m+UBjnhT6VyB/aV8En/l11r/wGT/4uuE+AthdwfDr4jRz2k8TyWZCK8ZUsfKk6DvXgP9i6p/0Db3/vw3+Fc6wlF1JRvojOyufcfiD4t+HdB8G6R4mvYdQbTtUIEAiiUyDIJ+YFgB09TXP6H+0T4N1rWbHTLO31gXN5OkEZkt0C7mIAyd/TJry/4tWF5N+zr8P4IrS4eeN13osbFl/dv1GMivJfhlo+px/EXwy8mnXiRrqVuWZoGAAEi8niuP2UdRH6Hg5ooFFYCGkUm0Z4FPoxU8qAj2D0FG0DpjFSUUcqAi2Lnp+lKVBFSYHpRihRSAj2D0FIFU9QD+FS0Yp2DUi2ADgAfSgRr6D8qlxRimGpHtX0H5UeWvYAfhUmBRQGpGYweuD9RSeWvYD8qlxRigNSPylPUA/hRsHQY/KpKKAIhEn91fypSgPWpMUUBdkYQdgB+FLsHcA0+igBgQAf/WoEY9vyp9FIBuwd+aDGD2H5U6imAUUUUAf/2Q==" alt="Branes"/>
+  <div class="title-block">
+    <h1>Micro-arch report: kpu_t64</h1>
+    <div class="subtitle">2026-04-29T19:11:57.116679+00:00</div>
+  </div>
+</header>
+
+<main>
+  <section class="page-header">
+    <h2>kpu_t64</h2>
+    <div class="meta">
+      SKU: <code>kpu_t64</code> &middot;
+      Archetype: domainflow &middot;
+      Overall confidence: <strong>THEORETICAL</strong>
+    </div>
+  </section>
+  
+<section class="legend">
+  <div><strong>Confidence ladder:</strong> every metric ships with one of the
+  tags below. A higher tag only lands when measurement backs it up.</div>
+  <div class="ladder">
+    <span class="calibrated">CALIBRATED</span>
+    <span class="interpolated">INTERPOLATED</span>
+    <span class="theoretical">THEORETICAL</span>
+    <span class="unknown">UNKNOWN</span>
+  </div>
+</section>
+
+  
+<div class="layer-panel">
+  <header>
+    <h3>Layer 1: ALU / MAC / Tensor Core</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">Per-precision peak throughput from 3 compute fabric(s): kpu_int8_tile (44 units @ 0.90 GHz, 16 nm); kpu_bf16_tile (13 units @ 0.90 GHz, 16 nm); kpu_matrix_tile (7 units @ 0.90 GHz, 16 nm). Provenance reflects whether the per-precision ops/clock came from a datasheet (THEORETICAL), an interpolated calibration (INTERPOLATED), or a measured Layer-1 FMA-rate sweep (CALIBRATED).</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">FP32 peak</div>
+  <div class="value">1.50<span class="unit">TOPS</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">BF16 peak</div>
+  <div class="value">22.58<span class="unit">TOPS</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">INT8 peak</div>
+  <div class="value">39.17<span class="unit">TOPS</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">INT4 peak</div>
+  <div class="value">40.55<span class="unit">TOPS</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">kpu_int8_tile (int4)</div>
+  <div class="value">44 x 1024<span class="unit">ops/clk</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">kpu_bf16_tile (bf16)</div>
+  <div class="value">13 x 512<span class="unit">ops/clk</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">kpu_matrix_tile (int8)</div>
+  <div class="value">7 x 2048<span class="unit">ops/clk</span></div>
+</div>
+</div>
+</div>
+
+<div class="layer-panel">
+  <header>
+    <h3>Layer 2: Register File</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">Register-file read costs 1.52 pJ per access at 16 nm (edge market), or 0.56 pJ per pJ of representative ALU work. Domain-flow architectures (KPU) avoid this fetch entirely.</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">Register read</div>
+  <div class="value">1.52<span class="unit">pJ/access</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Register write</div>
+  <div class="value">1.82<span class="unit">pJ/access</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Read / ALU ratio</div>
+  <div class="value">0.56<span class="unit">pJ/pJ</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Process / market</div>
+  <div class="value">16 nm / edge<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Tile fill cycles</div>
+  <div class="value">32<span class="unit">cycles</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Tile drain cycles</div>
+  <div class="value">32<span class="unit">cycles</span></div>
+</div>
+</div>
+</div>
+
+<div class="layer-panel">
+  <header>
+    <h3>Layer 3: L1 Cache / Scratchpad</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">L1-equivalent storage for kpu_t64: 256 KiB per unit (16.0 MiB total). Scratchpad-managed at 1.829 pJ/byte read.</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">L1 per unit</div>
+  <div class="value">256<span class="unit">KiB</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">L1 total</div>
+  <div class="value">16.0 MiB total<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Storage kind</div>
+  <div class="value">scratchpad<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">L1 read energy</div>
+  <div class="value">1.829<span class="unit">pJ/byte</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Process / market</div>
+  <div class="value">16 nm<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Hit rate (deterministic)</div>
+  <div class="value">100<span class="unit">%</span></div>
+</div>
+</div>
+</div>
+
+<div class="layer-panel">
+  <header>
+    <h3>Layer 4: L2 Cache</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">L2 layer for kpu_t64: 32 KiB per unit (2.0 MiB total) at 3.429 pJ/byte. Topology: per-unit.</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">L2 per unit</div>
+  <div class="value">32<span class="unit">KiB</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">L2 total</div>
+  <div class="value">2.0 MiB total<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Topology</div>
+  <div class="value">per-unit<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">L2 read energy</div>
+  <div class="value">3.429<span class="unit">pJ/byte</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Process / market</div>
+  <div class="value">16 nm<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Hit rate (deterministic)</div>
+  <div class="value">100<span class="unit">%</span></div>
+</div>
+</div>
+</div>
+
+<div class="layer-panel">
+  <header>
+    <h3>Layer 5: L3 / Last-Level Cache</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">L3 / LLC layer for kpu_t64: 16.0 MiB shared at 6.857 pJ/byte. Coherence: none.</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">L3 total</div>
+  <div class="value">16.0<span class="unit">MiB</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">L3 read energy</div>
+  <div class="value">6.857<span class="unit">pJ/byte</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Hit rate (deterministic)</div>
+  <div class="value">100<span class="unit">%</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Coherence protocol</div>
+  <div class="value">none<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Process / market</div>
+  <div class="value">16 nm<span class="unit"></span></div>
+</div>
+</div>
+</div>
+
+<div class="layer-panel">
+  <header>
+    <h3>Layer 6: SoC Data Movement</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">On-chip fabric for kpu_t64: mesh_2d (8x8). Avg path = 6.40 hops at 1.0 ns / hop and 0.5 pJ / flit / hop.</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">Topology</div>
+  <div class="value">mesh_2d (8x8)<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Avg hop count</div>
+  <div class="value">6.40<span class="unit">hops</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Hop latency</div>
+  <div class="value">1.00<span class="unit">ns</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Energy / flit / hop</div>
+  <div class="value">0.50<span class="unit">pJ</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Bisection bandwidth</div>
+  <div class="value">64<span class="unit">Gbps</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Controller count</div>
+  <div class="value">64<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Flit size</div>
+  <div class="value">16<span class="unit">B</span></div>
+</div>
+</div>
+</div>
+
+<div class="layer-panel">
+  <header>
+    <h3>Layer 7: External Memory</h3>
+    <span class="badge theoretical">theoretical</span>
+  </header>
+  <p class="summary">External memory for kpu_t64: LPDDR5, 64.0 GB/s peak. Reads at 12.00 pJ/B; writes at 14.40 pJ/B (1.20x asymmetry).</p><div class="metrics-grid">
+<div class="metric">
+  <div class="name">Memory technology</div>
+  <div class="value">LPDDR5<span class="unit"></span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Peak bandwidth</div>
+  <div class="value">64.0<span class="unit">GB/s</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Read energy</div>
+  <div class="value">12.00<span class="unit">pJ/B</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Write energy</div>
+  <div class="value">14.40<span class="unit">pJ/B</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">W/R asymmetry</div>
+  <div class="value">1.20x<span class="unit">ratio</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Access pattern (sequential)</div>
+  <div class="value">1.00x<span class="unit">ratio</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Access pattern (strided)</div>
+  <div class="value">1.30x<span class="unit">ratio</span></div>
+</div>
+
+<div class="metric">
+  <div class="name">Access pattern (random)</div>
+  <div class="value">2.00x<span class="unit">ratio</span></div>
+</div>
+</div>
+</div>
+
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+</body>
+</html>

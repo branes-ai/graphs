@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Compute-archetype comparison: GPU vs. TPU vs. KPU</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+header.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #ffffff;
+  border-bottom: 2px solid #0a2540;
+}
+header.brand .logo { height: 44px; }
+header.brand .title-block { text-align: right; }
+header.brand .title-block h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #0a2540;
+}
+header.brand .title-block .subtitle {
+  font-size: 13px;
+  color: #586374;
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+section.page-header {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+section.page-header h2 {
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+section.page-header .meta {
+  font-size: 13px;
+  color: #586374;
+}
+section.legend {
+  background: #eef2f7;
+  border-left: 3px solid #0a2540;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+section.legend .ladder span {
+  margin-right: 18px;
+  font-weight: 600;
+}
+section.legend .ladder .calibrated { color: #1e8449; }
+section.legend .ladder .interpolated { color: #d4860b; }
+section.legend .ladder .theoretical { color: #7f3b8d; }
+section.legend .ladder .unknown { color: #7b8490; }
+.layer-panel {
+  background: #ffffff;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.layer-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.layer-panel header h3 {
+  margin: 0;
+  color: #0a2540;
+  font-size: 17px;
+}
+.layer-panel .badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.calibrated { background: #d5f0df; color: #1e8449; }
+.badge.interpolated { background: #fbefd8; color: #d4860b; }
+.badge.theoretical { background: #eeddf3; color: #7f3b8d; }
+.badge.not_populated { background: #e3e6eb; color: #586374; }
+.badge.unknown { background: #e3e6eb; color: #586374; }
+.layer-panel .summary {
+  color: #3a4452;
+  margin: 6px 0 10px;
+}
+.layer-panel .placeholder {
+  color: #7b8490;
+  font-style: italic;
+  padding: 14px 0;
+}
+.layer-panel .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.layer-panel .metric {
+  background: #f3f5f8;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.layer-panel .metric .name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #586374;
+}
+.layer-panel .metric .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a2540;
+}
+.layer-panel .metric .unit {
+  font-size: 12px;
+  color: #586374;
+  margin-left: 4px;
+}
+footer.brand {
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+  color: #7b8490;
+  background: #ffffff;
+  border-top: 1px solid #e3e6eb;
+}
+footer.brand .plan-ref {
+  margin-top: 4px;
+  color: #586374;
+}
+
+
+.chart-section { background: #fff; padding: 18px 22px; border-radius: 6px;
+  margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.chart-section h3 { margin: 0 0 4px; color: #0a2540; }
+.chart-section .chart-desc { color: #586374; font-size: 13px; margin: 0 0 12px; }
+.plot { width: 100%; min-height: 360px; }
+table { width: 100%; border-collapse: collapse; background: #fff; margin-bottom: 18px; }
+table th, table td { padding: 10px 12px; border-bottom: 1px solid #e3e6eb;
+  text-align: left; vertical-align: middle; }
+table th { font-size: 12px; text-transform: uppercase; color: #586374; background: #f3f5f8; }
+.archetype-note { background: #eef2f7; padding: 12px 16px; border-left: 3px solid #0a2540;
+  border-radius: 4px; margin-bottom: 18px; }
+.archetype-note strong { color: #0a2540; }
+
+a.nav-back { display: inline-block; color: #0a2540; text-decoration: none;
+               font-weight: 600; margin-bottom: 10px; }
+a.nav-back:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<header class="brand">
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Branes"/>
+  <div class="title-block">
+    <h1>GPU vs. TPU vs. KPU: compute-archetype comparison</h1>
+    <div class="subtitle">Precision: int8  |  Workload headline: 16 tiles  |  Generated: 2026-04-29T19:38:54.805354+00:00</div>
+  </div>
+</header>
+
+<main>
+  <p><a class="nav-back" href="index.html">&lt; Back to index</a></p>
+  <section class="page-header">
+    <h2>Compute-archetype comparison (M0.5)</h2>
+    <div class="meta">Three archetypes, one picture: why KPU wins on energy per op.</div>
+  </section>
+  
+<section class="legend">
+  <div><strong>Confidence ladder:</strong> every metric ships with one of the
+  tags below. A higher tag only lands when measurement backs it up.</div>
+  <div class="ladder">
+    <span class="calibrated">CALIBRATED</span>
+    <span class="interpolated">INTERPOLATED</span>
+    <span class="theoretical">THEORETICAL</span>
+    <span class="unknown">UNKNOWN</span>
+  </div>
+</section>
+
+  <table><thead><tr><th>Archetype</th><th>SKU</th><th>Scheduling</th><th>PE array</th><th>Process</th><th>1-bit FA ref</th><th>TDP</th></tr></thead><tbody><tr><td style="border-left:4px solid #5b8ff9;padding-left:10px;"><strong>Jetson Orin AGX</strong><br/><span class="meta">SIMT + Tensor Core</span></td><td><code>Jetson-Orin-AGX-64GB</code></td><td>simt data parallel</td><td>32x4</td><td>8 nm</td><td>0.005 pJ</td><td>30.0 W</td></tr><tr><td style="border-left:4px solid #e98c3f;padding-left:10px;"><strong>Coral Edge TPU</strong><br/><span class="meta">Systolic (TPU)</span></td><td><code>Google-Coral-Edge-TPU</code></td><td>weight stationary</td><td>64x64</td><td>14 nm</td><td>0.009 pJ</td><td>2.0 W</td></tr><tr><td style="border-left:4px solid #3fc98a;padding-left:10px;"><strong>KPU T128</strong><br/><span class="meta">Domain Flow (KPU)</span></td><td><code>KPU-T128</code></td><td>output stationary</td><td>32x32</td><td>16 nm</td><td>0.010 pJ</td><td>12.0 W</td></tr></tbody></table>
+  
+<div class="archetype-note">
+  <strong>The scheduling-class difference drives chart 4.</strong> KPU
+  output-stationary scheduling lets fill/drain of one tile overlap with
+  fill/drain of its neighbors on the fabric - so as the workload grows,
+  effective utilization saturates near 1.0. TPU weight-stationary
+  scheduling must drain weights before reloading, so its utilization is
+  a flat floor. SIMT + Tensor Core has no tile pipeline; its effective
+  utilization is dominated by warp divergence and coherence traffic
+  (shown as a flat baseline).
+</div>
+<div class="archetype-note">
+  <strong>Energy calibration reference.</strong> All MAC and per-op
+  energies are quoted at the SKU's manufacturing process node. The
+  table above lists the corresponding 1-bit CMOS full-adder (FA) dynamic
+  energy at nominal Vdd as a calibration baseline - an INT8 MAC requires
+  ~8 FA equivalents plus array + register-file overhead. Energies below
+  ~0.5x * 8 * FA are aggressive; above ~4x * 8 * FA are standard-cell
+  baseline. First-principles TDP feasibility can be checked with
+  <code>cli/check_tdp_feasibility.py</code>.
+</div>
+
+  
+<section class="chart-section">
+  <h3>Chart 1: Energy per op</h3>
+  <p class="chart-desc">Lower is better. KPU wins on energy per op - the domain-flow fabric&#x27;s per-PE steady-state MAC energy is below Tensor Core at matched precision.</p>
+  <div id="chart1" class="plot"></div>
+</section>
+
+<section class="chart-section">
+  <h3>Chart 2: Peak throughput</h3>
+  <p class="chart-desc">Higher is not always better. Tensor Core can outperform on peak, which we compensate for with larger PE arrays (T64: 32x32, T128: 32x32, T256: 20x20).</p>
+  <div id="chart2" class="plot"></div>
+</section>
+
+<section class="chart-section">
+  <h3>Chart 3: Energy efficiency (TOPS/W)</h3>
+  <p class="chart-desc">The deciding chart. KPU&#x27;s low per-op energy combined with high sustained utilization yields a TOPS/W advantage that grows with workload size.</p>
+  <div id="chart3" class="plot"></div>
+</section>
+
+<section class="chart-section">
+  <h3>Chart 4: Effective pipeline utilization vs. tile count</h3>
+  <p class="chart-desc">Due-diligence chart. KPU output-stationary saturates to 1.0 at 12+ tiles; TPU weight-stationary is capped by fill/drain per tile; Tensor Core has no tile pipeline.</p>
+  <div id="chart4" class="plot"></div>
+</section>
+
+<section class="chart-section">
+  <h3>Chart 5: Linear-schedule efficiency asymptote (KPU)</h3>
+  <p class="chart-desc">For an NxNxN GEMM tile under a linear schedule, per-tile latency is 3N cycles (fill=N, steady=N, drain=N). With fill/drain amortized across M tiles on an output-stationary fabric, efficiency = 1 - 2/(3M). Plateau is set by M, not N: at M=12, eff~0.94; at M=32, eff~0.98; asymptote approaches 1.0 as M grows. Larger PE arrays give higher peak throughput but do not improve efficiency (the curves overlay).</p>
+  <div id="chart5" class="plot"></div>
+</section>
+
+</main>
+
+<footer class="brand">
+  <div>Branes AI -- micro-architectural model delivery</div>
+  <div class="plan-ref">Plan: microarch-model-delivery-plan.md</div>
+</footer>
+
+<script>
+const CHARTS = {"chart1": {"data": [{"type": "bar", "x": ["Jetson Orin AGX", "Coral Edge TPU", "KPU T128"], "y": [0.81, 0.075, 0.05], "marker": {"color": ["#5b8ff9", "#e98c3f", "#3fc98a"]}, "text": ["0.81", "0.07", "0.05"], "textposition": "outside"}], "layout": {"title": "Energy per op at int8", "yaxis": {"title": "pJ / op"}, "margin": {"t": 50, "b": 40, "l": 60, "r": 20}, "showlegend": false}}, "chart2": {"data": [{"type": "bar", "x": ["Jetson Orin AGX", "Coral Edge TPU", "KPU T128"], "y": [31.9488, 4.0, 262.144], "marker": {"color": ["#5b8ff9", "#e98c3f", "#3fc98a"]}, "text": ["31.9", "4.0", "262.1"], "textposition": "outside"}], "layout": {"title": "Peak throughput at int8", "yaxis": {"title": "TOPS"}, "margin": {"t": 50, "b": 40, "l": 60, "r": 20}, "showlegend": false}}, "chart3": {"data": [{"type": "bar", "x": ["Jetson Orin AGX", "Coral Edge TPU", "KPU T128"], "y": [1.06496, 2.0, 21.845333333333333], "marker": {"color": ["#5b8ff9", "#e98c3f", "#3fc98a"]}, "text": ["1.1", "2.0", "21.8"], "textposition": "outside"}], "layout": {"title": "Energy efficiency at int8", "yaxis": {"title": "TOPS / W"}, "margin": {"t": 50, "b": 40, "l": 60, "r": 20}, "showlegend": false}}, "chart4": {"data": [{"type": "scatter", "mode": "lines+markers", "name": "Jetson Orin AGX (simt_data_parallel)", "x": [1, 2, 4, 8, 12, 16, 32, 64, 128, 256], "y": [0.658125, 0.658125, 0.658125, 0.658125, 0.658125, 0.658125, 0.658125, 0.658125, 0.658125, 0.658125], "line": {"color": "#5b8ff9", "width": 2}, "marker": {"size": 6}}, {"type": "scatter", "mode": "lines+markers", "name": "Coral Edge TPU (weight_stationary)", "x": [1, 2, 4, 8, 12, 16, 32, 64, 128, 256], "y": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], "line": {"color": "#e98c3f", "width": 2}, "marker": {"size": 6}}, {"type": "scatter", "mode": "lines+markers", "name": "KPU T128 (output_stationary)", "x": [1, 2, 4, 8, 12, 16, 32, 64, 128, 256], "y": [0.6666666666666666, 0.8, 0.8888888888888888, 0.9411764705882353, 0.96, 0.9696969696969697, 0.9846153846153847, 0.9922480620155039, 0.9961089494163424, 0.9980506822612085], "line": {"color": "#3fc98a", "width": 2}, "marker": {"size": 6}}], "layout": {"title": "Effective pipeline utilization vs. workload tile count", "xaxis": {"title": "Tile count in workload", "type": "log"}, "yaxis": {"title": "Effective utilization", "range": [0, 1.05]}, "margin": {"t": 50, "b": 50, "l": 60, "r": 20}, "legend": {"orientation": "h", "y": -0.2}}}, "chart5": {"data": [{"type": "scatter", "mode": "lines", "name": "8x8 PE array", "x": [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256], "y": [0.33333333333333337, 0.6666666666666667, 0.8333333333333334, 0.9166666666666666, 0.9444444444444444, 0.9583333333333334, 0.9722222222222222, 0.9791666666666666, 0.9861111111111112, 0.9895833333333334, 0.9947916666666666, 0.9973958333333334], "line": {"color": "#3fc98a", "width": 2, "dash": "solid"}, "opacity": 0.75}, {"type": "scatter", "mode": "lines", "name": "16x16 PE array", "x": [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256], "y": [0.33333333333333337, 0.6666666666666667, 0.8333333333333334, 0.9166666666666666, 0.9444444444444444, 0.9583333333333334, 0.9722222222222222, 0.9791666666666666, 0.9861111111111112, 0.9895833333333334, 0.9947916666666666, 0.9973958333333334], "line": {"color": "#3fc98a", "width": 2, "dash": "dash"}, "opacity": 0.75}, {"type": "scatter", "mode": "lines", "name": "24x24 PE array", "x": [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256], "y": [0.33333333333333337, 0.6666666666666667, 0.8333333333333334, 0.9166666666666666, 0.9444444444444444, 0.9583333333333334, 0.9722222222222222, 0.9791666666666666, 0.9861111111111112, 0.9895833333333334, 0.9947916666666666, 0.9973958333333334], "line": {"color": "#3fc98a", "width": 2, "dash": "dot"}, "opacity": 0.75}, {"type": "scatter", "mode": "lines", "name": "32x32 PE array", "x": [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256], "y": [0.33333333333333337, 0.6666666666666667, 0.8333333333333334, 0.9166666666666666, 0.9444444444444444, 0.9583333333333334, 0.9722222222222222, 0.9791666666666666, 0.9861111111111112, 0.9895833333333334, 0.9947916666666666, 0.9973958333333334], "line": {"color": "#3fc98a", "width": 2, "dash": "dashdot"}, "opacity": 0.75}, {"type": "scatter", "mode": "lines", "name": "48x48 PE array", "x": [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256], "y": [0.33333333333333337, 0.6666666666666667, 0.8333333333333334, 0.9166666666666666, 0.9444444444444444, 0.9583333333333334, 0.9722222222222222, 0.9791666666666666, 0.9861111111111112, 0.9895833333333334, 0.9947916666666666, 0.9973958333333334], "line": {"color": "#3fc98a", "width": 2, "dash": "longdash"}, "opacity": 0.75}, {"type": "scatter", "mode": "lines", "name": "64x64 PE array", "x": [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128, 256], "y": [0.33333333333333337, 0.6666666666666667, 0.8333333333333334, 0.9166666666666666, 0.9444444444444444, 0.9583333333333334, 0.9722222222222222, 0.9791666666666666, 0.9861111111111112, 0.9895833333333334, 0.9947916666666666, 0.9973958333333334], "line": {"color": "#3fc98a", "width": 2, "dash": "longdashdot"}, "opacity": 0.75}], "layout": {"title": "KPU linear-schedule efficiency: eff = 1 - 2/(3M), scale-invariant in PE array size N", "xaxis": {"title": "Workload tile count M", "type": "log"}, "yaxis": {"title": "Efficiency", "range": [0, 1.05]}, "margin": {"t": 60, "b": 50, "l": 60, "r": 20}, "legend": {"orientation": "h", "y": -0.2}, "annotations": [{"text": "All PE array sizes produce the same curve: efficiency is set by workload tile count M, not by N.", "xref": "paper", "yref": "paper", "x": 0.5, "y": 1.08, "showarrow": false, "font": {"size": 12, "color": "#586374"}}]}}};
+for (const [id, spec] of Object.entries(CHARTS)) {
+  Plotly.newPlot(id, spec.data, spec.layout, {displayModeBar: false, responsive: true});
+}
+
+</script>
+</body>
+</html>
