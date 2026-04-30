@@ -8,12 +8,15 @@ energy/byte numbers in the 500–1800 pJ/B range across the working-set
 sweep. Inspecting the relationship between bandwidth and energy/byte
 at every plateau:
 
-| working set | bw (GB/s) | energy (pJ/B) | bw × pJ/B (pW) |
+| working set | bw (GB/s) | energy (pJ/B) | bw × pJ/B (mW) |
 |---|---|---|---|
 | 402 KiB | 76.6 | 508  | **38,900** |
 | 1.3 MiB | 38.2 | 963  | **36,800** |
 | 6.1 MiB | 33.6 | 1148 | **38,500** |
 | 64 MiB  | 20.0 | 1767 | **35,300** |
+
+(`GB/s × pJ/B = 10^9 × 10^-12 = 10^-3 W = 1 mW`, so the product
+column is in milliwatts; 38,900 = 38.9 W of package power.)
 
 The product is roughly constant at **~36 W**. That number is the
 i7-12700K package power floor — every bit of energy/byte we measured
@@ -30,12 +33,20 @@ kernel.
 ## Implication
 
 `graphs.calibration.fitters.cache_sweep_fitter.CacheSweepFitter` as
-shipped in PR #45 reads `WorkingSetPoint.energy_per_byte_pj` directly
-and writes it into `HardwareResourceModel.{l1,l2,l3}_cache_energy_per_byte`
-with `ConfidenceLevel.CALIBRATED` provenance. If the input is the raw
-package-RAPL number, the output is a **calibrated-but-wrong**
-coefficient, 100–1000× too high. The confidence ladder would
-incorrectly promote a known-bad number from THEORETICAL to CALIBRATED.
+shipped in PR #45 reads `WorkingSetPoint.energy_per_byte_pj` and
+records `ConfidenceLevel.CALIBRATED` provenance for the
+`HardwareResourceModel.{l1,l2,l3}_cache_energy_per_byte` fields, with
+the measured pJ/B values embedded in the provenance `source` string.
+(The fitter does not currently *overwrite* the numeric field values
+themselves — that is PR-2's job. But the CALIBRATED tag on a known-
+bad number is already misleading: any consumer that reads
+`field_provenance` will conclude the field is measured-against-silicon
+when in fact the measurement reflects whole-package power, not cache
+subsystem energy.) If the input pJ/B is the raw package-RAPL number,
+the recorded "calibration" is a **calibrated-but-wrong** label,
+100–1000× off from intrinsic cache energy. The confidence ladder
+would incorrectly promote a known-bad number from THEORETICAL to
+CALIBRATED.
 
 This blocks the planned PR-2 (`cli/apply_calibration.py`) — applying
 the current sweep results to the in-tree resource models would
