@@ -110,7 +110,7 @@ Each baseline ALU is the same op embedded in the smallest possible circuit: inpu
 FADD (2-source):                     FMUL (2-source):
                                                           
    FF_A ----+                          FF_A ----+         
-            +--> [ ADD ] --> FF_OUT            +--> [ MUL ] --> FF_OUT
+            +--> [ ADD ] --> FF_OUT             +--> [ MUL ] --> FF_OUT
    FF_B ----+                          FF_B ----+         
                                                           
                                                           
