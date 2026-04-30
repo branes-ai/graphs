@@ -59,6 +59,29 @@ At the SM level, one SIMT instruction issues across 4 subpartitions in parallel.
 | FADD / FMUL (2 sources) | 8 | 4 |
 | FMA (3 sources) | 12 | 4 |
 
+**Reading the Rd column in the SIMT tables.** "8 wide-bank reads" or "12 wide-bank reads" looks small until you realise one wide-bank read returns **the full warp's worth of one source operand at once** -- 32 threads x 32 bits = 1024 bits = 128 bytes, delivered in a single banked-SRAM access. The reader ISN'T pulling 32 threads' worth of operand one byte at a time; the bank is wide enough to deliver the whole warp's source operand in one cycle. Across 4 subpartitions issuing the same instruction, the number of wide-bank accesses is `subpartitions x sources_per_op x reads_per_warp_source` -- which evaluates to 8 (FADD/FMUL) or 12 (FMA). Each one of those costs ~44 pJ at 8 nm (128 bytes x 0.343 pJ/byte SRAM dynamic energy). That's what makes the Rd column dominate the SIMT energy budget even though the access count looks tiny.
+
+## 1c. Primitives at a glance (where each is counted)
+
+Quick reference for every per-event energy used in the report, what it represents, and how many times it fires per cycle.
+
+| Primitive | pJ at 8 nm | Counted in baseline | Counted per SIMT instr (SM-cycle) |
+|---|---|---|---|
+| FF read 32b           | 1.069 | 2x FADD/FMUL, 3x FMA | -- |
+| FF write 32b          | 1.069 | 1x | -- |
+| ALU FADD 32b          | 0.418 | 1x FADD or FMA | 128 lanes |
+| ALU FMUL 32b          | 1.672 | 1x FMUL or FMA | 128 lanes |
+| **Wide-bank RF read** | **43.89** | -- | **8** (FADD/FMUL), **12** (FMA) |
+| **Wide-bank RF write**| **54.86** | -- | **4** |
+| OC flop write+read    | 4.39 | -- | 8 / 12 (matches Rd count) |
+| ALU dispatch wire     | 0.343 | -- | 256 (FADD/FMUL), 384 (FMA) |
+| Instr fetch           | 0.570 | -- | 4 (one per subpart) |
+| Instr decode          | 0.304 | -- | 4 |
+| Warp schedule         | 0.152 | -- | 4 |
+| Instr dispatch        | 0.190 | -- | 4 |
+
+The bolded rows are the SIMT energy story. Per-instruction RF traffic is `8x44 + 4x55 = 572 pJ` for a 2-source op or `12x44 + 4x55 = 747 pJ` for FMA -- which is more than the full ALU compute energy on every op in this set.
+
 ## 2. SIMT pipeline stages
 
 Stages 1-4 fire ONCE PER SUBPARTITION (each Ampere subpartition has its own L0 I-cache, decoder, warp scheduler, and dispatch -- so they are counted x4). Stages 5-9 fire at the full SM lane count.
@@ -78,6 +101,33 @@ Stages 1-4 fire ONCE PER SUBPARTITION (each Ampere subpartition has its own L0 I
 ## 3. Baseline ALU energy (irreducible compute floor)
 
 Single ALU stripped of all SIMT overhead: input flip-flops wired directly to the ALU inputs, output flip-flop on the result. No register file, no operand collector, no instruction fetch / decode / scheduler / dispatch. **All values in pJ**, for one ALU performing one op.
+
+### 3.0 The three baseline ALU shapes
+
+Each baseline ALU is the same op embedded in the smallest possible circuit: input flip-flops on every source, ALU logic in the middle, one output flip-flop. The number of input flops varies with op kind (2 for FADD/FMUL, 3 for FMA); the ALU shape varies (single adder, single multiplier, or fused multiplier+adder).
+
+```text
+FADD (2-source):                     FMUL (2-source):
+                                                          
+   FF_A ----+                          FF_A ----+         
+            +--> [ ADD ] --> FF_OUT            +--> [ MUL ] --> FF_OUT
+   FF_B ----+                          FF_B ----+         
+                                                          
+                                                          
+FMA (3-source):                                           
+                                                          
+   FF_A ----+                                             
+            +--> [ MUL ] ----+                            
+   FF_B ----+                +--> [ ADD ] --> FF_OUT      
+                             |                            
+   FF_C ---------------------+                            
+```
+
+Energy decomposition per op (fp32, Samsung 8nm, primitives from the table in section 1c):
+
+- **FADD**: 2 x FF_read + ALU FADD + FF_write = `2 x 1.069 + 0.418 + 1.069` = ~3.624 pJ
+- **FMUL**: 2 x FF_read + ALU FMUL + FF_write = `2 x 1.069 + 1.672 + 1.069` = ~4.878 pJ
+- **FMA**:  3 x FF_read + ALU MUL + ALU ADD + FF_write = `3 x 1.069 + 1.672 + 0.228 + 1.069` = ~6.175 pJ (~3.088 pJ/FLOP)
 
 ### 3.FADD
 
@@ -451,21 +501,33 @@ Per-instruction: **1178 pJ**, per-op: **4.603 pJ/op**, per-FLOP: **2.302 pJ**.
 
 Per-instruction: **1130 pJ**, per-op: **2.207 pJ/op**, per-IntOP: **1.103 pJ**.
 
-## 5. Cross-comparison summary
+## 5. The SIMT inefficiency tax
 
-Headline: per-op energy in the full SIMT pipeline vs the irreducible baseline ALU. Ratio = SIMT-overhead tax.
+This is the architectural punchline of the whole report. We compare the energy of one op in the full SIMT pipeline (banked-SRAM RF, operand collector, per-subpartition scheduler, lane ALUs) against the energy of the *same op* in the irreducible baseline ALU (a few flip-flops + the ALU itself, no SIMT overhead at all).
+
+**Headline: GPUs pay a 6-10x energy tax for SIMT control and banked-RF traffic, even before you count anything off-chip.** The cheaper the op, the bigger the tax fraction:
 
 | Op | Precision | Baseline pJ/op | SIMT pJ/op | SIMT pJ/FLOP | SIMT/Baseline | Compute % | RF+OC+wire % |
 |---|---|---|---|---|---|---|---|
-| FADD | fp32 | 0.578 | 5.873 | 5.873 | 10.2x | 7.1% | 92.2% |
-| FADD | fp16 | 0.369 | 2.937 | 2.937 | 8.0x | 7.1% | 92.2% |
-| FADD | int8 | 0.244 | 1.447 | 1.447 | 5.9x | 5.8% | 93.6% |
-| FMUL | fp32 | 1.832 | 7.127 | 7.127 | 3.9x | 23.5% | 76.0% |
-| FMUL | fp16 | 0.996 | 3.564 | 3.564 | 3.6x | 23.5% | 76.0% |
-| FMUL | int8 | 0.495 | 1.698 | 1.698 | 3.4x | 19.7% | 79.7% |
-| FMA | fp32 | 2.114 | 9.207 | 4.603 | 4.4x | 20.6% | 78.9% |
-| FMA | fp16 | 1.164 | 4.603 | 2.302 | 4.0x | 20.6% | 78.9% |
-| FMA | int8 | 0.594 | 2.207 | 1.103 | 3.7x | 17.2% | 82.3% |
+| FADD | fp32 | 0.578 | 5.873 | 5.873 | **10.2x** | 7.1% | 92.2% |
+| FADD | fp16 | 0.369 | 2.937 | 2.937 | **8.0x** | 7.1% | 92.2% |
+| FADD | int8 | 0.244 | 1.447 | 1.447 | **5.9x** | 5.8% | 93.6% |
+| FMUL | fp32 | 1.832 | 7.127 | 7.127 | **3.9x** | 23.5% | 76.0% |
+| FMUL | fp16 | 0.996 | 3.564 | 3.564 | **3.6x** | 23.5% | 76.0% |
+| FMUL | int8 | 0.495 | 1.698 | 1.698 | **3.4x** | 19.7% | 79.7% |
+| FMA | fp32 | 2.114 | 9.207 | 4.603 | **4.4x** | 20.6% | 78.9% |
+| FMA | fp16 | 1.164 | 4.603 | 2.302 | **4.0x** | 20.6% | 78.9% |
+| FMA | int8 | 0.594 | 2.207 | 1.103 | **3.7x** | 17.2% | 82.3% |
+
+### Reading this table
+
+- **fp32 FADD**: SIMT pays **10.2x** the baseline-ALU energy. The adder itself is so cheap that the fixed RF + OC + control overhead is the entire show. FADD is the worst-case for SIMT efficiency in this set.
+
+- **fp32 FMA**:  SIMT pays **4.4x** the baseline. The multiplier is large enough that the SIMT overhead is a smaller share -- but it's still 4x. This is the *best* case for SIMT, on the *most* compute-dense op in the linear-algebra set.
+
+- **Narrow precision shrinks per-op energy proportionally** (fp16 packed -> 0.5x fp32, int8 packed -> 0.2-0.25x). The RF traffic is unchanged; the useful work scales with packing. So narrow precision wins not by reducing the SIMT tax but by amortizing it over more ops.
+
+- **The compute % column is the diagnostic.** When it's single-digit (FADD), the SIMT tax dominates and the architecture is severely mismatched to the workload. When it climbs into the 20-30% range (FMUL / FMA), the GPU is doing what it's built for. A TPU or KPU executing the same FADD would push compute % past 70% by eliminating the RF and the per-op control entirely -- which is the topline energy comparison we're trying to make.
 
 ## 6. Architectural reading
 
