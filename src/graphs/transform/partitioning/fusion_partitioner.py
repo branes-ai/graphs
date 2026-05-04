@@ -20,6 +20,7 @@ from graphs.core.structures import (
     ParallelismDescriptor,
     SubgraphDescriptor
 )
+from graphs.hardware.resource_model import Precision, precision_bytes_per_element
 
 from ..visualization import (
     detect_terminal_capability,
@@ -54,10 +55,15 @@ class FusionBasedPartitioner:
     4. Compute statistics for each fused subgraph
     """
 
-    def __init__(self):
+    def __init__(self, precision: Precision = Precision.FP32):
         self.next_subgraph_id = 0
         self.fused_subgraphs: List[SubgraphDescriptor] = []  # Store for visualization (unified)
         self.fx_graph_cached: Optional[GraphModule] = None  # Store FX graph for visualization
+        # Precision drives weight/activation byte sizing so the partitioner's
+        # memory accounting matches the precision the rest of the analyzer is
+        # asked to model (issue #52).
+        self.precision = precision
+        self.bytes_per_element = precision_bytes_per_element(precision)
 
     def partition(self, fx_graph: GraphModule):
         """
@@ -912,8 +918,11 @@ class FusionBasedPartitioner:
 
         module = fx_graph.get_submodule(node.target)
 
-        # Count parameters
-        param_bytes = sum(p.numel() * p.element_size() for p in module.parameters())
+        # Count parameters at the analysis precision, not the model's storage
+        # dtype. Models are loaded in fp32 even when the user asks to model
+        # int8/fp16 inference (issue #52).
+        total_params = sum(p.numel() for p in module.parameters())
+        param_bytes = int(round(total_params * self.bytes_per_element))
 
         return {'weights': param_bytes, 'input': 0, 'output': 0}
 
@@ -934,7 +943,8 @@ class FusionBasedPartitioner:
             numel = 1
             for dim in meta.shape:
                 numel *= dim
-            return numel * 4  # Assume float32
+            # Activations are sized at the analysis precision (issue #52).
+            return int(round(numel * self.bytes_per_element))
 
         return 0
 
