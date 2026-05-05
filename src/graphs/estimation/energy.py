@@ -352,7 +352,13 @@ class EnergyAnalyzer:
             peak_dynamic_power = peak_flops * self.energy_per_flop
             self.tdp_watts = peak_dynamic_power * 2.0
 
-        # Idle power
+        # "Idle" power -- but see CPU_IDLE_POWER_FRACTION docstring above:
+        # on CPU this is the *average package power during an active kernel*
+        # (~70% of TDP, calibrated to V4 RAPL baseline in #71), not literal
+        # silicon leakage. The attribute name is preserved for backward
+        # compatibility, but downstream consumers should treat this as
+        # "static power during execution" on CPU. On GPU it remains close
+        # to the literal idle-state power (~30% of TDP).
         if self.resource_model.hardware_type.name == 'CPU':
             self.idle_power_watts = self.tdp_watts * self.CPU_IDLE_POWER_FRACTION
         else:

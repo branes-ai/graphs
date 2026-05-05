@@ -16,6 +16,7 @@ import math
 import pytest
 
 from validation.model_v4.harness.assertions import (
+    ENERGY_RELIABLE_LATENCY_S,
     MeasurementContext,
     TOL_ENERGY,
     TOL_LATENCY,
@@ -260,23 +261,31 @@ def test_assert_record_skips_energy_when_measured_latency_sub_ms():
 
 def test_assert_record_evaluates_energy_when_measured_latency_above_ms():
     """Above the RAPL-reliable threshold, energy is scored normally.
-    Negative control for the sub-ms skip behavior."""
+    Negative control for the sub-ms skip behavior.
+
+    Working set bumped to 200 MB so that bw_util = 200MB / 2ms / 100GB/s
+    = 1.0, keeping the inferred regime as DRAM_BOUND (above the 0.7
+    UTILIZATION_THRESHOLD). Otherwise the test would inadvertently flip
+    pass_regime as well, conflating two assertion paths."""
     rec = assert_record(**_good_kwargs(
         measured_latency_s=2e-3,      # 2 ms, above threshold
         latency_predicted_s=1.8e-3,
         energy_predicted_j=0.001,     # wildly off
         measured_energy_j=0.10,
+        working_set_bytes=200 * 1024 * 1024,  # keeps bw_util >= 0.7
     ))
     assert rec.pass_energy is False, (
         "Above-1ms energy must be scored normally; got "
         f"pass_energy={rec.pass_energy} (expected False)"
     )
+    # The energy assertion is the only signal -- regime + latency stay clean.
+    assert rec.pass_regime is True
+    assert rec.pass_latency is True
 
 
 def test_assert_record_skip_threshold_is_exactly_1ms():
     """Pin the threshold constant -- regression guard against silent
     drift (e.g., to 100 us or 10 ms)."""
-    from validation.model_v4.harness.assertions import ENERGY_RELIABLE_LATENCY_S
     assert ENERGY_RELIABLE_LATENCY_S == 1e-3, (
         f"ENERGY_RELIABLE_LATENCY_S={ENERGY_RELIABLE_LATENCY_S} drifted "
         f"from the calibrated 1ms RAPL/NVML reliable-measurement floor."

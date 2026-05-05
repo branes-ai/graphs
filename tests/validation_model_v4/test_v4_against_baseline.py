@@ -42,6 +42,10 @@ def _validation_pass_rate(op: str) -> tuple[int, int, int, int]:
     total = len(result.records)
     passes_regime = sum(1 for r in result.records if r.pass_regime)
     passes_latency = sum(1 for r in result.records if r.pass_latency)
+    # pass_energy is tri-state (True / False / None); only True is counted as
+    # a pass. None (skipped, e.g. sub-ms RAPL per #71) and False (band miss)
+    # are both excluded. Mirrors the explicit `is False` pattern used in
+    # validation/model_v4/harness/report.py for failure counts.
     passes_energy = sum(1 for r in result.records if r.pass_energy)
     return total, passes_regime, passes_latency, passes_energy
 

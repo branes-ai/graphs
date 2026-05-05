@@ -103,6 +103,9 @@ def test_static_energy_dominates_typical_cpu_matmul():
     1.5 pJ/flop dynamic term was the only meaningful contributor for
     sub-mJ kernels; post-#71 the active package power swamps it.
 
+    Goes through the public ``analyze`` entry point so the test is robust
+    to refactors of the private ``_analyze_subgraph`` signature.
+
     This test would have failed with the pre-#71 0.1 constant for any
     DRAM-bound shape (where flops/byte is low and static dominates)."""
     hw = create_i7_12700k_mapper().resource_model
@@ -110,15 +113,15 @@ def test_static_energy_dominates_typical_cpu_matmul():
     sg = _matmul_subgraph(1024, 1024, 1024)  # ~12 MB working set, in L2
     # Use a representative latency in the V4 baseline range
     latency_s = 5e-3
-    desc = analyzer._analyze_subgraph(sg, latency=latency_s)
-    assert desc.static_energy_j > desc.compute_energy_j, (
-        f"static ({desc.static_energy_j*1e3:.2f}mJ) should dominate compute "
-        f"({desc.compute_energy_j*1e3:.2f}mJ) for a typical CPU matmul; "
+    report = analyzer.analyze(subgraphs=[sg], latencies=[latency_s])
+    assert report.static_energy_j > report.compute_energy_j, (
+        f"static ({report.static_energy_j*1e3:.2f}mJ) should dominate compute "
+        f"({report.compute_energy_j*1e3:.2f}mJ) for a typical CPU matmul; "
         f"likely CPU_IDLE_POWER_FRACTION reverted toward pre-#71 0.1."
     )
-    assert desc.static_energy_j > desc.memory_energy_j, (
-        f"static ({desc.static_energy_j*1e3:.2f}mJ) should dominate memory "
-        f"({desc.memory_energy_j*1e3:.2f}mJ) for a typical CPU matmul."
+    assert report.static_energy_j > report.memory_energy_j, (
+        f"static ({report.static_energy_j*1e3:.2f}mJ) should dominate memory "
+        f"({report.memory_energy_j*1e3:.2f}mJ) for a typical CPU matmul."
     )
 
 
@@ -126,20 +129,23 @@ def test_predicted_total_energy_within_2x_of_v4_anchor():
     """V4 RAPL baseline for matmul (1024,1024,1024) fp32 on i7-12700K is
     in the 100-700 mJ band depending on M/K/N skew (avg power ~110W times
     measured latency 1-6ms). The analyzer prediction with the #71 idle
-    fraction must land within 2x of the lower band edge -- otherwise the
-    energy model has regressed back toward pre-#71 levels."""
+    fraction must land within 2x of the V4 anchor in BOTH directions --
+    a regression below 100 mJ means the fix reverted; growth above
+    1000 mJ would mean the constant overshot active-power calibration."""
     hw = create_i7_12700k_mapper().resource_model
     analyzer = EnergyAnalyzer(hw, precision=Precision.FP32)
     sg = _matmul_subgraph(1024, 1024, 1024)
     latency_s = 5e-3  # representative measured latency for this shape
-    desc = analyzer._analyze_subgraph(sg, latency=latency_s)
-    total_mj = (desc.compute_energy_j + desc.memory_energy_j
-                + desc.static_energy_j) * 1e3
+    report = analyzer.analyze(subgraphs=[sg], latencies=[latency_s])
+    total_mj = (report.compute_energy_j + report.memory_energy_j
+                + report.static_energy_j) * 1e3
     # The V4 baseline median is ~300 mJ for similar 5ms shapes.
     # Pre-#71 prediction at 5ms was ~70 mJ (1.5pJ * 2*1024^3 + 25pJ * 12MB
     # + 12.5W * 5ms = ~70mJ). Post-#71 should be ~440 mJ (87.5W * 5ms +
-    # dynamic). Anything below 100 mJ would mean the fix has reverted.
-    assert total_mj >= 100.0, (
+    # dynamic). Anything below 100 mJ means the fix reverted; anything
+    # above 1000 mJ means CPU_IDLE_POWER_FRACTION overshot.
+    assert 100.0 <= total_mj <= 1000.0, (
         f"Predicted total energy {total_mj:.1f}mJ for (1024,1024,1024) at "
-        f"5ms is below the 100mJ floor; the #71 fix has regressed."
+        f"5ms is outside the V4-anchored 100-1000 mJ band; the #71 "
+        f"calibration has drifted (regressed below floor or overshot)."
     )
