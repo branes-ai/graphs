@@ -66,4 +66,6 @@ class Measurer(Protocol):
         - clean up any hardware handles in ``__exit__`` if used as a
           context manager (optional)
         """
-        ...
+        # Protocol method body. Concrete implementations override; this
+        # is unreachable at runtime via the Protocol itself.
+        raise NotImplementedError

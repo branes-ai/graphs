@@ -24,8 +24,7 @@ firm (peak FLOPS) and wider where real silicon is variable (DRAM).
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field
-from enum import Enum
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 from validation.model_v4.sweeps.classify import Regime

@@ -22,7 +22,7 @@ shape, leaving the user to decide whether to capture or skip.
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 

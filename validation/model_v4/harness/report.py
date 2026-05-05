@@ -19,8 +19,8 @@ isn't surprised by missing rows.
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass
 from typing import List, Tuple
 
 from validation.model_v4.harness.assertions import ValidationRecord

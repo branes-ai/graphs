@@ -19,8 +19,6 @@ from validation.model_v4.harness.assertions import (
     MeasurementContext,
     TOL_ENERGY,
     TOL_LATENCY,
-    UTILIZATION_THRESHOLD,
-    ValidationRecord,
     assert_record,
     check_regime,
     infer_regime_measured,

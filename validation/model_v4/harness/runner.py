@@ -47,7 +47,7 @@ from graphs.estimation.roofline import RooflineAnalyzer
 from graphs.hardware.mappers import get_mapper_by_name
 from graphs.hardware.resource_model import HardwareResourceModel, Precision
 
-from validation.model_v4.ground_truth.base import Measurement, Measurer
+from validation.model_v4.ground_truth.base import Measurer
 from validation.model_v4.ground_truth.cache import (
     CacheKey,
     DEFAULT_BASELINE_DIR,

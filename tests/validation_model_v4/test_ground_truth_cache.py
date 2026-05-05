@@ -14,8 +14,6 @@ minutes. These tests lock in:
 
 import csv
 
-import pytest
-
 from validation.model_v4.ground_truth.base import Measurement
 from validation.model_v4.ground_truth.cache import (
     CacheKey,

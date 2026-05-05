@@ -15,7 +15,6 @@ runs in well under a second on the dev machine.
 from pathlib import Path
 
 import pytest
-import torch
 
 from validation.model_v4.ground_truth.pytorch_cpu import (
     DEFAULT_TIMED_TRIALS,

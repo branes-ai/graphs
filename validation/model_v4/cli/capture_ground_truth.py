@@ -33,7 +33,6 @@ from validation.model_v4.ground_truth.pytorch_cpu import (
     DEFAULT_WARMUP_TRIALS,
     PyTorchCPUMeasurer,
 )
-from validation.model_v4.harness.runner import SWEEP_HW_TO_MAPPER
 from validation.model_v4.sweeps.classify import Regime
 from validation.model_v4.workloads.linear import build_linear
 from validation.model_v4.workloads.matmul import build_matmul
@@ -77,8 +76,13 @@ def _build_workload(op: str, shape: tuple, dtype: str):
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Constrain to keys that have a registered measurer factory; otherwise
+    # a valid parse would crash in _make_measurer() with a traceback.
+    # SWEEP_HW_TO_MAPPER is the broader set used by the validate CLI;
+    # capture is narrower because not every target has a measurer yet
+    # (e.g., GPU lands in V4-4, KPU in V4-5).
     p.add_argument("--hw", required=True,
-                   choices=sorted(SWEEP_HW_TO_MAPPER.keys()))
+                   choices=sorted(k for k, v in _MEASURER_FACTORY.items() if v))
     p.add_argument("--op", required=True, choices=["matmul", "linear"])
     p.add_argument("--purpose", default="calibration",
                    choices=["calibration", "validation"])
