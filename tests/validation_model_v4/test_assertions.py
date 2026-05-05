@@ -229,6 +229,60 @@ def test_assert_record_predicted_energy_missing_skips_check():
     assert rec.all_pass() is True
 
 
+# ---------------------------------------------------------------------------
+# Issue #71: RAPL/NVML noise floor -- skip energy assertion below 1ms
+# ---------------------------------------------------------------------------
+
+
+def test_assert_record_skips_energy_when_measured_latency_sub_ms():
+    """RAPL on Intel client CPUs has 61 uJ resolution and integrates
+    across the whole package; below ~1 ms the relative noise on a single
+    energy reading is 50-100%. The assert_record helper must surface this
+    as pass_energy=None (skipped), not False (failure). See #71.
+
+    Critically, we use a measured_latency that's well below 1ms AND a
+    huge predicted/measured energy mismatch -- if the skip wasn't
+    happening, the band check would flip pass_energy to False."""
+    rec = assert_record(**_good_kwargs(
+        measured_latency_s=500e-6,    # 500 us, below the RAPL-reliable threshold
+        latency_predicted_s=400e-6,   # within 30% to keep latency passing
+        energy_predicted_j=0.001,     # wildly off from measured_energy_j=0.10
+        measured_energy_j=0.10,
+    ))
+    assert rec.pass_energy is None, (
+        "Energy assertion must be skipped (None) for sub-ms measurements; "
+        "RAPL noise makes single-shot energy measurements unreliable below "
+        "1ms. Got pass_energy=" + repr(rec.pass_energy)
+    )
+    # The latency check should still happen normally
+    assert rec.pass_latency is True
+
+
+def test_assert_record_evaluates_energy_when_measured_latency_above_ms():
+    """Above the RAPL-reliable threshold, energy is scored normally.
+    Negative control for the sub-ms skip behavior."""
+    rec = assert_record(**_good_kwargs(
+        measured_latency_s=2e-3,      # 2 ms, above threshold
+        latency_predicted_s=1.8e-3,
+        energy_predicted_j=0.001,     # wildly off
+        measured_energy_j=0.10,
+    ))
+    assert rec.pass_energy is False, (
+        "Above-1ms energy must be scored normally; got "
+        f"pass_energy={rec.pass_energy} (expected False)"
+    )
+
+
+def test_assert_record_skip_threshold_is_exactly_1ms():
+    """Pin the threshold constant -- regression guard against silent
+    drift (e.g., to 100 us or 10 ms)."""
+    from validation.model_v4.harness.assertions import ENERGY_RELIABLE_LATENCY_S
+    assert ENERGY_RELIABLE_LATENCY_S == 1e-3, (
+        f"ENERGY_RELIABLE_LATENCY_S={ENERGY_RELIABLE_LATENCY_S} drifted "
+        f"from the calibrated 1ms RAPL/NVML reliable-measurement floor."
+    )
+
+
 def test_assert_record_l2_predicted_ambiguous_measured_passes():
     """v4-1 soft match: L2_BOUND predicted, AMBIGUOUS measured (low
     utilization on every layer) still counts as a pass for the regime
