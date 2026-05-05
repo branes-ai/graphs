@@ -22,6 +22,7 @@ Calibration Integration:
 - Falls back to theoretical peaks when no calibration exists
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from enum import Enum
@@ -472,8 +473,12 @@ class RooflineAnalyzer:
         # Compute time = FLOPs / effective_peak_FLOPS
         compute_time = sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
 
-        # Memory time = bytes / effective_peak_bandwidth
-        total_bytes = sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+        # Memory time = bytes / effective_peak_bandwidth.
+        # ``_dram_traffic_bytes`` is hardware-aware: on weight-stationary
+        # accelerators (KPU) it amortizes weight loads across the on-chip
+        # tile fabric instead of treating weights as re-fetched per layer
+        # (issue #51). For other hardware the result is the naive sum.
+        total_bytes = self._dram_traffic_bytes(sg)
         memory_time = total_bytes / effective_peak_bandwidth if effective_peak_bandwidth > 0 else 0.0
 
         # Apply discrete resource correction for accelerators with few compute units
@@ -931,6 +936,53 @@ class RooflineAnalyzer:
 
         # Other hardware: default to moderate efficiency
         return 0.5
+
+    def _dram_traffic_bytes(self, sg: SubgraphDescriptor) -> int:
+        """Bytes that actually cross the DRAM boundary for a subgraph.
+
+        For most hardware this is just ``input + output + weight`` -- the
+        roofline assumes weights stream through DRAM each call.
+
+        For weight-stationary accelerators (KPU), the architecture
+        double-buffers weight prefetch with compute: while layer N runs on
+        weights already resident in the tile fabric, layer N+1's weights are
+        fetched from DRAM in parallel. As long as a subgraph's weight
+        footprint fits in the aggregate on-chip capacity (sum of per-tile
+        L1 + shared L2), the weight load fully overlaps the previous
+        layer's compute and does NOT contribute to this subgraph's memory
+        floor. Per-subgraph DRAM traffic is then just the activation in/out.
+
+        When per-subgraph weights exceed the on-chip budget, the prefetch
+        cannot fully hide weight loads -- model that as ``ceil(weight /
+        weight_budget)`` outer passes that each load a weight slab.
+
+        Without this hook (issue #51), transformer workloads get scored as
+        bandwidth-bound on KPU even though the dataflow is specifically
+        designed to keep weights resident.
+        """
+        base = sg.total_input_bytes + sg.total_output_bytes
+        weight_bytes = sg.total_weight_bytes
+        hw_type = self.resource_model.hardware_type.name
+
+        if hw_type == 'KPU' and weight_bytes > 0:
+            # Aggregate on-chip = sum of per-tile L1 + shared L2.
+            on_chip = (
+                self.resource_model.compute_units * self.resource_model.l1_cache_per_unit
+                + self.resource_model.l2_cache_total
+            )
+            # Reserve 20% of on-chip for the activation working set.
+            weight_budget = max(1, int(on_chip * 0.8))
+            if weight_bytes <= weight_budget:
+                # Stationary: weight load overlaps previous layer's compute.
+                return base
+            # Weights exceed on-chip: outer-tiled. Each weight byte is still
+            # loaded *once* total (the slabs are different weight tiles, not
+            # the same tile reloaded); what gets repeated is the activation
+            # stream, which has to cycle through each weight slab.
+            outer_loads = max(1, math.ceil(weight_bytes / weight_budget))
+            return base * outer_loads + weight_bytes
+
+        return base + weight_bytes
 
     def _get_discrete_resource_correction(self, sg: SubgraphDescriptor) -> float:
         """

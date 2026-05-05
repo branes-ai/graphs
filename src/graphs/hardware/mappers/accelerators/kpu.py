@@ -99,6 +99,15 @@ class KPUMapper(HardwareMapper):
         self.scratchpad_per_tile = resource_model.l1_cache_per_unit  # 256KB
         self.threads_per_tile = resource_model.threads_per_unit  # 256 threads
 
+        # Aggregate on-chip capacity (issue #51): the KPU's reason-for-being is
+        # weight stationarity. Weight-residency decisions need to see the full
+        # tile-fabric L1 + shared L2, not just one tile's scratchpad.
+        # KPU-T64: 64 * 256KB + 4MB = 20 MB; KPU-T256: 256 * 256KB + 16MB = 80 MB.
+        self.l2_cache_total = resource_model.l2_cache_total
+        self.total_on_chip_bytes = (
+            self.num_tiles * self.scratchpad_per_tile + self.l2_cache_total
+        )
+
     def compute_energy_with_idle_power(
         self,
         latency: float,
@@ -158,108 +167,105 @@ class KPUMapper(HardwareMapper):
         precision: Precision
     ) -> TileConfiguration:
         """
-        Analyze tiling requirements for a subgraph.
+        Analyze tiling and on-chip residency for a subgraph.
 
-        Args:
-            subgraph: Fused subgraph to analyze
-            precision: Numerical precision (affects memory footprint)
+        Implements the weight-stationary execution model that is the KPU's
+        architectural reason for existing (issue #51). For each subgraph:
 
-        Returns:
-            TileConfiguration with tiling analysis
+        1. Compare weight footprint against the aggregate on-chip capacity
+           (all tiles' L1 + shared L2), not a single tile's 256KB scratchpad.
+        2. If weights fit on-chip, model weight loads as a one-shot prologue
+           cost and stream activations through the resident weights.
+        3. If weights don't fit, outer-tile execution: weights load once per
+           outer pass over the activation stream, not once per inner tile.
+
+        Note: ``subgraph.total_*_bytes`` are already at the analysis precision
+        (issue #52 / PR #54). The mapper used to multiply by
+        ``bytes_per_element/4`` here, which double-scaled at fp16/int8/int4.
+        That obsolete adjustment has been removed.
         """
         scratchpad_size = self.scratchpad_per_tile
+        on_chip_total = self.total_on_chip_bytes
 
-        # Get bytes per element for this precision
-        bytes_per_element = self._get_bytes_per_element(precision)
-
-        # Calculate memory footprint per operation
-        # For a Conv2D: need input tile + weights + output tile in scratchpad
+        # Memory footprint at analysis precision (no double-scaling).
         input_bytes = subgraph.total_input_bytes
         weight_bytes = subgraph.total_weight_bytes
         output_bytes = subgraph.total_output_bytes
-
-        # Adjust for precision (if different from FP32)
-        # Subgraph bytes are in FP32, scale to actual precision
-        scale_factor = bytes_per_element / 4.0  # 4 bytes = FP32
-        input_bytes = int(input_bytes * scale_factor)
-        weight_bytes = int(weight_bytes * scale_factor)
-        output_bytes = int(output_bytes * scale_factor)
-
         total_bytes = input_bytes + weight_bytes + output_bytes
 
-        # Check if fits in scratchpad
+        # Per-tile fit (legacy diagnostic): does the *entire* working set fit
+        # in a single tile's scratchpad? Useful for very small ops.
         fits_in_scratchpad = total_bytes <= scratchpad_size
 
-        # Initialize variables (will be overwritten below)
-        input_per_tile = input_bytes
-        weight_per_tile = weight_bytes
-        output_per_tile = output_bytes
-        bytes_per_tile = total_bytes
+        # On-chip residency for weights. Reserve a fraction of on-chip for the
+        # activation working set so weights and activations co-exist.
+        # 80% for weights / 20% for activations is a common dataflow heuristic.
+        weight_on_chip_budget = int(on_chip_total * 0.8)
+        weights_fit_on_chip = weight_bytes <= weight_on_chip_budget
 
-        if fits_in_scratchpad:
-            # Entire operation fits - no tiling needed
-            num_tiles_required = 1
-            tiles_per_iteration = 1
-            num_iterations = 1
-            tiling_overhead = 1.0  # No overhead
+        if weights_fit_on_chip:
+            # Weight-stationary: weights load *once* into the tile fabric and
+            # stay resident while activations stream through them.
+            outer_weight_loads = 1
+            # Activation working set per outer pass = on-chip minus weights.
+            activation_budget = max(scratchpad_size, on_chip_total - weight_bytes)
         else:
-            # Need tiling - split operation into chunks
-            # Strategy: Keep weights in scratchpad, tile input/output
+            # Weights exceed the on-chip budget: outer-tile execution. Each
+            # outer pass loads a *different slab* of weights, streams the
+            # full activation set through it, then loads the next slab. The
+            # slabs together cover the whole weight set exactly once.
+            outer_weight_loads = max(1, math.ceil(weight_bytes / weight_on_chip_budget))
+            # Activation working set co-resides with the active weight slab,
+            # so the budget is whatever's left after reserving for weights
+            # (consistent with the 80/20 split above).
+            activation_budget = max(scratchpad_size, on_chip_total - weight_on_chip_budget)
 
-            # Weights typically smaller and reused
-            if weight_bytes > scratchpad_size * 0.8:
-                # Weights too large - need to tile weights too (rare)
-                # Pessimistic: assume we can fit 80% of scratchpad per tile
-                bytes_per_tile = int(scratchpad_size * 0.8)
-                num_tiles_required = math.ceil(total_bytes / bytes_per_tile)
-            else:
-                # Weights fit, tile input/output
-                # Reserve space for weights, split remaining between input/output
-                remaining_space = scratchpad_size - weight_bytes
+        # How many times the activation stream cycles through DRAM. For
+        # well-fitted activations this is 1; for very large activations (rare
+        # for inference) it grows. Multiplied by outer_weight_loads when
+        # weights are tiled, since each weight slab needs the full activation
+        # pass.
+        io_bytes = input_bytes + output_bytes
+        if io_bytes <= 0:
+            activation_iterations = 1
+        else:
+            activation_iterations = max(1, math.ceil(io_bytes / activation_budget)) * outer_weight_loads
 
-                # Input and output ratio
-                io_bytes = input_bytes + output_bytes
-                if io_bytes > 0:
-                    input_fraction = input_bytes / io_bytes
-                    output_fraction = output_bytes / io_bytes
+        # tiles_per_iteration drives parallelism, not memory traffic. Use the
+        # number of tiles needed to hold one outer pass.
+        tiles_required = max(1, math.ceil(total_bytes / scratchpad_size))
+        tiles_per_iteration = min(tiles_required, self.num_tiles)
+        num_iterations = max(1, math.ceil(tiles_required / tiles_per_iteration))
 
-                    input_per_tile = int(remaining_space * input_fraction * 0.8)  # 80% efficiency
-                    output_per_tile = int(remaining_space * output_fraction * 0.8)
-                else:
-                    input_per_tile = 0
-                    output_per_tile = 0
+        # Small prologue-load overhead when there is more than one outer pass.
+        # Replaces the previous (num_iterations - 1) * 10% blanket inflation,
+        # which compounded with the weight re-fetch bug.
+        tiling_overhead = 1.0 + (max(0, outer_weight_loads - 1)) * 0.05
 
-                weight_per_tile = weight_bytes
-                bytes_per_tile = input_per_tile + weight_per_tile + output_per_tile
+        # Per-tile decomposition (kept for diagnostics in TileConfiguration).
+        input_per_tile = input_bytes // max(1, tiles_per_iteration)
+        weight_per_tile = weight_bytes if weights_fit_on_chip else weight_on_chip_budget
+        output_per_tile = output_bytes // max(1, tiles_per_iteration)
+        bytes_per_tile = input_per_tile + weight_per_tile + output_per_tile
 
-                # Calculate number of tiles needed
-                if input_per_tile > 0:
-                    num_tiles_required = math.ceil(input_bytes / input_per_tile)
-                else:
-                    num_tiles_required = 1
-
-            # How many tiles can run in parallel? (up to total KPU tiles)
-            tiles_per_iteration = min(num_tiles_required, self.num_tiles)
-
-            # How many iterations to process all tiles?
-            num_iterations = math.ceil(num_tiles_required / tiles_per_iteration)
-
-            # Tiling overhead: each iteration has load/store overhead
-            # Estimate 10% overhead per iteration for data movement
-            tiling_overhead = 1.0 + (num_iterations - 1) * 0.10
-
-        return TileConfiguration(
+        config = TileConfiguration(
             scratchpad_size=scratchpad_size,
             input_bytes_per_tile=input_per_tile,
             weight_bytes_per_tile=weight_per_tile,
             output_bytes_per_tile=output_per_tile,
             total_bytes_per_tile=bytes_per_tile,
-            num_tiles_required=num_tiles_required,
+            num_tiles_required=tiles_required,
             tiles_per_iteration=tiles_per_iteration,
             num_iterations=num_iterations,
             fits_in_scratchpad=fits_in_scratchpad,
             tiling_overhead=tiling_overhead,
         )
+        # Stash the residency outputs on the config so map_subgraph can use
+        # them without re-deriving (extra attributes don't break the dataclass).
+        config.weights_fit_on_chip = weights_fit_on_chip
+        config.outer_weight_loads = outer_weight_loads
+        config.activation_iterations = activation_iterations
+        return config
 
     def _get_bytes_per_element(self, precision: Precision) -> int:
         """Get bytes per element for a precision"""
@@ -325,22 +331,30 @@ class KPUMapper(HardwareMapper):
         # Calculate utilization
         utilization = tiles_allocated / self.num_tiles
 
-        # Calculate latency using roofline model
+        # Calculate latency using roofline model.
         ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
-        bytes_transferred = (
-            subgraph.total_input_bytes +
-            subgraph.total_output_bytes +
-            subgraph.total_weight_bytes
-        )
 
-        # Multiply by tiling overhead (more iterations = more overhead)
-        # This accounts for loading/storing tiles multiple times
+        # Weight-stationary memory accounting (issue #51). Each weight byte
+        # is loaded from DRAM exactly once for this subgraph (split across
+        # ``outer_weight_loads`` slabs when weights don't fit on-chip; each
+        # slab covers a different weight tile, never the same one reloaded).
+        # What gets repeated is the activation stream cycling through each
+        # weight slab. Previously the mapper computed
+        # ``(input + output + weight) * num_iterations`` which treats both
+        # weights *and* activations as re-fetched on every inner tile --
+        # exactly the access pattern the KPU dataflow is designed to avoid.
+        activation_traffic_bytes = (
+            (subgraph.total_input_bytes + subgraph.total_output_bytes)
+            * tile_config.activation_iterations
+        )
+        weight_traffic_bytes = subgraph.total_weight_bytes
+        bytes_transferred = activation_traffic_bytes + weight_traffic_bytes
+
         ops_with_tiling = int(ops * tile_config.tiling_overhead)
-        bytes_with_tiling = int(bytes_transferred * tile_config.num_iterations)
 
         compute_time, memory_time, bottleneck = self._calculate_latency(
             ops=ops_with_tiling,
-            bytes_transferred=bytes_with_tiling,
+            bytes_transferred=bytes_transferred,
             allocated_units=tiles_allocated,
             occupancy=occupancy,
             precision=precision
@@ -348,7 +362,8 @@ class KPUMapper(HardwareMapper):
 
         estimated_latency = max(compute_time, memory_time)
 
-        # Calculate energy
+        # Calculate energy. Use the same precision-correct, stationary-aware
+        # byte count so DRAM energy reflects what is actually re-fetched.
         compute_energy, memory_energy = self._calculate_energy(
             ops=ops,
             bytes_transferred=bytes_transferred,
