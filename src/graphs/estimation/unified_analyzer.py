@@ -450,7 +450,9 @@ class UnifiedAnalyzer:
         # Step 1: Trace and partition
         if self.verbose:
             print("Tracing model with FX...")
-        fx_graph, partition_report = self._trace_and_partition(model, input_tensor, config)
+        fx_graph, partition_report = self._trace_and_partition(
+            model, input_tensor, config, precision=precision
+        )
 
         if self.verbose:
             print(f"Partitioned into {len(partition_report.subgraphs)} subgraphs")
@@ -555,14 +557,19 @@ class UnifiedAnalyzer:
         self,
         model: nn.Module,
         input_tensor: torch.Tensor,
-        config: AnalysisConfig
+        config: AnalysisConfig,
+        precision: Precision = Precision.FP32,
     ) -> Tuple[GraphModule, PartitionReport]:
         """
         Trace model using PyTorch Dynamo export and partition into subgraphs.
 
-        Delegates to graphs.frontends.dynamo for the actual tracing.
+        Delegates to graphs.frontends.dynamo for the actual tracing. The
+        ``precision`` argument is forwarded to the partitioner so weight and
+        activation byte counts honor the analysis precision (issue #52).
         """
-        return frontend_trace_and_partition(model, input_tensor, verbose=self.verbose)
+        return frontend_trace_and_partition(
+            model, input_tensor, verbose=self.verbose, precision=precision
+        )
 
     def _run_hardware_mapping(
         self,

@@ -28,6 +28,7 @@ from torch.fx import GraphModule, symbolic_trace
 from torch.fx.passes.shape_prop import ShapeProp
 
 from graphs.core.structures import PartitionReport
+from graphs.hardware.resource_model import Precision
 from graphs.transform.partitioning.fusion_partitioner import FusionBasedPartitioner
 
 # torch.export.export() is stable from PyTorch 2.4+.
@@ -110,6 +111,7 @@ def trace_and_partition(
     model: nn.Module,
     input_tensor: torch.Tensor,
     verbose: bool = False,
+    precision: Precision = Precision.FP32,
 ) -> Tuple[GraphModule, PartitionReport]:
     """
     Trace a PyTorch model and partition into subgraphs.
@@ -121,6 +123,10 @@ def trace_and_partition(
         model: PyTorch model to trace
         input_tensor: Example input tensor for shape propagation
         verbose: Print progress messages
+        precision: Numerical precision used to size weight and activation
+            byte counts in the partition report (issue #52). The model itself
+            is still traced in fp32; this only affects the byte accounting
+            consumed by downstream roofline / energy analyzers.
 
     Returns:
         Tuple of (fx_graph, partition_report):
@@ -153,9 +159,9 @@ def trace_and_partition(
     # Partition using FusionBasedPartitioner
     # FusionBasedPartitioner works better with Dynamo's flattened graph structure
     if verbose:
-        print("  Running fusion-based partitioning...")
+        print(f"  Running fusion-based partitioning (precision={precision.name})...")
 
-    partitioner = FusionBasedPartitioner()
+    partitioner = FusionBasedPartitioner(precision=precision)
     partition_report = partitioner.partition(fx_graph)
 
     if verbose:

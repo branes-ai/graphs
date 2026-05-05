@@ -67,6 +67,39 @@ class Precision(Enum):
     INT4 = "int4"          # 4-bit integer
 
 
+# Canonical operand byte width per Precision (used for weight/activation sizing).
+# Sub-byte precisions are returned as floats (packed storage); callers should
+# round when converting to integer byte counts.
+_PRECISION_BYTES_PER_ELEMENT: Dict["Precision", float] = {}
+
+
+def precision_bytes_per_element(precision: "Precision") -> float:
+    """Return bytes per element for a numerical precision.
+
+    Used by the partitioner and tensor-size accounting so that weight and
+    activation byte counts scale with the requested analysis precision rather
+    than defaulting to fp32. Sub-byte precisions (int4, fp4) return 0.5.
+    """
+    if not _PRECISION_BYTES_PER_ELEMENT:
+        _PRECISION_BYTES_PER_ELEMENT.update({
+            Precision.FP64: 8,
+            Precision.FP32: 4,
+            Precision.TF32: 4,   # stored as fp32; only the multiplier is narrower
+            Precision.FP16: 2,
+            Precision.BF16: 2,
+            Precision.INT64: 8,
+            Precision.INT32: 4,
+            Precision.INT16: 2,
+            Precision.INT8: 1,
+            Precision.FP8: 1,
+            Precision.FP8_E4M3: 1,
+            Precision.FP8_E5M2: 1,
+            Precision.INT4: 0.5,
+            Precision.FP4: 0.5,
+        })
+    return _PRECISION_BYTES_PER_ELEMENT.get(precision, 4)
+
+
 # ============================================================================
 # Physics-Based Energy Model
 # ============================================================================
