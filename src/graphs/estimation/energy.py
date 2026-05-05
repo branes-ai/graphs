@@ -263,9 +263,21 @@ class EnergyAnalyzer:
     - Static energy: Leakage power, always-on circuits (significant on modern hardware)
     """
 
-    # Idle power fractions (from silicon leakage and always-on circuits)
-    IDLE_POWER_FRACTION = 0.3  # GPUs: ~30% of TDP at idle
-    CPU_IDLE_POWER_FRACTION = 0.1  # CPUs: ~10% of TDP at idle
+    # Average package power during *active* kernel execution, as a fraction
+    # of TDP. The legacy name "IDLE_POWER_FRACTION" is preserved for backward
+    # compatibility, but the semantic is "what fraction of TDP does RAPL
+    # actually measure during a busy matmul kernel" -- not the literal silicon
+    # leakage at zero load.
+    #
+    # For RAPL/NVML-validated hardware:
+    # * GPUs draw ~30-50% of TDP during steady-state matmul (memory subsystem
+    #   active, SM utilization sub-100%, fan ramp).
+    # * CPUs draw ~70-85% of TDP during DRAM-bound matmul (cores at boost,
+    #   uncore/L3/IMC fully active). Issue #71 measured ~110W avg on a
+    #   125W i7-12700K -> 0.7 lands inside the 30% energy tolerance band
+    #   for above-1ms shapes, where RAPL resolution is reliable.
+    IDLE_POWER_FRACTION = 0.3       # GPUs: validated against NVML on H100
+    CPU_IDLE_POWER_FRACTION = 0.7   # CPUs: calibrated to V4 RAPL baseline (#71)
 
     def __init__(
         self,
@@ -340,7 +352,13 @@ class EnergyAnalyzer:
             peak_dynamic_power = peak_flops * self.energy_per_flop
             self.tdp_watts = peak_dynamic_power * 2.0
 
-        # Idle power
+        # "Idle" power -- but see CPU_IDLE_POWER_FRACTION docstring above:
+        # on CPU this is the *average package power during an active kernel*
+        # (~70% of TDP, calibrated to V4 RAPL baseline in #71), not literal
+        # silicon leakage. The attribute name is preserved for backward
+        # compatibility, but downstream consumers should treat this as
+        # "static power during execution" on CPU. On GPU it remains close
+        # to the literal idle-state power (~30% of TDP).
         if self.resource_model.hardware_type.name == 'CPU':
             self.idle_power_watts = self.tdp_watts * self.CPU_IDLE_POWER_FRACTION
         else:

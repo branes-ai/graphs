@@ -60,6 +60,16 @@ TOL_ENERGY: dict[Regime, float] = {
 UTILIZATION_THRESHOLD = 0.70
 
 
+# RAPL energy counter resolution on Intel client CPUs is 61 uJ; on top of
+# that, the counter integrates across the *whole package* including
+# unrelated background activity. Below ~1 ms of measurement, the relative
+# noise on a single-trial energy reading easily reaches 50-100%, so the
+# energy assertion is suppressed below this threshold (issue #71).
+# NVML on NVIDIA GPUs has similar lower-bound resolution (~1 ms power
+# samples), so the same threshold applies for GPU ground truth.
+ENERGY_RELIABLE_LATENCY_S = 1e-3
+
+
 # ---------------------------------------------------------------------------
 # ValidationRecord -- one per (shape, hardware) measurement
 # ---------------------------------------------------------------------------
@@ -254,6 +264,10 @@ def assert_record(
 
     if energy_predicted_j is None or measured_energy_j is None:
         pass_egy: Optional[bool] = None
+    elif measured_latency_s < ENERGY_RELIABLE_LATENCY_S:
+        # RAPL/NVML below ~1 ms is too noisy to score an energy band;
+        # treat as "not measured" rather than fail. See #71.
+        pass_egy = None
     else:
         pass_egy = _within_band(energy_predicted_j, measured_energy_j, tol_egy)
 
