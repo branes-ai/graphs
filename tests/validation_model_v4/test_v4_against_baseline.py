@@ -105,11 +105,19 @@ def test_i7_linear_pass_regime_floor():
 
 
 def test_i7_linear_pass_latency_floor():
-    """Linear has its own under-prediction bug (#69) so the floor is
-    lower than matmul -- this test guards against further regression
-    from current state."""
+    """Linear pass_latency floor history:
+    - Pre-#67/#69/#74: 10/60 (constant CPU efficiency curve was over-pessimistic)
+    - Post-#74 (bw_efficiency_scale calibrated to V4 baseline): 21/60
+
+    The fix in #74 anchored CPU bandwidth efficiency to the V4 baseline
+    medians for large WS shapes, which is where #74's over-prediction
+    cohort lived. The remaining ~40 failures are split between:
+    - Cache-effect shapes (real workloads achieve > peak DRAM BW via
+      cache hits; analyzer can't model without cache-hierarchy support)
+    - Small B=1 shapes where #69's dispatch floor isn't enough"""
     total, _, passes_latency, _ = _validation_pass_rate("linear")
-    assert passes_latency >= 8, (
-        f"linear pass_latency regressed below floor: {passes_latency}/{total}. "
-        f"Even if #69 isn't fixed, this number should not get worse."
+    assert passes_latency >= 18, (
+        f"linear pass_latency regressed below floor: {passes_latency}/{total} "
+        f"(floor: 18, was 21 after #74). Likely root cause: bw_efficiency_scale "
+        f"CPU branch in RooflineAnalyzer reverted toward the pre-#74 constant 0.5."
     )
