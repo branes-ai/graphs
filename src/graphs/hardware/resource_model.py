@@ -939,28 +939,37 @@ class HardwareResourceModel:
     # THEORETICAL to INTERPOLATED or CALIBRATED.
     field_provenance: Dict[str, EstimationConfidence] = field(default_factory=dict)
 
+    def _unsupported_precision_error(self, precision: Precision) -> ValueError:
+        supported = sorted(p.name.lower() for p in self.precision_profiles)
+        return ValueError(
+            f"{self.name} does not support {precision.name.lower()} -- "
+            f"supported precisions are: {', '.join(supported) if supported else '(none)'}"
+        )
+
     def get_peak_ops(self, precision: Precision) -> float:
         """
         Get peak operations per second for a given precision.
 
-        Returns:
-            Peak ops/sec, or falls back to FP32 if precision not available
+        Raises:
+            ValueError: if ``precision`` is not in ``precision_profiles``.
+            Previously this fell back to ``default_precision`` silently, which
+            hid analyzer-precision-plumbing bugs (issue #53). Hardware that
+            genuinely supports a precision must list it explicitly.
         """
         if precision in self.precision_profiles:
             return self.precision_profiles[precision].peak_ops_per_sec
-
-        # Fallback to default precision
-        if self.default_precision in self.precision_profiles:
-            return self.precision_profiles[self.default_precision].peak_ops_per_sec
-
-        # Should never reach here if properly configured
-        raise ValueError(f"No precision profile available for {precision} or {self.default_precision}")
+        raise self._unsupported_precision_error(precision)
 
     def get_precision_profile(self, precision: Precision) -> PrecisionProfile:
-        """Get precision profile, with fallback to default"""
+        """Get precision profile.
+
+        Raises:
+            ValueError: if ``precision`` is not in ``precision_profiles``.
+            See :meth:`get_peak_ops` for rationale.
+        """
         if precision in self.precision_profiles:
             return self.precision_profiles[precision]
-        return self.precision_profiles[self.default_precision]
+        raise self._unsupported_precision_error(precision)
 
     def effective_compute_units(self, occupancy: float) -> float:
         """
