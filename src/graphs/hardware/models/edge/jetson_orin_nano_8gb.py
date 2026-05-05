@@ -292,13 +292,33 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         },
         default_thermal_profile="7W",  # Most realistic for embodied AI
 
-        # Legacy precision profiles (backward compatibility)
+        # Legacy precision profiles (backward compatibility).
+        # FP16/FP32 added for issue #53: get_peak_ops now raises on missing
+        # precision instead of silently falling back to INT8. Values follow
+        # the per-SM table above (Ampere CUDA cores, 650 MHz reference):
+        #   FP32: 8 SMs * 128 ops/clock * 650 MHz =  0.666 TFLOPS
+        #   FP16: 8 SMs * 256 ops/clock * 650 MHz =  1.331 TFLOPS  (2x FP32)
+        #   INT8: 8 SMs * 512 ops/clock * 650 MHz =  2.662 TOPS    (via dp4a)
         precision_profiles={
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
                 peak_ops_per_sec=2.662e12,  # 8 SMs × 512 ops/clock × 650 MHz (realistic peak)
                 tensor_core_supported=True,
                 bytes_per_element=1,
+            ),
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=1.331e12,
+                tensor_core_supported=True,
+                relative_speedup=0.5,  # vs INT8
+                bytes_per_element=2,
+            ),
+            Precision.FP32: PrecisionProfile(
+                precision=Precision.FP32,
+                peak_ops_per_sec=0.666e12,
+                tensor_core_supported=False,  # FP32 runs on CUDA cores only
+                relative_speedup=0.25,  # vs INT8
+                bytes_per_element=4,
             ),
         },
         default_precision=Precision.INT8,
