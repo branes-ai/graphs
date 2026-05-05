@@ -18,8 +18,6 @@ addressed, energy assertions cannot pass at any meaningful rate.
 
 from pathlib import Path
 
-import pytest
-
 from validation.model_v4.harness.runner import RunnerConfig, run_sweep
 
 

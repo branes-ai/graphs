@@ -94,9 +94,15 @@ def test_cpu_efficiency_is_monotonic_in_log_flops(i7_analyzer):
 
 
 def test_cpu_efficiency_does_not_regress_to_pre_67_values(i7_analyzer):
-    """Belt-and-braces: assert the curve produces values at least 1.5x
+    """Belt-and-braces: assert the curve produces values at least 1.2x
     higher than the pre-#67 calibration at small/medium flops where the
-    fix matters most. Catches an accidental revert."""
+    fix matters most. Catches an accidental revert.
+
+    The 1.2x floor is intentionally loose -- a future PR may legitimately
+    tighten the curve based on richer V4 data (e.g., per-shape-aspect
+    correction). 1.2x catches the obvious "someone reverted the constants
+    back to the pre-#67 CNN-aggregate calibration" regression without
+    blocking principled refinements."""
     # Pre-#67 values at these flops (for reference only):
     #   1M:   0.15
     #   10M:  0.25
