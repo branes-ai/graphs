@@ -8,6 +8,7 @@ This module implements the first phase of realistic performance modeling:
 - Build dependency graph for concurrency analysis
 """
 
+import math
 import torch
 import torch.nn as nn
 from torch.fx import GraphModule
@@ -25,14 +26,18 @@ from graphs.core.structures import (
     create_tensor_descriptor,
     classify_operation_type
 )
+from graphs.hardware.resource_model import Precision, precision_bytes_per_element
 
 
 class GraphPartitioner:
     """Partition FX graph into subgraphs with detailed statistics"""
 
-    def __init__(self):
+    def __init__(self, precision: Precision = Precision.FP32):
         self.subgraphs: List[SubgraphDescriptor] = []
         self.dependency_graph: Optional[nx.DiGraph] = None
+        # Precision drives weight/activation byte sizing (issue #52).
+        self.precision = precision
+        self.bytes_per_element = precision_bytes_per_element(precision)
 
     @staticmethod
     def _get_shape(meta):
@@ -240,17 +245,18 @@ class GraphPartitioner:
             flops = total_elements if op_type == OperationType.ELEMENTWISE else 0
             macs = 0
 
-            # Compute memory traffic
-            # Input: sum of all input tensors
+            # Compute memory traffic at the analysis precision (issue #52).
+            # ceil so sub-byte precisions never undercount packed storage.
+            bpe = self.bytes_per_element
             input_bytes = 0
             for arg in node.args:
                 if hasattr(arg, 'meta') and 'tensor_meta' in arg.meta:
                     arg_meta = arg.meta['tensor_meta']
                     size = self._compute_total_elements(self._get_shape(arg_meta))
-                    input_bytes += size * 4  # float32
+                    input_bytes += math.ceil(size * bpe)
 
             # Output
-            output_bytes = total_elements * 4
+            output_bytes = math.ceil(total_elements * bpe)
 
             # No weights for elementwise ops
             weight_bytes = 0
@@ -571,10 +577,21 @@ class GraphPartitioner:
             return 0, 0
 
     def _compute_memory(self, node, meta, module) -> Tuple[int, int, int]:
-        """Compute memory traffic: input, output, weights"""
+        """Compute memory traffic: input, output, weights.
+
+        All byte counts are scaled by ``self.bytes_per_element`` so that the
+        precision the analyzer is asked to model (fp16, int8, ...) is honored
+        instead of unconditionally assuming fp32 (issue #52).
+        """
+        bpe = self.bytes_per_element
+
+        def _bytes(elements: int) -> int:
+            # ceil so sub-byte precisions (int4/fp4) account for packed-storage
+            # padding instead of flooring fractional bytes to zero.
+            return math.ceil(elements * bpe)
 
         # Output tensor
-        output_bytes = self._compute_total_elements(self._get_shape(meta)) * 4  # float32
+        output_bytes = _bytes(self._compute_total_elements(self._get_shape(meta)))
 
         # Input tensors
         input_bytes = 0
@@ -582,28 +599,29 @@ class GraphPartitioner:
             if hasattr(arg, 'meta') and 'tensor_meta' in arg.meta:
                 input_meta = arg.meta['tensor_meta']
                 size = self._compute_total_elements(self._get_shape(input_meta))
-                input_bytes += size * 4
+                input_bytes += _bytes(size)
 
         # Weight tensors
         weight_bytes = 0
         if isinstance(module, nn.Conv2d):
             # Weight: [out_channels, in_channels/groups, kernel_h, kernel_w]
-            weight_bytes = (module.out_channels *
-                          (module.in_channels // module.groups) *
-                          module.kernel_size[0] *
-                          module.kernel_size[1] * 4)
+            weight_elements = (module.out_channels *
+                               (module.in_channels // module.groups) *
+                               module.kernel_size[0] *
+                               module.kernel_size[1])
+            weight_bytes = _bytes(weight_elements)
             if module.bias is not None:
-                weight_bytes += module.out_channels * 4
+                weight_bytes += _bytes(module.out_channels)
 
         elif isinstance(module, nn.Linear):
             # Weight: [out_features, in_features]
-            weight_bytes = module.out_features * module.in_features * 4
+            weight_bytes = _bytes(module.out_features * module.in_features)
             if module.bias is not None:
-                weight_bytes += module.out_features * 4
+                weight_bytes += _bytes(module.out_features)
 
         elif isinstance(module, nn.BatchNorm2d):
-            # BatchNorm: weight, bias, running_mean, running_var
-            weight_bytes = module.num_features * 4 * 4
+            # BatchNorm: weight, bias, running_mean, running_var (4 vectors)
+            weight_bytes = _bytes(module.num_features * 4)
 
         return input_bytes, output_bytes, weight_bytes
 
