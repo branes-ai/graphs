@@ -790,42 +790,58 @@ class RooflineAnalyzer:
                     else:
                         return 1.40 + 0.10 * t  # 1.40 -> 1.50
 
-        # CPU efficiency model
-        # CPUs are much more sensitive to operation size than GPUs because:
-        # 1. No SIMT - parallelism is at SIMD and thread level only
-        # 2. Function call overhead per operation is significant
-        # 3. Cache hierarchy effects are pronounced for small working sets
-        # 4. Memory latency is harder to hide with limited parallelism
+        # CPU efficiency model -- single-kernel calibration.
         #
-        # Empirical calibration (i7-12700K, FP32):
-        # - MobileNet (9M avg): measured 10ms, need ~0.17 scale to match
-        # - ResNet (113M avg): measured 12ms, scale ~0.85 works
-        # - ViT (225M avg): measured 97ms, scale ~1.0 works
+        # CALIBRATED against V4 single-kernel matmul measurements on
+        # i7-12700K with Intel MKL, fp32 (committed at
+        # validation/model_v4/results/baselines/i7_12700k_matmul.csv).
+        # 78 measurements; medians per flops decade:
+        #   10^5..10^6: scale ~0.34 (124 GFLOPS / 360 effective)
+        #   10^6..10^7: scale ~0.48 (174 GFLOPS / 360)
+        #   10^7..10^8: scale ~1.10 (395 GFLOPS / 360, MKL packing wins)
+        #   10^9..10^10: scale ~0.91 (327 GFLOPS / 360, varies with shape)
+        #
+        # NOTE: This is a SINGLE-KERNEL curve. Full-model CNN inference is
+        # SLOWER per layer than this curve predicts because of Python /
+        # PyTorch dispatch overhead, activation tensor allocation, and
+        # poor BLAS reuse across small layers. The previous curve
+        # (0.15..1.0) was anchored to full-model measurements
+        # (MobileNet/ResNet/ViT) and systematically over-predicted
+        # single-kernel latency by 2-3x (issue #67).
+        #
+        # Until a separate "in-model overhead" term is modeled (#69 is
+        # the linear counterpart, both point at the same architectural
+        # gap), full-model latency will under-predict by 2-3x for
+        # small-layer models like MobileNet. Use single-kernel V4 to
+        # validate this curve; use a future full-model V4 sweep to
+        # validate the per-call overhead model.
         if hw_type == 'CPU':
             if flops < 1e6:
-                # Tiny ops: dominated by overhead
-                return 0.15
+                # Tiny ops: ~0.34 of effective peak (median of V4 baseline
+                # 10^5..10^6 bucket; 124 GFLOPS achieved).
+                return 0.30
 
             log_flops = math.log10(flops)
 
             if flops < 10e6:
-                # Very small ops (1M - 10M): still heavily overhead-dominated
-                # Linear from 0.15 to 0.25
+                # 1M..10M: steep ramp at MKL packing threshold.
+                # 1.6M shapes hit ~0.55, 10M shapes approach ~0.95.
                 t = (log_flops - 6.0) / 1.0
                 t = max(0.0, min(1.0, t))
-                return 0.15 + 0.10 * t
+                return 0.30 + 0.65 * t
             elif flops < 100e6:
-                # Small-medium ops (10M - 100M): improving efficiency
-                # Linear from 0.25 to 0.70
+                # 10M..100M: peak per-kernel efficiency.
+                # 19M shapes show median 1.10, individual cubes hit 1.37.
                 t = (log_flops - 7.0) / 1.0
                 t = max(0.0, min(1.0, t))
-                return 0.25 + 0.45 * t
+                return 0.95 + 0.25 * t
             else:
-                # Large ops (> 100M): good efficiency, approaching peak
-                # Linear from 0.70 to 1.0
-                t = (log_flops - 8.0) / 1.0
-                t = max(0.0, min(1.0, t))
-                return 0.70 + 0.30 * t
+                # > 100M: plateau slightly above peak (1.20). Some cube
+                # shapes achieve 1.5+ (compute exceeds the conservative
+                # spec), some rectangular shapes drop to 0.3 (poor MKL
+                # packing). 1.20 is a defensible median for typical use;
+                # see #68 for the underlying peak FP32 spec issue.
+                return 1.20
 
         # TPU/KPU: handled by _get_discrete_resource_correction
         # Other hardware: no operation-size efficiency scaling
