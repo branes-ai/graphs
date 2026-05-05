@@ -42,10 +42,15 @@ SWEEP_DIR = Path(__file__).resolve().parents[1] / "sweeps"
 BASELINE_DIR = Path(__file__).resolve().parents[1] / "results" / "baselines"
 
 
-# Hardware -> measurer factory. Add cuda / simulator here when V4-4 / V4-5 land.
+# Hardware -> measurer-backend tag. Resolved to a concrete class in
+# _make_measurer (lazy import keeps NVML/Jetson backends optional on
+# hosts that don't have torch.cuda or pynvml installed).
 _MEASURER_FACTORY = {
     "i7_12700k": "pytorch_cpu",
-    # "h100_sxm5_80gb": "pytorch_cuda",
+    "h100_sxm5_80gb": "pytorch_cuda",
+    "jetson_orin_nano_8gb": "pytorch_jetson",
+    "jetson_orin_agx_64gb": "pytorch_jetson",
+    "jetson_orin_nx_16gb": "pytorch_jetson",
 }
 
 
@@ -53,6 +58,21 @@ def _make_measurer(hw_key: str, *, warmup_trials: int, timed_trials: int):
     backend = _MEASURER_FACTORY.get(hw_key)
     if backend == "pytorch_cpu":
         return PyTorchCPUMeasurer(
+            hardware=hw_key,
+            warmup_trials=warmup_trials,
+            timed_trials=timed_trials,
+        )
+    if backend == "pytorch_cuda":
+        # Lazy import: this module pulls in pynvml only when called.
+        from validation.model_v4.ground_truth.pytorch_cuda import PyTorchCUDAMeasurer
+        return PyTorchCUDAMeasurer(
+            hardware=hw_key,
+            warmup_trials=warmup_trials,
+            timed_trials=timed_trials,
+        )
+    if backend == "pytorch_jetson":
+        from validation.model_v4.ground_truth.pytorch_jetson import PyTorchJetsonMeasurer
+        return PyTorchJetsonMeasurer(
             hardware=hw_key,
             warmup_trials=warmup_trials,
             timed_trials=timed_trials,
