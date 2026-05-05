@@ -24,12 +24,9 @@ Tests below pin:
    than the 1.5pJ/flop dynamic term ever can).
 """
 
-import pytest
-
 from graphs.core.structures import OperationType, SubgraphDescriptor
 from graphs.estimation.energy import EnergyAnalyzer
 from graphs.hardware.mappers.cpu import create_i7_12700k_mapper
-from graphs.hardware.mappers.gpu import create_h100_sxm5_80gb_mapper
 from graphs.hardware.resource_model import Precision
 
 
