@@ -11,9 +11,13 @@ should bump these numbers (and that's the whole point of the V4 dev
 loop). If a change makes the harness pass MORE than the floor, the
 test still passes; only a regression below the floor fails.
 
-Note: ``pass_energy`` is not asserted here. Issue #71 tracks the
-systematic energy under-prediction for short ops; until that's
-addressed, energy assertions cannot pass at any meaningful rate.
+Note on ``pass_energy``: issue #71 calibrated CPU_IDLE_POWER_FRACTION
+to the V4 RAPL baseline (0.1 -> 0.7) and added a sub-ms RAPL-noise skip
+to assert_record. Post-#71, matmul reaches 12/60 pass_energy with 30/60
+skipped (sub-ms RAPL-unreliable); linear stays at 0/60 pass with 60/60
+skipped (every linear shape in the sweep is sub-ms). The remaining
+matmul energy failures are the skinny DRAM-bound shapes whose latency
+under-predicts -- a separate analyzer issue, not an energy-model issue.
 """
 
 from pathlib import Path
@@ -38,6 +42,10 @@ def _validation_pass_rate(op: str) -> tuple[int, int, int, int]:
     total = len(result.records)
     passes_regime = sum(1 for r in result.records if r.pass_regime)
     passes_latency = sum(1 for r in result.records if r.pass_latency)
+    # pass_energy is tri-state (True / False / None); only True is counted as
+    # a pass. None (skipped, e.g. sub-ms RAPL per #71) and False (band miss)
+    # are both excluded. Mirrors the explicit `is False` pattern used in
+    # validation/model_v4/harness/report.py for failure counts.
     passes_energy = sum(1 for r in result.records if r.pass_energy)
     return total, passes_regime, passes_latency, passes_energy
 
@@ -83,6 +91,28 @@ def test_i7_matmul_pass_latency_floor():
         f"(floor: 30, was 0/60 before #67 fix). Compute efficiency curve in "
         f"RooflineAnalyzer._get_compute_efficiency_scale (CPU branch) likely "
         f"reverted toward pre-#67 values."
+    )
+
+
+def test_i7_matmul_pass_energy_floor():
+    """Issue #71 fix: at least 10 of 60 matmul records must pass the
+    per-regime energy tolerance band (was 0/60 before #71). The fix has
+    two parts:
+      1. CPU_IDLE_POWER_FRACTION 0.1 -> 0.7 (calibrated to V4 RAPL baseline)
+      2. Skip energy assertion when measured_latency < 1 ms (RAPL noise)
+
+    Sub-ms shapes (~30 of 60) get pass_energy=None (skipped), not False.
+    Of the remaining ~30 above-1ms shapes, ~12 pass and ~18 fail -- the
+    failing cohort all have under-predicted latency (separate issue);
+    static_energy = active_power * latency, so when latency is wrong,
+    energy is wrong by the same factor."""
+    total, _, _, passes_energy = _validation_pass_rate("matmul")
+    assert passes_energy >= 10, (
+        f"matmul pass_energy regressed below floor: {passes_energy}/{total} "
+        f"(floor: 10, was 0/60 before #71 fix). Likely root cause: "
+        f"CPU_IDLE_POWER_FRACTION in EnergyAnalyzer reverted toward pre-#71 "
+        f"0.1 (the literal-leakage interpretation), or the sub-ms RAPL skip "
+        f"was removed from assert_record."
     )
 
 
