@@ -152,3 +152,116 @@ def test_default_precision_is_fp32_backward_compatible():
     explicit_w = sum(sg.total_weight_bytes for sg in explicit_fp32.subgraphs)
 
     assert default_w == explicit_w
+
+
+# ---------------------------------------------------------------------------
+# Issue #55: call_function (Dynamo / torch.export ATen) weight accounting
+# ---------------------------------------------------------------------------
+
+
+class _ConvLinear(nn.Module):
+    """Small model used to exercise ATen conv2d + linear weight accounting."""
+
+    def __init__(self):
+        super().__init__()
+        # 3*8*3*3 + 8 = 224 weight elements
+        self.conv = nn.Conv2d(3, 8, kernel_size=3, padding=1, bias=True)
+        # 4*8192 + 4 = 32772 weight elements
+        self.fc = nn.Linear(8 * 32 * 32, 4, bias=True)
+
+    def forward(self, x):
+        return self.fc(self.conv(x).flatten(1))
+
+
+def _dynamo_export(model: nn.Module, x: torch.Tensor):
+    ep = torch.export.export(model, (x,))
+    fx = ep.module()
+    from torch.fx.passes.shape_prop import ShapeProp
+    ShapeProp(fx).propagate(x)
+    return fx
+
+
+def test_dynamo_export_call_function_weights_counted():
+    """ATen conv2d/linear nodes must contribute weight bytes (issue #55)."""
+    model = _ConvLinear().eval()
+    x = torch.randn(1, 3, 32, 32)
+    fx = _dynamo_export(model, x)
+
+    # Sanity: conv/linear lower to call_function (ATen) under torch.export,
+    # not call_module. (Dynamo also emits a _guards_fn call_module helper,
+    # which we ignore.)
+    weighted_ops = [
+        n for n in fx.graph.nodes
+        if any(tag in str(n.target) for tag in ('conv2d', 'linear', 'addmm'))
+    ]
+    assert weighted_ops, "expected at least one ATen conv/linear node"
+    assert all(n.op == 'call_function' for n in weighted_ops)
+
+    report = FusionBasedPartitioner(precision=Precision.FP32).partition(fx)
+    total_weight_bytes = sum(sg.total_weight_bytes for sg in report.subgraphs)
+
+    # 224 conv elements + 32772 linear elements = 32996 elements * 4 bytes
+    assert total_weight_bytes == 32996 * 4
+
+
+def test_dynamo_export_weights_scale_with_precision():
+    """ATen weight bytes must scale with the analysis precision (issue #52 + #55)."""
+    model = _ConvLinear().eval()
+    x = torch.randn(1, 3, 32, 32)
+    fx = _dynamo_export(model, x)
+
+    fp32 = sum(sg.total_weight_bytes
+               for sg in FusionBasedPartitioner(Precision.FP32).partition(fx).subgraphs)
+    fp16 = sum(sg.total_weight_bytes
+               for sg in FusionBasedPartitioner(Precision.FP16).partition(fx).subgraphs)
+    int8 = sum(sg.total_weight_bytes
+               for sg in FusionBasedPartitioner(Precision.INT8).partition(fx).subgraphs)
+    int4 = sum(sg.total_weight_bytes
+               for sg in FusionBasedPartitioner(Precision.INT4).partition(fx).subgraphs)
+
+    assert fp32 > 0
+    assert fp16 == fp32 // 2
+    assert int8 == fp32 // 4
+    assert int4 == fp32 // 8
+
+
+def test_dynamo_export_arithmetic_intensity_uses_real_weights():
+    """Arithmetic intensity must include weight bytes for ATen subgraphs.
+
+    Before issue #55 was fixed, weight_bytes was 0, so AI was inflated to
+    FLOPs / (input + output) and a 32-channel conv got misclassified as
+    compute-bound. The test asserts the conv subgraph's external_bytes now
+    includes the weight contribution.
+    """
+    model = _ConvLinear().eval()
+    x = torch.randn(1, 3, 32, 32)
+    fx = _dynamo_export(model, x)
+
+    report = FusionBasedPartitioner(Precision.FP32).partition(fx)
+
+    conv_sgs = [
+        sg for sg in report.subgraphs
+        if any('conv' in name for name in sg.node_names)
+    ]
+    assert conv_sgs, "expected at least one conv subgraph"
+    for sg in conv_sgs:
+        assert sg.total_weight_bytes > 0
+
+
+def test_aten_matmul_does_not_count_weights():
+    """matmul has no parameter tensor; both inputs are activations."""
+
+    class TwoMatmul(nn.Module):
+        def forward(self, a, b):
+            return a @ b
+
+    model = TwoMatmul().eval()
+    a = torch.randn(4, 8)
+    b = torch.randn(8, 16)
+    ep = torch.export.export(model, (a, b))
+    fx = ep.module()
+    from torch.fx.passes.shape_prop import ShapeProp
+    ShapeProp(fx).propagate(a, b)
+
+    report = FusionBasedPartitioner(Precision.FP32).partition(fx)
+    assert sum(sg.total_weight_bytes for sg in report.subgraphs) == 0
