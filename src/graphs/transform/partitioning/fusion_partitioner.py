@@ -913,21 +913,72 @@ class FusionBasedPartitioner:
             return 0, 0
 
     def _compute_memory(self, fx_graph: GraphModule, node) -> Dict[str, int]:
-        """Compute memory usage for a node"""
-        if node.op != 'call_module':
-            return {'weights': 0, 'input': 0, 'output': 0}
+        """Compute memory usage for a node.
 
-        module = fx_graph.get_submodule(node.target)
+        Handles both tracing styles:
+        - call_module (symbolic_trace): sum nn.Module.parameters().
+        - call_function (Dynamo / torch.export ATen graphs): pull weight/bias
+          tensor shapes out of node.args via meta['val']. Without this branch,
+          ATen ops have FLOPs but zero weight bytes, inflating arithmetic
+          intensity and misclassifying compute-bound ops (issue #55).
 
-        # Count parameters at the analysis precision, not the model's storage
-        # dtype. Models are loaded in fp32 even when the user asks to model
-        # int8/fp16 inference (issue #52). Use ceil so sub-byte precisions
-        # (int4/fp4) account for packed-storage padding instead of flooring
-        # to zero.
-        total_params = sum(p.numel() for p in module.parameters())
-        param_bytes = math.ceil(total_params * self.bytes_per_element)
+        All byte counts are scaled by ``self.bytes_per_element`` so the
+        analysis precision (fp16, int8, ...) is honored, and use ``math.ceil``
+        so sub-byte precisions never floor a tensor to 0 bytes.
+        """
+        bpe = self.bytes_per_element
 
-        return {'weights': param_bytes, 'input': 0, 'output': 0}
+        if node.op == 'call_module':
+            module = fx_graph.get_submodule(node.target)
+            total_params = sum(p.numel() for p in module.parameters())
+            return {'weights': math.ceil(total_params * bpe), 'input': 0, 'output': 0}
+
+        if node.op == 'call_function':
+            return {'weights': self._aten_weight_bytes(node, bpe), 'input': 0, 'output': 0}
+
+        return {'weights': 0, 'input': 0, 'output': 0}
+
+    @staticmethod
+    def _arg_numel(node, idx: int) -> int:
+        """Return numel of an FX node arg's fake-tensor meta, or 0 if unavailable."""
+        if idx >= len(node.args):
+            return 0
+        arg = node.args[idx]
+        if not hasattr(arg, 'meta') or 'val' not in arg.meta:
+            return 0
+        try:
+            return int(arg.meta['val'].numel())
+        except Exception:
+            return 0
+
+    def _aten_weight_bytes(self, node, bpe: float) -> int:
+        """Sum parameter-tensor bytes for ATen ops that carry learned weights.
+
+        Conservative coverage: only ops whose parameter slots are unambiguous.
+        ``aten.matmul`` is intentionally excluded — both inputs are activations,
+        not parameters. Norm-affine params (batch_norm/layer_norm scale+shift)
+        are skipped here; they are tiny (per-channel) and their arg layouts
+        differ across decomposed forms (e.g. ``_native_batch_norm_legit*``).
+        """
+        target_str = str(node.target)
+        weight_numel = 0
+
+        # aten.conv2d(input, weight, bias=None, stride, padding, dilation, groups)
+        if 'conv2d' in target_str:
+            weight_numel += self._arg_numel(node, 1)
+            weight_numel += self._arg_numel(node, 2)  # bias (may be 0 / absent)
+
+        # aten.linear(input, weight, bias=None)
+        elif 'linear' in target_str:
+            weight_numel += self._arg_numel(node, 1)
+            weight_numel += self._arg_numel(node, 2)
+
+        # aten.addmm(bias, input, weight)
+        elif 'addmm' in target_str:
+            weight_numel += self._arg_numel(node, 0)  # bias
+            weight_numel += self._arg_numel(node, 2)  # weight
+
+        return math.ceil(weight_numel * bpe)
 
     def _get_tensor_size(self, node) -> int:
         """Get tensor size in bytes"""
