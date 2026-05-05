@@ -159,14 +159,46 @@ def hardware_capacities(
 ) -> HardwareCapacities:
     """Pull the capacity and roofline numbers the classifier needs.
 
+    The classifier asks "is this shape compute-bound or memory-bound on
+    this hardware?" The honest answer requires the **effective** peak
+    (what real workloads can attain after thermal / efficiency derate),
+    not the raw theoretical spec. Otherwise a hardware whose theoretical
+    peak doubles (e.g., #68 corrected i7-12700K from 720 -> 1440 GFLOPS)
+    would silently shift sweep regime labels even though achievable
+    throughput is unchanged.
+
+    Effective peak comes from RooflineAnalyzer._get_effective_peak_ops,
+    which honors thermal_operating_points -> default_thermal_profile ->
+    legacy precision_profiles in priority order. Same code path the
+    analyzer's roofline math uses.
+
     Only fields that already exist on HardwareResourceModel are used; if
-    we add explicit L1/L2 bandwidth peaks later, this is the one place
-    that needs to grow.
+    we add explicit L1/L2 bandwidth peaks later (#61), this is the one
+    place that needs to grow.
     """
+    # Late import: classify.py is the bottom of the v4 dependency stack;
+    # graphs.estimation.roofline imports lots of things. Late binding
+    # keeps the classifier importable in lightweight contexts (sweep
+    # generation, unit tests with mocked analyzers).
+    from graphs.estimation.roofline import RooflineAnalyzer
+
+    # Two distinct peak queries:
+    # 1. ``hw.get_peak_ops(precision)`` -- STRICT supported-precision check.
+    #    Raises if the precision is not in ``precision_profiles``. This
+    #    drives the UNSUPPORTED path: i7 has no native fp16, so trying to
+    #    classify fp16 work on i7 raises here and the caller returns
+    #    Regime.UNSUPPORTED.
+    # 2. ``RooflineAnalyzer._get_effective_peak_ops`` -- effective peak after
+    #    thermal / efficiency derate. This drives the AI breakpoint and the
+    #    launch-bound threshold. Using effective (not theoretical) peak
+    #    means a spec correction that changes only the theoretical headline
+    #    (#68: 720 -> 1440 GFLOPS, with compensating efficiency_factor halve)
+    #    does not silently shift sweep regime labels.
+    hw.get_peak_ops(precision)  # raises -> caller -> Regime.UNSUPPORTED
     l1_total = hw.compute_units * hw.l1_cache_per_unit
     l2_total = hw.l2_cache_total or 0
     on_chip = l1_total + l2_total
-    peak_flops = hw.get_peak_ops(precision)
+    peak_flops = RooflineAnalyzer._get_effective_peak_ops(hw, precision)
     peak_bw = hw.peak_bandwidth
     ai_breakpoint = peak_flops / peak_bw if peak_bw > 0 else math.inf
     return HardwareCapacities(

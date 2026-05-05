@@ -697,9 +697,16 @@ def create_i7_12700k_mapper() -> CPUMapper:
     # ========================================================================
     # COMPUTE RESOURCE (AVX2 - 8-wide FP32)
     # ========================================================================
-    # AVX2: 8 FP32 ops/cycle per core (FMA: 2 ops × 8 lanes × 2 units = 32 ops/cycle peak)
-    # But realistic is ~16 ops/cycle (1 FMA unit active, not both)
-    ops_per_core_per_cycle_fp32 = 16  # Conservative: 1 FMA unit
+    # AVX2 + dual-FMA: 8 FP32 lanes * 2 ops/lane (FMA) * 2 FMA units/core
+    #   = 32 ops/cycle/core peak
+    # Pre-#68 spec used 16 ops/cycle (single FMA unit). MKL's optimized GEMM
+    # routinely saturates BOTH FMA units; V4 baseline shows real cube matmul
+    # at 909 GFLOPS, which is 126% of the old 720-GFLOPS spec -- physically
+    # impossible relative to that spec, demonstrating the underspec.
+    # The downstream efficiency_factor in the thermal profile (0.5) and
+    # compute_efficiency_scale in RooflineAnalyzer derate this theoretical
+    # peak to realistic sustained throughput per workload class.
+    ops_per_core_per_cycle_fp32 = 32  # AVX2 + dual FMA (#68)
     ops_per_core_per_cycle_int8 = 32  # VNNI: better INT8 throughput
 
     avx2_compute = ComputeResource(
@@ -713,8 +720,8 @@ def create_i7_12700k_mapper() -> CPUMapper:
         clock_domain=clock,
     )
 
-    # Peak FP32: 10 cores × 16 ops/cycle × 4.5 GHz = 720 GFLOPS sustained
-    # Peak INT8: 10 cores × 32 ops/cycle × 4.5 GHz = 1.44 TOPS sustained
+    # Peak FP32: 10 cores * 32 ops/cycle * 4.5 GHz = 1440 GFLOPS theoretical
+    # Peak INT8: 10 cores * 32 ops/cycle * 4.5 GHz = 1.44 TOPS sustained
 
     # ========================================================================
     # THERMAL PROFILE (Consumer CPU - realistic for continuous workload)
@@ -729,25 +736,32 @@ def create_i7_12700k_mapper() -> CPUMapper:
                 compute_resource=avx2_compute,
                 instruction_efficiency=0.65,  # Lower than Xeon (hybrid scheduling)
                 memory_bottleneck_factor=0.25,
-                # Measured efficiency across ResNet/ViT workloads: median ~50% of
-                # theoretical peak (range 37-63%). CPUs have no tile quantization
-                # so tile_utilization=1.0; efficiency_factor captures AVX2 ISA
-                # overhead, cache miss rate, and hybrid core scheduling.
-                efficiency_factor=0.50,
+                # efficiency_factor halved (was 0.50, now 0.25) to compensate for
+                # the spec correction in #68: theoretical peak doubled from
+                # 720 (1 FMA unit) to 1440 GFLOPS (dual FMA, the architectural
+                # truth). Effective sustained peak (theoretical * efficiency_factor)
+                # stays at 360 GFLOPS, matching V4 baseline median achieved.
+                # The previous 0.50 was anchored to ResNet/ViT median ~50% of
+                # the under-counted 720 GFLOPS spec.
+                efficiency_factor=0.25,
                 tile_utilization=1.0,
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=avx2_compute,
-                efficiency_factor=0.25,  # Emulated, worse than FP32
+                # Halved from 0.25 -> 0.125 to compensate for #68 spec bump
+                # (same effective rate as before).
+                efficiency_factor=0.125,
                 tile_utilization=1.0,
                 native_acceleration=False,
             ),
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=avx2_compute,
-                efficiency_factor=0.45,  # Better with VNNI
+                # INT8 path is unchanged at the spec level (32 ops/cycle was
+                # already correct for VNNI dp4a) -- keep efficiency_factor.
+                efficiency_factor=0.45,
                 tile_utilization=1.0,
                 native_acceleration=True,
             ),
@@ -769,7 +783,7 @@ def create_i7_12700k_mapper() -> CPUMapper:
         precision_profiles={
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=720e9,  # 720 GFLOPS sustained
+                peak_ops_per_sec=1440e9,  # 1440 GFLOPS theoretical (AVX2 + dual FMA, #68)
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
@@ -928,7 +942,7 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
     # ========================================================================
     # COMPUTE RESOURCE (same - AVX2 8-wide FP32)
     # ========================================================================
-    ops_per_core_per_cycle_fp32 = 16  # 1 FMA unit
+    ops_per_core_per_cycle_fp32 = 32  # AVX2 + dual FMA (#68)
     ops_per_core_per_cycle_int8 = 32  # VNNI
 
     avx2_compute = ComputeResource(
@@ -942,7 +956,8 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         clock_domain=clock,
     )
 
-    # Peak FP32: 10 cores × 16 ops/cycle × 4.5 GHz = 720 GFLOPS sustained
+    # Peak FP32: 10 cores * 32 ops/cycle * 4.5 GHz = 1440 GFLOPS theoretical
+    # (AVX2 + dual FMA, see #68)
 
     # ========================================================================
     # THERMAL PROFILE - LARGE MODEL TUNING
@@ -956,10 +971,13 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=avx2_compute,
-                instruction_efficiency=0.80,  # ↑ from 0.65 (better loop optimization)
-                memory_bottleneck_factor=0.65,  # ↑↑ from 0.25 (compute-bound!)
-                efficiency_factor=0.60,  # ↑↑↑ from 0.20 (better amortization)
-                tile_utilization=0.80,  # ↑ from 0.50 (better core saturation)
+                instruction_efficiency=0.80,  # better loop optimization for large models
+                memory_bottleneck_factor=0.65,  # large = compute-bound
+                # Halved from 0.60 -> 0.30 to compensate for #68 spec bump
+                # (theoretical doubled from 720 to 1440 GFLOPS); effective
+                # peak unchanged.
+                efficiency_factor=0.30,
+                tile_utilization=0.80,
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
@@ -967,7 +985,8 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
                 compute_resource=avx2_compute,
                 instruction_efficiency=0.70,
                 memory_bottleneck_factor=0.60,
-                efficiency_factor=0.30,  # ↑ from 0.10 (emulated but better amortized)
+                # Halved from 0.30 -> 0.15 (#68 compensation).
+                efficiency_factor=0.15,
                 tile_utilization=0.75,
                 native_acceleration=False,
             ),
@@ -998,7 +1017,7 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         precision_profiles={
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=720e9,  # 720 GFLOPS sustained
+                peak_ops_per_sec=1440e9,  # 1440 GFLOPS theoretical (AVX2 + dual FMA, #68)
                 tensor_core_supported=False,
                 relative_speedup=1.0,
                 bytes_per_element=4,
