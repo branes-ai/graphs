@@ -75,15 +75,24 @@ def test_op_footprint_rejects_unknown_op():
 
 def test_i7_12700k_capacities_fp32():
     """i7-12700K: 16 cores * 32KB L1 = 512KB L1 total. L2_cache_total
-    holds the LLC value (25MB Intel L3 by M1 schema convention)."""
+    holds the LLC value (25MB Intel L3 by M1 schema convention).
+
+    cap.peak_flops is the EFFECTIVE peak (after thermal / efficiency
+    derate), not the raw theoretical spec from precision_profiles. See
+    the docstring of hardware_capacities for the rationale (#68)."""
+    from graphs.estimation.roofline import RooflineAnalyzer
     hw = create_i7_12700k_mapper().resource_model
     cap = hardware_capacities(hw, Precision.FP32)
     assert cap.l1_total_bytes == hw.compute_units * hw.l1_cache_per_unit
     assert cap.l2_total_bytes == hw.l2_cache_total
     assert cap.on_chip_total_bytes == cap.l1_total_bytes + cap.l2_total_bytes
     assert cap.peak_dram_bandwidth_bps == hw.peak_bandwidth
-    assert cap.peak_flops == hw.get_peak_ops(Precision.FP32)
+    # Effective peak (used for AI breakpoint), NOT theoretical spec
+    expected_peak = RooflineAnalyzer._get_effective_peak_ops(hw, Precision.FP32)
+    assert cap.peak_flops == expected_peak
     assert cap.ai_breakpoint == cap.peak_flops / cap.peak_dram_bandwidth_bps
+    # Sanity: effective should be derated from theoretical
+    assert cap.peak_flops < hw.get_peak_ops(Precision.FP32)
 
 
 def test_h100_capacities_fp16():
