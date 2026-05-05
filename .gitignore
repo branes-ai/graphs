@@ -177,3 +177,12 @@ cython_debug/
 # Results and output files
 results/
 #*.csv
+
+# V4 validation harness: commit the frozen baselines, ignore transient runs.
+# The baselines under results/baselines/ are the validation reference and
+# must be in git so CI can gate on per-shape drift. Per-run outputs under
+# results/runs/ are transient and stay ignored.
+!validation/model_v4/results/
+!validation/model_v4/results/baselines/
+!validation/model_v4/results/baselines/**
+validation/model_v4/results/runs/
