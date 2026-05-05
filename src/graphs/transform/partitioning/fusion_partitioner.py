@@ -648,11 +648,9 @@ class FusionBasedPartitioner:
             if len(node.args) < 2:
                 return 0, 0
 
-            weight_node = node.args[1]
-            if not hasattr(weight_node, 'meta') or 'val' not in weight_node.meta:
+            weight_shape = self._meta_shape(node.args[1])
+            if weight_shape is None or len(weight_shape) != 4:
                 return 0, 0
-
-            weight_shape = weight_node.meta['val'].shape
             # Weight shape: [out_channels, in_channels/groups, kH, kW]
             _, in_channels_per_group, kh, kw = weight_shape
 
@@ -690,18 +688,17 @@ class FusionBasedPartitioner:
             target_str = str(node.target)
 
             if 'linear' in target_str:
-                # aten.linear(input, weight, bias)
+                # aten.linear(input, weight, bias) and the symbolic_trace
+                # equivalent torch.nn.functional.linear(input, weight, bias).
                 # Output shape: [..., out_features]
                 # Weight shape: [out_features, in_features]
 
                 if len(node.args) < 2:
                     return 0, 0
 
-                weight_node = node.args[1]
-                if not hasattr(weight_node, 'meta') or 'val' not in weight_node.meta:
+                weight_shape = self._meta_shape(node.args[1])
+                if weight_shape is None or len(weight_shape) != 2:
                     return 0, 0
-
-                weight_shape = weight_node.meta['val'].shape
                 out_features, in_features = weight_shape
 
                 # Calculate batch size from output shape
@@ -720,17 +717,12 @@ class FusionBasedPartitioner:
                 if len(output_shape) < 2:
                     return 0, 0
 
-                # Get input shapes
-                input_a = node.args[0]
-                input_b = node.args[1]
-
-                if not (hasattr(input_a, 'meta') and 'val' in input_a.meta):
+                if len(node.args) < 2:
                     return 0, 0
-                if not (hasattr(input_b, 'meta') and 'val' in input_b.meta):
+                shape_a = self._meta_shape(node.args[0])
+                shape_b = self._meta_shape(node.args[1])
+                if shape_a is None or shape_b is None:
                     return 0, 0
-
-                shape_a = input_a.meta['val'].shape
-                shape_b = input_b.meta['val'].shape
 
                 # Simple case: 2D x 2D
                 if len(shape_a) == 2 and len(shape_b) == 2:
@@ -760,16 +752,10 @@ class FusionBasedPartitioner:
                 if len(node.args) < 3:
                     return 0, 0
 
-                input_node = node.args[1]
-                weight_node = node.args[2]
-
-                if not (hasattr(input_node, 'meta') and 'val' in input_node.meta):
+                input_shape = self._meta_shape(node.args[1])
+                weight_shape = self._meta_shape(node.args[2])
+                if input_shape is None or weight_shape is None:
                     return 0, 0
-                if not (hasattr(weight_node, 'meta') and 'val' in weight_node.meta):
-                    return 0, 0
-
-                input_shape = input_node.meta['val'].shape
-                weight_shape = weight_node.meta['val'].shape
 
                 # input: [batch, in_features], weight: [in_features, out_features]
                 if len(input_shape) >= 2 and len(weight_shape) >= 2:
@@ -939,17 +925,51 @@ class FusionBasedPartitioner:
         return {'weights': 0, 'input': 0, 'output': 0}
 
     @staticmethod
+    def _meta_shape(arg) -> Optional[Tuple[int, ...]]:
+        """Extract a tensor shape from an FX node arg's meta.
+
+        Supports both tracing styles (issue #63):
+        - ``torch.export`` / Dynamo: ``meta['val']`` is a FakeTensor with
+          ``.shape`` and ``.numel()``.
+        - ``torch.fx.symbolic_trace`` + ``ShapeProp``: ``meta['tensor_meta']``
+          is a TensorMetadata namedtuple with ``.shape`` (no ``.numel()``).
+
+        Returns ``None`` when neither is populated -- e.g., a literal int
+        argument or an untraced node.
+        """
+        if not hasattr(arg, 'meta'):
+            return None
+        val = arg.meta.get('val')
+        if val is not None and hasattr(val, 'shape'):
+            try:
+                return tuple(int(d) for d in val.shape)
+            except Exception:
+                pass
+        tm = arg.meta.get('tensor_meta')
+        if tm is not None and hasattr(tm, 'shape'):
+            try:
+                return tuple(int(d) for d in tm.shape)
+            except Exception:
+                pass
+        return None
+
+    @staticmethod
+    def _meta_numel(arg) -> int:
+        """Numel from an FX node arg's meta, supporting both tracing styles."""
+        shape = FusionBasedPartitioner._meta_shape(arg)
+        if shape is None:
+            return 0
+        n = 1
+        for d in shape:
+            n *= d
+        return n
+
+    @staticmethod
     def _arg_numel(node, idx: int) -> int:
-        """Return numel of an FX node arg's fake-tensor meta, or 0 if unavailable."""
+        """Return numel of an FX node arg's tensor meta, or 0 if unavailable."""
         if idx >= len(node.args):
             return 0
-        arg = node.args[idx]
-        if not hasattr(arg, 'meta') or 'val' not in arg.meta:
-            return 0
-        try:
-            return int(arg.meta['val'].numel())
-        except Exception:
-            return 0
+        return FusionBasedPartitioner._meta_numel(node.args[idx])
 
     def _aten_weight_bytes(self, node, bpe: float) -> int:
         """Sum parameter-tensor bytes for ATen ops that carry learned weights.
