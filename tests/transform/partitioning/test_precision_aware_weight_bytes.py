@@ -28,7 +28,9 @@ from graphs.transform.partitioning import FusionBasedPartitioner, GraphPartition
         (Precision.FP16, 2),
         (Precision.BF16, 2),
         (Precision.INT8, 1),
+        (Precision.FP8, 1),
         (Precision.FP8_E4M3, 1),
+        (Precision.FP8_E5M2, 1),
         (Precision.INT4, 0.5),
         (Precision.FP4, 0.5),
     ],
@@ -108,6 +110,33 @@ def test_graph_partitioner_weight_bytes_scale_with_precision():
     assert fp32_w > 0
     # int8 weights occupy 1 byte per element vs 4 for fp32 -> exact 4x scaling
     assert int8_w * 4 == fp32_w
+
+
+def test_subbyte_precision_uses_ceil_not_round():
+    """A sub-byte precision must not floor a single-element tensor to 0 bytes.
+
+    Banker's rounding (Python's ``round``) maps 0.5 -> 0, which would silently
+    lose tensors at int4/fp4. The partitioner uses ``math.ceil`` to model
+    packed-storage padding (a 1-element int4 tensor still occupies 1 byte).
+    """
+
+    class OneParamConv(nn.Module):
+        def __init__(self):
+            super().__init__()
+            # 1 input channel, 1 output channel, 1x1 kernel, no bias -> 1 param
+            self.conv = nn.Conv2d(1, 1, kernel_size=1, bias=False)
+
+        def forward(self, x):
+            return self.conv(x)
+
+    model = OneParamConv().eval()
+    x = torch.randn(1, 1, 8, 8)
+    fx = _trace(model, x)
+
+    int4 = GraphPartitioner(precision=Precision.INT4).partition(fx)
+    weight_bytes = sum(sg.total_weight_bytes for sg in int4.subgraphs)
+    # 1 param * 0.5 bytes/elem = 0.5 -> ceil = 1, round() would give 0.
+    assert weight_bytes >= 1
 
 
 def test_default_precision_is_fp32_backward_compatible():

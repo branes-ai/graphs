@@ -8,6 +8,7 @@ Unlike the basic GraphPartitioner (which creates one subgraph per operator),
 this partitioner aggregates operators to minimize data movement.
 """
 
+import math
 from typing import List, Set, Dict, Tuple, Optional
 from dataclasses import dataclass
 import torch
@@ -920,9 +921,11 @@ class FusionBasedPartitioner:
 
         # Count parameters at the analysis precision, not the model's storage
         # dtype. Models are loaded in fp32 even when the user asks to model
-        # int8/fp16 inference (issue #52).
+        # int8/fp16 inference (issue #52). Use ceil so sub-byte precisions
+        # (int4/fp4) account for packed-storage padding instead of flooring
+        # to zero.
         total_params = sum(p.numel() for p in module.parameters())
-        param_bytes = int(round(total_params * self.bytes_per_element))
+        param_bytes = math.ceil(total_params * self.bytes_per_element)
 
         return {'weights': param_bytes, 'input': 0, 'output': 0}
 
@@ -944,7 +947,8 @@ class FusionBasedPartitioner:
             for dim in meta.shape:
                 numel *= dim
             # Activations are sized at the analysis precision (issue #52).
-            return int(round(numel * self.bytes_per_element))
+            # Use ceil so sub-byte precisions never floor a tensor to 0 bytes.
+            return math.ceil(numel * self.bytes_per_element)
 
         return 0
 

@@ -8,6 +8,7 @@ This module implements the first phase of realistic performance modeling:
 - Build dependency graph for concurrency analysis
 """
 
+import math
 import torch
 import torch.nn as nn
 from torch.fx import GraphModule
@@ -245,16 +246,17 @@ class GraphPartitioner:
             macs = 0
 
             # Compute memory traffic at the analysis precision (issue #52).
+            # ceil so sub-byte precisions never undercount packed storage.
             bpe = self.bytes_per_element
             input_bytes = 0
             for arg in node.args:
                 if hasattr(arg, 'meta') and 'tensor_meta' in arg.meta:
                     arg_meta = arg.meta['tensor_meta']
                     size = self._compute_total_elements(self._get_shape(arg_meta))
-                    input_bytes += int(round(size * bpe))
+                    input_bytes += math.ceil(size * bpe)
 
             # Output
-            output_bytes = int(round(total_elements * bpe))
+            output_bytes = math.ceil(total_elements * bpe)
 
             # No weights for elementwise ops
             weight_bytes = 0
@@ -584,7 +586,9 @@ class GraphPartitioner:
         bpe = self.bytes_per_element
 
         def _bytes(elements: int) -> int:
-            return int(round(elements * bpe))
+            # ceil so sub-byte precisions (int4/fp4) account for packed-storage
+            # padding instead of flooring fractional bytes to zero.
+            return math.ceil(elements * bpe)
 
         # Output tensor
         output_bytes = _bytes(self._compute_total_elements(self._get_shape(meta)))
