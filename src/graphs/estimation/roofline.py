@@ -505,6 +505,18 @@ class RooflineAnalyzer:
         overhead = self._estimate_overhead(sg)
         actual_latency = bottleneck_time + overhead
 
+        # CPU dispatch floor (#69): real PyTorch / nn.Module call has ~5us
+        # of Python dispatch + parameter access + bias-add overhead per
+        # forward call. The roofline math doesn't model this, so very small
+        # ops (B=1 linear, tiny matmul) under-predict. Apply as a floor
+        # rather than additive overhead so it only kicks in when the kernel
+        # is too small to dominate -- avoids over-correcting medium ops
+        # where the overhead is amortized by real kernel time.
+        # V4 baseline shows the floor empirically: smallest measured shape
+        # (1,128,128 linear, 33K flops) lands at 5.20us wall-clock.
+        if self.resource_model.hardware_type.name == 'CPU':
+            actual_latency = max(actual_latency, 5e-6)
+
         # Arithmetic intensity
         ai = sg.flops / total_bytes if total_bytes > 0 else 0.0
 
