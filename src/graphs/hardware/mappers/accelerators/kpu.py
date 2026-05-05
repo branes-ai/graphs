@@ -211,11 +211,14 @@ class KPUMapper(HardwareMapper):
             activation_budget = max(scratchpad_size, on_chip_total - weight_bytes)
         else:
             # Weights exceed the on-chip budget: outer-tile execution. Each
-            # outer pass loads a slab of weights, streams the full activation
-            # set through it, then loads the next slab.
+            # outer pass loads a *different slab* of weights, streams the
+            # full activation set through it, then loads the next slab. The
+            # slabs together cover the whole weight set exactly once.
             outer_weight_loads = max(1, math.ceil(weight_bytes / weight_on_chip_budget))
-            # Half on-chip for weight slab, half for activations.
-            activation_budget = max(scratchpad_size, int(on_chip_total * 0.5))
+            # Activation working set co-resides with the active weight slab,
+            # so the budget is whatever's left after reserving for weights
+            # (consistent with the 80/20 split above).
+            activation_budget = max(scratchpad_size, on_chip_total - weight_on_chip_budget)
 
         # How many times the activation stream cycles through DRAM. For
         # well-fitted activations this is 1; for very large activations (rare
@@ -331,20 +334,20 @@ class KPUMapper(HardwareMapper):
         # Calculate latency using roofline model.
         ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
 
-        # Weight-stationary memory accounting (issue #51). Weights load
-        # ``outer_weight_loads`` times (1 when they fit on-chip), not once per
-        # inner activation tile; activations stream ``activation_iterations``
-        # times. Previously the mapper computed
-        # ``(input + output + weight) * num_iterations`` which treats weights
-        # as re-fetched every inner iteration -- exactly the access pattern
-        # the KPU dataflow is designed to avoid.
+        # Weight-stationary memory accounting (issue #51). Each weight byte
+        # is loaded from DRAM exactly once for this subgraph (split across
+        # ``outer_weight_loads`` slabs when weights don't fit on-chip; each
+        # slab covers a different weight tile, never the same one reloaded).
+        # What gets repeated is the activation stream cycling through each
+        # weight slab. Previously the mapper computed
+        # ``(input + output + weight) * num_iterations`` which treats both
+        # weights *and* activations as re-fetched on every inner tile --
+        # exactly the access pattern the KPU dataflow is designed to avoid.
         activation_traffic_bytes = (
             (subgraph.total_input_bytes + subgraph.total_output_bytes)
             * tile_config.activation_iterations
         )
-        weight_traffic_bytes = (
-            subgraph.total_weight_bytes * tile_config.outer_weight_loads
-        )
+        weight_traffic_bytes = subgraph.total_weight_bytes
         bytes_transferred = activation_traffic_bytes + weight_traffic_bytes
 
         ops_with_tiling = int(ops * tile_config.tiling_overhead)

@@ -21,7 +21,6 @@ compute. These tests lock in:
 import math
 
 import pytest
-import torch
 
 from graphs.estimation.roofline import RooflineAnalyzer
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
@@ -125,17 +124,23 @@ def test_kpu_dram_traffic_excludes_weights_when_they_fit(kpu_t64_resource_model)
     assert bytes_ == 2_000_000  # input + output, no weight contribution
 
 
-def test_kpu_dram_traffic_includes_weights_when_they_exceed_budget(kpu_t64_resource_model):
-    """Per-subgraph weights that exceed the on-chip budget cannot fully
-    overlap; must be amortized over outer tiles."""
+def test_kpu_dram_traffic_outer_tiled_amortizes_correctly(kpu_t64_resource_model):
+    """When weights exceed the on-chip budget, outer-tiled execution loads
+    *different* weight slabs each pass (each weight byte loaded exactly
+    once total), and the *activation* stream is what cycles through every
+    slab. The total DRAM traffic is therefore
+    ``activation_bytes * outer_loads + weight_bytes``, NOT
+    ``weight_bytes * outer_loads + activation_bytes``.
+    """
     analyzer = RooflineAnalyzer(kpu_t64_resource_model, precision=Precision.INT8)
-    # 50 MB weights vs ~17 MB budget -> ceil(50/17) = 3 outer loads
+    # 50 MB weights vs ~17 MB budget -> ceil(50/17) = 3 outer slabs
     weight_bytes = 50 * 1024 * 1024
+    activation_bytes = 2_000_000
     sg = _make_subgraph(input_b=1_000_000, output_b=1_000_000, weight_b=weight_bytes)
     on_chip = 64 * 256 * 1024 + 4 * 1024 * 1024
     weight_budget = int(on_chip * 0.8)
     expected_outer = math.ceil(weight_bytes / weight_budget)
-    expected = 2_000_000 + weight_bytes * expected_outer
+    expected = activation_bytes * expected_outer + weight_bytes
     assert analyzer._dram_traffic_bytes(sg) == expected
     assert expected_outer >= 2  # sanity
 

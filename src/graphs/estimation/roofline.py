@@ -975,9 +975,12 @@ class RooflineAnalyzer:
             if weight_bytes <= weight_budget:
                 # Stationary: weight load overlaps previous layer's compute.
                 return base
-            # Weights exceed on-chip: outer-tiled, partial overlap.
+            # Weights exceed on-chip: outer-tiled. Each weight byte is still
+            # loaded *once* total (the slabs are different weight tiles, not
+            # the same tile reloaded); what gets repeated is the activation
+            # stream, which has to cycle through each weight slab.
             outer_loads = max(1, math.ceil(weight_bytes / weight_budget))
-            return base + weight_bytes * outer_loads
+            return base * outer_loads + weight_bytes
 
         return base + weight_bytes
 
