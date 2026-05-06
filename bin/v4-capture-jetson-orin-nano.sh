@@ -16,10 +16,10 @@ set -euo pipefail   # for any block you do choose to run as a script
 # ----------------------------------------------------------------------------
 # Step 1: Get the code and deps onto the Jetson
 # ----------------------------------------------------------------------------
-git clone https://github.com/branes-ai/graphs.git
-cd graphs
+#git clone https://github.com/branes-ai/graphs.git
+#cd graphs
 # After PR #80 merges to main, drop this checkout. Until then:
-git checkout feat/v4-4-gpu-jetson-ground-truth
+#git checkout feat/v4-4-gpu-jetson-ground-truth
 
 # Verify torch sees CUDA. Use the JetPack-matched wheel -- DON'T `pip install
 # torch` from PyPI (those wheels are CPU-only or x86-only).
