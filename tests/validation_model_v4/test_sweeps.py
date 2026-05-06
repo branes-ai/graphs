@@ -37,6 +37,8 @@ SWEEP_FILES = [
     "matmul_validation.json",
     "linear_calibration.json",
     "linear_validation.json",
+    "vector_add_calibration.json",
+    "vector_add_validation.json",
 ]
 
 
@@ -57,7 +59,7 @@ def hw():
 @pytest.mark.parametrize("filename", SWEEP_FILES)
 def test_sweep_file_loads_with_expected_schema(filename):
     payload = json.loads((SWEEP_DIR / filename).read_text())
-    assert payload["op"] in {"matmul", "linear"}
+    assert payload["op"] in {"matmul", "linear", "vector_add"}
     assert payload["purpose"] in {"calibration", "validation"}
     assert isinstance(payload["generator_seed"], int)
     assert isinstance(payload["generated_against_hardware"], list)

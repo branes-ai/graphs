@@ -132,9 +132,23 @@ def _linear_footprint(shape: Tuple[int, int, int], dtype: str) -> OpFootprint:
                        operational_intensity=oi)
 
 
+def _vector_add_footprint(shape: Tuple[int, ...], dtype: str) -> OpFootprint:
+    # Vector add: c[i] = a[i] + b[i]. Two N-element inputs + one
+    # N-element output, no operand reuse. The zero-reuse ground truth
+    # for tier-bandwidth measurement (V5 plan).
+    (N,) = shape
+    bpe = bytes_per_element(dtype)
+    working_set = int(round(3 * N * bpe))  # a + b + c
+    flops = N                              # one add per element
+    oi = flops / working_set if working_set > 0 else 0.0
+    return OpFootprint(working_set_bytes=working_set, flops=flops,
+                       operational_intensity=oi)
+
+
 _OP_FOOTPRINT = {
     "matmul": _matmul_footprint,
     "linear": _linear_footprint,
+    "vector_add": _vector_add_footprint,
 }
 
 
