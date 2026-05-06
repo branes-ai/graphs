@@ -172,11 +172,11 @@ def test_i7_linear_pass_latency_floor():
 # peak_bandwidth from 68 -> 102 GB/s (Super memory), and a new MAXN
 # thermal profile reflecting the user's full-power deployment.
 #
-# Pass-rate evolution:
+# Pass-rate evolution (Phase B baseline captured at 15W on Super):
 #   matmul: 4/48 regime, 3/48 latency, 13/48 energy  (PR #90 baseline)
-#        -> 4/48 regime, 5/48 latency, 25/48 energy  (post-#94 fix)
+#        -> 4/48 regime, 5/48 latency, 21/48 energy  (post-#94 fix)
 #   linear: 1/46 regime, 1/46 latency,  8/46 energy  (PR #90 baseline)
-#        -> 1/46 regime, 1/46 latency, 28/46 energy  (post-#94 fix)
+#        -> 1/46 regime, 1/46 latency, 29/46 energy  (post-#94 fix)
 #
 # Energy bumped substantially because static_energy = avg_power *
 # latency, and latency is now closer to measured. Regime/latency
@@ -237,13 +237,13 @@ def test_jetson_orin_nano_matmul_pass_energy_floor():
     to measured. The remaining 13 fails are mostly the small under-
     predicted-latency shapes."""
     total, _, _, passes_energy = _validation_pass_rate("matmul", _JETSON)
-    assert passes_energy >= 22, (
+    assert passes_energy >= 20, (
         f"jetson matmul pass_energy regressed below floor: "
-        f"{passes_energy}/{total} (floor: 22, was 25 after #94, was "
+        f"{passes_energy}/{total} (floor: 20, was 21 after #94, was "
         f"13 pre-fix). Likely root cause: the Tensor Core peak fix in "
         f"jetson_orin_nano_8gb.py reverted (fp16_ops_per_sm_per_clock "
         f"back to 512 from 1024), or peak_bandwidth back to 68 GB/s, "
-        f"or default_thermal_profile back to '7W' from 'MAXN'."
+        f"or default_thermal_profile back to '7W' from '15W'."
     )
 
 
@@ -280,11 +280,11 @@ def test_jetson_orin_nano_linear_pass_latency_floor():
 
 
 def test_jetson_orin_nano_linear_pass_energy_floor():
-    """Post-#94 floor: 28/46 (was 8/46 pre-fix; +20 / +250%). Same root
+    """Post-#94 floor: 29/46 (was 8/46 pre-fix; +21 / +263%). Same root
     cause as matmul energy floor: predicted latency now closer to
     measured -> static_energy = avg_power * latency comes out closer."""
     total, _, _, passes_energy = _validation_pass_rate("linear", _JETSON)
-    assert passes_energy >= 25, (
+    assert passes_energy >= 27, (
         f"jetson linear pass_energy regressed below floor: "
-        f"{passes_energy}/{total} (floor: 25, was 28 after #94)."
+        f"{passes_energy}/{total} (floor: 27, was 29 after #94)."
     )

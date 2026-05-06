@@ -209,12 +209,19 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
-    # 15W MODE: Balanced configuration (typical edge deployment)
+    # 15W MODE: Standard edge deployment (Orin Nano Super, Dec 2024)
     # ========================================================================
+    # The Orin Nano *Super* refresh raised the 15W power envelope so the
+    # GPU can sustain near-boost clocks (~1.02 GHz) under cuBLAS Tensor
+    # Core load -- the 500 MHz sustained figure was from the original
+    # 2023 Nano. The V4 Phase B baseline (#90) was captured at 15W on a
+    # Super, measuring 7-8 TFLOPS for fp16 matmul (peak shapes).
+    # Effective FP16 calibration: 8 SMs * 1024 ops/clock * 1020 MHz *
+    # 0.85 = 7.1 TFLOPS, matching the V4 baseline.
     clock_15w = ClockDomain(
         base_clock_hz=306e6,
-        max_boost_clock_hz=918e6,
-        sustained_clock_hz=500e6,  # 54% of boost
+        max_boost_clock_hz=1020e6,    # Super raised boost from 918 MHz
+        sustained_clock_hz=1020e6,    # Super can sustain boost at 15W under cuBLAS
         dvfs_enabled=True,
     )
 
@@ -229,32 +236,35 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         clock_domain=clock_15w,
     )
 
-    # Sustained INT8: 8 × 512 × 500 MHz = 2.0 TOPS
-    # Effective: 2.0 × 0.50 = 1.0 TOPS (9.7% of 21 TOPS dense peak)
-
     thermal_15w = ThermalOperatingPoint(
-        name="15W-standard",
+        name="15W-Super",
         tdp_watts=15.0,
         cooling_solution="passive-heatsink",
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
                 compute_resource=compute_resource_15w,
-                instruction_efficiency=0.85,
-                memory_bottleneck_factor=0.60,
-                efficiency_factor=0.50,  # 50% of sustained (10% of peak)
+                instruction_efficiency=0.95,
+                memory_bottleneck_factor=0.80,
+                efficiency_factor=0.80,   # Tensor Core INT8 well-utilized
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
                 precision=Precision.FP16,
                 compute_resource=compute_resource_15w,
-                efficiency_factor=0.45,
+                # 0.85 = cuBLAS-tuned Tensor Core matmul fraction of
+                # theoretical, calibrated against #94 V4 baseline
+                # measurement of 7-8 TFLOPS (peak achievable on the
+                # captured sweep shapes).
+                efficiency_factor=0.85,
                 native_acceleration=True,
             ),
             Precision.FP32: PerformanceCharacteristics(
                 precision=Precision.FP32,
                 compute_resource=compute_resource_15w,
-                efficiency_factor=0.30,
+                # FP32 doesn't use Tensor Cores on consumer Ampere;
+                # CUDA-core only with modest utilization.
+                efficiency_factor=0.40,
                 native_acceleration=True,
             ),
         }
@@ -358,14 +368,15 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         # Thermal operating points with DVFS modeling
         thermal_operating_points={
             "7W":   thermal_7w,    # Battery-powered devices
-            "15W":  thermal_15w,   # Standard edge AI deployment
-            "MAXN": thermal_maxn,  # Orin Nano Super at full power (#94)
+            "15W":  thermal_15w,   # Orin Nano Super 15W (Phase B baseline)
+            "MAXN": thermal_maxn,  # Orin Nano Super at full 25W power
         },
-        # MAXN is default because the V4 Phase B baseline (#90) was
-        # captured at MAXN, and that's the dominant deployment mode for
-        # benchmark / characterization runs. Operators targeting battery
-        # or edge deployments should pass thermal_profile="7W" or "15W".
-        default_thermal_profile="MAXN",
+        # 15W is the default because the V4 Phase B baseline (#90) was
+        # captured in the 15W thermal profile. Operators running at
+        # MAXN should pass thermal_profile="MAXN"; battery deployments
+        # should pass "7W". On the Super silicon, 15W can sustain
+        # near-boost clocks under cuBLAS Tensor Core load.
+        default_thermal_profile="15W",
 
         # Legacy precision profiles (backward compatibility).
         # FP16/FP32 added for issue #53: get_peak_ops now raises on missing
