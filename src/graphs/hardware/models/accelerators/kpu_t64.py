@@ -436,6 +436,32 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=4 * 1024 * 1024,  # 4 MB shared L2
         main_memory=8 * 1024**3,  # 8 GB LPDDR5
+
+        # On-chip bandwidth peaks (#61). Stillwater KPU-T64 vendor
+        # architecture spec, with the math consistent with the rest of
+        # this module (32x32 PE array, 900 MHz sustained clock):
+        #
+        # Per-tile L1 (scratchpad) bandwidth: each tile contains a 32x32
+        # PE mesh (1024 PEs) with 256 KB SRAM. The "feed every PE every
+        # cycle" peak demand at bf16 (2 bytes/elem, 2 operands/FMA) is
+        # 1024 * 2 * 2 = 4096 B/cycle. At ``sustained_clock_hz`` =
+        # 900 MHz that's ~3.69 TB/s/tile of theoretical peak demand.
+        #
+        # However spatial dataflow re-uses operands via PE-local
+        # registers and inter-PE wires rather than re-fetching from L1
+        # every cycle. Steady-state L1 demand is far below the per-PE
+        # operand rate -- typically ~40% of peak for output-stationary
+        # schedules, since each operand is fetched once per K-loop
+        # iteration and reused across the inner mesh. The figure used
+        # here (1.5 TB/s/tile = 41% of 3.69 TB/s peak) captures that
+        # steady-state demand. Aggregate L1 BW: ~96 TB/s across 64 tiles.
+        #
+        # Shared L2 bandwidth: the 4 MB shared L2 sits behind the inter-
+        # tile NoC and feeds the tile mesh at the NoC's bisection BW.
+        # Vendor spec for T64 is 200 GB/s aggregate L2; this is the
+        # bottleneck for cross-tile data sharing in the dataflow schedule.
+        l1_bandwidth_per_unit_bps=1.5e12,
+        l2_bandwidth_bps=200e9,
         # Energy (use BF16 tile fabric as baseline for general-purpose FP32 operations)
         energy_per_flop_fp32=bf16_tile_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
         energy_per_byte=12e-12,
