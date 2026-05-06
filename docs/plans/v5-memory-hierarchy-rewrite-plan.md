@@ -29,58 +29,74 @@ Treat each memory tier as a **server** in the queueing-theory sense:
 
 A kernel runs through a hierarchy of these servers. The throughput is bounded by the slowest server in the chain — Little's Law / bottleneck analysis. The art is figuring out **which tier is the binding constraint** and **how much traffic the kernel actually generates at that tier** (which depends on the kernel's reuse pattern and the tile-size choice).
 
+### Two distinct tier roles per kernel
+
+Two terms have to stay clearly separated throughout the rest of this doc:
+
+* **Residency tier** — the smallest tier whose total (chip-aggregate) capacity holds the working set the kernel keeps alive while computing on a tile. Identified by walking innermost-out and stopping at the first tier that fits the residency window. The kernel's *cache hits* come from this tier.
+* **Binding tier** — the tier the kernel *streams from* to refresh the residency window. Always the next-larger tier after the residency tier (or DRAM if the residency tier is already DRAM). Its effective bandwidth gates throughput.
+
+Where this doc says "binding tier" it means the streaming source whose BW we charge memory traffic against. The `tier_picker` returns the binding tier (not the residency tier).
+
 ### What replaces `bw_efficiency_scale`
 
 Three pieces:
 
-1. **`MemoryTier`**: capacity, peak BW, achievable-BW model. Exists per-tier on the hardware.
-2. **`ReuseModel(op, shape, tier)`**: how many times each input byte is read from this tier while the kernel is computing on the residency window. Pure function of op type + shape + tile size + tier capacity.
-3. **`tier_picker(op, shape, hw)`**: walks the hierarchy from innermost outward and picks the tier whose capacity holds the working set's residency window. That tier is the bottleneck.
+1. **`MemoryTier`**: capacity, peak BW, achievable-BW factor, access latency. Exists per-tier on the hardware.
+2. **`ReuseModel(op, shape, residency_tier)`**: how many times each input byte is read from the *binding* tier while the kernel is computing on a residency window held in the inner tier. Pure function of op type + shape + tile size + residency-tier capacity.
+3. **`tier_picker(op, shape, hw) -> MemoryTier`**: walks the hierarchy innermost-out, finds the residency tier, returns the **binding tier** (the next-larger one).
 
 The replacement contract:
 
 ```python
 def memory_time(op, shape, dtype, hw) -> float:
-    binding_tier = tier_picker(op, shape, hw)
+    binding_tier = tier_picker(op, shape, hw)        # streaming source
     bytes_at_tier = ReuseModel(op, shape, binding_tier).bytes_loaded()
-    return bytes_at_tier / binding_tier.effective_bw(op_kind)
+    return bytes_at_tier / binding_tier.effective_bandwidth_bps
 ```
 
 The narrative payoff: the analyzer can return alongside the latency a one-line explanation, e.g.
 
-> `(1024, 1024, 1024) fp32 matmul on i7-12700K: tile (128, 128, 32) fits in 32 KB L1 (per-core), K-loop reuse 1024x, binding tier = L2 (12 MB working set fits LLC), effective L2 BW = 180 GB/s × 0.78 = 140 GB/s, memory_time = 12 MB / 140 GB/s = 86 µs.`
+> `(1024, 1024, 1024) fp32 matmul on i7-12700K: tile (128, 128, 32) fits in 32 KB L1 (per-core, residency tier), K-loop reuse 1024x, binding tier = L3 (LLC, 25 MB), effective L3 BW = 180 GB/s × 0.78 = 140 GB/s, memory_time = 12 MB / 140 GB/s = 86 µs.`
 
 That's exactly the story the user asked for.
 
 ## Memory tier abstraction
 
+This is what V5-1 actually shipped (PR #96):
+
 ```python
-@dataclass
+@dataclass(frozen=True)
 class MemoryTier:
-    name: str                              # "L1", "L2", "LLC", "DRAM", "HBM"
-    capacity_bytes: int                    # per-unit (L1 per core/SM) or aggregate (L2/LLC/DRAM)
-    is_per_unit: bool                      # if True, total = capacity * compute_units
+    name: str                          # "L1", "L2", "L3", "DRAM", "scratchpad"
+    capacity_bytes: int                # per-unit if is_per_unit else aggregate
+    is_per_unit: bool
+    num_units: int                     # compute_units when per-unit; else 1
 
-    peak_bandwidth_bps: float              # ideal (architectural max)
-
-    # Achievable BW model: returns the fraction of peak this tier
-    # achieves for a given access pattern.
-    # The simplest implementation is a constant per-tier, calibrated
-    # against microbenchmarks. Future: expose access-pattern args.
-    def achievable_fraction(self, access_pattern: str) -> float: ...
+    peak_bandwidth_bps: float          # ALWAYS aggregate -- per-unit BW gets
+                                       # multiplied by num_units when constructed
+    access_latency_ns: float           # first-request startup latency (V5-3 will
+                                       # use this as the memory-side LAUNCH_BOUND)
+    achievable_fraction: float = 1.0   # V5-5 calibration knob; default = ideal
 
     @property
-    def effective_bw(self, access_pattern: str = "streaming") -> float:
-        return self.peak_bandwidth_bps * self.achievable_fraction(access_pattern)
+    def total_capacity_bytes(self) -> int:  # is_per_unit ? cap*num_units : cap
+        ...
+
+    @property
+    def effective_bandwidth_bps(self) -> float:  # peak * achievable_fraction
+        ...
 ```
 
-A hardware mapper exposes a list of tiers, ordered innermost to outermost:
+`achievable_fraction` is a single scalar in V5-1, not a per-access-pattern function. The tradeoff: simpler to calibrate (one knob per (hw, tier)), simpler to reason about, matches the data we'll actually capture in V5-2's vector-add microbenchmarks. Per-access-pattern variation (coalesced vs strided, read-only vs read-write) can be added in V5-5+ when the data justifies it.
+
+A hardware mapper exposes the list of tiers via the `memory_hierarchy` derived property:
 
 ```python
-hw.memory_hierarchy = [
-    MemoryTier("L1", 32*1024, is_per_unit=True, peak_bandwidth_bps=432e9, ...),
-    MemoryTier("L2", 25*1024**2, is_per_unit=False, peak_bandwidth_bps=200e9, ...),
-    MemoryTier("DRAM", 64*1024**3, is_per_unit=False, peak_bandwidth_bps=75e9, ...),
+hw.memory_hierarchy == [
+    MemoryTier("L1",   32*1024,      is_per_unit=True,  num_units=12, peak_bw=5.18e12, ...),
+    MemoryTier("L3",   25*1024**2,   is_per_unit=False, num_units=1,  peak_bw=200e9,   ...),
+    MemoryTier("DRAM", 64*1024**3,   is_per_unit=False, num_units=1,  peak_bw=75e9,    ...),
 ]
 ```
 
@@ -150,20 +166,22 @@ Attention has multiple matmul stages with intermediate softmax. FlashAttention-s
 
 ```python
 def pick_binding_tier(op, shape, dtype, hw) -> MemoryTier:
-    tiers = sorted(hw.memory_hierarchy, key=lambda t: t.capacity_bytes)
-    # Walk from innermost (L1) outward; find the smallest tier whose
-    # capacity holds the *residency window* the op needs to keep alive
-    # to maximize reuse.
+    # Use total_capacity_bytes (which handles is_per_unit -> capacity *
+    # num_units aggregation) so per-unit and shared tiers compare
+    # apples-to-apples.
+    tiers = sorted(hw.memory_hierarchy, key=lambda t: t.total_capacity_bytes)
+    # Walk from innermost (L1) outward; find the residency tier (the
+    # smallest tier whose AGGREGATE capacity holds the residency window
+    # the op needs to keep alive to maximize reuse). The binding tier
+    # we return is the next-larger tier -- the streaming source.
     for tier in tiers:
-        if op.residency_window(shape, dtype, tier_capacity=tier.capacity_bytes) <= tier.capacity_bytes:
-            # This tier holds the working set; the next-larger tier
-            # is what the kernel STREAMS from. Bytes-loaded-from-streaming
-            # tier is what we compute memory_time against.
+        residency = op.residency_window(shape, dtype, tier_capacity=tier.total_capacity_bytes)
+        if residency <= tier.total_capacity_bytes:
             inner_idx = tiers.index(tier)
             if inner_idx + 1 < len(tiers):
-                return tiers[inner_idx + 1]   # streaming source
-            return tier   # already at outermost
-    return tiers[-1]   # outermost tier (DRAM)
+                return tiers[inner_idx + 1]   # streaming source = binding tier
+            return tier   # already at outermost; binding tier is itself
+    return tiers[-1]   # outermost (DRAM) -- working set doesn't fit anywhere
 ```
 
 `op.residency_window` is the per-op question: "given a tile of capacity C bytes in a cache tier, what's the tile size we'd choose, and what working set does it imply?"
@@ -178,7 +196,7 @@ For each (hardware, tier) pair, capture an empirical **achievable BW curve**:
 
 ### Vector add at increasing N
 
-```
+```text
 N = 256  → fits in L1 → measures L1 BW
 N = 64K  → fits in L2 → measures L2 BW
 N = 4M   → fits in LLC → measures LLC BW
@@ -189,7 +207,7 @@ The slope `latency / N` at each plateau is the inverse achievable BW for that ti
 
 ### Matmul reuse vs tile size
 
-```
+```text
 (M, K, N) = (64, 64, 64)        WS=48 KB → L1-resident → expect ALU-bound
 (M, K, N) = (256, 256, 256)     WS=768 KB → L2-resident
 (M, K, N) = (1024, 1024, 1024)  WS=12 MB → LLC-resident (i7) / DRAM (Orin)
@@ -202,7 +220,7 @@ The achieved GFLOPS at each WS bucket exposes the binding tier's effective BW + 
 
 Add `validation/model_v4/workloads/vector_add.py` (new) that builds a 1-op vector-add workload. Then sweep entries spanning the cache hierarchy:
 
-```
+```yaml
 {shape: (1024,),    dtype: fp32, expected_tier: L1}
 {shape: (16384,),   dtype: fp32, expected_tier: L2}
 {shape: (1048576,), dtype: fp32, expected_tier: LLC}
@@ -237,23 +255,20 @@ V5-1 through V5-3 can land in parallel with V4 follow-up calibration work since 
 
 * **The story of how the workload uses the hardware** comes out of the analyzer for free, as a side-effect of the tier-picking algorithm. Reports become explanatory, not just predictive.
 
-## Open questions for review
+## Decision records (resolved)
 
-1. **Should `MemoryTier` belong on `HardwareResourceModel` directly, or be a derived view?** The existing fields (`l1_cache_per_unit`, `l1_bandwidth_per_unit_bps`, ...) carry the data. A derived view (`hw.memory_hierarchy` as a `@property`) avoids duplication but coupling. I lean derived.
+The original draft surfaced six open questions. Decisions made during user review on 2026-05-06 -- downstream implementation PRs should rely on these defaults rather than reinterpret.
 
-2. **Tile-size oracle**: how does `residency_window` know what tile size cuBLAS / oneDNN actually use? Three options:
-   * Assume optimal-square tile (sqrt-of-capacity heuristic) — simplest, may be off
-   * Per-library lookup table (cuBLAS Tensor Core tiles are 16×8 etc.) — accurate, brittle
-   * Calibrate from the microbenchmark sweep — robust, requires capture
-   Recommend: optimal-square as default, with hardware-specific overrides exposed as Optional fields.
+| # | Question | Decision | Owner | Date | Reversible? | Symbol(s) |
+|---|---|---|---|---|---|---|
+| 1 | `MemoryTier` first-class field vs derived view | **Derived view** (`@property`) -- shipped in V5-1 | stillwater | 2026-05-06 | Yes (could move to first-class field with a refactor) | `HardwareResourceModel.memory_hierarchy` |
+| 2 | Tile-size oracle for `residency_window` | **Optimal-square heuristic** (`sqrt(C/(3*bpe))` for matmul C-tile), with hardware-specific overrides exposed as Optional fields | stillwater | 2026-05-06 | Yes (override per-mapper, or swap to lookup table) | `op.residency_window`, override fields TBD |
+| 3 | Spatial-dataflow scratchpads (KPU, TPU) | **Same tier model** -- scratchpad maps to L1 tier with `is_per_unit=True`. The conceptual difference (HW cache vs SW resource manager staging) is encoded in the *staging* model, not the tier abstraction. Block linear algebra reuse decomposition applies the same way. | stillwater | 2026-05-06 | Yes (could subclass for a different model later) | `MemoryTier(is_per_unit=True)` |
+| 4 | Multi-kernel streaming (network of queues) | **Deferred** -- out of scope for V5; revisit when the C++ concurrency analyzer needs it | stillwater | 2026-05-06 | Yes (additive when the time comes) | n/a |
+| 5 | CPU SMT / hyperthreading | **Deferred** -- captured separately as `instruction_efficiency` if needed | stillwater | 2026-05-06 | Yes | `instruction_efficiency` |
+| 6 | Latency-bound floor | **First-class** -- per-tier `access_latency_ns` field shipped in V5-1; the V5-3 tier picker uses it as the memory-side LAUNCH_BOUND for vector / matvec / small-matmul ops where single-stream startup dominates BW-limited service time | stillwater | 2026-05-06 | Yes (can disable by setting fields to 0) | `MemoryTier.access_latency_ns`, V5-3 tier picker |
 
-3. **Spatial dataflow accelerators (KPU, TPU)** don't have a traditional cache hierarchy. The memory hierarchy is `tile_scratchpad → shared_L2 → DRAM` with software-managed staging. The MemoryTier abstraction should accommodate this — likely by treating `tile_scratchpad` as a "tier" with `is_per_unit=True` and the residency-window formula adjusted for spatial-dataflow patterns. Worth a sub-section in the V5-3 PR.
-
-4. **Multi-arrival workloads**: the operational-analysis model assumes one kernel at a time. Streaming pipelines (the C++ `concurrency` analyzer area) would need a network-of-queues extension — out of scope for V5.
-
-5. **CPU-side hyperthreading / SMT**: one logical "compute unit" can hide some L1 misses behind another thread's compute. Not modeled here. Possibly captured as an `instruction_efficiency` term applied separately.
-
-6. **Latency vs throughput**: the operational-analysis model is throughput-only. For very small kernels where memory access is *latency*-bound (single-cache-line load) rather than bandwidth-bound, the model overestimates effective BW. Need a latency floor analogous to the LAUNCH_BOUND classifier — possibly `tier.access_latency_ns × num_accesses` as a lower bound.
+V5-1 (PR #96) implements decisions 1, 3, and 6. Decisions 2, 4, and 5 are honored in subsequent phases (V5-3 for #2, deferred for #4 and #5).
 
 ## Tentative PR sequence
 
