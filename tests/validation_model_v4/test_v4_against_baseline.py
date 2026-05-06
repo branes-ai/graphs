@@ -1,23 +1,31 @@
-"""Integration tests: V4 harness against the committed i7-12700K baseline.
+"""Integration tests: V4 harness against committed per-hardware baselines.
 
-Locks in the pass-rate floors after issue #67's fix. If a future change
-to the analyzer (compute efficiency curve, peak FLOPS spec, energy
-model, etc.) regresses single-kernel matmul predictions on i7, these
-tests fail loudly with a clear pointer at the analyzer.
+Locks in the pass-rate floors per (hardware, op). Floors protect
+against regressions, not against being too low. Improvements to the
+analyzer / mapper / classifier should bump these numbers; only a
+regression below the floor fails the test.
 
-Pass-rate floors are deliberately conservative -- they protect against
-regressions, not against being too low. Improvements to the analyzer
-should bump these numbers (and that's the whole point of the V4 dev
-loop). If a change makes the harness pass MORE than the floor, the
-test still passes; only a regression below the floor fails.
+Each hardware target gets its own set of floor tests because:
+* The shape population is hardware-dependent (the augmenter classifies
+  shapes per-target; some shapes are LAUNCH_BOUND on flagship silicon
+  but DRAM_BOUND on edge silicon).
+* The analyzer constants are calibrated per-target (CPU got #67, #68,
+  #69, #71, #74; Jetson Orin Nano is uncalibrated as of Phase B
+  capture, tracked separately).
 
-Note on ``pass_energy``: issue #71 calibrated CPU_IDLE_POWER_FRACTION
-to the V4 RAPL baseline (0.1 -> 0.7) and added a sub-ms RAPL-noise skip
-to assert_record. Post-#71, matmul reaches 12/60 pass_energy with 30/60
-skipped (sub-ms RAPL-unreliable); linear stays at 0/60 pass with 60/60
-skipped (every linear shape in the sweep is sub-ms). The remaining
-matmul energy failures are the skinny DRAM-bound shapes whose latency
-under-predicts -- a separate analyzer issue, not an energy-model issue.
+Targets covered today:
+  * i7-12700K: matmul + linear (CPU path, #67/#68/#69/#71/#74)
+  * Jetson Orin Nano 8GB: matmul + linear (Phase B baseline, uncalibrated)
+
+Note on ``pass_energy``:
+  i7: #71 calibrated CPU_IDLE_POWER_FRACTION (0.1 -> 0.7) and added
+      a sub-ms RAPL-noise skip. matmul reaches 12/60 pass_energy with
+      30/60 skipped; linear stays at 0/60 pass with 60/60 skipped
+      because every linear shape is sub-ms.
+  Jetson: NVML/INA3221 has the same sub-ms noise floor as RAPL; the
+      assert_record skip applies uniformly. Post-#88 fix (workload
+      moved to GPU before measuring), matmul reports 13 pass_energy
+      with 10 skipped on the validation sweep.
 """
 
 from pathlib import Path
@@ -31,12 +39,12 @@ SWEEP_DIR = REPO_ROOT / "validation" / "model_v4" / "sweeps"
 BASELINE_DIR = REPO_ROOT / "validation" / "model_v4" / "results" / "baselines"
 
 
-def _validation_pass_rate(op: str) -> tuple[int, int, int, int]:
-    """Run the i7-12700K validation sweep, return (total, passes_regime,
-    passes_latency, passes_energy)."""
+def _validation_pass_rate(op: str, hardware_key: str = "i7_12700k") -> tuple[int, int, int, int]:
+    """Run the validation sweep on ``hardware_key``, return
+    (total, passes_regime, passes_latency, passes_energy)."""
     cfg = RunnerConfig(
         sweep_path=SWEEP_DIR / f"{op}_validation.json",
-        hardware_key="i7_12700k",
+        hardware_key=hardware_key,
     )
     result = run_sweep(cfg)
     total = len(result.records)
@@ -55,6 +63,8 @@ def test_baseline_csvs_exist():
     test fails loud if the baseline ever gets removed by accident."""
     assert (BASELINE_DIR / "i7_12700k_matmul.csv").exists()
     assert (BASELINE_DIR / "i7_12700k_linear.csv").exists()
+    assert (BASELINE_DIR / "jetson_orin_nano_8gb_matmul.csv").exists()
+    assert (BASELINE_DIR / "jetson_orin_nano_8gb_linear.csv").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -150,4 +160,122 @@ def test_i7_linear_pass_latency_floor():
         f"linear pass_latency regressed below floor: {passes_latency}/{total} "
         f"(floor: 18, was 21 after #74). Likely root cause: bw_efficiency_scale "
         f"CPU branch in RooflineAnalyzer reverted toward the pre-#74 constant 0.5."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Floor: Jetson Orin Nano 8GB (Phase B baseline, uncalibrated mapper)
+# ---------------------------------------------------------------------------
+#
+# These floors reflect the analyzer's *uncalibrated* state for the
+# Orin Nano mapper. The numbers are deliberately low because the mapper
+# hasn't had the equivalent of i7's #67/#68/#69/#71/#74 calibration
+# rounds yet -- the Phase B baseline (PR #90) just surfaced the gap.
+# Calibration is tracked separately; once any of those constants land
+# the floors should be bumped.
+#
+# Diagnostic from the baseline:
+#   matmul: 4/48 regime, 3/48 latency, 13/48 energy (10 skipped sub-ms)
+#   linear: 1/46 regime, 1/46 latency,  8/46 energy (10 skipped sub-ms)
+#   median latency_pred / latency_meas ratio: ~4x over-prediction
+#   100% of dram_bound predictions fail pass_regime -- the analyzer
+#   thinks Orin Nano is DRAM-bound where the iGPU is actually doing
+#   better than its conservatively-spec'd peak_bandwidth suggests.
+
+
+_JETSON = "jetson_orin_nano_8gb"
+
+
+def test_jetson_orin_nano_matmul_validation_records_loaded():
+    """Sanity: harness produces 48 validation records for Orin Nano
+    matmul (the sweep entries the augmenter classified for this key,
+    excluding AMBIGUOUS / UNSUPPORTED)."""
+    total, _, _, _ = _validation_pass_rate("matmul", _JETSON)
+    assert total == 48, (
+        f"expected 48 jetson_orin_nano_8gb matmul validation records, "
+        f"got {total}; sweep augmentation may have drifted"
+    )
+
+
+def test_jetson_orin_nano_matmul_pass_regime_floor():
+    """Phase B floor. Currently 4/48 -- mostly the launch_bound shapes.
+    All 38 dram_bound predictions fail because the analyzer over-
+    predicts Orin DRAM latency by ~4x (see calibration tracker)."""
+    total, passes_regime, _, _ = _validation_pass_rate("matmul", _JETSON)
+    assert passes_regime >= 4, (
+        f"jetson matmul pass_regime regressed below floor: "
+        f"{passes_regime}/{total} (floor: 4). Likely root cause: a "
+        f"change to the GPU branch of _get_compute_efficiency_scale "
+        f"or _get_bandwidth_efficiency_scale in RooflineAnalyzer that "
+        f"made Orin predictions worse, or a peak_bandwidth change in "
+        f"jetson_orin_nano_8gb mapper that shifted regime boundaries."
+    )
+
+
+def test_jetson_orin_nano_matmul_pass_latency_floor():
+    """Phase B floor. Currently 3/48. Median latency_pred/meas is ~4x
+    over-predict; the 3 passing entries are within the LAUNCH_BOUND
+    30% tolerance band where the launch-overhead constant happens to
+    hit. Calibrating Orin Nano's GPU efficiency curve should bump
+    this substantially."""
+    total, _, passes_latency, _ = _validation_pass_rate("matmul", _JETSON)
+    assert passes_latency >= 3, (
+        f"jetson matmul pass_latency regressed below floor: "
+        f"{passes_latency}/{total} (floor: 3). Likely root cause: GPU "
+        f"compute / bw efficiency curve in RooflineAnalyzer drifted, "
+        f"or the analyzer's Orin Nano peak_bandwidth / peak_FLOPS "
+        f"shifted in the wrong direction."
+    )
+
+
+def test_jetson_orin_nano_matmul_pass_energy_floor():
+    """Phase B floor. Currently 13/48 with 10 sub-ms skipped, 25 fail.
+    The fails track latency over-prediction since static_energy =
+    avg_power * latency. Improvements to latency calibration will
+    bump this."""
+    total, _, _, passes_energy = _validation_pass_rate("matmul", _JETSON)
+    assert passes_energy >= 10, (
+        f"jetson matmul pass_energy regressed below floor: "
+        f"{passes_energy}/{total} (floor: 10). Likely root cause: GPU "
+        f"IDLE_POWER_FRACTION drifted (currently 0.3, V4-#71-style "
+        f"calibration pending), or Orin's TDP / energy_per_flop "
+        f"constants regressed."
+    )
+
+
+def test_jetson_orin_nano_linear_validation_records_loaded():
+    total, _, _, _ = _validation_pass_rate("linear", _JETSON)
+    assert total == 46, (
+        f"expected 46 jetson_orin_nano_8gb linear validation records, "
+        f"got {total}"
+    )
+
+
+def test_jetson_orin_nano_linear_pass_regime_floor():
+    """Phase B floor. Currently 1/46 -- linear is even worse than
+    matmul on Orin because of the tall-skinny B=1 shapes that the
+    classifier puts into dram_bound but the analyzer over-predicts."""
+    total, passes_regime, _, _ = _validation_pass_rate("linear", _JETSON)
+    assert passes_regime >= 1, (
+        f"jetson linear pass_regime regressed below floor: "
+        f"{passes_regime}/{total} (floor: 1)."
+    )
+
+
+def test_jetson_orin_nano_linear_pass_latency_floor():
+    """Phase B floor. Currently 1/46. Same root cause as matmul
+    pass_latency floor."""
+    total, _, passes_latency, _ = _validation_pass_rate("linear", _JETSON)
+    assert passes_latency >= 1, (
+        f"jetson linear pass_latency regressed below floor: "
+        f"{passes_latency}/{total} (floor: 1)."
+    )
+
+
+def test_jetson_orin_nano_linear_pass_energy_floor():
+    """Phase B floor. Currently 8/46 with 10 sub-ms skipped, 28 fail."""
+    total, _, _, passes_energy = _validation_pass_rate("linear", _JETSON)
+    assert passes_energy >= 6, (
+        f"jetson linear pass_energy regressed below floor: "
+        f"{passes_energy}/{total} (floor: 6)."
     )
