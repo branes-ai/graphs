@@ -17,7 +17,7 @@ We test:
 
 from __future__ import annotations
 
-from pathlib import Path
+import math
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -132,7 +132,7 @@ def test_measurer_returns_nan_latency_when_cuda_unavailable():
         meas = measurer.measure(model=MagicMock(), inputs=[])
 
     assert isinstance(meas, Measurement)
-    assert meas.latency_s != meas.latency_s   # nan
+    assert math.isnan(meas.latency_s)
     assert meas.energy_j is None
     assert "CUDA" in meas.notes
 

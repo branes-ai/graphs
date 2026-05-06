@@ -15,11 +15,13 @@ development box:
 
 These tests use a mock pynvml to avoid requiring real hardware. The
 end-to-end capture path is exercised separately on the target box (see
-docs/v4-capture-on-target.md).
+docs/plans/v4-capture-on-target.md).
 """
 
 from __future__ import annotations
 
+import math
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -37,18 +39,28 @@ from validation.model_v4.ground_truth.pytorch_cuda import (
 # ---------------------------------------------------------------------------
 
 
-def test_detect_nvml_returns_none_when_pynvml_missing():
-    """On an i7 dev box without pynvml installed, _detect_nvml must not
-    raise; the measurer interprets None as 'energy unavailable'."""
-    # The real i7-12700K test host typically does not have pynvml; just
-    # call the detector and confirm it returned None or a probe (we don't
-    # assert which -- some dev boxes do have pynvml installed alongside).
+def test_detect_nvml_returns_none_when_pynvml_missing(monkeypatch):
+    """Force ``import pynvml`` to fail at the import statement inside
+    ``_detect_nvml`` and confirm the detector returns None instead of
+    raising. This is deterministic regardless of whether pynvml is
+    actually installed on the dev box."""
+    # Hide any previously-imported pynvml so the in-function import path
+    # has to re-resolve; install a meta-finder that raises ImportError.
+    monkeypatch.delitem(sys.modules, "pynvml", raising=False)
+
+    class _BlockPynvml:
+        def find_module(self, name, path=None):    # py<3.4 API, harmless
+            return self if name == "pynvml" else None
+
+        def find_spec(self, name, path=None, target=None):
+            if name == "pynvml":
+                raise ImportError("forced absent for test")
+            return None
+
+    monkeypatch.setattr(sys, "meta_path",
+                        [_BlockPynvml(), *sys.meta_path])
     probe = _detect_nvml(device_index=0)
-    if probe is None:
-        return  # expected on a CPU-only host
-    # If we DID get a probe (developer has pynvml + a GPU), at least one
-    # of the two query types must have succeeded.
-    assert probe.supports_total_energy or probe.read_power_mw() is not None
+    assert probe is None
 
 
 def test_detect_nvml_returns_none_when_init_fails():
@@ -121,7 +133,7 @@ def test_measurer_returns_nan_latency_when_cuda_unavailable():
         meas = measurer.measure(model=MagicMock(), inputs=[])
 
     assert isinstance(meas, Measurement)
-    assert meas.latency_s != meas.latency_s   # nan
+    assert math.isnan(meas.latency_s)
     assert meas.energy_j is None
     assert "CUDA" in meas.notes
 

@@ -115,6 +115,8 @@ def _detect_nvml(device_index: int = 0) -> Optional[_NVMLProbe]:
         try:
             pynvml.nvmlShutdown()
         except Exception:
+            # Best-effort cleanup -- if shutdown also fails (driver wedge),
+            # there's nothing we can do; the caller still gets None.
             pass
         return None
 
@@ -135,6 +137,7 @@ def _detect_nvml(device_index: int = 0) -> Optional[_NVMLProbe]:
         try:
             pynvml.nvmlShutdown()
         except Exception:
+            # Best-effort cleanup on the unsupported-device path.
             pass
         return None
 
@@ -235,11 +238,9 @@ class PyTorchCUDAMeasurer:
             # elapsed_time returns milliseconds
             latencies_s.append(start.elapsed_time(stop) * 1e-3)
 
-        # Total wall-clock window length (sum of medians as approximation).
-        # We use median-trial-latency * trial_count for the energy denominator
-        # so a single tail-latency outlier doesn't inflate the figure.
+        # Median per-trial latency for the power-fallback energy estimate
+        # (avoids inflating energy from a single tail-latency outlier).
         median_latency_s = statistics.median(latencies_s)
-        window_s = median_latency_s * self.timed_trials
 
         energy_j: Optional[float] = None
         if self._probe is None:
@@ -283,5 +284,7 @@ class PyTorchCUDAMeasurer:
             try:
                 self._probe.pynvml.nvmlShutdown()
             except Exception:
+                # Teardown is best-effort; NVML cleans up on process exit
+                # anyway, so a shutdown failure here is not actionable.
                 pass
             self._probe = None

@@ -14,9 +14,14 @@ Cache invalidation is **explicit** (per the v4 plan): this CLI is the
 only writer. The validate CLI is read-only -- it never silently moves
 the validation reference.
 
-Currently the only ground-truth backend is ``PyTorchCPUMeasurer``
-(wall-clock + Intel RAPL). GPU (V4-4) and KPU simulator (V4-5)
-backends will dispatch via ``--hw``.
+Backends dispatch via ``--hw`` through ``_MEASURER_FACTORY``:
+
+* ``PyTorchCPUMeasurer`` (wall-clock + Intel RAPL) -- CPU targets
+* ``PyTorchCUDAMeasurer`` (cudaEvent + NVML) -- desktop / server
+  NVIDIA GPUs (H100, A100, ...)
+* ``PyTorchJetsonMeasurer`` (cudaEvent + INA3221) -- Jetson Orin Nano,
+  AGX, NX, Thor
+* KPU simulator backend (V4-5) is still pending.
 """
 
 from __future__ import annotations

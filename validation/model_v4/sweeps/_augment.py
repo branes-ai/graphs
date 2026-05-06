@@ -48,7 +48,7 @@ from graphs.hardware.mappers.gpu import (
     create_jetson_orin_nx_16gb_mapper,
 )
 
-from validation.model_v4.sweeps.classify import Regime, classify_regime
+from validation.model_v4.sweeps.classify import classify_regime
 
 
 SWEEP_DIR = Path(__file__).resolve().parent
