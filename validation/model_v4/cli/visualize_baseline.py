@@ -177,6 +177,15 @@ def _enrich_row(r: dict, hw: HardwareResourceModel, with_predictions: bool) -> O
                                  if r["energy_j"] and r["latency_s"] > 0 else None)
 
     if with_predictions:
+        # Narrow exception list -- catch the failures we expect from
+        # _resolve_precision (unknown dtype string -> ValueError),
+        # _build_subgraph (unsupported op -> ValueError), and the
+        # analyzer paths (KeyError on missing precision profile,
+        # AttributeError on legacy mappers, ZeroDivisionError on a
+        # degenerate shape). Letting other exceptions propagate keeps
+        # bugs visible. Failures emit a single warning so a developer
+        # can see *why* a shape's predicted markers are missing instead
+        # of silently dropping them.
         try:
             precision = _resolve_precision(r["dtype"])
             sg = _build_subgraph(op, r["shape"], r["dtype"])
@@ -187,7 +196,13 @@ def _enrich_row(r: dict, hw: HardwareResourceModel, with_predictions: bool) -> O
                                      if pred_lat > 0 else None)
             r["predicted_avg_power_w"] = (pred_egy / pred_lat
                                           if pred_egy and pred_lat > 0 else None)
-        except Exception:
+        except (ValueError, KeyError, AttributeError, ZeroDivisionError) as e:
+            print(
+                f"warning: prediction failed for "
+                f"{op}({','.join(str(d) for d in r['shape'])}) {r['dtype']}: "
+                f"{type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
             r["predicted_latency_ms"] = None
             r["predicted_gflops"] = None
             r["predicted_avg_power_w"] = None
