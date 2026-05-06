@@ -160,9 +160,12 @@ def _detect_nvml(device_index: int = 0) -> Optional[_NVMLProbe]:
 class PyTorchCUDAMeasurer:
     """cudaEvent + NVML measurer for PyTorch on a desktop/server NVIDIA GPU.
 
-    Stateful only insofar as it caches the NVML device handle. Inputs
-    are assumed to already be on the target device; the measurer does
-    not move tensors -- the workload builder owns placement.
+    Stateful only insofar as it caches the NVML device handle. The
+    measurer moves ``model`` and any tensor in ``inputs`` to the target
+    CUDA device before warmup -- the workload factories build on CPU
+    and are hardware-agnostic, so device placement is the measurer's
+    responsibility (issue #88). The move is a no-op if the model /
+    inputs are already on the target device.
     """
     hardware: str                 # caller supplies the hardware key
     device_index: int = 0
@@ -195,6 +198,22 @@ class PyTorchCUDAMeasurer:
                 trial_count=0,
                 notes="CUDA: torch.cuda.is_available() returned False",
             )
+
+        # Issue #88: workload factories build on CPU and are hardware-
+        # agnostic. Move model + tensor inputs to the CUDA device before
+        # we start timing; otherwise model(*inputs) runs on the host and
+        # the cudaEvents bracket an idle GPU stream (latency reports
+        # near-zero, wall-clock eats hours, energy attributed to whatever
+        # the package was doing during host compute -- all wrong).
+        # Both calls are no-ops if already on device.
+        device = f"cuda:{self.device_index}"
+        model = model.to(device)
+        inputs = tuple(
+            x.to(device) if torch.is_tensor(x) else x
+            for x in inputs
+        )
+        # Sync so the H2D copies don't bleed into the warmup window.
+        torch.cuda.synchronize(self.device_index)
 
         # Warm-up (results discarded; primes kernel autotune + caches)
         for _ in range(self.warmup_trials):

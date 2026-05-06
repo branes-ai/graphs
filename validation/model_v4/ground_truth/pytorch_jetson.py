@@ -243,6 +243,19 @@ class PyTorchJetsonMeasurer:
                 notes="CUDA: torch.cuda.is_available() returned False",
             )
 
+        # Issue #88: workload factories build on CPU; move model + tensor
+        # inputs to the integrated GPU before warmup. Without this the
+        # cudaEvents bracket an idle GPU stream and INA3221 measures the
+        # Cortex-A78 cores instead of the iGPU. Both calls are no-ops if
+        # already on device.
+        device = f"cuda:{self.device_index}"
+        model = model.to(device)
+        inputs = tuple(
+            x.to(device) if torch.is_tensor(x) else x
+            for x in inputs
+        )
+        torch.cuda.synchronize(self.device_index)
+
         for _ in range(self.warmup_trials):
             model(*inputs)
         torch.cuda.synchronize(self.device_index)
