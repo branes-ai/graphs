@@ -1,0 +1,151 @@
+decision_id: "DECISION-2026-05-05-001"
+timestamp: "2026-05-05T22:00:00Z"
+ai_model: "claude-opus-4-7"
+session_id: "795dedb2-8312-45b4-b3ca-8ca46555fac9"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "V4-5 KPU consistency invariants: use pytest.mark.xfail(strict=True) with #81 as tracking issue for the known-violated avg_power_below_tdp check, rather than disabling the check or loosening its threshold."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "user_request"
+  content: "proceed with V4-5"
+  context: |
+    V4-5 implements consistency-only invariants for KPU mappers (which
+    have no commercially-available silicon). The first run surfaced
+    that predicted average power exceeds TDP by ~1.5x-3x on every KPU
+    mapper -- the same family of bug as #71 was for CPU, but the KPU
+    energy model hasn't been calibrated against simulator output yet.
+    The question was: how should the V4-5 invariant suite handle a
+    known-violated check?
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+  - option: "Drop the check entirely until KPU energy is calibrated"
+    pros:
+      - "All V4-5 tests pass cleanly, no xfail noise."
+      - "Simpler to reason about: every test is a hard pass."
+    cons:
+      - "Loses the institutional memory that this *should* be a check; a future contributor wouldn't know to re-add it after #81 lands."
+      - "No CI signal when the energy model gets fixed."
+    selected: false
+    rejected_reason: "The check IS valuable; it's the constants that are wrong, not the invariant. Dropping it discards the diagnostic."
+
+  - option: "Loosen the threshold so the check passes (e.g., tdp_slack=5.0)"
+    pros:
+      - "Test passes today without ceremony."
+      - "Still surfaces *truly* outlandish power predictions in the future."
+    cons:
+      - "Silently masks the real bug. A 5x slack is no slack at all -- it would let the energy model drift further before anyone noticed."
+      - "Encodes 'predicted power can exceed TDP by 5x' as the contract, which is physically false."
+    selected: false
+    rejected_reason: "Pretending a violated invariant is satisfied is the V3 anti-pattern that V4 was built to prevent. Same critique as 'self-validation' in the v4 plan."
+
+  - option: "pytest.mark.xfail(strict=True) with a tracking-issue link in the reason"
+    pros:
+      - "Test runs and reports the violation in CI output (visible diagnostic)."
+      - "strict=True means if the underlying bug gets fixed, the test flips to a regular pass and CI signals 'remove the xfail marker'. Self-cleaning."
+      - "The reason field documents WHY the test is xfailing and where to track the fix (#81), so a future contributor can resolve it without spelunking."
+      - "Mirrors the same pattern used for #71 floor tests and the FX/symbolic_trace tracker tests."
+    cons:
+      - "Adds an xfail to the suite that will surface in any test summary."
+      - "Requires filing the tracking issue (#81) before merging the test."
+    selected: true
+    selected_reason: "xfail+strict+tracking-issue is the only option that preserves the signal AND auto-cleans when the bug is fixed AND honestly represents the current state. The cost (one xfail line in test output, one filed issue) is negligible against the diagnostic value."
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 3
+  files_created: 3
+  files_deleted: 0
+  lines_added: 636
+  lines_removed: 0
+  breaking_changes: false
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 34   # 30 hard invariants + 4 xfailed
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "Ran tests/validation_model_v4/test_kpu_invariants.py"
+    result: "30 passed, 4 xfailed (each xfail surfaces concrete violation magnitude per mapper: T64 16.9W vs 6W TDP, T128 26.3W vs 12W, T256 66.7W vs 30W, T768 84.9W vs 60W)"
+  - action: "Filed #81 with the violation table and a fix sketch"
+    result: "Issue created with the same data that the xfail surfaces, so tracking matches reality"
+  - action: "Verified xfail strict=True behavior locally"
+    result: "If the energy model gets fixed and the test passes unexpectedly, xfail strict makes pytest fail with 'XPASS(strict)' which signals 'remove the xfail'"
+  - action: "Cross-referenced the xfail's reason field with the tracking issue"
+    result: "Both the test and the issue reference each other; future contributor can navigate either direction"
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "A maintainer might be tempted to remove the xfail prematurely (before the underlying energy model is fixed) to clean up test output"
+    mitigation: "The xfail's reason field links to #81 and the docstring explains the strict=True semantics. The pytest output also shows the violation magnitude, making it obvious the test isn't passing yet."
+    severity: "low"
+    likelihood: "low"
+
+  - risk: "Issue #81 could languish; the xfail outlives its tracking utility"
+    mitigation: "The xfail is visible in every CI run as 'XFAIL' in the test summary. A long-running xfail is itself a signal to revisit the underlying issue. Worst case: the V4 plan owner periodically audits xfails."
+    severity: "low"
+    likelihood: "medium"
+
+  - risk: "If the KPU energy model gets calibrated correctly but the xfail isn't removed, CI keeps flagging XPASS(strict) and blocks merges until the test is updated"
+    mitigation: "This is exactly the desired behavior; XPASS(strict) is the auto-clean signal. The PR that fixes #81 will need to also remove the xfail marker as part of its scope -- which is correct hygiene."
+    severity: "low"
+    likelihood: "low"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "code"
+    path: "tests/validation_model_v4/test_kpu_invariants.py"
+    section: "test_avg_power_below_tdp_known_violated"
+  - type: "code"
+    path: "validation/model_v4/invariants/kpu.py"
+    section: "check_avg_power_below_tdp"
+  - type: "issue"
+    path: ""
+    section: "#81 -- KPU energy model uncalibrated"
+    url: "https://github.com/branes-ai/graphs/issues/81"
+  - type: "pr"
+    path: ""
+    section: "PR #82 -- V4-5 KPU consistency-only invariants"
+    url: "https://github.com/branes-ai/graphs/pull/82"
+  - type: "documentation"
+    path: "docs/plans/validation-harness-v4-plan.md"
+    section: "Principle 2 + Phasing recommendation for KPU consistency-only validation"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-05-05T22:30:00Z"
+  comments: "Approved via /complete-pr 82; user's standing pattern is to merge after CI green + bot reviews resolved."
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "Calibrate KPU energy model (resolve #81); remove xfail markers in test_kpu_invariants.py"
+    owner: "stillwater"
+    due_date: "TBD (gated on KPU simulator energy data availability)"
+    status: "pending"
+  - action: "Periodically audit long-running xfails; if #81 is deferred indefinitely, consider downgrading the xfail to a documented-only-skip"
+    owner: "stillwater"
+    due_date: "next V4 revisit"
+    status: "pending"

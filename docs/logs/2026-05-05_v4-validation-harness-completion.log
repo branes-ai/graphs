@@ -1,0 +1,153 @@
+================================================================================
+Session log: 2026-05-05 -- V4 validation harness completion
+================================================================================
+
+Scope
+-----
+Land the remainder of the V4 model-validation plan (V4-4 Phase A through
+V4-6) plus address two of the architectural-model bugs the harness has
+been surfacing (#71 CPU energy under-prediction, #61 on-chip BW peaks).
+
+PRs landed (chronological)
+--------------------------
+* PR #76 (already-merged at session start) -- bw_efficiency_scale CPU
+  calibration (issue #74). Verified in /resolve-pr-reviews; CI was
+  green; cleanup of stale local branch + remote refs.
+
+* PR #77 -- CPU energy idle-power calibration (issue #71). Two-part
+  fix: bumped CPU_IDLE_POWER_FRACTION 0.1 -> 0.7 (semantic
+  reinterpretation as average package power during active execution)
+  and added sub-ms RAPL noise skip in assert_record. V4 matmul
+  pass_energy 0/60 -> 12/60. Filed #78 (per-unit allocation) and
+  #79 (descriptor confidence) as deferred follow-ups.
+
+* PR #80 -- V4-4 Phase A: NVIDIA + Jetson measurers, sweep augmenter,
+  plumbing. New ground-truth backends pytorch_cuda.py (NVML) and
+  pytorch_jetson.py (INA3221 with two-layout detector). Sweep
+  augmenter (_augment.py) added so new hardware regimes can be
+  inserted into existing sweep entries without churning committed
+  JSONs. Also added the capture-on-target runbooks
+  bin/v4-capture-jetson-orin-nano.sh and bin/v4-capture-h100.sh.
+  29 mock-based tests so the PR is reviewable on the i7 dev box
+  without target hardware.
+
+* PR #82 -- V4-5 KPU consistency-only invariants. Per the v4 plan,
+  KPU has no commercially-available silicon to measure, so the
+  validation contract is consistency-only: the analyzer's KPU
+  predictions must satisfy basic math/physical invariants but no
+  per-shape ground truth comparison. Implemented as pure-function
+  invariants in validation/model_v4/invariants/kpu.py + pytest
+  wrapper. 6 hard invariants pass on all 4 mappers; the
+  avg_power_below_tdp diagnostic is xfail with #81 (filed
+  alongside) as the tracking issue.
+
+* PR #83 -- V4-6 dedicated CI gate workflow. Separate
+  .github/workflows/v4-validation.yml that surfaces the V4 contract
+  as a distinct "V4 Model Validation" check in PR status with a path
+  filter so doc-only PRs don't pay the cost. 6 meta-tests pin the
+  workflow structure. Two CI failures during review surfaced and
+  were fixed: (1) PYTHONPATH wasn't set so the gate couldn't import
+  the validation/ tree; (2) CodeQL flagged the workflow for not
+  having explicit GITHUB_TOKEN permissions.
+
+* PR #84 -- On-chip BW peaks + L1_BOUND classifier dispatch (issue
+  #61). Added 3 Optional float fields to HardwareResourceModel,
+  populated 3 reference targets with cited sources, taught the
+  classifier a bandwidth-aware dispatch path. CodeRabbit caught a
+  hybrid-CPU L1 BW miscalculation (P-core peak instead of weighted
+  per-effective-unit), an inconsistent KPU comment (24x24 mesh cited
+  but real is 32x32), and a hallucinated H100 L2 citation -- all
+  fixed in a single fixup commit.
+
+Key design decisions
+--------------------
+1. **Sweep augmenter as separate path from generator**: The sweep
+   generator picks shapes per (target, regime) bucket -- adding new
+   targets there churns shape selection and invalidates existing
+   baselines. The augmenter (_augment.py) re-classifies existing
+   committed shapes against new hardware additively, leaving original
+   target regimes byte-identical. Idempotent + dtype-aware.
+
+2. **CI gate as separate workflow file, not job-in-ci.yml**: A
+   separate workflow gives a distinct check name in the PR status
+   rollup ("V4 Model Validation") and lets path filters actually skip
+   the workflow on doc-only PRs (job-level path filters don't have the
+   same effect).
+
+3. **L1_BOUND structurally rare on flagship accelerators**: On real
+   H100, L1 BW is so wide that the L1 roofline breakpoint sits below
+   where any LAUNCH_BOUND-clearing shape can land. Honored that fact
+   instead of fudging the constants. The new test
+   test_l1_bound_unreachable_on_real_h100_is_documented pins this
+   property so a future spec change that makes it reachable surfaces
+   explicitly. Dispatch logic exercised via a synthetic-narrow-L1
+   mapper.
+
+4. **xfail with strict=True + tracking-issue link for known-violated
+   invariants**: V4-5 surfaced that KPU energy is uncalibrated (same
+   shape as #71 was for CPU). Rather than disabling the check or
+   loosening the threshold, used pytest.mark.xfail(strict=True) with
+   #81 as the tracking issue -- so when the energy model gets fixed,
+   the test flips to a regular pass and CI signals to remove the
+   xfail.
+
+5. **Permissions block on V4 gate workflow**: Added
+   `permissions: contents: read` per CodeQL alert + principle of least
+   privilege. The gate only checks out + reads source.
+
+Files modified (this session, post-PR-76)
+-----------------------------------------
+src/graphs/estimation/energy.py                          (#71)
+validation/model_v4/harness/assertions.py                (#71)
+validation/model_v4/ground_truth/pytorch_cuda.py         (#80, new)
+validation/model_v4/ground_truth/pytorch_jetson.py       (#80, new)
+validation/model_v4/sweeps/_augment.py                   (#80, new)
+validation/model_v4/cli/capture_ground_truth.py          (#80)
+validation/model_v4/harness/runner.py                    (#80)
+validation/model_v4/sweeps/{matmul,linear}_*.json        (#80, augmented)
+validation/model_v4/invariants/__init__.py               (#82, new)
+validation/model_v4/invariants/kpu.py                    (#82, new)
+validation/model_v4/sweeps/classify.py                   (#84)
+validation/model_v4/README.md                            (#83, new)
+src/graphs/hardware/resource_model.py                    (#84)
+src/graphs/hardware/mappers/cpu.py                       (#84)
+src/graphs/hardware/models/datacenter/h100_sxm5_80gb.py  (#84)
+src/graphs/hardware/models/accelerators/kpu_t64.py       (#84)
+.github/workflows/v4-validation.yml                      (#83, new)
+docs/plans/v4-capture-on-target.md                       (#80, new)
+bin/v4-capture-jetson-orin-nano.sh                       (#80, new)
+bin/v4-capture-h100.sh                                   (#80, new)
++ 5 new test files in tests/validation_model_v4/ + tests/analysis/
+
+Test posture
+------------
+At session end:
+* 255 passed in tests/validation_model_v4/
+* 4 documented xfails (KPU avg-power-below-TDP, tracked in #81)
+* 49 V4-anchored CPU regression tests pass
+* CI: V4 Model Validation gate is live and self-validated
+
+Remaining work (logged for next session)
+----------------------------------------
+* V4-4 Phase B: capture Jetson Orin Nano baseline using
+  bin/v4-capture-jetson-orin-nano.sh (needs target hardware).
+* V4-4 Phase B: capture H100 baseline (needs cloud / on-prem H100).
+* User action: enable "V4 Model Validation" as a required check in
+  *Repo Settings -> Branches -> Branch protection rules -> main*.
+* Open follow-up issues: #62 (V4 epic tracker), #78, #79, #81.
+* Pre-existing flaky benchmark
+  test_independent_faster_than_dependent (caught us on PR #83 CI but
+  passed on retry); never filed as an issue. Worth a small standalone
+  PR to mark @pytest.mark.flaky or relax the threshold.
+
+Bot-review summary
+------------------
+* CodeRabbit engaged on every substantive PR; surfaced real findings
+  on every one (#76: 6 nitpicks, #77: 6 of 8 addressed + 2 deferred,
+  #80: 1 nitpick, #82: 2 actionable, #84: 3 actionable). Two
+  documented hallucinations (citation of "Mark Ferdman et al. ASPLOS
+  '23" in PR #84) caught and corrected to real sources.
+* github-code-quality flagged unused imports + NaN self-comparisons +
+  empty except blocks across PRs #77, #80, #84. All addressed.
+* CodeQL flagged the V4 gate workflow's missing permissions block on
+  PR #83. Addressed with explicit `contents: read`.
