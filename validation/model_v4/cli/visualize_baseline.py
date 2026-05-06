@@ -51,7 +51,7 @@ from pathlib import Path
 from typing import Optional
 
 from graphs.hardware.mappers import get_mapper_by_name
-from graphs.hardware.resource_model import HardwareResourceModel, Precision
+from graphs.hardware.resource_model import HardwareResourceModel
 
 from validation.model_v4.harness.runner import (
     SWEEP_HW_TO_MAPPER,
@@ -299,8 +299,11 @@ def _draw_cache_lines(ax, hw):
 
 
 def _draw_tdp_line(ax, hw):
-    # Pull TDP via the same path EnergyAnalyzer uses. Catch and skip if
-    # the mapper doesn't expose thermal_operating_points.
+    # Pull TDP via the same path EnergyAnalyzer uses. The TDP line is a
+    # convenience reference, not core to the plot, so a failure here
+    # (e.g., legacy mapper without thermal_operating_points, or a future
+    # refactor of EnergyAnalyzer's __init__) should NOT crash the
+    # render. Log and continue rather than swallow silently.
     try:
         from graphs.estimation.energy import EnergyAnalyzer
         analyzer = EnergyAnalyzer(hw)
@@ -308,8 +311,12 @@ def _draw_tdp_line(ax, hw):
         if tdp and tdp > 0:
             ax.axhline(tdp, color="#d62728", linestyle=":", alpha=0.6,
                        label=f"TDP ({tdp:.0f} W)")
-    except Exception:
-        pass
+    except Exception as exc:   # noqa: BLE001 -- best-effort cosmetic line
+        print(
+            f"warning: TDP reference line skipped for {hw.name!r}: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
 
 
 # ---------------------------------------------------------------------------
