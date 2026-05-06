@@ -63,6 +63,25 @@ def test_linear_footprint_math():
     assert fp.flops == 2 * 8 * 512 * 256
 
 
+def test_vector_add_footprint_math():
+    """Vector add c[i] = a[i] + b[i] on N=1024 elements at fp32:
+    WS = 3 * 1024 * 4 = 12288 bytes, FLOPs = 1024 (one add per element).
+    OI = 1024 / 12288 = 1/(3*4) = 0.0833 -- always memory-bound."""
+    fp = op_footprint("vector_add", (1024,), "fp32")
+    assert fp.working_set_bytes == 3 * 1024 * 4
+    assert fp.flops == 1024
+    assert fp.operational_intensity == pytest.approx(1.0 / (3 * 4), rel=1e-9)
+
+
+def test_vector_add_footprint_at_fp16_halves_working_set():
+    """fp16 has bpe=2 vs fp32 bpe=4; same N gives half the WS."""
+    fp32 = op_footprint("vector_add", (4096,), "fp32")
+    fp16 = op_footprint("vector_add", (4096,), "fp16")
+    assert fp16.working_set_bytes == fp32.working_set_bytes // 2
+    # FLOPs unchanged (it's the same op count)
+    assert fp16.flops == fp32.flops == 4096
+
+
 def test_op_footprint_rejects_unknown_op():
     with pytest.raises(ValueError, match="Unsupported op"):
         op_footprint("conv2d", (1, 1, 1), "fp32")
