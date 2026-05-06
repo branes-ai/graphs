@@ -26,8 +26,17 @@ python3 -c "import torch; assert torch.cuda.is_available(), 'no CUDA'; \
 # CHECKPOINT 1a: prints the iGPU name; if not, install JetPack-matched
 # torch (see https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform/).
 
-ls /sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/in*_label 2>/dev/null \
-  || sudo chmod -R a+r /sys/bus/i2c/drivers/ina3221/
+# Only chmod the specific sysfs entries the probe reads (label + input
+# files), not the whole driver tree. Recursive chmod would also expose
+# unrelated attributes under /sys/bus/i2c/drivers/ina3221/ that the probe
+# never touches. The globs below only match files; missing files (e.g. on
+# a non-Jetson dev box) make chmod a no-op rather than an error because
+# of the 2>/dev/null and the trailing ||true.
+ls /sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/in*_label >/dev/null 2>&1 \
+  || sudo chmod a+r \
+       /sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/in*_label \
+       /sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/in*_input \
+       2>/dev/null || true
 
 PYTHONPATH=src python3 -c "
 from validation.model_v4.ground_truth.pytorch_jetson import _detect_ina3221
@@ -122,7 +131,12 @@ for r in sorted(rows, key=lambda r: int(r['shape'])):
 # ----------------------------------------------------------------------------
 # Step 7: Commit
 # ----------------------------------------------------------------------------
-git checkout -b feat/v5-2b-jetson-orin-nano-vector-add-baseline
+# Idempotent branch step: switch to the branch if it already exists (e.g. on
+# a rerun after a partial capture), otherwise create it. We deliberately do
+# NOT use `git checkout -B` -- that would reset any prior commits on the
+# branch (e.g. an earlier partial capture you intend to amend or build on).
+git checkout feat/v5-2b-jetson-orin-nano-vector-add-baseline 2>/dev/null \
+  || git checkout -b feat/v5-2b-jetson-orin-nano-vector-add-baseline
 git add validation/model_v4/results/baselines/jetson_orin_nano_8gb_vector_add.csv
 git commit -m "feat(validation): V5-2b -- Jetson Orin Nano vector_add baseline
 

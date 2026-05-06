@@ -95,7 +95,12 @@ for r in sorted(rows, key=lambda r: int(r['shape'])):
 # ----------------------------------------------------------------------------
 # Step 6: Commit
 # ----------------------------------------------------------------------------
-git checkout -b feat/v5-2b-i7-vector-add-baseline
+# Idempotent branch step: switch to the branch if it already exists (e.g. on
+# a rerun after a partial capture), otherwise create it. We deliberately do
+# NOT use `git checkout -B` -- that would reset any prior commits on the
+# branch (e.g. an earlier partial capture you intend to amend or build on).
+git checkout feat/v5-2b-i7-vector-add-baseline 2>/dev/null \
+  || git checkout -b feat/v5-2b-i7-vector-add-baseline
 git add validation/model_v4/results/baselines/i7_12700k_vector_add.csv
 git commit -m "feat(validation): V5-2b -- i7-12700K vector_add baseline
 
