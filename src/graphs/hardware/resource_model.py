@@ -893,6 +893,31 @@ class HardwareResourceModel:
     # Provenance: ``l3_cache_total``.
     l3_cache_total: Optional[int] = None
 
+    # On-chip bandwidth peaks (issue #61). Optional so all 45+ existing
+    # mappers continue to load without modification; populated mappers
+    # unlock the v4 classifier's L1_BOUND vs L2_BOUND regime split.
+    # All values in bytes/sec.
+    #
+    # ``l1_bandwidth_per_unit_bps`` -- per-SM / per-tile / per-core L1
+    # read+write peak bandwidth. Aggregate L1 BW across the chip is
+    # ``l1_bandwidth_per_unit_bps * compute_units``. Sites that need
+    # the value MUST check for None and fall back to capacity-only
+    # behavior (the v4-1 default). Provenance: ``l1_bandwidth_per_unit_bps``.
+    l1_bandwidth_per_unit_bps: Optional[float] = None
+
+    # ``l2_bandwidth_bps`` -- shared L2 (or LLC, per M1 schema convention)
+    # peak bandwidth, aggregate across the chip. Optional for accelerators
+    # whose on-chip memory hierarchy doesn't have a distinct L2 layer.
+    # Provenance: ``l2_bandwidth_bps``.
+    l2_bandwidth_bps: Optional[float] = None
+
+    # ``l3_bandwidth_bps`` -- shared L3 peak bandwidth (CPU only). Zero /
+    # None when ``l3_present`` is False. On x86, L3 is the LLC and is
+    # what ``l2_cache_total`` already holds (per M1 convention); this
+    # field is the matching bandwidth so the M5 Layer 5 panel can model
+    # L3 as a distinct hop. Provenance: ``l3_bandwidth_bps``.
+    l3_bandwidth_bps: Optional[float] = None
+
     # M5 Layer 5: cache-coherence protocol class.
     # ``"snoopy_mesi"`` -- snoopy MESI / MOESI on shared bus or
     # ring (CPU multi-core, single-socket).
