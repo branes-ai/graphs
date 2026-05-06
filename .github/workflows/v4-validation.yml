@@ -58,6 +58,15 @@ jobs:
   v4-validation:
     name: V4 Model Validation
     runs-on: ubuntu-latest
+    # Put the repo root on sys.path so `from validation.model_v4...` resolves.
+    # `graphs.*` comes from the editable install below; `validation/` is not
+    # a published package, just a sibling directory whose modules the tests
+    # import directly. Without this env var, pytest's default `prepend`
+    # import mode adds tests/ (the first __init__-less dir walking up from
+    # tests/validation_model_v4/test_*.py) -- which doesn't help for the
+    # validation/ tree at the repo root.
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
