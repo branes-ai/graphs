@@ -66,6 +66,7 @@ from validation.model_v4.sweeps.classify import (
 )
 from validation.model_v4.workloads.linear import build_linear
 from validation.model_v4.workloads.matmul import build_matmul
+from validation.model_v4.workloads.vector_add import build_vector_add
 
 
 # Sweep-JSON keys -> mapper-registry keys. Sweep JSONs use a normalized
@@ -228,6 +229,15 @@ def _build_subgraph(op: str, shape: tuple, dtype: str) -> SubgraphDescriptor:
         # Weight matrix + bias (mirrors what build_linear() actually allocates)
         weight_bytes = int(round((IN * OUT + OUT) * bpe))
         op_type = OperationType.LINEAR
+    elif op == "vector_add":
+        # c[i] = a[i] + b[i]. Two N-element inputs, one N-element output,
+        # no weights. The zero-reuse op the V5 plan uses for tier-BW
+        # microbenchmarks.
+        (N_elems,) = shape
+        input_bytes = int(round(2 * N_elems * bpe))
+        output_bytes = int(round(N_elems * bpe))
+        weight_bytes = 0
+        op_type = OperationType.ELEMENTWISE
     else:
         raise ValueError(f"Unsupported op {op!r} for v4 runner")
 
@@ -282,4 +292,7 @@ def _build_workload(op: str, shape: tuple, dtype: str):
     if op == "linear":
         B, IN, OUT = shape
         return build_linear(B, IN, OUT, dtype)
+    if op == "vector_add":
+        (N,) = shape
+        return build_vector_add(N, dtype)
     raise ValueError(f"Unsupported op {op!r}")

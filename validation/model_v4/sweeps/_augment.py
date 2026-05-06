@@ -137,8 +137,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="Augment one specific hardware key")
     g.add_argument("--all", action="store_true",
                    help="Augment with every known target")
-    p.add_argument("--op", choices=["matmul", "linear"], default=None,
-                   help="Restrict to one op (default: both)")
+    p.add_argument("--op", choices=["matmul", "linear", "vector_add"], default=None,
+                   help="Restrict to one op (default: all)")
     p.add_argument("--purpose", choices=["calibration", "validation"], default=None,
                    help="Restrict to one purpose (default: both)")
     args = p.parse_args(argv)
@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     targets = (list(KNOWN_TARGETS.values()) if args.all
                else [KNOWN_TARGETS[args.hw]])
 
-    ops = [args.op] if args.op else ["matmul", "linear"]
+    ops = [args.op] if args.op else ["matmul", "linear", "vector_add"]
     purposes = [args.purpose] if args.purpose else ["calibration", "validation"]
 
     for op in ops:

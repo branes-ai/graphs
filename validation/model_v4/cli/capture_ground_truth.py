@@ -41,6 +41,7 @@ from validation.model_v4.ground_truth.pytorch_cpu import (
 from validation.model_v4.sweeps.classify import Regime
 from validation.model_v4.workloads.linear import build_linear
 from validation.model_v4.workloads.matmul import build_matmul
+from validation.model_v4.workloads.vector_add import build_vector_add
 
 
 SWEEP_DIR = Path(__file__).resolve().parents[1] / "sweeps"
@@ -95,6 +96,9 @@ def _build_workload(op: str, shape: tuple, dtype: str):
     if op == "linear":
         B, IN, OUT = shape
         return build_linear(B, IN, OUT, dtype)
+    if op == "vector_add":
+        (N,) = shape
+        return build_vector_add(N, dtype)
     raise ValueError(f"Unsupported op {op!r}")
 
 
@@ -108,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     # (e.g., GPU lands in V4-4, KPU in V4-5).
     p.add_argument("--hw", required=True,
                    choices=sorted(k for k, v in _MEASURER_FACTORY.items() if v))
-    p.add_argument("--op", required=True, choices=["matmul", "linear"])
+    p.add_argument("--op", required=True, choices=["matmul", "linear", "vector_add"])
     p.add_argument("--purpose", default="calibration",
                    choices=["calibration", "validation"])
     p.add_argument("--warmup", type=int, default=DEFAULT_WARMUP_TRIALS)

@@ -99,6 +99,30 @@ def _matmul_candidates() -> Iterable[Tuple[int, int, int]]:
                 yield (m, k, n)
 
 
+def _vector_add_candidates() -> Iterable[Tuple[int]]:
+    """Vector-add candidate pool spanning the cache hierarchy.
+
+    Vector add is the V5 plan's zero-reuse ground truth: bytes-per-second
+    measured at each tier. The classifier will collapse most of these to
+    LAUNCH_BOUND (small N) or DRAM_BOUND (large N) because vector_add's
+    OI = 1/(3*bpe) is well below any hardware's AI breakpoint. The
+    *tier* information comes from the working-set bucket each N falls
+    into (visualized in the lat-vs-WS panel), not from the V4 regime
+    classification. V5-3's tier_picker will reinterpret these same N
+    values via tier-hit decomposition and emit L1_BOUND / L2_BOUND /
+    DRAM_BOUND directly.
+
+    N values log-spaced from 1 KB (256 fp32 elements) to 1 GB
+    (256 M fp32 elements). Covers L1 / L2 / L3 / DRAM on every V4 target.
+    """
+    # Powers of 4 from 256 to 268M. Eleven values; one log decade between
+    # neighbors gives clean WS-bucket separation in the visualizer.
+    sizes = [256, 1024, 4096, 16384, 65536, 262144, 1048576,
+             4194304, 16777216, 67108864, 268435456]
+    for n in sizes:
+        yield (n,)
+
+
 def _linear_candidates() -> Iterable[Tuple[int, int, int]]:
     """Exhaustive Linear shapes from realistic batch + feature dim pools.
 
@@ -242,8 +266,9 @@ def main() -> None:
     # matmul: i7-12700k expects fp32, H100 expects fp16. Generate both
     # halves and write a single combined file (the harness filters by hw).
     for op_name, gen, dtypes in [
-        ("matmul", _matmul_candidates, ["fp32", "fp16"]),
-        ("linear", _linear_candidates, ["fp32", "fp16"]),
+        ("matmul",     _matmul_candidates,     ["fp32", "fp16"]),
+        ("linear",     _linear_candidates,     ["fp32", "fp16"]),
+        ("vector_add", _vector_add_candidates, ["fp32", "fp16"]),
     ]:
         print(f"=== {op_name} ===")
         candidates = list(gen())
