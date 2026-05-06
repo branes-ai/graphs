@@ -70,10 +70,14 @@ from validation.model_v4.workloads.matmul import build_matmul
 
 # Sweep-JSON keys -> mapper-registry keys. Sweep JSONs use a normalized
 # form (lowercase, underscores) so they're stable across registry naming
-# changes; the runner translates here.
+# changes; the runner translates here. Must stay in sync with
+# KNOWN_TARGETS in validation/model_v4/sweeps/_augment.py.
 SWEEP_HW_TO_MAPPER: dict[str, str] = {
     "i7_12700k": "Intel-i7-12700K",
     "h100_sxm5_80gb": "H100-SXM5-80GB",
+    "jetson_orin_nano_8gb": "Jetson-Orin-Nano-8GB",
+    "jetson_orin_agx_64gb": "Jetson-Orin-AGX-64GB",
+    "jetson_orin_nx_16gb": "Jetson-Orin-NX-16GB",
 }
 
 
