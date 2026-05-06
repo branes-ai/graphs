@@ -727,6 +727,100 @@ class ThermalOperatingPoint:
 
 
 # ============================================================================
+# V5-1: Memory hierarchy as a queueing-theory tier list
+# ============================================================================
+# See docs/plans/v5-memory-hierarchy-rewrite-plan.md.
+#
+# Each tier is a "server" in the operational-analysis sense -- capacity
+# plus a service rate. The analyzer's tier_picker (V5-3) walks the list
+# innermost-out to find the binding bottleneck for a given (op, shape).
+# This dataclass is V5-1 scaffolding; nothing in the analyzer reads it
+# yet.
+
+@dataclass(frozen=True)
+class MemoryTier:
+    """One level of the memory hierarchy, as a queueing-theory server.
+
+    Constructed by ``HardwareResourceModel.memory_hierarchy`` from
+    existing fields (l1_cache_per_unit + l1_bandwidth_per_unit_bps,
+    l2_cache_total + l2_bandwidth_bps, l3_cache_total + l3_bandwidth_bps,
+    main_memory + peak_bandwidth, plus per-tier access_latency_ns
+    overrides).
+
+    Per-unit tiers (``is_per_unit=True``): ``capacity_bytes`` is the
+    per-compute-unit value (e.g., 32 KB per CPU core, 256 KB per SM).
+    The aggregate capacity across the chip is exposed via the
+    ``total_capacity_bytes`` property.
+
+    Aggregate tiers (``is_per_unit=False``, the default): capacity and
+    BW are already the chip-wide totals. ``num_units`` is 1 for these.
+
+    The ``access_latency_ns`` field is the per-request first-stream
+    startup cost. For a kernel issuing N independent requests, the
+    latency-bound floor is roughly ``startup + per_request * N`` --
+    dominant for vector / matvec ops where bandwidth-limited service
+    time is comparable to the startup. The analyzer's tier picker
+    (V5-3) uses this as a memory-side analog of LAUNCH_BOUND.
+
+    The ``achievable_fraction`` field defaults to 1.0; it's the place
+    V5-5 calibration hangs the per-(hardware, tier) measured-vs-peak
+    ratio (currently captured in the scalar bw_efficiency_scale).
+    """
+    name: str                         # "L1", "L2", "L3", "DRAM", "scratchpad"
+    capacity_bytes: int               # per-unit if is_per_unit else aggregate
+    is_per_unit: bool
+    num_units: int                    # compute_units when is_per_unit=True; else 1
+    peak_bandwidth_bps: float         # aggregate, for both per-unit and shared tiers
+                                      # (per-unit BW is multiplied by num_units when
+                                      # the property derives this -- the field is
+                                      # always the aggregate the kernel sees)
+    access_latency_ns: float          # first-request startup latency for this tier
+    achievable_fraction: float = 1.0  # V5-5 calibration knob; default = ideal
+
+    def __post_init__(self) -> None:
+        """Validate physical invariants. Without this, V5-3's tier picker
+        could silently produce garbage memory_time math from physically
+        nonsensical inputs (negative BW, fraction > 1.0, etc.). Fail
+        loudly at construction so calibration mistakes get caught at
+        the source instead of as confusing analyzer drift downstream."""
+        if not self.name:
+            raise ValueError("MemoryTier.name must be non-empty")
+        if self.capacity_bytes < 0:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).capacity_bytes must be >= 0; "
+                f"got {self.capacity_bytes}")
+        if self.num_units < 1:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).num_units must be >= 1; "
+                f"got {self.num_units}")
+        if self.peak_bandwidth_bps < 0:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).peak_bandwidth_bps must be >= 0; "
+                f"got {self.peak_bandwidth_bps}")
+        if self.access_latency_ns < 0:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).access_latency_ns must be >= 0; "
+                f"got {self.access_latency_ns}")
+        if not (0.0 <= self.achievable_fraction <= 1.0):
+            raise ValueError(
+                f"MemoryTier({self.name!r}).achievable_fraction must be in "
+                f"[0.0, 1.0]; got {self.achievable_fraction}")
+
+    @property
+    def total_capacity_bytes(self) -> int:
+        """Aggregate capacity across the whole chip."""
+        if self.is_per_unit:
+            return self.capacity_bytes * self.num_units
+        return self.capacity_bytes
+
+    @property
+    def effective_bandwidth_bps(self) -> float:
+        """Achievable BW = peak * calibrated fraction. V5-5 will drive
+        the fraction down from 1.0 to per-(hw, tier) measured values."""
+        return self.peak_bandwidth_bps * self.achievable_fraction
+
+
+# ============================================================================
 # OLD: Legacy PrecisionProfile (kept for backward compatibility)
 # ============================================================================
 
@@ -918,6 +1012,26 @@ class HardwareResourceModel:
     # L3 as a distinct hop. Provenance: ``l3_bandwidth_bps``.
     l3_bandwidth_bps: Optional[float] = None
 
+    # Per-tier access latency (V5-1, plan: docs/plans/v5-memory-hierarchy-rewrite-plan.md).
+    # All values in nanoseconds, Optional so unaugmented mappers fall
+    # through to typical-tier-class defaults in MemoryTier.
+    #
+    # The latency floor matters for memory-bound operators where the
+    # single-stream startup dominates total time -- vector add, matvec,
+    # and small-matrix ops where the per-request latency at the binding
+    # tier is comparable to or larger than the bandwidth-limited service
+    # time. This is the analog of LAUNCH_BOUND for the memory side.
+    #
+    # Typical published values (only as defaults if mapper doesn't set):
+    #   L1:  1-3 ns   (4-12 cycles at 3 GHz)
+    #   L2:  5-15 ns  (Skylake L2 ~12 cycles)
+    #   L3:  20-40 ns (LLC depends on slice / ring topology)
+    #   DRAM: 80-200 ns DDR / LPDDR; 100-300 ns HBM
+    l1_access_latency_ns: Optional[float] = None
+    l2_access_latency_ns: Optional[float] = None
+    l3_access_latency_ns: Optional[float] = None
+    dram_access_latency_ns: Optional[float] = None
+
     # M5 Layer 5: cache-coherence protocol class.
     # ``"snoopy_mesi"`` -- snoopy MESI / MOESI on shared bus or
     # ring (CPU multi-core, single-socket).
@@ -970,6 +1084,121 @@ class HardwareResourceModel:
             f"{self.name} does not support {precision.name.lower()} -- "
             f"supported precisions are: {', '.join(supported) if supported else '(none)'}"
         )
+
+    @property
+    def memory_hierarchy(self) -> list["MemoryTier"]:
+        """Derived view of the memory hierarchy as an ordered list of
+        ``MemoryTier`` objects, innermost (smallest, fastest) to outermost.
+
+        V5-1 scaffolding (plan: docs/plans/v5-memory-hierarchy-rewrite-plan.md).
+        Builds the tier list from existing fields:
+
+        * L1 if ``l1_cache_per_unit`` and ``l1_bandwidth_per_unit_bps`` are
+          both set (per-unit tier; aggregate = capacity * compute_units).
+        * L2 if ``l2_bandwidth_bps`` is set (the M1 schema convention puts
+          the LLC capacity in ``l2_cache_total``; on x86 that's L3, on
+          GPUs that's L2 -- see ``l2_topology``).
+        * L3 if ``l3_cache_total`` and ``l3_bandwidth_bps`` are both set.
+        * DRAM is always present from ``main_memory`` + ``peak_bandwidth``.
+
+        Mappers that don't populate the on-chip BW peaks (most of the 45+
+        existing mappers as of V5-1) return a hierarchy with only the
+        DRAM tier. Backward compat: nothing in V5-1 reads this property
+        in the analyzer; that lands in V5-3.
+
+        Tier ``access_latency_ns`` falls back to typical published values
+        per tier class when the mapper doesn't override (1.5 ns L1,
+        10 ns L2, 30 ns L3, 100 ns DRAM). These defaults match consumer
+        x86 / Ampere ballparks; specific mappers should override.
+        """
+        tiers: list["MemoryTier"] = []
+
+        # L1 (per-unit capacity, per-unit BW). Only emitted when both
+        # capacity and BW are set. peak_bandwidth_bps stored on the tier
+        # is the AGGREGATE (per-unit BW * compute_units) so callers can
+        # treat all tiers uniformly; the per-unit value is recoverable
+        # via tier.peak_bandwidth_bps / tier.num_units.
+        if (self.l1_cache_per_unit and self.l1_bandwidth_per_unit_bps
+                and self.l1_bandwidth_per_unit_bps > 0):
+            tiers.append(MemoryTier(
+                name="L1",
+                capacity_bytes=self.l1_cache_per_unit,
+                is_per_unit=True,
+                num_units=self.compute_units,
+                peak_bandwidth_bps=(self.l1_bandwidth_per_unit_bps
+                                    * self.compute_units),
+                access_latency_ns=(self.l1_access_latency_ns
+                                   if self.l1_access_latency_ns is not None
+                                   else 1.5),
+            ))
+
+        # L2. The M1 convention: ``l2_cache_total`` may carry either L2 (on
+        # GPUs that have a distinct L2 -- e.g., H100) or LLC (on x86, where
+        # the LLC IS L3 and there's no separate L2 capacity at the schema
+        # level). The hierarchy emits this as "L2" when ``l2_bandwidth_bps``
+        # is set; if the mapper has both ``l2_bandwidth_bps`` and
+        # ``l3_bandwidth_bps``, the L3 tier is emitted as a separate hop
+        # below.
+        if (self.l2_cache_total and self.l2_bandwidth_bps
+                and self.l2_bandwidth_bps > 0):
+            tiers.append(MemoryTier(
+                name="L2",
+                capacity_bytes=self.l2_cache_total,
+                is_per_unit=False,
+                num_units=1,
+                peak_bandwidth_bps=self.l2_bandwidth_bps,
+                access_latency_ns=(self.l2_access_latency_ns
+                                   if self.l2_access_latency_ns is not None
+                                   else 10.0),
+            ))
+
+        # L3 / LLC (CPU only, typically). Distinct from L2 only on x86
+        # where ``l2_cache_total`` carries the LLC value but we want a
+        # separate hop. On i7-12700K post-#94: l3_bandwidth_bps=200e9
+        # but no l2_bandwidth_bps, so the hierarchy is L1 -> L3 -> DRAM
+        # (no distinct L2 hop).
+        if (self.l3_cache_total and self.l3_bandwidth_bps
+                and self.l3_bandwidth_bps > 0):
+            tiers.append(MemoryTier(
+                name="L3",
+                capacity_bytes=self.l3_cache_total,
+                is_per_unit=False,
+                num_units=1,
+                peak_bandwidth_bps=self.l3_bandwidth_bps,
+                access_latency_ns=(self.l3_access_latency_ns
+                                   if self.l3_access_latency_ns is not None
+                                   else 30.0),
+            ))
+        elif (self.l2_cache_total and not self.l2_bandwidth_bps
+              and self.l3_bandwidth_bps and self.l3_bandwidth_bps > 0):
+            # x86 fallback: ``l2_cache_total`` carries the LLC (which IS L3
+            # on x86), and ``l3_bandwidth_bps`` is the matching BW. Emit
+            # this as a single L3 tier using the L2_total capacity.
+            tiers.append(MemoryTier(
+                name="L3",
+                capacity_bytes=self.l2_cache_total,
+                is_per_unit=False,
+                num_units=1,
+                peak_bandwidth_bps=self.l3_bandwidth_bps,
+                access_latency_ns=(self.l3_access_latency_ns
+                                   if self.l3_access_latency_ns is not None
+                                   else 30.0),
+            ))
+
+        # DRAM is always present (every mapper sets peak_bandwidth +
+        # main_memory; these are required fields).
+        tiers.append(MemoryTier(
+            name="DRAM",
+            capacity_bytes=self.main_memory,
+            is_per_unit=False,
+            num_units=1,
+            peak_bandwidth_bps=self.peak_bandwidth,
+            access_latency_ns=(self.dram_access_latency_ns
+                               if self.dram_access_latency_ns is not None
+                               else 100.0),
+        ))
+
+        return tiers
 
     def get_peak_ops(self, precision: Precision) -> float:
         """
