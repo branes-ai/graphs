@@ -28,6 +28,13 @@
 
 name: V4 Model Validation
 
+# Minimal permissions per the principle of least privilege. The gate
+# only needs to check out the source and read it -- no PR comments, no
+# release writes, no security tokens. Flagged by CodeQL alert #11/#12
+# on the initial PR.
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: [main]
