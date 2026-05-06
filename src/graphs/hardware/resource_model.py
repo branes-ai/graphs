@@ -777,6 +777,35 @@ class MemoryTier:
     access_latency_ns: float          # first-request startup latency for this tier
     achievable_fraction: float = 1.0  # V5-5 calibration knob; default = ideal
 
+    def __post_init__(self) -> None:
+        """Validate physical invariants. Without this, V5-3's tier picker
+        could silently produce garbage memory_time math from physically
+        nonsensical inputs (negative BW, fraction > 1.0, etc.). Fail
+        loudly at construction so calibration mistakes get caught at
+        the source instead of as confusing analyzer drift downstream."""
+        if not self.name:
+            raise ValueError("MemoryTier.name must be non-empty")
+        if self.capacity_bytes < 0:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).capacity_bytes must be >= 0; "
+                f"got {self.capacity_bytes}")
+        if self.num_units < 1:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).num_units must be >= 1; "
+                f"got {self.num_units}")
+        if self.peak_bandwidth_bps < 0:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).peak_bandwidth_bps must be >= 0; "
+                f"got {self.peak_bandwidth_bps}")
+        if self.access_latency_ns < 0:
+            raise ValueError(
+                f"MemoryTier({self.name!r}).access_latency_ns must be >= 0; "
+                f"got {self.access_latency_ns}")
+        if not (0.0 <= self.achievable_fraction <= 1.0):
+            raise ValueError(
+                f"MemoryTier({self.name!r}).achievable_fraction must be in "
+                f"[0.0, 1.0]; got {self.achievable_fraction}")
+
     @property
     def total_capacity_bytes(self) -> int:
         """Aggregate capacity across the whole chip."""

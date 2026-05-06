@@ -239,3 +239,91 @@ def test_effective_bandwidth_scales_with_achievable_fraction():
         access_latency_ns=10.0, achievable_fraction=0.6,
     )
     assert t.effective_bandwidth_bps == 6e11
+
+
+# ---------------------------------------------------------------------------
+# __post_init__: physical invariant validation
+# ---------------------------------------------------------------------------
+
+
+def _valid_kwargs(**overrides):
+    """Baseline-valid MemoryTier kwargs; tests override one field at a
+    time to exercise each invariant check."""
+    base = dict(
+        name="L1", capacity_bytes=32 * 1024, is_per_unit=True,
+        num_units=8, peak_bandwidth_bps=500e9, access_latency_ns=1.5,
+        achievable_fraction=0.85,
+    )
+    base.update(overrides)
+    return base
+
+
+def test_post_init_rejects_empty_name():
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        MemoryTier(**_valid_kwargs(name=""))
+
+
+def test_post_init_rejects_negative_capacity():
+    with pytest.raises(ValueError, match="capacity_bytes must be >= 0"):
+        MemoryTier(**_valid_kwargs(capacity_bytes=-1))
+
+
+def test_post_init_rejects_zero_or_negative_num_units():
+    with pytest.raises(ValueError, match="num_units must be >= 1"):
+        MemoryTier(**_valid_kwargs(num_units=0))
+    with pytest.raises(ValueError, match="num_units must be >= 1"):
+        MemoryTier(**_valid_kwargs(num_units=-3))
+
+
+def test_post_init_rejects_negative_bandwidth():
+    with pytest.raises(ValueError, match="peak_bandwidth_bps must be >= 0"):
+        MemoryTier(**_valid_kwargs(peak_bandwidth_bps=-1.0))
+
+
+def test_post_init_rejects_negative_latency():
+    with pytest.raises(ValueError, match="access_latency_ns must be >= 0"):
+        MemoryTier(**_valid_kwargs(access_latency_ns=-0.5))
+
+
+def test_post_init_rejects_achievable_fraction_above_one():
+    """A tier achieving > 100% of its peak BW would be physically
+    impossible -- cache hits reflect a *different* tier's BW, not this
+    one's peak * a >1 factor."""
+    with pytest.raises(ValueError, match=r"achievable_fraction must be in \[0\.0, 1\.0\]"):
+        MemoryTier(**_valid_kwargs(achievable_fraction=1.5))
+
+
+def test_post_init_rejects_negative_achievable_fraction():
+    with pytest.raises(ValueError, match=r"achievable_fraction must be in \[0\.0, 1\.0\]"):
+        MemoryTier(**_valid_kwargs(achievable_fraction=-0.1))
+
+
+def test_post_init_accepts_zero_bandwidth_and_zero_latency():
+    """Zero is a valid sentinel (e.g., a tier in test fixtures); only
+    negatives are rejected."""
+    t = MemoryTier(**_valid_kwargs(peak_bandwidth_bps=0.0, access_latency_ns=0.0,
+                                    achievable_fraction=0.0))
+    assert t.effective_bandwidth_bps == 0.0
+
+
+def test_post_init_error_messages_name_the_field_and_tier():
+    """Error messages include the tier name + offending field so a
+    miscalibrated mapper traces back to the source quickly."""
+    with pytest.raises(ValueError) as exc_info:
+        MemoryTier(**_valid_kwargs(name="DRAM", peak_bandwidth_bps=-100e9))
+    msg = str(exc_info.value)
+    assert "MemoryTier('DRAM')" in msg
+    assert "peak_bandwidth_bps" in msg
+    assert "-100" in msg
+
+
+def test_post_init_does_not_break_real_mapper_construction():
+    """Sanity: the existing reference mappers still construct cleanly
+    after adding the invariant checks. (i7 / H100 / Orin all parse the
+    hierarchy without raising.)"""
+    for factory in (create_i7_12700k_mapper, create_h100_sxm5_80gb_mapper,
+                    create_jetson_orin_nano_8gb_mapper):
+        hw = factory().resource_model
+        # Just access the property; any tier with bad values would raise
+        tiers = hw.memory_hierarchy
+        assert len(tiers) >= 1
