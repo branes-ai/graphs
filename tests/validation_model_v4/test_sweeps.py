@@ -21,7 +21,12 @@ from pathlib import Path
 import pytest
 
 from graphs.hardware.mappers.cpu import create_i7_12700k_mapper
-from graphs.hardware.mappers.gpu import create_h100_sxm5_80gb_mapper
+from graphs.hardware.mappers.gpu import (
+    create_h100_sxm5_80gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
+    create_jetson_orin_nx_16gb_mapper,
+)
 from validation.model_v4.sweeps.classify import Regime, classify_regime
 
 
@@ -37,9 +42,15 @@ SWEEP_FILES = [
 
 @pytest.fixture(scope="module")
 def hw():
+    """All hardware keys the augmenter knows about. Must stay in sync with
+    KNOWN_TARGETS in validation/model_v4/sweeps/_augment.py -- if a new
+    target is added there, add the matching mapper here."""
     return {
         "i7_12700k": create_i7_12700k_mapper().resource_model,
         "h100_sxm5_80gb": create_h100_sxm5_80gb_mapper().resource_model,
+        "jetson_orin_nano_8gb": create_jetson_orin_nano_8gb_mapper().resource_model,
+        "jetson_orin_agx_64gb": create_jetson_orin_agx_64gb_mapper().resource_model,
+        "jetson_orin_nx_16gb": create_jetson_orin_nx_16gb_mapper().resource_model,
     }
 
 
