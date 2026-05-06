@@ -1,0 +1,130 @@
+# V4 model-validation gate.
+#
+# Per the v4 plan exit criterion (docs/plans/validation-harness-v4-plan.md):
+#   "First PR blocked by a real drift"
+#
+# This workflow runs the per-shape regime/latency floor tests + KPU
+# consistency invariants on every PR that touches an area where the
+# analytical model (or its supporting infrastructure) might drift.
+#
+# It is intentionally *separate* from the main `CI` workflow so that:
+#   * Doc-only PRs don't pay the cost (path filter below).
+#   * The check appears as a distinct line in the PR status rollup,
+#     so reviewers see "V4 Model Validation" pass/fail without
+#     digging through a multi-hundred-test pytest log.
+#   * Failures point directly at the failing invariant + its
+#     historical floor, via the test docstrings.
+#
+# What it gates today:
+#   * tests/validation_model_v4/                 (78 V4 unit tests)
+#   * tests/analysis/test_energy_cpu_active_power.py  (#71 calibration)
+#   * tests/analysis/test_roofline_cpu_efficiency.py  (#67 floor)
+#   * tests/analysis/test_roofline_cpu_dispatch_floor.py  (#69 floor)
+#   * tests/analysis/test_roofline_cpu_bw_efficiency.py   (#74 floor)
+#
+# To make this a *required* status check, configure branch protection
+# on `main` in repo settings -> Branches -> Branch protection rules:
+# add "V4 Model Validation" to the required-checks list.
+
+name: V4 Model Validation
+
+# Minimal permissions per the principle of least privilege. The gate
+# only needs to check out the source and read it -- no PR comments, no
+# release writes, no security tokens. Flagged by CodeQL alert #11/#12
+# on the initial PR.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # Code paths that can shift the analytical model
+      - 'src/graphs/estimation/**'
+      - 'src/graphs/hardware/**'
+      - 'src/graphs/transform/**'
+      - 'src/graphs/core/**'
+      # The validation harness itself
+      - 'validation/model_v4/**'
+      # The tests that encode the V4 contract
+      - 'tests/validation_model_v4/**'
+      - 'tests/analysis/test_energy_cpu_active_power.py'
+      - 'tests/analysis/test_roofline_cpu_efficiency.py'
+      - 'tests/analysis/test_roofline_cpu_dispatch_floor.py'
+      - 'tests/analysis/test_roofline_cpu_bw_efficiency.py'
+      # The committed baselines: a CSV change implies a deliberate
+      # measurement refresh, which the gate must rerun against.
+      - 'validation/model_v4/results/baselines/**'
+      # Self-modification of the gate
+      - '.github/workflows/v4-validation.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  v4-validation:
+    name: V4 Model Validation
+    runs-on: ubuntu-latest
+    # Put the repo root on sys.path so `from validation.model_v4...` resolves.
+    # `graphs.*` comes from the editable install below; `validation/` is not
+    # a published package, just a sibling directory whose modules the tests
+    # import directly. Without this env var, pytest's default `prepend`
+    # import mode adds tests/ (the first __init__-less dir walking up from
+    # tests/validation_model_v4/test_*.py) -- which doesn't help for the
+    # validation/ tree at the repo root.
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py3.10-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-py3.10-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+          pip install pytest
+
+      - name: Run V4 harness unit tests
+        run: |
+          pytest tests/validation_model_v4/ -v --tb=short
+
+      - name: Run V4-anchored CPU regression tests
+        run: |
+          # These four files lock in the V4 baseline floors that #67,
+          # #69, #71, and #74 established. Any change to the analyzer
+          # that regresses below these floors fails the gate.
+          pytest \
+            tests/analysis/test_roofline_cpu_efficiency.py \
+            tests/analysis/test_roofline_cpu_dispatch_floor.py \
+            tests/analysis/test_roofline_cpu_bw_efficiency.py \
+            tests/analysis/test_energy_cpu_active_power.py \
+            -v --tb=short
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## V4 Model Validation gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Gates the analytical-model layer per the v4 plan." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Failure here means one of:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "* A change to \`src/graphs/estimation/\` shifted a per-shape regime/latency band off floor." >> $GITHUB_STEP_SUMMARY
+          echo "* A change to \`src/graphs/hardware/\` shifted a peak FLOPS / BW spec." >> $GITHUB_STEP_SUMMARY
+          echo "* A change to a hardware mapper broke a KPU invariant (achieved <= peak, monotonicity, etc.)." >> $GITHUB_STEP_SUMMARY
+          echo "* A change to \`src/graphs/transform/\` broke partitioner round-tripping." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The failing test's docstring will name the specific issue (e.g., #67 for compute efficiency curve)." >> $GITHUB_STEP_SUMMARY
