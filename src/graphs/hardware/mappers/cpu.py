@@ -829,22 +829,29 @@ def create_i7_12700k_mapper() -> CPUMapper:
 
         # On-chip bandwidth peaks (#61). Sourced from Intel(R) 64 and IA-32
         # Architectures Optimization Reference Manual Vol. 3, Alder Lake
-        # P-core (Golden Cove) chapter:
+        # P-core (Golden Cove) and E-core (Gracemont) chapters:
         #
-        # L1D bandwidth per P-core: 2 loads x 32 B/cycle (AVX2) + 1 store x
-        #   32 B/cycle = 96 B/cycle. At 4.5 GHz sustained (post-#73 spec):
-        #   96 * 4.5e9 = 432 GB/s/P-core. Aggregate across 8 P-cores +
-        #   limited E-core contribution = ~3.5 TB/s. Per-unit value here is
-        #   the P-core figure -- the classifier multiplies by compute_units;
-        #   E-cores are slower but only contribute ~10% of L1 BW so the
-        #   conservative aggregate is fine for regime classification.
+        # L1D bandwidth derivation (hybrid CPU weighting):
+        #   * P-core (Golden Cove): 2 loads x 32 B/cycle (AVX2) + 1 store x
+        #     32 B/cycle = 96 B/cycle. At 4.5 GHz: 432 GB/s/P-core.
+        #     8 P-cores contribute 8 * 432 = 3.46 TB/s.
+        #   * E-core (Gracemont): 2 loads x 16 B/cycle = 32 B/cycle. At
+        #     3.8 GHz: 122 GB/s/E-core. 4 E-cores contribute 488 GB/s.
+        #   Aggregate L1 BW: ~3.95 TB/s across 12 logical units.
+        #
+        # The classifier multiplies l1_bandwidth_per_unit_bps by
+        # ``compute_units`` (=12 here) to recover aggregate. We therefore
+        # store the *weighted per-effective-unit* figure, not the P-core
+        # peak: 3.95 TB/s / 12 = ~329 GB/s/effective-unit. Rounded to
+        # 350 GB/s for a conservative figure that gives an aggregate
+        # of ~4.2 TB/s -- within ~7% of the derived 3.95 TB/s.
         #
         # LLC (L3) bandwidth: Intel published numbers and microbench
         # measurements (Andreas Abel et al., uops.info; AnandTech Alder
         # Lake review) put Alder Lake L3 sustained at ~150-300 GB/s
         # depending on access pattern. Conservative midpoint = 200 GB/s.
         # Stored in ``l3_bandwidth_bps`` since on x86 the LLC IS L3.
-        l1_bandwidth_per_unit_bps=432e9,
+        l1_bandwidth_per_unit_bps=350e9,   # weighted per-effective-unit
         l3_bandwidth_bps=200e9,
 
         # Energy (consumer CPU)

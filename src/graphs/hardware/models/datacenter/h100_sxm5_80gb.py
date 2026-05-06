@@ -185,8 +185,8 @@ def h100_sxm5_80gb_resource_model() -> HardwareResourceModel:
         main_memory=80 * 1024**3,     # 80 GB HBM2e
 
         # On-chip bandwidth peaks (#61). Sourced from the NVIDIA H100
-        # Tensor Core GPU Architecture whitepaper (March 2022) and
-        # NVIDIA Hopper Tuning Guide:
+        # Tensor Core GPU Architecture whitepaper (March 2022) and the
+        # Chips and Cheese H100 microbenchmark study (2023).
         #
         # Per-SM L1 / shared memory bandwidth: H100 SXM5 SMs deliver
         # 256 B/cycle to/from the unified L1 + shared memory at the
@@ -194,12 +194,16 @@ def h100_sxm5_80gb_resource_model() -> HardwareResourceModel:
         # SMs: ~67 TB/s. Per-unit value here is the per-SM figure --
         # the classifier multiplies by compute_units.
         #
-        # Shared L2 bandwidth: H100 L2 cache (50 MB) sustains
-        # ~5.5 TB/s aggregate per Hopper microbenchmark publications
-        # (e.g., the L2 BW figures in Mark Ferdman et al. ASPLOS '23
-        # H100 microarch study). Conservative figure used here.
+        # Shared L2 bandwidth: H100 has a partitioned L2 (50 MB total,
+        # split across two partitions). Chips and Cheese (2023) measured
+        # ~5.5 TB/s for the local/near-partition path and ~3.8 TB/s for
+        # cross-partition access. ``l2_bandwidth_bps`` here stores the
+        # local/near figure (5.5 TB/s) -- the optimistic case for a
+        # workload that fits within one partition. Cross-partition
+        # workloads see lower effective BW; modeling that requires
+        # exposing partition topology, which is out of scope for #61.
         l1_bandwidth_per_unit_bps=507e9,
-        l2_bandwidth_bps=5.5e12,
+        l2_bandwidth_bps=5.5e12,    # local/near-partition; see comment
 
         # Legacy energy (use CUDA fabric as baseline)
         energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.5 pJ

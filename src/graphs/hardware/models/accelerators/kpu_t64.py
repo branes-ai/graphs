@@ -438,17 +438,23 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         main_memory=8 * 1024**3,  # 8 GB LPDDR5
 
         # On-chip bandwidth peaks (#61). Stillwater KPU-T64 vendor
-        # architecture spec:
+        # architecture spec, with the math consistent with the rest of
+        # this module (32x32 PE array, 900 MHz sustained clock):
         #
-        # Per-tile L1 (scratchpad) bandwidth: each tile contains a 24x24
-        # FMA mesh with 256 KB SRAM, sized to deliver one operand per
-        # FMA per cycle: 24 * 24 * 2 reads * bpe bytes/cycle = ~2.3 KB/cycle
-        # at fp16/bf16. At a 1.0 GHz tile clock that's ~2.3 TB/s/tile;
-        # at the 800 MHz typical sustained clock used elsewhere in this
-        # mapper, ~1.84 TB/s/tile. The conservative figure used here
-        # (1.5 TB/s/tile) accounts for the ~80% achievable utilization
-        # of the scratchpad's read/write ports under realistic dataflow
-        # patterns. Aggregate L1 BW: ~96 TB/s across 64 tiles.
+        # Per-tile L1 (scratchpad) bandwidth: each tile contains a 32x32
+        # PE mesh (1024 PEs) with 256 KB SRAM. The "feed every PE every
+        # cycle" peak demand at bf16 (2 bytes/elem, 2 operands/FMA) is
+        # 1024 * 2 * 2 = 4096 B/cycle. At ``sustained_clock_hz`` =
+        # 900 MHz that's ~3.69 TB/s/tile of theoretical peak demand.
+        #
+        # However spatial dataflow re-uses operands via PE-local
+        # registers and inter-PE wires rather than re-fetching from L1
+        # every cycle. Steady-state L1 demand is far below the per-PE
+        # operand rate -- typically ~40% of peak for output-stationary
+        # schedules, since each operand is fetched once per K-loop
+        # iteration and reused across the inner mesh. The figure used
+        # here (1.5 TB/s/tile = 41% of 3.69 TB/s peak) captures that
+        # steady-state demand. Aggregate L1 BW: ~96 TB/s across 64 tiles.
         #
         # Shared L2 bandwidth: the 4 MB shared L2 sits behind the inter-
         # tile NoC and feeds the tile mesh at the NoC's bisection BW.

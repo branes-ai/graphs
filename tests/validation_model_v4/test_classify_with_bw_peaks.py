@@ -17,10 +17,6 @@ ship with BW peaks populated (i7-12700K, H100-SXM5-80GB, KPU-T64).
 
 from __future__ import annotations
 
-import math
-
-import pytest
-
 from graphs.hardware.mappers.cpu import create_i7_12700k_mapper
 from graphs.hardware.mappers.gpu import create_h100_sxm5_80gb_mapper
 from graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
