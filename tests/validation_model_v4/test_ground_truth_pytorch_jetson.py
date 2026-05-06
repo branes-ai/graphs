@@ -155,6 +155,59 @@ def test_measurer_skips_energy_when_no_probe():
 
 
 # ---------------------------------------------------------------------------
+# Issue #88 regression: device placement
+# ---------------------------------------------------------------------------
+
+
+def test_measurer_moves_model_and_inputs_to_cuda_before_warmup():
+    """Issue #88 regression: workload factories build on CPU; the
+    measurer must move both ``model`` and any tensor in ``inputs`` to
+    the integrated GPU BEFORE the warmup window. Otherwise the work
+    runs on the Cortex-A78 cores and INA3221 measures CPU draw, not
+    iGPU draw -- which surfaced as a 3-hour 15/48-shapes Phase B run
+    on Orin Nano."""
+    measurer = PyTorchJetsonMeasurer(
+        hardware="jetson_orin_nano_8gb",
+        device_index=0,
+        warmup_trials=1, timed_trials=3,
+        _probe=None,
+    )
+    fake_torch = _make_fake_cuda_torch(per_trial_ms=2.0)
+    fake_input_a = MagicMock()
+    fake_input_b = MagicMock()
+    fake_torch.is_tensor.return_value = True
+    fake_model = MagicMock()
+
+    with patch.dict("sys.modules", {"torch": fake_torch}):
+        measurer.measure(model=fake_model, inputs=[fake_input_a, fake_input_b])
+
+    fake_model.to.assert_called_once_with("cuda:0")
+    fake_input_a.to.assert_called_once_with("cuda:0")
+    fake_input_b.to.assert_called_once_with("cuda:0")
+
+
+def test_measurer_skips_to_call_on_non_tensor_inputs():
+    """Non-tensor entries in ``inputs`` (e.g., None bias) must not get
+    .to() called on them."""
+    measurer = PyTorchJetsonMeasurer(
+        hardware="jetson_orin_nano_8gb",
+        warmup_trials=1, timed_trials=3,
+        _probe=None,
+    )
+    fake_torch = _make_fake_cuda_torch(per_trial_ms=2.0)
+    real_tensor = MagicMock()
+    not_a_tensor = MagicMock()
+    fake_torch.is_tensor.side_effect = lambda x: x is real_tensor
+    fake_model = MagicMock()
+
+    with patch.dict("sys.modules", {"torch": fake_torch}):
+        measurer.measure(model=fake_model, inputs=[real_tensor, not_a_tensor, None])
+
+    real_tensor.to.assert_called_once_with("cuda:0")
+    not_a_tensor.to.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Measurer: power integration with a fake probe
 # ---------------------------------------------------------------------------
 
