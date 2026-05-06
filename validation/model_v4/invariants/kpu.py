@@ -71,7 +71,18 @@ class _MatmulShape:
 
 
 def _bpe(precision: Precision) -> int:
-    """Bytes per element for the precision argument."""
+    """Bytes per element for the precision argument.
+
+    Raises on packed sub-byte precisions (INT4, FP4) -- this helper
+    returns an integer count of bytes, so honest accounting for 0.5 B
+    per element would require a bytes-per-N-elements API instead. The
+    invariant suite uses BF16, INT8, and larger; if a future invariant
+    needs INT4, this helper should be promoted to return float (or
+    pairs).
+
+    Raises on any unrecognized Precision rather than silently defaulting,
+    so a typo or new precision enum value fails fast at the invariant
+    layer rather than producing nonsense byte counts."""
     if precision in (Precision.FP64,):
         return 8
     if precision in (Precision.FP32, Precision.TF32):
@@ -81,8 +92,15 @@ def _bpe(precision: Precision) -> int:
     if precision in (Precision.INT8, Precision.FP8, Precision.FP8_E4M3, Precision.FP8_E5M2):
         return 1
     if precision in (Precision.INT4, Precision.FP4):
-        return 1   # round up; 0.5 doesn't fit in int. Tests use larger precisions.
-    return 4
+        raise NotImplementedError(
+            f"_bpe(): packed sub-byte precision {precision.name} requires "
+            "fractional byte accounting (0.5 B/elem). Promote _bpe to "
+            "return float (or bytes-per-N-elements) before using it here."
+        )
+    raise ValueError(
+        f"_bpe(): unrecognized Precision {precision!r}. Add an explicit "
+        "branch above rather than relying on a default."
+    )
 
 
 # Default shape grid for monotonicity / scaling sweeps. Square shapes
@@ -119,12 +137,20 @@ def check_roofline_self_consistency(
     for s in shapes:
         sg = s.to_subgraph(bpe)
         lat = analyzer._analyze_subgraph(sg)
+        # All four time components must be non-negative -- a negative
+        # value means the analyzer's math has a sign error somewhere.
         if lat.compute_time < 0:
             failures.append(
                 f"shape=({s.M},{s.K},{s.N}): compute_time={lat.compute_time:.3e} < 0")
         if lat.memory_time < 0:
             failures.append(
                 f"shape=({s.M},{s.K},{s.N}): memory_time={lat.memory_time:.3e} < 0")
+        if lat.overhead < 0:
+            failures.append(
+                f"shape=({s.M},{s.K},{s.N}): overhead={lat.overhead:.3e} < 0")
+        if lat.actual_latency < 0:
+            failures.append(
+                f"shape=({s.M},{s.K},{s.N}): actual_latency={lat.actual_latency:.3e} < 0")
         expected = max(lat.compute_time, lat.memory_time) + lat.overhead
         # Tiny floating-point slack is fine; anything > 1ns is suspicious.
         if abs(lat.actual_latency - expected) > 1e-9:

@@ -39,6 +39,7 @@ from graphs.hardware.resource_model import Precision
 
 from validation.model_v4.invariants.kpu import (
     DEFAULT_SHAPE_GRID,
+    _bpe,
     check_achieved_bw_below_peak,
     check_achieved_compute_below_peak,
     check_avg_power_below_tdp,
@@ -181,6 +182,32 @@ def test_family_latency_non_increasing(shape_idx):
 # ---------------------------------------------------------------------------
 # Battery: convenience pass-rate check via run_kpu_invariants
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _bpe contract -- fail fast on packed sub-byte and unrecognized precisions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("precision,expected", [
+    (Precision.FP64, 8),
+    (Precision.FP32, 4),
+    (Precision.TF32, 4),
+    (Precision.FP16, 2),
+    (Precision.BF16, 2),
+    (Precision.INT8, 1),
+    (Precision.FP8, 1),
+])
+def test_bpe_returns_known_byte_widths(precision, expected):
+    assert _bpe(precision) == expected
+
+
+@pytest.mark.parametrize("precision", [Precision.INT4, Precision.FP4])
+def test_bpe_raises_on_packed_sub_byte(precision):
+    """Packed 4-bit precisions need fractional byte accounting; the
+    invariant suite should fail fast rather than silently round to 1."""
+    with pytest.raises(NotImplementedError, match="packed sub-byte"):
+        _bpe(precision)
 
 
 def test_run_kpu_invariants_returns_zero_hard_failures(kpu_mapper):
