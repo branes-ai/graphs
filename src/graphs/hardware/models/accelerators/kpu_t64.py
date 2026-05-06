@@ -436,6 +436,26 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         l1_cache_per_unit=256 * 1024,  # 256 KB per tile
         l2_cache_total=4 * 1024 * 1024,  # 4 MB shared L2
         main_memory=8 * 1024**3,  # 8 GB LPDDR5
+
+        # On-chip bandwidth peaks (#61). Stillwater KPU-T64 vendor
+        # architecture spec:
+        #
+        # Per-tile L1 (scratchpad) bandwidth: each tile contains a 24x24
+        # FMA mesh with 256 KB SRAM, sized to deliver one operand per
+        # FMA per cycle: 24 * 24 * 2 reads * bpe bytes/cycle = ~2.3 KB/cycle
+        # at fp16/bf16. At a 1.0 GHz tile clock that's ~2.3 TB/s/tile;
+        # at the 800 MHz typical sustained clock used elsewhere in this
+        # mapper, ~1.84 TB/s/tile. The conservative figure used here
+        # (1.5 TB/s/tile) accounts for the ~80% achievable utilization
+        # of the scratchpad's read/write ports under realistic dataflow
+        # patterns. Aggregate L1 BW: ~96 TB/s across 64 tiles.
+        #
+        # Shared L2 bandwidth: the 4 MB shared L2 sits behind the inter-
+        # tile NoC and feeds the tile mesh at the NoC's bisection BW.
+        # Vendor spec for T64 is 200 GB/s aggregate L2; this is the
+        # bottleneck for cross-tile data sharing in the dataflow schedule.
+        l1_bandwidth_per_unit_bps=1.5e12,
+        l2_bandwidth_bps=200e9,
         # Energy (use BF16 tile fabric as baseline for general-purpose FP32 operations)
         energy_per_flop_fp32=bf16_tile_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
         energy_per_byte=12e-12,

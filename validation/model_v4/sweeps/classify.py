@@ -6,27 +6,32 @@ Principle 1 of docs/plans/validation-harness-v4-plan.md: every sweep shape
 lands in exactly one known roofline regime, so a per-shape failure points
 at one architectural assumption.
 
-A note on the v4-1 cut
-----------------------
-HardwareResourceModel currently exposes ``peak_bandwidth`` (DRAM) but no
-explicit L1/L2 bandwidth fields. The classifier therefore distinguishes
-regimes by **working-set capacity fit** plus an OI-vs-DRAM-bandwidth
-breakpoint:
+Two-tier dispatch
+-----------------
+The classifier tries the bandwidth-aware path first; when the hardware
+mapper exposes ``l1_bandwidth_per_unit_bps`` and ``l2_bandwidth_bps``
+(populated for the V4 reference targets per issue #61), low-OI shapes
+that fit in L1 land in ``L1_BOUND`` instead of being collapsed into
+``L2_BOUND``. When either field is None, the classifier falls back to
+the v4-1 capacity-only behavior unchanged.
+
+Regimes:
 
 * ``alu_bound``     - working set fits in L1 AND OI > peak_FLOPS / peak_DRAM_BW
                       (an ALU-bound op with everything in L1 is the cleanest
                       validation of peak FLOPS)
-* ``l2_bound``      - working set in (L1, L2_or_LLC]
+* ``l1_bound``      - working set fits in L1 AND OI < peak_FLOPS / peak_L1_BW
+                      (validates per-unit L1 bandwidth). Only emitted when
+                      l1_bandwidth_per_unit_bps is populated.
+* ``l2_bound``      - working set in (L1, L2_or_LLC]; validates shared L2 BW
+                      when l2_bandwidth_bps is populated, otherwise validates
+                      L2 capacity only.
 * ``dram_bound``    - working set > on-chip total
 * ``launch_bound``  - predicted compute time < 5x kernel-launch overhead
 * ``ambiguous``     - within +/-AMBIGUOUS_BAND of any boundary; rejected
                       from validation sweeps so failures attribute to one
                       layer
 * ``unsupported``   - (hardware, dtype) combo has no peak FLOPS entry
-
-L1-vs-L2 bandwidth distinction is deferred until on-chip BW peaks land in
-the resource model (issue #61). For v4-1, both shapes that would have been
-``l1_bound`` (capacity-only) and ``l2_bound`` are reported as ``l2_bound``.
 """
 
 from __future__ import annotations
@@ -42,6 +47,10 @@ from graphs.hardware.resource_model import HardwareResourceModel, Precision
 class Regime(Enum):
     """Roofline regime a shape is supposed to validate."""
     ALU_BOUND = "alu_bound"
+    L1_BOUND = "l1_bound"         # On-chip per-unit L1 BW bound. Only emitted
+                                  # when l1_bandwidth_per_unit_bps is populated;
+                                  # see issue #61 for the bandwidth-aware
+                                  # dispatch path.
     L2_BOUND = "l2_bound"
     DRAM_BOUND = "dram_bound"
     LAUNCH_BOUND = "launch_bound"
@@ -143,7 +152,11 @@ def op_footprint(op: str, shape: Tuple[int, ...], dtype: str) -> OpFootprint:
 
 @dataclass(frozen=True)
 class HardwareCapacities:
-    """Per-target memory and roofline constants used by the classifier."""
+    """Per-target memory and roofline constants used by the classifier.
+
+    The on-chip BW peaks (#61) are Optional so existing 45+ mappers
+    that don't populate them keep working through the capacity-only
+    fallback path."""
     name: str
     l1_total_bytes: int          # sum of per-unit L1 across compute units
     l2_total_bytes: int          # shared L2 / LLC
@@ -152,6 +165,21 @@ class HardwareCapacities:
     peak_flops: float
     ai_breakpoint: float         # peak_flops / peak_dram_bw -- the OI above which
                                  # an op is compute-bound on the DRAM roofline
+
+    # On-chip BW peaks (#61). None when the mapper hasn't populated the
+    # corresponding HardwareResourceModel field; the classifier falls
+    # back to capacity-only behavior.
+    peak_l1_bandwidth_bps: float | None = None    # AGGREGATE across all units
+                                                   # (= per_unit * compute_units)
+    peak_l2_bandwidth_bps: float | None = None    # shared L2 / LLC bandwidth
+
+    @property
+    def l1_ai_breakpoint(self) -> float | None:
+        """OI above which an L1-resident op becomes compute-bound on the
+        L1 roofline. None when peak_l1_bandwidth_bps isn't populated."""
+        if self.peak_l1_bandwidth_bps is None or self.peak_l1_bandwidth_bps <= 0:
+            return None
+        return self.peak_flops / self.peak_l1_bandwidth_bps
 
 
 def hardware_capacities(
@@ -201,6 +229,15 @@ def hardware_capacities(
     peak_flops = RooflineAnalyzer._get_effective_peak_ops(hw, precision)
     peak_bw = hw.peak_bandwidth
     ai_breakpoint = peak_flops / peak_bw if peak_bw > 0 else math.inf
+
+    # On-chip BW peaks (#61). Aggregate L1 BW = per-unit * compute_units;
+    # L2 BW is already aggregate by spec. Both Optional so unpopulated
+    # mappers keep using the capacity-only path.
+    peak_l1_bw: float | None = None
+    if hw.l1_bandwidth_per_unit_bps is not None:
+        peak_l1_bw = hw.l1_bandwidth_per_unit_bps * hw.compute_units
+    peak_l2_bw = hw.l2_bandwidth_bps   # already aggregate or None
+
     return HardwareCapacities(
         name=hw.name,
         l1_total_bytes=l1_total,
@@ -209,6 +246,8 @@ def hardware_capacities(
         peak_dram_bandwidth_bps=peak_bw,
         peak_flops=peak_flops,
         ai_breakpoint=ai_breakpoint,
+        peak_l1_bandwidth_bps=peak_l1_bw,
+        peak_l2_bandwidth_bps=peak_l2_bw,
     )
 
 
@@ -272,15 +311,26 @@ def classify_regime(
 
     if ws <= cap.l1_total_bytes:
         # Working set fits in L1. To be ALU_BOUND it also has to be on the
-        # compute side of the DRAM roofline breakpoint -- otherwise it's
-        # in a regime our v4-1 classifier can't distinguish from L1/L2 BW
-        # bound, so we conservatively call it ambiguous.
+        # compute side of the DRAM roofline breakpoint.
         if _within_band(fp.operational_intensity, cap.ai_breakpoint):
             return Regime.AMBIGUOUS
         if fp.operational_intensity > cap.ai_breakpoint:
             return Regime.ALU_BOUND
-        # OI < breakpoint and fits in L1 means we'd be testing on-chip BW,
-        # which we don't have peaks for yet.
+        # OI < DRAM AI breakpoint and fits in L1: this is the L1-bandwidth-
+        # bound regime if the hardware exposes a per-unit L1 BW peak (#61).
+        # Without that peak, we can't validate L1 BW, so the shape stays
+        # ambiguous (the v4-1 default).
+        l1_breakpoint = cap.l1_ai_breakpoint
+        if l1_breakpoint is not None:
+            if _within_band(fp.operational_intensity, l1_breakpoint):
+                return Regime.AMBIGUOUS
+            if fp.operational_intensity < l1_breakpoint:
+                return Regime.L1_BOUND
+            # OI in (l1_breakpoint, ai_breakpoint): L1 BW isn't the
+            # bottleneck (compute is fast enough to keep up with L1)
+            # but DRAM AI breakpoint isn't reached either. Still
+            # ambiguous -- this would need the L2 BW roofline to
+            # resolve cleanly.
         return Regime.AMBIGUOUS
 
     if ws <= cap.l2_total_bytes:

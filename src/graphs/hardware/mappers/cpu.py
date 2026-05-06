@@ -827,6 +827,26 @@ def create_i7_12700k_mapper() -> CPUMapper:
         l2_cache_total=25 * 1024 * 1024,  # 25 MB L3 shared (LLC)
         main_memory=64 * 1024**3,  # 64 GB typical
 
+        # On-chip bandwidth peaks (#61). Sourced from Intel(R) 64 and IA-32
+        # Architectures Optimization Reference Manual Vol. 3, Alder Lake
+        # P-core (Golden Cove) chapter:
+        #
+        # L1D bandwidth per P-core: 2 loads x 32 B/cycle (AVX2) + 1 store x
+        #   32 B/cycle = 96 B/cycle. At 4.5 GHz sustained (post-#73 spec):
+        #   96 * 4.5e9 = 432 GB/s/P-core. Aggregate across 8 P-cores +
+        #   limited E-core contribution = ~3.5 TB/s. Per-unit value here is
+        #   the P-core figure -- the classifier multiplies by compute_units;
+        #   E-cores are slower but only contribute ~10% of L1 BW so the
+        #   conservative aggregate is fine for regime classification.
+        #
+        # LLC (L3) bandwidth: Intel published numbers and microbench
+        # measurements (Andreas Abel et al., uops.info; AnandTech Alder
+        # Lake review) put Alder Lake L3 sustained at ~150-300 GB/s
+        # depending on access pattern. Conservative midpoint = 200 GB/s.
+        # Stored in ``l3_bandwidth_bps`` since on x86 the LLC IS L3.
+        l1_bandwidth_per_unit_bps=432e9,
+        l3_bandwidth_bps=200e9,
+
         # Energy (consumer CPU)
         energy_per_flop_fp32=1.5e-12,  # Higher than server (less efficient)
         energy_per_byte=25e-12,
