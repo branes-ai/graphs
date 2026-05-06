@@ -164,23 +164,25 @@ def test_i7_linear_pass_latency_floor():
 
 
 # ---------------------------------------------------------------------------
-# Floor: Jetson Orin Nano 8GB (Phase B baseline, uncalibrated mapper)
+# Floor: Jetson Orin Nano 8GB (Super; Phase B baseline + #94 first-pass calib)
 # ---------------------------------------------------------------------------
 #
-# These floors reflect the analyzer's *uncalibrated* state for the
-# Orin Nano mapper. The numbers are deliberately low because the mapper
-# hasn't had the equivalent of i7's #67/#68/#69/#71/#74 calibration
-# rounds yet -- the Phase B baseline (PR #90) just surfaced the gap.
-# Calibration is tracked separately; once any of those constants land
-# the floors should be bumped.
+# These floors reflect the post-#94 calibration: per-SM Tensor Core
+# ops/clock corrected from 64 -> 128 MACs/TC (Ampere SM 8.6 spec),
+# peak_bandwidth from 68 -> 102 GB/s (Super memory), and a new MAXN
+# thermal profile reflecting the user's full-power deployment.
 #
-# Diagnostic from the baseline:
-#   matmul: 4/48 regime, 3/48 latency, 13/48 energy (10 skipped sub-ms)
-#   linear: 1/46 regime, 1/46 latency,  8/46 energy (10 skipped sub-ms)
-#   median latency_pred / latency_meas ratio: ~4x over-prediction
-#   100% of dram_bound predictions fail pass_regime -- the analyzer
-#   thinks Orin Nano is DRAM-bound where the iGPU is actually doing
-#   better than its conservatively-spec'd peak_bandwidth suggests.
+# Pass-rate evolution:
+#   matmul: 4/48 regime, 3/48 latency, 13/48 energy  (PR #90 baseline)
+#        -> 4/48 regime, 5/48 latency, 25/48 energy  (post-#94 fix)
+#   linear: 1/46 regime, 1/46 latency,  8/46 energy  (PR #90 baseline)
+#        -> 1/46 regime, 1/46 latency, 28/46 energy  (post-#94 fix)
+#
+# Energy bumped substantially because static_energy = avg_power *
+# latency, and latency is now closer to measured. Regime/latency
+# barely moved because the regime classifier still calls every
+# non-launch-bound shape DRAM_BOUND; the bw_efficiency_scale GPU
+# branch needs further calibration to fix that (next round of #91).
 
 
 _JETSON = "jetson_orin_nano_8gb"
@@ -198,9 +200,10 @@ def test_jetson_orin_nano_matmul_validation_records_loaded():
 
 
 def test_jetson_orin_nano_matmul_pass_regime_floor():
-    """Phase B floor. Currently 4/48 -- mostly the launch_bound shapes.
-    All 38 dram_bound predictions fail because the analyzer over-
-    predicts Orin DRAM latency by ~4x (see calibration tracker)."""
+    """Post-#94 floor: still 4/48. The Tensor Core peak fix bumped the
+    AI breakpoint from 11.7 to 69.6 FLOPS/byte, so most non-launch-
+    bound shapes still classify as DRAM_BOUND. Resolving this needs
+    further calibration of the GPU bw_efficiency_scale curve (#91)."""
     total, passes_regime, _, _ = _validation_pass_rate("matmul", _JETSON)
     assert passes_regime >= 4, (
         f"jetson matmul pass_regime regressed below floor: "
@@ -213,33 +216,34 @@ def test_jetson_orin_nano_matmul_pass_regime_floor():
 
 
 def test_jetson_orin_nano_matmul_pass_latency_floor():
-    """Phase B floor. Currently 3/48. Median latency_pred/meas is ~4x
-    over-predict; the 3 passing entries are within the LAUNCH_BOUND
-    30% tolerance band where the launch-overhead constant happens to
-    hit. Calibrating Orin Nano's GPU efficiency curve should bump
-    this substantially."""
+    """Post-#94 floor: 5/48 (was 3/48 pre-fix). Median latency_pred/meas
+    flipped from 4x over-prediction to 0.47x under-prediction -- the
+    Tensor Core peak fix overshot for small shapes that don't saturate
+    cuBLAS. Further calibration via a per-shape compute-efficiency curve
+    (analog of CPU #67) is the next round of #91."""
     total, _, passes_latency, _ = _validation_pass_rate("matmul", _JETSON)
-    assert passes_latency >= 3, (
+    assert passes_latency >= 4, (
         f"jetson matmul pass_latency regressed below floor: "
-        f"{passes_latency}/{total} (floor: 3). Likely root cause: GPU "
-        f"compute / bw efficiency curve in RooflineAnalyzer drifted, "
-        f"or the analyzer's Orin Nano peak_bandwidth / peak_FLOPS "
-        f"shifted in the wrong direction."
+        f"{passes_latency}/{total} (floor: 4, was 5 after #94). Likely "
+        f"root cause: GPU compute / bw efficiency curve drifted, or "
+        f"the MAXN thermal profile sustained_clock_hz changed."
     )
 
 
 def test_jetson_orin_nano_matmul_pass_energy_floor():
-    """Phase B floor. Currently 13/48 with 10 sub-ms skipped, 25 fail.
-    The fails track latency over-prediction since static_energy =
-    avg_power * latency. Improvements to latency calibration will
-    bump this."""
+    """Post-#94 floor: 25/48 (was 13/48 pre-fix; +12 / +92%). The
+    Tensor Core peak fix made predicted latency closer to measured,
+    which pulls predicted static_energy = avg_power * latency closer
+    to measured. The remaining 13 fails are mostly the small under-
+    predicted-latency shapes."""
     total, _, _, passes_energy = _validation_pass_rate("matmul", _JETSON)
-    assert passes_energy >= 10, (
+    assert passes_energy >= 22, (
         f"jetson matmul pass_energy regressed below floor: "
-        f"{passes_energy}/{total} (floor: 10). Likely root cause: GPU "
-        f"IDLE_POWER_FRACTION drifted (currently 0.3, V4-#71-style "
-        f"calibration pending), or Orin's TDP / energy_per_flop "
-        f"constants regressed."
+        f"{passes_energy}/{total} (floor: 22, was 25 after #94, was "
+        f"13 pre-fix). Likely root cause: the Tensor Core peak fix in "
+        f"jetson_orin_nano_8gb.py reverted (fp16_ops_per_sm_per_clock "
+        f"back to 512 from 1024), or peak_bandwidth back to 68 GB/s, "
+        f"or default_thermal_profile back to '7W' from 'MAXN'."
     )
 
 
@@ -252,9 +256,11 @@ def test_jetson_orin_nano_linear_validation_records_loaded():
 
 
 def test_jetson_orin_nano_linear_pass_regime_floor():
-    """Phase B floor. Currently 1/46 -- linear is even worse than
-    matmul on Orin because of the tall-skinny B=1 shapes that the
-    classifier puts into dram_bound but the analyzer over-predicts."""
+    """Post-#94 floor: still 1/46. Linear has tall-skinny B=1 shapes
+    that the classifier puts into dram_bound; the Tensor Core peak fix
+    didn't move the regime classification because AI breakpoint went
+    UP (more shapes still classify as DRAM-bound). Resolving needs the
+    GPU bw_efficiency_scale curve calibration (next round of #91)."""
     total, passes_regime, _, _ = _validation_pass_rate("linear", _JETSON)
     assert passes_regime >= 1, (
         f"jetson linear pass_regime regressed below floor: "
@@ -263,8 +269,9 @@ def test_jetson_orin_nano_linear_pass_regime_floor():
 
 
 def test_jetson_orin_nano_linear_pass_latency_floor():
-    """Phase B floor. Currently 1/46. Same root cause as matmul
-    pass_latency floor."""
+    """Post-#94 floor: still 1/46. Same root cause as matmul
+    pass_latency floor; small linear shapes have the same compute-
+    efficiency overshoot as small matmul."""
     total, _, passes_latency, _ = _validation_pass_rate("linear", _JETSON)
     assert passes_latency >= 1, (
         f"jetson linear pass_latency regressed below floor: "
@@ -273,9 +280,11 @@ def test_jetson_orin_nano_linear_pass_latency_floor():
 
 
 def test_jetson_orin_nano_linear_pass_energy_floor():
-    """Phase B floor. Currently 8/46 with 10 sub-ms skipped, 28 fail."""
+    """Post-#94 floor: 28/46 (was 8/46 pre-fix; +20 / +250%). Same root
+    cause as matmul energy floor: predicted latency now closer to
+    measured -> static_energy = avg_power * latency comes out closer."""
     total, _, _, passes_energy = _validation_pass_rate("linear", _JETSON)
-    assert passes_energy >= 6, (
+    assert passes_energy >= 25, (
         f"jetson linear pass_energy regressed below floor: "
-        f"{passes_energy}/{total} (floor: 6)."
+        f"{passes_energy}/{total} (floor: 25, was 28 after #94)."
     )
