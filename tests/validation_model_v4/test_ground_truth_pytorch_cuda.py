@@ -193,6 +193,58 @@ def test_measurer_uses_total_energy_when_supported():
     assert "power-fallback" not in meas.notes
 
 
+def test_measurer_moves_model_and_inputs_to_cuda_before_warmup():
+    """Issue #88 regression: workload factories build on CPU; the
+    measurer must move both ``model`` and any tensor in ``inputs`` to
+    the target CUDA device BEFORE the warmup window. Otherwise the
+    work runs on the host and cudaEvents bracket an idle GPU stream."""
+    measurer = PyTorchCUDAMeasurer(
+        hardware="h100_sxm5_80gb",
+        device_index=0,
+        warmup_trials=1, timed_trials=3,
+        _probe=None,
+    )
+    fake_torch = _make_fake_cuda_torch(per_trial_ms=2.0)
+    # Mock tensors that record their .to() calls.
+    fake_input_a = MagicMock()
+    fake_input_b = MagicMock()
+    fake_torch.is_tensor.return_value = True
+    fake_model = MagicMock()
+
+    with patch.dict("sys.modules", {"torch": fake_torch}):
+        measurer.measure(model=fake_model, inputs=[fake_input_a, fake_input_b])
+
+    # Model was moved to the target device exactly once (before warmup).
+    fake_model.to.assert_called_once_with("cuda:0")
+    # Each tensor input was moved to the target device exactly once.
+    fake_input_a.to.assert_called_once_with("cuda:0")
+    fake_input_b.to.assert_called_once_with("cuda:0")
+
+
+def test_measurer_skips_to_call_on_non_tensor_inputs():
+    """``inputs`` may contain non-tensor entries (e.g., None for an
+    optional bias, or scalar Python objects). The measurer's tensor-
+    move loop must skip them via ``torch.is_tensor`` rather than
+    blindly calling ``.to()`` on everything."""
+    measurer = PyTorchCUDAMeasurer(
+        hardware="h100_sxm5_80gb",
+        warmup_trials=1, timed_trials=3,
+        _probe=None,
+    )
+    fake_torch = _make_fake_cuda_torch(per_trial_ms=2.0)
+    real_tensor = MagicMock()
+    not_a_tensor = MagicMock()
+    # Only the first input is reported as a tensor:
+    fake_torch.is_tensor.side_effect = lambda x: x is real_tensor
+    fake_model = MagicMock()
+
+    with patch.dict("sys.modules", {"torch": fake_torch}):
+        measurer.measure(model=fake_model, inputs=[real_tensor, not_a_tensor, None])
+
+    real_tensor.to.assert_called_once_with("cuda:0")
+    not_a_tensor.to.assert_not_called()
+
+
 def test_measurer_falls_back_to_power_when_no_total_energy():
     """With a power-only probe, the measurer should compute
     energy = power * latency."""
