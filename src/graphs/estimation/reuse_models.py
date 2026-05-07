@@ -28,10 +28,17 @@ from typing import Dict, Protocol, Sequence, Tuple, runtime_checkable
 
 
 _BYTES_PER_ELEMENT: Dict[str, float] = {
-    "fp64": 8, "fp32": 4, "tf32": 4,
-    "fp16": 2, "bf16": 2,
-    "int8": 1, "fp8": 1, "fp8_e4m3": 1, "fp8_e5m2": 1,
-    "int4": 0.5, "fp4": 0.5,
+    "fp64": 8,
+    "fp32": 4,
+    "tf32": 4,
+    "fp16": 2,
+    "bf16": 2,
+    "int8": 1,
+    "fp8": 1,
+    "fp8_e4m3": 1,
+    "fp8_e5m2": 1,
+    "int4": 0.5,
+    "fp4": 0.5,
 }
 
 
@@ -107,9 +114,7 @@ class VectorAddReuseModel:
         tier_capacity_bytes: int,  # noqa: ARG002 -- intentionally ignored
     ) -> TileChoice:
         if len(shape) != 1:
-            raise ValueError(
-                f"vector_add expects 1-D shape, got {tuple(shape)}"
-            )
+            raise ValueError(f"vector_add expects 1-D shape, got {tuple(shape)}")
         (N,) = shape
         if N < 1:
             raise ValueError(f"vector_add requires N >= 1, got {N}")
@@ -154,9 +159,7 @@ class MatmulReuseModel:
         tier_capacity_bytes: int,
     ) -> TileChoice:
         if len(shape) != 3:
-            raise ValueError(
-                f"matmul expects 3-D shape (M, K, N), got {tuple(shape)}"
-            )
+            raise ValueError(f"matmul expects 3-D shape (M, K, N), got {tuple(shape)}")
         M, K, N = shape  # noqa: F841 -- K unused here, used in bytes_loaded
         if M < 1 or K < 1 or N < 1:
             raise ValueError(f"matmul requires positive dims, got {(M, K, N)}")
@@ -182,9 +185,7 @@ class MatmulReuseModel:
         M, K, N = shape
         bpe = bytes_per_element(dtype)
         if len(tile.tile_dims) != 2:
-            raise ValueError(
-                f"matmul tile must be 2-D (Mt, Nt), got {tile.tile_dims}"
-            )
+            raise ValueError(f"matmul tile must be 2-D (Mt, Nt), got {tile.tile_dims}")
         Mt, Nt = tile.tile_dims
         a_bytes = M * K * bpe * (N / Nt)
         b_bytes = K * N * bpe * (M / Mt)
@@ -216,9 +217,7 @@ class LinearReuseModel:
                 f"linear expects 3-D shape (B, IN, OUT), got {tuple(shape)}"
             )
         B, IN, OUT = shape
-        return self._delegate.residency_window(
-            (B, IN, OUT), dtype, tier_capacity_bytes
-        )
+        return self._delegate.residency_window((B, IN, OUT), dtype, tier_capacity_bytes)
 
     def bytes_loaded_from_binding(
         self,
@@ -227,9 +226,7 @@ class LinearReuseModel:
         tile: TileChoice,
     ) -> int:
         B, IN, OUT = shape
-        return self._delegate.bytes_loaded_from_binding(
-            (B, IN, OUT), dtype, tile
-        )
+        return self._delegate.bytes_loaded_from_binding((B, IN, OUT), dtype, tile)
 
 
 REUSE_MODELS: Dict[str, ReuseModel] = {
@@ -243,8 +240,7 @@ def get_reuse_model(op_kind: str) -> ReuseModel:
     """Look up the reuse model for an op kind. Raises if unknown."""
     if op_kind not in REUSE_MODELS:
         raise ValueError(
-            f"No reuse model for op_kind={op_kind!r}; "
-            f"known: {sorted(REUSE_MODELS)}"
+            f"No reuse model for op_kind={op_kind!r}; " f"known: {sorted(REUSE_MODELS)}"
         )
     return REUSE_MODELS[op_kind]
 

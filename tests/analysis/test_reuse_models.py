@@ -31,12 +31,22 @@ from graphs.estimation.reuse_models import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dtype,expected", [
-    ("fp64", 8), ("fp32", 4), ("tf32", 4),
-    ("fp16", 2), ("bf16", 2),
-    ("int8", 1), ("fp8", 1), ("fp8_e4m3", 1), ("fp8_e5m2", 1),
-    ("int4", 0.5), ("fp4", 0.5),
-])
+@pytest.mark.parametrize(
+    "dtype,expected",
+    [
+        ("fp64", 8),
+        ("fp32", 4),
+        ("tf32", 4),
+        ("fp16", 2),
+        ("bf16", 2),
+        ("int8", 1),
+        ("fp8", 1),
+        ("fp8_e4m3", 1),
+        ("fp8_e5m2", 1),
+        ("int4", 0.5),
+        ("fp4", 0.5),
+    ],
+)
 def test_bytes_per_element(dtype, expected):
     assert bytes_per_element(dtype) == expected
 
@@ -90,12 +100,15 @@ def test_vector_add_residency_ignores_tier_capacity_hint():
     assert tile_small == tile_huge
 
 
-@pytest.mark.parametrize("N,dtype,expected_bytes", [
-    (1024, "fp32", 3 * 1024 * 4),
-    (1024, "fp16", 3 * 1024 * 2),
-    (1, "fp64", 3 * 1 * 8),
-    (256, "int8", 3 * 256 * 1),
-])
+@pytest.mark.parametrize(
+    "N,dtype,expected_bytes",
+    [
+        (1024, "fp32", 3 * 1024 * 4),
+        (1024, "fp16", 3 * 1024 * 2),
+        (1, "fp64", 3 * 1 * 8),
+        (256, "int8", 3 * 256 * 1),
+    ],
+)
 def test_vector_add_bytes_loaded_equals_working_set(N, dtype, expected_bytes):
     model = VectorAddReuseModel()
     tile = model.residency_window((N,), dtype, tier_capacity_bytes=10**12)
@@ -123,9 +136,7 @@ def test_matmul_optimal_square_tile_size_for_small_capacity():
     """For C=12 KB and fp32, t = floor(sqrt(12288 / 12)) = floor(sqrt(1024)) = 32.
     Residency = 3 * 32^2 * 4 = 12288 bytes (fully fills the budget)."""
     model = MatmulReuseModel()
-    tile = model.residency_window(
-        (1024, 1024, 1024), "fp32", tier_capacity_bytes=12288
-    )
+    tile = model.residency_window((1024, 1024, 1024), "fp32", tier_capacity_bytes=12288)
     assert tile.tile_dims == (32, 32)
     assert tile.residency_bytes == 12288
 
@@ -240,9 +251,8 @@ def test_linear_residency_matches_matmul():
     mm = MatmulReuseModel()
     B, IN, OUT = 32, 512, 256
     cap = 64 * 1024
-    assert (
-        lin.residency_window((B, IN, OUT), "fp32", cap)
-        == mm.residency_window((B, IN, OUT), "fp32", cap)
+    assert lin.residency_window((B, IN, OUT), "fp32", cap) == mm.residency_window(
+        (B, IN, OUT), "fp32", cap
     )
 
 
@@ -252,10 +262,9 @@ def test_linear_bytes_loaded_matches_matmul():
     B, IN, OUT = 32, 512, 256
     cap = 64 * 1024
     tile = lin.residency_window((B, IN, OUT), "fp32", cap)
-    assert (
-        lin.bytes_loaded_from_binding((B, IN, OUT), "fp32", tile)
-        == mm.bytes_loaded_from_binding((B, IN, OUT), "fp32", tile)
-    )
+    assert lin.bytes_loaded_from_binding(
+        (B, IN, OUT), "fp32", tile
+    ) == mm.bytes_loaded_from_binding((B, IN, OUT), "fp32", tile)
 
 
 def test_linear_rejects_non_3d_shape():
