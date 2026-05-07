@@ -112,19 +112,20 @@ def test_h100_l2_is_shared_not_per_unit():
 # ---------------------------------------------------------------------------
 
 
-def test_jetson_orin_nano_hierarchy_dram_only_until_61_extended():
-    """The Orin Nano mapper hasn't populated ``l1_bandwidth_per_unit_bps``
-    or ``l2_bandwidth_bps`` (#61 only covered i7, H100, KPU-T64). Until
-    that gets extended, Orin's hierarchy is DRAM-only -- which is the
-    correct backward-compat behavior, not a bug. This test pins the
-    current state so a future PR adding on-chip BW peaks for Orin will
-    flip this test (and need to update the assertion to ``L1 -> L2 -> DRAM``)."""
+def test_jetson_orin_nano_hierarchy_is_three_tier():
+    """V5 follow-up (this PR): Orin Nano now populates
+    ``l1_bandwidth_per_unit_bps`` (Ampere SM 8.6 spec, 83 GB/s/SM at
+    650 MHz sustained) and ``l2_bandwidth_bps`` (204 GB/s, conservative
+    2x DRAM Ampere estimate). The hierarchy is now L1 -> L2 -> DRAM,
+    which lets the V5-3b eligibility predicate engage the tier-aware
+    path on Orin Nano. Pre-followup the hierarchy was DRAM-only and
+    the predicate declined the flag-on path."""
     hw = create_jetson_orin_nano_8gb_mapper().resource_model
     names = [t.name for t in hw.memory_hierarchy]
-    assert names == ["DRAM"], (
-        f"Orin Nano hierarchy {names} != ['DRAM']. If you populated "
-        f"l1_bandwidth_per_unit_bps and/or l2_bandwidth_bps on the Orin "
-        f"Nano mapper, update this test to assert ['L1', 'L2', 'DRAM']."
+    assert names == ["L1", "L2", "DRAM"], (
+        f"Orin Nano hierarchy {names} != ['L1', 'L2', 'DRAM']. If on-chip "
+        f"BW peaks were unset, update both this test AND the V5 follow-up "
+        f"calibration tests in test_tier_achievable_fractions.py."
     )
 
 
@@ -148,6 +149,7 @@ def test_mapper_without_onchip_bw_peaks_returns_dram_only():
     # Mutate a copy to clear the on-chip BW peaks, simulating an
     # un-augmented mapper:
     import copy
+
     hw2 = copy.copy(hw)
     hw2.l1_bandwidth_per_unit_bps = None
     hw2.l2_bandwidth_bps = None
@@ -164,11 +166,14 @@ def test_mapper_without_onchip_bw_peaks_returns_dram_only():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("mapper_factory", [
-    create_i7_12700k_mapper,
-    create_h100_sxm5_80gb_mapper,
-    create_jetson_orin_nano_8gb_mapper,
-])
+@pytest.mark.parametrize(
+    "mapper_factory",
+    [
+        create_i7_12700k_mapper,
+        create_h100_sxm5_80gb_mapper,
+        create_jetson_orin_nano_8gb_mapper,
+    ],
+)
 def test_hierarchy_ordered_innermost_first(mapper_factory):
     """The contract: tiers[0] is innermost (smallest total capacity);
     tiers[-1] is DRAM. The tier_picker (V5-3) walks innermost-out."""
@@ -178,8 +183,7 @@ def test_hierarchy_ordered_innermost_first(mapper_factory):
     # Total capacity strictly increases (innermost is smallest)
     capacities = [t.total_capacity_bytes for t in tiers]
     assert capacities == sorted(capacities), (
-        f"hierarchy {[t.name for t in tiers]} not ordered by capacity: "
-        f"{capacities}"
+        f"hierarchy {[t.name for t in tiers]} not ordered by capacity: " f"{capacities}"
     )
 
 
@@ -206,8 +210,9 @@ def test_access_latency_respects_mapper_override():
     typical defaults."""
     hw = create_i7_12700k_mapper().resource_model
     import copy
+
     hw2 = copy.copy(hw)
-    hw2.l1_access_latency_ns = 0.8   # custom override
+    hw2.l1_access_latency_ns = 0.8  # custom override
     hw2.dram_access_latency_ns = 75.0
 
     tiers = {t.name: t for t in hw2.memory_hierarchy}
@@ -234,9 +239,13 @@ def test_effective_bandwidth_defaults_to_peak():
 def test_effective_bandwidth_scales_with_achievable_fraction():
     """Property contract: effective = peak * fraction."""
     t = MemoryTier(
-        name="L2", capacity_bytes=1 << 22, is_per_unit=False,
-        num_units=1, peak_bandwidth_bps=1e12,
-        access_latency_ns=10.0, achievable_fraction=0.6,
+        name="L2",
+        capacity_bytes=1 << 22,
+        is_per_unit=False,
+        num_units=1,
+        peak_bandwidth_bps=1e12,
+        access_latency_ns=10.0,
+        achievable_fraction=0.6,
     )
     assert t.effective_bandwidth_bps == 6e11
 
@@ -250,8 +259,12 @@ def _valid_kwargs(**overrides):
     """Baseline-valid MemoryTier kwargs; tests override one field at a
     time to exercise each invariant check."""
     base = dict(
-        name="L1", capacity_bytes=32 * 1024, is_per_unit=True,
-        num_units=8, peak_bandwidth_bps=500e9, access_latency_ns=1.5,
+        name="L1",
+        capacity_bytes=32 * 1024,
+        is_per_unit=True,
+        num_units=8,
+        peak_bandwidth_bps=500e9,
+        access_latency_ns=1.5,
         achievable_fraction=0.85,
     )
     base.update(overrides)
@@ -289,20 +302,27 @@ def test_post_init_rejects_achievable_fraction_above_one():
     """A tier achieving > 100% of its peak BW would be physically
     impossible -- cache hits reflect a *different* tier's BW, not this
     one's peak * a >1 factor."""
-    with pytest.raises(ValueError, match=r"achievable_fraction must be in \[0\.0, 1\.0\]"):
+    with pytest.raises(
+        ValueError, match=r"achievable_fraction must be in \[0\.0, 1\.0\]"
+    ):
         MemoryTier(**_valid_kwargs(achievable_fraction=1.5))
 
 
 def test_post_init_rejects_negative_achievable_fraction():
-    with pytest.raises(ValueError, match=r"achievable_fraction must be in \[0\.0, 1\.0\]"):
+    with pytest.raises(
+        ValueError, match=r"achievable_fraction must be in \[0\.0, 1\.0\]"
+    ):
         MemoryTier(**_valid_kwargs(achievable_fraction=-0.1))
 
 
 def test_post_init_accepts_zero_bandwidth_and_zero_latency():
     """Zero is a valid sentinel (e.g., a tier in test fixtures); only
     negatives are rejected."""
-    t = MemoryTier(**_valid_kwargs(peak_bandwidth_bps=0.0, access_latency_ns=0.0,
-                                    achievable_fraction=0.0))
+    t = MemoryTier(
+        **_valid_kwargs(
+            peak_bandwidth_bps=0.0, access_latency_ns=0.0, achievable_fraction=0.0
+        )
+    )
     assert t.effective_bandwidth_bps == 0.0
 
 
@@ -321,8 +341,11 @@ def test_post_init_does_not_break_real_mapper_construction():
     """Sanity: the existing reference mappers still construct cleanly
     after adding the invariant checks. (i7 / H100 / Orin all parse the
     hierarchy without raising.)"""
-    for factory in (create_i7_12700k_mapper, create_h100_sxm5_80gb_mapper,
-                    create_jetson_orin_nano_8gb_mapper):
+    for factory in (
+        create_i7_12700k_mapper,
+        create_h100_sxm5_80gb_mapper,
+        create_jetson_orin_nano_8gb_mapper,
+    ):
         hw = factory().resource_model
         # Just access the property; any tier with bad values would raise
         tiers = hw.memory_hierarchy
