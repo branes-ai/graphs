@@ -457,6 +457,110 @@ def test_opt_in_falls_back_for_elementwise_with_mismatched_shapes():
     assert on.memory_explanation is None
 
 
+# ---------------------------------------------------------------------------
+# Boundary-cliff OVERLAP model (V5 follow-up: resolves N=4M floor failure)
+# ---------------------------------------------------------------------------
+
+
+def test_vector_add_dram_binding_uses_overlap_model_at_boundary():
+    """V5 follow-up: when vector_add binds DRAM with operand size
+    comparable to the outermost cache (boundary regime), use the
+    OVERLAP physics:
+      memory_time = max(cache_fill_time, dram_stream_time)
+    instead of pure DRAM streaming. The boundary case (N=4M on
+    i7, WS=50 MB just past the 25 MB LLC) showed +140% over-
+    prediction with binary tier picking; OVERLAP brings it to
+    +15% (passes 25% DRAM band)."""
+    N = 4 * 1024 * 1024
+    sg = _vector_add_subgraph(N)
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+
+    bytes_loaded = 3 * N * 4  # 50 MB
+    # Pure DRAM (binary, what we'd get without OVERLAP):
+    dram_eff_bw = next(
+        t.effective_bandwidth_bps for t in hw.memory_hierarchy if t.name == "DRAM"
+    )
+    pure_dram_time = bytes_loaded / dram_eff_bw
+
+    # OVERLAP-corrected memory_time must be SHORTER than pure DRAM
+    # (cache hits help) but LONGER than zero. The exact value depends
+    # on L3 capacity + BW; we assert the corridor.
+    assert desc.memory_time < pure_dram_time, (
+        f"OVERLAP didn't kick in: memory_time={desc.memory_time*1e6:.1f}us "
+        f">= pure_dram={pure_dram_time*1e6:.1f}us. The L3 cache fill "
+        f"component should be reducing the prediction."
+    )
+    # Sanity floor: prediction can't be smaller than the DRAM stream
+    # for the overflow bytes alone (50 MB - 25 MB = 25 MB at DRAM BW).
+    overflow_dram_time = (bytes_loaded - 25 * 1024 * 1024) / dram_eff_bw
+    assert desc.memory_time >= overflow_dram_time * 0.95, (
+        f"OVERLAP under-counted DRAM stream time: got "
+        f"{desc.memory_time*1e6:.1f}us vs floor "
+        f"{overflow_dram_time*1e6:.1f}us"
+    )
+
+
+def test_vector_add_deeply_dram_bound_falls_back_to_pure_dram():
+    """For shapes vastly past LLC (e.g., N=67M, WS=768 MB on i7's
+    25 MB LLC), the cache_fill_time component is negligible and
+    OVERLAP collapses to pure DRAM streaming. The prediction
+    should be dominated by dram_stream_time."""
+    N = 67 * 1024 * 1024
+    sg = _vector_add_subgraph(N)
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+
+    bytes_loaded = 3 * N * 4
+    dram_eff_bw = next(
+        t.effective_bandwidth_bps for t in hw.memory_hierarchy if t.name == "DRAM"
+    )
+    pure_dram_time = bytes_loaded / dram_eff_bw
+
+    # OVERLAP and pure-DRAM should match within 5% for deeply
+    # DRAM-bound shapes (the L3 fill time of ~149us is negligible
+    # vs the multi-millisecond DRAM stream).
+    rel = abs(desc.memory_time - pure_dram_time) / pure_dram_time
+    assert rel < 0.05, (
+        f"OVERLAP perturbed deeply-DRAM-bound prediction by "
+        f"{rel*100:.0f}% (threshold 5%); something's wrong with "
+        f"the cache_fill_time vs dram_stream_time max() collapse."
+    )
+
+
+def test_overlap_does_not_apply_to_matmul_dram_binding():
+    """The OVERLAP scope is vector_add only. Matmul / linear use
+    the per-op reuse model's bytes_loaded which already encodes
+    tile-streaming reload counts; OVERLAP physics (cache fill +
+    concurrent DRAM stream) doesn't apply there. This test pins
+    that scope so matmul predictions don't inadvertently get
+    OVERLAP-discounted."""
+    sg = _matmul_subgraph(4096, 4096, 4096)  # 192 MB operand, DRAM-bound
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+
+    # bytes_loaded for matmul includes tile-streaming reloads; the
+    # raw division by binding-tier BW should give the same answer
+    # whether OVERLAP fires or not (because OVERLAP doesn't fire
+    # for matmul).
+    me = desc.memory_explanation
+    assert me is not None
+    assert me.binding_tier_name == "DRAM"
+    pure_dram_time = me.bytes_loaded / me.effective_bandwidth_bps
+    # memory_time must equal pure DRAM for matmul (no OVERLAP)
+    assert desc.memory_time == pytest.approx(pure_dram_time, rel=1e-9), (
+        f"matmul DRAM-binding got OVERLAP-modified memory_time "
+        f"({desc.memory_time*1e6:.1f}us vs pure-DRAM "
+        f"{pure_dram_time*1e6:.1f}us); the scope predicate is wrong."
+    )
+
+
 def test_memory_explanation_format_summary_renders_breakdown():
     """LatencyDescriptor.format_summary should include a 'Memory binding'
     line when memory_explanation is set, so the breakdown surfaces in
