@@ -930,7 +930,16 @@ def create_i7_12700k_mapper() -> CPUMapper:
         #                cleanest L3-resident measurement: WS=12 MB
         #                between L1=512 KB and L3=25 MB, measured
         #                163 GB/s vs L3 peak 200 GB/s -> 163/200 = 0.82).
-        # L1 stays absent until matmul-anchored calibration.
+        # L1 stays intentionally absent (default 1.0). The tier-aware
+        # memory_time for every L1-binding matmul shape on i7 is
+        # 75x-1000x smaller than the 5 us CPU dispatch floor in
+        # RooflineAnalyzer._analyze_subgraph, so any L1
+        # achievable_fraction value is a no-op for predictions today.
+        # See docs/calibration/i7-12700k-l1-calibration-analysis.md for
+        # the regression analysis + the conditions under which the
+        # decision needs to be revisited (multi-thread vector_add
+        # capture, dispatch-floor change, or thread-count-aware
+        # MemoryTier model).
         tier_achievable_fractions={"L3": 0.82, "DRAM": 0.47},
     )
 
@@ -1149,7 +1158,16 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         #                cleanest L3-resident measurement: WS=12 MB
         #                between L1=512 KB and L3=25 MB, measured
         #                163 GB/s vs L3 peak 200 GB/s -> 163/200 = 0.82).
-        # L1 stays absent until matmul-anchored calibration.
+        # L1 stays intentionally absent (default 1.0). The tier-aware
+        # memory_time for every L1-binding matmul shape on i7 is
+        # 75x-1000x smaller than the 5 us CPU dispatch floor in
+        # RooflineAnalyzer._analyze_subgraph, so any L1
+        # achievable_fraction value is a no-op for predictions today.
+        # See docs/calibration/i7-12700k-l1-calibration-analysis.md for
+        # the regression analysis + the conditions under which the
+        # decision needs to be revisited (multi-thread vector_add
+        # capture, dispatch-floor change, or thread-count-aware
+        # MemoryTier model).
         tier_achievable_fractions={"L3": 0.82, "DRAM": 0.47},
     )
 
