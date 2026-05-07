@@ -99,13 +99,26 @@ def test_unset_tiers_default_to_one_when_other_tier_is_overridden():
 
 
 def test_invalid_fraction_raises_at_construction():
-    """MemoryTier validates achievable_fraction is in [0, 1] in
-    __post_init__. An override out of range must surface as a
-    construction-time ValueError, not a silent garbage value at
-    analysis time."""
-    hw = _bare_resource_model(tier_achievable_fractions={"DRAM": 1.5})
-    with pytest.raises(ValueError, match="achievable_fraction"):
-        _ = hw.memory_hierarchy
+    """HardwareResourceModel.__post_init__ rejects any
+    tier_achievable_fractions value out of [0, 1] up-front, so
+    calibration mistakes surface at mapper-construction time
+    rather than as confusing analyzer drift."""
+    with pytest.raises(ValueError, match="must be in \\[0.0, 1.0\\]"):
+        _bare_resource_model(tier_achievable_fractions={"DRAM": 1.5})
+
+
+def test_invalid_per_op_fraction_raises_at_construction():
+    """Per-op fractions get the same up-front validation as the
+    per-tier dict (they bypass MemoryTier's check because they're
+    looked up at analyzer runtime, not at hierarchy construction)."""
+    with pytest.raises(ValueError, match="must be in \\[0.0, 1.0\\]"):
+        _bare_resource_model(
+            tier_achievable_fractions_by_op={"matmul": {"DRAM": -0.1}}
+        )
+    with pytest.raises(ValueError, match="must be in \\[0.0, 1.0\\]"):
+        _bare_resource_model(
+            tier_achievable_fractions_by_op={"linear": {"L2": 1.5}}
+        )
 
 
 # ---------------------------------------------------------------------------

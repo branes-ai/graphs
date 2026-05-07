@@ -1130,6 +1130,36 @@ class HardwareResourceModel:
         default_factory=dict
     )
 
+    def __post_init__(self) -> None:
+        """Validate calibration-fraction invariants.
+
+        ``tier_achievable_fractions`` flows through ``MemoryTier``
+        (which validates each value in ``__post_init__``), so values
+        out of [0, 1] would surface there at hierarchy-construction
+        time. ``tier_achievable_fractions_by_op`` is looked up
+        directly by the analyzer at runtime and bypasses that
+        validation, so it could silently produce nonsense BW math.
+        Validate both up-front so calibration mistakes surface at
+        mapper construction, not as confusing analyzer drift.
+
+        ``tier_achievable_fractions`` is also revalidated here for
+        defense-in-depth (the MemoryTier check runs only when
+        ``memory_hierarchy`` is read; some callers may want the
+        invariant enforced earlier)."""
+        for tier_name, fraction in self.tier_achievable_fractions.items():
+            if not (0.0 <= fraction <= 1.0):
+                raise ValueError(
+                    f"tier_achievable_fractions[{tier_name!r}] = {fraction} "
+                    f"must be in [0.0, 1.0]"
+                )
+        for op_kind, by_tier in self.tier_achievable_fractions_by_op.items():
+            for tier_name, fraction in by_tier.items():
+                if not (0.0 <= fraction <= 1.0):
+                    raise ValueError(
+                        f"tier_achievable_fractions_by_op[{op_kind!r}]"
+                        f"[{tier_name!r}] = {fraction} must be in [0.0, 1.0]"
+                    )
+
     # M5 Layer 5: cache-coherence protocol class.
     # ``"snoopy_mesi"`` -- snoopy MESI / MOESI on shared bus or
     # ring (CPU multi-core, single-socket).

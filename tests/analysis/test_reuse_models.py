@@ -152,13 +152,39 @@ def test_matmul_optimal_square_for_l2_sized_capacity():
     assert tile.residency_bytes <= tier
 
 
-def test_matmul_tile_clamped_to_min_dim():
-    """If sqrt-formula gives a tile > min(M, N), clamp to min(M, N).
-    Shape (4, 65536, 4) fp32, capacity huge: t_raw is enormous, clamped to 4."""
+def test_matmul_skinny_dim_uses_skinny_branch_not_clamp():
+    """Shape (4, 65536, 4) has min(M, N) = 4 < SKINNY_THRESHOLD,
+    so the skinny branch fires (full-output tile = (4, 4)) BEFORE
+    the clamp logic would. The result is the same tile_dims (4, 4)
+    but via a different code path. Pinned separately so a future
+    change that disables the skinny branch flips the right test
+    rather than silently passing this one for the wrong reason."""
     model = MatmulReuseModel()
     tile = model.residency_window((4, 65536, 4), "fp32", tier_capacity_bytes=10**10)
     assert tile.tile_dims == (4, 4)
+    # Skinny branch residency = 3 * M * N * bpe (full output tile)
     assert tile.residency_bytes == 3 * 4 * 4 * 4
+
+
+def test_matmul_non_skinny_clamped_to_min_dim():
+    """Coverage for the OPTIMAL-SQUARE CLAMP path (non-skinny):
+    if sqrt-formula gives a tile > min(M, N), clamp to min(M, N).
+    Use min(M, N) = 64 which is well above the 16 threshold so the
+    skinny branch doesn't fire, then huge capacity to force the
+    raw t to exceed 64.
+
+    Pre per-op-calibration PR: this test was test_matmul_tile_clamped_to_min_dim
+    using shape (4, 65536, 4), which inadvertently took the skinny
+    branch when that landed. CodeRabbit flagged the silent coverage
+    gap; this test restores explicit coverage for the clamp logic."""
+    model = MatmulReuseModel()
+    tile = model.residency_window(
+        (64, 65536, 64), "fp32", tier_capacity_bytes=10**10
+    )
+    # min(M, N) = 64 >= SKINNY_THRESHOLD (16) -> skinny branch skipped
+    # t_raw from sqrt(1e10 / 12) >> 64 -> clamped to 64
+    assert tile.tile_dims == (64, 64)
+    assert tile.residency_bytes == 3 * 64 * 64 * 4
 
 
 def test_matmul_tile_clamped_to_at_least_one():
