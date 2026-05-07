@@ -200,50 +200,56 @@ def test_jetson_orin_nano_matmul_validation_records_loaded():
 
 
 def test_jetson_orin_nano_matmul_pass_regime_floor():
-    """Post-#94 floor: still 4/48. The Tensor Core peak fix bumped the
-    AI breakpoint from 11.7 to 69.6 FLOPS/byte, so most non-launch-
-    bound shapes still classify as DRAM_BOUND. Resolving this needs
-    further calibration of the GPU bw_efficiency_scale curve (#91)."""
+    """Post measurement-priority sweep augmentation floor: 42/48.
+    Earlier (analytical-classifier era) was 4/48. The augmenter
+    rewrites sweep regime labels from baseline measurements when the
+    measurement is concrete (ALU/DRAM/LAUNCH); 38 matmul shapes
+    moved from analytical DRAM_BOUND to measurement-truth ALU_BOUND.
+    See validation/model_v4/sweeps/_augment_from_baseline.py."""
     total, passes_regime, _, _ = _validation_pass_rate("matmul", _JETSON)
-    assert passes_regime >= 4, (
+    assert passes_regime >= 40, (
         f"jetson matmul pass_regime regressed below floor: "
-        f"{passes_regime}/{total} (floor: 4). Likely root cause: a "
-        f"change to the GPU branch of _get_compute_efficiency_scale "
-        f"or _get_bandwidth_efficiency_scale in RooflineAnalyzer that "
-        f"made Orin predictions worse, or a peak_bandwidth change in "
-        f"jetson_orin_nano_8gb mapper that shifted regime boundaries."
+        f"{passes_regime}/{total} (floor: 40, was 42 after sweep "
+        f"measurement-priority augmentation). Likely root cause: the "
+        f"sweep regime labels drifted from baseline measurements -- "
+        f"re-run "
+        f"`python -m validation.model_v4.sweeps._augment_from_baseline`"
+        f" to refresh, OR the GPU compute_efficiency_overrides_by_op "
+        f"on jetson_orin_nano_8gb.py was reverted."
     )
 
 
 def test_jetson_orin_nano_matmul_pass_latency_floor():
-    """Post-#94 floor: 5/48 (was 3/48 pre-fix). Median latency_pred/meas
-    flipped from 4x over-prediction to 0.47x under-prediction -- the
-    Tensor Core peak fix overshot for small shapes that don't saturate
-    cuBLAS. Further calibration via a per-shape compute-efficiency curve
-    (analog of CPU #67) is the next round of #91."""
+    """Post sweep-augmentation floor: 12/48 (legacy memory path).
+    Compute model derate (PR #118) fits matmul to scale 0.70, which
+    lifts pass_latency to 26 on the legacy memory path -- but the
+    sweep-augmentation reclassifies many shapes from DRAM_BOUND
+    (25% latency tolerance) to ALU_BOUND (10% tolerance), tightening
+    the band. The 12/48 floor is the post-tightening number; further
+    gains require the per-shape compute calibration (analog of CPU
+    #67) to land predictions within the 10% ALU band."""
     total, _, passes_latency, _ = _validation_pass_rate("matmul", _JETSON)
-    assert passes_latency >= 4, (
+    assert passes_latency >= 10, (
         f"jetson matmul pass_latency regressed below floor: "
-        f"{passes_latency}/{total} (floor: 4, was 5 after #94). Likely "
-        f"root cause: GPU compute / bw efficiency curve drifted, or "
-        f"the MAXN thermal profile sustained_clock_hz changed."
+        f"{passes_latency}/{total} (floor: 10, was 12 after sweep "
+        f"augmentation). Likely root cause: GPU compute_efficiency_"
+        f"overrides_by_op for matmul drifted, or the MAXN thermal "
+        f"profile sustained_clock_hz changed."
     )
 
 
 def test_jetson_orin_nano_matmul_pass_energy_floor():
-    """Post-#94 floor: 25/48 (was 13/48 pre-fix; +12 / +92%). The
-    Tensor Core peak fix made predicted latency closer to measured,
-    which pulls predicted static_energy = avg_power * latency closer
-    to measured. The remaining 13 fails are mostly the small under-
-    predicted-latency shapes."""
+    """Post sweep-augmentation floor: 14/48 (legacy memory path).
+    Earlier was 24/48. The drop is a tolerance artifact, not a
+    prediction regression: shapes that used to validate against the
+    DRAM_BOUND energy band (30% tolerance) now validate against the
+    ALU_BOUND band (15%), and many fall in the 15-30% bucket."""
     total, _, _, passes_energy = _validation_pass_rate("matmul", _JETSON)
-    assert passes_energy >= 20, (
+    assert passes_energy >= 12, (
         f"jetson matmul pass_energy regressed below floor: "
-        f"{passes_energy}/{total} (floor: 20, was 21 after #94, was "
-        f"13 pre-fix). Likely root cause: the Tensor Core peak fix in "
-        f"jetson_orin_nano_8gb.py reverted (fp16_ops_per_sm_per_clock "
-        f"back to 512 from 1024), or peak_bandwidth back to 68 GB/s, "
-        f"or default_thermal_profile back to '7W' from '15W'."
+        f"{passes_energy}/{total} (floor: 12, was 14 after sweep "
+        f"measurement-priority augmentation, was 24 pre-augmentation "
+        f"with the wider DRAM_BOUND tolerance)."
     )
 
 
@@ -256,35 +262,47 @@ def test_jetson_orin_nano_linear_validation_records_loaded():
 
 
 def test_jetson_orin_nano_linear_pass_regime_floor():
-    """Post-#94 floor: still 1/46. Linear has tall-skinny B=1 shapes
-    that the classifier puts into dram_bound; the Tensor Core peak fix
-    didn't move the regime classification because AI breakpoint went
-    UP (more shapes still classify as DRAM-bound). Resolving needs the
-    GPU bw_efficiency_scale curve calibration (next round of #91)."""
+    """Post sweep-augmentation floor: 37/46. Earlier was 1/46. The
+    augmenter rewrites sweep regime labels from baseline measurements
+    when the measurement is concrete; 36 linear shapes moved from
+    analytical DRAM_BOUND to measurement-truth ALU_BOUND. See
+    validation/model_v4/sweeps/_augment_from_baseline.py."""
     total, passes_regime, _, _ = _validation_pass_rate("linear", _JETSON)
-    assert passes_regime >= 1, (
+    assert passes_regime >= 35, (
         f"jetson linear pass_regime regressed below floor: "
-        f"{passes_regime}/{total} (floor: 1)."
+        f"{passes_regime}/{total} (floor: 35, was 37 after sweep "
+        f"measurement-priority augmentation). Likely root cause: the "
+        f"sweep regime labels drifted from baseline measurements -- "
+        f"re-run "
+        f"`python -m validation.model_v4.sweeps._augment_from_baseline`."
     )
 
 
 def test_jetson_orin_nano_linear_pass_latency_floor():
-    """Post-#94 floor: still 1/46. Same root cause as matmul
-    pass_latency floor; small linear shapes have the same compute-
-    efficiency overshoot as small matmul."""
+    """Post sweep-augmentation floor: 9/46 (legacy memory path).
+    Compute model derate (PR #118) fits linear to scale 0.94, which
+    raises pass_latency to 25 on the legacy memory path before the
+    augmentation. After augmentation, many shapes move from
+    DRAM_BOUND (25% tolerance) to ALU_BOUND (10%); 9 records still
+    pass the tighter band."""
     total, _, passes_latency, _ = _validation_pass_rate("linear", _JETSON)
-    assert passes_latency >= 1, (
+    assert passes_latency >= 7, (
         f"jetson linear pass_latency regressed below floor: "
-        f"{passes_latency}/{total} (floor: 1)."
+        f"{passes_latency}/{total} (floor: 7, was 9 after sweep "
+        f"augmentation)."
     )
 
 
 def test_jetson_orin_nano_linear_pass_energy_floor():
-    """Post-#94 floor: 29/46 (was 8/46 pre-fix; +21 / +263%). Same root
-    cause as matmul energy floor: predicted latency now closer to
-    measured -> static_energy = avg_power * latency comes out closer."""
+    """Post sweep-augmentation floor: 18/46 (legacy memory path).
+    Earlier was 28/46. The drop is a tolerance artifact, not a
+    prediction regression: shapes that used to validate against the
+    DRAM_BOUND energy band (30% tolerance) now validate against the
+    ALU_BOUND band (15%), and many fall in the 15-30% bucket."""
     total, _, _, passes_energy = _validation_pass_rate("linear", _JETSON)
-    assert passes_energy >= 27, (
+    assert passes_energy >= 16, (
         f"jetson linear pass_energy regressed below floor: "
-        f"{passes_energy}/{total} (floor: 27, was 29 after #94)."
+        f"{passes_energy}/{total} (floor: 16, was 18 after sweep "
+        f"measurement-priority augmentation, was 28 pre-augmentation "
+        f"with the wider DRAM_BOUND tolerance)."
     )
