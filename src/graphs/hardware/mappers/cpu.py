@@ -924,7 +924,14 @@ def create_i7_12700k_mapper() -> CPUMapper:
         # the V5-3b tier-aware roofline path when opt-in (or after the
         # V5-5 follow-up flips the default). L1 / L3 entries stay
         # absent (default 1.0) until matmul-anchored calibration.
-        tier_achievable_fractions={"DRAM": 0.47},
+        # V5-5 + follow-up calibration:
+        #   DRAM = 0.47 (i7_12700k_vector_add.csv plateau, peak 75 GB/s)
+        #   L3   = 0.82 (i7_12700k_vector_add.csv at N=1M fp32, the
+        #                cleanest L3-resident measurement: WS=12 MB
+        #                between L1=512 KB and L3=25 MB, measured
+        #                163 GB/s vs L3 peak 200 GB/s -> 163/200 = 0.82).
+        # L1 stays absent until matmul-anchored calibration.
+        tier_achievable_fractions={"L3": 0.82, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
@@ -1136,7 +1143,14 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         # so the calibrated DRAM achievable_fraction applies identically.
         # See the tiny-model variant for derivation (median 35 GB/s
         # plateau on N=16M/67M/268M vector_add baseline; peak 75 GB/s).
-        tier_achievable_fractions={"DRAM": 0.47},
+        # V5-5 + follow-up calibration:
+        #   DRAM = 0.47 (i7_12700k_vector_add.csv plateau, peak 75 GB/s)
+        #   L3   = 0.82 (i7_12700k_vector_add.csv at N=1M fp32, the
+        #                cleanest L3-resident measurement: WS=12 MB
+        #                between L1=512 KB and L3=25 MB, measured
+        #                163 GB/s vs L3 peak 200 GB/s -> 163/200 = 0.82).
+        # L1 stays absent until matmul-anchored calibration.
+        tier_achievable_fractions={"L3": 0.82, "DRAM": 0.47},
     )
 
     return CPUMapper(model)

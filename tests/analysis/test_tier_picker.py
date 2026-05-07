@@ -129,40 +129,45 @@ def test_matmul_residency_in_l1_binds_at_l3():
     assert result.tile.residency_bytes <= hierarchy[0].total_capacity_bytes
 
 
-def test_matmul_residency_in_l3_binds_at_dram():
-    """Big matmul whose tile would not fit L1 but fits in L3 should
-    bind at DRAM. Pick a shape whose L1-sized tile chooses min(M,N)=64
-    (clamped, residency = 49 KB << L1 = 512 KB)... wait: clamping
-    means the residency is small even with a huge cache. Need to use
-    a shape big enough that the optimal-square tile under L1 is the
-    L1-sized one (not clamped). Use (4096, 4096, 4096): with L1
-    capacity 512 KB, tile = floor(sqrt(512K/12)) = 209; residency
-    = 524,108 bytes ~= 512 KB -- fits L1, binds at L3.
-
-    To force binding at DRAM, the residency window when computed
-    for L3's capacity must overflow L1. Use (4096, 4096, 4096) with
-    L1 hierarchy returns L3-bound? No -- L1 fits because the tile
-    sizing scales with capacity.
-
-    Real test: when the residency for L1 picks a tile that still
-    fits L1, the algorithm correctly returns L3 as binding. To
-    actually bind at DRAM we'd need the L3 tier's residency-window
-    to overflow L3, which only happens when min(M,N) is so large
-    that the L3-sized clamp blows past L3 -- a contrived case.
-    For now assert the L3 tier is correctly identified as binding
-    for a representative shape."""
+def test_matmul_4096_cube_binds_at_dram_due_to_operand_overflow():
+    """Big matmul (4096, 4096, 4096) fp32: operand footprint =
+    3 * 4096^2 * 4 = 192 MB, well past i7's 25 MB L3. Even though
+    the L1-sized C-tile fits, the V5-5 operand-aware binding walk
+    correctly escalates to DRAM."""
     hierarchy = _i7_like_hierarchy()
     result = pick_binding_tier(
         MatmulReuseModel(), (4096, 4096, 4096), "fp32", hierarchy
     )
     assert result is not None
-    # Whatever residency tier the algorithm picks, the binding tier
-    # must be the next-larger one, never the same tier (unless we're
-    # at DRAM, the outermost).
-    assert result.residency_tier in hierarchy
-    if result.residency_tier.name != "DRAM":
-        idx = hierarchy.index(result.residency_tier)
-        assert result.binding_tier == hierarchy[idx + 1]
+    assert result.binding_tier.name == "DRAM"
+
+
+def test_matmul_skinny_shape_escalates_to_dram_when_operands_overflow_l3():
+    """V5-5 follow-up regression: matmul (64, 1024, 8192) fp32 has
+    a tiny clamped C-tile that fits in L1, but operand footprint
+    = (64*1024 + 1024*8192 + 64*8192) * 4 = ~35.9 MB, doesn't fit
+    in i7's 25 MB L3. Operand-aware binding correctly returns
+    DRAM here (whereas the V5-3b "next-outward-of-residency" rule
+    that this PR replaces would have returned L3 -- the
+    motivation for the V5-5 follow-up)."""
+    hierarchy = _i7_like_hierarchy()
+    result = pick_binding_tier(MatmulReuseModel(), (64, 1024, 8192), "fp32", hierarchy)
+    assert result is not None
+    assert result.binding_tier.name == "DRAM"
+    assert result.residency_tier.name == "L1"
+
+
+def test_matmul_small_shape_binds_at_l3_when_operands_fit():
+    """Negative case: matmul (1024, 1024, 1024) fp32 has operand
+    footprint = 3 * 1024^2 * 4 = 12 MB which fits L3 (25 MB). The
+    binding tier should stay at L3, NOT escalate to DRAM."""
+    hierarchy = _i7_like_hierarchy()
+    result = pick_binding_tier(
+        MatmulReuseModel(), (1024, 1024, 1024), "fp32", hierarchy
+    )
+    assert result is not None
+    assert result.binding_tier.name == "L3"
+    assert result.residency_tier.name == "L1"
 
 
 # ---------------------------------------------------------------------------
@@ -170,14 +175,18 @@ def test_matmul_residency_in_l3_binds_at_dram():
 # ---------------------------------------------------------------------------
 
 
-def test_vector_add_small_n_binds_at_l3():
-    """vector_add at N=1024 fp32 -> WS = 12 KB. Fits in L1 (aggregate
-    512 KB). Binding tier = L3."""
+def test_vector_add_small_n_binds_at_l1():
+    """vector_add at N=1024 fp32 -> operand footprint = 12 KB. Fits in
+    L1 (aggregate 512 KB), so V5-5 operand-aware binding correctly
+    returns L1 (the lowest tier holding the data; warm-cache hits at
+    L1 BW). Pre-V5-5-followup behavior was L3 (next outward of
+    residency); the new behavior is more honest about where the data
+    actually streams from."""
     hierarchy = _i7_like_hierarchy()
     result = pick_binding_tier(VectorAddReuseModel(), (1024,), "fp32", hierarchy)
     assert result is not None
     assert result.residency_tier.name == "L1"
-    assert result.binding_tier.name == "L3"
+    assert result.binding_tier.name == "L1"
     assert result.bytes_loaded == 3 * 1024 * 4
 
 

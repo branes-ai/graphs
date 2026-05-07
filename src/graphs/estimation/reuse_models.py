@@ -95,6 +95,25 @@ class ReuseModel(Protocol):
         tile: TileChoice,
     ) -> int: ...
 
+    def operand_footprint_bytes(
+        self,
+        shape: Sequence[int],
+        dtype: str,
+    ) -> int:
+        """Total unique-data footprint the op needs to keep alive
+        somewhere in the memory hierarchy across one execution.
+
+        For ops with reuse (matmul, linear): A + B + C bytes -- this
+        is the working set that must live in some tier. The V5-5
+        operand-aware tier picker uses this to escalate the binding
+        tier when the C-tile fits a small inner cache but the
+        operands overflow it (skinny matmul case).
+
+        For ops without reuse (vector_add): same as the residency
+        window (3*N*bpe). The model is consistent across op kinds
+        even when the answer is degenerate.
+        """
+
 
 class VectorAddReuseModel:
     """``c[i] = a[i] + b[i]`` on N elements -- the zero-reuse op.
@@ -129,6 +148,15 @@ class VectorAddReuseModel:
         shape: Sequence[int],
         dtype: str,
         tile: TileChoice,  # noqa: ARG002 -- not parameterized by tile choice
+    ) -> int:
+        (N,) = shape
+        bpe = bytes_per_element(dtype)
+        return int(round(3 * N * bpe))
+
+    def operand_footprint_bytes(
+        self,
+        shape: Sequence[int],
+        dtype: str,
     ) -> int:
         (N,) = shape
         bpe = bytes_per_element(dtype)
@@ -197,6 +225,17 @@ class MatmulReuseModel:
         c_bytes = 2 * M * N * bpe
         return int(round(a_bytes + b_bytes + c_bytes))
 
+    def operand_footprint_bytes(
+        self,
+        shape: Sequence[int],
+        dtype: str,
+    ) -> int:
+        if len(shape) != 3:
+            raise ValueError(f"matmul expects 3-D shape (M, K, N), got {tuple(shape)}")
+        M, K, N = shape
+        bpe = bytes_per_element(dtype)
+        return int(round((M * K + K * N + M * N) * bpe))
+
 
 class LinearReuseModel:
     """``y = x @ W^T + b`` with shape ``(B, IN, OUT)``.
@@ -232,6 +271,18 @@ class LinearReuseModel:
     ) -> int:
         B, IN, OUT = shape
         return self._delegate.bytes_loaded_from_binding((B, IN, OUT), dtype, tile)
+
+    def operand_footprint_bytes(
+        self,
+        shape: Sequence[int],
+        dtype: str,
+    ) -> int:
+        if len(shape) != 3:
+            raise ValueError(
+                f"linear expects 3-D shape (B, IN, OUT), got {tuple(shape)}"
+            )
+        B, IN, OUT = shape
+        return self._delegate.operand_footprint_bytes((B, IN, OUT), dtype)
 
 
 REUSE_MODELS: Dict[str, ReuseModel] = {

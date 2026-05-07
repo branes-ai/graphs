@@ -72,58 +72,78 @@ def pick_binding_tier(
     dtype: str,
     hierarchy: Sequence[MemoryTier],
 ) -> Optional[BindingTierResult]:
-    """Walk the memory hierarchy innermost-out to find the binding tier.
+    """Walk the memory hierarchy to pick (residency tier, binding tier).
 
-    Algorithm (per the V5 plan):
-      1. Sort tiers by aggregate capacity (already innermost-out for
-         standard mapper-built hierarchies; explicit sort guards against
-         mappers that emit out-of-order).
-      2. For each tier, ask the reuse model what tile and residency
-         window it would pick if this tier were the residency tier.
-      3. The first tier whose total capacity holds that residency window
-         is the residency tier. The binding tier is the next-larger one
-         (or itself if we're already at the outermost).
-      4. Bytes loaded from the binding tier come from the reuse model
-         applied at the chosen tile.
+    Algorithm (V5-5 follow-up; supersedes the simpler "binding = next
+    outward of residency" rule from V5-3b):
 
-    Returns ``None`` if the hierarchy is empty (the caller should fall
-    back to the scalar bw_efficiency_scale path). All other inputs are
-    handled by the reuse model and ``MemoryTier`` invariants -- no
-    silent NaNs / negatives slip through.
+      1. Sort tiers innermost-out by aggregate capacity.
+      2. Residency tier = smallest tier whose capacity holds the per-op
+         tile (sized for that tier). For matmul this is the C-tile; for
+         vector_add the full working set.
+      3. Binding tier = smallest tier whose capacity holds the
+         **operand footprint** (A + B + C for matmul; full WS for
+         vector_add). This is independent of where residency landed.
+         If the operand footprint exceeds even the outermost tier, the
+         outermost tier (typically DRAM) is the binding tier and the
+         analyzer will surface the right "memory-bound" verdict from
+         the resulting bytes_loaded / effective_bw math.
+
+    Why operand-aware? Skinny matmul shapes like (M=64, K=1024, N=8192)
+    fp32 have an L1-resident C-tile but A+B+C = 35.9 MB which doesn't
+    fit i7's 25 MB L3. The simple "binding = residency + 1" rule
+    pinned binding=L3 -> apparent throughput at L3 BW (200 GB/s peak),
+    but the operands actually have to come from DRAM (75 GB/s peak,
+    35 GB/s calibrated). Operand-aware binding correctly escalates to
+    DRAM for these shapes, which is exactly the case where the V5-5
+    DRAM calibration bites.
+
+    For vector_add at small N (e.g. 12 KB working set), this also
+    changes the answer: instead of binding=L3 (next outward of L1
+    residency), binding=L1 (operands fit L1). For warm-cache
+    benchmarks that's the realistic answer.
+
+    Returns ``None`` if the hierarchy is empty (the caller falls back
+    to the scalar bw_efficiency_scale path).
     """
     if not hierarchy:
         return None
 
     tiers = sorted(hierarchy, key=lambda t: t.total_capacity_bytes)
 
-    for idx, tier in enumerate(tiers):
-        tile = reuse_model.residency_window(
+    # 1) Residency tier: smallest tier whose capacity holds the op's tile.
+    residency_tier: Optional[MemoryTier] = None
+    tile: Optional[TileChoice] = None
+    for tier in tiers:
+        candidate_tile = reuse_model.residency_window(
             shape, dtype, tier_capacity_bytes=tier.total_capacity_bytes
         )
-        if tile.residency_bytes <= tier.total_capacity_bytes:
-            binding_tier = tiers[idx + 1] if idx + 1 < len(tiers) else tier
-            bytes_loaded = reuse_model.bytes_loaded_from_binding(shape, dtype, tile)
-            return BindingTierResult(
-                binding_tier=binding_tier,
-                residency_tier=tier,
-                tile=tile,
-                bytes_loaded=int(bytes_loaded),
-            )
+        if candidate_tile.residency_bytes <= tier.total_capacity_bytes:
+            residency_tier = tier
+            tile = candidate_tile
+            break
 
-    # No tier holds the residency window -- the working set overflows even
-    # the outermost tier (typically only happens for vector ops at sizes
-    # that exceed DRAM, which is an OOM scenario, not a roofline one).
-    # Fall through: bind at the outermost tier with whatever tile the
-    # reuse model picks for that capacity. The analyzer will see a very
-    # large bytes_loaded and surface the right "memory-bound" verdict.
-    outer = tiers[-1]
-    tile = reuse_model.residency_window(
-        shape, dtype, tier_capacity_bytes=outer.total_capacity_bytes
-    )
+    if residency_tier is None:
+        # No tier holds the tile (working set overflows even outermost).
+        # Fall through: residency = outermost; tile sized for it.
+        residency_tier = tiers[-1]
+        tile = reuse_model.residency_window(
+            shape, dtype, tier_capacity_bytes=residency_tier.total_capacity_bytes
+        )
+
+    # 2) Binding tier: smallest tier whose capacity holds the operand
+    #    footprint. Walks innermost-out independent of residency tier.
+    operand_bytes = reuse_model.operand_footprint_bytes(shape, dtype)
+    binding_tier: MemoryTier = tiers[-1]  # default = outermost
+    for tier in tiers:
+        if operand_bytes <= tier.total_capacity_bytes:
+            binding_tier = tier
+            break
+
     bytes_loaded = reuse_model.bytes_loaded_from_binding(shape, dtype, tile)
     return BindingTierResult(
-        binding_tier=outer,
-        residency_tier=outer,
+        binding_tier=binding_tier,
+        residency_tier=residency_tier,
         tile=tile,
         bytes_loaded=int(bytes_loaded),
     )
