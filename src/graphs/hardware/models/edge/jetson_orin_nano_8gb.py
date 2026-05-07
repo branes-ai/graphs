@@ -409,7 +409,32 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         # Original Orin Nano (2023) was 68 GB/s LPDDR5-4267.
         # The V4 Phase B baseline was captured on a Super.
         l1_cache_per_unit=128 * 1024,
+        # V5 follow-up: on-chip BW peaks so memory_hierarchy emits a
+        # multi-tier view (L1 + L2 + DRAM). Without these, the V5-3b
+        # eligibility predicate's >=2 tier gate declines the
+        # tier-aware path on Orin Nano even when opted in.
+        #
+        # L1 per SM at sustained 650 MHz (the baseline_freq_hz used by
+        # the compute fabrics above): Ampere SM 8.6 spec is 128 B/cycle
+        # for L1 cache + shared memory throughput, so 128 * 650e6 =
+        # 83.2 GB/s/SM. The memory_hierarchy property aggregates by
+        # multiplying by compute_units (=8 SMs), giving 666 GB/s
+        # aggregate L1.
+        # Source: NVIDIA Ampere Architecture Whitepaper, "L1 Data
+        # Cache and Shared Memory" section.
+        l1_bandwidth_per_unit_bps=83e9,
         l2_cache_total=2 * 1024 * 1024,  # 2 MB (half of AGX)
+        # L2 BW: NVIDIA doesn't publish an Orin-Nano-specific number;
+        # for Ampere chips the L2 BW typically lands at 2-5x DRAM
+        # peak depending on partition count and clock. Using 2x DRAM
+        # (204 GB/s) as a conservative analytical estimate that
+        # preserves L2 > DRAM ordering for the tier picker. Pending
+        # an L2-isolating microbench, the achievable_fraction
+        # calibration will tighten this; see the i7 L1 analysis at
+        # docs/calibration/i7-12700k-l1-calibration-analysis.md for
+        # the same pattern (cache-resident BW is hard to measure
+        # directly because dispatch overhead dominates).
+        l2_bandwidth_bps=204e9,
         main_memory=8 * 1024**3,  # 8 GB
         energy_per_flop_fp32=cuda_fabric.energy_per_flop_fp32,  # 1.9 pJ (8nm Samsung, CUDA cores)
         energy_per_byte=18e-12,
