@@ -687,6 +687,20 @@ class RooflineAnalyzer:
         #   linear:     9 us  (+ parameter access, bias epilogue)
         if self.resource_model.hardware_type.name == "CPU":
             actual_latency = max(actual_latency, self._get_cpu_dispatch_floor(sg))
+        # V5 follow-up: GPU dispatch floor was investigated but NOT
+        # applied here. The V4 Jetson measurer reports kernel time
+        # via cudaEvent which inconsistently includes / excludes the
+        # CUDA launch overhead -- some L1-binding matmul shapes
+        # measure 14-32 us (launch excluded) while others measure
+        # 113-173 us (launch included). A hard floor matching the
+        # launch-included cohort over-predicts the launch-excluded
+        # cohort, regressing V4 floors net. The op-aware
+        # _get_gpu_dispatch_floor helper is implemented for future
+        # use; the additive _estimate_overhead bump (from 5 us to
+        # the mapper's kernel_launch_overhead_ns) handles the
+        # launch-included cohort without breaking the other.
+        # See docs/calibration/jetson-orin-nano-calibration-analysis.md
+        # for the full V4 measurer-artifact analysis.
 
         # Arithmetic intensity
         ai = sg.flops / total_bytes if total_bytes > 0 else 0.0
@@ -1138,6 +1152,64 @@ class RooflineAnalyzer:
         return self._CPU_DISPATCH_FLOOR_SECONDS.get(
             op_name, self._CPU_DISPATCH_FLOOR_DEFAULT_SECONDS
         )
+
+    # ------------------------------------------------------------------
+    # GPU dispatch floor (V5 follow-up; analog of CPU dispatch floor).
+    # ------------------------------------------------------------------
+
+    # Op -> multiplier on the hardware's base kernel_launch_overhead.
+    # Different ops have different per-launch overhead because:
+    #
+    #   * vector_add: 1 simple CUDA kernel ("torch.add" -> ATen ->
+    #     cudaLaunchKernel). Multiplier 1.0 (same as base).
+    #   * matmul: cuBLAS dispatch -- backend selection + GEMM kernel
+    #     launch. ~1.5x base based on Jetson Orin Nano measurements
+    #     (vector_add 113 us vs matmul 119 us at smallest shape ->
+    #     not 1.5x exactly, but cuBLAS adds setup overhead beyond
+    #     bare cudaLaunchKernel).
+    #   * linear: matmul + bias add -- typically two separate kernel
+    #     launches OR one fused kernel with extra setup. Empirical
+    #     ~2x base (Jetson Orin Nano linear 169 us vs matmul 119 us).
+    #
+    # Empirical anchors (Jetson Orin Nano fp16 baseline, smallest L1-
+    # binding shapes where compute + memory are negligible):
+    #   vector_add  N=256:        113 us  / 80 us base ->  1.41x
+    #   matmul      (64, 64, 64): 126 us  / 80 us base ->  1.58x
+    #   linear      (1, 128, 256):173 us  / 80 us base ->  2.16x
+    #
+    # Round to clean multipliers (1.4 / 1.6 / 2.1) so the model is
+    # explicit about which op gets how much extra dispatch.
+    _GPU_DISPATCH_FLOOR_MULT: dict = {
+        "ELEMENTWISE": 1.4,
+        "MATMUL": 1.6,
+        "LINEAR": 2.1,
+    }
+    _GPU_DISPATCH_FLOOR_DEFAULT_MULT: float = 1.0  # bare CUDA launch
+
+    def _get_gpu_dispatch_floor(self, sg: SubgraphDescriptor) -> float:
+        """Op-aware GPU dispatch floor in seconds.
+
+        Floor = ``mapper.kernel_launch_overhead_ns * 1e-9 *
+        op_multiplier``. Falls back to a 5 us floor if the mapper
+        hasn't populated ``kernel_launch_overhead_ns`` (the legacy
+        constant; preserves pre-V5 behavior for un-augmented mappers).
+
+        Relative to the analyzer's ``_estimate_overhead`` (which adds
+        the base overhead to every prediction additively), this floor
+        catches the case where compute + memory time are themselves
+        below the dispatch overhead -- common for L1-binding shapes
+        on edge GPUs. Op multiplier picks up the per-launch cost
+        differences (cuBLAS setup for matmul, bias-add for linear).
+        """
+        klo_ns = self.resource_model.kernel_launch_overhead_ns
+        if klo_ns is None or klo_ns <= 0:
+            return 5e-6  # legacy fallback
+        base = klo_ns * 1e-9
+        op_name = sg.operation_type.name if sg.operation_type else None
+        mult = self._GPU_DISPATCH_FLOOR_MULT.get(
+            op_name, self._GPU_DISPATCH_FLOOR_DEFAULT_MULT
+        )
+        return base * mult
 
     # ------------------------------------------------------------------
     # V5-3b: tier-aware memory_time path (opt-in; gated by
@@ -1747,8 +1819,16 @@ class RooflineAnalyzer:
         kernel launch overhead rather than actual compute/memory time.
         """
         if self.resource_model.hardware_type.name == "GPU":
-            # Base kernel launch overhead
-            base_overhead = 5e-6  # 5 microseconds
+            # V5 follow-up: pull base from
+            # ``HardwareResourceModel.kernel_launch_overhead_ns``
+            # when populated (Jetson edge = 80 us per arXiv:2508.08430,
+            # datacenter = 10 us). Falls back to the legacy 5 us when
+            # the mapper hasn't set the field.
+            klo_ns = self.resource_model.kernel_launch_overhead_ns
+            if klo_ns is not None and klo_ns > 0:
+                base_overhead = klo_ns * 1e-9
+            else:
+                base_overhead = 5e-6  # 5 microseconds (legacy fallback)
 
             # Check operation patterns for additional overhead
             fusion_pattern = (

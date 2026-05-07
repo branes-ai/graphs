@@ -59,7 +59,7 @@ class GPUMapper(HardwareMapper):
         self,
         resource_model: HardwareResourceModel,
         thermal_profile: str = None,
-        calibration=None  # Type: Optional[GPUCalibration]
+        calibration=None,  # Type: Optional[GPUCalibration]
     ):
         """
         Initialize GPU mapper.
@@ -74,7 +74,9 @@ class GPUMapper(HardwareMapper):
 
         # Validate this is a GPU model
         if resource_model.hardware_type.value != "gpu":
-            raise ValueError(f"GPUMapper requires GPU resource model, got {resource_model.hardware_type}")
+            raise ValueError(
+                f"GPUMapper requires GPU resource model, got {resource_model.hardware_type}"
+            )
 
         # Calibration data for size-dependent efficiency
         self.calibration = calibration
@@ -84,10 +86,24 @@ class GPUMapper(HardwareMapper):
         # Edge devices (Jetson, etc.) have higher software stack overhead
         self._is_edge_device = self._detect_edge_device()
 
+        # V5 follow-up: surface the kernel-launch overhead on the
+        # resource_model so RooflineAnalyzer can pick it up in
+        # _estimate_overhead and _get_gpu_dispatch_floor. Only set if
+        # the mapper hasn't already populated the field explicitly --
+        # callers that want a custom value (e.g. a future per-Jetson-
+        # power-mode override) take precedence.
+        if resource_model.kernel_launch_overhead_ns is None:
+            klo_seconds = (
+                self.KERNEL_LAUNCH_OVERHEAD_EDGE
+                if self._is_edge_device
+                else self.KERNEL_LAUNCH_OVERHEAD_DATACENTER
+            )
+            resource_model.kernel_launch_overhead_ns = klo_seconds * 1e9
+
     def _detect_edge_device(self) -> bool:
         """Detect if this is an edge device (higher dispatch overhead)."""
         name = self.resource_model.name.lower()
-        edge_indicators = ['jetson', 'orin', 'xavier', 'tegra', 'nano', 'edge']
+        edge_indicators = ["jetson", "orin", "xavier", "tegra", "nano", "edge"]
         return any(ind in name for ind in edge_indicators)
 
     @property
@@ -122,7 +138,7 @@ class GPUMapper(HardwareMapper):
         pattern = subgraph.fusion_pattern.lower() if subgraph.fusion_pattern else ""
 
         # Get arithmetic intensity for memory-bound detection
-        ai = getattr(subgraph, 'arithmetic_intensity', 0.0)
+        ai = getattr(subgraph, "arithmetic_intensity", 0.0)
 
         # Check for specific patterns
         if "conv2d" in pattern or "conv" in pattern:
@@ -134,15 +150,33 @@ class GPUMapper(HardwareMapper):
                 return "conv2d_batchnorm"
             else:
                 return "conv2d"
-        elif "linear" in pattern or "matmul" in pattern or "mm" in pattern or "gemm" in pattern:
+        elif (
+            "linear" in pattern
+            or "matmul" in pattern
+            or "mm" in pattern
+            or "gemm" in pattern
+        ):
             return "matmul"
-        elif any(act in pattern for act in ["relu", "gelu", "softmax", "sigmoid", "tanh", "silu", "hardswish"]):
+        elif any(
+            act in pattern
+            for act in [
+                "relu",
+                "gelu",
+                "softmax",
+                "sigmoid",
+                "tanh",
+                "silu",
+                "hardswish",
+            ]
+        ):
             return "activation"
         elif "add" in pattern or "mul" in pattern:
             return "unfused"
 
         # Fallback: check node names
-        node_names = " ".join(subgraph.node_names).lower() if subgraph.node_names else ""
+        node_names = (
+            " ".join(subgraph.node_names).lower() if subgraph.node_names else ""
+        )
         if "conv" in node_names:
             # Check AI for memory-bound detection
             if ai > 0 and ai < self.MEMORY_BOUND_AI_THRESHOLD:
@@ -174,7 +208,11 @@ class GPUMapper(HardwareMapper):
             return self.default_efficiency
 
         op_type = self._classify_operation(subgraph)
-        flops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
+        flops = (
+            subgraph.total_flops
+            if subgraph.total_flops > 0
+            else subgraph.total_macs * 2
+        )
 
         return self.calibration.get_efficiency(op_type, flops, self.default_efficiency)
 
@@ -183,7 +221,7 @@ class GPUMapper(HardwareMapper):
         subgraph: FusedSubgraph,
         execution_stage: int,
         concurrent_subgraphs: int,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
     ) -> HardwareAllocation:
         """
         Map a single fused subgraph to GPU SMs.
@@ -220,17 +258,25 @@ class GPUMapper(HardwareMapper):
 
         # Calculate occupancy (warps actually used / max warps possible)
         max_warps_possible = sms_allocated * warps_per_sm
-        occupancy = min(1.0, warps_required / max_warps_possible) if max_warps_possible > 0 else 0.0
+        occupancy = (
+            min(1.0, warps_required / max_warps_possible)
+            if max_warps_possible > 0
+            else 0.0
+        )
 
         # Calculate utilization (SMs used / total SMs available)
         utilization = sms_allocated / self.resource_model.compute_units
 
         # Calculate latency using roofline model
-        ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
+        ops = (
+            subgraph.total_flops
+            if subgraph.total_flops > 0
+            else subgraph.total_macs * 2
+        )
         bytes_transferred = (
-            subgraph.total_input_bytes +
-            subgraph.total_output_bytes +
-            subgraph.total_weight_bytes
+            subgraph.total_input_bytes
+            + subgraph.total_output_bytes
+            + subgraph.total_weight_bytes
         )
 
         compute_time, memory_time, bottleneck = self._calculate_latency(
@@ -238,7 +284,7 @@ class GPUMapper(HardwareMapper):
             bytes_transferred=bytes_transferred,
             allocated_units=sms_allocated,
             occupancy=occupancy,
-            precision=precision
+            precision=precision,
         )
 
         estimated_latency = max(compute_time, memory_time)
@@ -264,14 +310,16 @@ class GPUMapper(HardwareMapper):
                 # Use calibrated latency (it already includes all inefficiencies)
                 estimated_latency = calibrated_latency
                 # Preserve bottleneck classification from base model
-                compute_time = calibrated_latency if compute_time > memory_time else compute_time
-                memory_time = calibrated_latency if memory_time >= compute_time else memory_time
+                compute_time = (
+                    calibrated_latency if compute_time > memory_time else compute_time
+                )
+                memory_time = (
+                    calibrated_latency if memory_time >= compute_time else memory_time
+                )
 
         # Calculate energy
         compute_energy, memory_energy = self._calculate_energy(
-            ops=ops,
-            bytes_transferred=bytes_transferred,
-            precision=precision
+            ops=ops, bytes_transferred=bytes_transferred, precision=precision
         )
         total_energy = compute_energy + memory_energy
 
@@ -300,9 +348,7 @@ class GPUMapper(HardwareMapper):
         )
 
     def should_use_sequential_execution(
-        self,
-        fusion_report: FusionReport,
-        batch_size: int
+        self, fusion_report: FusionReport, batch_size: int
     ) -> bool:
         """
         Determine if we should model sequential kernel execution.
@@ -330,12 +376,9 @@ class GPUMapper(HardwareMapper):
         # Threshold: If average subgraph has < 200M FLOPs, use sequential mode
         # This catches ResNet-18/50, MobileNet, and other small inference workloads
         # Each kernel can't efficiently saturate many SMs at this scale
-        return (batch_size < 8 and avg_flops_per_subgraph < 200e6)
+        return batch_size < 8 and avg_flops_per_subgraph < 200e6
 
-    def determine_sm_allocation(
-        self,
-        subgraph: FusedSubgraph
-    ) -> int:
+    def determine_sm_allocation(self, subgraph: FusedSubgraph) -> int:
         """
         Determine how many SMs to allocate for a subgraph in sequential mode.
 
@@ -371,7 +414,7 @@ class GPUMapper(HardwareMapper):
         warps_required = math.ceil(output_elements / warp_size)
 
         # Convert to SMs (assume 48 warps/SM for Ampere)
-        warps_per_sm = getattr(self.resource_model, 'warps_per_unit', 48)
+        warps_per_sm = getattr(self.resource_model, "warps_per_unit", 48)
         sms_needed = math.ceil(warps_required / warps_per_sm)
 
         # Cap at total available SMs
@@ -382,9 +425,7 @@ class GPUMapper(HardwareMapper):
         return max(1, sms_allocated)
 
     def compute_sequential_latency(
-        self,
-        fusion_report: FusionReport,
-        precision: Precision
+        self, fusion_report: FusionReport, precision: Precision
     ) -> Tuple[float, List[HardwareAllocation]]:
         """
         Compute latency assuming sequential kernel execution.
@@ -412,14 +453,18 @@ class GPUMapper(HardwareMapper):
             sms_allocated = self.determine_sm_allocation(sg)
 
             # Compute per-SM throughput using microarchitecture parameters
-            if (self.resource_model.cuda_cores_per_sm is not None and
-                self.resource_model.sm_sustained_clock_hz is not None and
-                self.resource_model.ops_per_clock_per_core is not None):
+            if (
+                self.resource_model.cuda_cores_per_sm is not None
+                and self.resource_model.sm_sustained_clock_hz is not None
+                and self.resource_model.ops_per_clock_per_core is not None
+            ):
                 # Use microarchitecture model: CUDA cores × ops/clock × frequency
                 # This is more accurate than dividing peak performance by SM count
-                sm_flops = (self.resource_model.cuda_cores_per_sm *
-                            self.resource_model.ops_per_clock_per_core *
-                            self.resource_model.sm_sustained_clock_hz)
+                sm_flops = (
+                    self.resource_model.cuda_cores_per_sm
+                    * self.resource_model.ops_per_clock_per_core
+                    * self.resource_model.sm_sustained_clock_hz
+                )
             else:
                 # Fallback to precision profile (for older models without microarch data)
                 peak_flops = self.resource_model.get_peak_ops(precision)
@@ -432,18 +477,21 @@ class GPUMapper(HardwareMapper):
             # Roofline model on allocated SMs
             ops = sg.total_flops if sg.total_flops > 0 else sg.total_macs * 2
             bytes_transferred = (
-                sg.total_input_bytes +
-                sg.total_output_bytes +
-                sg.total_weight_bytes
+                sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
             )
 
             compute_time = ops / (sm_flops * sms_allocated)
-            memory_time = bytes_transferred / peak_bandwidth  # Bandwidth is shared, not per-SM!
+            memory_time = (
+                bytes_transferred / peak_bandwidth
+            )  # Bandwidth is shared, not per-SM!
 
             # Bottleneck is the limiting factor
             kernel_time = max(compute_time, memory_time)
-            bottleneck = (BottleneckType.COMPUTE_BOUND if compute_time > memory_time
-                         else BottleneckType.BANDWIDTH_BOUND)
+            bottleneck = (
+                BottleneckType.COMPUTE_BOUND
+                if compute_time > memory_time
+                else BottleneckType.BANDWIDTH_BOUND
+            )
 
             # Apply size-dependent calibration: use calibrated efficiency directly
             if self.calibration is not None and ops > 0:
@@ -464,7 +512,7 @@ class GPUMapper(HardwareMapper):
             # capture dispatch effects for small ops (very low efficiency = high latency).
             # For tiny ops where calibration gives latency < dispatch, use dispatch time.
             # For uncalibrated execution, add dispatch overhead explicitly.
-            disable_overhead = getattr(self, 'disable_launch_overhead', False)
+            disable_overhead = getattr(self, "disable_launch_overhead", False)
             if disable_overhead:
                 kernel_latency = kernel_time
             elif self.calibration is not None:
@@ -475,9 +523,7 @@ class GPUMapper(HardwareMapper):
 
             # Calculate energy for this kernel
             compute_energy, memory_energy = self._calculate_energy(
-                ops=ops,
-                bytes_transferred=bytes_transferred,
-                precision=precision
+                ops=ops, bytes_transferred=bytes_transferred, precision=precision
             )
 
             # Utilization: fraction of allocated SMs actually used
@@ -510,9 +556,7 @@ class GPUMapper(HardwareMapper):
         return total_latency, allocations
 
     def compute_energy_with_idle_power(
-        self,
-        latency: float,
-        dynamic_energy: float
+        self, latency: float, dynamic_energy: float
     ) -> Tuple[float, float]:
         """
         Compute total energy including idle power consumption.
@@ -540,7 +584,9 @@ class GPUMapper(HardwareMapper):
         # Get TDP from thermal operating point if available
         tdp_watts = None
         if self.thermal_profile and self.resource_model.thermal_operating_points:
-            thermal_point = self.resource_model.thermal_operating_points.get(self.thermal_profile)
+            thermal_point = self.resource_model.thermal_operating_points.get(
+                self.thermal_profile
+            )
             if thermal_point:
                 tdp_watts = thermal_point.tdp_watts
 
@@ -568,7 +614,7 @@ class GPUMapper(HardwareMapper):
         fusion_report: FusionReport,
         execution_stages: List[List[int]],
         batch_size: int = 1,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
     ) -> GraphHardwareAllocation:
         """
         Map entire computation graph to GPU.
@@ -608,8 +654,12 @@ class GPUMapper(HardwareMapper):
 
             # Aggregate metrics
             total_subgraphs = len(subgraph_allocations)
-            average_sms_used = sum(a.compute_units_allocated for a in subgraph_allocations) / max(1, total_subgraphs)
-            peak_sms_used = max((a.compute_units_allocated for a in subgraph_allocations), default=0)
+            average_sms_used = sum(
+                a.compute_units_allocated for a in subgraph_allocations
+            ) / max(1, total_subgraphs)
+            peak_sms_used = max(
+                (a.compute_units_allocated for a in subgraph_allocations), default=0
+            )
             average_utilization = average_sms_used / self.resource_model.compute_units
             peak_utilization = peak_sms_used / self.resource_model.compute_units
 
@@ -625,13 +675,31 @@ class GPUMapper(HardwareMapper):
             naive_latency = total_ops / peak_ops_per_sec if peak_ops_per_sec > 0 else 0
 
             # Latency breakdown (each subgraph is its own stage in sequential mode)
-            latency_breakdown = {i: a.estimated_latency for i, a in enumerate(subgraph_allocations)}
+            latency_breakdown = {
+                i: a.estimated_latency for i, a in enumerate(subgraph_allocations)
+            }
 
             # Bottleneck counts
-            compute_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.COMPUTE_BOUND)
-            memory_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.MEMORY_BOUND)
-            bandwidth_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BANDWIDTH_BOUND)
-            balanced_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BALANCED)
+            compute_bound_count = sum(
+                1
+                for a in subgraph_allocations
+                if a.bottleneck == BottleneckType.COMPUTE_BOUND
+            )
+            memory_bound_count = sum(
+                1
+                for a in subgraph_allocations
+                if a.bottleneck == BottleneckType.MEMORY_BOUND
+            )
+            bandwidth_bound_count = sum(
+                1
+                for a in subgraph_allocations
+                if a.bottleneck == BottleneckType.BANDWIDTH_BOUND
+            )
+            balanced_count = sum(
+                1
+                for a in subgraph_allocations
+                if a.bottleneck == BottleneckType.BALANCED
+            )
 
             return GraphHardwareAllocation(
                 model_name="Unknown",
@@ -649,7 +717,9 @@ class GPUMapper(HardwareMapper):
                 latency_breakdown=latency_breakdown,
                 total_energy=total_energy,
                 naive_latency=naive_latency,
-                latency_correction_factor=total_latency / naive_latency if naive_latency > 0 else 1.0,
+                latency_correction_factor=(
+                    total_latency / naive_latency if naive_latency > 0 else 1.0
+                ),
                 compute_bound_count=compute_bound_count,
                 memory_bound_count=memory_bound_count,
                 bandwidth_bound_count=bandwidth_bound_count,
@@ -680,6 +750,7 @@ class GPUMapper(HardwareMapper):
                 if subgraph.parallelism and batch_size > 1:
                     # Create scaled copy
                     import copy
+
                     subgraph = copy.copy(subgraph)
                     subgraph.parallelism = copy.copy(subgraph.parallelism)
                     subgraph.parallelism.batch *= batch_size
@@ -689,7 +760,7 @@ class GPUMapper(HardwareMapper):
                     subgraph=subgraph,
                     execution_stage=stage_id,
                     concurrent_subgraphs=concurrent_subgraphs,
-                    precision=precision
+                    precision=precision,
                 )
                 stage_allocations.append(allocation)
                 subgraph_allocations.append(allocation)
@@ -698,7 +769,9 @@ class GPUMapper(HardwareMapper):
             # - Total SMs = max across subgraphs (they share SMs)
             # - Latency = max latency (they run concurrently)
             if stage_allocations:
-                stage_sms_used = max(a.compute_units_allocated for a in stage_allocations)
+                stage_sms_used = max(
+                    a.compute_units_allocated for a in stage_allocations
+                )
                 stage_latency = max(a.estimated_latency for a in stage_allocations)
 
                 peak_sms_used = max(peak_sms_used, stage_sms_used)
@@ -710,7 +783,9 @@ class GPUMapper(HardwareMapper):
         # Calculate aggregate metrics
         total_subgraphs = len(subgraph_allocations)
         total_execution_stages = len(execution_stages)
-        average_sms_used = total_sms_used / total_sms_samples if total_sms_samples > 0 else 0
+        average_sms_used = (
+            total_sms_used / total_sms_samples if total_sms_samples > 0 else 0
+        )
 
         total_compute_units = self.resource_model.compute_units
         peak_utilization = peak_sms_used / total_compute_units
@@ -731,13 +806,29 @@ class GPUMapper(HardwareMapper):
         naive_latency = total_ops / peak_ops_per_sec if peak_ops_per_sec > 0 else 0
 
         # Correction factor
-        latency_correction_factor = total_latency / naive_latency if naive_latency > 0 else 1.0
+        latency_correction_factor = (
+            total_latency / naive_latency if naive_latency > 0 else 1.0
+        )
 
         # Bottleneck analysis
-        compute_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.COMPUTE_BOUND)
-        memory_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.MEMORY_BOUND)
-        bandwidth_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BANDWIDTH_BOUND)
-        balanced_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BALANCED)
+        compute_bound_count = sum(
+            1
+            for a in subgraph_allocations
+            if a.bottleneck == BottleneckType.COMPUTE_BOUND
+        )
+        memory_bound_count = sum(
+            1
+            for a in subgraph_allocations
+            if a.bottleneck == BottleneckType.MEMORY_BOUND
+        )
+        bandwidth_bound_count = sum(
+            1
+            for a in subgraph_allocations
+            if a.bottleneck == BottleneckType.BANDWIDTH_BOUND
+        )
+        balanced_count = sum(
+            1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BALANCED
+        )
 
         return GraphHardwareAllocation(
             model_name="Unknown",  # Will be set by caller
@@ -917,6 +1008,7 @@ def create_a100_sxm4_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for A100 SXM4 80GB
     """
     from ..models.datacenter.a100_sxm4_80gb import a100_sxm4_80gb_resource_model
+
     return GPUMapper(a100_sxm4_80gb_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -955,6 +1047,7 @@ def create_v100_sxm3_32gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for V100 SXM2 32GB
     """
     from ..models.datacenter.v100_sxm3_32gb import v100_sxm3_32gb_resource_model
+
     return GPUMapper(v100_sxm3_32gb_resource_model(), thermal_profile=thermal_profile)
 
 
@@ -996,10 +1089,13 @@ def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for T4 PCIe 16GB
     """
     from ..models.datacenter.t4_pcie_16gb import t4_pcie_16gb_resource_model
+
     return GPUMapper(t4_pcie_16gb_resource_model(), thermal_profile=thermal_profile)
 
 
-def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None, calibration=None) -> GPUMapper:
+def create_jetson_orin_agx_64gb_mapper(
+    thermal_profile: str = None, calibration=None
+) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Orin AGX 64GB (edge AI platform).
 
@@ -1026,10 +1122,14 @@ def create_jetson_orin_agx_64gb_mapper(thermal_profile: str = None, calibration=
         tech_profile=EDGE_8NM_LPDDR5
     )
 
-    return GPUMapper(resource_model, thermal_profile=thermal_profile, calibration=calibration)
+    return GPUMapper(
+        resource_model, thermal_profile=thermal_profile, calibration=calibration
+    )
 
 
-def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None, calibration=None) -> GPUMapper:
+def create_jetson_orin_nano_8gb_mapper(
+    thermal_profile: str = None, calibration=None
+) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Orin Nano 8GB (compact edge AI platform).
 
@@ -1044,10 +1144,17 @@ def create_jetson_orin_nano_8gb_mapper(thermal_profile: str = None, calibration=
         GPUMapper configured for Jetson Orin Nano 8GB
     """
     from ..models.edge.jetson_orin_nano_8gb import jetson_orin_nano_8gb_resource_model
-    return GPUMapper(jetson_orin_nano_8gb_resource_model(), thermal_profile=thermal_profile, calibration=calibration)
+
+    return GPUMapper(
+        jetson_orin_nano_8gb_resource_model(),
+        thermal_profile=thermal_profile,
+        calibration=calibration,
+    )
 
 
-def create_jetson_orin_nx_16gb_mapper(thermal_profile: str = None, calibration=None) -> GPUMapper:
+def create_jetson_orin_nx_16gb_mapper(
+    thermal_profile: str = None, calibration=None
+) -> GPUMapper:
     """
     Create GPU mapper for NVIDIA Jetson Orin NX 16GB (mid-range edge AI platform).
 
@@ -1071,7 +1178,12 @@ def create_jetson_orin_nx_16gb_mapper(thermal_profile: str = None, calibration=N
         GPUMapper configured for Jetson Orin NX 16GB
     """
     from ..models.edge.jetson_orin_nx_16gb import jetson_orin_nx_16gb_resource_model
-    return GPUMapper(jetson_orin_nx_16gb_resource_model(), thermal_profile=thermal_profile, calibration=calibration)
+
+    return GPUMapper(
+        jetson_orin_nx_16gb_resource_model(),
+        thermal_profile=thermal_profile,
+        calibration=calibration,
+    )
 
 
 def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
@@ -1088,12 +1200,16 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for Jetson Thor 128GB
     """
     from ..models.automotive.jetson_thor_128gb import jetson_thor_128gb_resource_model
-    return GPUMapper(jetson_thor_128gb_resource_model(), thermal_profile=thermal_profile)
+
+    return GPUMapper(
+        jetson_thor_128gb_resource_model(), thermal_profile=thermal_profile
+    )
 
 
 # ============================================================================
 # ARM Mali GPU IP Mappers
 # ============================================================================
+
 
 def create_arm_mali_g78_mp20_mapper(thermal_profile: str = None) -> GPUMapper:
     """
@@ -1150,13 +1266,17 @@ def create_arm_mali_g78_mp20_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for ARM Mali-G78 MP20
     """
     from ..models.mobile.arm_mali_g78_mp20 import arm_mali_g78_mp20_resource_model
-    return GPUMapper(arm_mali_g78_mp20_resource_model(), thermal_profile=thermal_profile)
+
+    return GPUMapper(
+        arm_mali_g78_mp20_resource_model(), thermal_profile=thermal_profile
+    )
 
 
 # ============================================================================
 # DEPRECATED: Old mapper names (backward compatibility)
 # These will be removed in version X.Y+1.0 (6 months)
 # ============================================================================
+
 
 def create_h100_mapper(thermal_profile: str = None) -> GPUMapper:
     """
@@ -1175,11 +1295,12 @@ def create_h100_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for H100 PCIe 80GB
     """
     import warnings
+
     warnings.warn(
         "create_h100_mapper() is deprecated and will be removed in a future version. "
         "Use create_h100_pcie_80gb_mapper() instead for explicit form factor and memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_h100_pcie_80gb_mapper(thermal_profile)
 
@@ -1201,11 +1322,12 @@ def create_a100_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for A100 SXM4 80GB
     """
     import warnings
+
     warnings.warn(
         "create_a100_mapper() is deprecated and will be removed in a future version. "
         "Use create_a100_sxm4_80gb_mapper() instead for explicit form factor and memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_a100_sxm4_80gb_mapper(thermal_profile)
 
@@ -1227,11 +1349,12 @@ def create_v100_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for V100 SXM2 32GB
     """
     import warnings
+
     warnings.warn(
         "create_v100_mapper() is deprecated and will be removed in a future version. "
         "Use create_v100_sxm3_32gb_mapper() instead for explicit form factor and memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_v100_sxm3_32gb_mapper(thermal_profile)
 
@@ -1253,11 +1376,12 @@ def create_t4_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for T4 PCIe 16GB
     """
     import warnings
+
     warnings.warn(
         "create_t4_mapper() is deprecated and will be removed in a future version. "
         "Use create_t4_pcie_16gb_mapper() instead for explicit form factor and memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_t4_pcie_16gb_mapper(thermal_profile)
 
@@ -1279,11 +1403,12 @@ def create_jetson_orin_agx_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for Jetson Orin AGX 64GB
     """
     import warnings
+
     warnings.warn(
         "create_jetson_orin_agx_mapper() is deprecated and will be removed in a future version. "
         "Use create_jetson_orin_agx_64gb_mapper() instead for explicit memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_jetson_orin_agx_64gb_mapper(thermal_profile)
 
@@ -1305,11 +1430,12 @@ def create_jetson_orin_nano_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for Jetson Orin Nano 8GB
     """
     import warnings
+
     warnings.warn(
         "create_jetson_orin_nano_mapper() is deprecated and will be removed in a future version. "
         "Use create_jetson_orin_nano_8gb_mapper() instead for explicit memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_jetson_orin_nano_8gb_mapper(thermal_profile)
 
@@ -1331,10 +1457,11 @@ def create_jetson_thor_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for Jetson Thor 128GB
     """
     import warnings
+
     warnings.warn(
         "create_jetson_thor_mapper() is deprecated and will be removed in a future version. "
         "Use create_jetson_thor_128gb_mapper() instead for explicit memory size.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     return create_jetson_thor_128gb_mapper(thermal_profile)
