@@ -125,13 +125,26 @@ def test_i7_12700k_dram_calibration():
     assert dram.effective_bandwidth_bps == pytest.approx(75e9 * 0.47)
 
 
-def test_i7_12700k_non_dram_tiers_uncalibrated():
-    """V5-5 only ships DRAM calibration; L1 and L3 stay at 1.0
-    pending the matmul-anchored follow-up."""
+def test_i7_12700k_l3_calibration():
+    """V5-5 follow-up: i7-12700K L3 achievable_fraction = 0.82
+    derived from the vector_add baseline at N=1M fp32 -- the
+    cleanest L3-resident row (working set 12 MB between L1=512 KB
+    and L3=25 MB, measured 163 GB/s vs L3 peak 200 GB/s)."""
     hw = create_i7_12700k_mapper().resource_model
-    for t in hw.memory_hierarchy:
-        if t.name != "DRAM":
-            assert t.achievable_fraction == 1.0
+    assert hw.tier_achievable_fractions.get("L3") == 0.82
+    l3 = next(t for t in hw.memory_hierarchy if t.name == "L3")
+    assert l3.achievable_fraction == 0.82
+    assert l3.effective_bandwidth_bps == pytest.approx(200e9 * 0.82)
+
+
+def test_i7_12700k_l1_uncalibrated():
+    """V5-5 follow-up still leaves L1 absent (default 1.0). Pure
+    L1-BW calibration would need a sub-microsecond benchmark that
+    isolates L1 BW from dispatch overhead, which the V5-2b
+    vector_add baseline doesn't provide cleanly."""
+    hw = create_i7_12700k_mapper().resource_model
+    l1 = next(t for t in hw.memory_hierarchy if t.name == "L1")
+    assert l1.achievable_fraction == 1.0
 
 
 def test_i7_12700k_large_mapper_inherits_dram_calibration():
@@ -144,6 +157,9 @@ def test_i7_12700k_large_mapper_inherits_dram_calibration():
 
     hw = create_i7_12700k_large_mapper().resource_model
     assert hw.tier_achievable_fractions.get("DRAM") == 0.47
+    # V5-5 follow-up also propagates the L3 calibration so the two
+    # sibling mappers stay in lock-step on the same hardware.
+    assert hw.tier_achievable_fractions.get("L3") == 0.82
 
 
 def test_jetson_orin_nano_dram_calibration():
