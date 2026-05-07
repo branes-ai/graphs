@@ -113,7 +113,6 @@ class ReuseModel(Protocol):
         window (3*N*bpe). The model is consistent across op kinds
         even when the answer is degenerate.
         """
-        ...
 
 
 class VectorAddReuseModel:
