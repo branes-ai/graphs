@@ -23,6 +23,7 @@ Calibration Integration:
 """
 
 import math
+import warnings
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
 from enum import Enum
@@ -393,6 +394,11 @@ class RooflineAnalyzer:
         # the helper itself; only read after a successful call.
         self._last_tier_bytes_loaded: int = 0
         self._last_memory_explanation: Optional["MemoryExplanation"] = None
+        # V5-6 Phase A: track whether we've already emitted the
+        # DeprecationWarning for this analyzer instance, so the
+        # warning fires once (per instance, per Python session) on
+        # first use of the legacy bw_efficiency_scale fallback path.
+        self._bw_efficiency_scale_deprecation_emitted: bool = False
         self.is_calibrated = (
             efficiency_factor is not None
             or calibrated_peak_flops is not None
@@ -596,43 +602,22 @@ class RooflineAnalyzer:
     def _analyze_subgraph(self, sg: SubgraphDescriptor) -> LatencyDescriptor:
         """Analyze latency for a single subgraph"""
 
-        # Get per-operation efficiency scaling based on operation granularity.
-        # Large operations achieve higher efficiency (better occupancy, amortized overhead).
-        # Small operations suffer from kernel launch overhead and low occupancy.
-        # IMPORTANT: Compute and bandwidth have DIFFERENT efficiency characteristics:
-        # - Compute efficiency: heavily impacted by kernel launch overhead for small ops
-        # - Bandwidth efficiency: limited by DRAM physics, less impacted by kernel size
+        # Compute side: efficiency scaling stays scalar (no V5 changes
+        # here; compute efficiency and memory bandwidth have different
+        # physics, and the V5 plan only retires the bandwidth side).
         compute_efficiency_scale = self._get_compute_efficiency_scale(sg)
-        bandwidth_efficiency_scale = self._get_bandwidth_efficiency_scale(sg)
-
-        # Effective peak for this operation = theoretical peak * operation efficiency
         effective_peak_flops = self.peak_flops * compute_efficiency_scale
-        effective_peak_bandwidth = self.peak_bandwidth * bandwidth_efficiency_scale
-
-        # Compute time = FLOPs / effective_peak_FLOPS
         compute_time = (
             sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
         )
 
-        # Memory time = bytes / effective_peak_bandwidth.
+        # Memory side: tier-aware path is the default since V5-3b.
         # ``_dram_traffic_bytes`` is hardware-aware: on weight-stationary
         # accelerators (KPU) it amortizes weight loads across the on-chip
         # tile fabric instead of treating weights as re-fetched per layer
         # (issue #51). For other hardware the result is the naive sum.
         total_bytes = self._dram_traffic_bytes(sg)
-        memory_time = (
-            total_bytes / effective_peak_bandwidth
-            if effective_peak_bandwidth > 0
-            else 0.0
-        )
-
-        # V5-3b: opt-in tier-aware memory_time. When the analyzer was
-        # constructed with use_tier_aware_memory=True AND the subgraph
-        # is a single-op MATMUL/LINEAR with a clean 2D shape AND the
-        # hardware's memory_hierarchy has >=2 tiers, replace the scalar
-        # memory_time with the tier-picker output. Default False -> no
-        # behavior change vs pre-V5-3b. See _try_tier_aware_memory_time
-        # for the eligibility predicate.
+        memory_time = None
         if self.use_tier_aware_memory:
             # Reset the explanation stash before the attempt so that a
             # decline (returning None) doesn't leave a stale explanation
@@ -642,6 +627,25 @@ class RooflineAnalyzer:
             if tier_memory_time is not None:
                 memory_time = tier_memory_time
                 total_bytes = self._last_tier_bytes_loaded
+
+        if memory_time is None:
+            # V5-6 Phase A: ``_get_bandwidth_efficiency_scale`` is now a
+            # deprecated fallback that fires when (a) the caller opted
+            # OUT via use_tier_aware_memory=False, (b) the subgraph
+            # isn't tier-aware-eligible (multi-op, unsupported op,
+            # 3D-batched matmul), or (c) the hardware's memory_hierarchy
+            # has < 2 tiers / no tier_achievable_fractions calibration.
+            # The function emits a one-time DeprecationWarning per
+            # analyzer instance. See
+            # docs/v5/bw-efficiency-scale-retirement-status.md for the
+            # per-mapper coverage matrix gating Phase B (final removal).
+            bandwidth_efficiency_scale = self._get_bandwidth_efficiency_scale(sg)
+            effective_peak_bandwidth = self.peak_bandwidth * bandwidth_efficiency_scale
+            memory_time = (
+                total_bytes / effective_peak_bandwidth
+                if effective_peak_bandwidth > 0
+                else 0.0
+            )
 
         # Apply discrete resource correction for accelerators with few compute units
         # TPUs, KPUs can't fractionally utilize their arrays - adjust for realistic allocation
@@ -1435,6 +1439,28 @@ class RooflineAnalyzer:
 
     def _get_bandwidth_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """
+        DEPRECATED (V5-6 Phase A): legacy single-scalar bandwidth
+        efficiency model that the V5-3b tier-aware path replaces. This
+        function remains as a fallback for cases the tier-aware path
+        doesn't yet handle:
+
+          (a) ``use_tier_aware_memory=False`` (caller opted OUT)
+          (b) Subgraph isn't tier-aware-eligible (multi-op, unsupported
+              op type, 3D-batched matmul, broadcast elementwise)
+          (c) Hardware's memory_hierarchy has < 2 tiers OR doesn't have
+              tier_achievable_fractions calibrated
+
+        Phase B (final removal) is gated on every active mapper having
+        populated tier_achievable_fractions. See
+        ``docs/v5/bw-efficiency-scale-retirement-status.md`` for the
+        per-mapper coverage matrix.
+
+        On first use per ``RooflineAnalyzer`` instance this method
+        emits a one-time ``DeprecationWarning`` so callers can spot
+        which workflows still depend on the legacy path.
+
+        ---
+
         Bandwidth efficiency scaling factor based on operation characteristics.
 
         This affects MEMORY BANDWIDTH performance (bytes/sec).
@@ -1464,6 +1490,27 @@ class RooflineAnalyzer:
         - All other operations: minimum 0.3 (30% of peak)
         - Large tensor operations: up to 0.7 (70% of peak)
         """
+        # V5-6 Phase A: emit a one-time DeprecationWarning per analyzer
+        # instance the first time the legacy fallback fires. Tracks at
+        # instance level (not class level) so each new analyzer gets a
+        # fresh chance to surface the warning -- handy when a workflow
+        # constructs many analyzers, only some of which trip the
+        # fallback. See docs/v5/bw-efficiency-scale-retirement-status.md.
+        if not self._bw_efficiency_scale_deprecation_emitted:
+            warnings.warn(
+                "RooflineAnalyzer._get_bandwidth_efficiency_scale is "
+                "deprecated (V5-6 Phase A). The V5-3b tier-aware path is "
+                "the new default; this fallback fires when (a) "
+                "use_tier_aware_memory=False, (b) the subgraph isn't "
+                "tier-aware-eligible, or (c) the hardware lacks "
+                "tier_achievable_fractions calibration. See "
+                "docs/v5/bw-efficiency-scale-retirement-status.md for "
+                "the per-mapper coverage matrix gating final removal.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._bw_efficiency_scale_deprecation_emitted = True
+
         import math
         from graphs.core.structures import OperationType
 
