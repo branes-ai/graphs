@@ -1097,6 +1097,28 @@ class HardwareResourceModel:
     l3_access_latency_ns: Optional[float] = None
     dram_access_latency_ns: Optional[float] = None
 
+    # V5 follow-up: kernel-launch / dispatch overhead for the
+    # roofline analyzer's _estimate_overhead path. The GPUMapper
+    # subclass already tracks ``kernel_launch_overhead`` (10 us
+    # datacenter, 80 us edge), but RooflineAnalyzer only sees
+    # HardwareResourceModel and was using a hardcoded 5 us base.
+    # Surfacing the value here lets both the mapper and the analyzer
+    # read the same constant.
+    #
+    # Empirical anchors:
+    #   Datacenter NVIDIA (H100/A100/V100): ~10 us per
+    #     CUDA driver / Nsight Systems (NVIDIA blog).
+    #   Jetson Orin (Nano/AGX/NX): ~80 us per direct measurement
+    #     and arXiv:2508.08430 ("individual GPU kernel launches are
+    #     typically Kl = 20-100 us" on Orin Nano). The 80 us
+    #     value is the existing repo constant
+    #     KERNEL_LAUNCH_OVERHEAD_EDGE on GPUMapper.
+    #   CPU: not used (CPU has its own op-aware dispatch floor in
+    #     RooflineAnalyzer._get_cpu_dispatch_floor).
+    #
+    # None means "use the analyzer's hardware-type-default".
+    kernel_launch_overhead_ns: Optional[float] = None
+
     # V5-5: per-tier achievable_fraction overrides for the V5-3b
     # tier-aware roofline path. Maps tier name ("L1", "L2", "L3", "DRAM")
     # to the calibrated achievable BW fraction (peak * fraction =
