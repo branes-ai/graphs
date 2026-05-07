@@ -45,6 +45,7 @@ class CPUVectorization:
     CPUs use SIMD (Single Instruction Multiple Data) to process
     multiple elements in parallel within a single core.
     """
+
     simd_width: int  # Elements processed in parallel (8 for AVX-2, 16 for AVX-512)
     vector_operations: int  # Number of SIMD operations needed
     scalar_operations: int  # Remaining scalar operations (not vectorized)
@@ -75,13 +76,15 @@ class CPUMapper(HardwareMapper):
         self,
         resource_model: HardwareResourceModel,
         thermal_profile: str = None,
-        calibration = None  # Type hint: Optional[HardwareCalibration]
+        calibration=None,  # Type hint: Optional[HardwareCalibration]
     ):
         super().__init__(resource_model, thermal_profile=thermal_profile)
 
         # Validate this is a CPU model
         if resource_model.hardware_type.value != "cpu":
-            raise ValueError(f"CPUMapper requires CPU resource model, got {resource_model.hardware_type}")
+            raise ValueError(
+                f"CPUMapper requires CPU resource model, got {resource_model.hardware_type}"
+            )
 
         # CPU-specific parameters
         self.simd_width = resource_model.warp_size  # Reuse warp_size for SIMD width
@@ -93,9 +96,7 @@ class CPUMapper(HardwareMapper):
         self.default_efficiency = 0.20  # Fallback if no calibration available
 
     def compute_energy_with_idle_power(
-        self,
-        latency: float,
-        dynamic_energy: float
+        self, latency: float, dynamic_energy: float
     ) -> Tuple[float, float]:
         """
         Compute total energy including idle power consumption.
@@ -124,19 +125,25 @@ class CPUMapper(HardwareMapper):
         # Datacenter CPUs have multiple thermal profiles (different core counts, frequencies)
         tdp_watts = None
         if self.thermal_profile and self.resource_model.thermal_operating_points:
-            thermal_point = self.resource_model.thermal_operating_points.get(self.thermal_profile)
+            thermal_point = self.resource_model.thermal_operating_points.get(
+                self.thermal_profile
+            )
             if thermal_point:
                 tdp_watts = thermal_point.tdp_watts
 
         # If no thermal profile specified, try to use the first available one
         if tdp_watts is None and self.resource_model.thermal_operating_points:
             # Try "default" first
-            default_thermal = self.resource_model.thermal_operating_points.get("default")
+            default_thermal = self.resource_model.thermal_operating_points.get(
+                "default"
+            )
             if default_thermal:
                 tdp_watts = default_thermal.tdp_watts
             else:
                 # Use the first available thermal profile
-                first_profile = next(iter(self.resource_model.thermal_operating_points.values()), None)
+                first_profile = next(
+                    iter(self.resource_model.thermal_operating_points.values()), None
+                )
                 if first_profile:
                     tdp_watts = first_profile.tdp_watts
 
@@ -160,9 +167,7 @@ class CPUMapper(HardwareMapper):
         return total_energy, average_power
 
     def _analyze_vectorization(
-        self,
-        subgraph: FusedSubgraph,
-        precision: Precision
+        self, subgraph: FusedSubgraph, precision: Precision
     ) -> CPUVectorization:
         """
         Analyze how well an operation vectorizes on CPU SIMD units.
@@ -178,15 +183,21 @@ class CPUMapper(HardwareMapper):
         # AVX-512: 16 FP32, 32 FP16, 64 INT8
         # AVX-2:   8 FP32, 16 FP16, 32 INT8
         bytes_per_element = self._get_bytes_per_element(precision)
-        vector_register_bytes = 64 if self.simd_width >= 16 else 32  # 512-bit or 256-bit
+        vector_register_bytes = (
+            64 if self.simd_width >= 16 else 32
+        )  # 512-bit or 256-bit
         effective_simd_width = vector_register_bytes // bytes_per_element
 
         # For matrix operations (Conv, Linear), vectorization is good
         # For element-wise ops (ReLU, Add), vectorization is excellent
-        is_matrix_op = any(op.value in ['conv2d', 'linear', 'matmul']
-                          for op in subgraph.operation_types)
-        is_elementwise = any(op.value in ['relu', 'relu6', 'gelu', 'sigmoid']
-                            for op in subgraph.operation_types)
+        is_matrix_op = any(
+            op.value in ["conv2d", "linear", "matmul"]
+            for op in subgraph.operation_types
+        )
+        is_elementwise = any(
+            op.value in ["relu", "relu6", "gelu", "sigmoid"]
+            for op in subgraph.operation_types
+        )
 
         # Estimate vectorization efficiency
         if is_elementwise:
@@ -197,14 +208,24 @@ class CPUMapper(HardwareMapper):
             vectorization_efficiency = 0.70  # Conservative estimate
 
         # Calculate vector operations
-        total_ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
+        total_ops = (
+            subgraph.total_flops
+            if subgraph.total_flops > 0
+            else subgraph.total_macs * 2
+        )
         vectorizable_ops = int(total_ops * vectorization_efficiency)
         vector_operations = math.ceil(vectorizable_ops / effective_simd_width)
         scalar_operations = total_ops - vectorizable_ops
 
         # Check for special accelerators (AMX for matrix ops, VNNI for INT8)
-        uses_amx = is_matrix_op and precision in [Precision.BF16, Precision.INT8] and self.simd_width >= 16
-        uses_vnni = is_matrix_op and precision == Precision.INT8 and self.simd_width >= 8
+        uses_amx = (
+            is_matrix_op
+            and precision in [Precision.BF16, Precision.INT8]
+            and self.simd_width >= 16
+        )
+        uses_vnni = (
+            is_matrix_op and precision == Precision.INT8 and self.simd_width >= 8
+        )
 
         return CPUVectorization(
             simd_width=effective_simd_width,
@@ -248,7 +269,7 @@ class CPUMapper(HardwareMapper):
         ops = [op.value for op in subgraph.operation_types]
 
         # Matrix multiplication (highest priority for compute-bound ops)
-        if any(op in ['matmul', 'linear', 'addmm', 'bmm'] for op in ops):
+        if any(op in ["matmul", "linear", "addmm", "bmm"] for op in ops):
             # Estimate matrix size from memory footprint
             # For matmul: C = A @ B where A is [M, K], B is [K, N], C is [M, N]
             # Memory = M*K + K*N + M*N elements
@@ -259,29 +280,32 @@ class CPUMapper(HardwareMapper):
 
             # Categorize by size
             if matrix_size < 768:
-                size_category = 'small'
+                size_category = "small"
             elif matrix_size < 3072:
-                size_category = 'medium'
+                size_category = "medium"
             else:
-                size_category = 'large'
+                size_category = "large"
 
-            return 'matmul', {'matrix_size': matrix_size}
+            return "matmul", {"matrix_size": matrix_size}
 
         # Convolution
-        if any('conv' in op for op in ops):
-            return 'conv2d', {}
+        if any("conv" in op for op in ops):
+            return "conv2d", {}
 
         # Element-wise operations (memory-bound)
-        if any(op in ['relu', 'relu6', 'gelu', 'sigmoid', 'add', 'mul', 'sub'] for op in ops):
+        if any(
+            op in ["relu", "relu6", "gelu", "sigmoid", "add", "mul", "sub"]
+            for op in ops
+        ):
             # Use 'add' as proxy for memory-bound elementwise ops
-            return 'add', {}
+            return "add", {}
 
         # Pooling
-        if any('pool' in op for op in ops):
-            return 'maxpool', {}
+        if any("pool" in op for op in ops):
+            return "maxpool", {}
 
         # Default: unknown operation
-        return 'unknown', {}
+        return "unknown", {}
 
     def _get_calibrated_efficiency(self, subgraph: FusedSubgraph) -> float:
         """
@@ -315,7 +339,7 @@ class CPUMapper(HardwareMapper):
         subgraph: FusedSubgraph,
         execution_stage: int,
         concurrent_subgraphs: int,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
     ) -> HardwareAllocation:
         """
         Map a single fused subgraph to CPU cores.
@@ -353,12 +377,14 @@ class CPUMapper(HardwareMapper):
                 # But effectiveness diminishes (Amdahl's law)
                 extra_parallelism = min(
                     self.cores - cores_allocated,
-                    subgraph.parallelism.channels // 4  # Need enough work per core
+                    subgraph.parallelism.channels // 4,  # Need enough work per core
                 )
                 cores_allocated = min(cores_allocated + extra_parallelism, self.cores)
 
         cores_allocated = max(1, cores_allocated)  # At least 1 core
-        threads_required = cores_allocated  # 1 thread per core (SMT doesn't help compute)
+        threads_required = (
+            cores_allocated  # 1 thread per core (SMT doesn't help compute)
+        )
 
         # Calculate occupancy (what fraction of cores are busy)
         occupancy = cores_allocated / self.cores
@@ -367,11 +393,15 @@ class CPUMapper(HardwareMapper):
         utilization = cores_allocated / self.cores
 
         # Calculate latency using roofline model
-        ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
+        ops = (
+            subgraph.total_flops
+            if subgraph.total_flops > 0
+            else subgraph.total_macs * 2
+        )
         bytes_transferred = (
-            subgraph.total_input_bytes +
-            subgraph.total_output_bytes +
-            subgraph.total_weight_bytes
+            subgraph.total_input_bytes
+            + subgraph.total_output_bytes
+            + subgraph.total_weight_bytes
         )
 
         # Adjust ops for vectorization
@@ -395,7 +425,7 @@ class CPUMapper(HardwareMapper):
             bytes_transferred=bytes_transferred,
             allocated_units=cores_allocated,
             occupancy=occupancy,
-            precision=precision
+            precision=precision,
         )
 
         # Apply calibration correction if available
@@ -411,22 +441,24 @@ class CPUMapper(HardwareMapper):
             # Memory bandwidth correction
             # If measured bandwidth is lower than theoretical, memory ops are slower
             theoretical_bandwidth = self.resource_model.peak_bandwidth
-            measured_bandwidth = self.calibration.measured_bandwidth_gbps * 1e9  # Convert GB/s to bytes/s
+            measured_bandwidth = (
+                self.calibration.measured_bandwidth_gbps * 1e9
+            )  # Convert GB/s to bytes/s
             bandwidth_correction = theoretical_bandwidth / measured_bandwidth
             memory_time *= bandwidth_correction
 
         # Add threading overhead (OpenMP-style parallelism has overhead)
         # More cores = more overhead for synchronization
-        threading_overhead = 1.0 + (cores_allocated - 1) * 0.02  # 2% overhead per additional core
+        threading_overhead = (
+            1.0 + (cores_allocated - 1) * 0.02
+        )  # 2% overhead per additional core
         compute_time *= threading_overhead
 
         estimated_latency = max(compute_time, memory_time)
 
         # Calculate energy
         compute_energy, memory_energy = self._calculate_energy(
-            ops=ops,
-            bytes_transferred=bytes_transferred,
-            precision=precision
+            ops=ops, bytes_transferred=bytes_transferred, precision=precision
         )
         total_energy = compute_energy + memory_energy
 
@@ -459,7 +491,7 @@ class CPUMapper(HardwareMapper):
         fusion_report: FusionReport,
         execution_stages: List[List[int]],
         batch_size: int = 1,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
     ) -> GraphHardwareAllocation:
         """
         Map entire computation graph to CPU.
@@ -495,6 +527,7 @@ class CPUMapper(HardwareMapper):
                 # Scale parallelism by batch size
                 if subgraph.parallelism and batch_size > 1:
                     import copy
+
                     subgraph = copy.copy(subgraph)
                     subgraph.parallelism = copy.copy(subgraph.parallelism)
                     subgraph.parallelism.batch *= batch_size
@@ -504,14 +537,16 @@ class CPUMapper(HardwareMapper):
                     subgraph=subgraph,
                     execution_stage=stage_id,
                     concurrent_subgraphs=concurrent_subgraphs,
-                    precision=precision
+                    precision=precision,
                 )
                 stage_allocations.append(allocation)
                 subgraph_allocations.append(allocation)
 
             # For parallel subgraphs: max cores used, max latency
             if stage_allocations:
-                stage_cores_used = max(a.compute_units_allocated for a in stage_allocations)
+                stage_cores_used = max(
+                    a.compute_units_allocated for a in stage_allocations
+                )
                 stage_latency = max(a.estimated_latency for a in stage_allocations)
 
                 peak_cores_used = max(peak_cores_used, stage_cores_used)
@@ -523,7 +558,9 @@ class CPUMapper(HardwareMapper):
         # Calculate aggregate metrics
         total_subgraphs = len(subgraph_allocations)
         total_execution_stages = len(execution_stages)
-        average_cores_used = total_cores_used / total_cores_samples if total_cores_samples > 0 else 0
+        average_cores_used = (
+            total_cores_used / total_cores_samples if total_cores_samples > 0 else 0
+        )
 
         total_cores = self.resource_model.compute_units
         peak_utilization = peak_cores_used / total_cores
@@ -544,13 +581,29 @@ class CPUMapper(HardwareMapper):
         naive_latency = total_ops / peak_ops_per_sec if peak_ops_per_sec > 0 else 0
 
         # Correction factor
-        latency_correction_factor = total_latency / naive_latency if naive_latency > 0 else 1.0
+        latency_correction_factor = (
+            total_latency / naive_latency if naive_latency > 0 else 1.0
+        )
 
         # Bottleneck analysis
-        compute_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.COMPUTE_BOUND)
-        memory_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.MEMORY_BOUND)
-        bandwidth_bound_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BANDWIDTH_BOUND)
-        balanced_count = sum(1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BALANCED)
+        compute_bound_count = sum(
+            1
+            for a in subgraph_allocations
+            if a.bottleneck == BottleneckType.COMPUTE_BOUND
+        )
+        memory_bound_count = sum(
+            1
+            for a in subgraph_allocations
+            if a.bottleneck == BottleneckType.MEMORY_BOUND
+        )
+        bandwidth_bound_count = sum(
+            1
+            for a in subgraph_allocations
+            if a.bottleneck == BottleneckType.BANDWIDTH_BOUND
+        )
+        balanced_count = sum(
+            1 for a in subgraph_allocations if a.bottleneck == BottleneckType.BALANCED
+        )
 
         return GraphHardwareAllocation(
             model_name="Unknown",
@@ -688,7 +741,7 @@ def create_i7_12700k_mapper() -> CPUMapper:
     # CLOCK DOMAIN (P-cores dominate)
     # ========================================================================
     clock = ClockDomain(
-        base_clock_hz=3.6e9,       # 3.6 GHz base (P-cores)
+        base_clock_hz=3.6e9,  # 3.6 GHz base (P-cores)
         max_boost_clock_hz=5.0e9,  # 5.0 GHz max boost (single P-core)
         sustained_clock_hz=4.5e9,  # 4.5 GHz all-core sustained
         dvfs_enabled=True,
@@ -765,7 +818,7 @@ def create_i7_12700k_mapper() -> CPUMapper:
                 tile_utilization=1.0,
                 native_acceleration=True,
             ),
-        }
+        },
     )
 
     # ========================================================================
@@ -778,7 +831,6 @@ def create_i7_12700k_mapper() -> CPUMapper:
         threads_per_unit=2,  # Weighted average (P-cores dominate)
         warps_per_unit=1,
         warp_size=8,  # AVX2 (8-wide)
-
         # Precision profiles (for legacy compatibility)
         precision_profiles={
             Precision.FP32: PrecisionProfile(
@@ -798,7 +850,6 @@ def create_i7_12700k_mapper() -> CPUMapper:
             ),
         },
         default_precision=Precision.FP32,
-
         # ====================================================================
         # MEMORY HIERARCHY - i7-12700K Cache Structure
         # ====================================================================
@@ -826,7 +877,6 @@ def create_i7_12700k_mapper() -> CPUMapper:
         l1_cache_per_unit=32 * 1024,  # 32 KB L1 data per core
         l2_cache_total=25 * 1024 * 1024,  # 25 MB L3 shared (LLC)
         main_memory=64 * 1024**3,  # 64 GB typical
-
         # On-chip bandwidth peaks (#61). Sourced from Intel(R) 64 and IA-32
         # Architectures Optimization Reference Manual Vol. 3, Alder Lake
         # P-core (Golden Cove) and E-core (Gracemont) chapters:
@@ -851,23 +901,30 @@ def create_i7_12700k_mapper() -> CPUMapper:
         # Lake review) put Alder Lake L3 sustained at ~150-300 GB/s
         # depending on access pattern. Conservative midpoint = 200 GB/s.
         # Stored in ``l3_bandwidth_bps`` since on x86 the LLC IS L3.
-        l1_bandwidth_per_unit_bps=350e9,   # weighted per-effective-unit
+        l1_bandwidth_per_unit_bps=350e9,  # weighted per-effective-unit
         l3_bandwidth_bps=200e9,
-
         # Energy (consumer CPU)
         energy_per_flop_fp32=1.5e-12,  # Higher than server (less efficient)
         energy_per_byte=25e-12,
-
         # Scheduling
         min_occupancy=0.4,  # Hybrid scheduling challenges
         max_concurrent_kernels=20,  # 20 threads total
         wave_quantization=1,
-
         # Thermal profiles
         thermal_operating_points={
             "consumer-continuous": thermal_profile,
         },
         default_thermal_profile="consumer-continuous",
+        # V5-5 calibration: DRAM achievable_fraction derived from the
+        # vector_add baseline at validation/model_v4/results/baselines/
+        # i7_12700k_vector_add.csv. Plateau rows (N=16M, 67M, 268M;
+        # working set 192 MB to 3 GB, all well past the 25 MB LLC):
+        # measured 35.2 / 34.7 / 36.7 GB/s, median ~35 GB/s. Peak DDR5
+        # is 75 GB/s, so achievable_fraction = 35 / 75 = 0.47. Used by
+        # the V5-3b tier-aware roofline path when opt-in (or after the
+        # V5-5 follow-up flips the default). L1 / L3 entries stay
+        # absent (default 1.0) until matmul-anchored calibration.
+        tier_achievable_fractions={"DRAM": 0.47},
     )
 
     return CPUMapper(model)
@@ -1026,7 +1083,7 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
                 tile_utilization=0.85,  # Better utilization with VNNI
                 native_acceleration=True,
             ),
-        }
+        },
     )
 
     # ========================================================================
@@ -1039,7 +1096,6 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         threads_per_unit=2,
         warps_per_unit=1,
         warp_size=8,  # AVX2
-
         # Precision profiles
         precision_profiles={
             Precision.FP32: PrecisionProfile(
@@ -1059,27 +1115,28 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
             ),
         },
         default_precision=Precision.FP32,
-
         # Memory hierarchy (same hardware)
         peak_bandwidth=75e9,  # 75 GB/s DDR5
         l1_cache_per_unit=32 * 1024,  # 32 KB L1 data
         l2_cache_total=25 * 1024 * 1024,  # 25 MB L3 (LLC)
         main_memory=64 * 1024**3,
-
         # Energy
         energy_per_flop_fp32=1.5e-12,
         energy_per_byte=25e-12,
-
         # Scheduling
         min_occupancy=0.6,  # ↑ from 0.4 (large models keep cores busy)
         max_concurrent_kernels=20,
         wave_quantization=1,
-
         # Thermal profiles
         thermal_operating_points={
             "consumer-continuous-large": thermal_profile,
         },
         default_thermal_profile="consumer-continuous-large",
+        # V5-5: same physical DDR5 subsystem as create_i7_12700k_mapper(),
+        # so the calibrated DRAM achievable_fraction applies identically.
+        # See the tiny-model variant for derivation (median 35 GB/s
+        # plateau on N=16M/67M/268M vector_add baseline; peak 75 GB/s).
+        tier_achievable_fractions={"DRAM": 0.47},
     )
 
     return CPUMapper(model)
@@ -1130,7 +1187,9 @@ def create_ampere_ampereone_192_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Ampere AmpereOne 192-core
     """
-    from ..models.datacenter.ampere_ampereone_192 import ampere_ampereone_192_resource_model
+    from ..models.datacenter.ampere_ampereone_192 import (
+        ampere_ampereone_192_resource_model,
+    )
 
     model = ampere_ampereone_192_resource_model()
     return CPUMapper(model)
@@ -1185,7 +1244,9 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Xeon Platinum 8490H
     """
-    from ..models.datacenter.intel_xeon_platinum_8490h import intel_xeon_platinum_8490h_resource_model
+    from ..models.datacenter.intel_xeon_platinum_8490h import (
+        intel_xeon_platinum_8490h_resource_model,
+    )
     from ..architectural_energy import StoredProgramEnergyModel
     from ..technology_profile import DATACENTER_7NM_DDR5
 
@@ -1377,7 +1438,9 @@ def create_intel_xeon_platinum_8592plus_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Xeon Platinum 8592+
     """
-    from ..models.datacenter.intel_xeon_platinum_8592plus import intel_xeon_platinum_8592plus_resource_model
+    from ..models.datacenter.intel_xeon_platinum_8592plus import (
+        intel_xeon_platinum_8592plus_resource_model,
+    )
 
     model = intel_xeon_platinum_8592plus_resource_model()
     return CPUMapper(model)
@@ -1440,7 +1503,9 @@ def create_ampere_ampereone_128_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Ampere AmpereOne 128-core
     """
-    from ..models.datacenter.ampere_ampereone_128 import ampere_ampereone_128_resource_model
+    from ..models.datacenter.ampere_ampereone_128 import (
+        ampere_ampereone_128_resource_model,
+    )
 
     model = ampere_ampereone_128_resource_model()
     return CPUMapper(model)
@@ -1507,7 +1572,9 @@ def create_intel_granite_rapids_mapper() -> CPUMapper:
     Returns:
         CPUMapper configured for Intel Granite Rapids
     """
-    from ..models.datacenter.intel_granite_rapids import intel_granite_rapids_resource_model
+    from ..models.datacenter.intel_granite_rapids import (
+        intel_granite_rapids_resource_model,
+    )
 
     model = intel_granite_rapids_resource_model()
     return CPUMapper(model)

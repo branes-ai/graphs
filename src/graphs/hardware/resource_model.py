@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
 class HardwareType(Enum):
     """Supported hardware types"""
+
     GPU = "gpu"
     CPU = "cpu"
     TPU = "tpu"
@@ -51,20 +52,21 @@ class HardwareType(Enum):
 
 class Precision(Enum):
     """Numerical precision types"""
-    FP64 = "fp64"          # IEEE Double Precision, 64-bit, 1 sign, 11 exponent, 52 mantissa
-    FP32 = "fp32"          # IEEE Single Precision, 32-bit, 1 sign, 8 exponent, 23 mantissa
-    TF32 = "tf32"          # NVIDIA TensorFloat-32, 19-bit (1 sign, 8 exp, 10 mantissa), Tensor Cores only
-    FP16 = "fp16"          # IEEE Half Precision, 16-bit, 1 sign, 5 exponent, 10 mantissa
-    FP8 = "fp8"            # IEEE FP8 (generic), 1 sign, 3 exponent, 4 mantissa
+
+    FP64 = "fp64"  # IEEE Double Precision, 64-bit, 1 sign, 11 exponent, 52 mantissa
+    FP32 = "fp32"  # IEEE Single Precision, 32-bit, 1 sign, 8 exponent, 23 mantissa
+    TF32 = "tf32"  # NVIDIA TensorFloat-32, 19-bit (1 sign, 8 exp, 10 mantissa), Tensor Cores only
+    FP16 = "fp16"  # IEEE Half Precision, 16-bit, 1 sign, 5 exponent, 10 mantissa
+    FP8 = "fp8"  # IEEE FP8 (generic), 1 sign, 3 exponent, 4 mantissa
     FP8_E4M3 = "fp8_e4m3"  # 4-bit exponent, 3-bit mantissa
     FP8_E5M2 = "fp8_e5m2"  # 5-bit exponent, 2-bit mantissa
-    FP4 = "fp4"            # 4-bit floating point, 1 sign, 2 exponent, 1 mantissa
-    BF16 = "bf16"          # Brain Floating Point, 16-bit, 1 sign, 8 exponent, 7 mantissa
-    INT64 = "int64"        # 64-bit integer
-    INT32 = "int32"        # 32-bit integer
-    INT16 = "int16"        # 16-bit integer
-    INT8 = "int8"          # 8-bit integer
-    INT4 = "int4"          # 4-bit integer
+    FP4 = "fp4"  # 4-bit floating point, 1 sign, 2 exponent, 1 mantissa
+    BF16 = "bf16"  # Brain Floating Point, 16-bit, 1 sign, 8 exponent, 7 mantissa
+    INT64 = "int64"  # 64-bit integer
+    INT32 = "int32"  # 32-bit integer
+    INT16 = "int16"  # 16-bit integer
+    INT8 = "int8"  # 8-bit integer
+    INT4 = "int4"  # 4-bit integer
 
 
 # Canonical operand byte width per Precision (used for weight/activation sizing).
@@ -81,22 +83,24 @@ def precision_bytes_per_element(precision: "Precision") -> float:
     than defaulting to fp32. Sub-byte precisions (int4, fp4) return 0.5.
     """
     if not _PRECISION_BYTES_PER_ELEMENT:
-        _PRECISION_BYTES_PER_ELEMENT.update({
-            Precision.FP64: 8,
-            Precision.FP32: 4,
-            Precision.TF32: 4,   # stored as fp32; only the multiplier is narrower
-            Precision.FP16: 2,
-            Precision.BF16: 2,
-            Precision.INT64: 8,
-            Precision.INT32: 4,
-            Precision.INT16: 2,
-            Precision.INT8: 1,
-            Precision.FP8: 1,
-            Precision.FP8_E4M3: 1,
-            Precision.FP8_E5M2: 1,
-            Precision.INT4: 0.5,
-            Precision.FP4: 0.5,
-        })
+        _PRECISION_BYTES_PER_ELEMENT.update(
+            {
+                Precision.FP64: 8,
+                Precision.FP32: 4,
+                Precision.TF32: 4,  # stored as fp32; only the multiplier is narrower
+                Precision.FP16: 2,
+                Precision.BF16: 2,
+                Precision.INT64: 8,
+                Precision.INT32: 4,
+                Precision.INT16: 2,
+                Precision.INT8: 1,
+                Precision.FP8: 1,
+                Precision.FP8_E4M3: 1,
+                Precision.FP8_E5M2: 1,
+                Precision.INT4: 0.5,
+                Precision.FP4: 0.5,
+            }
+        )
     return _PRECISION_BYTES_PER_ELEMENT.get(precision, 4)
 
 
@@ -108,29 +112,32 @@ def precision_bytes_per_element(precision: "Precision") -> float:
 # Based on: Energy = Capacitance × Voltage² per switch
 # Frequency does NOT affect energy per operation (only power)
 PROCESS_NODE_ENERGY = {
-    3:   1.2e-12,  # 1.2 pJ @ 3nm (Intel 18A, TSMC N3, AMD Zen 5)
-    4:   1.3e-12,  # 1.3 pJ @ 4nm (TSMC N4/N4P)
-    5:   1.5e-12,  # 1.5 pJ @ 5nm (TSMC N5, Samsung 5LPE)
-    6:   1.65e-12, # 1.65 pJ @ 6nm (TSMC N6 - 7nm extension with slightly better density)
-    7:   1.8e-12,  # 1.8 pJ @ 7nm (TSMC N7, Samsung 7LPP)
-    8:   1.9e-12,  # 1.9 pJ @ 8nm (Samsung 8LPP)
-    10:  2.1e-12,  # 2.1 pJ @ 10nm (Intel 10nm/7)
-    12:  2.5e-12,  # 2.5 pJ @ 12nm (TSMC 12FFC)
-    14:  2.6e-12,  # 2.6 pJ @ 14nm (Intel 14nm, Samsung 14LPP)
-    16:  2.7e-12,  # 2.7 pJ @ 16nm (TSMC 16FFC)
-    28:  4.0e-12,  # 4.0 pJ @ 28nm (TSMC 28HPC+)
+    3: 1.2e-12,  # 1.2 pJ @ 3nm (Intel 18A, TSMC N3, AMD Zen 5)
+    4: 1.3e-12,  # 1.3 pJ @ 4nm (TSMC N4/N4P)
+    5: 1.5e-12,  # 1.5 pJ @ 5nm (TSMC N5, Samsung 5LPE)
+    6: 1.65e-12,  # 1.65 pJ @ 6nm (TSMC N6 - 7nm extension with slightly better density)
+    7: 1.8e-12,  # 1.8 pJ @ 7nm (TSMC N7, Samsung 7LPP)
+    8: 1.9e-12,  # 1.9 pJ @ 8nm (Samsung 8LPP)
+    10: 2.1e-12,  # 2.1 pJ @ 10nm (Intel 10nm/7)
+    12: 2.5e-12,  # 2.5 pJ @ 12nm (TSMC 12FFC)
+    14: 2.6e-12,  # 2.6 pJ @ 14nm (Intel 14nm, Samsung 14LPP)
+    16: 2.7e-12,  # 2.7 pJ @ 16nm (TSMC 16FFC)
+    28: 4.0e-12,  # 4.0 pJ @ 28nm (TSMC 28HPC+)
 }
 
 # Circuit type multipliers (relative to standard cell baseline)
 # Captures layout efficiency and parallelism benefits
 CIRCUIT_TYPE_MULTIPLIER = {
-    'standard_cell':     1.0,    # Baseline: Standard cell library ALU
-    'tensor_core':       0.85,   # 15% more efficient: Amortized control, fused MAC+accumulate
-    'simd_packed':       0.90,   # 10% more efficient: Packed operations (AVX-512, NEON)
-    'custom_datacenter': 2.75,   # 2.75× higher: 5+ GHz custom circuits, wide datapath, extra pipeline
+    "standard_cell": 1.0,  # Baseline: Standard cell library ALU
+    "tensor_core": 0.85,  # 15% more efficient: Amortized control, fused MAC+accumulate
+    "simd_packed": 0.90,  # 10% more efficient: Packed operations (AVX-512, NEON)
+    "custom_datacenter": 2.75,  # 2.75× higher: 5+ GHz custom circuits, wide datapath, extra pipeline
 }
 
-def get_base_alu_energy(process_node_nm: int, circuit_type: str = 'standard_cell') -> float:
+
+def get_base_alu_energy(
+    process_node_nm: int, circuit_type: str = "standard_cell"
+) -> float:
     """
     Calculate base ALU energy per FP32 operation.
 
@@ -158,9 +165,12 @@ def get_base_alu_energy(process_node_nm: int, circuit_type: str = 'standard_cell
         else:
             # Linear interpolation
             for i in range(len(nodes) - 1):
-                if nodes[i] <= process_node_nm <= nodes[i+1]:
-                    e1, e2 = PROCESS_NODE_ENERGY[nodes[i]], PROCESS_NODE_ENERGY[nodes[i+1]]
-                    t = (process_node_nm - nodes[i]) / (nodes[i+1] - nodes[i])
+                if nodes[i] <= process_node_nm <= nodes[i + 1]:
+                    e1, e2 = (
+                        PROCESS_NODE_ENERGY[nodes[i]],
+                        PROCESS_NODE_ENERGY[nodes[i + 1]],
+                    )
+                    t = (process_node_nm - nodes[i]) / (nodes[i + 1] - nodes[i])
                     base_energy = e1 + t * (e2 - e1)
                     break
 
@@ -171,6 +181,7 @@ def get_base_alu_energy(process_node_nm: int, circuit_type: str = 'standard_cell
 # ============================================================================
 # Compute Fabric Model - Multi-Fabric Hardware Support
 # ============================================================================
+
 
 @dataclass
 class ComputeFabric:
@@ -200,15 +211,20 @@ class ComputeFabric:
           - energy: 1.28 pJ @ 5nm (15% more efficient)
           - ops_per_clock: {BF16: 512, FP8: 1024}
     """
-    fabric_type: str                    # "cuda_core", "tensor_core", "int8_tile", "matrix_tile", "avx512", "neon"
-    circuit_type: str                   # "standard_cell", "tensor_core", "simd_packed", "custom_datacenter"
-    num_units: int                      # Count of this fabric type
+
+    fabric_type: (
+        str  # "cuda_core", "tensor_core", "int8_tile", "matrix_tile", "avx512", "neon"
+    )
+    circuit_type: (
+        str  # "standard_cell", "tensor_core", "simd_packed", "custom_datacenter"
+    )
+    num_units: int  # Count of this fabric type
     ops_per_unit_per_clock: Dict[Precision, int]  # Peak throughput
-    core_frequency_hz: float            # Operating frequency (for power calculation)
+    core_frequency_hz: float  # Operating frequency (for power calculation)
 
     # Energy model (process + circuit type)
-    process_node_nm: int                # Process node (4, 5, 7, 16, etc.)
-    energy_per_flop_fp32: float         # Base energy (calculated from process + circuit)
+    process_node_nm: int  # Process node (4, 5, 7, 16, etc.)
+    energy_per_flop_fp32: float  # Base energy (calculated from process + circuit)
 
     # Precision-specific energy scaling
     energy_scaling: Dict[Precision, float] = field(default_factory=dict)
@@ -217,8 +233,7 @@ class ComputeFabric:
         """Calculate energy_per_flop_fp32 if not provided"""
         if self.energy_per_flop_fp32 == 0:
             self.energy_per_flop_fp32 = get_base_alu_energy(
-                self.process_node_nm,
-                self.circuit_type
+                self.process_node_nm, self.circuit_type
             )
 
     def get_energy_per_op(self, precision: Precision) -> float:
@@ -243,6 +258,7 @@ class ComputeFabric:
 # BOM Cost Modeling for Market Analysis
 # ============================================================================
 
+
 @dataclass
 class BOMCostProfile:
     """
@@ -261,37 +277,38 @@ class BOMCostProfile:
         → Total BOM: $120
         → Retail (2.5x margin): $299
     """
+
     # Component costs
-    silicon_die_cost: float          # Die fabrication cost (process node dependent)
-    package_cost: float               # Package cost (flip-chip BGA, etc.)
-    memory_cost: float                # On-package/on-module DRAM cost
-    pcb_assembly_cost: float          # PCB, passives, assembly labor
-    thermal_solution_cost: float      # Heatsink, thermal interface materials
-    other_costs: float = 0.0          # Connectors, housing, testing, etc.
+    silicon_die_cost: float  # Die fabrication cost (process node dependent)
+    package_cost: float  # Package cost (flip-chip BGA, etc.)
+    memory_cost: float  # On-package/on-module DRAM cost
+    pcb_assembly_cost: float  # PCB, passives, assembly labor
+    thermal_solution_cost: float  # Heatsink, thermal interface materials
+    other_costs: float = 0.0  # Connectors, housing, testing, etc.
 
     # Totals and pricing
-    total_bom_cost: float = 0.0       # Sum of all component costs (auto-calculated if 0)
-    margin_multiplier: float = 2.5    # Typical margin: retail = BOM × margin
-    retail_price: float = 0.0         # Customer-facing price (if known)
+    total_bom_cost: float = 0.0  # Sum of all component costs (auto-calculated if 0)
+    margin_multiplier: float = 2.5  # Typical margin: retail = BOM × margin
+    retail_price: float = 0.0  # Customer-facing price (if known)
 
     # Context
-    volume_tier: str = "10K+"         # Volume pricing tier ("1K+", "10K+", "100K+", "1M+")
-    process_node: str = "16nm"        # Fabrication process (affects die cost)
-    year: int = 2025                  # Year of pricing (inflation adjustments)
+    volume_tier: str = "10K+"  # Volume pricing tier ("1K+", "10K+", "100K+", "1M+")
+    process_node: str = "16nm"  # Fabrication process (affects die cost)
+    year: int = 2025  # Year of pricing (inflation adjustments)
 
     # Notes
-    notes: str = ""                   # Additional context or assumptions
+    notes: str = ""  # Additional context or assumptions
 
     def __post_init__(self):
         """Calculate total BOM if not provided"""
         if self.total_bom_cost == 0:
             self.total_bom_cost = (
-                self.silicon_die_cost +
-                self.package_cost +
-                self.memory_cost +
-                self.pcb_assembly_cost +
-                self.thermal_solution_cost +
-                self.other_costs
+                self.silicon_die_cost
+                + self.package_cost
+                + self.memory_cost
+                + self.pcb_assembly_cost
+                + self.thermal_solution_cost
+                + self.other_costs
             )
 
         # Estimate retail if not provided
@@ -315,6 +332,7 @@ class BOMCostProfile:
 # NEW: DVFS-Aware Performance Modeling with Heterogeneous Compute Resources
 # ============================================================================
 
+
 @dataclass
 class ClockDomain:
     """
@@ -331,10 +349,11 @@ class ClockDomain:
         Jetson Orin @ 15W: 306 MHz base, 1.02 GHz boost, 400 MHz sustained
         → thermal_throttle_factor = 0.39 (severe throttling!)
     """
-    base_clock_hz: float          # Minimum guaranteed frequency
-    max_boost_clock_hz: float     # Maximum burst frequency (datasheet)
-    sustained_clock_hz: float     # Actual frequency under thermal load (empirical)
-    dvfs_enabled: bool = True     # Dynamic voltage/frequency scaling support
+
+    base_clock_hz: float  # Minimum guaranteed frequency
+    max_boost_clock_hz: float  # Maximum burst frequency (datasheet)
+    sustained_clock_hz: float  # Actual frequency under thermal load (empirical)
+    dvfs_enabled: bool = True  # Dynamic voltage/frequency scaling support
 
     @property
     def thermal_throttle_factor(self) -> float:
@@ -355,24 +374,21 @@ class ComputeResource:
     Example:
         16 ALUs x 4 INT8 ops/ALU/clock x 1.5 GHz = 96 GOPS INT8
     """
-    resource_type: str            # "Ampere-SM", "Systolic-Array", "AVX512-Core"
-    num_units: int                # Count of compute units (SMs, cores, tiles)
+
+    resource_type: str  # "Ampere-SM", "Systolic-Array", "AVX512-Core"
+    num_units: int  # Count of compute units (SMs, cores, tiles)
     ops_per_unit_per_clock: Dict[Precision, int]  # SIMD width per precision
-    clock_domain: ClockDomain     # Frequency specifications
+    clock_domain: ClockDomain  # Frequency specifications
 
     def calc_peak_ops(self, precision: Precision) -> float:
         """Calculate peak from first principles (datasheet number)"""
         ops_per_clock = self.ops_per_unit_per_clock.get(precision, 0)
-        return (self.num_units *
-                ops_per_clock *
-                self.clock_domain.max_boost_clock_hz)
+        return self.num_units * ops_per_clock * self.clock_domain.max_boost_clock_hz
 
     def calc_sustained_ops(self, precision: Precision) -> float:
         """Sustained performance under thermal load (DVFS throttled)"""
         ops_per_clock = self.ops_per_unit_per_clock.get(precision, 0)
-        return (self.num_units *
-                ops_per_clock *
-                self.clock_domain.sustained_clock_hz)
+        return self.num_units * ops_per_clock * self.clock_domain.sustained_clock_hz
 
 
 class TileScheduleClass(Enum):
@@ -422,6 +438,7 @@ class TileScheduleClass(Enum):
             Effective utilization is treated as 1.0; other utilization
             penalties are modeled elsewhere.
     """
+
     OUTPUT_STATIONARY = "output_stationary"
     WEIGHT_STATIONARY = "weight_stationary"
     ROW_STATIONARY = "row_stationary"
@@ -455,8 +472,9 @@ class TileSpecialization:
             energy model derives it from CIRCUIT_TYPE_MULTIPLIER and the
             precision-specific energy_scaling.
     """
-    tile_type: str                # "INT8-primary", "BF16-primary", "Matrix-8x8"
-    num_tiles: int                # Count of tiles with this specialization
+
+    tile_type: str  # "INT8-primary", "BF16-primary", "Matrix-8x8"
+    num_tiles: int  # Count of tiles with this specialization
 
     # Performance characteristics per precision
     # (all precisions are native, but some are more optimized)
@@ -470,7 +488,7 @@ class TileSpecialization:
 
     # Array processor characteristics
     array_dimensions: Tuple[int, int] = (16, 8)  # e.g., 16×8 systolic array
-    pe_configuration: str = "Mixed"              # "INT8-MAC", "BF16-FMA", "Mixed"
+    pe_configuration: str = "Mixed"  # "INT8-MAC", "BF16-FMA", "Mixed"
 
     # Domain-flow-tile scheduling parameters (M0.5)
     schedule_class: TileScheduleClass = TileScheduleClass.UNSPECIFIED
@@ -480,9 +498,9 @@ class TileSpecialization:
 
     # SIMT_DATA_PARALLEL parameters (GPU Tensor Core, warp-level execution)
     # Defaults are neutral (no penalty) for non-SIMT tiles.
-    warp_divergence_rate: float = 0.0    # fraction of warp-issue cycles with divergence
-    warp_occupancy: float = 1.0          # achieved warps / theoretical max warps
-    coherence_efficiency: float = 1.0    # memory coherence / reuse efficiency
+    warp_divergence_rate: float = 0.0  # fraction of warp-issue cycles with divergence
+    warp_occupancy: float = 1.0  # achieved warps / theoretical max warps
+    coherence_efficiency: float = 1.0  # memory coherence / reuse efficiency
 
     @property
     def pe_count(self) -> int:
@@ -537,8 +555,10 @@ class TileSpecialization:
         drain = int(self.pipeline_drain_cycles)
         steady = max(int(steady_cycles_per_tile), 1)
 
-        if self.schedule_class == TileScheduleClass.OUTPUT_STATIONARY or \
-           self.schedule_class == TileScheduleClass.ROW_STATIONARY:
+        if (
+            self.schedule_class == TileScheduleClass.OUTPUT_STATIONARY
+            or self.schedule_class == TileScheduleClass.ROW_STATIONARY
+        ):
             total = num_tiles_in_workload * steady + fill + drain
             useful = num_tiles_in_workload * steady
             return useful / total if total > 0 else 1.0
@@ -551,7 +571,9 @@ class TileSpecialization:
         if self.schedule_class == TileScheduleClass.SIMT_DATA_PARALLEL:
             # Divergence: a divergent warp serializes 2 code paths, so
             # the fractional cost is ~0.5 * divergence_rate.
-            divergence_penalty = 1.0 - 0.5 * max(0.0, min(1.0, self.warp_divergence_rate))
+            divergence_penalty = 1.0 - 0.5 * max(
+                0.0, min(1.0, self.warp_divergence_rate)
+            )
             occ = max(0.0, min(1.0, self.warp_occupancy))
             coh = max(0.0, min(1.0, self.coherence_efficiency))
             return divergence_penalty * occ * coh
@@ -572,13 +594,17 @@ class KPUComputeResource:
         - 20% BF16 tiles (normalization, attention)
         - 10% TC32 tiles (large matmuls)  tensorcore processing elements
     """
+
     total_tiles: int
     tile_specializations: List[TileSpecialization]
 
     def get_tiles_for_precision(self, precision: Precision) -> List[TileSpecialization]:
         """Find which tile types support this precision natively"""
-        return [ts for ts in self.tile_specializations
-                if precision in ts.ops_per_tile_per_clock]
+        return [
+            ts
+            for ts in self.tile_specializations
+            if precision in ts.ops_per_tile_per_clock
+        ]
 
     def calc_peak_ops(self, precision: Precision) -> float:
         """
@@ -609,8 +635,10 @@ class KPUComputeResource:
 
     def get_silicon_allocation(self) -> Dict[str, float]:
         """Show silicon budget allocation across tile types"""
-        return {ts.tile_type: ts.num_tiles / self.total_tiles
-                for ts in self.tile_specializations}
+        return {
+            ts.tile_type: ts.num_tiles / self.total_tiles
+            for ts in self.tile_specializations
+        }
 
 
 @dataclass
@@ -636,17 +664,18 @@ class PerformanceCharacteristics:
 
       This is NOT a reduction factor! Higher values = better performance.
     """
+
     precision: Precision
     compute_resource: Optional[Union[ComputeResource, KPUComputeResource]] = None
 
     # Microarchitectural efficiency factors (all are multipliers 0.0-1.0)
-    instruction_efficiency: float = 0.85     # Compiler/ISA efficiency
-    memory_bottleneck_factor: float = 0.75   # Memory system limits
-    tile_utilization: float = 1.0            # For KPU: fraction of tiles used
+    instruction_efficiency: float = 0.85  # Compiler/ISA efficiency
+    memory_bottleneck_factor: float = 0.75  # Memory system limits
+    tile_utilization: float = 1.0  # For KPU: fraction of tiles used
 
     # Hardware support
-    native_acceleration: bool = True         # True = HW accelerated, False = emulated
-    emulation_penalty: float = 0.01          # 100× slowdown if not native
+    native_acceleration: bool = True  # True = HW accelerated, False = emulated
+    emulation_penalty: float = 0.01  # 100× slowdown if not native
 
     # Combined efficiency factor (measured on real hardware)
     # efficiency_factor = empirical_performance / sustained_performance
@@ -711,12 +740,15 @@ class ThermalOperatingPoint:
 
     Each thermal point has different clock behavior and per-precision performance.
     """
-    name: str                     # "15W-passive", "60W-active"
-    tdp_watts: float              # Thermal Design Power
-    cooling_solution: str         # "passive-heatsink", "active-fan", "liquid"
+
+    name: str  # "15W-passive", "60W-active"
+    tdp_watts: float  # Thermal Design Power
+    cooling_solution: str  # "passive-heatsink", "active-fan", "liquid"
 
     # Per-precision performance characteristics at this thermal point
-    performance_specs: Dict[Precision, PerformanceCharacteristics] = field(default_factory=dict)
+    performance_specs: Dict[Precision, PerformanceCharacteristics] = field(
+        default_factory=dict
+    )
 
     def get_effective_ops(self, precision: Precision) -> float:
         """Get actual achieved performance for a precision"""
@@ -736,6 +768,7 @@ class ThermalOperatingPoint:
 # innermost-out to find the binding bottleneck for a given (op, shape).
 # This dataclass is V5-1 scaffolding; nothing in the analyzer reads it
 # yet.
+
 
 @dataclass(frozen=True)
 class MemoryTier:
@@ -766,15 +799,16 @@ class MemoryTier:
     V5-5 calibration hangs the per-(hardware, tier) measured-vs-peak
     ratio (currently captured in the scalar bw_efficiency_scale).
     """
-    name: str                         # "L1", "L2", "L3", "DRAM", "scratchpad"
-    capacity_bytes: int               # per-unit if is_per_unit else aggregate
+
+    name: str  # "L1", "L2", "L3", "DRAM", "scratchpad"
+    capacity_bytes: int  # per-unit if is_per_unit else aggregate
     is_per_unit: bool
-    num_units: int                    # compute_units when is_per_unit=True; else 1
-    peak_bandwidth_bps: float         # aggregate, for both per-unit and shared tiers
-                                      # (per-unit BW is multiplied by num_units when
-                                      # the property derives this -- the field is
-                                      # always the aggregate the kernel sees)
-    access_latency_ns: float          # first-request startup latency for this tier
+    num_units: int  # compute_units when is_per_unit=True; else 1
+    peak_bandwidth_bps: float  # aggregate, for both per-unit and shared tiers
+    # (per-unit BW is multiplied by num_units when
+    # the property derives this -- the field is
+    # always the aggregate the kernel sees)
+    access_latency_ns: float  # first-request startup latency for this tier
     achievable_fraction: float = 1.0  # V5-5 calibration knob; default = ideal
 
     def __post_init__(self) -> None:
@@ -788,23 +822,28 @@ class MemoryTier:
         if self.capacity_bytes < 0:
             raise ValueError(
                 f"MemoryTier({self.name!r}).capacity_bytes must be >= 0; "
-                f"got {self.capacity_bytes}")
+                f"got {self.capacity_bytes}"
+            )
         if self.num_units < 1:
             raise ValueError(
                 f"MemoryTier({self.name!r}).num_units must be >= 1; "
-                f"got {self.num_units}")
+                f"got {self.num_units}"
+            )
         if self.peak_bandwidth_bps < 0:
             raise ValueError(
                 f"MemoryTier({self.name!r}).peak_bandwidth_bps must be >= 0; "
-                f"got {self.peak_bandwidth_bps}")
+                f"got {self.peak_bandwidth_bps}"
+            )
         if self.access_latency_ns < 0:
             raise ValueError(
                 f"MemoryTier({self.name!r}).access_latency_ns must be >= 0; "
-                f"got {self.access_latency_ns}")
+                f"got {self.access_latency_ns}"
+            )
         if not (0.0 <= self.achievable_fraction <= 1.0):
             raise ValueError(
                 f"MemoryTier({self.name!r}).achievable_fraction must be in "
-                f"[0.0, 1.0]; got {self.achievable_fraction}")
+                f"[0.0, 1.0]; got {self.achievable_fraction}"
+            )
 
     @property
     def total_capacity_bytes(self) -> int:
@@ -824,6 +863,7 @@ class MemoryTier:
 # OLD: Legacy PrecisionProfile (kept for backward compatibility)
 # ============================================================================
 
+
 @dataclass
 class PrecisionProfile:
     """
@@ -836,6 +876,7 @@ class PrecisionProfile:
     - BF16: 750 TFLOPS (with Tensor Cores, 12.5x faster!)
     - FP8: 1.5 PFLOPS (with Tensor Cores, 25x faster!)
     """
+
     precision: Precision
     peak_ops_per_sec: float  # Operations per second at this precision
     tensor_core_supported: bool = False  # Uses specialized matrix units?
@@ -856,6 +897,7 @@ class HardwareResourceModel:
     This defines the physical resources available on a hardware accelerator,
     including precision-specific peak performance.
     """
+
     # Required fields (no defaults)
     name: str
     hardware_type: HardwareType
@@ -873,7 +915,7 @@ class HardwareResourceModel:
 
     # NEW: Architectural energy modeling
     # Captures architecture-specific energy events (instruction fetch, coherence, etc.)
-    architecture_energy_model: Optional['ArchitecturalEnergyModel'] = None
+    architecture_energy_model: Optional["ArchitecturalEnergyModel"] = None
     warp_size: int = 32  # Threads per warp (32 for NVIDIA, varies for others)
 
     # NEW: Multi-fabric support (CUDA + Tensor Cores, INT8 + Matrix tiles, Scalar + SIMD)
@@ -888,19 +930,21 @@ class HardwareResourceModel:
     default_precision: Precision = Precision.FP32
 
     # Energy scaling factors by precision (relative to FP32)
-    energy_scaling: Dict[Precision, float] = field(default_factory=lambda: {
-        Precision.FP64: 2.0,    # 2× energy of FP32
-        Precision.FP32: 1.0,    # Baseline
-        Precision.FP16: 0.5,    # Half energy
-        Precision.BF16: 0.5,
-        Precision.FP8_E4M3: 0.25,
-        Precision.FP8_E5M2: 0.25,
-        Precision.FP4: 0.125,
-        Precision.INT32: 0.5,
-        Precision.INT16: 0.25,
-        Precision.INT8: 0.125,
-        Precision.INT4: 0.0625,
-    })
+    energy_scaling: Dict[Precision, float] = field(
+        default_factory=lambda: {
+            Precision.FP64: 2.0,  # 2× energy of FP32
+            Precision.FP32: 1.0,  # Baseline
+            Precision.FP16: 0.5,  # Half energy
+            Precision.BF16: 0.5,
+            Precision.FP8_E4M3: 0.25,
+            Precision.FP8_E5M2: 0.25,
+            Precision.FP4: 0.125,
+            Precision.INT32: 0.5,
+            Precision.INT16: 0.25,
+            Precision.INT8: 0.125,
+            Precision.INT4: 0.0625,
+        }
+    )
 
     # Scheduling characteristics
     min_occupancy: float = 0.25  # Minimum occupancy for efficiency
@@ -913,14 +957,18 @@ class HardwareResourceModel:
 
     # GPU Microarchitecture (for accurate compute modeling)
     # These parameters define the actual hardware implementation
-    cuda_cores_per_sm: Optional[int] = None           # 64 (Pascal-Turing), 128 (Ampere-Hopper)
-    ops_per_clock_per_core: Optional[float] = 2.0     # FMA: 2 ops/clock for FP32
-    sm_boost_clock_hz: Optional[float] = None         # Maximum boost frequency (short bursts)
-    sm_sustained_clock_hz: Optional[float] = None     # Sustained frequency under thermal load
+    cuda_cores_per_sm: Optional[int] = None  # 64 (Pascal-Turing), 128 (Ampere-Hopper)
+    ops_per_clock_per_core: Optional[float] = 2.0  # FMA: 2 ops/clock for FP32
+    sm_boost_clock_hz: Optional[float] = None  # Maximum boost frequency (short bursts)
+    sm_sustained_clock_hz: Optional[float] = (
+        None  # Sustained frequency under thermal load
+    )
 
     # Tensor Core microarchitecture (for matrix operations)
-    tensor_cores_per_sm: Optional[int] = None         # 4 (Volta/Turing/Ampere/Hopper)
-    tensor_core_ops_per_clock: Optional[float] = None # Varies by precision and generation
+    tensor_cores_per_sm: Optional[int] = None  # 4 (Volta/Turing/Ampere/Hopper)
+    tensor_core_ops_per_clock: Optional[float] = (
+        None  # Varies by precision and generation
+    )
 
     # NEW: BOM cost modeling for market analysis
     bom_cost_profile: Optional[BOMCostProfile] = None
@@ -1032,6 +1080,18 @@ class HardwareResourceModel:
     l3_access_latency_ns: Optional[float] = None
     dram_access_latency_ns: Optional[float] = None
 
+    # V5-5: per-tier achievable_fraction overrides for the V5-3b
+    # tier-aware roofline path. Maps tier name ("L1", "L2", "L3", "DRAM")
+    # to the calibrated achievable BW fraction (peak * fraction =
+    # effective). Empty default -> every tier defaults to 1.0 (ideal),
+    # which is what V5-1 / V5-3b shipped with.
+    #
+    # V5-5 only calibrates DRAM from vector_add baselines; L1 / L2 / L3
+    # entries stay absent until matmul-anchored calibration lands as a
+    # V5-5 follow-up. Per-mapper overrides are set in the factory
+    # functions, not here.
+    tier_achievable_fractions: Dict[str, float] = field(default_factory=dict)
+
     # M5 Layer 5: cache-coherence protocol class.
     # ``"snoopy_mesi"`` -- snoopy MESI / MOESI on shared bus or
     # ring (CPU multi-core, single-socket).
@@ -1110,27 +1170,46 @@ class HardwareResourceModel:
         per tier class when the mapper doesn't override (1.5 ns L1,
         10 ns L2, 30 ns L3, 100 ns DRAM). These defaults match consumer
         x86 / Ampere ballparks; specific mappers should override.
+
+        V5-5: ``tier_achievable_fractions`` overrides MemoryTier's default
+        ``achievable_fraction = 1.0`` per tier name. Mappers calibrated
+        against the V5-2b vector_add baselines set DRAM here (i7 = 0.47,
+        Jetson Orin Nano = 0.55 as of V5-5 PR). L1 / L2 / L3 entries
+        stay absent until the V5-5 follow-up calibrates them from
+        matmul data.
         """
         tiers: list["MemoryTier"] = []
+        # Per-tier achievable_fraction lookup; default to ideal (1.0)
+        # so existing un-calibrated mappers behave exactly as before.
+        af = self.tier_achievable_fractions
 
         # L1 (per-unit capacity, per-unit BW). Only emitted when both
         # capacity and BW are set. peak_bandwidth_bps stored on the tier
         # is the AGGREGATE (per-unit BW * compute_units) so callers can
         # treat all tiers uniformly; the per-unit value is recoverable
         # via tier.peak_bandwidth_bps / tier.num_units.
-        if (self.l1_cache_per_unit and self.l1_bandwidth_per_unit_bps
-                and self.l1_bandwidth_per_unit_bps > 0):
-            tiers.append(MemoryTier(
-                name="L1",
-                capacity_bytes=self.l1_cache_per_unit,
-                is_per_unit=True,
-                num_units=self.compute_units,
-                peak_bandwidth_bps=(self.l1_bandwidth_per_unit_bps
-                                    * self.compute_units),
-                access_latency_ns=(self.l1_access_latency_ns
-                                   if self.l1_access_latency_ns is not None
-                                   else 1.5),
-            ))
+        if (
+            self.l1_cache_per_unit
+            and self.l1_bandwidth_per_unit_bps
+            and self.l1_bandwidth_per_unit_bps > 0
+        ):
+            tiers.append(
+                MemoryTier(
+                    name="L1",
+                    capacity_bytes=self.l1_cache_per_unit,
+                    is_per_unit=True,
+                    num_units=self.compute_units,
+                    peak_bandwidth_bps=(
+                        self.l1_bandwidth_per_unit_bps * self.compute_units
+                    ),
+                    access_latency_ns=(
+                        self.l1_access_latency_ns
+                        if self.l1_access_latency_ns is not None
+                        else 1.5
+                    ),
+                    achievable_fraction=af.get("L1", 1.0),
+                )
+            )
 
         # L2. The M1 convention: ``l2_cache_total`` may carry either L2 (on
         # GPUs that have a distinct L2 -- e.g., H100) or LLC (on x86, where
@@ -1139,64 +1218,86 @@ class HardwareResourceModel:
         # is set; if the mapper has both ``l2_bandwidth_bps`` and
         # ``l3_bandwidth_bps``, the L3 tier is emitted as a separate hop
         # below.
-        if (self.l2_cache_total and self.l2_bandwidth_bps
-                and self.l2_bandwidth_bps > 0):
-            tiers.append(MemoryTier(
-                name="L2",
-                capacity_bytes=self.l2_cache_total,
-                is_per_unit=False,
-                num_units=1,
-                peak_bandwidth_bps=self.l2_bandwidth_bps,
-                access_latency_ns=(self.l2_access_latency_ns
-                                   if self.l2_access_latency_ns is not None
-                                   else 10.0),
-            ))
+        if self.l2_cache_total and self.l2_bandwidth_bps and self.l2_bandwidth_bps > 0:
+            tiers.append(
+                MemoryTier(
+                    name="L2",
+                    capacity_bytes=self.l2_cache_total,
+                    is_per_unit=False,
+                    num_units=1,
+                    peak_bandwidth_bps=self.l2_bandwidth_bps,
+                    access_latency_ns=(
+                        self.l2_access_latency_ns
+                        if self.l2_access_latency_ns is not None
+                        else 10.0
+                    ),
+                    achievable_fraction=af.get("L2", 1.0),
+                )
+            )
 
         # L3 / LLC (CPU only, typically). Distinct from L2 only on x86
         # where ``l2_cache_total`` carries the LLC value but we want a
         # separate hop. On i7-12700K post-#94: l3_bandwidth_bps=200e9
         # but no l2_bandwidth_bps, so the hierarchy is L1 -> L3 -> DRAM
         # (no distinct L2 hop).
-        if (self.l3_cache_total and self.l3_bandwidth_bps
-                and self.l3_bandwidth_bps > 0):
-            tiers.append(MemoryTier(
-                name="L3",
-                capacity_bytes=self.l3_cache_total,
-                is_per_unit=False,
-                num_units=1,
-                peak_bandwidth_bps=self.l3_bandwidth_bps,
-                access_latency_ns=(self.l3_access_latency_ns
-                                   if self.l3_access_latency_ns is not None
-                                   else 30.0),
-            ))
-        elif (self.l2_cache_total and not self.l2_bandwidth_bps
-              and self.l3_bandwidth_bps and self.l3_bandwidth_bps > 0):
+        if self.l3_cache_total and self.l3_bandwidth_bps and self.l3_bandwidth_bps > 0:
+            tiers.append(
+                MemoryTier(
+                    name="L3",
+                    capacity_bytes=self.l3_cache_total,
+                    is_per_unit=False,
+                    num_units=1,
+                    peak_bandwidth_bps=self.l3_bandwidth_bps,
+                    access_latency_ns=(
+                        self.l3_access_latency_ns
+                        if self.l3_access_latency_ns is not None
+                        else 30.0
+                    ),
+                    achievable_fraction=af.get("L3", 1.0),
+                )
+            )
+        elif (
+            self.l2_cache_total
+            and not self.l2_bandwidth_bps
+            and self.l3_bandwidth_bps
+            and self.l3_bandwidth_bps > 0
+        ):
             # x86 fallback: ``l2_cache_total`` carries the LLC (which IS L3
             # on x86), and ``l3_bandwidth_bps`` is the matching BW. Emit
             # this as a single L3 tier using the L2_total capacity.
-            tiers.append(MemoryTier(
-                name="L3",
-                capacity_bytes=self.l2_cache_total,
-                is_per_unit=False,
-                num_units=1,
-                peak_bandwidth_bps=self.l3_bandwidth_bps,
-                access_latency_ns=(self.l3_access_latency_ns
-                                   if self.l3_access_latency_ns is not None
-                                   else 30.0),
-            ))
+            tiers.append(
+                MemoryTier(
+                    name="L3",
+                    capacity_bytes=self.l2_cache_total,
+                    is_per_unit=False,
+                    num_units=1,
+                    peak_bandwidth_bps=self.l3_bandwidth_bps,
+                    access_latency_ns=(
+                        self.l3_access_latency_ns
+                        if self.l3_access_latency_ns is not None
+                        else 30.0
+                    ),
+                    achievable_fraction=af.get("L3", 1.0),
+                )
+            )
 
         # DRAM is always present (every mapper sets peak_bandwidth +
         # main_memory; these are required fields).
-        tiers.append(MemoryTier(
-            name="DRAM",
-            capacity_bytes=self.main_memory,
-            is_per_unit=False,
-            num_units=1,
-            peak_bandwidth_bps=self.peak_bandwidth,
-            access_latency_ns=(self.dram_access_latency_ns
-                               if self.dram_access_latency_ns is not None
-                               else 100.0),
-        ))
+        tiers.append(
+            MemoryTier(
+                name="DRAM",
+                capacity_bytes=self.main_memory,
+                is_per_unit=False,
+                num_units=1,
+                peak_bandwidth_bps=self.peak_bandwidth,
+                access_latency_ns=(
+                    self.dram_access_latency_ns
+                    if self.dram_access_latency_ns is not None
+                    else 100.0
+                ),
+                achievable_fraction=af.get("DRAM", 1.0),
+            )
+        )
 
         return tiers
 
@@ -1303,6 +1404,7 @@ class HardwareAllocation:
 
     This describes how one fused subgraph actually executes on hardware.
     """
+
     subgraph_id: str
     subgraph_name: str
     precision: Precision  # Numerical precision for this operation
@@ -1340,6 +1442,7 @@ class GraphHardwareAllocation:
 
     This is the final output of Phase 2: realistic utilization estimates.
     """
+
     model_name: str
     hardware_name: str
     batch_size: int
@@ -1415,7 +1518,7 @@ class HardwareMapper(ABC):
     def __init__(
         self,
         resource_model: HardwareResourceModel,
-        thermal_profile: Optional[str] = None
+        thermal_profile: Optional[str] = None,
     ):
         """
         Initialize hardware mapper.
@@ -1450,7 +1553,7 @@ class HardwareMapper(ABC):
         subgraph: FusedSubgraph,
         execution_stage: int,
         concurrent_subgraphs: int,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
     ) -> HardwareAllocation:
         """
         Map a single fused subgraph to hardware resources.
@@ -1472,7 +1575,7 @@ class HardwareMapper(ABC):
         fusion_report: FusionReport,
         execution_stages: List[List[int]],
         batch_size: int = 1,
-        precision: Precision = Precision.FP32
+        precision: Precision = Precision.FP32,
     ) -> GraphHardwareAllocation:
         """
         Map entire computation graph to hardware.
@@ -1498,7 +1601,7 @@ class HardwareMapper(ABC):
         bytes_transferred: int,
         allocated_units: int,
         occupancy: float,
-        precision: Precision
+        precision: Precision,
     ) -> Tuple[float, float, BottleneckType]:
         """
         Calculate latency for an operation using roofline model.
@@ -1519,7 +1622,9 @@ class HardwareMapper(ABC):
         # Get effective ops/sec for this precision
         if self.thermal_profile and self.resource_model.thermal_operating_points:
             # NEW: Use thermal operating point with DVFS and empirical derates
-            thermal_point = self.resource_model.thermal_operating_points[self.thermal_profile]
+            thermal_point = self.resource_model.thermal_operating_points[
+                self.thermal_profile
+            ]
 
             if precision in thermal_point.performance_specs:
                 perf_spec = thermal_point.performance_specs[precision]
@@ -1535,9 +1640,9 @@ class HardwareMapper(ABC):
 
         # Apply hardware utilization
         effective_ops_per_sec = (
-            base_ops_per_sec *
-            (allocated_units / self.resource_model.compute_units) *
-            occupancy
+            base_ops_per_sec
+            * (allocated_units / self.resource_model.compute_units)
+            * occupancy
         )
         compute_time = ops / effective_ops_per_sec if effective_ops_per_sec > 0 else 0
 
@@ -1555,10 +1660,7 @@ class HardwareMapper(ABC):
         return compute_time, memory_time, bottleneck
 
     def _calculate_energy(
-        self,
-        ops: int,
-        bytes_transferred: int,
-        precision: Precision
+        self, ops: int, bytes_transferred: int, precision: Precision
     ) -> Tuple[float, float]:
         """
         Calculate energy consumption.
@@ -1584,8 +1686,8 @@ class HardwareMapper(ABC):
         ops: int,
         bytes_transferred: int,
         precision: Precision,
-        execution_context: Optional[Dict] = None
-    ) -> Tuple[float, float, Optional['ArchitecturalEnergyBreakdown']]:
+        execution_context: Optional[Dict] = None,
+    ) -> Tuple[float, float, Optional["ArchitecturalEnergyBreakdown"]]:
         """
         Calculate energy consumption WITH architectural overhead.
 
@@ -1610,7 +1712,9 @@ class HardwareMapper(ABC):
 
         # Add architectural energy if model available
         if self.resource_model.architecture_energy_model:
-            from graphs.hardware.architectural_energy import ArchitecturalEnergyBreakdown
+            from graphs.hardware.architectural_energy import (
+                ArchitecturalEnergyBreakdown,
+            )
 
             if execution_context is None:
                 execution_context = {}
@@ -1620,7 +1724,7 @@ class HardwareMapper(ABC):
                 bytes_transferred=bytes_transferred,
                 compute_energy_baseline=compute_energy,
                 data_movement_energy_baseline=memory_energy,
-                execution_context=execution_context
+                execution_context=execution_context,
             )
 
             # Apply architectural overheads
@@ -1652,7 +1756,7 @@ class HardwareMapper(ABC):
 #
 # Models are organized by category:
 #   - models/datacenter/    : High-end GPUs, TPUs, and server CPUs
-#   - models/edge/          : Edge AI accelerators and SBCs  
+#   - models/edge/          : Edge AI accelerators and SBCs
 #   - models/automotive/    : Automotive-grade SoCs
 #   - models/mobile/        : Mobile GPUs and SoCs
 #   - models/accelerators/  : Fixed-function and reconfigurable accelerators
