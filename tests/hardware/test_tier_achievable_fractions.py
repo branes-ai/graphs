@@ -99,13 +99,26 @@ def test_unset_tiers_default_to_one_when_other_tier_is_overridden():
 
 
 def test_invalid_fraction_raises_at_construction():
-    """MemoryTier validates achievable_fraction is in [0, 1] in
-    __post_init__. An override out of range must surface as a
-    construction-time ValueError, not a silent garbage value at
-    analysis time."""
-    hw = _bare_resource_model(tier_achievable_fractions={"DRAM": 1.5})
-    with pytest.raises(ValueError, match="achievable_fraction"):
-        _ = hw.memory_hierarchy
+    """HardwareResourceModel.__post_init__ rejects any
+    tier_achievable_fractions value out of [0, 1] up-front, so
+    calibration mistakes surface at mapper-construction time
+    rather than as confusing analyzer drift."""
+    with pytest.raises(ValueError, match="must be in \\[0.0, 1.0\\]"):
+        _bare_resource_model(tier_achievable_fractions={"DRAM": 1.5})
+
+
+def test_invalid_per_op_fraction_raises_at_construction():
+    """Per-op fractions get the same up-front validation as the
+    per-tier dict (they bypass MemoryTier's check because they're
+    looked up at analyzer runtime, not at hierarchy construction)."""
+    with pytest.raises(ValueError, match="must be in \\[0.0, 1.0\\]"):
+        _bare_resource_model(
+            tier_achievable_fractions_by_op={"matmul": {"DRAM": -0.1}}
+        )
+    with pytest.raises(ValueError, match="must be in \\[0.0, 1.0\\]"):
+        _bare_resource_model(
+            tier_achievable_fractions_by_op={"linear": {"L2": 1.5}}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +175,31 @@ def test_i7_12700k_l3_calibration():
     l3 = next(t for t in hw.memory_hierarchy if t.name == "L3")
     assert l3.achievable_fraction == 0.84
     assert l3.effective_bandwidth_bps == pytest.approx(200e9 * 0.84)
+
+
+def test_i7_12700k_per_op_calibration():
+    """V5-3b flag-flip prerequisite: i7 has per-op DRAM and L2
+    overrides for matmul / linear. The single-fraction-per-tier
+    model couldn't capture that vector_add (zero-reuse) and matmul
+    (structured-reuse) achieve different effective BW at the same
+    tier; per-op overrides resolve this."""
+    hw = create_i7_12700k_mapper().resource_model
+    assert hw.tier_achievable_fractions_by_op == {
+        "matmul": {"L2": 0.10, "DRAM": 0.85},
+        "linear": {"L2": 0.10, "DRAM": 0.85},
+    }
+
+
+def test_per_op_calibration_falls_back_to_per_tier():
+    """vector_add isn't in the per-op overrides; its tier fractions
+    must come from the per-tier ``tier_achievable_fractions``
+    (V5-5 baseline values)."""
+    hw = create_i7_12700k_mapper().resource_model
+    # No vector_add entry in tier_achievable_fractions_by_op
+    assert "vector_add" not in hw.tier_achievable_fractions_by_op
+    # So vector_add picks up the per-tier values
+    assert hw.tier_achievable_fractions["L2"] == 0.22
+    assert hw.tier_achievable_fractions["DRAM"] == 0.47
 
 
 def test_i7_12700k_l1_calibration():

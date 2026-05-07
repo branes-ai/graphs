@@ -1216,7 +1216,12 @@ class RooflineAnalyzer:
         if result is None:
             return None
 
-        bw = result.binding_tier.effective_bandwidth_bps
+        # Per-op effective BW (V5-3b flag-flip prerequisite): a single
+        # ``achievable_fraction`` per tier doesn't capture that matmul /
+        # linear achieve different effective BW than vector_add at the
+        # same tier (different access patterns -> different cache hit
+        # rates). The lookup falls back per-op -> per-tier -> 1.0.
+        bw = self._per_op_effective_bw(result.binding_tier, op_kind)
         if bw <= 0:
             return None
 
@@ -1244,6 +1249,7 @@ class RooflineAnalyzer:
             bytes_loaded=result.bytes_loaded,
             binding_tier=result.binding_tier,
             hierarchy=hierarchy,
+            binding_tier_bw=bw,
         )
         self._last_tier_bytes_loaded = result.bytes_loaded
         self._last_memory_explanation = MemoryExplanation(
@@ -1256,12 +1262,37 @@ class RooflineAnalyzer:
         )
         return memory_time
 
-    @staticmethod
+    def _per_op_effective_bw(self, tier: "MemoryTier", op_kind: str) -> float:
+        """V5-3b flag-flip prerequisite: per-op effective BW lookup.
+
+        Returns ``tier.peak_bandwidth_bps * fraction``, where fraction
+        falls back through:
+          1. ``tier_achievable_fractions_by_op[op_kind][tier.name]``
+             -- per-op override
+          2. ``tier_achievable_fractions[tier.name]`` -- per-tier
+             default (the V5-5 calibrated value)
+          3. ``1.0`` -- ideal
+
+        Per-op overrides are a workload-specific calibration knob:
+        matmul / linear achieve different effective BW than
+        vector_add at the same tier because of structured access
+        patterns. The single-fraction-per-tier model can't capture
+        this, so the per-op override sits on top.
+        """
+        op_dict = self.resource_model.tier_achievable_fractions_by_op.get(op_kind, {})
+        if tier.name in op_dict:
+            fraction = op_dict[tier.name]
+        else:
+            fraction = self.resource_model.tier_achievable_fractions.get(tier.name, 1.0)
+        return tier.peak_bandwidth_bps * fraction
+
     def _memory_time_with_boundary_overlap(
+        self,
         op_kind: str,
         bytes_loaded: int,
         binding_tier: "MemoryTier",
         hierarchy: list,
+        binding_tier_bw: float,
     ) -> float:
         """V5-followup boundary cliff model: when a vector_add op
         binds at DRAM but its operand size is comparable to the
@@ -1291,9 +1322,10 @@ class RooflineAnalyzer:
         N=4M vector_add case lands at +20% (PASS) vs +140% (FAIL)
         under the previous binary model.
         """
-        bw = binding_tier.effective_bandwidth_bps
-        # Default behavior (current): pure binding-tier streaming.
-        default_time = bytes_loaded / bw
+        # Default behavior (current): pure binding-tier streaming
+        # using the caller-provided ``binding_tier_bw`` (which is
+        # already the per-op effective BW from _per_op_effective_bw).
+        default_time = bytes_loaded / binding_tier_bw
 
         # Scope: vector_add only. The matmul / linear bytes_loaded
         # calculation encodes reuse via tile-streaming reload counts;
@@ -1316,7 +1348,9 @@ class RooflineAnalyzer:
             return default_time
         last_cache = cache_tiers[-1]
         cache_cap = last_cache.total_capacity_bytes
-        cache_bw = last_cache.effective_bandwidth_bps
+        # Per-op cache BW (vector_add gets the per-tier default,
+        # which is the V5-5 calibrated value for that tier).
+        cache_bw = self._per_op_effective_bw(last_cache, op_kind)
         if cache_cap <= 0 or cache_bw <= 0:
             return default_time
 
@@ -1325,7 +1359,7 @@ class RooflineAnalyzer:
         cache_fill_bytes = min(bytes_loaded, cache_cap)
         dram_stream_bytes = max(0, bytes_loaded - cache_cap)
         cache_fill_time = cache_fill_bytes / cache_bw
-        dram_stream_time = dram_stream_bytes / bw
+        dram_stream_time = dram_stream_bytes / binding_tier_bw
         return max(cache_fill_time, dram_stream_time)
 
     @staticmethod

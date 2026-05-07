@@ -955,6 +955,24 @@ def create_i7_12700k_mapper() -> CPUMapper:
         #   DRAM = 0.47   Plateau median across N=16M/67M/268M rows.
         #                 Peak DDR5 75 GB/s -> 35 GB/s effective.
         tier_achievable_fractions={"L1": 0.02, "L2": 0.22, "L3": 0.84, "DRAM": 0.47},
+        # Per-op overrides: vector_add (the V5-2b baseline workload)
+        # gets the per-tier defaults above. Matmul / linear achieve
+        # different effective BW because of structured access
+        # patterns (cache hits the V5-3a reuse model can't capture
+        # via a single tier-fraction). Empirical fit from V4 sweep
+        # measurements:
+        #   matmul/linear @ L2: 0.10 -- vs 0.22 for vector_add. Multi-
+        #     thread BLAS doesn't realize the same per-core L2 BW that
+        #     single-thread torch.add does at the same WS range.
+        #   matmul/linear @ DRAM: 0.85 -- close to scalar
+        #     bw_efficiency_scale's value because matmul has reuse
+        #     (effective DRAM streaming exceeds vector_add's 0.47
+        #     plateau when the kernel hits caches mid-stream).
+        # See PR description for the per-shape derivation.
+        tier_achievable_fractions_by_op={
+            "matmul": {"L2": 0.10, "DRAM": 0.85},
+            "linear": {"L2": 0.10, "DRAM": 0.85},
+        },
     )
 
     return CPUMapper(model)
@@ -1167,6 +1185,10 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         # variant above for the full per-tier rationale + per-tier
         # docs at docs/calibration/i7-12700k-{l1,l2,l3}-calibration-analysis.md.
         tier_achievable_fractions={"L1": 0.02, "L2": 0.22, "L3": 0.84, "DRAM": 0.47},
+        tier_achievable_fractions_by_op={
+            "matmul": {"L2": 0.10, "DRAM": 0.85},
+            "linear": {"L2": 0.10, "DRAM": 0.85},
+        },
     )
 
     return CPUMapper(model)

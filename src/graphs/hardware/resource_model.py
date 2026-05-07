@@ -1109,6 +1109,57 @@ class HardwareResourceModel:
     # functions, not here.
     tier_achievable_fractions: Dict[str, float] = field(default_factory=dict)
 
+    # V5-3b flag-flip prerequisite: per-op overrides for the tier-aware
+    # achievable fraction. The single-fraction-per-tier model captured
+    # by ``tier_achievable_fractions`` above doesn't reflect that
+    # matmul / linear achieve a different effective BW than vector_add
+    # at the same tier (matmul has structured access patterns that
+    # benefit from cache hits; vector_add is zero-reuse). For shapes
+    # that bind the same tier under both ops, the right BW is
+    # genuinely different.
+    #
+    # Nested mapping: ``{op_kind: {tier_name: fraction}}``. Lookup
+    # falls back to ``tier_achievable_fractions[tier_name]`` if the
+    # (op, tier) pair isn't present, then to 1.0.
+    #
+    # Example (i7-12700K post the V5-3b-flip-prerequisite PR):
+    #   {"matmul":     {"L2": 0.10, "DRAM": 0.85},
+    #    "linear":     {"L2": 0.10, "DRAM": 0.85}}
+    # vector_add stays on the per-tier values (L2 = 0.22, DRAM = 0.47).
+    tier_achievable_fractions_by_op: Dict[str, Dict[str, float]] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self) -> None:
+        """Validate calibration-fraction invariants.
+
+        ``tier_achievable_fractions`` flows through ``MemoryTier``
+        (which validates each value in ``__post_init__``), so values
+        out of [0, 1] would surface there at hierarchy-construction
+        time. ``tier_achievable_fractions_by_op`` is looked up
+        directly by the analyzer at runtime and bypasses that
+        validation, so it could silently produce nonsense BW math.
+        Validate both up-front so calibration mistakes surface at
+        mapper construction, not as confusing analyzer drift.
+
+        ``tier_achievable_fractions`` is also revalidated here for
+        defense-in-depth (the MemoryTier check runs only when
+        ``memory_hierarchy`` is read; some callers may want the
+        invariant enforced earlier)."""
+        for tier_name, fraction in self.tier_achievable_fractions.items():
+            if not (0.0 <= fraction <= 1.0):
+                raise ValueError(
+                    f"tier_achievable_fractions[{tier_name!r}] = {fraction} "
+                    f"must be in [0.0, 1.0]"
+                )
+        for op_kind, by_tier in self.tier_achievable_fractions_by_op.items():
+            for tier_name, fraction in by_tier.items():
+                if not (0.0 <= fraction <= 1.0):
+                    raise ValueError(
+                        f"tier_achievable_fractions_by_op[{op_kind!r}]"
+                        f"[{tier_name!r}] = {fraction} must be in [0.0, 1.0]"
+                    )
+
     # M5 Layer 5: cache-coherence protocol class.
     # ``"snoopy_mesi"`` -- snoopy MESI / MOESI on shared bus or
     # ring (CPU multi-core, single-socket).
