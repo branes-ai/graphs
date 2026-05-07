@@ -452,4 +452,54 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         # tier-aware roofline path when opt-in. L1 / L2 entries stay
         # absent (default 1.0) until matmul-anchored calibration.
         tier_achievable_fractions={"DRAM": 0.55},
+        # V5 follow-up: per-op compute efficiency overrides for matmul
+        # / linear at fp16. Derived from V4 baseline measurements at
+        # validation/model_v4/results/baselines/jetson_orin_nano_8gb_{matmul,linear}.csv.
+        #
+        # The shared ``_get_compute_efficiency_scale`` curve was tuned
+        # for AGX-style "spec peak" interpretations and returns scale
+        # ~1.5 for large matmul, but Orin Nano's
+        # ``peak_ops_per_sec = 7.1 TFLOPS`` is ALREADY the achievable
+        # peak (cuBLAS Tensor Core 0.85 efficiency baked in via
+        # ``efficiency_factor`` on the FP16 perf characteristics).
+        # Multiplying that by 1.5 over-predicts compute throughput by
+        # 2.4x and forces shapes that actually run alu_bound to look
+        # dram_bound in the model.
+        #
+        # V4-baseline-fit sweep at the 15W default (Orin Nano Super
+        # 1.02 GHz). Two memory paths matter (legacy via
+        # ``_get_bandwidth_efficiency_scale`` and tier-aware via
+        # V5-3b); the values below are Pareto-optimal across both:
+        #
+        # * matmul: 0.70 maximizes latency-pass count.
+        #     - tier-aware: lat 22 -> 30 (+8), energy unchanged at 29
+        #     - legacy:     lat 18 -> 26 (+8), energy unchanged at 24
+        #
+        # * linear: 0.94 respects the legacy-path energy floor while
+        #   still gaining latency-pass on both paths. The peak
+        #   latency-pass point is around 0.85-0.88 but those values
+        #   regress the legacy-path energy band (predicted latency
+        #   grows -> static_energy = avg_power * latency grows
+        #   faster than the actual silicon energy). Sweep results
+        #   on the LEGACY memory path (which the V4 floor tests
+        #   currently use):
+        #     scale  lat-pass  energy-pass
+        #     0.85   28        24      ← peak lat, energy fails (floor 27)
+        #     0.88   28        25      ← still fails energy floor
+        #     0.90   27        25
+        #     0.93   25        27      ← matches floor
+        #     0.94   25        28      ← ships here, +1 headroom
+        #     1.00   22        28
+        #     1.40   18        29      ← legacy curve baseline
+        #   On the TIER-AWARE path 0.94 gives lat 30 (vs baseline 18).
+        #   The energy floor is enforced by
+        #   tests/validation_model_v4/test_v4_against_baseline.py
+        #   ::test_jetson_orin_nano_linear_pass_energy_floor (>=27).
+        #
+        # vector_add gets no override (its compute path is dominated
+        # by memory; the legacy curve already returns ~1.0 for
+        # elementwise ops).
+        compute_efficiency_overrides_by_op={
+            "fp16": {"matmul": 0.70, "linear": 0.94},
+        },
     )

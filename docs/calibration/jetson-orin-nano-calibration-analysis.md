@@ -31,7 +31,15 @@ Improving the floor requires three model fixes (in priority order):
    is the regime classifier (compute model, item 3).*
 3. **Compute efficiency model refinement** -- 19 -side
    under-predictions where compute_time is too fast vs reality;
-   separate from the memory model.
+   separate from the memory model. *Addressed by the V5 follow-up
+   compute-derate PR; see
+   [`docs/v5/jetson-compute-efficiency-derate.md`](../v5/jetson-compute-efficiency-derate.md).
+   Per-mapper `compute_efficiency_overrides_by_op` field replaces the
+   AGX-tuned legacy curve for matmul (0.70) and linear (0.94) on
+   Orin Nano FP16. Latency-pass gains: matmul +8, linear +7-12.
+   V4 PASS still blocked by the sweep-file regime classifier
+   (44/48 matmul, 45/46 linear records have stale sweep regimes;
+   regenerating the sweep is a separate task).*
 
 Setting calibration fractions any differently won't close these
 gaps -- the underlying physics (or model assumptions) is what's off.

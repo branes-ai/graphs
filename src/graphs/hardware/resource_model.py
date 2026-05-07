@@ -1152,6 +1152,39 @@ class HardwareResourceModel:
         default_factory=dict
     )
 
+    # V5 follow-up: per-precision per-op compute efficiency override.
+    # Replaces ``RooflineAnalyzer._get_compute_efficiency_scale``'s
+    # large hand-tuned curve for matmul / linear when set. Maps
+    # precision name (``"fp16"``, ``"fp32"``, etc. -- the
+    # ``Precision.value`` string, not the enum) to a per-op-kind
+    # mapping of fixed scale values.
+    #
+    # Key insight: ``peak_flops`` interpretation varies across
+    # mappers. On Jetson Orin Nano the ``peak_ops_per_sec`` already
+    # bakes in cuBLAS Tensor Core efficiency (e.g. 0.85), making it
+    # an "achievable" peak; on Jetson Orin AGX the value is closer to
+    # the spec peak (TF32 / cuDNN can boost effective throughput past
+    # it). The shared ``_get_compute_efficiency_scale`` function was
+    # calibrated for AGX-style spec peaks and returns scales > 1 for
+    # large matmul, which over-predicts compute throughput on
+    # achievable-peak mappers by 2x+.
+    #
+    # When this override is set for the analyzer's
+    # (precision, op_kind), the legacy curve is bypassed entirely.
+    # ``op_kind`` is the same string as ``ReuseModel.op_kind``
+    # (``"matmul"``, ``"linear"``, ``"vector_add"``).
+    #
+    # Example (Jetson Orin Nano FP16, V4 baseline-calibrated):
+    #   {"fp16": {"matmul": 0.70, "linear": 0.85}}
+    #
+    # The values must be in (0, 2.0]; the same range as the legacy
+    # curve to avoid surprising regressions when a mapper carries
+    # the override but the analyzer falls into a non-overridden op
+    # kind.
+    compute_efficiency_overrides_by_op: Dict[str, Dict[str, float]] = field(
+        default_factory=dict
+    )
+
     def __post_init__(self) -> None:
         """Validate calibration-fraction invariants.
 
@@ -1180,6 +1213,13 @@ class HardwareResourceModel:
                     raise ValueError(
                         f"tier_achievable_fractions_by_op[{op_kind!r}]"
                         f"[{tier_name!r}] = {fraction} must be in [0.0, 1.0]"
+                    )
+        for prec_name, by_op in self.compute_efficiency_overrides_by_op.items():
+            for op_kind, scale in by_op.items():
+                if not (0.0 < scale <= 2.0):
+                    raise ValueError(
+                        f"compute_efficiency_overrides_by_op[{prec_name!r}]"
+                        f"[{op_kind!r}] = {scale} must be in (0.0, 2.0]"
                     )
 
     # M5 Layer 5: cache-coherence protocol class.
