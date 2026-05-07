@@ -936,36 +936,25 @@ def create_i7_12700k_mapper() -> CPUMapper:
             "consumer-continuous": thermal_profile,
         },
         default_thermal_profile="consumer-continuous",
-        # V5-5 calibration: DRAM achievable_fraction derived from the
-        # vector_add baseline at validation/model_v4/results/baselines/
-        # i7_12700k_vector_add.csv. Plateau rows (N=16M, 67M, 268M;
-        # working set 192 MB to 3 GB, all well past the 25 MB LLC):
-        # measured 35.2 / 34.7 / 36.7 GB/s, median ~35 GB/s. Peak DDR5
-        # is 75 GB/s, so achievable_fraction = 35 / 75 = 0.47. Used by
-        # the V5-3b tier-aware roofline path when opt-in (or after the
-        # V5-5 follow-up flips the default). L1 / L3 entries stay
-        # absent (default 1.0) until matmul-anchored calibration.
-        # V5-5 + follow-up calibration:
-        #   DRAM = 0.47 (i7_12700k_vector_add.csv plateau, peak 75 GB/s)
-        #   L3   = 0.84 (i7_12700k_vector_add.csv 2-point fit on
-        #                dispatch-corrected L3-bound rows N=65K and
-        #                N=1M: 167.6 GB/s and 166.7 GB/s respectively
-        #                vs L3 peak 200 GB/s -> mean 0.836, rounded
-        #                to 0.84. The N=262K shape shows non-physical
-        #                fraction 1.71x peak -- per-core L2 hits the
-        #                i7 mapper doesn't currently model -- and is
-        #                rejected from the regression. See
-        #                docs/calibration/i7-12700k-l3-calibration-analysis.md
-        #                for the full derivation + the structural
-        #                limit (no L3 value can fix N=262K's V4 floor
-        #                failure; needs model refinement, not
-        #                calibration).
-        # L1 stays intentionally absent (default 1.0). The tier-aware
-        # memory_time for every L1-binding matmul shape on i7 is
-        # 75x-1000x smaller than the CPU dispatch floor, so any L1
-        # achievable_fraction value is a no-op for predictions today.
-        # See docs/calibration/i7-12700k-l1-calibration-analysis.md.
-        tier_achievable_fractions={"L2": 0.22, "L3": 0.84, "DRAM": 0.47},
+        # V5-5 + follow-up calibration values, all from
+        # validation/model_v4/results/baselines/i7_12700k_vector_add.csv
+        # (dispatch-corrected via the L1 regression's 1.79 us constant).
+        # Per-tier docs at docs/calibration/i7-12700k-{l1,l2,l3}-calibration-analysis.md.
+        #
+        #   L1   = 0.020  2-point regression (N=256, N=1024); aggregate
+        #                 peak 3500 GB/s -> 70 GB/s effective. Matters for
+        #                 vector_add medium-N (N=4K-16K); no-op for matmul
+        #                 (dispatch floor 6 us dominates there).
+        #   L2   = 0.22   Per-core L2 (private, exclusive). vector_add at
+        #                 N=262K (3 MB WS); aggregate peak 1.5 TB/s ->
+        #                 326 GB/s effective single-thread.
+        #   L3   = 0.84   2-point regression on N=65K + N=1M (clean
+        #                 L3-resident; the N=262K outlier was 1.71x peak
+        #                 indicating per-core L2 hits and was rejected).
+        #                 Peak 200 GB/s -> 168 GB/s effective.
+        #   DRAM = 0.47   Plateau median across N=16M/67M/268M rows.
+        #                 Peak DDR5 75 GB/s -> 35 GB/s effective.
+        tier_achievable_fractions={"L1": 0.02, "L2": 0.22, "L3": 0.84, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
@@ -1173,31 +1162,11 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
             "consumer-continuous-large": thermal_profile,
         },
         default_thermal_profile="consumer-continuous-large",
-        # V5-5: same physical DDR5 subsystem as create_i7_12700k_mapper(),
-        # so the calibrated DRAM achievable_fraction applies identically.
-        # See the tiny-model variant for derivation (median 35 GB/s
-        # plateau on N=16M/67M/268M vector_add baseline; peak 75 GB/s).
-        # V5-5 + follow-up calibration:
-        #   DRAM = 0.47 (i7_12700k_vector_add.csv plateau, peak 75 GB/s)
-        #   L3   = 0.84 (i7_12700k_vector_add.csv 2-point fit on
-        #                dispatch-corrected L3-bound rows N=65K and
-        #                N=1M: 167.6 GB/s and 166.7 GB/s respectively
-        #                vs L3 peak 200 GB/s -> mean 0.836, rounded
-        #                to 0.84. The N=262K shape shows non-physical
-        #                fraction 1.71x peak -- per-core L2 hits the
-        #                i7 mapper doesn't currently model -- and is
-        #                rejected from the regression. See
-        #                docs/calibration/i7-12700k-l3-calibration-analysis.md
-        #                for the full derivation + the structural
-        #                limit (no L3 value can fix N=262K's V4 floor
-        #                failure; needs model refinement, not
-        #                calibration).
-        # L1 stays intentionally absent (default 1.0). The tier-aware
-        # memory_time for every L1-binding matmul shape on i7 is
-        # 75x-1000x smaller than the CPU dispatch floor, so any L1
-        # achievable_fraction value is a no-op for predictions today.
-        # See docs/calibration/i7-12700k-l1-calibration-analysis.md.
-        tier_achievable_fractions={"L2": 0.22, "L3": 0.84, "DRAM": 0.47},
+        # Same physical hardware as create_i7_12700k_mapper(), so the
+        # calibration values apply identically. See the tiny-model
+        # variant above for the full per-tier rationale + per-tier
+        # docs at docs/calibration/i7-12700k-{l1,l2,l3}-calibration-analysis.md.
+        tier_achievable_fractions={"L1": 0.02, "L2": 0.22, "L3": 0.84, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
