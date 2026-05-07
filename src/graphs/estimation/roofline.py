@@ -348,7 +348,7 @@ class RooflineAnalyzer:
         calibrated_peak_flops: Optional[float] = None,
         calibrated_bandwidth: Optional[float] = None,
         thermal_profile: Optional[str] = None,
-        use_tier_aware_memory: bool = False,
+        use_tier_aware_memory: bool = True,
     ):
         """
         Initialize roofline analyzer.
@@ -365,15 +365,19 @@ class RooflineAnalyzer:
             thermal_profile: Optional thermal/power profile (e.g., '15W', '30W').
                 If provided, uses thermal_operating_points for realistic performance.
                 If None, uses default_thermal_profile or falls back to precision_profiles.
-            use_tier_aware_memory: V5-3b opt-in flag. When True, single-op
-                MATMUL/LINEAR subgraphs route memory_time through the
-                tier-aware path (tier_picker + per-op reuse models +
-                MemoryTier.effective_bandwidth_bps) instead of the scalar
-                bw_efficiency_scale * peak_bandwidth. Defaults to False so
-                V4 floors hold until V5-5 calibrates per-tier
-                achievable_fraction. Only takes effect on hardware whose
-                memory_hierarchy has >=2 tiers; everything else falls
-                through to the scalar path even when the flag is True.
+            use_tier_aware_memory: V5-3b tier-aware roofline path. When
+                True (the default since the V5-3b plan's exit criterion
+                was met on i7-12700K), single-op MATMUL/LINEAR/vector_add
+                subgraphs route memory_time through the tier-aware path
+                (tier_picker + per-op reuse models +
+                MemoryTier.effective_bandwidth_bps + per-op calibration)
+                instead of the scalar bw_efficiency_scale *
+                peak_bandwidth. Set False to opt OUT and use the scalar
+                bw_efficiency_scale path -- useful for A/B comparison or
+                for hardware whose tier_achievable_fractions haven't been
+                calibrated yet (the path falls through to the scalar
+                method automatically when the hierarchy has < 2 tiers
+                or the op type isn't supported, regardless of this flag).
         """
         self.resource_model = resource_model
         self.precision = precision
