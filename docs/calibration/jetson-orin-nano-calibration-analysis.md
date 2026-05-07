@@ -37,9 +37,12 @@ Improving the floor requires three model fixes (in priority order):
    Per-mapper `compute_efficiency_overrides_by_op` field replaces the
    AGX-tuned legacy curve for matmul (0.70) and linear (0.94) on
    Orin Nano FP16. Latency-pass gains: matmul +8, linear +7-12.
-   V4 PASS still blocked by the sweep-file regime classifier
-   (44/48 matmul, 45/46 linear records have stale sweep regimes;
-   regenerating the sweep is a separate task).*
+
+   The sweep-file regime classifier was *separately* unblocked by
+   measurement-priority sweep augmentation (PR-link below); see
+   [`docs/v5/sweep-measurement-priority-augmentation.md`](../v5/sweep-measurement-priority-augmentation.md).
+   With both fixes landed, V4 PASS on Jetson Orin Nano: 0/48 matmul
+   -> 10-11/48; 0/46 linear -> 3-4/46. Total +14-15 V4 PASS.*
 
 Setting calibration fractions any differently won't close these
 gaps -- the underlying physics (or model assumptions) is what's off.
