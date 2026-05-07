@@ -65,7 +65,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     tensor_cores_per_sm = 4  # Nano has 4 TCs/SM like AGX
     total_tensor_cores = num_sms * tensor_cores_per_sm  # 32 TCs
     # ops are flops, so MACs count as 2 ops
-    fp32_ops_per_sm_per_clock =  256  # 128 CUDA cores × 1 FMA = 128 MACs/clock/SM
+    fp32_ops_per_sm_per_clock = 256  # 128 CUDA cores × 1 FMA = 128 MACs/clock/SM
     # Tensor Core throughput (Ampere SM 8.6, FP16 TC fragment is 8x8x4 ->
     # 256 MACs/clock/TC = 512 ops/clock/TC; INT8 is 2x that). Per the
     # Ampere whitepaper and verified against V4 Phase B baseline on
@@ -78,7 +78,6 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     # Baseline frequency (sustained at 15W with active cooling)
     baseline_freq_hz = 650e6  # 650 MHz sustained (typical)
 
-
     # | Precision          | Ops/clock/SM |         Notes                       |
     # +--------------------+--------------+-------------------------------------+
     # | FP32               |      128     | 1 op/clock per CUDA core            |
@@ -86,7 +85,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     # | FP64               |        2     | Severely limited on Jetson/consumer |
     # | INT32              |       64     | Shares with half the FP32 units     |
     # | INT8               |      256     | via dp4a instruction                |
-    # | Tensor Core (INT8) |      512+    | 4x4x4 matrix ops per clock (64 MACs)|            
+    # | Tensor Core (INT8) |      512+    | 4x4x4 matrix ops per clock (64 MACs)|
     # | Tensor Core (FP16) |      512+    | Matrix ops only, layout constraints |
 
     # ========================================================================
@@ -100,19 +99,19 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         num_units=num_sms * cuda_cores_per_sm,  # 8 SMs × 128 cores/SM = 1,024 cores
         ops_per_unit_per_clock={
             Precision.FP64: 0.03125,  # 1/32 rate (emulated)
-            Precision.FP32: 2,         # FMA = 2 ops/clock (mul + add)
-            Precision.FP16: 2,         # FP16 emulated on CUDA cores
-            Precision.INT8: 2,         # INT8 emulated on CUDA cores
+            Precision.FP32: 2,  # FMA = 2 ops/clock (mul + add)
+            Precision.FP16: 2,  # FP16 emulated on CUDA cores
+            Precision.INT8: 2,  # INT8 emulated on CUDA cores
         },
         core_frequency_hz=baseline_freq_hz,  # 650 MHz sustained (15W)
-        process_node_nm=8,             # Samsung 8nm
-        energy_per_flop_fp32=get_base_alu_energy(8, 'standard_cell'),  # 1.9 pJ
+        process_node_nm=8,  # Samsung 8nm
+        energy_per_flop_fp32=get_base_alu_energy(8, "standard_cell"),  # 1.9 pJ
         energy_scaling={
-            Precision.FP64: 2.0,       # Double precision = 2× energy
-            Precision.FP32: 1.0,       # Baseline
-            Precision.FP16: 0.5,       # Half precision (emulated on CUDA cores)
-            Precision.INT8: 0.125,     # INT8 (emulated on CUDA cores)
-        }
+            Precision.FP64: 2.0,  # Double precision = 2× energy
+            Precision.FP32: 1.0,  # Baseline
+            Precision.FP16: 0.5,  # Half precision (emulated on CUDA cores)
+            Precision.INT8: 0.125,  # INT8 (emulated on CUDA cores)
+        },
     )
 
     # ========================================================================
@@ -127,23 +126,25 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
             # MACs/clock/TC = 512 ops/clock/TC. Pre-fix value of 64 was
             # half the spec; #94 calibrated against measured 7-8 TFLOPS
             # on Orin Nano Super at 650 MHz sustained.
-            Precision.FP16: 512,       # 256 MACs/clock/TC × 2 ops/MAC
-            Precision.INT8: 1024,      # 2x FP16 rate on Ampere
+            Precision.FP16: 512,  # 256 MACs/clock/TC × 2 ops/MAC
+            Precision.INT8: 1024,  # 2x FP16 rate on Ampere
         },
         core_frequency_hz=baseline_freq_hz,  # 650 MHz sustained (15W)
         process_node_nm=8,
-        energy_per_flop_fp32=get_base_alu_energy(8, 'tensor_core'),  # 1.62 pJ (15% better)
+        energy_per_flop_fp32=get_base_alu_energy(
+            8, "tensor_core"
+        ),  # 1.62 pJ (15% better)
         energy_scaling={
-            Precision.FP16: 0.5,       # Half precision
-            Precision.INT8: 0.25,      # INT8
-        }
+            Precision.FP16: 0.5,  # Half precision
+            Precision.INT8: 0.25,  # INT8
+        },
     )
 
     # CUDA cores:
     # FP32: 128 cores × 1 ops/clock   = 128 ops/clock per SM
     # Total: 8 SMs × 128 ops/clock/SM = 1,024 ops/clock
     # At 918 MHz boost: 1,024 × 918e6 = 1.88 TFLOPS FP32 (peak)
-    
+
     # INT8: 128 cores × 2 ops/clock   = 256 ops/clock per SM
     # Total: 8 SMs × 256 ops/clock/SM = 2,048 ops/clock
 
@@ -153,7 +154,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     # Sustained INT8:2,048 ×  300 MHz = 0.614 TOPS
     # Effective: 1.228 × 0.40 = 0.98 TOPS (4.7% of 21 TOPS dense peak)
 
-    # Tensor cores: 
+    # Tensor cores:
     # Tensor Core INT8: 4×4×4 matmul      = 64 MACs/clock per Tensor Core
     # Total: 32 TCs × 64 MACs/TC/clock    = 2,048 MACs/clock
     # At 918 MHz boost:     2,048 × 918e6 = 1.88 TOPS INT8 (peak)
@@ -205,7 +206,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
                 efficiency_factor=0.20,
                 native_acceleration=True,
             ),
-        }
+        },
     )
 
     # ========================================================================
@@ -220,8 +221,8 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     # 0.85 = 7.1 TFLOPS, matching the V4 baseline.
     clock_15w = ClockDomain(
         base_clock_hz=306e6,
-        max_boost_clock_hz=1020e6,    # Super raised boost from 918 MHz
-        sustained_clock_hz=1020e6,    # Super can sustain boost at 15W under cuBLAS
+        max_boost_clock_hz=1020e6,  # Super raised boost from 918 MHz
+        sustained_clock_hz=1020e6,  # Super can sustain boost at 15W under cuBLAS
         dvfs_enabled=True,
     )
 
@@ -246,7 +247,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
                 compute_resource=compute_resource_15w,
                 instruction_efficiency=0.95,
                 memory_bottleneck_factor=0.80,
-                efficiency_factor=0.80,   # Tensor Core INT8 well-utilized
+                efficiency_factor=0.80,  # Tensor Core INT8 well-utilized
                 native_acceleration=True,
             ),
             Precision.FP16: PerformanceCharacteristics(
@@ -267,7 +268,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
                 efficiency_factor=0.40,
                 native_acceleration=True,
             ),
-        }
+        },
     )
 
     # ========================================================================
@@ -283,8 +284,8 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     # 8.36 TFLOPS theoretical; * 0.85 efficiency = 7.1 TFLOPS effective.
     clock_maxn = ClockDomain(
         base_clock_hz=306e6,
-        max_boost_clock_hz=1020e6,    # Super raised boost to 1.02 GHz
-        sustained_clock_hz=1020e6,    # cuBLAS pegs at boost; no throttling at 25W
+        max_boost_clock_hz=1020e6,  # Super raised boost to 1.02 GHz
+        sustained_clock_hz=1020e6,  # cuBLAS pegs at boost; no throttling at 25W
         dvfs_enabled=False,
     )
 
@@ -301,7 +302,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
 
     thermal_maxn = ThermalOperatingPoint(
         name="MAXN-Super",
-        tdp_watts=25.0,                # Super raised TDP cap from 15W to 25W
+        tdp_watts=25.0,  # Super raised TDP cap from 15W to 25W
         cooling_solution="active-fan",
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
@@ -328,7 +329,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
                 efficiency_factor=0.40,
                 native_acceleration=True,
             ),
-        }
+        },
     )
 
     # ========================================================================
@@ -356,19 +357,16 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     return HardwareResourceModel(
         name="Jetson-Orin-Nano-8GB",
         hardware_type=HardwareType.GPU,
-
         # NEW: Multi-fabric architecture
         compute_fabrics=[cuda_fabric, tensor_fabric],
-
         compute_units=num_sms,
         threads_per_unit=64,
         warps_per_unit=2,
         warp_size=32,
-
         # Thermal operating points with DVFS modeling
         thermal_operating_points={
-            "7W":   thermal_7w,    # Battery-powered devices
-            "15W":  thermal_15w,   # Orin Nano Super 15W (Phase B baseline)
+            "7W": thermal_7w,  # Battery-powered devices
+            "15W": thermal_15w,  # Orin Nano Super 15W (Phase B baseline)
             "MAXN": thermal_maxn,  # Orin Nano Super at full 25W power
         },
         # 15W is the default because the V4 Phase B baseline (#90) was
@@ -377,7 +375,6 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         # should pass "7W". On the Super silicon, 15W can sustain
         # near-boost clocks under cuBLAS Tensor Core load.
         default_thermal_profile="15W",
-
         # Legacy precision profiles (backward compatibility).
         # FP16/FP32 added for issue #53: get_peak_ops now raises on missing
         # precision instead of silently falling back to INT8. Values follow
@@ -408,10 +405,9 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
             ),
         },
         default_precision=Precision.INT8,
-
         peak_bandwidth=102e9,  # 102 GB/s LPDDR5-6400 (Orin Nano Super, Dec 2024).
-                               # Original Orin Nano (2023) was 68 GB/s LPDDR5-4267.
-                               # The V4 Phase B baseline was captured on a Super.
+        # Original Orin Nano (2023) was 68 GB/s LPDDR5-4267.
+        # The V4 Phase B baseline was captured on a Super.
         l1_cache_per_unit=128 * 1024,
         l2_cache_total=2 * 1024 * 1024,  # 2 MB (half of AGX)
         main_memory=8 * 1024**3,  # 8 GB
@@ -421,6 +417,14 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         max_concurrent_kernels=4,  # Fewer than AGX
         wave_quantization=2,  # Smaller wave size
         bom_cost_profile=bom_cost,
+        # V5-5 calibration: DRAM achievable_fraction derived from
+        # validation/model_v4/results/baselines/jetson_orin_nano_8gb_vector_add.csv
+        # captured at the 15W thermal profile per #94. Plateau rows
+        # (N=16M, 67M, 268M; fp16 working set 100 MB to 1.6 GB, all
+        # well past the 2 MB L2): measured 61.6 / 56.4 / 56.6 GB/s,
+        # median ~57 GB/s. Peak LPDDR5-6400 is 102 GB/s, so
+        # achievable_fraction = 57 / 102 = 0.55. Used by the V5-3b
+        # tier-aware roofline path when opt-in. L1 / L2 entries stay
+        # absent (default 1.0) until matmul-anchored calibration.
+        tier_achievable_fractions={"DRAM": 0.55},
     )
-
-
