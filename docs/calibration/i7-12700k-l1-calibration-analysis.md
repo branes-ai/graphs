@@ -83,10 +83,12 @@ calibrated correctly:
 | **16K** | **192 KB** | **2.74 us** | 2 us | **math wins** |
 
 For N=16K the math part exceeds the floor, and L1 fraction directly
-drives the prediction. With L1 = 0.020 the prediction lands at
-2.74 us vs measured 3.09 us (-9%, well inside the 30% LAUNCH band).
-With the previous default L1 = 1.0 the math part is 0.055 us,
-floor wins, prediction = 2 us (-35% off measured -- FAIL).
+drives the prediction. With the current L1 = 0.020 the prediction
+lands at 2.74 us vs measured 3.09 us (-9%, well inside the 30%
+LAUNCH band). For comparison, **before** this calibration was set
+(when L1 defaulted to 1.0 in the V5-1 / pre-PR-#110 era), the math
+part was 0.055 us, the floor won, prediction was 2 us, and the
+shape FAILED at -35% off measured.
 
 This is what the prior conclusion missed: while L1 calibration is
 structurally moot for matmul, it's load-bearing for vector_add
