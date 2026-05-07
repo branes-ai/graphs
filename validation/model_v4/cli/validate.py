@@ -51,7 +51,10 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Hardware key (matches sweep JSON 'regime_per_hw')",
     )
     p.add_argument(
-        "--op", required=True, choices=["matmul", "linear"], help="Operator to validate"
+        "--op",
+        required=True,
+        choices=["matmul", "linear", "vector_add"],
+        help="Operator to validate",
     )
     p.add_argument(
         "--purpose",
