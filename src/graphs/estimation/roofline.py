@@ -35,6 +35,44 @@ if TYPE_CHECKING:
     from ..hardware.calibration.registry_sync import HardwareEntry
 
 
+@dataclass(frozen=True)
+class MemoryExplanation:
+    """V5-4 explainability: structured breakdown of where memory_time
+    came from when the V5-3b tier-aware path fired.
+
+    Populated on ``LatencyDescriptor.memory_explanation`` whenever
+    ``RooflineAnalyzer(use_tier_aware_memory=True)`` successfully routed
+    a subgraph through ``pick_binding_tier``. ``None`` on the scalar
+    ``bw_efficiency_scale`` path -- callers that need to render a
+    binding-tier column should treat ``None`` as "not applicable" and
+    fall back to displaying nothing rather than a placeholder.
+
+    Field semantics:
+      * ``binding_tier_name`` -- the tier whose bandwidth gates kernel
+        throughput (the streaming source one outward from the residency
+        tier). Typical values: 'L1', 'L2', 'L3', 'DRAM'.
+      * ``residency_tier_name`` -- the tier whose capacity holds the
+        per-op residency window. Equal to ``binding_tier_name`` when
+        the kernel is already at the outermost tier (DRAM).
+      * ``tile_dims`` -- op-specific (vector_add: ``(N,)``; matmul /
+        linear: ``(Mt, Nt)`` C-tile dims).
+      * ``residency_bytes`` -- the working set the chosen tile occupies
+        in the residency tier (always <= residency tier's aggregate
+        capacity, except for the DRAM-overflow fallthrough).
+      * ``bytes_loaded`` -- bytes streamed from the binding tier per
+        kernel exec; the numerator of ``memory_time`` in the new path.
+      * ``effective_bandwidth_bps`` -- the binding tier's calibrated
+        BW (peak * achievable_fraction); the denominator of memory_time.
+    """
+
+    binding_tier_name: str
+    residency_tier_name: str
+    tile_dims: Tuple[int, ...]
+    residency_bytes: int
+    bytes_loaded: int
+    effective_bandwidth_bps: float
+
+
 @dataclass
 class LatencyDescriptor:
     """
@@ -79,6 +117,12 @@ class LatencyDescriptor:
     # Explanation
     explanation: str = ""
 
+    # V5-4: structured breakdown of the tier-aware memory_time path.
+    # Populated by RooflineAnalyzer when use_tier_aware_memory=True
+    # and the subgraph passed the V5-3b eligibility predicate. Stays
+    # None on the scalar bw_efficiency_scale path.
+    memory_explanation: Optional[MemoryExplanation] = None
+
     def __str__(self) -> str:
         """Short summary"""
         return (
@@ -107,6 +151,16 @@ class LatencyDescriptor:
         )
         if self.confidence.level != ConfidenceLevel.UNKNOWN:
             lines.append(f"  Confidence: {self.confidence}")
+        if self.memory_explanation is not None:
+            me = self.memory_explanation
+            lines.append(
+                f"  Memory binding: tier={me.binding_tier_name} "
+                f"(residency={me.residency_tier_name}, "
+                f"tile={me.tile_dims}, "
+                f"residency_bytes={me.residency_bytes}, "
+                f"bytes_loaded={me.bytes_loaded}, "
+                f"eff_bw={me.effective_bandwidth_bps / 1e9:.1f} GB/s)"
+            )
         return "\n".join(lines)
 
 
@@ -326,13 +380,15 @@ class RooflineAnalyzer:
         self.efficiency_factor = efficiency_factor
         self.thermal_profile = thermal_profile
         self.use_tier_aware_memory = use_tier_aware_memory
-        # Stash for the V5-3b tier-aware path: when
-        # _try_tier_aware_memory_time succeeds, it writes the
-        # binding-tier bytes_loaded here so _analyze_subgraph can use
-        # the tier-aware byte count for downstream attained_bandwidth
-        # math. Reset per-subgraph by the helper itself; never read
-        # without a successful tier-aware call ahead of it.
+        # Stashes for the V5-3b/V5-4 tier-aware path: when
+        # _try_tier_aware_memory_time succeeds, it writes the binding
+        # tier bytes_loaded + structured MemoryExplanation here so
+        # _analyze_subgraph can use the tier-aware byte count for
+        # downstream attained_bandwidth math AND attach the
+        # explanation to the LatencyDescriptor it returns. Reset by
+        # the helper itself; only read after a successful call.
         self._last_tier_bytes_loaded: int = 0
+        self._last_memory_explanation: Optional["MemoryExplanation"] = None
         self.is_calibrated = (
             efficiency_factor is not None
             or calibrated_peak_flops is not None
@@ -574,6 +630,10 @@ class RooflineAnalyzer:
         # behavior change vs pre-V5-3b. See _try_tier_aware_memory_time
         # for the eligibility predicate.
         if self.use_tier_aware_memory:
+            # Reset the explanation stash before the attempt so that a
+            # decline (returning None) doesn't leave a stale explanation
+            # from a prior subgraph attached to this descriptor.
+            self._last_memory_explanation = None
             tier_memory_time = self._try_tier_aware_memory_time(sg)
             if tier_memory_time is not None:
                 memory_time = tier_memory_time
@@ -651,6 +711,7 @@ class RooflineAnalyzer:
             peak_bandwidth=self.peak_bandwidth,
             bandwidth_utilization=bw_util,
             explanation=explanation,
+            memory_explanation=self._last_memory_explanation,
         )
 
     def _get_compute_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
@@ -1059,6 +1120,14 @@ class RooflineAnalyzer:
 
         memory_time = result.bytes_loaded / bw
         self._last_tier_bytes_loaded = result.bytes_loaded
+        self._last_memory_explanation = MemoryExplanation(
+            binding_tier_name=result.binding_tier.name,
+            residency_tier_name=result.residency_tier.name,
+            tile_dims=tuple(result.tile.tile_dims),
+            residency_bytes=int(result.tile.residency_bytes),
+            bytes_loaded=int(result.bytes_loaded),
+            effective_bandwidth_bps=float(bw),
+        )
         return memory_time
 
     @staticmethod

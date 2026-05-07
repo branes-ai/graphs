@@ -41,23 +41,53 @@ BASELINE_DIR = Path(__file__).resolve().parents[1] / "results" / "baselines"
 
 
 def _build_argparser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--hw", required=True,
-                   choices=sorted(SWEEP_HW_TO_MAPPER.keys()),
-                   help="Hardware key (matches sweep JSON 'regime_per_hw')")
-    p.add_argument("--op", required=True, choices=["matmul", "linear"],
-                   help="Operator to validate")
-    p.add_argument("--purpose", default="validation",
-                   choices=["validation", "calibration"],
-                   help="Which sweep file to use (default: validation)")
-    p.add_argument("--format", default="text",
-                   choices=["text", "markdown", "json"],
-                   help="Output format")
-    p.add_argument("--baseline-dir", type=Path, default=BASELINE_DIR,
-                   help=f"Where the cached baselines live (default: {BASELINE_DIR})")
-    p.add_argument("--output", type=Path, default=None,
-                   help="Write the report to a file instead of stdout")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--hw",
+        required=True,
+        choices=sorted(SWEEP_HW_TO_MAPPER.keys()),
+        help="Hardware key (matches sweep JSON 'regime_per_hw')",
+    )
+    p.add_argument(
+        "--op", required=True, choices=["matmul", "linear"], help="Operator to validate"
+    )
+    p.add_argument(
+        "--purpose",
+        default="validation",
+        choices=["validation", "calibration"],
+        help="Which sweep file to use (default: validation)",
+    )
+    p.add_argument(
+        "--format",
+        default="text",
+        choices=["text", "markdown", "json"],
+        help="Output format",
+    )
+    p.add_argument(
+        "--baseline-dir",
+        type=Path,
+        default=BASELINE_DIR,
+        help=f"Where the cached baselines live (default: {BASELINE_DIR})",
+    )
+    p.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the report to a file instead of stdout",
+    )
+    p.add_argument(
+        "--use-tier-aware-memory",
+        action="store_true",
+        help="V5-3b opt-in: route MATMUL/LINEAR through the "
+        "tier picker so V4 reports show the binding "
+        "tier per shape. Default off keeps the scalar "
+        "bw_efficiency_scale path active (V4 floors "
+        "byte-identical to pre-V5-3b). Will become the "
+        "default after V5-5 calibrates per-tier "
+        "achievable_fraction values.",
+    )
     return p
 
 
@@ -75,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         # Prediction-only: do NOT auto-refresh missing measurements.
         refresh_measurements=False,
         measurer=None,
+        use_tier_aware_memory=args.use_tier_aware_memory,
     )
     result = run_sweep(cfg)
 

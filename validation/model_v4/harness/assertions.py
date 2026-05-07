@@ -38,18 +38,18 @@ from validation.model_v4.sweeps.classify import Regime
 # FLOPS is a clean spec; widest for LAUNCH_BOUND because launch is
 # inherently noisy.
 TOL_LATENCY: dict[Regime, float] = {
-    Regime.ALU_BOUND:    0.10,
-    Regime.L2_BOUND:     0.20,
-    Regime.DRAM_BOUND:   0.25,
+    Regime.ALU_BOUND: 0.10,
+    Regime.L2_BOUND: 0.20,
+    Regime.DRAM_BOUND: 0.25,
     Regime.LAUNCH_BOUND: 0.30,
 }
 
 # Energy tolerance (relative error). Wider than latency because energy
 # also varies with op mix and DVFS state.
 TOL_ENERGY: dict[Regime, float] = {
-    Regime.ALU_BOUND:    0.15,
-    Regime.L2_BOUND:     0.25,
-    Regime.DRAM_BOUND:   0.30,
+    Regime.ALU_BOUND: 0.15,
+    Regime.L2_BOUND: 0.25,
+    Regime.DRAM_BOUND: 0.30,
     Regime.LAUNCH_BOUND: 0.40,
 }
 
@@ -93,32 +93,40 @@ class ValidationRecord:
 
     # Identity
     hardware: str
-    op: str                                # "matmul" or "linear"
-    shape: tuple                           # (M, K, N) or (B, IN, OUT)
+    op: str  # "matmul" or "linear"
+    shape: tuple  # (M, K, N) or (B, IN, OUT)
     dtype: str
 
     # Predicted (from the analyzer)
-    regime_predicted: str                  # one of Regime.value
+    regime_predicted: str  # one of Regime.value
     latency_predicted_ms: float
-    energy_predicted_j: Optional[float]    # None when energy not modelled
+    energy_predicted_j: Optional[float]  # None when energy not modelled
 
     # Measured (from the ground-truth measurer)
     regime_measured: str
     latency_measured_ms: float
-    energy_measured_j: Optional[float]     # None when RAPL/NVML unreadable
+    energy_measured_j: Optional[float]  # None when RAPL/NVML unreadable
 
     # Per-assertion outcomes
     pass_regime: bool
     pass_latency: bool
-    pass_energy: Optional[bool]            # None when energy not measured
+    pass_energy: Optional[bool]  # None when energy not measured
 
     # Tolerances applied (per-regime, see TOL_LATENCY / TOL_ENERGY)
     tolerance_latency: float
     tolerance_energy: float
 
     # Diagnostics
-    bottleneck_layer: str                  # human-readable: "ALU peak FLOPS", "DRAM BW", ...
-    notes: str = ""                        # free-form, e.g., "L2_BOUND inference soft (v4-1)"
+    bottleneck_layer: str  # human-readable: "ALU peak FLOPS", "DRAM BW", ...
+    notes: str = ""  # free-form, e.g., "L2_BOUND inference soft (v4-1)"
+
+    # V5-4: binding tier from the V5-3b tier-aware roofline path. Set
+    # only when the runner was configured with use_tier_aware_memory=True
+    # AND the analyzer's eligibility predicate fired (single-op
+    # MATMUL/LINEAR with a clean 2D shape on a >=2-tier hierarchy).
+    # None means "tier-aware path didn't run for this record" -- not an
+    # error condition.
+    binding_tier: Optional[str] = None
 
     def all_pass(self) -> bool:
         """True iff every applicable assertion passed.
@@ -152,9 +160,10 @@ class MeasurementContext:
     Pulled out as a struct so the harness can build it once per target
     and reuse across many measurements.
     """
-    peak_flops: float                      # ops/sec at the measurement dtype
+
+    peak_flops: float  # ops/sec at the measurement dtype
     peak_dram_bandwidth_bps: float
-    launch_overhead_s: float               # default 5e-6
+    launch_overhead_s: float  # default 5e-6
 
 
 def infer_regime_measured(
@@ -178,8 +187,11 @@ def infer_regime_measured(
     achieved_flops = flops / measured_latency_s
     achieved_bw = working_set_bytes / measured_latency_s
     flops_util = achieved_flops / ctx.peak_flops if ctx.peak_flops > 0 else 0.0
-    bw_util = (achieved_bw / ctx.peak_dram_bandwidth_bps
-               if ctx.peak_dram_bandwidth_bps > 0 else 0.0)
+    bw_util = (
+        achieved_bw / ctx.peak_dram_bandwidth_bps
+        if ctx.peak_dram_bandwidth_bps > 0
+        else 0.0
+    )
 
     if flops_util >= UTILIZATION_THRESHOLD:
         return Regime.ALU_BOUND
@@ -196,9 +208,9 @@ def infer_regime_measured(
 
 
 _BOTTLENECK_LAYER: dict[Regime, str] = {
-    Regime.ALU_BOUND:    "ALU peak FLOPS",
-    Regime.L2_BOUND:     "L2 / LLC capacity",  # capacity-only in v4-1
-    Regime.DRAM_BOUND:   "DRAM peak bandwidth",
+    Regime.ALU_BOUND: "ALU peak FLOPS",
+    Regime.L2_BOUND: "L2 / LLC capacity",  # capacity-only in v4-1
+    Regime.DRAM_BOUND: "DRAM peak bandwidth",
     Regime.LAUNCH_BOUND: "kernel-launch overhead",
 }
 
@@ -214,12 +226,13 @@ def check_regime(predicted: Regime, measured: Regime) -> tuple[bool, str]:
         return True, ""
     if predicted == Regime.L2_BOUND:
         if measured not in (Regime.ALU_BOUND, Regime.DRAM_BOUND):
-            return True, ("predicted L2_BOUND, measured "
-                          f"{measured.value} (v4-1 soft match)")
-        return False, (f"predicted L2_BOUND, measured "
-                       f"{measured.value} (boundary drift)")
-    return False, (f"predicted {predicted.value}, "
-                   f"measured {measured.value}")
+            return True, (
+                "predicted L2_BOUND, measured " f"{measured.value} (v4-1 soft match)"
+            )
+        return False, (
+            f"predicted L2_BOUND, measured " f"{measured.value} (boundary drift)"
+        )
+    return False, (f"predicted {predicted.value}, " f"measured {measured.value}")
 
 
 def _within_band(predicted: float, measured: float, tol: float) -> bool:
@@ -244,6 +257,7 @@ def assert_record(
     measured_latency_s: float,
     measured_energy_j: Optional[float],
     ctx: MeasurementContext,
+    binding_tier: Optional[str] = None,
 ) -> ValidationRecord:
     """Build a fully-populated ValidationRecord from a prediction +
     measurement pair.
@@ -253,8 +267,9 @@ def assert_record(
     distinguishes "regime drift" from "latency math drift" from "energy
     math drift" in a single run.
     """
-    regime_measured = infer_regime_measured(flops, working_set_bytes,
-                                            measured_latency_s, ctx)
+    regime_measured = infer_regime_measured(
+        flops, working_set_bytes, measured_latency_s, ctx
+    )
     pass_regime, regime_notes = check_regime(regime_predicted, regime_measured)
 
     tol_lat = TOL_LATENCY.get(regime_predicted, 0.30)
@@ -289,4 +304,5 @@ def assert_record(
         tolerance_energy=tol_egy,
         bottleneck_layer=_BOTTLENECK_LAYER.get(regime_predicted, "(unknown)"),
         notes=regime_notes,
+        binding_tier=binding_tier,
     )

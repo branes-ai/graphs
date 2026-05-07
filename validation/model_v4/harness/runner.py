@@ -41,6 +41,7 @@ from typing import List, Optional, Tuple
 from graphs.core.structures import (
     OperationType,
     SubgraphDescriptor,
+    create_tensor_descriptor,
 )
 from graphs.estimation.energy import EnergyAnalyzer
 from graphs.estimation.roofline import RooflineAnalyzer
@@ -90,17 +91,23 @@ SWEEP_HW_TO_MAPPER: dict[str, str] = {
 @dataclass
 class RunnerConfig:
     sweep_path: Path
-    hardware_key: str               # sweep-JSON key, e.g. "i7_12700k"
+    hardware_key: str  # sweep-JSON key, e.g. "i7_12700k"
     measurer: Optional[Measurer] = None
-    refresh_measurements: bool = False    # True: capture missing entries via measurer
+    refresh_measurements: bool = False  # True: capture missing entries via measurer
     baseline_dir: Path = field(default=DEFAULT_BASELINE_DIR)
     launch_overhead_s: float = 5e-6
+    # V5-4 opt-in: when True, the runner constructs RooflineAnalyzer
+    # with use_tier_aware_memory=True so each ValidationRecord is
+    # annotated with the binding tier. Default False keeps V4 floors
+    # byte-identical to pre-V5-3b until V5-5 calibrates per-tier
+    # achievable_fraction.
+    use_tier_aware_memory: bool = False
 
 
 @dataclass
 class RunnerResult:
     records: List[ValidationRecord]
-    skipped_no_baseline: List[Tuple[str, tuple, str]]   # (op, shape, dtype)
+    skipped_no_baseline: List[Tuple[str, tuple, str]]  # (op, shape, dtype)
     skipped_unsupported: List[Tuple[str, tuple, str]]
 
 
@@ -140,7 +147,12 @@ def run_sweep(config: RunnerConfig) -> RunnerResult:
         sg = _build_subgraph(op, shape, dtype)
         precision = _resolve_precision(dtype)
 
-        latency_pred_s = _predict_latency_s(sg, hw, precision)
+        latency_pred_s, binding_tier = _predict_latency_s(
+            sg,
+            hw,
+            precision,
+            use_tier_aware_memory=config.use_tier_aware_memory,
+        )
         energy_pred_j = _predict_energy_j(sg, hw, precision, latency_pred_s)
 
         # Lookup or capture the measurement
@@ -175,6 +187,7 @@ def run_sweep(config: RunnerConfig) -> RunnerResult:
             measured_latency_s=meas.latency_s,
             measured_energy_j=meas.energy_j,
             ctx=ctx,
+            binding_tier=binding_tier,
         )
         records.append(rec)
 
@@ -192,13 +205,20 @@ def run_sweep(config: RunnerConfig) -> RunnerResult:
 
 def _resolve_precision(dtype: str) -> Precision:
     table = {
-        "fp64": Precision.FP64, "fp32": Precision.FP32, "tf32": Precision.TF32,
-        "fp16": Precision.FP16, "bf16": Precision.BF16,
-        "fp8": Precision.FP8, "fp8_e4m3": Precision.FP8_E4M3,
+        "fp64": Precision.FP64,
+        "fp32": Precision.FP32,
+        "tf32": Precision.TF32,
+        "fp16": Precision.FP16,
+        "bf16": Precision.BF16,
+        "fp8": Precision.FP8,
+        "fp8_e4m3": Precision.FP8_E4M3,
         "fp8_e5m2": Precision.FP8_E5M2,
-        "int64": Precision.INT64, "int32": Precision.INT32,
-        "int16": Precision.INT16, "int8": Precision.INT8,
-        "int4": Precision.INT4, "fp4": Precision.FP4,
+        "int64": Precision.INT64,
+        "int32": Precision.INT32,
+        "int16": Precision.INT16,
+        "int8": Precision.INT8,
+        "int4": Precision.INT4,
+        "fp4": Precision.FP4,
     }
     if dtype.lower() not in table:
         raise ValueError(f"Unknown dtype {dtype!r}")
@@ -211,9 +231,22 @@ def _build_subgraph(op: str, shape: tuple, dtype: str) -> SubgraphDescriptor:
     Bypasses the partitioner -- the v4 harness owns the closed-form
     footprint formula in classify.op_footprint, so a partitioner
     regression cannot silently shift the harness baseline.
+
+    V5-4: also populates ``input_tensors`` / ``weight_tensors`` /
+    ``output_tensors`` with the canonical shapes per op kind so the
+    V5-3b roofline tier-aware path (when opted in) can extract
+    (M, K, N) / (B, IN, OUT) / (N,) from the subgraph. Without these
+    fields the V5-3b shape extractors return None and the analyzer
+    silently falls back to the scalar path -- which would defeat
+    V5-4's whole point of surfacing binding tiers in V4 reports.
     """
     fp = op_footprint(op, shape, dtype)
     bpe = bytes_per_element(dtype)
+    # Use a dtype string that TensorDescriptor / RooflineAnalyzer
+    # normalize_dtype both speak. The V4 dtype shortform ('fp32') is
+    # passed through normalize_dtype since 'fp32' is already a valid
+    # bytes_per_element key.
+    td_dtype = dtype
 
     if op == "matmul":
         M, K, N = shape
@@ -222,6 +255,12 @@ def _build_subgraph(op: str, shape: tuple, dtype: str) -> SubgraphDescriptor:
         output_bytes = int(round(M * N * bpe))
         weight_bytes = 0
         op_type = OperationType.MATMUL
+        input_tensors = [
+            create_tensor_descriptor((M, K), td_dtype),
+            create_tensor_descriptor((K, N), td_dtype),
+        ]
+        output_tensors = [create_tensor_descriptor((M, N), td_dtype)]
+        weight_tensors: list = []
     elif op == "linear":
         B, IN, OUT = shape
         input_bytes = int(round(B * IN * bpe))
@@ -229,6 +268,9 @@ def _build_subgraph(op: str, shape: tuple, dtype: str) -> SubgraphDescriptor:
         # Weight matrix + bias (mirrors what build_linear() actually allocates)
         weight_bytes = int(round((IN * OUT + OUT) * bpe))
         op_type = OperationType.LINEAR
+        input_tensors = [create_tensor_descriptor((B, IN), td_dtype)]
+        output_tensors = [create_tensor_descriptor((B, OUT), td_dtype)]
+        weight_tensors = [create_tensor_descriptor((OUT, IN), td_dtype)]
     elif op == "vector_add":
         # c[i] = a[i] + b[i]. Two N-element inputs, one N-element output,
         # no weights. The zero-reuse op the V5 plan uses for tier-BW
@@ -238,6 +280,12 @@ def _build_subgraph(op: str, shape: tuple, dtype: str) -> SubgraphDescriptor:
         output_bytes = int(round(N_elems * bpe))
         weight_bytes = 0
         op_type = OperationType.ELEMENTWISE
+        input_tensors = [
+            create_tensor_descriptor((N_elems,), td_dtype),
+            create_tensor_descriptor((N_elems,), td_dtype),
+        ]
+        output_tensors = [create_tensor_descriptor((N_elems,), td_dtype)]
+        weight_tensors = []
     else:
         raise ValueError(f"Unsupported op {op!r} for v4 runner")
 
@@ -252,30 +300,54 @@ def _build_subgraph(op: str, shape: tuple, dtype: str) -> SubgraphDescriptor:
         total_input_bytes=input_bytes,
         total_output_bytes=output_bytes,
         total_weight_bytes=weight_bytes,
+        input_tensors=input_tensors,
+        output_tensors=output_tensors,
+        weight_tensors=weight_tensors,
     )
 
 
-def _predict_latency_s(sg: SubgraphDescriptor,
-                       hw: HardwareResourceModel,
-                       precision: Precision) -> float:
+def _predict_latency_s(
+    sg: SubgraphDescriptor,
+    hw: HardwareResourceModel,
+    precision: Precision,
+    *,
+    use_tier_aware_memory: bool = False,
+) -> Tuple[float, Optional[str]]:
     """Run the subgraph through RooflineAnalyzer (the same code path
-    UnifiedAnalyzer uses) and return the predicted latency in seconds."""
-    analyzer = RooflineAnalyzer(hw, precision=precision)
+    UnifiedAnalyzer uses) and return ``(latency_s, binding_tier_name)``.
+
+    ``binding_tier_name`` is populated only when ``use_tier_aware_memory``
+    is True AND the V5-3b eligibility predicate passes (single-op
+    MATMUL/LINEAR with a clean 2D shape on a >=2-tier hierarchy).
+    Otherwise it's None and callers should treat that as "the tier-aware
+    path didn't fire" rather than an error.
+    """
+    analyzer = RooflineAnalyzer(
+        hw, precision=precision, use_tier_aware_memory=use_tier_aware_memory
+    )
     lat = analyzer._analyze_subgraph(sg)
-    return float(lat.actual_latency)
+    binding_tier = (
+        lat.memory_explanation.binding_tier_name
+        if lat.memory_explanation is not None
+        else None
+    )
+    return float(lat.actual_latency), binding_tier
 
 
-def _predict_energy_j(sg: SubgraphDescriptor,
-                      hw: HardwareResourceModel,
-                      precision: Precision,
-                      latency_s: float) -> Optional[float]:
+def _predict_energy_j(
+    sg: SubgraphDescriptor,
+    hw: HardwareResourceModel,
+    precision: Precision,
+    latency_s: float,
+) -> Optional[float]:
     """Predict energy via EnergyAnalyzer. Returns None if the analyzer
     raises (e.g., precision unsupported by the energy model)."""
     try:
         analyzer = EnergyAnalyzer(hw, precision=precision)
         report = analyzer.analyze(subgraphs=[sg], latencies=[latency_s])
-        return float(report.compute_energy_j + report.memory_energy_j
-                     + report.static_energy_j)
+        return float(
+            report.compute_energy_j + report.memory_energy_j + report.static_energy_j
+        )
     except Exception:
         return None
 
