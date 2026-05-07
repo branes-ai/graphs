@@ -18,10 +18,17 @@ Improving the floor requires three model fixes (in priority order):
 
 1. **GPU dispatch floor** -- 16 L1-binding shapes currently predict
    5-13 µs but measure 120-170 µs (CUDA kernel launch overhead).
-2. **Hardware-aware skinny matmul threshold** -- 19 +side
-   over-predictions from the matmul reuse model's reload-count
-   inflation; Jetson's smaller cache hierarchy needs a different
-   threshold than i7's 16.
+   *Addressed by PR #116.*
+2. **~~Hardware-aware skinny matmul threshold~~** Aspect-ratio-based
+   skinny detection -- the failing shapes have `min(M, N) = 64-256`
+   (well above 16) but aspect ratios of 100+. Hypothesis was
+   hardware-dependent threshold; empirical fix is shape-intrinsic
+   aspect-ratio cutoff. *Addressed by the V5 follow-up
+   aspect-ratio PR; see
+   [`docs/v5/skinny-matmul-aspect-ratio-detection.md`](../v5/skinny-matmul-aspect-ratio-detection.md).
+   Note: this fixes memory-physics latency precision but does NOT
+   move V4 PASS counts because the dominant failure on these shapes
+   is the regime classifier (compute model, item 3).*
 3. **Compute efficiency model refinement** -- 19 -side
    under-predictions where compute_time is too fast vs reality;
    separate from the memory model.
