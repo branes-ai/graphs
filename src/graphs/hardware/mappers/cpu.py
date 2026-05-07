@@ -1132,6 +1132,11 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
             "consumer-continuous-large": thermal_profile,
         },
         default_thermal_profile="consumer-continuous-large",
+        # V5-5: same physical DDR5 subsystem as create_i7_12700k_mapper(),
+        # so the calibrated DRAM achievable_fraction applies identically.
+        # See the tiny-model variant for derivation (median 35 GB/s
+        # plateau on N=16M/67M/268M vector_add baseline; peak 75 GB/s).
+        tier_achievable_fractions={"DRAM": 0.47},
     )
 
     return CPUMapper(model)

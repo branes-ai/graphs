@@ -19,7 +19,6 @@ from graphs.hardware.mappers.gpu import create_jetson_orin_nano_8gb_mapper
 from graphs.hardware.resource_model import (
     HardwareResourceModel,
     HardwareType,
-    MemoryTier,
     Precision,
     PrecisionProfile,
 )
@@ -133,6 +132,18 @@ def test_i7_12700k_non_dram_tiers_uncalibrated():
     for t in hw.memory_hierarchy:
         if t.name != "DRAM":
             assert t.achievable_fraction == 1.0
+
+
+def test_i7_12700k_large_mapper_inherits_dram_calibration():
+    """create_i7_12700k_large_mapper() represents the same DDR5
+    subsystem as the tiny-model variant. The DRAM achievable_fraction
+    must match (0.47), or once tier-aware memory is enabled the large
+    variant would over-predict throughput by 2x relative to its
+    sibling on the same hardware."""
+    from graphs.hardware.mappers.cpu import create_i7_12700k_large_mapper
+
+    hw = create_i7_12700k_large_mapper().resource_model
+    assert hw.tier_achievable_fractions.get("DRAM") == 0.47
 
 
 def test_jetson_orin_nano_dram_calibration():
