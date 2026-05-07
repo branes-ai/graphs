@@ -287,11 +287,85 @@ def test_matmul_non_skinny_still_uses_optimal_square_tile():
     ), f"Non-skinny shape should use optimal-square tile, got {tile.tile_dims}"
 
 
-def test_matmul_skinny_threshold_pinned_at_16():
-    """The skinny threshold is empirically tuned for i7 V4 floors;
-    moving it changes which shapes hit the no-reuse model. Pin it
-    so a future contributor doesn't quietly drift the value."""
+def test_matmul_skinny_thresholds_pinned():
+    """Pin the empirical thresholds. _SKINNY_THRESHOLD is the legacy
+    alias kept for backward-compat (= _SKINNY_MIN_DIM). The aspect
+    ratio threshold is independent and was added by the V5 follow-up
+    aspect-ratio PR. Moving either changes which shapes hit the
+    no-reuse model."""
     assert MatmulReuseModel._SKINNY_THRESHOLD == 16
+    assert MatmulReuseModel._SKINNY_MIN_DIM == 16
+    assert MatmulReuseModel._SKINNY_ASPECT_RATIO == 32
+
+
+def test_matmul_high_aspect_ratio_uses_full_output_tile_even_with_large_min_dim():
+    """V5 follow-up (Jetson Orin Nano): the optimal-square tile
+    inflates reload counts on shapes with high aspect ratios even
+    when min(M, N) is well above the absolute floor. Example:
+    (64, 16384, 8192) has min=64 (above the 16 floor) but aspect
+    ratio = 8192/64 = 128, so the (64, 64) optimal-square tile
+    reloads A 128 times. The aspect-ratio check fires and switches
+    to the full-output tile. Hardware-independent: this is a shape-
+    intrinsic property."""
+    model = MatmulReuseModel()
+    M, K, N = 64, 16384, 8192
+    tile = model.residency_window((M, K, N), "fp16", tier_capacity_bytes=10**8)
+    # aspect ratio = max(64, 8192) / min(64, 8192) = 128 >= 32 -> skinny
+    assert tile.tile_dims == (M, N), (
+        f"High aspect ratio shape should use full-output tile, got {tile.tile_dims}"
+    )
+    assert tile.residency_bytes == 3 * M * N * 2  # fp16
+
+
+def test_matmul_aspect_ratio_just_below_threshold_uses_optimal_square():
+    """Negative case: aspect ratio < 32 with min(M, N) above the
+    absolute floor must still use the optimal-square tile. Shape
+    (256, 4096, 7936) has aspect = 7936/256 = 31, just below the
+    threshold; min = 256, well above 16. Neither check fires.
+
+    Why this region is excluded: empirically the optimal-square
+    reload model is more accurate than full-output for AR<=32, and
+    aggressively switching to full-output causes a +2.4% MAE
+    regression on the Jetson Orin Nano matmul 16<AR<=32 bucket."""
+    model = MatmulReuseModel()
+    M, K, N = 256, 4096, 7936
+    # aspect ratio = 7936 / 256 = 31.0 < 32
+    # min(M, N) = 256, well above _SKINNY_MIN_DIM = 16
+    tile = model.residency_window((M, K, N), "fp32", tier_capacity_bytes=12288)
+    # Optimal-square clamp: t_max = min(M, N) = 256, t_raw = sqrt(12288/12) ~= 32
+    # -> t = 32
+    assert tile.tile_dims == (32, 32), (
+        f"Aspect ratio just below threshold should use optimal-square, "
+        f"got {tile.tile_dims}"
+    )
+
+
+def test_matmul_aspect_ratio_at_threshold_fires_skinny_branch():
+    """Boundary: aspect ratio exactly equal to 32 should fire the
+    skinny branch (>=, not >). Confirms the inclusive boundary."""
+    model = MatmulReuseModel()
+    # (256, 4096, 8192): aspect = 8192 / 256 = 32 exactly
+    M, K, N = 256, 4096, 8192
+    tile = model.residency_window((M, K, N), "fp32", tier_capacity_bytes=12288)
+    assert tile.tile_dims == (M, N), (
+        f"Aspect ratio at threshold should fire skinny branch (full-output), "
+        f"got {tile.tile_dims}"
+    )
+
+
+def test_matmul_aspect_ratio_in_16_to_32_band_uses_optimal_square():
+    """Coverage for the 16<AR<32 zone where keeping the optimal-
+    square model is empirically better. (192, 6144, 6144) has
+    aspect = 6144/192 = 32, exactly on the boundary -> fires.
+    Use (192, 6144, 5760) for aspect 30 to test the band."""
+    model = MatmulReuseModel()
+    M, K, N = 192, 6144, 5760  # aspect = 5760 / 192 = 30 < 32
+    tile = model.residency_window((M, K, N), "fp16", tier_capacity_bytes=10**6)
+    # Should NOT take the skinny branch; should clamp to t_max = min(M, N) = 192
+    # or sqrt-formula tile, whichever is smaller.
+    assert tile.tile_dims != (M, N), (
+        f"Aspect 30 should stay on optimal-square path, but got full-output tile {tile.tile_dims}"
+    )
 
 
 def test_matmul_bytes_loaded_uses_ceil_for_non_dividing_tile():

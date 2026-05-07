@@ -144,17 +144,23 @@ def test_matmul_4096_cube_binds_at_dram_due_to_operand_overflow():
 
 def test_matmul_skinny_shape_escalates_to_dram_when_operands_overflow_l3():
     """V5-5 follow-up regression: matmul (64, 1024, 8192) fp32 has
-    a tiny clamped C-tile that fits in L1, but operand footprint
-    = (64*1024 + 1024*8192 + 64*8192) * 4 = ~35.9 MB, doesn't fit
-    in i7's 25 MB L3. Operand-aware binding correctly returns
-    DRAM here (whereas the V5-3b "next-outward-of-residency" rule
-    that this PR replaces would have returned L3 -- the
-    motivation for the V5-5 follow-up)."""
+    operand footprint = (64*1024 + 1024*8192 + 64*8192) * 4 =
+    ~35.9 MB, doesn't fit in i7's 25 MB L3. Operand-aware binding
+    correctly returns DRAM here (whereas the V5-3b "next-outward-
+    of-residency" rule would have returned L3 -- the motivation
+    for the V5-5 follow-up).
+
+    Post aspect-ratio skinny detection (V5 follow-up): aspect ratio
+    = 8192/64 = 128 >= 16 fires the skinny branch, so the tile is
+    full-output (64, 8192) with residency 3*64*8192*4 = 6.3 MB.
+    That tile no longer fits L1 (512 KB) or L2 (1.25 MB) but does
+    fit L3 (25 MB), so residency_tier = L3. Binding tier still
+    escalates to DRAM via the operand-footprint check."""
     hierarchy = _i7_like_hierarchy()
     result = pick_binding_tier(MatmulReuseModel(), (64, 1024, 8192), "fp32", hierarchy)
     assert result is not None
     assert result.binding_tier.name == "DRAM"
-    assert result.residency_tier.name == "L1"
+    assert result.residency_tier.name == "L3"
 
 
 def test_matmul_small_shape_binds_at_l3_when_operands_fit():

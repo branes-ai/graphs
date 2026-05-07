@@ -185,21 +185,45 @@ class MatmulReuseModel:
 
     op_kind = "matmul"
 
-    # Below this min(M, N) threshold the optimal-square tile collapses
-    # to the small dimension (e.g. for B=2 linear, tile = (2, 2)) and
-    # the bytes_loaded reload-count formula explodes -- A is reloaded
-    # ceil(N / 2) = N/2 times. Real BLAS uses a different blocking
-    # strategy for skinny shapes (K-blocking with the full output
-    # tile), which this branch models: pick (M, N) as the tile so
-    # bytes_loaded equals operand_footprint with no reload inflation.
+    # Skinny matmul detection. Two independent checks; if EITHER fires,
+    # the optimal-square tile model produces excessive reload counts
+    # and we switch to full-output tile (K-blocking semantics).
     #
-    # Threshold of 16 was chosen because: (a) above 16 the square tile
-    # is genuinely useful (residency stays cache-friendly even with
-    # reload reuse); (b) below 16 the inflation factor is large
-    # (>20x for B=2, ~6x for B=8) and the no-reuse model is empirically
-    # closer to reality for these shapes on i7. See V5 follow-up
-    # PR description for the calibration data driving this threshold.
-    _SKINNY_THRESHOLD = 16
+    # 1. Absolute small-dim check: ``min(M, N) < _SKINNY_MIN_DIM``.
+    #    Catches tiny dims (e.g. B=2 linear) where the optimal-square
+    #    tile collapses to a 2x2 tile and reloads A by ceil(N/2)
+    #    times. Hardware-independent.
+    #
+    # 2. Aspect-ratio check: ``max(M, N) / min(M, N) >= _SKINNY_ASPECT_RATIO``.
+    #    Catches shapes where min(M, N) is reasonable in absolute terms
+    #    (e.g. 64-256) but the larger dim is much larger, producing high
+    #    reload counts. The Jetson Orin Nano matmul failures cluster
+    #    here: (64, 16384, 8192) has min=64, aspect=256, and the
+    #    optimal-square tile (64, 64) reloads A 128 times.
+    #    Hardware-independent: the underlying issue is the shape's
+    #    aspect ratio, not the cache hierarchy.
+    #
+    # The aspect threshold of 32 is empirical (Jetson Orin Nano matmul
+    # baseline). At AR<=16 the optimal-square reload model is
+    # accurate enough; at AR>=32 the K-blocking full-output tile is
+    # accurate enough; the 16-32 transition zone slightly favors
+    # the optimal-square model in practice. Per-bucket MAE on Jetson
+    # matmul: 32<AR<=64 -5.1%, 64<AR<=128 -12.9%, AR>128 -62.2%
+    # (see PR description for the full table).
+    #
+    # V4 PASS counts on Jetson matmul don't move at this threshold
+    # because the dominant failure mode for those shapes is the
+    # regime classifier (predicted memory-bound, measured compute-
+    # bound -- compute model under-derate, tracked separately). The
+    # change still ships because (a) it's a memory-physics correction
+    # that makes the model more honest and (b) when the compute
+    # model is fixed, the latency precision we add now will translate
+    # to PASS gains.
+    _SKINNY_MIN_DIM = 16
+    _SKINNY_ASPECT_RATIO = 32
+    # Backward compat alias (some external code may import this; the
+    # name is a misnomer post-aspect-ratio-extension but not breaking).
+    _SKINNY_THRESHOLD = _SKINNY_MIN_DIM
 
     def residency_window(
         self,
@@ -218,12 +242,17 @@ class MatmulReuseModel:
             )
         bpe = bytes_per_element(dtype)
 
-        # Skinny shape branch: when the smallest output dim is below
-        # the threshold, the square-tile model produces an
-        # inflated bytes_loaded that doesn't match BLAS reality.
-        # Use full-output tile (Mt = M, Nt = N) so bytes_loaded
-        # collapses to the one-pass / no-reload sum.
-        if min(M, N) < self._SKINNY_THRESHOLD:
+        # Skinny shape branch: switch to full-output tile (Mt = M,
+        # Nt = N) when the optimal-square model would produce
+        # inflated reload counts. Two independent triggers (see
+        # class-level _SKINNY_MIN_DIM / _SKINNY_ASPECT_RATIO docs):
+        #   1. min(M, N) below absolute floor (tiny-dim case)
+        #   2. aspect ratio at or above _SKINNY_ASPECT_RATIO
+        is_skinny = (
+            min(M, N) < self._SKINNY_MIN_DIM
+            or max(M, N) >= self._SKINNY_ASPECT_RATIO * min(M, N)
+        )
+        if is_skinny:
             return TileChoice(
                 tile_dims=(int(M), int(N)),
                 residency_bytes=int(round(3 * M * N * bpe)),
