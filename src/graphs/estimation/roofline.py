@@ -1086,6 +1086,16 @@ class RooflineAnalyzer:
         elif op_type == OperationType.LINEAR:
             op_kind = "linear"
             shape = self._extract_linear_shape(sg)
+        elif op_type == OperationType.ELEMENTWISE:
+            # Tighter predicate than just OperationType.ELEMENTWISE:
+            # vector_add specifically (a + b -> c). ReLU / sigmoid /
+            # other elementwise ops have different operand counts
+            # and reuse patterns, so the V5-3a vector_add reuse
+            # model would mis-bytes-loaded for them. The shape
+            # extractor returns None unless the SG matches the
+            # strict 3-tensor 1-D vector-add layout.
+            op_kind = "vector_add"
+            shape = self._extract_vector_add_shape(sg)
         else:
             return None
         if shape is None:
@@ -1168,6 +1178,34 @@ class RooflineAnalyzer:
         if IN != IN_w:
             return None
         return (int(B), int(IN), int(OUT))
+
+    @staticmethod
+    def _extract_vector_add_shape(sg: SubgraphDescriptor) -> Optional[tuple]:
+        """Pull (N,) from a single-op subgraph that's specifically a
+        vector add (c = a + b on N-element 1-D tensors).
+
+        Stricter than just OperationType.ELEMENTWISE because the V5-3a
+        vector_add reuse model assumes 3 buffers and zero reuse;
+        applying it to ReLU (1 in -> 1 out) or fused
+        elementwise-with-broadcast would produce wrong bytes_loaded.
+        Predicate:
+          * exactly 2 input tensors, 1 output tensor
+          * all 3 are 1-D
+          * all 3 share the same length and dtype
+
+        Returns ``None`` for anything that doesn't match -- caller
+        falls through to the scalar bw_efficiency_scale path."""
+        if len(sg.input_tensors) != 2 or len(sg.output_tensors) != 1:
+            return None
+        a, b = sg.input_tensors
+        c = sg.output_tensors[0]
+        if len(a.shape) != 1 or len(b.shape) != 1 or len(c.shape) != 1:
+            return None
+        if a.shape != b.shape or a.shape != c.shape:
+            return None
+        if a.dtype != b.dtype or a.dtype != c.dtype:
+            return None
+        return (int(a.shape[0]),)
 
     def _get_bandwidth_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """
