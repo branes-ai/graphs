@@ -15,7 +15,6 @@ import pytest
 from graphs.core.structures import (
     OperationType,
     SubgraphDescriptor,
-    TensorDescriptor,
     create_tensor_descriptor,
 )
 from graphs.estimation.roofline import RooflineAnalyzer
