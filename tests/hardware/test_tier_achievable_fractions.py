@@ -126,15 +126,18 @@ def test_i7_12700k_dram_calibration():
 
 
 def test_i7_12700k_l3_calibration():
-    """V5-5 follow-up: i7-12700K L3 achievable_fraction = 0.82
-    derived from the vector_add baseline at N=1M fp32 -- the
-    cleanest L3-resident row (working set 12 MB between L1=512 KB
-    and L3=25 MB, measured 163 GB/s vs L3 peak 200 GB/s)."""
+    """V5-5 follow-up: i7-12700K L3 achievable_fraction = 0.84
+    derived by 2-point regression on dispatch-corrected L3-bound
+    rows of i7_12700k_vector_add.csv (N=65K and N=1M; the N=262K
+    point is rejected as showing non-physical 1.71x L3 peak from
+    per-core L2 hits the i7 mapper doesn't currently model). Mean
+    fraction across the two clean points = 0.836, rounded to 0.84.
+    See docs/calibration/i7-12700k-l3-calibration-analysis.md."""
     hw = create_i7_12700k_mapper().resource_model
-    assert hw.tier_achievable_fractions.get("L3") == 0.82
+    assert hw.tier_achievable_fractions.get("L3") == 0.84
     l3 = next(t for t in hw.memory_hierarchy if t.name == "L3")
-    assert l3.achievable_fraction == 0.82
-    assert l3.effective_bandwidth_bps == pytest.approx(200e9 * 0.82)
+    assert l3.achievable_fraction == 0.84
+    assert l3.effective_bandwidth_bps == pytest.approx(200e9 * 0.84)
 
 
 def test_i7_12700k_l1_uncalibrated():
@@ -159,7 +162,7 @@ def test_i7_12700k_large_mapper_inherits_dram_calibration():
     assert hw.tier_achievable_fractions.get("DRAM") == 0.47
     # V5-5 follow-up also propagates the L3 calibration so the two
     # sibling mappers stay in lock-step on the same hardware.
-    assert hw.tier_achievable_fractions.get("L3") == 0.82
+    assert hw.tier_achievable_fractions.get("L3") == 0.84
 
 
 def test_jetson_orin_nano_emits_three_tier_hierarchy():

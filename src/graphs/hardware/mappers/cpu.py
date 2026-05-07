@@ -926,21 +926,25 @@ def create_i7_12700k_mapper() -> CPUMapper:
         # absent (default 1.0) until matmul-anchored calibration.
         # V5-5 + follow-up calibration:
         #   DRAM = 0.47 (i7_12700k_vector_add.csv plateau, peak 75 GB/s)
-        #   L3   = 0.82 (i7_12700k_vector_add.csv at N=1M fp32, the
-        #                cleanest L3-resident measurement: WS=12 MB
-        #                between L1=512 KB and L3=25 MB, measured
-        #                163 GB/s vs L3 peak 200 GB/s -> 163/200 = 0.82).
+        #   L3   = 0.84 (i7_12700k_vector_add.csv 2-point fit on
+        #                dispatch-corrected L3-bound rows N=65K and
+        #                N=1M: 167.6 GB/s and 166.7 GB/s respectively
+        #                vs L3 peak 200 GB/s -> mean 0.836, rounded
+        #                to 0.84. The N=262K shape shows non-physical
+        #                fraction 1.71x peak -- per-core L2 hits the
+        #                i7 mapper doesn't currently model -- and is
+        #                rejected from the regression. See
+        #                docs/calibration/i7-12700k-l3-calibration-analysis.md
+        #                for the full derivation + the structural
+        #                limit (no L3 value can fix N=262K's V4 floor
+        #                failure; needs model refinement, not
+        #                calibration).
         # L1 stays intentionally absent (default 1.0). The tier-aware
         # memory_time for every L1-binding matmul shape on i7 is
-        # 75x-1000x smaller than the 5 us CPU dispatch floor in
-        # RooflineAnalyzer._analyze_subgraph, so any L1
+        # 75x-1000x smaller than the CPU dispatch floor, so any L1
         # achievable_fraction value is a no-op for predictions today.
-        # See docs/calibration/i7-12700k-l1-calibration-analysis.md for
-        # the regression analysis + the conditions under which the
-        # decision needs to be revisited (multi-thread vector_add
-        # capture, dispatch-floor change, or thread-count-aware
-        # MemoryTier model).
-        tier_achievable_fractions={"L3": 0.82, "DRAM": 0.47},
+        # See docs/calibration/i7-12700k-l1-calibration-analysis.md.
+        tier_achievable_fractions={"L3": 0.84, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
@@ -1154,21 +1158,25 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         # plateau on N=16M/67M/268M vector_add baseline; peak 75 GB/s).
         # V5-5 + follow-up calibration:
         #   DRAM = 0.47 (i7_12700k_vector_add.csv plateau, peak 75 GB/s)
-        #   L3   = 0.82 (i7_12700k_vector_add.csv at N=1M fp32, the
-        #                cleanest L3-resident measurement: WS=12 MB
-        #                between L1=512 KB and L3=25 MB, measured
-        #                163 GB/s vs L3 peak 200 GB/s -> 163/200 = 0.82).
+        #   L3   = 0.84 (i7_12700k_vector_add.csv 2-point fit on
+        #                dispatch-corrected L3-bound rows N=65K and
+        #                N=1M: 167.6 GB/s and 166.7 GB/s respectively
+        #                vs L3 peak 200 GB/s -> mean 0.836, rounded
+        #                to 0.84. The N=262K shape shows non-physical
+        #                fraction 1.71x peak -- per-core L2 hits the
+        #                i7 mapper doesn't currently model -- and is
+        #                rejected from the regression. See
+        #                docs/calibration/i7-12700k-l3-calibration-analysis.md
+        #                for the full derivation + the structural
+        #                limit (no L3 value can fix N=262K's V4 floor
+        #                failure; needs model refinement, not
+        #                calibration).
         # L1 stays intentionally absent (default 1.0). The tier-aware
         # memory_time for every L1-binding matmul shape on i7 is
-        # 75x-1000x smaller than the 5 us CPU dispatch floor in
-        # RooflineAnalyzer._analyze_subgraph, so any L1
+        # 75x-1000x smaller than the CPU dispatch floor, so any L1
         # achievable_fraction value is a no-op for predictions today.
-        # See docs/calibration/i7-12700k-l1-calibration-analysis.md for
-        # the regression analysis + the conditions under which the
-        # decision needs to be revisited (multi-thread vector_add
-        # capture, dispatch-floor change, or thread-count-aware
-        # MemoryTier model).
-        tier_achievable_fractions={"L3": 0.82, "DRAM": 0.47},
+        # See docs/calibration/i7-12700k-l1-calibration-analysis.md.
+        tier_achievable_fractions={"L3": 0.84, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
