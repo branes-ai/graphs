@@ -1220,7 +1220,31 @@ class RooflineAnalyzer:
         if bw <= 0:
             return None
 
-        memory_time = result.bytes_loaded / bw
+        # V5 follow-up: L3/DRAM boundary cliff resolution for
+        # vector_add. When the operand overflows the outermost cache
+        # but is comparable to it (e.g., 50 MB vs 25 MB LLC), the
+        # measured BW lands between cache and DRAM. The binary tier
+        # picker says "binding = DRAM" with full DRAM-calibrated BW
+        # (35 GB/s on i7), but reality shows ~84 GB/s for those
+        # boundary shapes -- partial cache hits the model misses.
+        #
+        # OVERLAP physical model: cache warmup (filling LLC with the
+        # first cap bytes) and DRAM streaming (remaining bytes) happen
+        # in parallel via prefetch + memory-controller overlap, not
+        # sequentially. memory_time = max(cache_fill_time,
+        # dram_stream_time).
+        #
+        # Scope: vector_add specifically (zero-reuse model where
+        # bytes_loaded == operand_footprint). For matmul / linear the
+        # bytes_loaded calculation already encodes reuse via the
+        # per-op model; the OVERLAP physics differ when data is
+        # tile-streamed with reuse, so we don't apply it there.
+        memory_time = self._memory_time_with_boundary_overlap(
+            op_kind=op_kind,
+            bytes_loaded=result.bytes_loaded,
+            binding_tier=result.binding_tier,
+            hierarchy=hierarchy,
+        )
         self._last_tier_bytes_loaded = result.bytes_loaded
         self._last_memory_explanation = MemoryExplanation(
             binding_tier_name=result.binding_tier.name,
@@ -1231,6 +1255,78 @@ class RooflineAnalyzer:
             effective_bandwidth_bps=float(bw),
         )
         return memory_time
+
+    @staticmethod
+    def _memory_time_with_boundary_overlap(
+        op_kind: str,
+        bytes_loaded: int,
+        binding_tier: "MemoryTier",
+        hierarchy: list,
+    ) -> float:
+        """V5-followup boundary cliff model: when a vector_add op
+        binds at DRAM but its operand size is comparable to the
+        outermost cache, blend cache fill time with DRAM stream
+        time via the OVERLAP physics:
+
+            memory_time = max(cache_fill_time, dram_stream_time)
+
+        where:
+            cache_fill_time = min(bytes_loaded, last_cache.cap)
+                              / last_cache.effective_bandwidth_bps
+            dram_stream_time = max(0, bytes_loaded - last_cache.cap)
+                              / dram.effective_bandwidth_bps
+
+        For shapes far past LLC (overflow >> cap), the dram_stream_time
+        dominates and the model collapses to the current binary
+        behavior (memory_time = bytes_loaded / dram_eff_bw, with the
+        cache_fill_time contributing only the first ~149 us of L3
+        warmup -- negligible at multi-millisecond DRAM streaming).
+
+        For shapes well inside LLC, the picker doesn't bind at DRAM
+        in the first place, so this code path doesn't fire.
+
+        For the boundary regime (1x-4x past LLC), the cache_fill_time
+        is non-negligible relative to dram_stream_time, and OVERLAP
+        gives a more accurate prediction than pure-DRAM-stream. The
+        N=4M vector_add case lands at +20% (PASS) vs +140% (FAIL)
+        under the previous binary model.
+        """
+        bw = binding_tier.effective_bandwidth_bps
+        # Default behavior (current): pure binding-tier streaming.
+        default_time = bytes_loaded / bw
+
+        # Scope: vector_add only. The matmul / linear bytes_loaded
+        # calculation encodes reuse via tile-streaming reload counts;
+        # the OVERLAP physics (cache fills then concurrent DRAM
+        # stream) doesn't apply when the data has structured reuse.
+        if op_kind != "vector_add":
+            return default_time
+
+        # Predicate: only at the outermost-tier boundary (binding == DRAM).
+        # For binding at L1 / L2 / L3 the picker has already routed
+        # correctly and OVERLAP would be a model-confusion.
+        if binding_tier.name != "DRAM":
+            return default_time
+
+        # Find the last cache tier (innermost-out, the tier just
+        # before DRAM). If there isn't one (DRAM-only hierarchy),
+        # OVERLAP is moot.
+        cache_tiers = [t for t in hierarchy if t.name != "DRAM"]
+        if not cache_tiers:
+            return default_time
+        last_cache = cache_tiers[-1]
+        cache_cap = last_cache.total_capacity_bytes
+        cache_bw = last_cache.effective_bandwidth_bps
+        if cache_cap <= 0 or cache_bw <= 0:
+            return default_time
+
+        # OVERLAP physics: cache warmup time + DRAM streaming time,
+        # parallelized.
+        cache_fill_bytes = min(bytes_loaded, cache_cap)
+        dram_stream_bytes = max(0, bytes_loaded - cache_cap)
+        cache_fill_time = cache_fill_bytes / cache_bw
+        dram_stream_time = dram_stream_bytes / bw
+        return max(cache_fill_time, dram_stream_time)
 
     @staticmethod
     def _extract_matmul_shape(sg: SubgraphDescriptor) -> Optional[tuple]:
