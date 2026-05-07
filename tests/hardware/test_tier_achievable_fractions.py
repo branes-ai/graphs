@@ -164,6 +164,31 @@ def test_i7_12700k_l3_calibration():
     assert l3.effective_bandwidth_bps == pytest.approx(200e9 * 0.84)
 
 
+def test_i7_12700k_per_op_calibration():
+    """V5-3b flag-flip prerequisite: i7 has per-op DRAM and L2
+    overrides for matmul / linear. The single-fraction-per-tier
+    model couldn't capture that vector_add (zero-reuse) and matmul
+    (structured-reuse) achieve different effective BW at the same
+    tier; per-op overrides resolve this."""
+    hw = create_i7_12700k_mapper().resource_model
+    assert hw.tier_achievable_fractions_by_op == {
+        "matmul": {"L2": 0.10, "DRAM": 0.85},
+        "linear": {"L2": 0.10, "DRAM": 0.85},
+    }
+
+
+def test_per_op_calibration_falls_back_to_per_tier():
+    """vector_add isn't in the per-op overrides; its tier fractions
+    must come from the per-tier ``tier_achievable_fractions``
+    (V5-5 baseline values)."""
+    hw = create_i7_12700k_mapper().resource_model
+    # No vector_add entry in tier_achievable_fractions_by_op
+    assert "vector_add" not in hw.tier_achievable_fractions_by_op
+    # So vector_add picks up the per-tier values
+    assert hw.tier_achievable_fractions["L2"] == 0.22
+    assert hw.tier_achievable_fractions["DRAM"] == 0.47
+
+
 def test_i7_12700k_l1_calibration():
     """V5 follow-up: i7 ``L1.achievable_fraction = 0.020`` from the
     2-point regression on N=256 and N=1024 vector_add baseline rows
