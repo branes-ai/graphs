@@ -164,14 +164,23 @@ def test_i7_12700k_l3_calibration():
     assert l3.effective_bandwidth_bps == pytest.approx(200e9 * 0.84)
 
 
-def test_i7_12700k_l1_uncalibrated():
-    """V5-5 follow-up still leaves L1 absent (default 1.0). Pure
-    L1-BW calibration would need a sub-microsecond benchmark that
-    isolates L1 BW from dispatch overhead, which the V5-2b
-    vector_add baseline doesn't provide cleanly."""
+def test_i7_12700k_l1_calibration():
+    """V5 follow-up: i7 ``L1.achievable_fraction = 0.020`` from the
+    2-point regression on N=256 and N=1024 vector_add baseline rows
+    (BW = 69 GB/s after dispatch correction; aggregate L1 peak is
+    3500 GB/s, so 69/3500 = 0.020). Originally judged a no-op (PR
+    #105) because dispatch floor dominates for matmul L1-binding
+    shapes -- which is true -- but vector_add at medium N (4K-16K)
+    has WS in the 48-192 KB range where the math part exceeds the
+    2 us op-aware dispatch floor and L1 fraction drives the
+    prediction. Setting 0.020 lands V4 vector_add N=16K within the
+    30% LAUNCH band."""
     hw = create_i7_12700k_mapper().resource_model
+    assert hw.tier_achievable_fractions.get("L1") == 0.02
     l1 = next(t for t in hw.memory_hierarchy if t.name == "L1")
-    assert l1.achievable_fraction == 1.0
+    assert l1.achievable_fraction == 0.02
+    # Verify the effective BW lands at the regression value (69 GB/s)
+    assert l1.effective_bandwidth_bps == pytest.approx(3500e9 * 0.02)
 
 
 def test_i7_12700k_large_mapper_inherits_dram_calibration():

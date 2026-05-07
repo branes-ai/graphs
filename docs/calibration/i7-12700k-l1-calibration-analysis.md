@@ -1,22 +1,27 @@
 # i7-12700K L1 Calibration Analysis (V5-5 follow-up)
 
-**Status:** L1 `achievable_fraction` is intentionally **left unset**
-(default 1.0) on `create_i7_12700k_mapper` and
-`create_i7_12700k_large_mapper`. This document captures the analysis
-behind that decision so a future contributor doesn't think it's a
-forgotten todo.
+**Status:** L1 `achievable_fraction = 0.02` on
+`create_i7_12700k_mapper` and `create_i7_12700k_large_mapper`,
+matching the 2-point regression below.
+
+**Update history:**
+* PR #105: L1 left at default 1.0 with the rationale "dispatch
+  floor dominates for every L1-binding matmul shape" -- correct
+  for matmul but missed the vector_add medium-N regime.
+* PR (this one): L1 set to 0.02 because vector_add at N=16K (a
+  shape the V4 sweep validates) DOES exceed the 2 us op-aware
+  dispatch floor with the proper L1 fraction, making the
+  calibration value the binding constraint there.
 
 ## TL;DR
 
-For matmul on i7-12700K, the V5-3b tier-aware analyzer is
-**dispatch-floor-bound for every L1-binding shape**. The CPU dispatch
-floor (`5 us` in `RooflineAnalyzer._analyze_subgraph`) supersedes any
-L1-derived memory_time, regardless of `L1.achievable_fraction`.
-Setting L1 to 0.05 vs 1.0 produces identical predictions across all
-48 L1-binding matmul shapes the V4 sweep generates. So the
-calibration value is a no-op until either (a) the dispatch floor
-moves or (b) a workload arrives whose L1-bound memory_time can
-exceed 5 microseconds.
+The 2-point regression on dispatch-corrected L1-resident vector_add
+rows (N=256 and N=1024) yields **BW = 69 GB/s, dispatch = 1.79 us**.
+As a fraction of the L1 aggregate peak (3500 GB/s), that's
+**0.020**. Originally rejected as "structurally unobservable for
+matmul" -- which is true -- but vector_add medium-N (N=4K to 16K)
+sits in the regime where the L1 fraction directly drives the
+prediction and 0.020 lands V4 floor passes within tolerance.
 
 ## Why vector_add can't isolate L1 BW directly
 
@@ -60,22 +65,45 @@ Two issues with using this 69 GB/s as the L1 calibration anchor:
    Even a 50 ns increase on either point (~3% relative noise on
    1.84 us) would shift the BW estimate by 30%.
 
-## Why L1 calibration is moot on the analyzer side
+## Where L1 calibration matters: vector_add medium-N
+
+The dispatch floor argument (below) is correct for **matmul**:
+small matmul shapes have tiny C-tiles (clamped to min(M,N)) and
+correspondingly tiny `bytes_loaded`, so memory_time stays in
+tens-of-nanoseconds and the dispatch floor wins regardless of L1
+fraction. But **vector_add at medium N** (4K-16K elements) has
+working set 48-192 KB, all of which streams through L1, giving
+memory_time on the order of microseconds when L1 fraction is
+calibrated correctly:
+
+| N | WS | math at L1=0.020 (= 70 GB/s) | floor (vector_add 2us) | binding |
+|---|---|---|---|---|
+| 1024 | 12 KB | 0.17 us | 2 us | floor |
+| 4096 | 48 KB | 0.69 us | 2 us | floor |
+| **16K** | **192 KB** | **2.74 us** | 2 us | **math wins** |
+
+For N=16K the math part exceeds the floor, and L1 fraction directly
+drives the prediction. With the current L1 = 0.020 the prediction
+lands at 2.74 us vs measured 3.09 us (-9%, well inside the 30%
+LAUNCH band). For comparison, **before** this calibration was set
+(when L1 defaulted to 1.0 in the V5-1 / pre-PR-#110 era), the math
+part was 0.055 us, the floor won, prediction was 2 us, and the
+shape FAILED at -35% off measured.
+
+This is what the prior conclusion missed: while L1 calibration is
+structurally moot for matmul, it's load-bearing for vector_add
+medium-N. Setting L1 = 0.020 is harmless for matmul (floor still
+wins there) but materially improves vector_add V4 floors (3/5 ->
+4/5 pass under tier-aware on i7).
+
+## Why L1 calibration was originally judged moot (matmul-only argument)
 
 Even if we settled on a defensible L1 value, it wouldn't change any
-predictions. The CPU dispatch floor in
-`graphs/estimation/roofline.py::_analyze_subgraph`:
-
-```python
-if self.resource_model.hardware_type.name == 'CPU':
-    actual_latency = max(actual_latency, 5e-6)
-```
-
-This 5 us floor came from #69's analysis: real PyTorch / nn.Module
-calls have ~5 us of dispatch + parameter access + bias-add overhead
-per forward call, regardless of kernel size. For L1-binding shapes,
-the tier-aware memory_time is in tens of nanoseconds — the floor is
-two orders of magnitude larger.
+**matmul** predictions. The op-aware CPU dispatch floor in
+`graphs/estimation/roofline.py::_analyze_subgraph` is 6 us for
+matmul. For L1-binding matmul shapes, the tier-aware memory_time
+is in tens of nanoseconds -- the floor is two orders of magnitude
+larger.
 
 Sweep across the V4 matmul shape range (M, K, N <= 128, the
 launch_bound regime that generates L1-binding shapes):
@@ -99,34 +127,34 @@ for s in shapes:
 ```
 
 All 48 L1-binding shapes have memory_time in `[4.7 ns, 65.5 ns]`.
-The 5 us floor wins by 75x to 1000x. Setting
-`L1.achievable_fraction = 0.020` would change memory_time to
-`[235 ns, 3275 ns]` -- still all below the floor. **No prediction
-changes.**
+The 6 us matmul dispatch floor wins by 90x to 1300x. Setting
+`L1.achievable_fraction = 0.020` changes memory_time to
+`[235 ns, 3275 ns]` -- still all below the matmul floor. **For
+matmul, no prediction changes.** The vector_add medium-N regime
+above is the new reason L1 = 0.020 is set anyway.
 
-## When this needs to be revisited
+## When this needs to be revisited (further)
 
-The L1 calibration becomes load-bearing when ANY of the following
-land:
+L1 calibration is now set, but several open questions remain:
 
-1. **The dispatch floor drops or becomes shape-dependent.** If a
-   future change tightens the floor below ~50 ns for some shape
-   class, L1-binding predictions could become memory-time-dominated
-   and `L1.achievable_fraction` starts mattering.
+1. **A multi-threaded vector_add benchmark.** Single-thread data
+   underestimates aggregate L1 BW. A multi-thread benchmark would
+   let us measure the aggregate utilization directly and might
+   shift the calibration significantly.
 
-2. **A multi-threaded vector_add benchmark gets captured.** Running
-   the V5-2b workload across all 16 cores would let us measure the
-   aggregate L1 BW directly. The natural place is to extend the V4
-   capture path with a `--threads` knob.
-
-3. **The MemoryTier model gains thread-count awareness.** A more
+2. **The MemoryTier model gains thread-count awareness.** A more
    honest model would have `effective_bandwidth_bps(thread_count)`
-   that interpolates between single-thread (`peak / num_units`) and
-   aggregate (`peak`). Then the existing single-thread vector_add
-   data calibrates the single-thread end of that curve.
+   that interpolates between single-thread (`peak / num_units`)
+   and aggregate (`peak`). Then the existing single-thread
+   vector_add data calibrates the single-thread end of that curve
+   without forcing a single low fraction across all workloads.
 
-Until then, L1 stays absent from
-`tier_achievable_fractions` on the i7 mappers, defaulting to 1.0.
-The decision is locked by `tests/hardware/test_tier_achievable_fractions.py::test_i7_12700k_l1_uncalibrated`
-and the analytical claim above by
-`tests/hardware/test_i7_l1_calibration_is_dispatch_floor_dominated.py`.
+3. **The dispatch floor architecture changes.** If a future change
+   tightens or removes the floor, more shape classes become
+   memory-time-dominated and the L1 = 0.02 value may start
+   affecting matmul/linear too.
+
+The L1 = 0.02 value is locked by
+`tests/hardware/test_tier_achievable_fractions.py::test_i7_12700k_l1_calibration`
+and the matmul-specific dispatch-floor argument (which still holds)
+by `tests/hardware/test_i7_l1_calibration_is_dispatch_floor_dominated.py`.
