@@ -247,3 +247,84 @@ def test_opt_in_falls_back_for_unknown_dtype():
         hw, precision=Precision.FP32, use_tier_aware_memory=True
     )._analyze_subgraph(sg)
     assert desc.memory_time > 0
+
+
+# ---------------------------------------------------------------------------
+# V5-4: memory_explanation field is populated when the path fires
+# ---------------------------------------------------------------------------
+
+
+def test_memory_explanation_populated_when_tier_path_fires():
+    """When the V5-3b tier-aware path fires, LatencyDescriptor must
+    carry a fully-populated MemoryExplanation: binding tier, residency
+    tier, tile dims, residency bytes, bytes loaded, effective BW."""
+    sg = _matmul_subgraph(1024, 1024, 1024)
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+
+    me = desc.memory_explanation
+    assert me is not None
+    # i7-12700K: hierarchy is L1, L3, DRAM (post-V5-1 / #94 build).
+    # 1024^3 fp32 matmul tiles to fit in L1 -> binds at L3.
+    assert me.binding_tier_name in {"L1", "L3", "DRAM"}
+    assert me.residency_tier_name in {"L1", "L3", "DRAM"}
+    assert len(me.tile_dims) == 2  # matmul -> (Mt, Nt)
+    assert me.residency_bytes > 0
+    assert me.bytes_loaded > 0
+    assert me.effective_bandwidth_bps > 0
+
+
+def test_memory_explanation_none_when_path_declines():
+    """Default (off) and decline cases (fused, CONV2D, 3D matmul,
+    unknown dtype) must leave memory_explanation == None so callers
+    can render 'no tier info' without surprise."""
+    hw = create_i7_12700k_mapper().resource_model
+
+    # Default (flag off)
+    desc1 = RooflineAnalyzer(hw, precision=Precision.FP32)._analyze_subgraph(
+        _matmul_subgraph(1024, 1024, 1024)
+    )
+    assert desc1.memory_explanation is None
+
+    # Opt-in but ineligible (fused subgraph)
+    desc2 = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(_fused_matmul_relu())
+    assert desc2.memory_explanation is None
+
+
+def test_memory_explanation_does_not_leak_across_subgraphs():
+    """The analyzer's per-subgraph stash must reset between calls so
+    a decline (e.g., fused subgraph) doesn't inherit the previous
+    successful subgraph's MemoryExplanation."""
+    hw = create_i7_12700k_mapper().resource_model
+    analyzer = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )
+
+    # First: a successful tier-path subgraph
+    desc_ok = analyzer._analyze_subgraph(_matmul_subgraph(1024, 1024, 1024))
+    assert desc_ok.memory_explanation is not None
+
+    # Second: a fused subgraph that the predicate rejects -- must come
+    # back with memory_explanation=None, NOT the prior subgraph's value
+    desc_decline = analyzer._analyze_subgraph(_fused_matmul_relu())
+    assert desc_decline.memory_explanation is None
+
+
+def test_memory_explanation_format_summary_renders_breakdown():
+    """LatencyDescriptor.format_summary should include a 'Memory binding'
+    line when memory_explanation is set, so the breakdown surfaces in
+    the human-readable string output without callers having to dig into
+    the structured field."""
+    sg = _matmul_subgraph(1024, 1024, 1024)
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+
+    summary = desc.format_summary()
+    assert "Memory binding" in summary
+    assert desc.memory_explanation.binding_tier_name in summary

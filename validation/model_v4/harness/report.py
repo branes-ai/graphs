@@ -35,6 +35,7 @@ _REGIME_DISPLAY_ORDER = ["alu_bound", "l2_bound", "dram_bound", "launch_bound"]
 @dataclass
 class CellSummary:
     """One (hardware, regime) cell of the heatmap."""
+
     hardware: str
     op: str
     regime: str
@@ -49,7 +50,9 @@ class CellSummary:
         return self.n_total > 0 and self.n_pass == self.n_total
 
 
-def _aggregate(records: List[ValidationRecord]) -> dict[Tuple[str, str, str], CellSummary]:
+def _aggregate(
+    records: List[ValidationRecord],
+) -> dict[Tuple[str, str, str], CellSummary]:
     """Group records by (hardware, op, regime_predicted) and tally
     pass/fail counts per assertion."""
     groups: dict[Tuple[str, str, str], List[ValidationRecord]] = defaultdict(list)
@@ -65,8 +68,11 @@ def _aggregate(records: List[ValidationRecord]) -> dict[Tuple[str, str, str], Ce
         n_fail_lat = sum(1 for r in bucket if not r.pass_latency)
         n_fail_egy = sum(1 for r in bucket if r.pass_energy is False)
         out[(hw, op, regime)] = CellSummary(
-            hardware=hw, op=op, regime=regime,
-            n_total=n_total, n_pass=n_pass,
+            hardware=hw,
+            op=op,
+            regime=regime,
+            n_total=n_total,
+            n_pass=n_pass,
             n_fail_regime=n_fail_regime,
             n_fail_latency=n_fail_lat,
             n_fail_energy=n_fail_egy,
@@ -111,9 +117,11 @@ def format_text(result: RunnerResult, *, op: str = "(any)") -> str:
 
     # Header
     lines.append(f"V4 validation -- op={op}")
-    lines.append(f"  records: {len(result.records)}  "
-                 f"skipped(no baseline): {len(result.skipped_no_baseline)}  "
-                 f"skipped(unsupported): {len(result.skipped_unsupported)}")
+    lines.append(
+        f"  records: {len(result.records)}  "
+        f"skipped(no baseline): {len(result.skipped_no_baseline)}  "
+        f"skipped(unsupported): {len(result.skipped_unsupported)}"
+    )
     lines.append("")
 
     # Heatmap: rows = (hw, op), cols = regime
@@ -123,7 +131,12 @@ def format_text(result: RunnerResult, *, op: str = "(any)") -> str:
     else:
         col_w = max(len(r) for r in _REGIME_DISPLAY_ORDER)
         # Header row
-        header = "  " + " " * 28 + "  " + "  ".join(r.rjust(col_w) for r in _REGIME_DISPLAY_ORDER)
+        header = (
+            "  "
+            + " " * 28
+            + "  "
+            + "  ".join(r.rjust(col_w) for r in _REGIME_DISPLAY_ORDER)
+        )
         lines.append(header)
         lines.append("  " + "-" * (len(header) - 2))
         for hw, op_name in hardware_op_pairs:
@@ -145,15 +158,19 @@ def format_text(result: RunnerResult, *, op: str = "(any)") -> str:
         lines.append("    " + "-" * 100)
         for r in failures[:30]:  # cap so a flood doesn't drown the report
             tag = []
-            if not r.pass_regime: tag.append("R")
-            if not r.pass_latency: tag.append("L")
-            if r.pass_energy is False: tag.append("E")
+            if not r.pass_regime:
+                tag.append("R")
+            if not r.pass_latency:
+                tag.append("L")
+            if r.pass_energy is False:
+                tag.append("E")
+            tier_suffix = f" [tier:{r.binding_tier}]" if r.binding_tier else ""
             lines.append(
                 f"    [{''.join(tag):3s}] {r.op:7s} {str(r.shape):20s} {r.dtype:5s} "
                 f"pred={r.regime_predicted:11s} meas={r.regime_measured:11s} "
                 f"lat={r.latency_predicted_ms:>8.3f}ms vs {r.latency_measured_ms:>8.3f}ms "
                 f"({_relative(r.latency_predicted_ms, r.latency_measured_ms):>+5.0%}) "
-                f"-- {r.bottleneck_layer}"
+                f"-- {r.bottleneck_layer}{tier_suffix}"
             )
         if len(failures) > 30:
             lines.append(f"    ... and {len(failures) - 30} more failures")
@@ -204,15 +221,18 @@ def format_markdown(result: RunnerResult, *, op: str = "(any)") -> str:
     if failures:
         lines.append(f"### Failures ({len(failures)} of {len(result.records)})")
         lines.append("")
-        lines.append("| op | shape | dtype | regime pred -> meas | latency pred vs meas | bottleneck |")
-        lines.append("| --- | --- | --- | --- | --- | --- |")
+        lines.append(
+            "| op | shape | dtype | regime pred -> meas | latency pred vs meas | bottleneck | binding tier |"
+        )
+        lines.append("| --- | --- | --- | --- | --- | --- | --- |")
         for r in failures[:50]:
             lines.append(
                 f"| {r.op} | {r.shape} | {r.dtype} | "
                 f"{r.regime_predicted} -> {r.regime_measured} | "
                 f"{r.latency_predicted_ms:.3f}ms vs {r.latency_measured_ms:.3f}ms "
                 f"({_relative(r.latency_predicted_ms, r.latency_measured_ms):+.0%}) | "
-                f"{r.bottleneck_layer} |"
+                f"{r.bottleneck_layer} | "
+                f"{r.binding_tier or '-'} |"
             )
         if len(failures) > 50:
             lines.append(f"")
@@ -248,14 +268,16 @@ def format_json(result: RunnerResult) -> str:
         },
         "cells": [
             {
-                "hardware": c.hardware, "op": c.op, "regime": c.regime,
-                "n_total": c.n_total, "n_pass": c.n_pass,
+                "hardware": c.hardware,
+                "op": c.op,
+                "regime": c.regime,
+                "n_total": c.n_total,
+                "n_pass": c.n_pass,
                 "n_fail_regime": c.n_fail_regime,
                 "n_fail_latency": c.n_fail_latency,
                 "n_fail_energy": c.n_fail_energy,
             }
-            for c in sorted(cells.values(),
-                            key=lambda x: (x.hardware, x.op, x.regime))
+            for c in sorted(cells.values(), key=lambda x: (x.hardware, x.op, x.regime))
         ],
         "records": [r.to_dict() for r in result.records],
     }

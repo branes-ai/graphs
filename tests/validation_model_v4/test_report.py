@@ -18,14 +18,28 @@ from validation.model_v4.harness.report import (
 from validation.model_v4.harness.runner import RunnerResult
 
 
-def _record(*, hardware="i7_12700k", op="matmul", shape=(1024, 1024, 1024),
-            dtype="fp32", regime_predicted="l2_bound",
-            regime_measured="l2_bound",
-            pass_regime=True, pass_latency=True, pass_energy=True,
-            latency_predicted_ms=10.0, latency_measured_ms=10.0,
-            energy_predicted_j=1.0, energy_measured_j=1.0) -> ValidationRecord:
+def _record(
+    *,
+    hardware="i7_12700k",
+    op="matmul",
+    shape=(1024, 1024, 1024),
+    dtype="fp32",
+    regime_predicted="l2_bound",
+    regime_measured="l2_bound",
+    pass_regime=True,
+    pass_latency=True,
+    pass_energy=True,
+    latency_predicted_ms=10.0,
+    latency_measured_ms=10.0,
+    energy_predicted_j=1.0,
+    energy_measured_j=1.0,
+    binding_tier=None,
+) -> ValidationRecord:
     return ValidationRecord(
-        hardware=hardware, op=op, shape=shape, dtype=dtype,
+        hardware=hardware,
+        op=op,
+        shape=shape,
+        dtype=dtype,
         regime_predicted=regime_predicted,
         latency_predicted_ms=latency_predicted_ms,
         energy_predicted_j=energy_predicted_j,
@@ -38,6 +52,7 @@ def _record(*, hardware="i7_12700k", op="matmul", shape=(1024, 1024, 1024),
         tolerance_latency=0.20,
         tolerance_energy=0.25,
         bottleneck_layer="L2 / LLC capacity",
+        binding_tier=binding_tier,
     )
 
 
@@ -64,9 +79,9 @@ def test_aggregate_counts_per_assertion_type():
     """A record can fail multiple assertions; each must be tallied
     independently so the report can attribute correctly."""
     records = [
-        _record(pass_regime=True, pass_latency=True, pass_energy=True),     # all pass
-        _record(pass_regime=False, pass_latency=True, pass_energy=True),    # regime only
-        _record(pass_regime=True, pass_latency=False, pass_energy=True),    # latency only
+        _record(pass_regime=True, pass_latency=True, pass_energy=True),  # all pass
+        _record(pass_regime=False, pass_latency=True, pass_energy=True),  # regime only
+        _record(pass_regime=True, pass_latency=False, pass_energy=True),  # latency only
         _record(pass_regime=False, pass_latency=False, pass_energy=False),  # all fail
     ]
     cells = _aggregate(records)
@@ -82,9 +97,9 @@ def test_aggregate_treats_none_energy_as_not_failed():
     """A record where pass_energy is None (not measured) counts as
     'not failed' for energy aggregation."""
     records = [
-        _record(pass_energy=None),      # not measured -> not a fail
+        _record(pass_energy=None),  # not measured -> not a fail
         _record(pass_energy=True),
-        _record(pass_energy=False),     # only this one is a fail
+        _record(pass_energy=False),  # only this one is a fail
     ]
     cell = _aggregate(records)[("i7_12700k", "matmul", "l2_bound")]
     assert cell.n_fail_energy == 1
@@ -129,8 +144,7 @@ def _result(records, *, no_baseline=0, unsupported=0):
 
 
 def test_format_text_includes_record_skipped_counts():
-    text = format_text(_result([_record()], no_baseline=2, unsupported=3),
-                       op="matmul")
+    text = format_text(_result([_record()], no_baseline=2, unsupported=3), op="matmul")
     assert "records: 1" in text
     assert "skipped(no baseline): 2" in text
     assert "skipped(unsupported): 3" in text
@@ -142,8 +156,11 @@ def test_format_text_renders_heatmap_columns_in_severity_order():
     first."""
     text = format_text(_result([_record()]), op="matmul")
     # Find the header line (one with all four regime names)
-    header_idx = next(i for i, line in enumerate(text.splitlines())
-                      if "alu_bound" in line and "dram_bound" in line)
+    header_idx = next(
+        i
+        for i, line in enumerate(text.splitlines())
+        if "alu_bound" in line and "dram_bound" in line
+    )
     header = text.splitlines()[header_idx]
     assert header.index("alu_bound") < header.index("l2_bound")
     assert header.index("l2_bound") < header.index("dram_bound")
@@ -154,10 +171,18 @@ def test_format_text_lists_failures_with_attribution_tags():
     """Each failure row must show R/L/E tags so the reader can tell
     which assertion drifted."""
     records = [
-        _record(pass_regime=False, pass_latency=True, pass_energy=True,
-                regime_measured="ambiguous"),
-        _record(pass_regime=False, pass_latency=False, pass_energy=False,
-                regime_measured="ambiguous"),
+        _record(
+            pass_regime=False,
+            pass_latency=True,
+            pass_energy=True,
+            regime_measured="ambiguous",
+        ),
+        _record(
+            pass_regime=False,
+            pass_latency=False,
+            pass_energy=False,
+            regime_measured="ambiguous",
+        ),
     ]
     text = format_text(_result(records), op="matmul")
     assert "Failures (2 of 2 records)" in text
@@ -223,11 +248,80 @@ def test_format_json_records_have_full_field_set():
     payload = json.loads(format_json(_result([_record()])))
     rec = payload["records"][0]
     expected = {
-        "hardware", "op", "shape", "dtype",
-        "regime_predicted", "latency_predicted_ms", "energy_predicted_j",
-        "regime_measured", "latency_measured_ms", "energy_measured_j",
-        "pass_regime", "pass_latency", "pass_energy",
-        "tolerance_latency", "tolerance_energy",
-        "bottleneck_layer", "notes",
+        "hardware",
+        "op",
+        "shape",
+        "dtype",
+        "regime_predicted",
+        "latency_predicted_ms",
+        "energy_predicted_j",
+        "regime_measured",
+        "latency_measured_ms",
+        "energy_measured_j",
+        "pass_regime",
+        "pass_latency",
+        "pass_energy",
+        "tolerance_latency",
+        "tolerance_energy",
+        "bottleneck_layer",
+        "notes",
+        # V5-4 addition; must be in the JSON schema even when None
+        "binding_tier",
     }
     assert expected.issubset(set(rec.keys()))
+
+
+# ---------------------------------------------------------------------------
+# V5-4: binding_tier surfaces in the failure detail rows
+# ---------------------------------------------------------------------------
+
+
+def test_format_text_failure_row_shows_binding_tier_when_set():
+    """When a record has binding_tier set (V5-3b tier-aware path fired),
+    the text-format failure row should append a [tier:NAME] suffix so
+    the reader can pinpoint which tier's BW assumption is drifting."""
+    failing = _record(
+        pass_latency=False,
+        latency_predicted_ms=5.0,
+        latency_measured_ms=10.0,
+        binding_tier="L3",
+    )
+    text = format_text(_result([failing]), op="matmul")
+    assert "[tier:L3]" in text
+
+
+def test_format_text_failure_row_omits_binding_tier_suffix_when_none():
+    """When binding_tier is None (V5-3b path didn't fire), the failure
+    row should not append a [tier:None] noise suffix."""
+    failing = _record(
+        pass_latency=False,
+        latency_predicted_ms=5.0,
+        latency_measured_ms=10.0,
+        binding_tier=None,
+    )
+    text = format_text(_result([failing]), op="matmul")
+    assert "[tier:" not in text
+
+
+def test_format_markdown_failures_table_has_binding_tier_column():
+    """The markdown failures table gains a 'binding tier' column. When
+    set, the column shows the tier name; when None, it shows '-'."""
+    records = [
+        _record(
+            pass_latency=False,
+            latency_predicted_ms=5.0,
+            latency_measured_ms=10.0,
+            binding_tier="DRAM",
+        ),
+        _record(
+            pass_regime=False,
+            regime_predicted="dram_bound",
+            regime_measured="alu_bound",
+            binding_tier=None,
+        ),
+    ]
+    md = format_markdown(_result(records), op="matmul")
+    assert "binding tier" in md
+    assert "DRAM" in md
+    # The None record renders as '-' in the column
+    assert "| - |" in md
