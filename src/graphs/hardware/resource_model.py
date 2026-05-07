@@ -1053,6 +1053,23 @@ class HardwareResourceModel:
     # Provenance: ``l2_bandwidth_bps``.
     l2_bandwidth_bps: Optional[float] = None
 
+    # ``l2_bandwidth_per_unit_bps`` -- per-core / per-SM / per-tile L2
+    # bandwidth for hardware with PRIVATE per-unit L2 caches. Distinct
+    # from ``l2_bandwidth_bps`` (which is the shared / aggregate value).
+    # On modern multi-core CPUs (Alder Lake, Zen 4, Apple M-series),
+    # each core has its own private L2 cache that is exclusive: each
+    # core's L2 holds only that core's data, no inter-core snoop is
+    # needed (the L1->L2 path stays within the core). This makes the
+    # per-core L2 a distinct architectural tier between L1 and the
+    # shared LLC -- workloads whose working set fits per-core L2 form
+    # a clean performance regime that the L1 -> L3 binary view can't
+    # capture.
+    # Aggregate L2 BW across the chip is ``l2_bandwidth_per_unit_bps *
+    # compute_units``. Use this field together with ``l2_cache_per_unit``;
+    # ``l2_topology`` should be ``"per-unit"``. Provenance:
+    # ``l2_bandwidth_per_unit_bps``.
+    l2_bandwidth_per_unit_bps: Optional[float] = None
+
     # ``l3_bandwidth_bps`` -- shared L3 peak bandwidth (CPU only). Zero /
     # None when ``l3_present`` is False. On x86, L3 is the LLC and is
     # what ``l2_cache_total`` already holds (per M1 convention); this
@@ -1211,14 +1228,59 @@ class HardwareResourceModel:
                 )
             )
 
-        # L2. The M1 convention: ``l2_cache_total`` may carry either L2 (on
-        # GPUs that have a distinct L2 -- e.g., H100) or LLC (on x86, where
-        # the LLC IS L3 and there's no separate L2 capacity at the schema
-        # level). The hierarchy emits this as "L2" when ``l2_bandwidth_bps``
-        # is set; if the mapper has both ``l2_bandwidth_bps`` and
-        # ``l3_bandwidth_bps``, the L3 tier is emitted as a separate hop
-        # below.
-        if self.l2_cache_total and self.l2_bandwidth_bps and self.l2_bandwidth_bps > 0:
+        # L2 per-unit (private per-core / per-SM / per-tile). Modern
+        # multi-core CPUs have private L2 caches that are EXCLUSIVE
+        # (each core's L2 holds only that core's data; no inter-core
+        # snoop). This makes per-core L2 a distinct architectural
+        # tier between L1 and the shared LLC -- workloads whose
+        # working set fits per-core L2 form a clean performance
+        # regime that the L1 -> L3 binary view can't capture.
+        #
+        # Emitted when both ``l2_cache_per_unit`` and
+        # ``l2_bandwidth_per_unit_bps`` are set. Aggregate values are
+        # stored on the tier (per-unit * compute_units) for the
+        # uniform-tier reading contract; per-unit recovery is
+        # ``peak_bandwidth_bps / num_units``.
+        if (
+            self.l2_cache_per_unit
+            and self.l2_bandwidth_per_unit_bps
+            and self.l2_bandwidth_per_unit_bps > 0
+        ):
+            tiers.append(
+                MemoryTier(
+                    name="L2",
+                    capacity_bytes=self.l2_cache_per_unit,
+                    is_per_unit=True,
+                    num_units=self.compute_units,
+                    peak_bandwidth_bps=(
+                        self.l2_bandwidth_per_unit_bps * self.compute_units
+                    ),
+                    access_latency_ns=(
+                        self.l2_access_latency_ns
+                        if self.l2_access_latency_ns is not None
+                        else 10.0
+                    ),
+                    achievable_fraction=af.get("L2", 1.0),
+                )
+            )
+
+        # L2 shared. The M1 convention: ``l2_cache_total`` may carry
+        # either L2 (on GPUs that have a distinct shared L2 -- e.g., H100)
+        # or LLC (on x86, where the LLC IS L3 and there's no separate L2
+        # capacity at the schema level). The hierarchy emits this as
+        # "L2" when ``l2_bandwidth_bps`` is set AND no per-unit L2 was
+        # already emitted (the per-unit field, if set, is the
+        # architecturally-correct one and supersedes the legacy shared
+        # path). If the mapper has both ``l2_bandwidth_bps`` and
+        # ``l3_bandwidth_bps``, the L3 tier is emitted as a separate
+        # hop below.
+        already_emitted_l2 = any(t.name == "L2" for t in tiers)
+        if (
+            not already_emitted_l2
+            and self.l2_cache_total
+            and self.l2_bandwidth_bps
+            and self.l2_bandwidth_bps > 0
+        ):
             tiers.append(
                 MemoryTier(
                     name="L2",

@@ -39,17 +39,22 @@ from graphs.hardware.resource_model import MemoryTier
 # ---------------------------------------------------------------------------
 
 
-def test_i7_12700k_hierarchy_is_l1_l3_dram():
-    """i7-12700K has populated L1 BW (#61) and L3 BW (the LLC on x86,
-    stored in l3_bandwidth_bps + l2_cache_total per the M1 schema). No
-    distinct L2 hop."""
+def test_i7_12700k_hierarchy_is_l1_l2_l3_dram():
+    """i7-12700K populates four tiers post the per-core L2 follow-up:
+    L1 (per-core 32 KB), L2 (per-core ~1 MB private/exclusive), L3
+    (chip-wide 25 MB LLC), DRAM. The per-core L2 was added so
+    workloads with WS in (32 KB, ~1 MB) per single thread land in
+    their own performance regime instead of being misattributed to
+    L3-bound."""
     hw = create_i7_12700k_mapper().resource_model
     tiers = hw.memory_hierarchy
     names = [t.name for t in tiers]
-    assert names == ["L1", "L3", "DRAM"], (
-        f"i7 hierarchy {names} != ['L1', 'L3', 'DRAM'] -- the LLC should "
-        f"emit as L3 even though it's stored in l2_cache_total per the "
-        f"x86 M1 schema convention."
+    assert names == ["L1", "L2", "L3", "DRAM"], (
+        f"i7 hierarchy {names} != ['L1', 'L2', 'L3', 'DRAM']. If the "
+        f"per-core L2 fields (l2_cache_per_unit, l2_bandwidth_per_unit_bps) "
+        f"got unset, this test fails. See "
+        f"docs/calibration/i7-12700k-l3-calibration-analysis.md for why "
+        f"the per-core L2 tier is architecturally important."
     )
 
 
@@ -153,6 +158,7 @@ def test_mapper_without_onchip_bw_peaks_returns_dram_only():
     hw2 = copy.copy(hw)
     hw2.l1_bandwidth_per_unit_bps = None
     hw2.l2_bandwidth_bps = None
+    hw2.l2_bandwidth_per_unit_bps = None  # per-core L2 follow-up
     hw2.l3_bandwidth_bps = None
 
     tiers = hw2.memory_hierarchy
