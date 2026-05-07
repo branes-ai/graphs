@@ -314,6 +314,149 @@ def test_memory_explanation_does_not_leak_across_subgraphs():
     assert desc_decline.memory_explanation is None
 
 
+# ---------------------------------------------------------------------------
+# vector_add eligibility (V4 vector_add validation harness follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _vector_add_subgraph(N, dtype="float32") -> SubgraphDescriptor:
+    """Build a single-op vector_add subgraph (c = a + b) on N elements."""
+    a = create_tensor_descriptor((N,), dtype)
+    b = create_tensor_descriptor((N,), dtype)
+    c = create_tensor_descriptor((N,), dtype)
+    return SubgraphDescriptor(
+        subgraph_id=42,
+        node_ids=["va"],
+        node_names=["va"],
+        operation_types=[OperationType.ELEMENTWISE],
+        fusion_pattern="Add",
+        total_flops=N,
+        total_macs=0,
+        total_input_bytes=2 * N * 4,
+        total_output_bytes=N * 4,
+        total_weight_bytes=0,
+        input_tensors=[a, b],
+        output_tensors=[c],
+        weight_tensors=[],
+    )
+
+
+def test_opt_in_routes_vector_add_through_tier_picker_on_i7():
+    """V4 vector_add validation harness: with use_tier_aware_memory=True,
+    a strict 3-tensor 1-D ELEMENTWISE op (c = a + b) should route
+    through the V5-3a vector_add reuse model and bind at the smallest
+    tier holding the operand footprint."""
+    sg = _vector_add_subgraph(16 * 1024 * 1024)  # 192 MB > L3 -> DRAM
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+    assert desc.memory_explanation is not None
+    assert desc.memory_explanation.binding_tier_name == "DRAM"
+
+
+def test_vector_add_small_n_binds_at_l1_via_analyzer():
+    """For an L1-resident vector_add, V5-5-followup operand-aware
+    binding selects L1 (smallest tier whose capacity holds the
+    12 KB operand footprint)."""
+    sg = _vector_add_subgraph(1024)  # 12 KB <- fits L1
+    hw = create_i7_12700k_mapper().resource_model
+    desc = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+    assert desc.memory_explanation is not None
+    assert desc.memory_explanation.binding_tier_name == "L1"
+
+
+def test_opt_in_falls_back_for_elementwise_with_only_one_input():
+    """ReLU / sigmoid (1 input -> 1 output) is also OperationType.ELEMENTWISE
+    but has different reuse semantics. The strict
+    _extract_vector_add_shape predicate must reject anything that's
+    not specifically 'a + b -> c' so we don't apply the wrong reuse
+    model."""
+    x = create_tensor_descriptor((1024,), "float32")
+    y = create_tensor_descriptor((1024,), "float32")
+    sg = SubgraphDescriptor(
+        subgraph_id=99,
+        node_ids=["relu"],
+        node_names=["relu"],
+        operation_types=[OperationType.ELEMENTWISE],
+        fusion_pattern="ReLU",
+        total_flops=1024,
+        total_macs=0,
+        total_input_bytes=1024 * 4,
+        total_output_bytes=1024 * 4,
+        total_weight_bytes=0,
+        input_tensors=[x],
+        output_tensors=[y],
+    )
+    hw = create_i7_12700k_mapper().resource_model
+    on = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+    off = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=False
+    )._analyze_subgraph(sg)
+    # Falls back to scalar -> identical memory_time
+    assert on.memory_time == off.memory_time
+    assert on.memory_explanation is None
+
+
+def test_opt_in_falls_back_for_2d_elementwise():
+    """2-D elementwise (e.g., matrix Add as a separate op) doesn't
+    match the strict 1-D vector_add predicate -> scalar fallback."""
+    a = create_tensor_descriptor((64, 64), "float32")
+    b = create_tensor_descriptor((64, 64), "float32")
+    c = create_tensor_descriptor((64, 64), "float32")
+    sg = SubgraphDescriptor(
+        subgraph_id=100,
+        node_ids=["add2d"],
+        node_names=["add2d"],
+        operation_types=[OperationType.ELEMENTWISE],
+        fusion_pattern="Add",
+        total_flops=64 * 64,
+        total_macs=0,
+        total_input_bytes=2 * 64 * 64 * 4,
+        total_output_bytes=64 * 64 * 4,
+        total_weight_bytes=0,
+        input_tensors=[a, b],
+        output_tensors=[c],
+    )
+    hw = create_i7_12700k_mapper().resource_model
+    on = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+    assert on.memory_explanation is None
+
+
+def test_opt_in_falls_back_for_elementwise_with_mismatched_shapes():
+    """Broadcast-style elementwise (a is scalar, b is N-d) -- the
+    bytes_loaded calculation in vector_add reuse model would be
+    wrong for these. Reject."""
+    a = create_tensor_descriptor((1,), "float32")  # scalar broadcast
+    b = create_tensor_descriptor((1024,), "float32")
+    c = create_tensor_descriptor((1024,), "float32")
+    sg = SubgraphDescriptor(
+        subgraph_id=101,
+        node_ids=["broadcast"],
+        node_names=["broadcast"],
+        operation_types=[OperationType.ELEMENTWISE],
+        fusion_pattern="Add",
+        total_flops=1024,
+        total_macs=0,
+        total_input_bytes=1024 * 4 + 4,
+        total_output_bytes=1024 * 4,
+        total_weight_bytes=0,
+        input_tensors=[a, b],
+        output_tensors=[c],
+    )
+    hw = create_i7_12700k_mapper().resource_model
+    on = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )._analyze_subgraph(sg)
+    assert on.memory_explanation is None
+
+
 def test_memory_explanation_format_summary_renders_breakdown():
     """LatencyDescriptor.format_summary should include a 'Memory binding'
     line when memory_explanation is set, so the breakdown surfaces in
