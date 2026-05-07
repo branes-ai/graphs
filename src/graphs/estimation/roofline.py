@@ -756,6 +756,15 @@ class RooflineAnalyzer:
         string used by ``ReuseModel.op_kind`` (``"matmul"``,
         ``"linear"``, ``"vector_add"``). Subgraphs with multiple
         ops or unknown ops fall through to the legacy path.
+
+        For ``OperationType.ELEMENTWISE``, the ``"vector_add"``
+        override only fires when the subgraph also matches the strict
+        vector-add layout (3 tensors, 1-D, ``c[i] = a[i] + b[i]``);
+        otherwise the override would also apply to ReLU / sigmoid /
+        other elementwise ops that share ELEMENTWISE but have
+        different compute-efficiency physics. ``_extract_vector_add_shape``
+        is the existing strict predicate (also used by
+        ``_try_tier_aware_memory_time``).
         """
         from graphs.core.structures import OperationType
 
@@ -768,13 +777,18 @@ class RooflineAnalyzer:
         op_types = getattr(sg, "operation_types", None)
         if not op_types or len(op_types) != 1:
             return None
-        op_to_kind = {
-            OperationType.MATMUL: "matmul",
-            OperationType.LINEAR: "linear",
-            OperationType.ELEMENTWISE: "vector_add",
-        }
-        op_kind = op_to_kind.get(op_types[0])
-        if op_kind is None:
+        op_type = op_types[0]
+        if op_type == OperationType.MATMUL:
+            op_kind = "matmul"
+        elif op_type == OperationType.LINEAR:
+            op_kind = "linear"
+        elif op_type == OperationType.ELEMENTWISE:
+            # Strict vector_add gate -- ReLU / sigmoid also map to
+            # ELEMENTWISE but should NOT pick up a vector_add override.
+            if self._extract_vector_add_shape(sg) is None:
+                return None
+            op_kind = "vector_add"
+        else:
             return None
         return prec_overrides.get(op_kind)
 

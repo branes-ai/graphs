@@ -146,7 +146,7 @@ linear scale ~0.85. But the V4 floor tests run on the LEGACY memory
 path (`RunnerConfig.use_tier_aware_memory` defaults to False), and on
 that path 0.85 regresses the energy-pass band:
 
-```
+```text
 LEGACY memory path, linear scale sweep:
    scale  lat-pass  energy-pass
    0.85   28        24      ← peak lat, energy fails (floor 27)

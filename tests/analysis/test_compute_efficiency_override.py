@@ -178,6 +178,74 @@ def test_override_helper_returns_none_for_unmapped_op_kind():
     assert analyzer._get_compute_efficiency_override(sg) is None
 
 
+def test_override_helper_skips_non_strict_elementwise():
+    """ELEMENTWISE op kinds that aren't strict vector_add (e.g. ReLU
+    with one input + one output, or 2-D shapes) must NOT pick up a
+    ``vector_add`` override. The strict gate is the same predicate
+    ``_try_tier_aware_memory_time`` uses for the V5-3a vector_add
+    reuse model."""
+    hw = create_jetson_orin_nano_8gb_mapper().resource_model
+    # Register a hypothetical vector_add override -- without the
+    # strict gate, ReLU would silently inherit it.
+    hw.compute_efficiency_overrides_by_op = {
+        "fp16": {"vector_add": 0.55},
+    }
+    analyzer = RooflineAnalyzer(hw, precision=Precision.FP16)
+
+    # Build a 1-input ReLU-style elementwise subgraph (2 tensors, not
+    # 3 -- vector_add needs ``a + b -> c``).
+    x = create_tensor_descriptor((1024,), "float16")
+    y = create_tensor_descriptor((1024,), "float16")
+    sg = SubgraphDescriptor(
+        subgraph_id=99,
+        node_ids=["relu"],
+        node_names=["relu"],
+        operation_types=[OperationType.ELEMENTWISE],
+        fusion_pattern="ReLU",
+        total_flops=1024,
+        total_macs=0,
+        total_input_bytes=1024 * 2,
+        total_output_bytes=1024 * 2,
+        total_weight_bytes=0,
+        input_tensors=[x],  # 1 input -- not vector_add
+        output_tensors=[y],
+        weight_tensors=[],
+    )
+    assert analyzer._get_compute_efficiency_override(sg) is None, (
+        "ReLU (1 input) must not inherit a vector_add override"
+    )
+
+
+def test_override_helper_fires_for_strict_vector_add():
+    """The positive case: a 3-tensor 1-D vector_add layout DOES pick
+    up the override."""
+    hw = create_jetson_orin_nano_8gb_mapper().resource_model
+    hw.compute_efficiency_overrides_by_op = {
+        "fp16": {"vector_add": 0.55},
+    }
+    analyzer = RooflineAnalyzer(hw, precision=Precision.FP16)
+
+    a = create_tensor_descriptor((1024,), "float16")
+    b = create_tensor_descriptor((1024,), "float16")
+    c = create_tensor_descriptor((1024,), "float16")
+    sg = SubgraphDescriptor(
+        subgraph_id=100,
+        node_ids=["va"],
+        node_names=["va"],
+        operation_types=[OperationType.ELEMENTWISE],
+        fusion_pattern="Add",
+        total_flops=1024,
+        total_macs=0,
+        total_input_bytes=2 * 1024 * 2,
+        total_output_bytes=1024 * 2,
+        total_weight_bytes=0,
+        input_tensors=[a, b],
+        output_tensors=[c],
+        weight_tensors=[],
+    )
+    assert analyzer._get_compute_efficiency_override(sg) == pytest.approx(0.55)
+
+
 # ---------------------------------------------------------------------------
 # Validation: __post_init__ rejects out-of-range scales
 # ---------------------------------------------------------------------------
@@ -242,16 +310,34 @@ def test_resource_model_accepts_valid_compute_scale():
 
 
 def test_analyzer_compute_time_reflects_override():
-    """compute_time = flops / (peak_flops * scale). On Orin Nano FP16
-    matmul with scale = 0.70, predicted compute_time should equal
-    flops / (peak_flops * 0.70). This is the integration-level check
-    that the override actually flows through to ``_analyze_subgraph``."""
+    """End-to-end: ``_analyze_subgraph`` uses the override-derived scale.
+
+    The override is read inside ``_get_compute_efficiency_scale``, then
+    consumed by ``_analyze_subgraph`` via:
+        effective_peak_flops = self.peak_flops * compute_efficiency_scale
+        compute_time = flops / effective_peak_flops
+    On Orin Nano FP16 matmul with scale = 0.70, the actual ``compute_time``
+    on the returned ``LatencyDescriptor`` must equal
+    ``flops / (peak_flops * 0.70)``. This pins both the override path
+    AND the analyzer's consumption of the result, not just the helper
+    in isolation."""
     hw = create_jetson_orin_nano_8gb_mapper().resource_model
     analyzer = RooflineAnalyzer(hw, precision=Precision.FP16)
     sg = _make_matmul_subgraph(M=128, K=8192, N=8192)  # ~17.2 GFLOPS
     flops = sg.flops
-    expected_compute_time = flops / (analyzer.peak_flops * 0.70)
+
+    # Sanity: the helper returns the calibrated scale.
     actual_scale = analyzer._get_compute_efficiency_scale(sg)
     assert actual_scale == pytest.approx(0.70)
-    actual_compute_time = flops / (analyzer.peak_flops * actual_scale)
-    assert actual_compute_time == pytest.approx(expected_compute_time, rel=1e-9)
+
+    # Integration: the analyzer's _analyze_subgraph (which is what
+    # produces real predictions) must also pick up the override.
+    latency_desc = analyzer._analyze_subgraph(sg)
+    expected_compute_time = flops / (analyzer.peak_flops * 0.70)
+    assert latency_desc.compute_time == pytest.approx(
+        expected_compute_time, rel=1e-9
+    ), (
+        f"Analyzer compute_time {latency_desc.compute_time*1e3:.4f} ms "
+        f"does not match expected {expected_compute_time*1e3:.4f} ms; "
+        f"override may not flow through to _analyze_subgraph."
+    )
