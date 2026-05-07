@@ -51,7 +51,7 @@ V4 floor that's equal-or-better under the tier-aware path.
 |---|---|---|---|
 | **i7-12700K (tiny)** | ✓ L1 + L2 + L3 + DRAM | ✓ {L1, L2, L3, DRAM} + per-op (matmul/linear) | ✓ |
 | **i7-12700K (large)** | ✓ same | ✓ same (sibling) | ✓ (same hardware) |
-| Jetson Orin Nano 8GB | ✓ L1 + L2 + DRAM | ⚠️ DRAM only | ⚠️ no matmul/linear baseline |
+| Jetson Orin Nano 8GB | ✓ L1 + L2 + DRAM | ⚠️ DRAM only (verified vs matmul + linear; L1/L2 needs different microbench) | ⚠️ V4 floor blocked on 3 model gaps -- see [jetson-orin-nano-calibration-analysis.md](../calibration/jetson-orin-nano-calibration-analysis.md) |
 | Jetson Orin AGX 64GB | ⚠️ DRAM only | ✗ none | ⚠️ no baseline |
 | Jetson Orin NX 16GB | ⚠️ DRAM only | ✗ none | ⚠️ no baseline |
 | H100 SXM5 80GB | ✓ L1 + L2 + DRAM (#61) | ✗ none | ⚠️ no baseline |
