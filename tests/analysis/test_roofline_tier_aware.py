@@ -105,23 +105,37 @@ def _fused_matmul_relu() -> SubgraphDescriptor:
 
 
 @pytest.mark.parametrize("shape", [(64, 64, 64), (512, 512, 512), (4096, 4096, 4096)])
-def test_default_off_produces_identical_memory_time_to_pre_v5_3b(shape):
-    """The opt-out default must not perturb any memory_time number,
-    so V4 floors are guaranteed unchanged. Run the analyzer twice
-    (once at default, once with the flag explicitly off) and confirm
-    they match exactly."""
+def test_default_uses_tier_aware_memory_path(shape):
+    """V5-3b flag-flip: ``use_tier_aware_memory`` defaults to True now
+    that the V5 plan's exit criterion is met (matmul + linear V4 floors
+    equal-or-improve on i7). Constructing without the kwarg should
+    produce the SAME predictions as constructing with True, and a
+    DIFFERENT prediction than constructing with explicit False (the
+    opt-out scalar path).
+
+    Pre-flip this test asserted default == explicit-False. The flip
+    inverts the relationship -- default now matches explicit-True."""
     M, K, N = shape
     sg = _matmul_subgraph(M, K, N)
     hw = create_i7_12700k_mapper().resource_model
 
     analyzer_default = RooflineAnalyzer(hw, precision=Precision.FP32)
+    analyzer_explicit_on = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )
     analyzer_explicit_off = RooflineAnalyzer(
         hw, precision=Precision.FP32, use_tier_aware_memory=False
     )
 
     a = analyzer_default._analyze_subgraph(sg)
-    b = analyzer_explicit_off._analyze_subgraph(sg)
+    b = analyzer_explicit_on._analyze_subgraph(sg)
+    c = analyzer_explicit_off._analyze_subgraph(sg)
+    # Default == explicit ON: same prediction
     assert a.memory_time == b.memory_time
+    # Default != explicit OFF: tier-aware path produces different value
+    # than the scalar bw_efficiency_scale path (proved on these matmul
+    # shapes which all bind a non-DRAM tier under tier-aware).
+    assert a.memory_time != c.memory_time
 
 
 # ---------------------------------------------------------------------------
@@ -129,29 +143,35 @@ def test_default_off_produces_identical_memory_time_to_pre_v5_3b(shape):
 # ---------------------------------------------------------------------------
 
 
-def test_opt_in_routes_matmul_through_tier_picker_on_i7():
-    """With use_tier_aware_memory=True, a single-op MATMUL on i7-12700K
-    (which has L1 + L3 + DRAM tiers post-V5-1) should produce a
-    different memory_time than the scalar path. Sanity-check that the
-    new path is non-zero and not pathologically off."""
+def test_tier_aware_routes_matmul_through_tier_picker_on_i7():
+    """A single-op MATMUL on i7-12700K (L1 + L2 + L3 + DRAM
+    post-V5 follow-ups) should produce a different memory_time
+    under tier-aware vs the explicit-off scalar path. Sanity-check
+    that the tier-aware path is non-zero and not pathologically off.
+
+    Pre-flip the test compared default (off) vs explicit-on; post-flip
+    the comparison is between explicit-on (= default) and
+    explicit-off (the scalar opt-out)."""
     sg = _matmul_subgraph(1024, 1024, 1024)
     hw = create_i7_12700k_mapper().resource_model
     assert len(hw.memory_hierarchy) >= 2  # i7 must be multi-tier
 
-    analyzer_off = RooflineAnalyzer(hw, precision=Precision.FP32)
-    analyzer_on = RooflineAnalyzer(
+    analyzer_scalar = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=False
+    )
+    analyzer_tier = RooflineAnalyzer(
         hw, precision=Precision.FP32, use_tier_aware_memory=True
     )
 
-    off = analyzer_off._analyze_subgraph(sg)
-    on = analyzer_on._analyze_subgraph(sg)
+    scalar = analyzer_scalar._analyze_subgraph(sg)
+    tier = analyzer_tier._analyze_subgraph(sg)
 
     # Both must produce a positive memory_time
-    assert off.memory_time > 0
-    assert on.memory_time > 0
-    # The tier-aware path should differ from the scalar path (otherwise
-    # we'd silently regress to the scalar behavior; this catches it).
-    assert on.memory_time != off.memory_time
+    assert scalar.memory_time > 0
+    assert tier.memory_time > 0
+    # The tier-aware path differs from the scalar path (otherwise
+    # we'd silently collapse to scalar behavior).
+    assert tier.memory_time != scalar.memory_time
 
 
 def test_opt_in_handles_linear_on_h100():
@@ -277,18 +297,21 @@ def test_memory_explanation_populated_when_tier_path_fires():
 
 
 def test_memory_explanation_none_when_path_declines():
-    """Default (off) and decline cases (fused, CONV2D, 3D matmul,
-    unknown dtype) must leave memory_explanation == None so callers
-    can render 'no tier info' without surprise."""
+    """Decline cases must leave memory_explanation == None so callers
+    can render 'no tier info' without surprise. Two ways to decline:
+    (a) explicitly opt OUT (use_tier_aware_memory=False), or (b) opt
+    in but the subgraph is ineligible (fused, CONV2D, 3D matmul,
+    unknown dtype)."""
     hw = create_i7_12700k_mapper().resource_model
 
-    # Default (flag off)
-    desc1 = RooflineAnalyzer(hw, precision=Precision.FP32)._analyze_subgraph(
-        _matmul_subgraph(1024, 1024, 1024)
-    )
+    # Explicit opt-out (the new way to skip the tier path)
+    desc1 = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=False
+    )._analyze_subgraph(_matmul_subgraph(1024, 1024, 1024))
     assert desc1.memory_explanation is None
 
-    # Opt-in but ineligible (fused subgraph)
+    # Opt-in but ineligible (fused subgraph) -- default is now ON,
+    # so omitting the kwarg gives the same behavior as explicit True
     desc2 = RooflineAnalyzer(
         hw, precision=Precision.FP32, use_tier_aware_memory=True
     )._analyze_subgraph(_fused_matmul_relu())
