@@ -91,11 +91,25 @@ def test_recorded_regime_labels_still_match_classifier(filename, hw):
     """The JSON's recorded regime labels were correct at generation time;
     if classify.py changes regime math, the labels go stale silently
     without this check. CI catches the drift before sweeps mislead the
-    harness."""
+    harness.
+
+    Skips ``(hw, op)`` combos that have been augmented from baseline
+    measurements via ``_augment_from_baseline.py`` -- the
+    measurement-priority labels intentionally diverge from the
+    analytical classifier on shapes where measured silicon disagrees
+    with the WS-bucketing model (the explicit motivation for the
+    measurement-priority augmenter). Tracked via the
+    ``augmented_with_hardware_from_baseline`` JSON metadata field."""
     payload = json.loads((SWEEP_DIR / filename).read_text())
     op = payload["op"]
+    measurement_priority_hws = set(
+        payload.get("augmented_with_hardware_from_baseline", [])
+    )
     for entry in payload["shapes"]:
         for hw_key, recorded in entry["regime_per_hw"].items():
+            if hw_key in measurement_priority_hws:
+                # Label came from measurement, not analytical. Skip.
+                continue
             actual = classify_regime(op, tuple(entry["shape"]), entry["dtype"], hw[hw_key])
             assert actual.value == recorded, (
                 f"{filename}: shape={entry['shape']} dtype={entry['dtype']} "
@@ -167,6 +181,23 @@ COVERAGE_FLOORS = {
                          [(*k, v) for k, v in COVERAGE_FLOORS.items()])
 def test_coverage_floor(op, purpose, hw_key, regime, floor):
     payload = json.loads((SWEEP_DIR / f"{op}_{purpose}.json").read_text())
+    measurement_priority_hws = set(
+        payload.get("augmented_with_hardware_from_baseline", [])
+    )
+    if hw_key in measurement_priority_hws and regime == "l2_bound":
+        # ``infer_regime_measured`` cannot positively classify L2_BOUND
+        # from a measurement (v4-1 limitation; see assertions.py).
+        # When a hardware has been augmented from baseline, shapes
+        # previously labeled L2_BOUND analytically are re-labeled
+        # ALU_BOUND or DRAM_BOUND based on measured silicon, leaving
+        # the L2_BOUND coverage smaller than the analytical floor
+        # would suggest. The floor check is suspended for this case
+        # because the analytical L2_BOUND label is deliberately
+        # superseded.
+        pytest.skip(
+            f"{hw_key} has been augmented from baseline; L2_BOUND "
+            f"floor is moot under measurement-priority labels."
+        )
     actual = sum(
         1 for e in payload["shapes"]
         if e["regime_per_hw"].get(hw_key) == regime
