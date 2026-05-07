@@ -162,6 +162,73 @@ def test_i7_12700k_large_mapper_inherits_dram_calibration():
     assert hw.tier_achievable_fractions.get("L3") == 0.82
 
 
+def test_jetson_orin_nano_emits_three_tier_hierarchy():
+    """V5 follow-up: Orin Nano now populates l1_bandwidth_per_unit_bps
+    and l2_bandwidth_bps so memory_hierarchy emits L1 + L2 + DRAM.
+    Without these, the V5-3b eligibility predicate's >= 2 tier gate
+    declines the tier-aware path even with the flag on."""
+    hw = create_jetson_orin_nano_8gb_mapper().resource_model
+    tier_names = [t.name for t in hw.memory_hierarchy]
+    assert tier_names == ["L1", "L2", "DRAM"], (
+        f"Orin Nano memory_hierarchy must be L1 -> L2 -> DRAM (3 tiers); "
+        f"got {tier_names}. Did the on-chip BW peaks get unset?"
+    )
+
+
+def test_jetson_orin_nano_l1_bandwidth_matches_ampere_spec():
+    """Ampere SM 8.6 L1 cache + shared memory throughput is 128 B/cycle.
+    At Orin Nano's 650 MHz sustained baseline (the same clock used by
+    the compute fabrics in the mapper), per-SM L1 BW = 83.2 GB/s.
+    The mapper rounds this to 83 GB/s.
+
+    Per the V5-1 contract, ``l1_bandwidth_per_unit_bps`` is per-SM and
+    the memory_hierarchy aggregates by multiplying by ``compute_units``
+    (= 8 SMs), giving 664 GB/s aggregate L1."""
+    hw = create_jetson_orin_nano_8gb_mapper().resource_model
+    assert hw.l1_bandwidth_per_unit_bps == 83e9
+    l1 = next(t for t in hw.memory_hierarchy if t.name == "L1")
+    assert l1.peak_bandwidth_bps == 83e9 * hw.compute_units
+    assert l1.peak_bandwidth_bps == pytest.approx(664e9)
+
+
+def test_jetson_orin_nano_l2_bandwidth_preserves_tier_ordering():
+    """L2 BW = 204 GB/s (2x DRAM peak, conservative Ampere estimate;
+    not directly published by NVIDIA for Orin Nano). The exact value
+    will tighten with calibration; the test that matters is that the
+    tier ordering holds: L1 > L2 > DRAM. Without this ordering the
+    V5-3b tier picker would walk in the wrong direction."""
+    hw = create_jetson_orin_nano_8gb_mapper().resource_model
+    assert hw.l2_bandwidth_bps == 204e9
+    tiers = {t.name: t for t in hw.memory_hierarchy}
+    assert (
+        tiers["L1"].peak_bandwidth_bps
+        > tiers["L2"].peak_bandwidth_bps
+        > tiers["DRAM"].peak_bandwidth_bps
+    )
+
+
+def test_jetson_orin_nano_v5_3b_path_now_activates():
+    """The V5-3b eligibility predicate gates on memory_hierarchy
+    having >= 2 tiers. Pre-followup Orin Nano emitted DRAM-only and
+    the flag was a no-op; post-followup the path activates and the
+    DRAM achievable_fraction = 0.55 from V5-5 (#103) reaches
+    DRAM-bound shapes through the analyzer."""
+    from graphs.estimation.reuse_models import REUSE_MODELS
+    from graphs.estimation.tier_picker import pick_binding_tier
+
+    hw = create_jetson_orin_nano_8gb_mapper().resource_model
+    assert len(hw.memory_hierarchy) >= 2
+
+    # Large vector_add binds at DRAM and uses the calibrated
+    # effective_bandwidth_bps (102 * 0.55 = 56.1 GB/s).
+    result = pick_binding_tier(
+        REUSE_MODELS["vector_add"], (16777216,), "fp16", hw.memory_hierarchy
+    )
+    assert result is not None
+    assert result.binding_tier.name == "DRAM"
+    assert result.binding_tier.effective_bandwidth_bps == pytest.approx(102e9 * 0.55)
+
+
 def test_jetson_orin_nano_dram_calibration():
     """Jetson Orin Nano (Super) DRAM achievable_fraction = 0.55
     derived from the V5-2b vector_add baseline at the 15W thermal
