@@ -7,6 +7,16 @@ of `i7_12700k_vector_add.csv`. Previous value 0.82 came from a
 single point (N=1M); the regression confirms the value is right
 to within 0.02 but documents the methodology for future updates.
 
+**Update (per-core L2 follow-up):** the structural model gap that
+prevented N=262K from passing -- documented at the bottom of this
+file -- has since been resolved by adding a per-core L2 tier to the
+i7 mapper. The picker now binds N=262K at L2 instead of L3, and the
+prediction lands within the LAUNCH 30% band. See
+`docs/calibration/i7-12700k-l2-calibration-analysis.md`. The L3
+calibration value below remains correct for shapes that genuinely
+overflow per-core L2 into the LLC (operand in roughly
+`(L2_aggregate, L3]`).
+
 ## TL;DR
 
 L3 effective bandwidth on i7-12700K for L3-bound shapes

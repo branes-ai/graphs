@@ -125,6 +125,30 @@ def test_i7_12700k_dram_calibration():
     assert dram.effective_bandwidth_bps == pytest.approx(75e9 * 0.47)
 
 
+def test_i7_12700k_l2_calibration():
+    """Per-core L2 tier follow-up: i7 ``L2.achievable_fraction =
+    0.22`` derived from V5-2b vector_add at N=262K (the canonical
+    L2-binding shape). Calibration accounts for the gap between
+    the aggregate L2 BW peak (1.5 TB/s) and the
+    actually-realized BW under PyTorch's multi-threaded kernel
+    dispatch (326 GB/s observed, after dispatch correction).
+    See docs/calibration/i7-12700k-l2-calibration-analysis.md."""
+    hw = create_i7_12700k_mapper().resource_model
+    assert hw.tier_achievable_fractions.get("L2") == 0.22
+    l2 = next(t for t in hw.memory_hierarchy if t.name == "L2")
+    assert l2.achievable_fraction == 0.22
+
+
+def test_i7_12700k_l2_per_unit_bandwidth_matches_alder_lake_spec():
+    """Per-core L2 BW is conservatively set to 150 GB/s/effective-unit
+    (Alder Lake P-core peak ~288 GB/s at 4.5 GHz, weighted across
+    P/E hybrid). Aggregate = 150 * 10 = 1.5 TB/s."""
+    hw = create_i7_12700k_mapper().resource_model
+    assert hw.l2_bandwidth_per_unit_bps == 150e9
+    l2 = next(t for t in hw.memory_hierarchy if t.name == "L2")
+    assert l2.peak_bandwidth_bps == 150e9 * hw.compute_units
+
+
 def test_i7_12700k_l3_calibration():
     """V5-5 follow-up: i7-12700K L3 achievable_fraction = 0.84
     derived by 2-point regression on dispatch-corrected L3-bound
