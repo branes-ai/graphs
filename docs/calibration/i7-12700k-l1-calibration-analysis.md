@@ -125,34 +125,34 @@ for s in shapes:
 ```
 
 All 48 L1-binding shapes have memory_time in `[4.7 ns, 65.5 ns]`.
-The 5 us floor wins by 75x to 1000x. Setting
-`L1.achievable_fraction = 0.020` would change memory_time to
-`[235 ns, 3275 ns]` -- still all below the floor. **No prediction
-changes.**
+The 6 us matmul dispatch floor wins by 90x to 1300x. Setting
+`L1.achievable_fraction = 0.020` changes memory_time to
+`[235 ns, 3275 ns]` -- still all below the matmul floor. **For
+matmul, no prediction changes.** The vector_add medium-N regime
+above is the new reason L1 = 0.020 is set anyway.
 
-## When this needs to be revisited
+## When this needs to be revisited (further)
 
-The L1 calibration becomes load-bearing when ANY of the following
-land:
+L1 calibration is now set, but several open questions remain:
 
-1. **The dispatch floor drops or becomes shape-dependent.** If a
-   future change tightens the floor below ~50 ns for some shape
-   class, L1-binding predictions could become memory-time-dominated
-   and `L1.achievable_fraction` starts mattering.
+1. **A multi-threaded vector_add benchmark.** Single-thread data
+   underestimates aggregate L1 BW. A multi-thread benchmark would
+   let us measure the aggregate utilization directly and might
+   shift the calibration significantly.
 
-2. **A multi-threaded vector_add benchmark gets captured.** Running
-   the V5-2b workload across all 16 cores would let us measure the
-   aggregate L1 BW directly. The natural place is to extend the V4
-   capture path with a `--threads` knob.
-
-3. **The MemoryTier model gains thread-count awareness.** A more
+2. **The MemoryTier model gains thread-count awareness.** A more
    honest model would have `effective_bandwidth_bps(thread_count)`
-   that interpolates between single-thread (`peak / num_units`) and
-   aggregate (`peak`). Then the existing single-thread vector_add
-   data calibrates the single-thread end of that curve.
+   that interpolates between single-thread (`peak / num_units`)
+   and aggregate (`peak`). Then the existing single-thread
+   vector_add data calibrates the single-thread end of that curve
+   without forcing a single low fraction across all workloads.
 
-Until then, L1 stays absent from
-`tier_achievable_fractions` on the i7 mappers, defaulting to 1.0.
-The decision is locked by `tests/hardware/test_tier_achievable_fractions.py::test_i7_12700k_l1_uncalibrated`
-and the analytical claim above by
-`tests/hardware/test_i7_l1_calibration_is_dispatch_floor_dominated.py`.
+3. **The dispatch floor architecture changes.** If a future change
+   tightens or removes the floor, more shape classes become
+   memory-time-dominated and the L1 = 0.02 value may start
+   affecting matmul/linear too.
+
+The L1 = 0.02 value is locked by
+`tests/hardware/test_tier_achievable_fractions.py::test_i7_12700k_l1_calibration`
+and the matmul-specific dispatch-floor argument (which still holds)
+by `tests/hardware/test_i7_l1_calibration_is_dispatch_floor_dominated.py`.
