@@ -561,6 +561,38 @@ def test_overlap_does_not_apply_to_matmul_dram_binding():
     )
 
 
+def test_per_op_calibration_lookup_falls_back_correctly():
+    """V5-3b flag-flip prerequisite: the per-op effective BW lookup
+    falls back per-op -> per-tier -> 1.0. With i7's calibration
+    (matmul/linear @ DRAM = 0.85, vector_add @ DRAM defaults to
+    per-tier 0.47), matmul + vector_add at the same DRAM-bound shape
+    should produce different memory_time predictions."""
+    hw = create_i7_12700k_mapper().resource_model
+    analyzer_mm = RooflineAnalyzer(
+        hw, precision=Precision.FP32, use_tier_aware_memory=True
+    )
+    # Matmul DRAM -> uses per-op 0.85 -> peak 75 * 0.85 = 63.75 GB/s
+    matmul_dram = analyzer_mm._per_op_effective_bw(
+        next(t for t in hw.memory_hierarchy if t.name == "DRAM"),
+        "matmul",
+    )
+    assert matmul_dram == pytest.approx(75e9 * 0.85)
+
+    # Vector_add DRAM -> falls back to per-tier 0.47 -> 35.25 GB/s
+    vadd_dram = analyzer_mm._per_op_effective_bw(
+        next(t for t in hw.memory_hierarchy if t.name == "DRAM"),
+        "vector_add",
+    )
+    assert vadd_dram == pytest.approx(75e9 * 0.47)
+
+    # Unknown op -> falls back to per-tier
+    unknown_dram = analyzer_mm._per_op_effective_bw(
+        next(t for t in hw.memory_hierarchy if t.name == "DRAM"),
+        "conv2d",
+    )
+    assert unknown_dram == pytest.approx(75e9 * 0.47)
+
+
 def test_memory_explanation_format_summary_renders_breakdown():
     """LatencyDescriptor.format_summary should include a 'Memory binding'
     line when memory_explanation is set, so the breakdown surfaces in

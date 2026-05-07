@@ -152,13 +152,39 @@ def test_matmul_optimal_square_for_l2_sized_capacity():
     assert tile.residency_bytes <= tier
 
 
-def test_matmul_tile_clamped_to_min_dim():
-    """If sqrt-formula gives a tile > min(M, N), clamp to min(M, N).
-    Shape (4, 65536, 4) fp32, capacity huge: t_raw is enormous, clamped to 4."""
+def test_matmul_skinny_dim_uses_skinny_branch_not_clamp():
+    """Shape (4, 65536, 4) has min(M, N) = 4 < SKINNY_THRESHOLD,
+    so the skinny branch fires (full-output tile = (4, 4)) BEFORE
+    the clamp logic would. The result is the same tile_dims (4, 4)
+    but via a different code path. Pinned separately so a future
+    change that disables the skinny branch flips the right test
+    rather than silently passing this one for the wrong reason."""
     model = MatmulReuseModel()
     tile = model.residency_window((4, 65536, 4), "fp32", tier_capacity_bytes=10**10)
     assert tile.tile_dims == (4, 4)
+    # Skinny branch residency = 3 * M * N * bpe (full output tile)
     assert tile.residency_bytes == 3 * 4 * 4 * 4
+
+
+def test_matmul_non_skinny_clamped_to_min_dim():
+    """Coverage for the OPTIMAL-SQUARE CLAMP path (non-skinny):
+    if sqrt-formula gives a tile > min(M, N), clamp to min(M, N).
+    Use min(M, N) = 64 which is well above the 16 threshold so the
+    skinny branch doesn't fire, then huge capacity to force the
+    raw t to exceed 64.
+
+    Pre per-op-calibration PR: this test was test_matmul_tile_clamped_to_min_dim
+    using shape (4, 65536, 4), which inadvertently took the skinny
+    branch when that landed. CodeRabbit flagged the silent coverage
+    gap; this test restores explicit coverage for the clamp logic."""
+    model = MatmulReuseModel()
+    tile = model.residency_window(
+        (64, 65536, 64), "fp32", tier_capacity_bytes=10**10
+    )
+    # min(M, N) = 64 >= SKINNY_THRESHOLD (16) -> skinny branch skipped
+    # t_raw from sqrt(1e10 / 12) >> 64 -> clamped to 64
+    assert tile.tile_dims == (64, 64)
+    assert tile.residency_bytes == 3 * 64 * 64 * 4
 
 
 def test_matmul_tile_clamped_to_at_least_one():
@@ -216,6 +242,56 @@ def test_matmul_bytes_loaded_singleton_tile_equals_no_reuse():
     # A: M*K * (N/1) = M*K*N reloads, B: K*N * (M/1) = K*N*M, C: 2*M*N
     expected = M * K * N * bpe + K * N * M * bpe + 2 * M * N * bpe
     assert actual == expected
+
+
+def test_matmul_skinny_shape_uses_full_output_tile():
+    """V5-3b flag-flip prerequisite: when min(M, N) < skinny threshold,
+    the optimal-square model collapses to the small dim and inflates
+    bytes_loaded by ceil(N/Mt) reloads. Real BLAS uses a different
+    blocking strategy for skinny shapes; the model now picks the full
+    output as the tile so bytes_loaded ~= operand_footprint with no
+    reload inflation."""
+    model = MatmulReuseModel()
+    # Skinny B (linear with B=2 batch): min(M, N) = 2 < 16 threshold
+    M, K, N = 2, 12288, 640
+    tile = model.residency_window((M, K, N), "fp32", tier_capacity_bytes=10**8)
+    assert tile.tile_dims == (
+        M,
+        N,
+    ), f"Skinny shape should use full-output tile (M, N), got {tile.tile_dims}"
+    # bytes_loaded with full-output tile collapses to one-pass:
+    # A loaded once, B loaded once, C read + written once. That's
+    # operand_footprint + one extra M*N for the C write (operand
+    # counts each tensor once; bytes_loaded counts C twice for
+    # read+write).
+    bytes_ld = model.bytes_loaded_from_binding((M, K, N), "fp32", tile)
+    operand = model.operand_footprint_bytes((M, K, N), "fp32")
+    expected = operand + M * N * 4  # one extra C write at fp32
+    assert bytes_ld == expected, (
+        f"Skinny matmul bytes_loaded ({bytes_ld}) should equal "
+        f"operand + C-write ({expected}); the full-output tile zeros "
+        f"out reload counts but C is still read + written."
+    )
+
+
+def test_matmul_non_skinny_still_uses_optimal_square_tile():
+    """Negative case: shapes with min(M, N) >= threshold use the
+    optimal-square tile heuristic as before (V5-3a behavior). The
+    skinny branch must not perturb the well-shaped majority."""
+    model = MatmulReuseModel()
+    # Non-skinny: min(M, N) = 1024, well above 16 threshold
+    tile = model.residency_window((1024, 1024, 1024), "fp32", tier_capacity_bytes=12288)
+    assert tile.tile_dims == (
+        32,
+        32,
+    ), f"Non-skinny shape should use optimal-square tile, got {tile.tile_dims}"
+
+
+def test_matmul_skinny_threshold_pinned_at_16():
+    """The skinny threshold is empirically tuned for i7 V4 floors;
+    moving it changes which shapes hit the no-reuse model. Pin it
+    so a future contributor doesn't quietly drift the value."""
+    assert MatmulReuseModel._SKINNY_THRESHOLD == 16
 
 
 def test_matmul_bytes_loaded_uses_ceil_for_non_dividing_tile():

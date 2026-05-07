@@ -185,6 +185,22 @@ class MatmulReuseModel:
 
     op_kind = "matmul"
 
+    # Below this min(M, N) threshold the optimal-square tile collapses
+    # to the small dimension (e.g. for B=2 linear, tile = (2, 2)) and
+    # the bytes_loaded reload-count formula explodes -- A is reloaded
+    # ceil(N / 2) = N/2 times. Real BLAS uses a different blocking
+    # strategy for skinny shapes (K-blocking with the full output
+    # tile), which this branch models: pick (M, N) as the tile so
+    # bytes_loaded equals operand_footprint with no reload inflation.
+    #
+    # Threshold of 16 was chosen because: (a) above 16 the square tile
+    # is genuinely useful (residency stays cache-friendly even with
+    # reload reuse); (b) below 16 the inflation factor is large
+    # (>20x for B=2, ~6x for B=8) and the no-reuse model is empirically
+    # closer to reality for these shapes on i7. See V5 follow-up
+    # PR description for the calibration data driving this threshold.
+    _SKINNY_THRESHOLD = 16
+
     def residency_window(
         self,
         shape: Sequence[int],
@@ -201,6 +217,18 @@ class MatmulReuseModel:
                 f"tier_capacity_bytes must be positive: {tier_capacity_bytes}"
             )
         bpe = bytes_per_element(dtype)
+
+        # Skinny shape branch: when the smallest output dim is below
+        # the threshold, the square-tile model produces an
+        # inflated bytes_loaded that doesn't match BLAS reality.
+        # Use full-output tile (Mt = M, Nt = N) so bytes_loaded
+        # collapses to the one-pass / no-reload sum.
+        if min(M, N) < self._SKINNY_THRESHOLD:
+            return TileChoice(
+                tile_dims=(int(M), int(N)),
+                residency_bytes=int(round(3 * M * N * bpe)),
+            )
+
         t_max = min(M, N)
         t_raw = int(floor(sqrt(tier_capacity_bytes / (3 * bpe))))
         t = max(1, min(t_max, t_raw))
