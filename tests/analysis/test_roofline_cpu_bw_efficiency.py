@@ -1,5 +1,11 @@
 """Regression tests for the CPU branch of RooflineAnalyzer._get_bandwidth_efficiency_scale.
 
+Note: ``_get_bandwidth_efficiency_scale`` was deprecated in V5-6 Phase A
+(see ``docs/v5/bw-efficiency-scale-retirement-status.md``). These tests
+intentionally exercise the deprecated fallback path to lock in its
+behavior until Phase B (final removal) ships. Each call emits a
+``DeprecationWarning``, which pytest captures but does not fail on.
+
 Locks in the V4-calibrated bandwidth efficiency curve (issue #74). The
 pre-#74 implementation returned a constant 0.5 for CPU regardless of
 working-set size, which was 1.8x pessimistic for large GEMM-style
@@ -42,10 +48,12 @@ def _sg_with_bytes(total_bytes: int) -> SubgraphDescriptor:
     the precise distribution doesn't matter."""
     return SubgraphDescriptor(
         subgraph_id=0,
-        node_ids=["op"], node_names=["op"],
+        node_ids=["op"],
+        node_names=["op"],
         operation_types=[OperationType.LINEAR],
         fusion_pattern="linear",
-        total_flops=1, total_macs=0,
+        total_flops=1,
+        total_macs=0,
         total_input_bytes=total_bytes // 4,
         total_output_bytes=total_bytes // 4,
         total_weight_bytes=total_bytes // 2,
@@ -57,26 +65,29 @@ def _sg_with_bytes(total_bytes: int) -> SubgraphDescriptor:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("total_bytes,expected,label", [
-    # < 1M: legacy 0.5 (preserves pre-#74 behavior for small WS)
-    (1_000, 0.50, "1KB"),
-    (100_000, 0.50, "100KB"),
-    (999_999, 0.50, "just under 1M"),
-    # 1M -> 10M: ramp from 0.5 to 0.75 in log space (exclusive at 10M)
-    (1_000_000, 0.50, "1M boundary lower"),
-    (9_999_999, 0.75, "just under 10M (top of ramp)"),
-    # >= 10M: plateau at 0.85 (the post-#74 fix for the over-prediction cohort)
-    (10_000_000, 0.85, "10M plateau start"),
-    (100_000_000, 0.85, "100M plateau"),
-    (1_000_000_000, 0.85, "1G plateau"),
-])
+@pytest.mark.parametrize(
+    "total_bytes,expected,label",
+    [
+        # < 1M: legacy 0.5 (preserves pre-#74 behavior for small WS)
+        (1_000, 0.50, "1KB"),
+        (100_000, 0.50, "100KB"),
+        (999_999, 0.50, "just under 1M"),
+        # 1M -> 10M: ramp from 0.5 to 0.75 in log space (exclusive at 10M)
+        (1_000_000, 0.50, "1M boundary lower"),
+        (9_999_999, 0.75, "just under 10M (top of ramp)"),
+        # >= 10M: plateau at 0.85 (the post-#74 fix for the over-prediction cohort)
+        (10_000_000, 0.85, "10M plateau start"),
+        (100_000_000, 0.85, "100M plateau"),
+        (1_000_000_000, 0.85, "1G plateau"),
+    ],
+)
 def test_cpu_bw_efficiency_curve_anchors(i7_analyzer, total_bytes, expected, label):
     """Anchor points of the V4-calibrated CPU bw_efficiency curve."""
     sg = _sg_with_bytes(total_bytes)
     actual = i7_analyzer._get_bandwidth_efficiency_scale(sg)
-    assert actual == pytest.approx(expected, rel=1e-3), (
-        f"{label} (bytes={total_bytes:,}): expected {expected}, got {actual}"
-    )
+    assert actual == pytest.approx(
+        expected, rel=1e-3
+    ), f"{label} (bytes={total_bytes:,}): expected {expected}, got {actual}"
 
 
 def test_cpu_bw_efficiency_is_non_decreasing(i7_analyzer):
@@ -103,9 +114,9 @@ def test_cpu_bw_efficiency_does_not_regress_below_pre_74(i7_analyzer):
     for b in bytes_grid:
         sg = _sg_with_bytes(int(b))
         scale = i7_analyzer._get_bandwidth_efficiency_scale(sg)
-        assert scale >= 0.50 - 1e-9, (
-            f"bytes={b:.0e}: scale {scale} dropped below pre-#74 floor of 0.50"
-        )
+        assert (
+            scale >= 0.50 - 1e-9
+        ), f"bytes={b:.0e}: scale {scale} dropped below pre-#74 floor of 0.50"
 
 
 def test_cpu_bw_efficiency_at_large_ws_is_significantly_above_pre_74(i7_analyzer):
