@@ -313,6 +313,55 @@ def test_get_reuse_model_returns_correct_op(op_kind):
     assert model.op_kind == op_kind
 
 
+# ---------------------------------------------------------------------------
+# operand_footprint_bytes (V5-5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def test_vector_add_operand_footprint_equals_three_times_n_bytes():
+    """vector_add operand footprint is 3*N*bpe -- same as residency
+    (degenerate case for zero-reuse op). The V5-5 tier picker uses
+    this to decide where the data lives."""
+    model = VectorAddReuseModel()
+    assert model.operand_footprint_bytes((1024,), "fp32") == 3 * 1024 * 4
+    assert model.operand_footprint_bytes((4096,), "fp16") == 3 * 4096 * 2
+    assert model.operand_footprint_bytes((1,), "fp64") == 24
+
+
+def test_matmul_operand_footprint_is_a_plus_b_plus_c():
+    """matmul (M, K, N) fp32: A=M*K, B=K*N, C=M*N elements; *bpe each."""
+    model = MatmulReuseModel()
+    M, K, N = 1024, 1024, 1024
+    expected = (M * K + K * N + M * N) * 4
+    assert model.operand_footprint_bytes((M, K, N), "fp32") == expected
+
+    # Skinny shape: small C-tile, but operands are big
+    M, K, N = 64, 1024, 8192
+    expected = (M * K + K * N + M * N) * 4
+    assert model.operand_footprint_bytes((M, K, N), "fp32") == expected
+
+
+def test_matmul_operand_footprint_rejects_non_3d_shape():
+    model = MatmulReuseModel()
+    with pytest.raises(ValueError, match="3-D shape"):
+        model.operand_footprint_bytes((1024, 1024), "fp32")
+
+
+def test_linear_operand_footprint_matches_matmul_delegate():
+    lin = LinearReuseModel()
+    mm = MatmulReuseModel()
+    B, IN, OUT = 32, 512, 256
+    assert lin.operand_footprint_bytes(
+        (B, IN, OUT), "fp32"
+    ) == mm.operand_footprint_bytes((B, IN, OUT), "fp32")
+
+
+def test_linear_operand_footprint_rejects_non_3d():
+    lin = LinearReuseModel()
+    with pytest.raises(ValueError, match="3-D shape"):
+        lin.operand_footprint_bytes((512, 256), "fp32")
+
+
 def test_get_reuse_model_unknown_raises():
     with pytest.raises(ValueError, match="No reuse model"):
         get_reuse_model("conv2d")
