@@ -965,7 +965,7 @@ def create_i7_12700k_mapper() -> CPUMapper:
         # 75x-1000x smaller than the CPU dispatch floor, so any L1
         # achievable_fraction value is a no-op for predictions today.
         # See docs/calibration/i7-12700k-l1-calibration-analysis.md.
-        tier_achievable_fractions={"L2": 0.22, "L3": 0.84, "DRAM": 0.47},
+        tier_achievable_fractions={"L1": 0.02, "L2": 0.22, "L3": 0.84, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
@@ -1197,7 +1197,7 @@ def create_i7_12700k_large_mapper() -> CPUMapper:
         # 75x-1000x smaller than the CPU dispatch floor, so any L1
         # achievable_fraction value is a no-op for predictions today.
         # See docs/calibration/i7-12700k-l1-calibration-analysis.md.
-        tier_achievable_fractions={"L2": 0.22, "L3": 0.84, "DRAM": 0.47},
+        tier_achievable_fractions={"L1": 0.02, "L2": 0.22, "L3": 0.84, "DRAM": 0.47},
     )
 
     return CPUMapper(model)
