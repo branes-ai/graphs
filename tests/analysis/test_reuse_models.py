@@ -218,6 +218,35 @@ def test_matmul_bytes_loaded_singleton_tile_equals_no_reuse():
     assert actual == expected
 
 
+def test_matmul_bytes_loaded_uses_ceil_for_non_dividing_tile():
+    """When Mt or Nt doesn't divide M or N, the partial last column
+    of C-tiles still triggers a full A-row reload (and partial last
+    row a full B-col reload). Float division underestimates that;
+    ceil is the right count.
+
+    Shape (1024, 1024, 1024) with tile (300, 300):
+      ceil(1024/300) = 4 reloads of A (not 3.41)
+      ceil(1024/300) = 4 reloads of B
+    """
+    model = MatmulReuseModel()
+    M = K = N = 1024
+    Mt = Nt = 300
+    bpe = 4
+    tile = TileChoice(tile_dims=(Mt, Nt), residency_bytes=3 * Mt * Nt * bpe)
+    actual = model.bytes_loaded_from_binding((M, K, N), "fp32", tile)
+    expected = (
+        M * K * bpe * 4  # A reloaded ceil(N/Nt) = 4 times
+        + K * N * bpe * 4  # B reloaded ceil(M/Mt) = 4 times
+        + 2 * M * N * bpe  # C read + written
+    )
+    assert actual == expected
+    # And the float-division (under)estimate would have been:
+    underestimate = int(
+        round(M * K * bpe * (N / Nt) + K * N * bpe * (M / Mt) + 2 * M * N * bpe)
+    )
+    assert actual > underestimate
+
+
 def test_matmul_bytes_loaded_monotone_decreasing_in_tile_size():
     """Larger C-tile -> more reuse -> fewer bytes streamed from the
     binding tier. Sweep tile sizes for a fixed problem and assert

@@ -23,7 +23,7 @@ sections "Per-operator reuse models" and "Tier-picking algorithm".
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import floor, sqrt
+from math import ceil, floor, sqrt
 from typing import Dict, Protocol, Sequence, Tuple, runtime_checkable
 
 
@@ -145,9 +145,14 @@ class MatmulReuseModel:
 
     Bytes loaded from the binding tier across the kernel
     (per the plan, section "Per-operator reuse models / Matmul"):
-      * A is reloaded ``ceil(N / Nt)`` times: ``M*K*bpe * (N/Nt)``
-      * B is reloaded ``ceil(M / Mt)`` times: ``K*N*bpe * (M/Mt)``
+      * A is reloaded ``ceil(N / Nt)`` times: ``M*K*bpe * ceil(N/Nt)``
+      * B is reloaded ``ceil(M / Mt)`` times: ``K*N*bpe * ceil(M/Mt)``
       * C is read + written once: ``2 * M * N * bpe``
+
+    The ``ceil`` is intentional: when ``Nt`` doesn't divide ``N`` (or
+    ``Mt`` doesn't divide ``M``), the partial last column of C-tiles
+    still triggers a full A-row reload (and the partial last row a
+    full B-col reload). Float division underestimates that.
     """
 
     op_kind = "matmul"
@@ -187,8 +192,8 @@ class MatmulReuseModel:
         if len(tile.tile_dims) != 2:
             raise ValueError(f"matmul tile must be 2-D (Mt, Nt), got {tile.tile_dims}")
         Mt, Nt = tile.tile_dims
-        a_bytes = M * K * bpe * (N / Nt)
-        b_bytes = K * N * bpe * (M / Mt)
+        a_bytes = M * K * bpe * ceil(N / Nt)
+        b_bytes = K * N * bpe * ceil(M / Mt)
         c_bytes = 2 * M * N * bpe
         return int(round(a_bytes + b_bytes + c_bytes))
 

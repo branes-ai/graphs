@@ -50,7 +50,7 @@ class LatencyDescriptor:
 
     # Roofline components (seconds)
     compute_time: float  # Time limited by FLOPs
-    memory_time: float   # Time limited by bandwidth
+    memory_time: float  # Time limited by bandwidth
     actual_latency: float  # max(compute_time, memory_time) + overhead
     overhead: float = 0.0  # Kernel launch, etc.
 
@@ -81,8 +81,10 @@ class LatencyDescriptor:
 
     def __str__(self) -> str:
         """Short summary"""
-        return (f"Latency({self.subgraph_name}: "
-                f"{self.actual_latency*1e6:.1f}μs, {self.bottleneck.value})")
+        return (
+            f"Latency({self.subgraph_name}: "
+            f"{self.actual_latency*1e6:.1f}μs, {self.bottleneck.value})"
+        )
 
     def format_summary(self) -> str:
         """Detailed multi-line summary"""
@@ -93,10 +95,16 @@ class LatencyDescriptor:
         lines.append(f"    Memory time:  {self.memory_time * 1e6:.1f} us")
         if self.overhead > 0:
             lines.append(f"    Overhead:     {self.overhead * 1e6:.1f} us")
-        lines.append(f"  Bottleneck: {self.bottleneck.value} ({self.bottleneck_ratio:.1f}x slower)")
-        lines.append(f"  Arithmetic Intensity: {self.arithmetic_intensity:.2f} FLOPs/byte")
+        lines.append(
+            f"  Bottleneck: {self.bottleneck.value} ({self.bottleneck_ratio:.1f}x slower)"
+        )
+        lines.append(
+            f"  Arithmetic Intensity: {self.arithmetic_intensity:.2f} FLOPs/byte"
+        )
         lines.append(f"  FLOP Utilization: {self.flops_utilization * 100:.1f}%")
-        lines.append(f"  Bandwidth Utilization: {self.bandwidth_utilization * 100:.1f}%")
+        lines.append(
+            f"  Bandwidth Utilization: {self.bandwidth_utilization * 100:.1f}%"
+        )
         if self.confidence.level != ConfidenceLevel.UNKNOWN:
             lines.append(f"  Confidence: {self.confidence}")
         return "\n".join(lines)
@@ -110,6 +118,7 @@ class RooflinePoint:
     x = arithmetic intensity (FLOPs/byte)
     y = attained performance (FLOPs/sec or GFLOPs/sec)
     """
+
     arithmetic_intensity: float
     attained_flops: float
     subgraph_name: str = ""
@@ -156,11 +165,15 @@ class RooflineReport:
 
     def __str__(self) -> str:
         """Short summary"""
-        return (f"RooflineReport(total={self.total_latency*1e3:.2f}ms, "
-                f"compute_bound={self.num_compute_bound}, "
-                f"memory_bound={self.num_memory_bound})")
+        return (
+            f"RooflineReport(total={self.total_latency*1e3:.2f}ms, "
+            f"compute_bound={self.num_compute_bound}, "
+            f"memory_bound={self.num_memory_bound})"
+        )
 
-    def format_report(self, show_per_subgraph: bool = False, max_subgraphs: int = 10) -> str:
+    def format_report(
+        self, show_per_subgraph: bool = False, max_subgraphs: int = 10
+    ) -> str:
         """Generate human-readable report"""
         lines = []
         lines.append("=" * 80)
@@ -172,31 +185,51 @@ class RooflineReport:
         lines.append("Hardware Characteristics:")
         lines.append(f"  Peak Performance: {self.peak_flops / 1e12:.2f} TFLOPS")
         lines.append(f"  Peak Bandwidth:   {self.peak_bandwidth / 1e9:.2f} GB/s")
-        lines.append(f"  AI Breakpoint:    {self.arithmetic_intensity_breakpoint:.2f} FLOPs/byte")
+        lines.append(
+            f"  AI Breakpoint:    {self.arithmetic_intensity_breakpoint:.2f} FLOPs/byte"
+        )
         lines.append("")
 
         # Total latency
         lines.append("Total Latency:")
-        lines.append(f"  Total:   {self.total_latency * 1e3:.2f} ms ({self.total_latency * 1e6:.0f} μs)")
-        lines.append(f"  Compute: {self.total_compute_time * 1e3:.2f} ms ({self.total_compute_time / self.total_latency * 100:.1f}%)")
-        lines.append(f"  Memory:  {self.total_memory_time * 1e3:.2f} ms ({self.total_memory_time / self.total_latency * 100:.1f}%)")
+        lines.append(
+            f"  Total:   {self.total_latency * 1e3:.2f} ms ({self.total_latency * 1e6:.0f} μs)"
+        )
+        lines.append(
+            f"  Compute: {self.total_compute_time * 1e3:.2f} ms ({self.total_compute_time / self.total_latency * 100:.1f}%)"
+        )
+        lines.append(
+            f"  Memory:  {self.total_memory_time * 1e3:.2f} ms ({self.total_memory_time / self.total_latency * 100:.1f}%)"
+        )
         if self.total_overhead > 0:
-            lines.append(f"  Overhead: {self.total_overhead * 1e3:.2f} ms ({self.total_overhead / self.total_latency * 100:.1f}%)")
+            lines.append(
+                f"  Overhead: {self.total_overhead * 1e3:.2f} ms ({self.total_overhead / self.total_latency * 100:.1f}%)"
+            )
         lines.append("")
 
         # Bottleneck distribution
         total_ops = self.num_compute_bound + self.num_memory_bound + self.num_balanced
         lines.append("Bottleneck Distribution:")
         if total_ops > 0:
-            lines.append(f"  Compute-bound: {self.num_compute_bound} ops ({self.num_compute_bound / total_ops * 100:.1f}%)")
-            lines.append(f"  Memory-bound:  {self.num_memory_bound} ops ({self.num_memory_bound / total_ops * 100:.1f}%)")
-            lines.append(f"  Balanced:      {self.num_balanced} ops ({self.num_balanced / total_ops * 100:.1f}%)")
+            lines.append(
+                f"  Compute-bound: {self.num_compute_bound} ops ({self.num_compute_bound / total_ops * 100:.1f}%)"
+            )
+            lines.append(
+                f"  Memory-bound:  {self.num_memory_bound} ops ({self.num_memory_bound / total_ops * 100:.1f}%)"
+            )
+            lines.append(
+                f"  Balanced:      {self.num_balanced} ops ({self.num_balanced / total_ops * 100:.1f}%)"
+            )
         lines.append("")
 
         # Utilization
         lines.append("Hardware Utilization:")
-        lines.append(f"  Average FLOP Utilization:      {self.average_flops_utilization * 100:.1f}%")
-        lines.append(f"  Average Bandwidth Utilization: {self.average_bandwidth_utilization * 100:.1f}%")
+        lines.append(
+            f"  Average FLOP Utilization:      {self.average_flops_utilization * 100:.1f}%"
+        )
+        lines.append(
+            f"  Average Bandwidth Utilization: {self.average_bandwidth_utilization * 100:.1f}%"
+        )
         lines.append("")
 
         # Critical path
@@ -214,12 +247,16 @@ class RooflineReport:
             lines.append("")
 
             # Sort by latency
-            sorted_latencies = sorted(self.latencies, key=lambda l: l.actual_latency, reverse=True)[:max_subgraphs]
+            sorted_latencies = sorted(
+                self.latencies, key=lambda l: l.actual_latency, reverse=True
+            )[:max_subgraphs]
 
             for i, lat in enumerate(sorted_latencies, 1):
                 lines.append(f"{i}. {lat.subgraph_name}")
                 lines.append(f"   Latency: {lat.actual_latency * 1e6:.1f} μs")
-                lines.append(f"   Bottleneck: {lat.bottleneck.value} ({lat.bottleneck_ratio:.1f}×)")
+                lines.append(
+                    f"   Bottleneck: {lat.bottleneck.value} ({lat.bottleneck_ratio:.1f}×)"
+                )
                 lines.append(f"   AI: {lat.arithmetic_intensity:.2f} FLOPs/byte")
                 lines.append(f"   FLOP util: {lat.flops_utilization * 100:.1f}%")
                 lines.append("")
@@ -256,7 +293,8 @@ class RooflineAnalyzer:
         efficiency_factor: Optional[float] = None,
         calibrated_peak_flops: Optional[float] = None,
         calibrated_bandwidth: Optional[float] = None,
-        thermal_profile: Optional[str] = None
+        thermal_profile: Optional[str] = None,
+        use_tier_aware_memory: bool = False,
     ):
         """
         Initialize roofline analyzer.
@@ -273,15 +311,32 @@ class RooflineAnalyzer:
             thermal_profile: Optional thermal/power profile (e.g., '15W', '30W').
                 If provided, uses thermal_operating_points for realistic performance.
                 If None, uses default_thermal_profile or falls back to precision_profiles.
+            use_tier_aware_memory: V5-3b opt-in flag. When True, single-op
+                MATMUL/LINEAR subgraphs route memory_time through the
+                tier-aware path (tier_picker + per-op reuse models +
+                MemoryTier.effective_bandwidth_bps) instead of the scalar
+                bw_efficiency_scale * peak_bandwidth. Defaults to False so
+                V4 floors hold until V5-5 calibrates per-tier
+                achievable_fraction. Only takes effect on hardware whose
+                memory_hierarchy has >=2 tiers; everything else falls
+                through to the scalar path even when the flag is True.
         """
         self.resource_model = resource_model
         self.precision = precision
         self.efficiency_factor = efficiency_factor
         self.thermal_profile = thermal_profile
+        self.use_tier_aware_memory = use_tier_aware_memory
+        # Stash for the V5-3b tier-aware path: when
+        # _try_tier_aware_memory_time succeeds, it writes the
+        # binding-tier bytes_loaded here so _analyze_subgraph can use
+        # the tier-aware byte count for downstream attained_bandwidth
+        # math. Reset per-subgraph by the helper itself; never read
+        # without a successful tier-aware call ahead of it.
+        self._last_tier_bytes_loaded: int = 0
         self.is_calibrated = (
-            efficiency_factor is not None or
-            calibrated_peak_flops is not None or
-            calibrated_bandwidth is not None
+            efficiency_factor is not None
+            or calibrated_peak_flops is not None
+            or calibrated_bandwidth is not None
         )
 
         # Get hardware characteristics for this precision
@@ -315,13 +370,15 @@ class RooflineAnalyzer:
 
         # Calculate arithmetic intensity breakpoint
         # AI_breakpoint = peak_FLOPS / peak_bandwidth
-        self.ai_breakpoint = self.peak_flops / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
+        self.ai_breakpoint = (
+            self.peak_flops / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
+        )
 
     @staticmethod
     def _get_effective_peak_ops(
         resource_model: HardwareResourceModel,
         precision: Precision,
-        thermal_profile: Optional[str] = None
+        thermal_profile: Optional[str] = None,
     ) -> float:
         """
         Get effective peak operations per second, respecting thermal constraints.
@@ -340,8 +397,11 @@ class RooflineAnalyzer:
             Effective peak operations per second
         """
         # Try 1: thermal_operating_points with explicit thermal_profile
-        if (hasattr(resource_model, 'thermal_operating_points') and
-            resource_model.thermal_operating_points and thermal_profile):
+        if (
+            hasattr(resource_model, "thermal_operating_points")
+            and resource_model.thermal_operating_points
+            and thermal_profile
+        ):
             thermal_point = resource_model.thermal_operating_points.get(thermal_profile)
             if thermal_point and precision in thermal_point.performance_specs:
                 perf_spec = thermal_point.performance_specs[precision]
@@ -350,10 +410,12 @@ class RooflineAnalyzer:
                     return effective_ops
 
         # Try 2: thermal_operating_points with default profile
-        if (hasattr(resource_model, 'thermal_operating_points') and
-            resource_model.thermal_operating_points and
-            hasattr(resource_model, 'default_thermal_profile') and
-            resource_model.default_thermal_profile):
+        if (
+            hasattr(resource_model, "thermal_operating_points")
+            and resource_model.thermal_operating_points
+            and hasattr(resource_model, "default_thermal_profile")
+            and resource_model.default_thermal_profile
+        ):
             thermal_point = resource_model.thermal_operating_points.get(
                 resource_model.default_thermal_profile
             )
@@ -370,7 +432,9 @@ class RooflineAnalyzer:
 
         # Try 4: Default precision fallback
         if resource_model.default_precision in resource_model.precision_profiles:
-            default_profile = resource_model.precision_profiles[resource_model.default_precision]
+            default_profile = resource_model.precision_profiles[
+                resource_model.default_precision
+            ]
             return default_profile.peak_ops_per_sec
 
         # Last resort: return 0 (will cause issues, but signals problem)
@@ -379,7 +443,7 @@ class RooflineAnalyzer:
     def analyze(
         self,
         subgraphs: List[SubgraphDescriptor],
-        partition_report: Optional[PartitionReport] = None
+        partition_report: Optional[PartitionReport] = None,
     ) -> RooflineReport:
         """
         Analyze latency for all subgraphs using roofline model.
@@ -405,7 +469,7 @@ class RooflineAnalyzer:
                 arithmetic_intensity=latency.arithmetic_intensity,
                 attained_flops=latency.attained_flops,
                 subgraph_name=sg.node_name,
-                is_compute_bound=(latency.bottleneck == BottleneckType.COMPUTE_BOUND)
+                is_compute_bound=(latency.bottleneck == BottleneckType.COMPUTE_BOUND),
             )
             roofline_points.append(point)
 
@@ -416,13 +480,27 @@ class RooflineAnalyzer:
         total_overhead = sum(l.overhead for l in latencies)
 
         # Bottleneck distribution
-        num_compute_bound = sum(1 for l in latencies if l.bottleneck == BottleneckType.COMPUTE_BOUND)
-        num_memory_bound = sum(1 for l in latencies if l.bottleneck == BottleneckType.BANDWIDTH_BOUND)
-        num_balanced = sum(1 for l in latencies if l.bottleneck == BottleneckType.BALANCED)
+        num_compute_bound = sum(
+            1 for l in latencies if l.bottleneck == BottleneckType.COMPUTE_BOUND
+        )
+        num_memory_bound = sum(
+            1 for l in latencies if l.bottleneck == BottleneckType.BANDWIDTH_BOUND
+        )
+        num_balanced = sum(
+            1 for l in latencies if l.bottleneck == BottleneckType.BALANCED
+        )
 
         # Average utilization
-        avg_flops_util = sum(l.flops_utilization for l in latencies) / len(latencies) if latencies else 0.0
-        avg_bw_util = sum(l.bandwidth_utilization for l in latencies) / len(latencies) if latencies else 0.0
+        avg_flops_util = (
+            sum(l.flops_utilization for l in latencies) / len(latencies)
+            if latencies
+            else 0.0
+        )
+        avg_bw_util = (
+            sum(l.bandwidth_utilization for l in latencies) / len(latencies)
+            if latencies
+            else 0.0
+        )
 
         # Critical path
         critical_path_latency = 0.0
@@ -431,7 +509,8 @@ class RooflineAnalyzer:
             critical_path_subgraphs = partition_report.critical_path_subgraphs
             # Sum latency for critical path
             critical_path_latency = sum(
-                l.actual_latency for l in latencies
+                l.actual_latency
+                for l in latencies
                 if l.subgraph_id in critical_path_subgraphs
             )
 
@@ -471,7 +550,9 @@ class RooflineAnalyzer:
         effective_peak_bandwidth = self.peak_bandwidth * bandwidth_efficiency_scale
 
         # Compute time = FLOPs / effective_peak_FLOPS
-        compute_time = sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
+        compute_time = (
+            sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
+        )
 
         # Memory time = bytes / effective_peak_bandwidth.
         # ``_dram_traffic_bytes`` is hardware-aware: on weight-stationary
@@ -479,7 +560,24 @@ class RooflineAnalyzer:
         # tile fabric instead of treating weights as re-fetched per layer
         # (issue #51). For other hardware the result is the naive sum.
         total_bytes = self._dram_traffic_bytes(sg)
-        memory_time = total_bytes / effective_peak_bandwidth if effective_peak_bandwidth > 0 else 0.0
+        memory_time = (
+            total_bytes / effective_peak_bandwidth
+            if effective_peak_bandwidth > 0
+            else 0.0
+        )
+
+        # V5-3b: opt-in tier-aware memory_time. When the analyzer was
+        # constructed with use_tier_aware_memory=True AND the subgraph
+        # is a single-op MATMUL/LINEAR with a clean 2D shape AND the
+        # hardware's memory_hierarchy has >=2 tiers, replace the scalar
+        # memory_time with the tier-picker output. Default False -> no
+        # behavior change vs pre-V5-3b. See _try_tier_aware_memory_time
+        # for the eligibility predicate.
+        if self.use_tier_aware_memory:
+            tier_memory_time = self._try_tier_aware_memory_time(sg)
+            if tier_memory_time is not None:
+                memory_time = tier_memory_time
+                total_bytes = self._last_tier_bytes_loaded
 
         # Apply discrete resource correction for accelerators with few compute units
         # TPUs, KPUs can't fractionally utilize their arrays - adjust for realistic allocation
@@ -514,7 +612,7 @@ class RooflineAnalyzer:
         # where the overhead is amortized by real kernel time.
         # V4 baseline shows the floor empirically: smallest measured shape
         # (1,128,128 linear, 33K flops) lands at 5.20us wall-clock.
-        if self.resource_model.hardware_type.name == 'CPU':
+        if self.resource_model.hardware_type.name == "CPU":
             actual_latency = max(actual_latency, 5e-6)
 
         # Arithmetic intensity
@@ -526,10 +624,14 @@ class RooflineAnalyzer:
 
         # Utilization
         flops_util = attained_flops / self.peak_flops if self.peak_flops > 0 else 0.0
-        bw_util = attained_bandwidth / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
+        bw_util = (
+            attained_bandwidth / self.peak_bandwidth if self.peak_bandwidth > 0 else 0.0
+        )
 
         # Generate explanation
-        explanation = self._explain_latency(sg, compute_time, memory_time, bottleneck, bottleneck_ratio)
+        explanation = self._explain_latency(
+            sg, compute_time, memory_time, bottleneck, bottleneck_ratio
+        )
 
         return LatencyDescriptor(
             subgraph_id=sg.node_id,
@@ -605,16 +707,27 @@ class RooflineAnalyzer:
         # In these fused subgraphs, pointwise convolutions dominate FLOPs (~95%+)
         # Don't penalize the entire subgraph for containing a depthwise op.
         has_depthwise = (
-            (hasattr(sg, 'operation_types') and OperationType.CONV2D_DEPTHWISE in sg.operation_types) or
-            getattr(sg, 'is_depthwise', False) or
-            (hasattr(sg, 'node_names') and any('dw' in n.lower() for n in sg.node_names)) or
-            (hasattr(sg, 'node_names') and any('depthwise' in n.lower() for n in sg.node_names))
+            (
+                hasattr(sg, "operation_types")
+                and OperationType.CONV2D_DEPTHWISE in sg.operation_types
+            )
+            or getattr(sg, "is_depthwise", False)
+            or (
+                hasattr(sg, "node_names")
+                and any("dw" in n.lower() for n in sg.node_names)
+            )
+            or (
+                hasattr(sg, "node_names")
+                and any("depthwise" in n.lower() for n in sg.node_names)
+            )
         )
         has_pointwise = (
-            hasattr(sg, 'operation_types') and OperationType.CONV2D_POINTWISE in sg.operation_types
+            hasattr(sg, "operation_types")
+            and OperationType.CONV2D_POINTWISE in sg.operation_types
         )
         has_standard_conv = (
-            hasattr(sg, 'operation_types') and OperationType.CONV2D in sg.operation_types
+            hasattr(sg, "operation_types")
+            and OperationType.CONV2D in sg.operation_types
         )
         # Only flag as "pure depthwise" if it has depthwise but NOT pointwise/standard conv
         # MBConv blocks have both -> use pointwise-dominated efficiency
@@ -626,18 +739,24 @@ class RooflineAnalyzer:
         # - Conv2d+ReLU no BN (231M): 1083 GFLOPS (1.5x faster without BN overhead)
         # - Conv2d+ReLU no BN (3.7G, VGG): 5374 GFLOPS (large convs more efficient)
         # Key insight: cuDNN uses TF32 by default, achieving ~1.5-2.5x FP32 theoretical
-        fusion_pattern = getattr(sg, 'fusion_pattern', '') if hasattr(sg, 'fusion_pattern') else ''
+        fusion_pattern = (
+            getattr(sg, "fusion_pattern", "") if hasattr(sg, "fusion_pattern") else ""
+        )
         has_batchnorm = (
-            'BatchNorm' in fusion_pattern or
-            'batchnorm' in fusion_pattern.lower() or
-            (hasattr(sg, 'operation_types') and any(
-                'BATCHNORM' in str(op) for op in sg.operation_types
-            ))
+            "BatchNorm" in fusion_pattern
+            or "batchnorm" in fusion_pattern.lower()
+            or (
+                hasattr(sg, "operation_types")
+                and any("BATCHNORM" in str(op) for op in sg.operation_types)
+            )
         )
         is_conv_pattern = (
-            'Conv2d' in fusion_pattern or
-            'conv2d' in fusion_pattern.lower() or
-            (hasattr(sg, 'operation_types') and OperationType.CONV2D in sg.operation_types)
+            "Conv2d" in fusion_pattern
+            or "conv2d" in fusion_pattern.lower()
+            or (
+                hasattr(sg, "operation_types")
+                and OperationType.CONV2D in sg.operation_types
+            )
         )
         is_conv_bn_pattern = has_batchnorm and is_conv_pattern
         is_conv_only_pattern = is_conv_pattern and not has_batchnorm
@@ -659,7 +778,7 @@ class RooflineAnalyzer:
         #   - Conv2d+ReLU (231M, no BN): 1083 GFLOPS = 1.13x of base
         #   - Conv2d+ReLU (3.7G, VGG-style): 5374 GFLOPS = 5.6x of base
         #   - MBConv blocks: ~40-60 GFLOPS = 0.04-0.06x (much lower efficiency)
-        if hw_type == 'GPU':
+        if hw_type == "GPU":
             # Pure depthwise convolutions: dramatically lower efficiency
             if is_depthwise:
                 # Calibrated: depthwise gets 3-80 GFLOPS vs 968 GFLOPS standard
@@ -827,7 +946,7 @@ class RooflineAnalyzer:
         # small-layer models like MobileNet. Use single-kernel V4 to
         # validate this curve; use a future full-model V4 sweep to
         # validate the per-call overhead model.
-        if hw_type == 'CPU':
+        if hw_type == "CPU":
             if flops < 1e6:
                 # Tiny ops: ~0.34 of effective peak (median of V4 baseline
                 # 10^5..10^6 bucket; 124 GFLOPS achieved).
@@ -858,6 +977,128 @@ class RooflineAnalyzer:
         # TPU/KPU: handled by _get_discrete_resource_correction
         # Other hardware: no operation-size efficiency scaling
         return 1.0
+
+    # ------------------------------------------------------------------
+    # V5-3b: tier-aware memory_time path (opt-in; gated by
+    # use_tier_aware_memory). Eligible only on single-op MATMUL/LINEAR
+    # subgraphs with a clean 2D shape and a multi-tier hierarchy.
+    # ------------------------------------------------------------------
+
+    def _try_tier_aware_memory_time(self, sg: SubgraphDescriptor) -> Optional[float]:
+        """Return the tier-aware memory_time for ``sg`` or None if the
+        subgraph isn't eligible (caller falls back to scalar path).
+
+        Eligibility predicate is intentionally conservative for V5-3b:
+          * single-operator subgraph (``num_operators == 1``)
+          * op type is MATMUL or LINEAR (the V5-3a reuse models cover
+            these; vector_add tier-picking is wired but not yet routed
+            from the analyzer because elementwise op detection is
+            broader than 1-D vector add)
+          * tensor info is populated and yields a clean 2D extraction
+          * hardware ``memory_hierarchy`` has at least 2 tiers (mappers
+            without on-chip BW peaks return DRAM-only; routing those
+            through the new path with achievable_fraction defaulting
+            to 1.0 would regress floors vs the scalar derate)
+
+        On success, also stashes the bytes_loaded number on
+        ``self._last_tier_bytes_loaded`` so the caller can use it for
+        downstream attained_bandwidth math. This avoids returning a
+        tuple and complicating the existing analyzer flow.
+        """
+        # Local imports keep the module-level import set unchanged for
+        # callers that don't use the V5-3b path (e.g. legacy notebooks
+        # importing RooflineAnalyzer in a pinned-deps env).
+        from graphs.core.structures import OperationType
+        from graphs.estimation.reuse_models import (
+            REUSE_MODELS,
+            bytes_per_element as _bytes_per_element,
+        )
+        from graphs.estimation.tier_picker import normalize_dtype, pick_binding_tier
+
+        if sg.num_operators != 1:
+            return None
+
+        op_type = sg.operation_type
+        if op_type == OperationType.MATMUL:
+            op_kind = "matmul"
+            shape = self._extract_matmul_shape(sg)
+        elif op_type == OperationType.LINEAR:
+            op_kind = "linear"
+            shape = self._extract_linear_shape(sg)
+        else:
+            return None
+        if shape is None:
+            return None
+
+        hierarchy = self.resource_model.memory_hierarchy
+        if len(hierarchy) < 2:
+            return None
+
+        # Resolve dtype from the first input tensor; all tensors of a
+        # well-formed matmul/linear share dtype, so checking the first
+        # is sufficient. If the dtype string isn't in the table the
+        # bytes_per_element call below raises KeyError -- catch and
+        # fall back rather than crash a whole analyze() run.
+        if not sg.input_tensors:
+            return None
+        raw_dtype = sg.input_tensors[0].dtype
+        try:
+            dtype = normalize_dtype(raw_dtype)
+            _bytes_per_element(dtype)  # raises ValueError if unknown
+        except (KeyError, ValueError):
+            return None
+
+        reuse_model = REUSE_MODELS[op_kind]
+        result = pick_binding_tier(reuse_model, shape, dtype, hierarchy)
+        if result is None:
+            return None
+
+        bw = result.binding_tier.effective_bandwidth_bps
+        if bw <= 0:
+            return None
+
+        memory_time = result.bytes_loaded / bw
+        self._last_tier_bytes_loaded = result.bytes_loaded
+        return memory_time
+
+    @staticmethod
+    def _extract_matmul_shape(sg: SubgraphDescriptor) -> Optional[tuple]:
+        """Pull (M, K, N) from a single-op MATMUL subgraph.
+
+        Expects two 2-D input tensors of shapes (M, K) and (K, N) with
+        a matching inner dim. Returns None for batched matmul, fused
+        subgraphs, or anything that doesn't cleanly match -- the caller
+        falls back to the scalar path."""
+        if len(sg.input_tensors) != 2:
+            return None
+        a_shape = sg.input_tensors[0].shape
+        b_shape = sg.input_tensors[1].shape
+        if len(a_shape) != 2 or len(b_shape) != 2:
+            return None
+        M, Ka = a_shape
+        Kb, N = b_shape
+        if Ka != Kb:
+            return None
+        return (int(M), int(Ka), int(N))
+
+    @staticmethod
+    def _extract_linear_shape(sg: SubgraphDescriptor) -> Optional[tuple]:
+        """Pull (B, IN, OUT) from a single-op LINEAR subgraph.
+
+        Expects input shape (B, IN), weight shape (OUT, IN) (PyTorch
+        nn.Linear convention). Returns None for higher-dim inputs or
+        missing weight tensors."""
+        if not sg.input_tensors or not sg.weight_tensors:
+            return None
+        in_shape = sg.input_tensors[0].shape
+        w_shape = sg.weight_tensors[0].shape
+        if len(in_shape) != 2 or len(w_shape) != 2:
+            return None
+        B, IN = in_shape
+        OUT, IN_w = w_shape
+        if IN != IN_w:
+            return None
+        return (int(B), int(IN), int(OUT))
 
     def _get_bandwidth_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """
@@ -895,19 +1136,30 @@ class RooflineAnalyzer:
 
         hw_type = self.resource_model.hardware_type.name
 
-        if hw_type == 'GPU':
+        if hw_type == "GPU":
             # Check for depthwise convolution (poor bandwidth efficiency)
             # CALIBRATION (Jetson Orin AGX, 50W, FP32):
             # - Depthwise Conv2D achieves very low effective bandwidth
             # - Due to scattered access patterns and poor cache utilization
             is_depthwise = (
                 # Check operation_types list (fused subgraphs may have multiple ops)
-                (hasattr(sg, 'operation_types') and OperationType.CONV2D_DEPTHWISE in sg.operation_types) or
+                (
+                    hasattr(sg, "operation_types")
+                    and OperationType.CONV2D_DEPTHWISE in sg.operation_types
+                )
+                or
                 # Check is_depthwise flag if set
-                getattr(sg, 'is_depthwise', False) or
+                getattr(sg, "is_depthwise", False)
+                or
                 # Fallback to node name detection
-                (hasattr(sg, 'node_names') and any('dw' in n.lower() for n in sg.node_names)) or
-                (hasattr(sg, 'node_names') and any('depthwise' in n.lower() for n in sg.node_names))
+                (
+                    hasattr(sg, "node_names")
+                    and any("dw" in n.lower() for n in sg.node_names)
+                )
+                or (
+                    hasattr(sg, "node_names")
+                    and any("depthwise" in n.lower() for n in sg.node_names)
+                )
             )
 
             if is_depthwise:
@@ -923,7 +1175,9 @@ class RooflineAnalyzer:
             # The main factors are access patterns and memory controller efficiency
 
             # Total bytes transferred (approximation of working set size)
-            total_bytes = sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+            total_bytes = (
+                sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+            )
 
             if total_bytes <= 0:
                 return 0.5  # Default moderate efficiency
@@ -957,7 +1211,7 @@ class RooflineAnalyzer:
                 # Large transfers: best efficiency (streaming)
                 return 0.7
 
-        elif hw_type == 'CPU':
+        elif hw_type == "CPU":
             # CPU bandwidth efficiency depends on working set size because
             # of the cache hierarchy. The previous flat 0.5 was reasonable
             # for small/medium ops but 1.8x pessimistic for large
@@ -979,9 +1233,9 @@ class RooflineAnalyzer:
             # the empirical evidence is clear that 0.5 was too pessimistic.
             # This reduces #74 over-prediction without regressing the
             # smaller-WS shapes that were passing.
-            total_bytes = (sg.total_input_bytes
-                           + sg.total_output_bytes
-                           + sg.total_weight_bytes)
+            total_bytes = (
+                sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+            )
             if total_bytes <= 0:
                 return 0.5
 
@@ -996,7 +1250,7 @@ class RooflineAnalyzer:
                 # 1M - 10M: cache-resident streaming kicks in, ramp to 0.75
                 t = (log_bytes - 6.0) / 1.0
                 t = max(0.0, min(1.0, t))
-                return 0.5 + 0.25 * t       # 0.5 -> 0.75
+                return 0.5 + 0.25 * t  # 0.5 -> 0.75
             # > 10M: streaming GEMM, plateau at 0.85 (slightly under
             # empirical median 0.88 to stay conservative). Some shapes
             # achieve > 1.0 effective via cache hits (working set
@@ -1034,10 +1288,11 @@ class RooflineAnalyzer:
         weight_bytes = sg.total_weight_bytes
         hw_type = self.resource_model.hardware_type.name
 
-        if hw_type == 'KPU' and weight_bytes > 0:
+        if hw_type == "KPU" and weight_bytes > 0:
             # Aggregate on-chip = sum of per-tile L1 + shared L2.
             on_chip = (
-                self.resource_model.compute_units * self.resource_model.l1_cache_per_unit
+                self.resource_model.compute_units
+                * self.resource_model.l1_cache_per_unit
                 + self.resource_model.l2_cache_total
             )
             # Reserve 20% of on-chip for the activation working set.
@@ -1069,7 +1324,7 @@ class RooflineAnalyzer:
         """
         hw_type = self.resource_model.hardware_type.name
 
-        if hw_type == 'TPU':
+        if hw_type == "TPU":
             # TPU v4: 2 MXUs (Matrix Multiplier Units), each 128×128 systolic array
             # Small kernels suffer from:
             # 1. Can only use 1 MXU (2× penalty)
@@ -1089,7 +1344,7 @@ class RooflineAnalyzer:
                 # Large kernels: both MXUs, good utilization
                 return 1.0
 
-        elif hw_type == 'KPU':
+        elif hw_type == "KPU":
             # KPU: 256 tiles, but small kernels don't use all of them
             # Already handled by KPU mapper, so no correction needed here
             return 1.0
@@ -1111,29 +1366,43 @@ class RooflineAnalyzer:
         MobileNet-V3 has many small operations that are dominated by
         kernel launch overhead rather than actual compute/memory time.
         """
-        if self.resource_model.hardware_type.name == 'GPU':
+        if self.resource_model.hardware_type.name == "GPU":
             # Base kernel launch overhead
             base_overhead = 5e-6  # 5 microseconds
 
             # Check operation patterns for additional overhead
-            fusion_pattern = getattr(sg, 'fusion_pattern', '') if hasattr(sg, 'fusion_pattern') else ''
-            node_name = sg.node_name if hasattr(sg, 'node_name') else ''
+            fusion_pattern = (
+                getattr(sg, "fusion_pattern", "")
+                if hasattr(sg, "fusion_pattern")
+                else ""
+            )
+            node_name = sg.node_name if hasattr(sg, "node_name") else ""
 
             # Get operation types list
-            op_types_str = '_'.join(str(op).split('.')[-1] for op in sg.operation_types) if hasattr(sg, 'operation_types') else ''
+            op_types_str = (
+                "_".join(str(op).split(".")[-1] for op in sg.operation_types)
+                if hasattr(sg, "operation_types")
+                else ""
+            )
 
             # Hardswish/Hardsigmoid activations have high overhead (~100us)
             # These are often separate kernels on GPU
-            if 'HARDSWISH' in op_types_str.upper() or 'hardswish' in fusion_pattern.lower():
+            if (
+                "HARDSWISH" in op_types_str.upper()
+                or "hardswish" in fusion_pattern.lower()
+            ):
                 base_overhead = 100e-6  # 100 microseconds
 
-            if 'hardsigmoid' in node_name.lower() or 'scale_activation' in node_name.lower():
+            if (
+                "hardsigmoid" in node_name.lower()
+                or "scale_activation" in node_name.lower()
+            ):
                 # Hardsigmoid in SE blocks
                 base_overhead = 100e-6
 
             # Squeeze-Excitation pattern: avgpool -> fc -> relu -> fc -> sigmoid -> mul
             # Very expensive due to multiple sequential tiny kernels
-            if 'ADAPTIVEAVGPOOL' in op_types_str and 'CONV2D_POINTWISE' in op_types_str:
+            if "ADAPTIVEAVGPOOL" in op_types_str and "CONV2D_POINTWISE" in op_types_str:
                 # SE block internal path
                 base_overhead = 200e-6  # 200 microseconds for SE FC path
 
@@ -1141,30 +1410,36 @@ class RooflineAnalyzer:
             # MobileNet-V3 UNKNOWN: hardsigmoid, mul (SE scaling) - slow activations
             # ViT UNKNOWN: gelu, softmax, add, reshape - typically faster
             # MaxViT UNKNOWN: many reshape/transpose for window attention - moderate overhead
-            if 'UNKNOWN' in op_types_str:
+            if "UNKNOWN" in op_types_str:
                 # Check node name for specific slow patterns
                 node_lower = node_name.lower()
-                if ('hardsigmoid' in node_lower or
-                    'scale_activation' in node_lower or
-                    ('mul' in node_lower and sg.total_flops < 100000)):
+                if (
+                    "hardsigmoid" in node_lower
+                    or "scale_activation" in node_lower
+                    or ("mul" in node_lower and sg.total_flops < 100000)
+                ):
                     # MobileNet-V3 style slow activations/SE scaling
                     base_overhead = 100e-6  # 100 microseconds
-                elif ('swap' in node_lower or 'partition' in node_lower or
-                      'window' in node_lower or 'grid' in node_lower):
+                elif (
+                    "swap" in node_lower
+                    or "partition" in node_lower
+                    or "window" in node_lower
+                    or "grid" in node_lower
+                ):
                     # MaxViT window/grid attention partitioning operations
                     # These involve tensor reshaping/transposing which has memory overhead
                     base_overhead = 50e-6  # 50 microseconds
-                elif 'softmax' in node_lower:
+                elif "softmax" in node_lower:
                     # Softmax has moderate overhead
                     base_overhead = 30e-6  # 30 microseconds
-                elif 'floordiv' in node_lower or 'floor_divide' in node_lower:
+                elif "floordiv" in node_lower or "floor_divide" in node_lower:
                     # Integer division ops (MaxViT uses for indexing)
                     base_overhead = 25e-6  # 25 microseconds
-                elif 'getitem' in node_lower or 'getattr' in node_lower:
+                elif "getitem" in node_lower or "getattr" in node_lower:
                     # Tensor indexing operations (MaxViT has hundreds)
                     # Each one triggers memory access pattern changes
                     base_overhead = 25e-6  # 25 microseconds
-                elif 'chunk' in node_lower or 'split' in node_lower:
+                elif "chunk" in node_lower or "split" in node_lower:
                     # Tensor splitting operations
                     base_overhead = 30e-6  # 30 microseconds
                 else:
@@ -1173,7 +1448,7 @@ class RooflineAnalyzer:
 
             # Pointwise convolutions (1x1) with very few FLOPs
             # These are common in MobileNet-V3 and are overhead-dominated
-            if 'POINTWISE' in op_types_str:
+            if "POINTWISE" in op_types_str:
                 if sg.total_flops < 1e6:
                     # Very tiny pointwise convs (MobileNet-V3-Small style)
                     base_overhead = max(base_overhead, 150e-6)
@@ -1182,7 +1457,7 @@ class RooflineAnalyzer:
                     base_overhead = max(base_overhead, 100e-6)
 
             # Depthwise convolutions also have high per-op overhead
-            if 'DEPTHWISE' in op_types_str:
+            if "DEPTHWISE" in op_types_str:
                 if sg.total_flops < 2e6:
                     # Tiny depthwise (MobileNet-V3-Small)
                     base_overhead = max(base_overhead, 150e-6)
@@ -1192,7 +1467,7 @@ class RooflineAnalyzer:
             return base_overhead
 
         # TPU systolic array setup overhead
-        if self.resource_model.hardware_type.name == 'TPU':
+        if self.resource_model.hardware_type.name == "TPU":
             # Systolic array pipeline fill/drain: ~64 ns
             return 64e-9  # 64 nanoseconds
 
@@ -1205,35 +1480,42 @@ class RooflineAnalyzer:
         compute_time: float,
         memory_time: float,
         bottleneck: BottleneckType,
-        ratio: float
+        ratio: float,
     ) -> str:
         """Generate human-readable explanation of bottleneck"""
 
         op_name = sg.node_name
 
         if bottleneck == BottleneckType.BANDWIDTH_BOUND:
-            return (f"{op_name}: Memory-bound (bandwidth limit) - "
-                   f"memory time {memory_time*1e6:.1f}μs vs "
-                   f"compute time {compute_time*1e6:.1f}μs ({ratio:.1f}× slower)")
+            return (
+                f"{op_name}: Memory-bound (bandwidth limit) - "
+                f"memory time {memory_time*1e6:.1f}μs vs "
+                f"compute time {compute_time*1e6:.1f}μs ({ratio:.1f}× slower)"
+            )
         elif bottleneck == BottleneckType.COMPUTE_BOUND:
-            return (f"{op_name}: Compute-bound (FLOPs limit) - "
-                   f"compute time {compute_time*1e6:.1f}μs vs "
-                   f"memory time {memory_time*1e6:.1f}μs ({ratio:.1f}× slower)")
+            return (
+                f"{op_name}: Compute-bound (FLOPs limit) - "
+                f"compute time {compute_time*1e6:.1f}μs vs "
+                f"memory time {memory_time*1e6:.1f}μs ({ratio:.1f}× slower)"
+            )
         else:
-            return (f"{op_name}: Balanced - "
-                   f"compute time {compute_time*1e6:.1f}μs, "
-                   f"memory time {memory_time*1e6:.1f}μs")
+            return (
+                f"{op_name}: Balanced - "
+                f"compute time {compute_time*1e6:.1f}μs, "
+                f"memory time {memory_time*1e6:.1f}μs"
+            )
 
 
 # =============================================================================
 # FACTORY FUNCTIONS
 # =============================================================================
 
+
 def create_calibrated_analyzer(
     resource_model: HardwareResourceModel,
     hardware_id: str,
     precision: str = "fp32",
-    registry_path: Optional[str] = None
+    registry_path: Optional[str] = None,
 ) -> RooflineAnalyzer:
     """
     Create a RooflineAnalyzer with calibrated peak values from the hardware registry.
@@ -1294,14 +1576,12 @@ def create_calibrated_analyzer(
         resource_model=resource_model,
         precision=prec,
         calibrated_peak_flops=peak_gflops,
-        calibrated_bandwidth=bandwidth_gbps
+        calibrated_bandwidth=bandwidth_gbps,
     )
 
 
 def get_roofline_params_for_hardware(
-    hardware_id: str,
-    precision: str = "fp32",
-    use_calibrated: bool = True
+    hardware_id: str, precision: str = "fp32", use_calibrated: bool = True
 ) -> Tuple[float, float, float]:
     """
     Get roofline parameters for a hardware target from the registry.
