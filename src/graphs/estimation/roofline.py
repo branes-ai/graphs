@@ -741,6 +741,43 @@ class RooflineAnalyzer:
             memory_explanation=self._last_memory_explanation,
         )
 
+    def _get_compute_efficiency_override(
+        self, sg: SubgraphDescriptor
+    ) -> Optional[float]:
+        """V5 follow-up: per-precision per-op compute scale override.
+
+        Returns the calibrated scalar from
+        ``resource_model.compute_efficiency_overrides_by_op[precision_str]
+        [op_kind]`` if the mapper has supplied one for the analyzer's
+        precision and the subgraph's op kind. Returns None to fall
+        through to the legacy ``_get_compute_efficiency_scale`` curve.
+
+        ``op_kind`` is mapped from ``OperationType`` to the same
+        string used by ``ReuseModel.op_kind`` (``"matmul"``,
+        ``"linear"``, ``"vector_add"``). Subgraphs with multiple
+        ops or unknown ops fall through to the legacy path.
+        """
+        from graphs.core.structures import OperationType
+
+        overrides = self.resource_model.compute_efficiency_overrides_by_op
+        if not overrides:
+            return None
+        prec_overrides = overrides.get(self.precision.value)
+        if not prec_overrides:
+            return None
+        op_types = getattr(sg, "operation_types", None)
+        if not op_types or len(op_types) != 1:
+            return None
+        op_to_kind = {
+            OperationType.MATMUL: "matmul",
+            OperationType.LINEAR: "linear",
+            OperationType.ELEMENTWISE: "vector_add",
+        }
+        op_kind = op_to_kind.get(op_types[0])
+        if op_kind is None:
+            return None
+        return prec_overrides.get(op_kind)
+
     def _get_compute_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """
         Compute efficiency scaling factor based on operation type and granularity.
@@ -785,6 +822,16 @@ class RooflineAnalyzer:
 
         if flops <= 0:
             return 1.0  # No compute, efficiency doesn't matter
+
+        # V5 follow-up: per-precision per-op override path. When the
+        # mapper has supplied a calibrated scalar for this
+        # (precision, op_kind), bypass the legacy curve below entirely
+        # -- the override is what we trust. See
+        # ``HardwareResourceModel.compute_efficiency_overrides_by_op``
+        # docstring for the rationale.
+        override = self._get_compute_efficiency_override(sg)
+        if override is not None:
+            return override
 
         # Check for depthwise convolution (severely inefficient on GPUs)
         # CALIBRATION (Jetson Orin AGX, 50W, FP32):
