@@ -8,15 +8,32 @@ Locks in the issue #131 contract:
 - --sort with --reverse, missing values always trail
 - Unpopulated mappers render as N/A and don't crash
 - JSON round-trips through HardwareResourceInfo dataclass
+- --format always wins over file extension (regression guard)
+- process_node_nm renders when process_node_name is None (regression guard)
 """
 
 import csv
+import importlib.util
+import io
 import json
 import subprocess
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 CLI = Path(__file__).resolve().parents[2] / "cli" / "list_hardware_resources.py"
+
+
+def _import_cli_as_module():
+    """Load list_hardware_resources.py as a module so we can call its
+    renderer functions directly with synthetic records (subprocess-only
+    tests can't inject custom HardwareResourceInfo values into the
+    registry-driven discovery pipeline).
+    """
+    spec = importlib.util.spec_from_file_location("lhr", CLI)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _run(*args, output_path=None, expect_zero=True):
@@ -165,6 +182,36 @@ class TestMarkdownAndTextFormat:
         json.loads(out.read_text())
 
 
+class TestFormatPrecedence:
+    """Lock in the --format / extension precedence contract.
+
+    Precedence order: explicit --format > recognized file extension > "text".
+    Regression guard for an earlier bug where the extension was checked
+    first and --format only kicked in for unrecognized extensions, which
+    silently re-routed `--output spec.csv --format json` to CSV.
+    """
+
+    def test_explicit_format_overrides_recognized_extension(self, tmp_path):
+        out = tmp_path / "override.csv"
+        _, stderr, _ = _run("--format", "json", output_path=out)
+        assert "Wrote json report" in stderr
+        json.loads(out.read_text())  # parses as JSON despite .csv extension
+
+    def test_md_alias_for_markdown_format(self, tmp_path):
+        # ``md`` on --format is an alias for ``markdown`` (matches the .md
+        # file-extension naming).
+        out = tmp_path / "doc.txt"
+        _, stderr, _ = _run("--format", "md", output_path=out)
+        assert "Wrote markdown report" in stderr
+        assert out.read_text().startswith("# Hardware Resources Spec Sheet")
+
+    def test_auto_detect_when_no_format_flag(self, tmp_path):
+        # When --format is omitted, the file extension drives format selection.
+        out = tmp_path / "auto.csv"
+        _, stderr, _ = _run(output_path=out)
+        assert "Wrote csv report" in stderr
+
+
 # ---------------------------------------------------------------------------
 # Filtering and sorting
 # ---------------------------------------------------------------------------
@@ -228,3 +275,80 @@ class TestVerbose:
         assert "embodied-schemas:" in stdout
         # Verbose surfaces the per-product Peak (G[FL]OPS) line
         assert "Peak (G[FL]OPS):" in stdout
+
+
+# ---------------------------------------------------------------------------
+# Renderer unit tests (require importing the CLI as a module)
+# ---------------------------------------------------------------------------
+
+class TestProcessNodeFallback:
+    """Renderer-level test for the process-node fallback bug.
+
+    When a PhysicalSpec has only ``process_node_nm`` set (and
+    ``process_node_name`` is None), text and markdown renderers should
+    print the nm value, not ``N/A``. The earlier bug pre-formatted both
+    fields with ``_na`` and used ``or`` -- since ``_na(None)`` returns
+    ``"N/A"`` (truthy), the fallback never reached the nm value.
+
+    None of the currently-populated factories have nm-only specs (H100 and
+    the Jetsons all set both), so this regression guard works at the
+    renderer level with a synthetic HardwareResourceInfo.
+    """
+
+    def _synthetic_record_nm_only(self, lhr):
+        """Construct a minimal HardwareResourceInfo with only nm set."""
+        return lhr.HardwareResourceInfo(
+            name="Synthetic-NMOnly",
+            category="gpu",
+            vendor="Test",
+            compute_units=1,
+            peak_flops_fp64=0.0,
+            peak_flops_fp32=0.0,
+            peak_flops_fp16=0.0,
+            peak_flops_fp8=0.0,
+            peak_flops_int32=0.0,
+            peak_flops_int16=0.0,
+            peak_flops_int8=0.0,
+            memory_bandwidth=100.0,
+            power_tdp=10.0,
+            die_size_mm2=None,
+            transistors_billion=None,
+            transistor_density_mtx_mm2=None,
+            process_node_nm=7,           # ONLY nm; no name
+            process_node_name=None,
+            foundry=None,
+            architecture=None,
+            num_dies=1,
+            is_chiplet=False,
+            package_type=None,
+            launch_date=None,
+            launch_msrp_usd=None,
+            physical_spec_source=None,
+            extras={},
+        )
+
+    def test_text_renderer_falls_back_to_nm(self):
+        lhr = _import_cli_as_module()
+        record = self._synthetic_record_nm_only(lhr)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            lhr.generate_text_report([record], verbose=False)
+        out = buf.getvalue()
+        # The "Node" column should show "7", not "N/A"
+        # We pick a tight check: the synthetic name's row should contain " 7 "
+        # and not contain "N/A" in the position of the node column.
+        assert "Synthetic-NMOnly" in out
+        synth_line = next(line for line in out.splitlines() if "Synthetic-NMOnly" in line)
+        # The node column displays the nm value formatted by _na(int)
+        assert " 7" in synth_line, f"Expected nm=7 in row, got: {synth_line!r}"
+
+    def test_markdown_renderer_falls_back_to_nm(self):
+        lhr = _import_cli_as_module()
+        record = self._synthetic_record_nm_only(lhr)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            lhr.generate_markdown_report([record], verbose=False)
+        out = buf.getvalue()
+        # Find the row for our synthetic record and confirm "7" appears
+        synth_line = next(line for line in out.splitlines() if "Synthetic-NMOnly" in line)
+        assert " 7 " in synth_line, f"Expected nm=7 in MD row, got: {synth_line!r}"

@@ -48,20 +48,6 @@ from graphs.hardware.resource_model import Precision
 # Data record
 # ---------------------------------------------------------------------------
 
-# Precision columns we surface in the spec-sheet view. Order matches the
-# vendor-datasheet convention (descending bit width within each numeric
-# family). FP8 is the max across the IEEE FP8 variants and the generic FP8
-# enum, since most resource models register the variants only.
-_PRECISION_COLUMNS = (
-    ("peak_flops_fp64", Precision.FP64),
-    ("peak_flops_fp32", Precision.FP32),
-    ("peak_flops_fp16", Precision.FP16),
-    ("peak_flops_int32", Precision.INT32),
-    ("peak_flops_int16", Precision.INT16),
-    ("peak_flops_int8", Precision.INT8),
-)
-
-
 @dataclass
 class HardwareResourceInfo:
     """Spec-sheet view of one hardware product.
@@ -311,7 +297,10 @@ def generate_text_report(
                 f"{_na(r.die_size_mm2):>10}"
                 f"{_na(r.transistors_billion):>9}"
                 f"{_na(r.transistor_density_mtx_mm2):>10}"
-                f"{_na(r.process_node_name) or _na(r.process_node_nm):>10}"
+                # Prefer the named version; fall back to the raw nm value.
+                # Don't pre-format with _na -- "N/A" is truthy and would mask
+                # nm-only specs.
+                f"{(r.process_node_name or _na(r.process_node_nm)):>10}"
                 f"{_na(r.foundry):>10}"
                 f"{(r.architecture or 'N/A')[:13]:>14}"
                 f"{r.power_tdp:>10.1f}"
@@ -422,7 +411,7 @@ def generate_markdown_report(
             print(
                 f"| {r.name} | {r.vendor} | {_na(r.die_size_mm2)} | "
                 f"{_na(r.transistors_billion)} | {_na(r.transistor_density_mtx_mm2)} | "
-                f"{_na(r.process_node_name) or _na(r.process_node_nm)} | "
+                f"{(r.process_node_name or _na(r.process_node_nm))} | "
                 f"{_na(r.foundry)} | {r.architecture or 'N/A'} | "
                 f"{r.power_tdp:.1f} | {r.peak_flops_int8/1000:.1f} | "
                 f"{_na(r.launch_date)} |"
@@ -448,6 +437,14 @@ _EXT_TO_FORMAT = {
     ".txt": "text",
 }
 
+# Tokens accepted on the --format flag. ``md`` is an alias for ``markdown``
+# (to match the .md extension); both normalize to the same generator.
+_FORMAT_ALIASES = {
+    "md": "markdown",
+}
+
+_FORMAT_CHOICES = ("text", "json", "csv", "markdown", "md")
+
 _GENERATORS = {
     "text": generate_text_report,
     "json": generate_json_report,
@@ -456,12 +453,20 @@ _GENERATORS = {
 }
 
 
-def _resolve_format(output_path: Optional[str], explicit_format: str) -> str:
+def _resolve_format(output_path: Optional[str], explicit_format: Optional[str]) -> str:
+    """Pick the output format with explicit-flag precedence.
+
+    Precedence: explicit ``--format`` > file extension > "text" default.
+    The flag wins so that ``--output spec.csv --format json`` writes JSON
+    (matches the user's stated intent rather than silently re-detecting).
+    """
+    if explicit_format:
+        return _FORMAT_ALIASES.get(explicit_format, explicit_format)
     if output_path:
         ext = os.path.splitext(output_path)[1].lower()
         if ext in _EXT_TO_FORMAT:
             return _EXT_TO_FORMAT[ext]
-    return explicit_format
+    return "text"
 
 
 def _emit(fmt: str, records: List[HardwareResourceInfo], verbose: bool) -> None:
@@ -505,16 +510,18 @@ Examples:
     )
     parser.add_argument(
         "--format",
-        choices=["text", "json", "csv", "markdown"],
-        default="text",
-        help="Output format. Used as default for stdout and as override when "
-             "--output extension is unrecognized (default: text).",
+        choices=list(_FORMAT_CHOICES),
+        default=None,
+        help="Output format. Always wins over --output extension when "
+             "explicitly provided. ``md`` is accepted as an alias for "
+             "``markdown``. If omitted, format is auto-detected from "
+             "--output extension; falls back to ``text`` for stdout.",
     )
     parser.add_argument(
         "--output",
         help="Output file. Format auto-detected from extension "
-             "(.json, .csv, .md/.markdown, .txt). --format overrides if the "
-             "extension is unrecognized.",
+             "(.json, .csv, .md/.markdown, .txt) unless --format is "
+             "explicitly given (which always wins).",
     )
     parser.add_argument(
         "--sort",
