@@ -66,16 +66,9 @@ class LayerTag(Enum):
     COMPOSITE = "composite"
 
 
-class Precision(Enum):
-    """Supported numerical precisions"""
-    FP64 = "fp64"
-    FP32 = "fp32"
-    TF32 = "tf32"
-    FP16 = "fp16"
-    BF16 = "bf16"
-    FP8 = "fp8"
-    INT8 = "int8"
-    INT4 = "int4"
+# Re-export the canonical Precision enum (issue #59) so benchmark
+# specs share one class identity with the hardware catalog.
+from graphs.hardware.resource_model import Precision  # noqa: E402,F401
 
 
 class DeviceType(Enum):

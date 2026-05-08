@@ -14,20 +14,11 @@ This separation enables accurate hardware mapping and energy modeling.
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
-from enum import Enum
 
-
-class Precision(Enum):
-    """Numerical precision types"""
-    FP64 = "fp64"
-    FP32 = "fp32"
-    FP16 = "fp16"
-    BF16 = "bf16"
-    INT32 = "int32"
-    INT16 = "int16"
-    INT8 = "int8"
-    INT4 = "int4"
-    MIXED = "mixed"  # Mixed precision
+# Re-export the canonical Precision enum so module-boundary lookups
+# (e.g. mcp/server.py -> hardware/mappers/* precision_profiles dicts)
+# operate on the same class object. Issue #59.
+from graphs.hardware.resource_model import Precision  # noqa: F401
 
 
 @dataclass

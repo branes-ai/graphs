@@ -50,6 +50,12 @@ from typing import Dict
 from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 from graphs.hardware.technology_profile import TechnologyProfile
 
+# Re-export the canonical Precision enum (issue #59). The baseline
+# model only treats FP32/FP16/INT8, but it must use the same enum
+# class as the hardware catalog so that callers passing the canonical
+# member find their entry in this module's scaling dict.
+from graphs.hardware.resource_model import Precision  # noqa: F401
+
 
 # --------------------------------------------------------------------
 # Op kinds, precisions
@@ -59,12 +65,6 @@ class OpKind(Enum):
     FADD = "FADD"   # 2-source floating add
     FMUL = "FMUL"   # 2-source floating multiply
     FMA  = "FMA"    # 3-source fused multiply-add (1 FMA = 2 FLOPS)
-
-
-class Precision(Enum):
-    FP32 = "fp32"
-    FP16 = "fp16"
-    INT8 = "int8"
 
 
 # Sources per op kind (for FF read count in baseline).
@@ -208,6 +208,12 @@ def _alu_energies_pj(
     using the Horowitz ratios; precision narrows the ALU width.
     """
     base_fma_fp32 = profile.base_alu_energy_pj  # canonical fp32 FMA
+    if precision not in _PRECISION_ALU_SCALE:
+        supported = sorted(p.name for p in _PRECISION_ALU_SCALE)
+        raise ValueError(
+            f"baseline_alu_energy only models {', '.join(supported)}; "
+            f"got {precision.name}"
+        )
     prec_scale = _PRECISION_ALU_SCALE[precision]
 
     if op_kind is OpKind.FADD:
