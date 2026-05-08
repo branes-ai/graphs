@@ -27,7 +27,10 @@ from graphs.reporting.baseline_alu_energy import (
 
 
 _ALL_OPS = list(OpKind)
-_ALL_PRECS = list(Precision)
+# The baseline ALU model documents three precisions (FP32, FP16, INT8).
+# Precision is now the canonical 14-member enum, so enumerate the
+# supported subset explicitly rather than `list(Precision)`.
+_ALL_PRECS = [Precision.FP32, Precision.FP16, Precision.INT8]
 
 
 class TestStructure:

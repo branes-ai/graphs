@@ -1268,8 +1268,27 @@ class HardwareResourceModel:
     # THEORETICAL to INTERPOLATED or CALIBRATED.
     field_provenance: Dict[str, EstimationConfidence] = field(default_factory=dict)
 
-    def _unsupported_precision_error(self, precision: Precision) -> ValueError:
+    def _unsupported_precision_error(self, precision: "Precision") -> ValueError:
         supported = sorted(p.name.lower() for p in self.precision_profiles)
+        # Dual-enum diagnostic (issue #59): if the requested precision
+        # has the same value as one of the catalog members but is from a
+        # different Enum class, the dict lookup silently misses. Surface
+        # the class identity so the bug is obvious instead of
+        # self-contradicting.
+        catalog_cls = type(next(iter(self.precision_profiles))) if self.precision_profiles else None
+        if (
+            catalog_cls is not None
+            and not isinstance(precision, catalog_cls)
+            and any(p.value == precision.value for p in self.precision_profiles)
+        ):
+            req_cls = type(precision)
+            return ValueError(
+                f"{self.name}: precision {precision.name.lower()} came from "
+                f"{req_cls.__module__}.{req_cls.__name__} but the catalog "
+                f"keys are {catalog_cls.__module__}.{catalog_cls.__name__}; "
+                f"the value matches but the Enum classes differ. "
+                f"Import Precision from graphs.hardware.resource_model."
+            )
         return ValueError(
             f"{self.name} does not support {precision.name.lower()} -- "
             f"supported precisions are: {', '.join(supported) if supported else '(none)'}"

@@ -51,7 +51,9 @@ def _get_registry():
 
 def _precision_enum(name: str):
     """Convert a precision string like 'fp16' to the Precision enum value."""
-    from graphs.estimation.workload_characterization import Precision
+    # Use the canonical Precision so dict lookups against
+    # HardwareResourceModel.precision_profiles succeed (issue #59).
+    from graphs.hardware.resource_model import Precision
 
     mapping = {p.value: p for p in Precision}
     key = name.lower()
