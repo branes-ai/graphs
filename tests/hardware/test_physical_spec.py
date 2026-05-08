@@ -170,3 +170,67 @@ class TestJetsonPhysicalSpecs:
         assert abs(d_agx - 37.4) < 0.5
         assert nx.transistor_density_mtx_mm2 == d_agx
         assert nano.transistor_density_mtx_mm2 == d_agx
+
+
+class TestMemoryFields:
+    """Phase 3 of #136: memory_type + memory_bus_width_bits on PhysicalSpec.
+
+    Anchored to the embodied-schemas YAMLs (data/gpus/<vendor>/*.yaml,
+    ``memory:`` block). These are silicon-bin / module SKU constants --
+    they don't change per nvpmodel power profile. Per-profile memory
+    CLOCK is a separate field on ThermalOperatingPoint (Phase 4).
+    """
+
+    def test_default_physical_spec_has_no_memory_data(self):
+        # Backward compat: the new fields default to None so unpopulated
+        # PhysicalSpec instances and existing call sites don't need updates.
+        spec = PhysicalSpec()
+        assert spec.memory_type is None
+        assert spec.memory_bus_width_bits is None
+
+    def test_h100_memory_populated(self):
+        spec = create_h100_sxm5_80gb_mapper().physical_spec
+        assert spec.memory_type == "hbm3"
+        assert spec.memory_bus_width_bits == 5120
+
+    def test_orin_agx_memory_populated(self):
+        spec = create_jetson_orin_agx_64gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5"
+        assert spec.memory_bus_width_bits == 256
+
+    def test_orin_nx_memory_populated(self):
+        spec = create_jetson_orin_nx_16gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5"
+        assert spec.memory_bus_width_bits == 128
+
+    def test_orin_nano_memory_populated(self):
+        # Nano has the narrowest bus in the Orin family at 64 bits --
+        # surprised me when reading the embodied-schemas YAML, hence
+        # the explicit assertion to lock in the right value (NOT 128).
+        spec = create_jetson_orin_nano_8gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5"
+        assert spec.memory_bus_width_bits == 64
+
+    def test_thor_memory_populated(self):
+        # Thor uses LPDDR5X (a different DRAM family) at 512-bit -- the
+        # Super refresh's bus width surprised me (NOT 256).
+        spec = create_jetson_thor_128gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5x"
+        assert spec.memory_bus_width_bits == 512
+
+    def test_orin_family_shares_memory_type_but_not_bus_width(self):
+        # All three Orin variants are LPDDR5 (memory technology fixed by
+        # GA10B silicon's memory controller), but the BUS WIDTH differs
+        # per module SKU because the memory channel count differs.
+        agx = create_jetson_orin_agx_64gb_mapper().physical_spec
+        nx = create_jetson_orin_nx_16gb_mapper().physical_spec
+        nano = create_jetson_orin_nano_8gb_mapper().physical_spec
+        # Same memory type
+        assert agx.memory_type == nx.memory_type == nano.memory_type == "lpddr5"
+        # Different bus widths (no two are equal)
+        widths = {
+            agx.memory_bus_width_bits,
+            nx.memory_bus_width_bits,
+            nano.memory_bus_width_bits,
+        }
+        assert widths == {64, 128, 256}
