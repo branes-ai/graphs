@@ -84,7 +84,7 @@ _REGIME_COLORS = {
     Regime.UNSUPPORTED.value:   "#d62728",
 }
 
-_OP_MARKERS = {"matmul": "o", "linear": "^"}
+_OP_MARKERS = {"matmul": "o", "linear": "^", "vector_add": "s"}
 
 # RAPL/NVML/INA3221 single-shot energy noise floor; same constant as
 # validation/model_v4/harness/assertions.py::ENERGY_RELIABLE_LATENCY_S.
@@ -97,10 +97,22 @@ ENERGY_RELIABLE_S = 1e-3
 
 
 def _shape_from_csv(s: str) -> tuple[int, ...]:
-    """CSV ships shape as either '1024x1024x1024' or a Python tuple literal."""
+    """CSV ships shape as one of:
+    - '1024x1024x1024' (matmul / linear, 'x'-separated dims)
+    - '1024' (vector_add, single dim)
+    - '(1024, 1024)' (Python tuple literal, fallback)
+    """
     if "x" in s:
         return tuple(int(x) for x in s.split("x"))
-    return tuple(ast.literal_eval(s))
+    # Single-int shapes (vector_add): "1024" -> (1024,)
+    s_stripped = s.strip()
+    if s_stripped.lstrip("-").isdigit():
+        return (int(s_stripped),)
+    # Tuple literal fallback
+    parsed = ast.literal_eval(s)
+    if isinstance(parsed, int):
+        return (parsed,)
+    return tuple(parsed)
 
 
 def load_baseline_rows(hw_key: str, op: str) -> list[dict]:
@@ -146,6 +158,50 @@ def load_sweep_regimes(hw_key: str, op: str) -> dict[tuple, str]:
     return out
 
 
+def load_sweep_shapes_for_predictions(
+    op: str, dtype: str,
+) -> list[dict]:
+    """Predictions-only path: read shapes (regardless of hardware) from
+    the sweep validation JSON. Used by ``--predictions-only`` mode for
+    targets without a baseline CSV (e.g. the KPU T64).
+
+    The dtype filter exists because each target validates a fixed
+    dtype (i7 -> fp32, GPU/KPU -> fp16/bf16); we only emit shapes
+    whose dtype matches the target's calibration precision."""
+    path = SWEEP_DIR / f"{op}_validation.json"
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text())
+    rows: list[dict] = []
+    for entry in payload["shapes"]:
+        if entry["dtype"] != dtype:
+            continue
+        rows.append({
+            "op": op,
+            "shape": tuple(entry["shape"]),
+            "dtype": entry["dtype"],
+            # Predictions-only: no measured fields. _enrich_row will
+            # tolerate None/0 here -- the measured-marker scatter
+            # paths skip rows whose meas_y_key is None.
+            "latency_s": 0.0,
+            "energy_j": None,
+        })
+    return rows
+
+
+def _classify_for_target(
+    op: str, shape: tuple, dtype: str, hw: HardwareResourceModel,
+) -> str:
+    """Run the analytical classifier for predictions-only targets that
+    don't appear in the sweep's regime_per_hw map."""
+    from validation.model_v4.sweeps.classify import classify_regime
+
+    try:
+        return classify_regime(op, shape, dtype, hw).value
+    except (ValueError, KeyError):
+        return Regime.AMBIGUOUS.value
+
+
 def _peak_flops_for_dtype(hw: HardwareResourceModel, dtype: str) -> float:
     from graphs.estimation.roofline import RooflineAnalyzer
     try:
@@ -158,23 +214,34 @@ def _enrich_row(r: dict, hw: HardwareResourceModel, with_predictions: bool) -> O
     """Compute derived fields + analyzer predictions for one row.
 
     Returns None if the row's shape can't be resolved (e.g., the dtype
-    isn't supported by the mapper). The caller drops Nones."""
+    isn't supported by the mapper). The caller drops Nones.
+
+    Predictions-only mode (no measured row): pass ``r["latency_s"] == 0``
+    and ``r["energy_j"] is None``; the measured fields stay None and
+    the scatter paths skip them naturally."""
     op = r["op"]
     try:
         fp = op_footprint(op, r["shape"], r["dtype"])
     except (ValueError, ZeroDivisionError):
         return None
-    if fp.working_set_bytes <= 0 or fp.flops <= 0 or r["latency_s"] <= 0:
+    if fp.working_set_bytes <= 0 or fp.flops <= 0:
         return None
+    has_measurement = r["latency_s"] > 0
 
     r = dict(r)
     r["flops"] = fp.flops
     r["working_set_bytes"] = fp.working_set_bytes
     r["operational_intensity"] = fp.operational_intensity
-    r["measured_gflops"] = fp.flops / r["latency_s"] / 1e9
-    r["measured_latency_ms"] = r["latency_s"] * 1e3
-    r["measured_avg_power_w"] = (r["energy_j"] / r["latency_s"]
-                                 if r["energy_j"] and r["latency_s"] > 0 else None)
+    if has_measurement:
+        r["measured_gflops"] = fp.flops / r["latency_s"] / 1e9
+        r["measured_latency_ms"] = r["latency_s"] * 1e3
+        r["measured_avg_power_w"] = (r["energy_j"] / r["latency_s"]
+                                     if r["energy_j"] and r["latency_s"] > 0 else None)
+    else:
+        # Predictions-only path -- no measured markers will render.
+        r["measured_gflops"] = None
+        r["measured_latency_ms"] = None
+        r["measured_avg_power_w"] = None
 
     if with_predictions:
         # Narrow exception list -- catch the failures we expect from
@@ -189,7 +256,12 @@ def _enrich_row(r: dict, hw: HardwareResourceModel, with_predictions: bool) -> O
         try:
             precision = _resolve_precision(r["dtype"])
             sg = _build_subgraph(op, r["shape"], r["dtype"])
-            pred_lat = _predict_latency_s(sg, hw, precision)
+            # use_tier_aware_memory=True matches the V5-3b production
+            # default; predicted markers reflect what the orchestrator
+            # actually sees at runtime.
+            pred_lat, _ = _predict_latency_s(
+                sg, hw, precision, use_tier_aware_memory=True
+            )
             pred_egy = _predict_energy_j(sg, hw, precision, pred_lat)
             r["predicted_latency_ms"] = pred_lat * 1e3
             r["predicted_gflops"] = (fp.flops / pred_lat / 1e9
@@ -231,7 +303,7 @@ def _scatter_pair(ax, rows, x_key: str, meas_y_key: str,
                     alpha=0.5, zorder=1)
 
     # Measured (filled)
-    for op in ("matmul", "linear"):
+    for op in ("matmul", "linear", "vector_add"):
         for regime in _REGIME_COLORS:
             xs, ys = [], []
             for r in rows:
@@ -251,7 +323,7 @@ def _scatter_pair(ax, rows, x_key: str, meas_y_key: str,
 
     # Predicted (hollow, same color/marker, no fill)
     if pred_y_key is not None:
-        for op in ("matmul", "linear"):
+        for op in ("matmul", "linear", "vector_add"):
             for regime in _REGIME_COLORS:
                 xs, ys = [], []
                 for r in rows:
@@ -325,7 +397,20 @@ def _draw_tdp_line(ax, hw):
 
 
 def render_baseline_plot(hw_key: str, out_path: Path,
-                         with_overlay: bool = True) -> None:
+                         with_overlay: bool = True,
+                         predictions_only: bool = False,
+                         predictions_dtype: Optional[str] = None) -> None:
+    """Render the 3-panel V4 visualization.
+
+    ``predictions_only`` switches to a no-baseline path: shapes come
+    from the sweep validation JSON, regimes come from the analytical
+    classifier, and the measured-marker scatter paths skip cleanly
+    (only hollow predicted markers render). Use this for hardware
+    that doesn't have a baseline CSV yet (e.g. KPU T64).
+
+    ``predictions_dtype`` filters the sweep shapes to one precision
+    (defaults to fp16 for non-CPU targets, fp32 for CPU).
+    """
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
@@ -338,20 +423,46 @@ def render_baseline_plot(hw_key: str, out_path: Path,
 
     # Gather + enrich rows
     raw_rows: list[dict] = []
-    for op in ("matmul", "linear"):
-        baseline_rows = load_baseline_rows(hw_key, op)
-        regimes = load_sweep_regimes(hw_key, op)
-        for r in baseline_rows:
-            key = (tuple(r["shape"]), r["dtype"])
-            r["regime"] = regimes.get(key, Regime.AMBIGUOUS.value)
-            raw_rows.append(r)
+    if predictions_only:
+        # No baselines; pull shapes from the sweep validation JSON
+        # and classify on the fly via the analytical classifier (the
+        # sweep entry's regime_per_hw map may not include this target).
+        if predictions_dtype is None:
+            predictions_dtype = (
+                "fp32" if hw.hardware_type.name == "CPU" else "fp16"
+            )
+        # KPU's native bf16 is the right comparison precision; allow
+        # an explicit override via predictions_dtype.
+        for op in ("matmul", "linear", "vector_add"):
+            for r in load_sweep_shapes_for_predictions(op, predictions_dtype):
+                r["regime"] = _classify_for_target(
+                    op, r["shape"], r["dtype"], hw,
+                )
+                raw_rows.append(r)
+        # Predictions are mandatory in this mode; force overlay on so
+        # the predicted-marker scatter actually fires.
+        with_overlay = True
+    else:
+        for op in ("matmul", "linear", "vector_add"):
+            baseline_rows = load_baseline_rows(hw_key, op)
+            regimes = load_sweep_regimes(hw_key, op)
+            for r in baseline_rows:
+                key = (tuple(r["shape"]), r["dtype"])
+                r["regime"] = regimes.get(key, Regime.AMBIGUOUS.value)
+                raw_rows.append(r)
     enriched = [_enrich_row(r, hw, with_overlay) for r in raw_rows]
     rows = [r for r in enriched if r is not None]
     if not rows:
+        if predictions_only:
+            raise SystemExit(
+                f"No sweep shapes for {hw_key!r} at "
+                f"dtype={predictions_dtype!r}; check the sweep JSONs."
+            )
         raise SystemExit(
             f"No baseline data found for {hw_key!r}. Expected one or both of "
             f"{BASELINE_DIR}/{hw_key}_matmul.csv, "
-            f"{BASELINE_DIR}/{hw_key}_linear.csv")
+            f"{BASELINE_DIR}/{hw_key}_linear.csv "
+            f"(or pass --predictions-only)")
 
     dtypes_present = sorted({r["dtype"] for r in rows})
     n_rows = len(dtypes_present)
@@ -359,13 +470,20 @@ def render_baseline_plot(hw_key: str, out_path: Path,
                                   figsize=(18, 5.5 * max(n_rows, 1)),
                                   squeeze=False)
 
-    title_op_count = (
-        f"{sum(1 for r in rows if r['op']=='matmul')} matmul + "
-        f"{sum(1 for r in rows if r['op']=='linear')} linear"
-    )
-    overlay_note = "" if not with_overlay else "  (filled=measured, hollow=predicted)"
+    n_mm = sum(1 for r in rows if r['op'] == 'matmul')
+    n_lin = sum(1 for r in rows if r['op'] == 'linear')
+    n_va = sum(1 for r in rows if r['op'] == 'vector_add')
+    title_op_count = f"{n_mm} matmul + {n_lin} linear + {n_va} vector_add"
+    if predictions_only:
+        overlay_note = "  (predictions-only -- no V4 baseline)"
+        title_prefix = "Roofline predictions"
+    else:
+        overlay_note = (
+            "" if not with_overlay else "  (filled=measured, hollow=predicted)"
+        )
+        title_prefix = "V4 baseline performance spread"
     fig.suptitle(
-        f"V4 baseline performance spread -- {hw.name}  ({title_op_count} shapes){overlay_note}",
+        f"{title_prefix} -- {hw.name}  ({title_op_count} shapes){overlay_note}",
         fontsize=12, y=0.995)
 
     for row_idx, dtype in enumerate(dtypes_present):
@@ -401,8 +519,13 @@ def render_baseline_plot(hw_key: str, out_path: Path,
         # ----- Panel 3: avg power vs WS -----
         _draw_tdp_line(ax_pwr, hw)
         # For power, mark sub-1ms points as hollow regardless of overlay
-        # mode: their measured energy is per-#71 RAPL/NVML noise.
+        # mode: their measured energy is per-#71 RAPL/NVML noise. The
+        # noise floor is a measurement artifact, not a model artifact;
+        # in predictions-only mode all rows count as reliable because
+        # there's no RAPL/NVML reading at all.
         def _reliable(r):
+            if predictions_only:
+                return True
             return r["latency_s"] >= ENERGY_RELIABLE_S
         # Filled measured for reliable shapes
         rel_rows = [r for r in dtype_rows if _reliable(r)]
@@ -412,7 +535,7 @@ def render_baseline_plot(hw_key: str, out_path: Path,
                       meas_y_key="measured_avg_power_w",
                       pred_y_key="predicted_avg_power_w" if with_overlay else None)
         # Sub-1ms shapes: open markers (faint), no pred connector
-        for op in ("matmul", "linear"):
+        for op in ("matmul", "linear", "vector_add"):
             for regime in _REGIME_COLORS:
                 xs, ys = [], []
                 for r in unrel_rows:
@@ -492,17 +615,33 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--hw", required=True,
                    choices=sorted(SWEEP_HW_TO_MAPPER),
-                   help="hardware key (must have a baseline CSV)")
+                   help="hardware key (must have a baseline CSV unless "
+                        "--predictions-only)")
     p.add_argument("--out", type=Path, default=None,
                    help="output PNG path (default: "
                         "validation/model_v4/results/plots/<hw>_roofline.png)")
     p.add_argument("--no-overlay", action="store_true",
                    help="skip the predicted (analyzer) overlay; "
                         "only render measured points")
+    p.add_argument("--predictions-only", action="store_true",
+                   help="skip baseline lookup; render predictions for "
+                        "shapes from the sweep validation JSON. Use for "
+                        "hardware that doesn't have a baseline yet "
+                        "(e.g. KPU T64, AGX, NX, H100).")
+    p.add_argument("--predictions-dtype", default=None,
+                   help="precision to use in --predictions-only mode "
+                        "(default: fp32 for CPU, fp16 for GPU/KPU). "
+                        "KPU's native bf16 is a sensible explicit choice "
+                        "for compute comparisons.")
     args = p.parse_args(argv)
 
     out = args.out or (DEFAULT_PLOT_DIR / f"{args.hw}_roofline.png")
-    render_baseline_plot(args.hw, out, with_overlay=not args.no_overlay)
+    render_baseline_plot(
+        args.hw, out,
+        with_overlay=not args.no_overlay,
+        predictions_only=args.predictions_only,
+        predictions_dtype=args.predictions_dtype,
+    )
     return 0
 
 
