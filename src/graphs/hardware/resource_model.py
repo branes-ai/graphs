@@ -36,6 +36,7 @@ FusionReport = PartitionReport
 if TYPE_CHECKING:
     from graphs.hardware.architectural_energy import ArchitecturalEnergyModel
     from graphs.hardware.fabric_model import SoCFabricModel
+    from graphs.hardware.physical_spec import PhysicalSpec
 
 
 class HardwareType(Enum):
@@ -1699,11 +1700,22 @@ class HardwareMapper(ABC):
         Initialize hardware mapper.
 
         Args:
-            resource_model: Hardware resource model
+            resource_model: Hardware resource model (read by the mapping path:
+                            roofline, energy, scheduling estimators).
             thermal_profile: Thermal profile name (e.g., "15W", "30W").
                            If None, uses default_thermal_profile from resource_model.
+
+        Notes:
+            Mappers also expose a ``physical_spec`` attribute (initially ``None``)
+            for chip-level fabrication / spec-sheet metadata (die size,
+            transistors, process node, launch info). Factory functions assign
+            it post-construction when data is available; consumers like
+            ``cli/list_hardware_resources.py`` read it to render spec tables.
+            The mapping path never reads ``physical_spec`` -- it is metadata
+            only and never affects estimation.
         """
         self.resource_model = resource_model
+        self.physical_spec: Optional["PhysicalSpec"] = None
 
         # Select thermal profile
         if resource_model.thermal_operating_points:
