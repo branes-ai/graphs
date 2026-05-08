@@ -14,7 +14,7 @@ Usage:
 
 import json
 import argparse
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 
 from graphs.hardware.resource_model import HardwareType, Precision
@@ -28,8 +28,13 @@ class HardwareMapperInfo:
     deployment: str  # Datacenter, Edge, Mobile, Automotive
     manufacturer: str
     compute_units: int
+    peak_flops_fp64: float  # GFLOPS
     peak_flops_fp32: float  # GFLOPS
-    peak_flops_int8: float  # GOPS
+    peak_flops_fp16: float  # GFLOPS
+    peak_flops_fp8: float   # GFLOPS
+    peak_flops_int32: float  # GOPS
+    peak_flops_int16: float  # GOPS
+    peak_flops_int8: float   # GOPS
     memory_bandwidth: float  # GB/s
     power_tdp: float  # Watts
     thermal_profiles: List[str]
@@ -52,6 +57,34 @@ def _safe_peak_gflops(mapper, precision: Precision) -> float:
         return mapper.resource_model.get_peak_ops(precision) / 1e9
     except ValueError:
         return 0.0
+
+
+_PRECISION_COLUMNS = (
+    ("peak_flops_fp64", Precision.FP64),
+    ("peak_flops_fp32", Precision.FP32),
+    ("peak_flops_fp16", Precision.FP16),
+    ("peak_flops_fp8", Precision.FP8),
+    ("peak_flops_int32", Precision.INT32),
+    ("peak_flops_int16", Precision.INT16),
+    ("peak_flops_int8", Precision.INT8),
+)
+
+
+def _populate_precisions(mapper) -> Dict[str, float]:
+    """Build the seven peak-throughput fields for ``HardwareMapperInfo`` in one shot.
+
+    Returns 0.0 for any precision the resource model does not natively list (see
+    ``_safe_peak_gflops``). The ``peak_flops_fp8`` column reports the max of the
+    generic FP8 enum and the two IEEE FP8 variants (E4M3 / E5M2), since most
+    resource models register the variants but not the generic enum.
+    """
+    out = {field: _safe_peak_gflops(mapper, prec) for field, prec in _PRECISION_COLUMNS}
+    out["peak_flops_fp8"] = max(
+        _safe_peak_gflops(mapper, Precision.FP8),
+        _safe_peak_gflops(mapper, Precision.FP8_E4M3),
+        _safe_peak_gflops(mapper, Precision.FP8_E5M2),
+    )
+    return out
 
 
 def _get_tdp_from_mapper(mapper) -> float:
@@ -111,8 +144,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="Intel",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -129,8 +161,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="Intel",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -147,8 +178,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="Intel",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -165,8 +195,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="AMD",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -183,8 +212,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="AMD",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -201,8 +229,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="AMD",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -219,8 +246,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="Ampere",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -237,8 +263,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="Ampere",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -255,8 +280,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Desktop",
         manufacturer="Intel",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -273,8 +297,7 @@ def discover_cpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -311,8 +334,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -329,8 +351,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -347,8 +368,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -365,8 +385,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -383,8 +402,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -401,8 +419,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=mapper.resource_model.thermal_operating_points[mapper.resource_model.default_thermal_profile].tdp_watts,
         thermal_profiles=list(mapper.resource_model.thermal_operating_points.keys()),
@@ -419,8 +436,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -437,8 +453,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -455,8 +470,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Automotive",
         manufacturer="NVIDIA",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -473,8 +487,7 @@ def discover_gpu_mappers() -> List[HardwareMapperInfo]:
         deployment="Mobile",
         manufacturer="ARM",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -503,8 +516,7 @@ def discover_dsp_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge",
         manufacturer="Qualcomm",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -521,8 +533,7 @@ def discover_dsp_mappers() -> List[HardwareMapperInfo]:
         deployment="Automotive",
         manufacturer="Texas Instruments",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -562,8 +573,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Datacenter",
         manufacturer="Google",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -580,8 +590,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge",
         manufacturer="Google",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 only
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -598,8 +607,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Embodied AI",
         manufacturer="Stillwater",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 primary
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -616,8 +624,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Embodied AI",
         manufacturer="Stillwater",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 primary
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -634,8 +641,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Embodied AI",
         manufacturer="Stillwater",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 primary
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -652,8 +658,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge/Datacenter",
         manufacturer="AMD/Xilinx",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 only
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -670,8 +675,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Research",
         manufacturer="Stanford",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=_safe_peak_gflops(mapper, Precision.FP32),
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -688,8 +692,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Edge",
         manufacturer="Hailo",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 only
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -706,8 +709,7 @@ def discover_accelerator_mappers() -> List[HardwareMapperInfo]:
         deployment="Automotive",
         manufacturer="Hailo",
         compute_units=mapper.resource_model.compute_units,
-        peak_flops_fp32=0.0,  # INT8 only
-        peak_flops_int8=_safe_peak_gflops(mapper, Precision.INT8),
+        **_populate_precisions(mapper),
         memory_bandwidth=mapper.resource_model.peak_bandwidth / 1e9,
         power_tdp=_get_tdp_from_mapper(mapper),
         thermal_profiles=_get_thermal_profiles(mapper),
@@ -758,11 +760,22 @@ def generate_text_report(all_mappers: List[HardwareMapperInfo], category_filter:
             print()
 
             for mapper in sorted(dep_mappers, key=lambda x: x.peak_flops_int8, reverse=True):
-                print(f"  • {mapper.name}")
+                print(f"  - {mapper.name}")
                 print(f"    Manufacturer: {mapper.manufacturer}")
                 print(f"    Compute Units: {mapper.compute_units}")
-                print(f"    Peak FP32: {mapper.peak_flops_fp32:.1f} GFLOPS" if mapper.peak_flops_fp32 > 0 else "    Peak FP32: N/A")
-                print(f"    Peak INT8: {mapper.peak_flops_int8:.1f} GOPS")
+                peak_parts = []
+                for label, value in [
+                    ("FP64", mapper.peak_flops_fp64),
+                    ("FP32", mapper.peak_flops_fp32),
+                    ("FP16", mapper.peak_flops_fp16),
+                    ("FP8",  mapper.peak_flops_fp8),
+                    ("INT32", mapper.peak_flops_int32),
+                    ("INT16", mapper.peak_flops_int16),
+                    ("INT8",  mapper.peak_flops_int8),
+                ]:
+                    if value > 0:
+                        peak_parts.append(f"{label}={value:.1f}")
+                print(f"    Peak (G[FL]OPS): {'  '.join(peak_parts) if peak_parts else 'N/A'}")
                 print(f"    Memory BW: {mapper.memory_bandwidth:.1f} GB/s")
                 print(f"    Power (TDP): {mapper.power_tdp:.1f} W")
                 if mapper.thermal_profiles:
@@ -780,9 +793,10 @@ def generate_text_report(all_mappers: List[HardwareMapperInfo], category_filter:
         print()
 
     # Overall comparison table (segmented by deployment)
-    print("=" * 100)
-    print("PERFORMANCE COMPARISON (by Deployment)")
-    print("=" * 100)
+    table_width = 130
+    print("=" * table_width)
+    print("PEAK THROUGHPUT BY PRECISION (TFLOPS / TOPS) -- segmented by Deployment")
+    print("=" * table_width)
     print()
 
     # Group by deployment
@@ -804,6 +818,13 @@ def generate_text_report(all_mappers: List[HardwareMapperInfo], category_filter:
         "Research"
     ]
 
+    header = (
+        f"{'Hardware':<35}{'Cat':<6}"
+        f"{'FP64':>9}{'FP32':>9}{'FP16':>9}{'FP8':>9}"
+        f"{'INT32':>9}{'INT16':>9}{'INT8':>9}"
+        f"{'TDP(W)':>10}{'TOPS/W':>10}"
+    )
+
     # Print each deployment segment
     for deployment in deployment_order:
         if deployment not in deployment_groups:
@@ -813,20 +834,31 @@ def generate_text_report(all_mappers: List[HardwareMapperInfo], category_filter:
 
         print(f"--- {deployment} ({len(mappers)} devices) ---")
         print()
-        print(f"{'Hardware':<35} {'Category':<8} {'INT8 TOPS':<12} {'Power (W)':<10} {'Efficiency (TOPS/W)':<15}")
-        print("-" * 100)
+        print(header)
+        print("-" * table_width)
 
         # Sort by INT8 TOPS within deployment
         for mapper in sorted(mappers, key=lambda x: x.peak_flops_int8, reverse=True):
             int8_tops = mapper.peak_flops_int8 / 1000
             efficiency = int8_tops / mapper.power_tdp if mapper.power_tdp > 0 else 0
-            print(f"{mapper.name:<35} {mapper.category:<8} {int8_tops:<12.1f} {mapper.power_tdp:<10.1f} {efficiency:<15.2f}")
+            row = (
+                f"{mapper.name:<35}{mapper.category:<6}"
+                f"{mapper.peak_flops_fp64/1000:>9.1f}"
+                f"{mapper.peak_flops_fp32/1000:>9.1f}"
+                f"{mapper.peak_flops_fp16/1000:>9.1f}"
+                f"{mapper.peak_flops_fp8/1000:>9.1f}"
+                f"{mapper.peak_flops_int32/1000:>9.1f}"
+                f"{mapper.peak_flops_int16/1000:>9.1f}"
+                f"{mapper.peak_flops_int8/1000:>9.1f}"
+                f"{mapper.power_tdp:>10.1f}{efficiency:>10.2f}"
+            )
+            print(row)
 
         print()
 
-    print("=" * 100)
+    print("=" * table_width)
     print(f"Total: {len(all_mappers)} hardware mappers available")
-    print("=" * 100)
+    print("=" * table_width)
 
 
 def generate_json_report(all_mappers: List[HardwareMapperInfo], category_filter: Optional[str] = None):
