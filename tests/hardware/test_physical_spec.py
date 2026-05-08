@@ -36,6 +36,18 @@ class TestPhysicalSpec:
         spec = PhysicalSpec(die_size_mm2=0.0, transistors_billion=80.0)
         assert spec.transistor_density_mtx_mm2 is None
 
+    def test_density_rejects_negative_die_size(self):
+        spec = PhysicalSpec(die_size_mm2=-1.0, transistors_billion=80.0)
+        assert spec.transistor_density_mtx_mm2 is None
+
+    def test_density_rejects_negative_transistors(self):
+        spec = PhysicalSpec(die_size_mm2=814.0, transistors_billion=-1.0)
+        assert spec.transistor_density_mtx_mm2 is None
+
+    def test_density_rejects_zero_transistors(self):
+        spec = PhysicalSpec(die_size_mm2=814.0, transistors_billion=0.0)
+        assert spec.transistor_density_mtx_mm2 is None
+
     def test_to_dict_serializes_cleanly(self):
         spec = PhysicalSpec(
             die_size_mm2=814.0,

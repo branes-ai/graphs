@@ -12,10 +12,14 @@ Usage:
     python cli/list_hardware_mappers.py --format json
 """
 
+import csv
 import json
+import os
+import sys
 import argparse
+import contextlib
 from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 
 from graphs.hardware.resource_model import HardwareType, Precision
 
@@ -891,23 +895,85 @@ def generate_json_report(all_mappers: List[HardwareMapperInfo], category_filter:
     print(json.dumps(report, indent=2))
 
 
+def generate_csv_report(all_mappers: List[HardwareMapperInfo], category_filter: Optional[str] = None):
+    """Generate a CSV report: one row per mapper, columns are the dataclass fields.
+
+    list[str] fields (thermal_profiles, use_cases) are joined with ``;`` so each
+    cell stays single-valued. Written to stdout; main() routes via redirection
+    when ``--output FILE.csv`` is given.
+    """
+    if category_filter:
+        all_mappers = [m for m in all_mappers if m.category.lower() == category_filter.lower()]
+
+    field_names = [f.name for f in fields(HardwareMapperInfo)]
+    writer = csv.writer(sys.stdout)
+    writer.writerow(field_names)
+    for mapper in all_mappers:
+        row = []
+        for name in field_names:
+            value = getattr(mapper, name)
+            if isinstance(value, list):
+                value = ";".join(str(v) for v in value)
+            row.append(value)
+        writer.writerow(row)
+
+
+# Format auto-detection table for --output. Markdown is rendered as text since
+# the comparison table is already valid Markdown.
+_EXT_TO_FORMAT = {
+    ".json": "json",
+    ".csv": "csv",
+    ".md": "text",
+    ".markdown": "text",
+    ".txt": "text",
+}
+
+
+def _resolve_format(output_path: Optional[str], explicit_format: str) -> str:
+    """Pick the output format. Extension wins for ``--output FILE.ext``;
+    ``--format`` provides the explicit override and the stdout default."""
+    if output_path:
+        ext = os.path.splitext(output_path)[1].lower()
+        if ext in _EXT_TO_FORMAT:
+            return _EXT_TO_FORMAT[ext]
+        # Unknown extension: fall back to --format
+    return explicit_format
+
+
+def _emit_report(
+    fmt: str,
+    all_mappers: List[HardwareMapperInfo],
+    category_filter: Optional[str],
+):
+    """Dispatch to the right generator. Each generator prints to stdout; the
+    caller can redirect stdout to a file via contextlib.redirect_stdout."""
+    if fmt == "json":
+        generate_json_report(all_mappers, category_filter)
+    elif fmt == "csv":
+        generate_csv_report(all_mappers, category_filter)
+    else:
+        generate_text_report(all_mappers, category_filter)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Discover and report on all available hardware mappers",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # List all mappers
+  # List all mappers (text, stdout)
   python cli/list_hardware_mappers.py
 
   # List only CPUs
   python cli/list_hardware_mappers.py --category cpu
 
-  # List only accelerators
-  python cli/list_hardware_mappers.py --category tpu
-
-  # Generate JSON report
+  # Generate JSON report (format from --format flag, stdout)
   python cli/list_hardware_mappers.py --format json
+
+  # Write report to a file -- format auto-detected from extension
+  python cli/list_hardware_mappers.py --output mappers.json
+  python cli/list_hardware_mappers.py --output mappers.csv
+  python cli/list_hardware_mappers.py --output mappers.md
         """
     )
 
@@ -919,9 +985,14 @@ Examples:
 
     parser.add_argument(
         "--format",
-        choices=["text", "json"],
+        choices=["text", "json", "csv"],
         default="text",
-        help="Output format (default: text)"
+        help="Output format. Used as default for stdout and as override when --output extension is unrecognized (default: text)"
+    )
+
+    parser.add_argument(
+        "--output",
+        help="Output file path. Format auto-detected from extension (.json, .csv, .md, .txt). Overridden by --format if extension is unrecognized."
     )
 
     args = parser.parse_args()
@@ -933,11 +1004,15 @@ Examples:
     all_mappers.extend(discover_dsp_mappers())
     all_mappers.extend(discover_accelerator_mappers())
 
-    # Generate report
-    if args.format == "json":
-        generate_json_report(all_mappers, args.category)
+    fmt = _resolve_format(args.output, args.format)
+
+    if args.output:
+        with open(args.output, "w", newline="") as fh:
+            with contextlib.redirect_stdout(fh):
+                _emit_report(fmt, all_mappers, args.category)
+        print(f"Wrote {fmt} report to {args.output}", file=sys.stderr)
     else:
-        generate_text_report(all_mappers, args.category)
+        _emit_report(fmt, all_mappers, args.category)
 
 
 if __name__ == "__main__":

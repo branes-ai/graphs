@@ -98,7 +98,10 @@ class PhysicalSpec:
         """
         if self.die_size_mm2 is None or self.transistors_billion is None:
             return None
-        if self.die_size_mm2 == 0:
+        # Treat non-positive values as invalid: a real chip has die_size > 0
+        # and transistors > 0. Guard so a malformed PhysicalSpec doesn't
+        # produce a nonsensical negative density.
+        if self.die_size_mm2 <= 0 or self.transistors_billion <= 0:
             return None
         return (self.transistors_billion * 1000.0) / self.die_size_mm2
 
