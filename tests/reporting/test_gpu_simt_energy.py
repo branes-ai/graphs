@@ -32,7 +32,10 @@ from graphs.reporting.gpu_simt_energy import (
 
 
 _ALL_OPS = list(OpKind)
-_ALL_PRECS = list(Precision)
+# gpu_simt_energy is built on baseline_alu_energy, which only models
+# FP32 / FP16 / INT8. Precision is now the canonical 14-member enum,
+# so enumerate the supported subset explicitly. Issue #59.
+_ALL_PRECS = [Precision.FP32, Precision.FP16, Precision.INT8]
 
 
 class TestPipelineStructure:
