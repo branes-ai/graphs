@@ -9,8 +9,6 @@ Locks in the contract:
 - Invalid profile names return ``None``, not raise
 """
 
-import pytest
-
 from graphs.hardware.mappers import (
     get_mapper_by_name,
     list_all_mappers,
