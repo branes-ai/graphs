@@ -419,17 +419,6 @@ def generate_text_report(
     verbose: bool = False,
 ) -> None:
     """Human-readable text report. Wide table, segmented by category."""
-    table_width = 165
-    print("=" * table_width)
-    print("HARDWARE RESOURCES SPEC SHEET")
-    print("=" * table_width)
-    print()
-    print(f"Total products: {len(records)}")
-    populated = sum(1 for r in records if r.die_size_mm2 is not None)
-    print(f"PhysicalSpec coverage: {populated}/{len(records)} populated, "
-          f"{len(records) - populated} N/A")
-    print()
-
     by_category: Dict[str, List[HardwareResourceInfo]] = {}
     for r in records:
         by_category.setdefault(r.category, []).append(r)
@@ -449,6 +438,19 @@ def generate_text_report(
         f"{'INT8 TOPS':>11}"
         f"{'Launched':>13}"
     )
+    # Compute separator width from the header itself so the equals/dash
+    # lines exactly span the data columns. Robust to future column edits
+    # without manually re-summing the format widths.
+    table_width = len(header)
+    print("=" * table_width)
+    print("HARDWARE RESOURCES SPEC SHEET")
+    print("=" * table_width)
+    print()
+    print(f"Total products: {len(records)}")
+    populated = sum(1 for r in records if r.die_size_mm2 is not None)
+    print(f"PhysicalSpec coverage: {populated}/{len(records)} populated, "
+          f"{len(records) - populated} N/A")
+    print()
 
     for category in sorted(by_category.keys()):
         cat_records = by_category[category]
