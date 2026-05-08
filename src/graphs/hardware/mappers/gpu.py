@@ -1143,7 +1143,7 @@ def _orin_soc_physical_spec(
     Chip-level fields (die / transistors / process / architecture) are
     identical across AGX / NX / Nano (same GA10B die). Memory type is
     LPDDR5 across the family but the BUS WIDTH differs per SKU
-    (AGX=256-bit, NX=128-bit, Nano=64-bit) -- callers pass that in,
+    (AGX=256-bit, NX=128-bit, Nano=128-bit) -- callers pass that in,
     along with module-level launch info and the source citation.
     """
     from ..physical_spec import PhysicalSpec
@@ -1199,7 +1199,7 @@ def create_jetson_orin_agx_64gb_mapper(
         resource_model, thermal_profile=thermal_profile, calibration=calibration
     )
     mapper.physical_spec = _orin_soc_physical_spec(
-        memory_bus_width_bits=256,  # 256-bit LPDDR5 (per embodied-schemas orin_gpu_64gb_lpddr5.yaml)
+        memory_bus_width_bits=256, # 256-bit LPDDR5 (per embodied-schemas orin_gpu_64gb_lpddr5.yaml)
         launch_date="2022-11-08",  # GTC Fall 2022 production launch (64GB module)
         launch_msrp_usd=1999.0,    # production module price
         source="NVIDIA Jetson AGX Orin Series Technical Brief (2022); 17B transistors / Samsung 8N",
