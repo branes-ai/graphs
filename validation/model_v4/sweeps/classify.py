@@ -305,12 +305,23 @@ def classify_regime(
         # validatable; surface it so sweep generation can prune it.
         return Regime.UNSUPPORTED
 
-    # Launch-bound check first: if predicted ideal compute time is small
-    # relative to the launch overhead, the shape can only validate the
-    # launch-overhead constant, not any roofline layer. Use peak FLOPS as
-    # the optimistic compute-time floor.
+    # Launch-bound check first: a shape is launch-bound only when BOTH
+    # the compute floor AND the memory floor are dominated by launch
+    # overhead. The roofline floor is ``max(compute_time, memory_time)``;
+    # if that maximum still doesn't exceed 5x launch overhead, no
+    # roofline layer is being validated. Using ONLY ideal_compute_time
+    # mis-labels memory-bound ops (vector_add at large N) as launch_bound
+    # because their compute work is tiny even when memory dominates the
+    # actual latency. Example pre-fix: jetson_orin_nano_8gb fp16
+    # vector_add at N=16M had ideal_compute=12us (LAUNCH_BOUND) but
+    # ideal_memory=980us (clearly DRAM_BOUND).
     ideal_compute_time_s = fp.flops / cap.peak_flops if cap.peak_flops > 0 else math.inf
-    if ideal_compute_time_s < launch_overhead_s * LAUNCH_BOUND_MULTIPLIER:
+    ideal_memory_time_s = (
+        fp.working_set_bytes / cap.peak_dram_bandwidth_bps
+        if cap.peak_dram_bandwidth_bps > 0 else math.inf
+    )
+    ideal_floor_s = max(ideal_compute_time_s, ideal_memory_time_s)
+    if ideal_floor_s < launch_overhead_s * LAUNCH_BOUND_MULTIPLIER:
         return Regime.LAUNCH_BOUND
 
     # Capacity-based bucketing.

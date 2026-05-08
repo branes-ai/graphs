@@ -80,6 +80,10 @@ SWEEP_HW_TO_MAPPER: dict[str, str] = {
     "jetson_orin_nano_8gb": "Jetson-Orin-Nano-8GB",
     "jetson_orin_agx_64gb": "Jetson-Orin-AGX-64GB",
     "jetson_orin_nx_16gb": "Jetson-Orin-NX-16GB",
+    # Predictions-only targets (no V4 baseline -- the visualizer's
+    # --predictions-only flag is what enables these in the
+    # visualize_baseline plot path).
+    "kpu_t64": "Stillwater-KPU-T64",
 }
 
 
