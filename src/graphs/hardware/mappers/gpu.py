@@ -1231,7 +1231,12 @@ def create_jetson_orin_nano_8gb_mapper(
         calibration=calibration,
     )
     mapper.physical_spec = _orin_soc_physical_spec(
-        memory_bus_width_bits=64,   # 64-bit LPDDR5 -- narrowest bus in the Orin family (per embodied-schemas orin_nano_gpu_8gb_lpddr5.yaml)
+        memory_bus_width_bits=128,  # 128-bit LPDDR5. Verified via the NVIDIA spec
+                                    # bandwidth math: 68 GB/s / 4.267 GT/s = 128 bits.
+                                    # The embodied-schemas YAML (orin_nano_gpu_8gb_lpddr5.yaml)
+                                    # incorrectly lists 64 -- inconsistent with the
+                                    # 68 GB/s spec it also lists. See branes-ai/embodied-schemas
+                                    # follow-up issue.
         launch_date="2023-03-22",  # GTC 2023 announcement
         launch_msrp_usd=499.0,     # developer kit launch price; production module $199 later
         source="NVIDIA GTC 2023 Orin Nano dev kit launch; same GA10B die as AGX",
@@ -1314,7 +1319,14 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
         is_chiplet=False,
         package_type="monolithic",
         memory_type="lpddr5x",
-        memory_bus_width_bits=512,  # 512-bit LPDDR5X (per embodied-schemas thor_gpu_128gb_lpddr5x.yaml)
+        memory_bus_width_bits=256,  # 256-bit LPDDR5X. Confirmed by NVIDIA's
+                                    # Jetson Thor announcement blog ("256-bit LPDDR5X,
+                                    # 273 GB/s"). Bandwidth math also confirms:
+                                    # 273 GB/s / 8.533 GT/s = 256 bits.
+                                    # The embodied-schemas YAML (thor_gpu_128gb_lpddr5x.yaml)
+                                    # incorrectly lists 512 -- inconsistent with the
+                                    # 273 GB/s spec it also lists. See branes-ai/embodied-schemas
+                                    # follow-up issue.
         launch_date="2025-08-25",   # general availability per NVIDIA newsroom
         launch_msrp_usd=2999.0,     # T5000 production module price
         source="NVIDIA Jetson Thor T5000 launch (2025-08-25); die size / transistors not publicly disclosed",

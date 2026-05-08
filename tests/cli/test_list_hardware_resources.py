@@ -577,9 +577,11 @@ class TestPhase3MemoryColumn:
         assert h100["memory_bus_width_bits"] == 5120
 
     def test_json_orin_family_bus_widths_lock_in_per_sku(self, tmp_path):
-        # Spec invariant: AGX=256, NX=128, Nano=64 bits. Locks the
-        # surprise discovery (Nano is NOT 128-bit despite shipping in
-        # the same Orin family as AGX/NX).
+        # Spec invariant: AGX=256, NX=128, Nano=128 bits. Verified via
+        # bandwidth math against NVIDIA's published BW figures
+        # (BW / DRAM-rate = bus_width). NX and Nano share the same
+        # 128-bit width but differ in sustained DRAM rate, which is
+        # what gives them different headline bandwidths.
         out = tmp_path / "spec.json"
         _run(output_path=out)
         data = json.loads(out.read_text())
@@ -588,7 +590,7 @@ class TestPhase3MemoryColumn:
         nano = next(p for p in data["products"] if p["name"] == "Jetson-Orin-Nano-8GB")
         assert agx["memory_bus_width_bits"] == 256
         assert nx["memory_bus_width_bits"] == 128
-        assert nano["memory_bus_width_bits"] == 64
+        assert nano["memory_bus_width_bits"] == 128
         # All three are LPDDR5; Thor switches to LPDDR5X.
         assert agx["memory_type"] == "lpddr5"
         assert nx["memory_type"] == "lpddr5"
