@@ -1112,6 +1112,52 @@ def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
     return GPUMapper(t4_pcie_16gb_resource_model(), thermal_profile=thermal_profile)
 
 
+# ---------------------------------------------------------------------------
+# Jetson Orin SoC family (Nano / NX / AGX)
+# ---------------------------------------------------------------------------
+# All three Orin modules share the SAME silicon -- the GA10B (T234) die. Module
+# differentiation is by bin (active CUDA cores / CPU cores) and power
+# envelope, not by die. Chip-level fields (die_size, transistors, process
+# node, foundry, architecture) are identical; only module-level fields
+# (launch_date, launch_msrp_usd, source citation) vary per SKU.
+#
+# Die data sources:
+#   Transistors: 17B  -- NVIDIA's official figure (DRIVE Orin Hot Chips
+#                        announcement, also cited on Wikipedia/Tegra page).
+#   Die size: 455 mm^2 (commonly cited; ~448 mm^2 per third-party die-shot
+#             measurement -- NVIDIA has not officially disclosed an exact
+#             figure, so this is approximate).
+#   Process: Samsung 8N (8LPP derivative), same node as GeForce RTX 30-series.
+
+def _orin_soc_physical_spec(
+    *,
+    launch_date: str,
+    launch_msrp_usd: float,
+    source: str,
+) -> "PhysicalSpec":
+    """Build a PhysicalSpec for one Orin module SKU.
+
+    Chip-level fields are identical across AGX / NX / Nano (same GA10B die);
+    callers customize the module-level fields (launch info + source citation).
+    """
+    from ..physical_spec import PhysicalSpec
+
+    return PhysicalSpec(
+        die_size_mm2=455.0,
+        transistors_billion=17.0,
+        process_node_nm=8,
+        process_node_name="Samsung 8N",
+        foundry="samsung",
+        architecture="Ampere",
+        num_dies=1,
+        is_chiplet=False,
+        package_type="monolithic",
+        launch_date=launch_date,
+        launch_msrp_usd=launch_msrp_usd,
+        source=source,
+    )
+
+
 def create_jetson_orin_agx_64gb_mapper(
     thermal_profile: str = None, calibration=None
 ) -> GPUMapper:
@@ -1141,9 +1187,15 @@ def create_jetson_orin_agx_64gb_mapper(
         tech_profile=EDGE_8NM_LPDDR5
     )
 
-    return GPUMapper(
+    mapper = GPUMapper(
         resource_model, thermal_profile=thermal_profile, calibration=calibration
     )
+    mapper.physical_spec = _orin_soc_physical_spec(
+        launch_date="2022-11-08",  # GTC Fall 2022 production launch (64GB module)
+        launch_msrp_usd=1999.0,    # production module price
+        source="NVIDIA Jetson AGX Orin Series Technical Brief (2022); 17B transistors / Samsung 8N",
+    )
+    return mapper
 
 
 def create_jetson_orin_nano_8gb_mapper(
@@ -1164,11 +1216,17 @@ def create_jetson_orin_nano_8gb_mapper(
     """
     from ..models.edge.jetson_orin_nano_8gb import jetson_orin_nano_8gb_resource_model
 
-    return GPUMapper(
+    mapper = GPUMapper(
         jetson_orin_nano_8gb_resource_model(),
         thermal_profile=thermal_profile,
         calibration=calibration,
     )
+    mapper.physical_spec = _orin_soc_physical_spec(
+        launch_date="2023-03-22",  # GTC 2023 announcement
+        launch_msrp_usd=499.0,     # developer kit launch price; production module $199 later
+        source="NVIDIA GTC 2023 Orin Nano dev kit launch; same GA10B die as AGX",
+    )
+    return mapper
 
 
 def create_jetson_orin_nx_16gb_mapper(
@@ -1198,11 +1256,17 @@ def create_jetson_orin_nx_16gb_mapper(
     """
     from ..models.edge.jetson_orin_nx_16gb import jetson_orin_nx_16gb_resource_model
 
-    return GPUMapper(
+    mapper = GPUMapper(
         jetson_orin_nx_16gb_resource_model(),
         thermal_profile=thermal_profile,
         calibration=calibration,
     )
+    mapper.physical_spec = _orin_soc_physical_spec(
+        launch_date="2023-01-04",  # general availability Q1 2023
+        launch_msrp_usd=899.0,     # production module price
+        source="NVIDIA Jetson Orin NX series launch (2023-01); same GA10B die as AGX",
+    )
+    return mapper
 
 
 def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
@@ -1219,10 +1283,30 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for Jetson Thor 128GB
     """
     from ..models.automotive.jetson_thor_128gb import jetson_thor_128gb_resource_model
+    from ..physical_spec import PhysicalSpec
 
-    return GPUMapper(
+    mapper = GPUMapper(
         jetson_thor_128gb_resource_model(), thermal_profile=thermal_profile
     )
+    # Thor T5000 (T264). NVIDIA has not publicly disclosed die size or
+    # transistor count, so those fields stay None. Process node is TSMC 4nm
+    # (consistent with consumer Blackwell on TSMC 4N; Thor is the embedded
+    # Blackwell variant).
+    mapper.physical_spec = PhysicalSpec(
+        die_size_mm2=None,
+        transistors_billion=None,
+        process_node_nm=4,
+        process_node_name="TSMC 4N",
+        foundry="tsmc",
+        architecture="Blackwell",
+        num_dies=1,
+        is_chiplet=False,
+        package_type="monolithic",
+        launch_date="2025-08-25",   # general availability per NVIDIA newsroom
+        launch_msrp_usd=2999.0,     # T5000 production module price
+        source="NVIDIA Jetson Thor T5000 launch (2025-08-25); die size / transistors not publicly disclosed",
+    )
+    return mapper
 
 
 # ============================================================================

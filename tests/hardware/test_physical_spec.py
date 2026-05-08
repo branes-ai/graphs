@@ -4,6 +4,10 @@ from graphs.hardware.physical_spec import PhysicalSpec
 from graphs.hardware.mappers.gpu import (
     create_h100_sxm5_80gb_mapper,
     create_a100_sxm4_80gb_mapper,
+    create_jetson_orin_agx_64gb_mapper,
+    create_jetson_orin_nano_8gb_mapper,
+    create_jetson_orin_nx_16gb_mapper,
+    create_jetson_thor_128gb_mapper,
 )
 
 
@@ -99,3 +103,70 @@ class TestMapperPhysicalSpecIntegration:
         assert a100.resource_model is not None
         assert h100.resource_model.compute_units == 132
         assert a100.resource_model.compute_units == 108
+
+
+class TestJetsonPhysicalSpecs:
+    """Verify the four Jetson SKUs are populated. Orin AGX/NX/Nano share the
+    GA10B die so chip-level fields (die_size, transistors, process) match
+    across all three; only module-level fields (launch info) differ. Thor is
+    a separate generation -- die details not publicly disclosed yet."""
+
+    def test_orin_agx_chip_fields(self):
+        spec = create_jetson_orin_agx_64gb_mapper().physical_spec
+        assert spec is not None
+        assert spec.die_size_mm2 == 455.0
+        assert spec.transistors_billion == 17.0
+        assert spec.process_node_nm == 8
+        assert spec.foundry == "samsung"
+        assert spec.architecture == "Ampere"
+        assert spec.launch_date == "2022-11-08"
+        assert spec.launch_msrp_usd == 1999.0
+
+    def test_orin_nx_chip_fields_match_agx(self):
+        # NX uses the same GA10B die as AGX -- chip-level fields identical
+        agx = create_jetson_orin_agx_64gb_mapper().physical_spec
+        nx = create_jetson_orin_nx_16gb_mapper().physical_spec
+        assert nx.die_size_mm2 == agx.die_size_mm2
+        assert nx.transistors_billion == agx.transistors_billion
+        assert nx.process_node_nm == agx.process_node_nm
+        assert nx.foundry == agx.foundry
+        # But module-level fields differ
+        assert nx.launch_date != agx.launch_date
+        assert nx.launch_msrp_usd != agx.launch_msrp_usd
+
+    def test_orin_nano_chip_fields_match_agx(self):
+        agx = create_jetson_orin_agx_64gb_mapper().physical_spec
+        nano = create_jetson_orin_nano_8gb_mapper().physical_spec
+        assert nano.die_size_mm2 == agx.die_size_mm2
+        assert nano.transistors_billion == agx.transistors_billion
+        assert nano.process_node_nm == agx.process_node_nm
+        # Module-level
+        assert nano.launch_date == "2023-03-22"
+        assert nano.launch_msrp_usd == 499.0
+
+    def test_thor_partial_population(self):
+        # Thor's die size and transistor count are not publicly disclosed,
+        # so they remain None. The rest of the chip-level fields plus
+        # module info are populated.
+        spec = create_jetson_thor_128gb_mapper().physical_spec
+        assert spec is not None
+        assert spec.die_size_mm2 is None
+        assert spec.transistors_billion is None
+        assert spec.transistor_density_mtx_mm2 is None  # depends on die + transistors
+        assert spec.process_node_nm == 4
+        assert spec.foundry == "tsmc"
+        assert spec.architecture == "Blackwell"
+        assert spec.launch_date == "2025-08-25"
+        assert spec.launch_msrp_usd == 2999.0
+
+    def test_orin_density_is_consistent_across_skus(self):
+        # All three Orin variants are the same die -> identical density.
+        agx = create_jetson_orin_agx_64gb_mapper().physical_spec
+        nx = create_jetson_orin_nx_16gb_mapper().physical_spec
+        nano = create_jetson_orin_nano_8gb_mapper().physical_spec
+        d_agx = agx.transistor_density_mtx_mm2
+        assert d_agx is not None
+        # 17B / 455 mm^2 = ~37.4 Mtx/mm^2 (Samsung 8nm density floor)
+        assert abs(d_agx - 37.4) < 0.5
+        assert nx.transistor_density_mtx_mm2 == d_agx
+        assert nano.transistor_density_mtx_mm2 == d_agx
