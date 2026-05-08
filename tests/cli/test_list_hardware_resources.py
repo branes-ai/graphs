@@ -238,18 +238,48 @@ class TestSorting:
         data = json.loads(out.read_text())
         return [p["name"] for p in data["products"]]
 
-    def test_sort_die_size_reverse_puts_populated_first(self, tmp_path):
-        names = self._names_for_sort(tmp_path, "--category", "gpu", "--sort", "die_size", "--reverse")
-        # H100 SXM5 is the only populated GPU; it should appear FIRST under
-        # --sort die_size --reverse, not last (regression guard for the
-        # missing-value placement bug).
-        assert names[0] == "H100-SXM5-80GB"
+    def _records_for_sort(self, tmp_path, *args):
+        out = tmp_path / "spec.json"
+        _run(*args, output_path=out)
+        data = json.loads(out.read_text())
+        return data["products"]
 
-    def test_sort_die_size_ascending_still_puts_populated_first(self, tmp_path):
-        # In ascending order, populated values come first too because we
-        # explicitly trail missing values at the end.
-        names = self._names_for_sort(tmp_path, "--category", "gpu", "--sort", "die_size")
-        assert names[0] == "H100-SXM5-80GB"
+    def test_sort_die_size_reverse_populated_rows_precede_missing(self, tmp_path):
+        # The contract: missing-value rows always trail, regardless of
+        # sort direction. This is the regression guard for the original
+        # missing-value-placement bug (PR #134) -- with the naive
+        # `key=(missing, value), reverse=True` approach, missing rows
+        # would flip to the FRONT under --reverse.
+        records = self._records_for_sort(
+            tmp_path, "--category", "gpu", "--sort", "die_size", "--reverse"
+        )
+        die_sizes = [r["die_size_mm2"] for r in records]
+        # Non-None dies first, then Nones.
+        last_populated = next(
+            (i for i, d in enumerate(die_sizes) if d is None), len(die_sizes)
+        )
+        assert all(d is not None for d in die_sizes[:last_populated])
+        assert all(d is None for d in die_sizes[last_populated:])
+        # Populated rows are sorted descending.
+        populated = die_sizes[:last_populated]
+        assert populated == sorted(populated, reverse=True)
+        # And H100 (largest die at 814 mm^2) should come first among GPUs.
+        assert records[0]["name"] == "H100-SXM5-80GB"
+
+    def test_sort_die_size_ascending_populated_rows_precede_missing(self, tmp_path):
+        # Same contract as above for ascending order: populated rows first,
+        # then missing. Populated rows sorted ascending.
+        records = self._records_for_sort(
+            tmp_path, "--category", "gpu", "--sort", "die_size"
+        )
+        die_sizes = [r["die_size_mm2"] for r in records]
+        last_populated = next(
+            (i for i, d in enumerate(die_sizes) if d is None), len(die_sizes)
+        )
+        assert all(d is not None for d in die_sizes[:last_populated])
+        assert all(d is None for d in die_sizes[last_populated:])
+        populated = die_sizes[:last_populated]
+        assert populated == sorted(populated)
 
     def test_sort_name_default_is_alphabetical(self, tmp_path):
         names = self._names_for_sort(tmp_path, "--category", "gpu")

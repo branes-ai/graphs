@@ -272,6 +272,68 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
     )
 
     # ========================================================================
+    # 25W MODE: Orin Nano Super at fixed 25W cap (production deployment)
+    # ========================================================================
+    # The Super refresh (Dec 2024) raised the chip's power budget to 25W.
+    # The "25W" mode is an explicit fixed-cap deployment config -- DVFS
+    # allowed within the 25W envelope so the chip can scale down for
+    # power-aware workloads while still being thermally provisioned for
+    # full Super performance. This is the recommended production mode for
+    # devices that have active cooling but want predictable power
+    # accounting. Compare to MAXN below, which locks DVFS off and runs at
+    # boost regardless of headroom.
+    #
+    # Performance characteristics match MAXN at peak workloads (cuBLAS pegs
+    # at boost in both); the operational difference is in idle / mixed
+    # workloads where 25W mode allows DVFS to drop clocks for power saving.
+    clock_25w = ClockDomain(
+        base_clock_hz=306e6,
+        max_boost_clock_hz=1020e6,
+        sustained_clock_hz=1020e6,  # Same boost ceiling as MAXN
+        dvfs_enabled=True,           # KEY DIFFERENCE vs MAXN: DVFS allowed
+    )
+
+    compute_resource_25w = ComputeResource(
+        resource_type="Ampere-SM-TensorCore",
+        num_units=num_sms,
+        ops_per_unit_per_clock={
+            Precision.INT8: int8_ops_per_sm_per_clock,
+            Precision.FP16: fp16_ops_per_sm_per_clock,
+            Precision.FP32: fp32_ops_per_sm_per_clock,
+        },
+        clock_domain=clock_25w,
+    )
+
+    thermal_25w = ThermalOperatingPoint(
+        name="25W-Super",
+        tdp_watts=25.0,
+        cooling_solution="active-fan",
+        performance_specs={
+            Precision.INT8: PerformanceCharacteristics(
+                precision=Precision.INT8,
+                compute_resource=compute_resource_25w,
+                instruction_efficiency=0.95,
+                memory_bottleneck_factor=0.80,
+                efficiency_factor=0.80,
+                native_acceleration=True,
+            ),
+            Precision.FP16: PerformanceCharacteristics(
+                precision=Precision.FP16,
+                compute_resource=compute_resource_25w,
+                # Same calibration as MAXN (cuBLAS pegs at boost).
+                efficiency_factor=0.85,
+                native_acceleration=True,
+            ),
+            Precision.FP32: PerformanceCharacteristics(
+                precision=Precision.FP32,
+                compute_resource=compute_resource_25w,
+                efficiency_factor=0.40,
+                native_acceleration=True,
+            ),
+        },
+    )
+
+    # ========================================================================
     # MAXN MODE: Orin Nano Super (Dec 2024 refresh) at full power
     # ========================================================================
     # Super refresh raised the power budget from 15W to 25W, allowing higher
@@ -363,11 +425,20 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         threads_per_unit=64,
         warps_per_unit=2,
         warp_size=32,
-        # Thermal operating points with DVFS modeling
+        # Thermal operating points with DVFS modeling.
+        # Four canonical modes for Orin Nano Super (Dec 2024+):
+        #   7W   -- battery / drone-payload deployment
+        #   15W  -- standard edge AI baseline (Phase B reference)
+        #   25W  -- production deployment with explicit 25W cap (DVFS on)
+        #   MAXN -- developer/burst mode, locked at boost (DVFS off)
+        # 25W and MAXN share the same TDP cap (the silicon's max envelope on
+        # Super) but differ in DVFS behavior: 25W scales down on idle for
+        # power-aware deployments, MAXN locks at boost regardless.
         thermal_operating_points={
-            "7W": thermal_7w,  # Battery-powered devices
+            "7W": thermal_7w,    # Battery-powered devices
             "15W": thermal_15w,  # Orin Nano Super 15W (Phase B baseline)
-            "MAXN": thermal_maxn,  # Orin Nano Super at full 25W power
+            "25W": thermal_25w,  # Production 25W cap with DVFS (#136)
+            "MAXN": thermal_maxn,  # Orin Nano Super at full 25W power, DVFS off
         },
         # 15W is the default because the V4 Phase B baseline (#90) was
         # captured in the 15W thermal profile. Operators running at
