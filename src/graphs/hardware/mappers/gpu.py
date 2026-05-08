@@ -899,6 +899,7 @@ def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     from ..models.datacenter.h100_sxm5_80gb import h100_sxm5_80gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
     from ..technology_profile import DATACENTER_4NM_HBM3
+    from ..physical_spec import PhysicalSpec
 
     # Create resource model
     resource_model = h100_sxm5_80gb_resource_model()
@@ -909,7 +910,25 @@ def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
         tech_profile=DATACENTER_4NM_HBM3
     )
 
-    return GPUMapper(resource_model, thermal_profile=thermal_profile)
+    mapper = GPUMapper(resource_model, thermal_profile=thermal_profile)
+
+    # Source: embodied-schemas/data/gpus/nvidia/h100_sxm5_80gb_hbm3.yaml
+    mapper.physical_spec = PhysicalSpec(
+        die_size_mm2=814.0,
+        transistors_billion=80.0,
+        process_node_nm=4,
+        process_node_name="TSMC N4",
+        foundry="tsmc",
+        architecture="Hopper",
+        num_dies=1,
+        is_chiplet=False,
+        package_type="monolithic",
+        launch_date="2022-09-20",
+        launch_msrp_usd=30000.0,
+        source="embodied-schemas:gpus/nvidia/h100_sxm5_80gb_hbm3.yaml",
+    )
+
+    return mapper
 
 
 def create_b100_sxm6_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
