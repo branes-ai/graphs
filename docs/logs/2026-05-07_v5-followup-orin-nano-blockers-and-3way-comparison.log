@@ -1,0 +1,189 @@
+# Session log: V5 follow-up -- Orin Nano blockers + 3-way comparison + operator plan
+# Date: 2026-05-07
+# AI: claude-opus-4-7
+
+## Goal
+
+Continue the V5 follow-up arc started by PR #115 (Orin Nano calibration analysis).
+Close the three Categories of model gaps that prevent V4 PASS from rising on
+Jetson Orin Nano matmul / linear, then provide cross-architecture comparison
+tooling so the embodied AI architect can reason about CPU vs GPU vs KPU at
+the same resolution as i7 vs Orin Nano.
+
+## What was done
+
+### PR #117: aspect-ratio-based skinny matmul detection
+
+Closes Category 2 from #115. Original `_SKINNY_THRESHOLD = 16` only caught
+shapes with `min(M, N) < 16`. Jetson failures had `min` in 64-256 range with
+aspect ratios 100+. New `_SKINNY_ASPECT_RATIO = 32` catches `max/min >= 32`.
+Per-AR-bucket MAE on Jetson matmul: 32 < AR <= 64 -5%, 64 < AR <= 128 -13%,
+AR > 128 -62%. V4 PASS unchanged because regime classifier is the dominant
+blocker for these shapes; the change is a memory-physics correction.
+
+### PR #118: per-mapper compute efficiency override
+
+Closes Category 3. The shared `_get_compute_efficiency_scale` was tuned for
+AGX-style spec peaks and returned scale ~1.5 for large matmul. Orin Nano's
+`peak_ops_per_sec` is already the achievable peak (cuBLAS efficiency 0.85
+baked in), so multiplying by 1.5 over-predicted compute by 2.4x. New
+`compute_efficiency_overrides_by_op` dict on `HardwareResourceModel` lets
+mappers supply calibrated scalars; analyzer's `_get_compute_efficiency_override`
+checks first and falls through to legacy curve. Calibrated for Jetson Orin
+Nano FP16: matmul 0.70, linear 0.94. Latency-pass gains: matmul +8, linear
++7-12 (depending on memory path).
+
+Linear scale 0.94 (not 0.85, which would maximize tier-aware lat-pass) was
+constrained by the legacy-path energy floor: predicted latency growth inflates
+predicted `static_energy = avg_power * latency`, regressing the energy band.
+
+### PR #119: measurement-priority sweep regime augmenter
+
+Closes the regime-classification blocker. Sweep file's analytical regime labels
+disagreed with measured regime on 44/48 Jetson matmul, 45/46 linear -- because
+WS-bucketing classifier called these `DRAM_BOUND` while cuBLAS Tensor Cores
+saturated compute (measurement said `ALU_BOUND`). New script
+`_augment_from_baseline.py` rewrites sweep labels from `infer_regime_measured`
+output for any (hw, op) with a baseline CSV. Two safety rails: AMBIGUOUS
+measurements keep analytical labels (runner skips AMBIGUOUS records);
+hardware without baselines is untouched. Net V4 PASS gain: +20 (tier-aware
+path), +15 (legacy path).
+
+Side effects required:
+- `test_recorded_regime_labels_still_match_classifier` now skips augmented
+  HWs (the analytical-vs-recorded check is moot once recorded is
+  measurement-priority).
+- `test_coverage_floor` skips L2_BOUND for augmented HWs because
+  `infer_regime_measured` cannot positively classify L2_BOUND (v4-1
+  limitation). i7 linear L2_BOUND coverage dropped 6/20 -> 2/7 after
+  augmentation.
+- Per-regime tolerance bands tighten when records move DRAM (30%) -> ALU
+  (15%); two energy floors lowered with documentation explaining the
+  artifact.
+
+### PR #120: 3-way hardware comparison + visualizer fixes
+
+Four deliverables:
+1. Regenerated i7 + Orin Nano plots with V5 analyzer (predicted markers were
+   stale by 30%-2x).
+2. `--predictions-only` mode for `visualize_baseline.py` so HW without
+   baselines (KPU T64, AGX, NX, H100) can render.
+3. KPU T64 standalone plot at fp16.
+4. `compare_hardware.py` -- new CLI with 3-panel comparison (roofline /
+   latency / energy) overlaying multiple HW on shared shape pool, each in
+   native precision.
+
+Mid-PR fixes triggered by user feedback "the plots do not show vector_add
+results: they should all be clearly memory bound":
+- Added vector_add to visualizer op-iteration loops (was matmul + linear)
+- Square marker for vector_add
+- Single-int CSV shape parser for vector_add's `"1024"` format
+- `_predict_latency_s` tuple-unpack (V5-3b drift; was returning bare float)
+- `tier_aware_memory=True` matches V5-3b production default
+- Sweep classifier launch-bound bug: was using `flops/peak_flops < 5*launch`
+  (compute-time-only); fixed to `max(compute_time, memory_time) < 5*launch`
+  -- the actual roofline floor. 6 Jetson vector_add shapes correctly flipped
+  from `launch_bound` to `dram_bound`.
+
+Headline numbers from the comparison:
+- KPU T64 fp16: 33.20 TFLOPS / 64 GB/s = AI breakpoint 519 (vs 13 for Orin)
+- For typical matmul (OI 100-500): KPU still DRAM-bound but 3-8x faster
+  than Orin Nano on cube shapes (1024^3 -> 8.5x; 4096^3 -> 4.4x; 2048^3 -> 3.4x)
+- For BW-bound skinny shapes: only 1.2x faster (BW-limited)
+- Energy: KPU 2-2.5x lower per inference for compute-heavy AND memory-heavy
+  shapes (lower TDP)
+
+CodeRabbit review on #120 surfaced 5 issues: matplotlib hard-fails CI (test
+not gated; rendering function not wrapped), unused imports, redundant
+`pred_lat > 0` check. All addressed in a follow-up commit.
+
+### Issues filed
+
+- #121 (bug): KPU energy model -- 1175 W avg power for sub-ms vector_add.
+  Reproducer + root-cause hypothesis (energy/latency division at sub-ms).
+- #122 (enhancement): KPU scaling study -- 4-way T64/T128/T256/T768
+  comparison. Depends on #121 for the energy panel to be meaningful.
+
+### PR #128: operator validation expansion plan
+
+5-phase plan covering activations + SFU modeling (Phase 1), element-wise
+matrix (Phase 2), softmax with composite-op infrastructure (Phase 3),
+LayerNorm + RMSNorm (Phase 4), attention head as decomposed graph
+(Phase 5). Total scope ~3-6 weeks.
+
+Phase 5 framing per user direction: attention head IS a computational graph
+of operators we already model -- linear / matmul / element-wise scale /
+softmax. Decomposition-first, no fusion. Justified because the
+compiler/runtime layer is still under development; PyTorch eager attention
+IS the unfused decomposition; when fused kernels do land, measured-fused
+vs predicted-unfused = the fusion uplift, an architecturally meaningful
+prioritization signal for compiler/runtime work.
+
+5 GitHub issues filed for tracking: #123-#127 (one per phase) with explicit
+dependencies (Phase 4 / 5 block on Phase 3's composite-op infrastructure).
+
+## Key decisions
+
+1. **PR #117 ships even though V4 PASS doesn't move.** Memory-physics
+   correctness still matters for downstream consumers; latency precision
+   gains will translate to PASS gains when the regime classifier is also
+   fixed.
+2. **PR #118 linear scale = 0.94 not 0.85.** Pareto choice constrained by
+   the legacy-path energy floor; tier-aware path can use 0.85 once
+   `RunnerConfig` defaults are updated to match V5-3b production.
+3. **PR #119 measurement-priority over analytical-classifier improvement.**
+   Tried OI-aware analytical classifier first -- caused i7 V4 PASS to
+   regress 17 -> 5 because tighter ALU_BOUND tolerance (10% vs 25%
+   DRAM_BOUND) failed records that previously passed. Measurement-priority
+   only relabels concrete-measurement shapes, leaves AMBIGUOUS untouched.
+4. **PR #120 KPU T64 uses fp16 not bf16 for default comparison.** KPU's
+   bf16 fabric also delivers fp16 at 33 TFLOPS, so fp16 gives apples-to-
+   apples comparison with Orin Nano. `--dtype-for kpu_t64=bf16` available
+   for explicit bf16 runs.
+5. **Phase 5 (attention head) framed as decomposition-first.** Realistic
+   first-order baseline matching PyTorch eager; quantifies the fusion gap
+   when fused kernels land.
+
+## Files modified (high-level)
+
+src/graphs/estimation/reuse_models.py             (PR #117)
+src/graphs/estimation/roofline.py                  (PR #118)
+src/graphs/hardware/resource_model.py              (PR #118)
+src/graphs/hardware/models/edge/jetson_orin_nano_8gb.py (PR #118)
+validation/model_v4/sweeps/_augment_from_baseline.py (PR #119, new)
+validation/model_v4/sweeps/classify.py              (PR #120)
+validation/model_v4/sweeps/*.json                   (re-augmented twice)
+validation/model_v4/cli/visualize_baseline.py       (PR #120)
+validation/model_v4/cli/compare_hardware.py         (PR #120, new)
+validation/model_v4/harness/runner.py               (PR #120, KPU T64 added)
+validation/model_v4/results/plots/*                 (PR #120, regenerated)
+tests/analysis/test_*.py                            (#117, #118)
+tests/validation_model_v4/test_*.py                 (#119, #120)
+docs/v5/skinny-matmul-aspect-ratio-detection.md     (PR #117, new)
+docs/v5/jetson-compute-efficiency-derate.md         (PR #118, new)
+docs/v5/sweep-measurement-priority-augmentation.md  (PR #119, new)
+docs/v5/three-way-hardware-comparison.md            (PR #120, new)
+docs/v5/operator-validation-expansion-plan.md       (PR #128, new)
+docs/calibration/jetson-orin-nano-calibration-analysis.md (cross-link updates)
+
+## Tests run
+
+Full suite (`python -m pytest tests/ -q`): 2103 passed, 15 skipped, 5 xfailed
+End-of-session V4 PASS scorecard:
+  i7 matmul:        17/60   (unchanged)
+  i7 linear:        30/60   (+5)
+  i7 vector_add:     4/5    (+1)
+  jetson matmul:    10/48   (was 0)
+  jetson linear:     4/46   (was 0)
+  jetson vector_add: 0/7    (unchanged; AMBIGUOUS-dominated)
+  TOTAL:            65 / 226 (was 45)
+
+## Open work tracked in issues
+
+#121 -- KPU energy model bug (sub-ms vector_add 1175W)
+#122 -- KPU scaling study (4-way T64/T128/T256/T768) -- depends on #121
+#123 -- Phase 1: activations + SFU modeling
+#124 -- Phase 2: matrix_add + transposed
+#125 -- Phase 3: softmax + composite-op infrastructure
+#126 -- Phase 4: LayerNorm + RMSNorm -- depends on #125
+#127 -- Phase 5: attention head decomposed graph -- depends on #125
