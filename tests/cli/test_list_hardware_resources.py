@@ -382,3 +382,159 @@ class TestProcessNodeFallback:
         # Find the row for our synthetic record and confirm "7" appears
         synth_line = next(line for line in out.splitlines() if "Synthetic-NMOnly" in line)
         assert " 7 " in synth_line, f"Expected nm=7 in MD row, got: {synth_line!r}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 of #136: --profiles all expansion + Mode/clock columns
+# ---------------------------------------------------------------------------
+
+class TestProfilesExpansion:
+    """`--profiles all` emits one row per (silicon x profile) for chips with
+    multiple thermal_operating_points; chips with a single profile keep their
+    silicon-bin row (no degenerate name@default duplicates)."""
+
+    def test_default_mode_row_count_unchanged(self, tmp_path):
+        # Backward compat: without --profiles, the row count matches the
+        # silicon-bin count (one row per registered mapper).
+        out = tmp_path / "spec.json"
+        _run(output_path=out)
+        data = json.loads(out.read_text())
+        # Pre-Phase 2 baseline was 46 silicon-bins; could grow as new
+        # mappers are added but should never EXCEED list_all_mappers().
+        from graphs.hardware.mappers import list_all_mappers
+        assert data["total_products"] == len(list_all_mappers())
+
+    def test_profiles_all_emits_more_rows(self, tmp_path):
+        # --profiles all expands multi-profile chips into one row per
+        # profile, so the total grows.
+        default_out = tmp_path / "default.json"
+        all_out = tmp_path / "all.json"
+        _run(output_path=default_out)
+        _run("--profiles", "all", output_path=all_out)
+        default_data = json.loads(default_out.read_text())
+        all_data = json.loads(all_out.read_text())
+        assert all_data["total_products"] > default_data["total_products"]
+
+    def test_profiles_all_orin_nano_emits_four_rows(self, tmp_path):
+        # Orin Nano has 4 modes (7W / 15W / 25W / MAXN per #136). Under
+        # --profiles all, the silicon-bin row is replaced by 4 alias rows.
+        out = tmp_path / "spec.json"
+        _run("--profiles", "all", "--category", "gpu", output_path=out)
+        data = json.loads(out.read_text())
+        nano_rows = [
+            p for p in data["products"]
+            if p["name"].startswith("Jetson-Orin-Nano-8GB")
+        ]
+        # 4 alias rows; no bare silicon-bin row in expanded mode.
+        assert len(nano_rows) == 4
+        names = sorted(r["name"] for r in nano_rows)
+        assert names == [
+            "Jetson-Orin-Nano-8GB@15W",
+            "Jetson-Orin-Nano-8GB@25W",
+            "Jetson-Orin-Nano-8GB@7W",
+            "Jetson-Orin-Nano-8GB@MAXN",
+        ]
+
+    def test_profiles_all_per_profile_tdp_distinct(self, tmp_path):
+        # Each Orin Nano alias row should report its OWN TDP, not the
+        # default profile's TDP. Spec invariant: 7W=7W, 15W=15W, 25W=25W,
+        # MAXN=25W (Super silicon's max envelope).
+        out = tmp_path / "spec.json"
+        _run("--profiles", "all", "--category", "gpu", output_path=out)
+        data = json.loads(out.read_text())
+        tdps = {
+            r["mode"]: r["power_tdp"]
+            for r in data["products"]
+            if r["name"].startswith("Jetson-Orin-Nano-8GB@")
+        }
+        assert tdps == {"7W": 7.0, "15W": 15.0, "25W": 25.0, "MAXN": 25.0}
+
+    def test_profiles_all_per_profile_clocks_distinct(self, tmp_path):
+        # 7W mode boosts to 918 MHz; 15W/25W/MAXN boost to 1020 MHz.
+        # Documents the per-profile clock variation that makes Phase 2
+        # worth shipping in the first place.
+        out = tmp_path / "spec.json"
+        _run("--profiles", "all", "--category", "gpu", output_path=out)
+        data = json.loads(out.read_text())
+        boosts = {
+            r["mode"]: r["core_boost_mhz"]
+            for r in data["products"]
+            if r["name"].startswith("Jetson-Orin-Nano-8GB@")
+        }
+        assert boosts["7W"] == 918.0
+        assert boosts["15W"] == 1020.0
+        assert boosts["25W"] == 1020.0
+        assert boosts["MAXN"] == 1020.0
+
+    def test_profiles_all_single_profile_chip_keeps_silicon_name(self, tmp_path):
+        # H100 has a single placeholder thermal_operating_point named
+        # "default". Under --profiles all, this chip should NOT get a
+        # degenerate "H100-SXM5-80GB@default" alias -- the silicon-bin
+        # row is preserved as-is. Avoids visual noise for chips that
+        # don't expose nvpmodel-style modes.
+        out = tmp_path / "spec.json"
+        _run("--profiles", "all", output_path=out)
+        data = json.loads(out.read_text())
+        h100_rows = [p for p in data["products"] if p["name"].startswith("H100-SXM5-80GB")]
+        assert len(h100_rows) == 1
+        assert h100_rows[0]["name"] == "H100-SXM5-80GB"  # bare silicon-bin
+
+    def test_default_mode_populates_clocks_for_jetson(self, tmp_path):
+        # Even in default mode, Jetson chips should populate Base/Boost MHz
+        # from their default thermal profile's ClockDomain. This is the
+        # "even default mode is more informative now" win from Phase 2.
+        out = tmp_path / "spec.json"
+        _run(output_path=out)
+        data = json.loads(out.read_text())
+        nano = next(
+            p for p in data["products"]
+            if p["name"] == "Jetson-Orin-Nano-8GB"
+        )
+        # 15W is the default profile -- clocks are 306 / 1020 MHz.
+        assert nano["mode"] == "15W"
+        assert nano["core_base_mhz"] == 306.0
+        assert nano["core_boost_mhz"] == 1020.0
+
+    def test_default_mode_chips_without_clock_domain_render_none(self, tmp_path):
+        # KPUs use KPUComputeResource which doesn't expose a ClockDomain.
+        # The defensive _clocks_from_profile helper falls back to None.
+        # The CLI renders None as empty (CSV) / N/A (text/markdown), no
+        # crash.
+        out = tmp_path / "spec.json"
+        _run("--profiles", "all", output_path=out)
+        data = json.loads(out.read_text())
+        kpu_rows = [p for p in data["products"] if p["name"].startswith("Stillwater-KPU")]
+        assert len(kpu_rows) > 0
+        for r in kpu_rows:
+            # mode populated (KPU has thermal_operating_points), but
+            # clocks are None for the architecture-specific compute
+            # resource that doesn't expose ClockDomain.
+            assert r["mode"] is not None
+            assert r["core_base_mhz"] is None
+            assert r["core_boost_mhz"] is None
+
+
+class TestPhase2Renderers:
+    """Mode / Base MHz / Boost MHz columns appear in text and markdown
+    output. CSV / JSON pick up the new fields automatically via the
+    dataclass field iteration."""
+
+    def test_text_header_includes_new_columns(self):
+        stdout, _, _ = _run("--category", "gpu")
+        for col in ("Mode", "Base MHz", "Boost MHz"):
+            assert col in stdout, f"text header missing column: {col}"
+
+    def test_markdown_header_includes_new_columns(self, tmp_path):
+        out = tmp_path / "spec.md"
+        _run(output_path=out)
+        body = out.read_text()
+        for col in ("Mode", "Base MHz", "Boost MHz"):
+            assert col in body, f"markdown header missing column: {col}"
+
+    def test_csv_includes_new_field_columns(self, tmp_path):
+        out = tmp_path / "spec.csv"
+        _run(output_path=out)
+        rows = list(csv.reader(out.open()))
+        header = rows[0]
+        for col in ("mode", "core_base_mhz", "core_boost_mhz"):
+            assert col in header, f"csv missing column: {col}"
