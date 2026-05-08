@@ -71,6 +71,22 @@ class PhysicalSpec:
     """Packaging classification: ``monolithic``, ``mcm``, ``chiplet``,
     ``board``, ``system``."""
 
+    # Memory subsystem (silicon-bin / module SKU constants)
+    # These don't change across nvpmodel power profiles -- the DRAM type
+    # and bus width are fixed by the package. The per-profile memory
+    # CLOCK (which Jetson can throttle in low-power modes) is a
+    # ThermalOperatingPoint property and lives separately (Phase 4 of
+    # #136). For source citations, see embodied-schemas YAMLs at
+    # data/gpus/<vendor>/<id>.yaml under the ``memory:`` block.
+    memory_type: Optional[str] = None
+    """DRAM technology, e.g. ``hbm3``, ``hbm3e``, ``lpddr5``, ``lpddr5x``,
+    ``ddr5``, ``gddr6x``. Lowercase to match embodied-schemas convention."""
+
+    memory_bus_width_bits: Optional[int] = None
+    """Memory bus width in bits, e.g. 5120 (H100 HBM3), 256 (Orin AGX
+    LPDDR5), 64 (Orin Nano LPDDR5). Module-level constant -- doesn't
+    change with nvpmodel power mode."""
+
     # Market
     launch_date: Optional[str] = None
     """ISO date string of public launch, e.g. ``2022-09-20``."""

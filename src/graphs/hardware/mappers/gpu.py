@@ -923,6 +923,8 @@ def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
         num_dies=1,
         is_chiplet=False,
         package_type="monolithic",
+        memory_type="hbm3",
+        memory_bus_width_bits=5120,
         launch_date="2022-09-20",
         launch_msrp_usd=30000.0,
         source="embodied-schemas:gpus/nvidia/h100_sxm5_80gb_hbm3.yaml",
@@ -1131,14 +1133,18 @@ def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
 
 def _orin_soc_physical_spec(
     *,
+    memory_bus_width_bits: int,
     launch_date: str,
     launch_msrp_usd: float,
     source: str,
 ) -> "PhysicalSpec":
     """Build a PhysicalSpec for one Orin module SKU.
 
-    Chip-level fields are identical across AGX / NX / Nano (same GA10B die);
-    callers customize the module-level fields (launch info + source citation).
+    Chip-level fields (die / transistors / process / architecture) are
+    identical across AGX / NX / Nano (same GA10B die). Memory type is
+    LPDDR5 across the family but the BUS WIDTH differs per SKU
+    (AGX=256-bit, NX=128-bit, Nano=128-bit) -- callers pass that in,
+    along with module-level launch info and the source citation.
     """
     from ..physical_spec import PhysicalSpec
 
@@ -1152,6 +1158,8 @@ def _orin_soc_physical_spec(
         num_dies=1,
         is_chiplet=False,
         package_type="monolithic",
+        memory_type="lpddr5",
+        memory_bus_width_bits=memory_bus_width_bits,
         launch_date=launch_date,
         launch_msrp_usd=launch_msrp_usd,
         source=source,
@@ -1191,6 +1199,7 @@ def create_jetson_orin_agx_64gb_mapper(
         resource_model, thermal_profile=thermal_profile, calibration=calibration
     )
     mapper.physical_spec = _orin_soc_physical_spec(
+        memory_bus_width_bits=256, # 256-bit LPDDR5 (per embodied-schemas orin_gpu_64gb_lpddr5.yaml)
         launch_date="2022-11-08",  # GTC Fall 2022 production launch (64GB module)
         launch_msrp_usd=1999.0,    # production module price
         source="NVIDIA Jetson AGX Orin Series Technical Brief (2022); 17B transistors / Samsung 8N",
@@ -1222,6 +1231,12 @@ def create_jetson_orin_nano_8gb_mapper(
         calibration=calibration,
     )
     mapper.physical_spec = _orin_soc_physical_spec(
+        memory_bus_width_bits=128,  # 128-bit LPDDR5. Verified via the NVIDIA spec
+                                    # bandwidth math: 68 GB/s / 4.267 GT/s = 128 bits.
+                                    # The embodied-schemas YAML (orin_nano_gpu_8gb_lpddr5.yaml)
+                                    # incorrectly lists 64 -- inconsistent with the
+                                    # 68 GB/s spec it also lists. See branes-ai/embodied-schemas
+                                    # follow-up issue.
         launch_date="2023-03-22",  # GTC 2023 announcement
         launch_msrp_usd=499.0,     # developer kit launch price; production module $199 later
         source="NVIDIA GTC 2023 Orin Nano dev kit launch; same GA10B die as AGX",
@@ -1262,6 +1277,7 @@ def create_jetson_orin_nx_16gb_mapper(
         calibration=calibration,
     )
     mapper.physical_spec = _orin_soc_physical_spec(
+        memory_bus_width_bits=128,  # 128-bit LPDDR5 (per embodied-schemas orin_nx_gpu_16gb_lpddr5.yaml)
         launch_date="2023-01-04",  # general availability Q1 2023
         launch_msrp_usd=899.0,     # production module price
         source="NVIDIA Jetson Orin NX series launch (2023-01); same GA10B die as AGX",
@@ -1302,6 +1318,15 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
         num_dies=1,
         is_chiplet=False,
         package_type="monolithic",
+        memory_type="lpddr5x",
+        memory_bus_width_bits=256,  # 256-bit LPDDR5X. Confirmed by NVIDIA's
+                                    # Jetson Thor announcement blog ("256-bit LPDDR5X,
+                                    # 273 GB/s"). Bandwidth math also confirms:
+                                    # 273 GB/s / 8.533 GT/s = 256 bits.
+                                    # The embodied-schemas YAML (thor_gpu_128gb_lpddr5x.yaml)
+                                    # incorrectly lists 512 -- inconsistent with the
+                                    # 273 GB/s spec it also lists. See branes-ai/embodied-schemas
+                                    # follow-up issue.
         launch_date="2025-08-25",   # general availability per NVIDIA newsroom
         launch_msrp_usd=2999.0,     # T5000 production module price
         source="NVIDIA Jetson Thor T5000 launch (2025-08-25); die size / transistors not publicly disclosed",

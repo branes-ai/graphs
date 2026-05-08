@@ -170,3 +170,76 @@ class TestJetsonPhysicalSpecs:
         assert abs(d_agx - 37.4) < 0.5
         assert nx.transistor_density_mtx_mm2 == d_agx
         assert nano.transistor_density_mtx_mm2 == d_agx
+
+
+class TestMemoryFields:
+    """Phase 3 of #136: memory_type + memory_bus_width_bits on PhysicalSpec.
+
+    Anchored to the embodied-schemas YAMLs (data/gpus/<vendor>/*.yaml,
+    ``memory:`` block). These are silicon-bin / module SKU constants --
+    they don't change per nvpmodel power profile. Per-profile memory
+    CLOCK is a separate field on ThermalOperatingPoint (Phase 4).
+    """
+
+    def test_default_physical_spec_has_no_memory_data(self):
+        # Backward compat: the new fields default to None so unpopulated
+        # PhysicalSpec instances and existing call sites don't need updates.
+        spec = PhysicalSpec()
+        assert spec.memory_type is None
+        assert spec.memory_bus_width_bits is None
+
+    def test_h100_memory_populated(self):
+        spec = create_h100_sxm5_80gb_mapper().physical_spec
+        assert spec.memory_type == "hbm3"
+        assert spec.memory_bus_width_bits == 5120
+
+    def test_orin_agx_memory_populated(self):
+        spec = create_jetson_orin_agx_64gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5"
+        assert spec.memory_bus_width_bits == 256
+
+    def test_orin_nx_memory_populated(self):
+        spec = create_jetson_orin_nx_16gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5"
+        assert spec.memory_bus_width_bits == 128
+
+    def test_orin_nano_memory_populated(self):
+        # Orin Nano is 128-bit LPDDR5. Verified via bandwidth math:
+        #   68 GB/s / 4.267 GT/s (LPDDR5-4267) = 128 bits
+        # The embodied-schemas YAML (orin_nano_gpu_8gb_lpddr5.yaml)
+        # incorrectly lists ``memory_bus_bits: 64`` despite also listing
+        # ``memory_bandwidth_gbps: 68.0`` (which would be impossible at
+        # 64 bits and the 4.267 GT/s rate). The 128-bit value is correct
+        # per NVIDIA's Orin Nano datasheet and matches the Orin NX
+        # 16GB SKU's bus width.
+        spec = create_jetson_orin_nano_8gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5"
+        assert spec.memory_bus_width_bits == 128
+
+    def test_thor_memory_populated(self):
+        # Thor is 256-bit LPDDR5X. Confirmed by NVIDIA's Jetson Thor
+        # announcement blog ("256-bit LPDDR5X, 273 GB/s") and verified
+        # via bandwidth math: 273 GB/s / 8.533 GT/s (LPDDR5X-8533) = 256
+        # bits. The embodied-schemas YAML (thor_gpu_128gb_lpddr5x.yaml)
+        # incorrectly lists ``memory_bus_bits: 512`` despite also listing
+        # ``memory_bandwidth_gbps: 273.0`` (which would be impossible at
+        # 512 bits and any reasonable LPDDR5X rate).
+        spec = create_jetson_thor_128gb_mapper().physical_spec
+        assert spec.memory_type == "lpddr5x"
+        assert spec.memory_bus_width_bits == 256
+
+    def test_orin_family_bus_widths_match_bandwidth_spec(self):
+        # All three Orin variants are LPDDR5. AGX has the widest bus
+        # (256-bit) for the highest sustained bandwidth; NX and Nano
+        # share the same 128-bit width but different sustained DRAM
+        # rates yield different headline bandwidths (NX 102 GB/s vs
+        # Nano 68 GB/s on original 2023 silicon).
+        agx = create_jetson_orin_agx_64gb_mapper().physical_spec
+        nx = create_jetson_orin_nx_16gb_mapper().physical_spec
+        nano = create_jetson_orin_nano_8gb_mapper().physical_spec
+        # Same memory type across the family
+        assert agx.memory_type == nx.memory_type == nano.memory_type == "lpddr5"
+        # AGX is wider than the rest; NX and Nano share 128-bit
+        assert agx.memory_bus_width_bits == 256
+        assert nx.memory_bus_width_bits == 128
+        assert nano.memory_bus_width_bits == 128

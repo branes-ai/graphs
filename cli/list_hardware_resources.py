@@ -87,6 +87,10 @@ class HardwareResourceInfo:
     num_dies: int
     is_chiplet: bool
     package_type: Optional[str]
+    # Memory subsystem (silicon-bin / module SKU constants from PhysicalSpec).
+    # Phase 3 of #136. Per-profile memory CLOCK comes in Phase 4.
+    memory_type: Optional[str]              # e.g. "hbm3", "lpddr5", "lpddr5x"
+    memory_bus_width_bits: Optional[int]    # e.g. 5120 (H100), 64 (Orin Nano)
     launch_date: Optional[str]
     launch_msrp_usd: Optional[float]
     physical_spec_source: Optional[str]
@@ -300,6 +304,8 @@ def _build_record(
         num_dies=spec.num_dies if spec else 1,
         is_chiplet=spec.is_chiplet if spec else False,
         package_type=spec.package_type if spec else None,
+        memory_type=spec.memory_type if spec else None,
+        memory_bus_width_bits=spec.memory_bus_width_bits if spec else None,
         launch_date=spec.launch_date if spec else None,
         launch_msrp_usd=spec.launch_msrp_usd if spec else None,
         physical_spec_source=spec.source if spec else None,
@@ -432,6 +438,8 @@ def generate_text_report(
         f"{'Node':>10}"
         f"{'Foundry':>10}"
         f"{'Arch':>14}"
+        f"{'Memory':>9}"
+        f"{'Bus':>6}"
         f"{'TDP (W)':>10}"
         f"{'Base MHz':>10}"
         f"{'Boost MHz':>11}"
@@ -472,6 +480,8 @@ def generate_text_report(
                 f"{(r.process_node_name or _na(r.process_node_nm)):>10}"
                 f"{_na(r.foundry):>10}"
                 f"{(r.architecture or 'N/A')[:13]:>14}"
+                f"{(r.memory_type or 'N/A')[:8]:>9}"
+                f"{_na(r.memory_bus_width_bits):>6}"
                 f"{r.power_tdp:>10.1f}"
                 f"{_na(r.core_base_mhz):>10}"
                 f"{_na(r.core_boost_mhz):>11}"
@@ -573,10 +583,10 @@ def generate_markdown_report(
         print()
         print(
             "| Hardware | Vendor | Mode | Die mm² | Tx (B) | Mtx/mm² | Node | "
-            "Foundry | Arch | TDP (W) | Base MHz | Boost MHz | INT8 TOPS | Launched |"
+            "Foundry | Arch | Memory | Bus | TDP (W) | Base MHz | Boost MHz | INT8 TOPS | Launched |"
         )
         print(
-            "| --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | --- |"
+            "| --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |"
         )
         for r in cat_records:
             print(
@@ -585,6 +595,7 @@ def generate_markdown_report(
                 f"{_na(r.transistors_billion)} | {_na(r.transistor_density_mtx_mm2)} | "
                 f"{(r.process_node_name or _na(r.process_node_nm))} | "
                 f"{_na(r.foundry)} | {r.architecture or 'N/A'} | "
+                f"{r.memory_type or 'N/A'} | {_na(r.memory_bus_width_bits)} | "
                 f"{r.power_tdp:.1f} | {_na(r.core_base_mhz)} | {_na(r.core_boost_mhz)} | "
                 f"{r.peak_flops_int8/1000:.1f} | "
                 f"{_na(r.launch_date)} |"

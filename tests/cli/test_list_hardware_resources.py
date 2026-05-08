@@ -351,6 +351,8 @@ class TestProcessNodeFallback:
             num_dies=1,
             is_chiplet=False,
             package_type=None,
+            memory_type=None,
+            memory_bus_width_bits=None,
             launch_date=None,
             launch_msrp_usd=None,
             physical_spec_source=None,
@@ -538,3 +540,69 @@ class TestPhase2Renderers:
         header = rows[0]
         for col in ("mode", "core_base_mhz", "core_boost_mhz"):
             assert col in header, f"csv missing column: {col}"
+
+
+class TestPhase3MemoryColumn:
+    """Phase 3 of #136: Memory Type / Bus columns. memory_type and
+    memory_bus_width_bits are now PhysicalSpec fields, surfaced in the
+    spec-sheet view across all four output formats."""
+
+    def test_text_header_includes_memory_columns(self):
+        stdout, _, _ = _run("--category", "gpu")
+        assert "Memory" in stdout, "text header missing 'Memory' column"
+        assert "Bus" in stdout, "text header missing 'Bus' column"
+
+    def test_markdown_header_includes_memory_columns(self, tmp_path):
+        out = tmp_path / "spec.md"
+        _run(output_path=out)
+        body = out.read_text()
+        assert "Memory" in body
+        # Markdown uses literal "Bus" (not "Bus (bits)") to keep header tight.
+        assert "| Bus |" in body
+
+    def test_csv_includes_memory_columns(self, tmp_path):
+        out = tmp_path / "spec.csv"
+        _run(output_path=out)
+        header = next(csv.reader(out.open()))
+        assert "memory_type" in header
+        assert "memory_bus_width_bits" in header
+
+    def test_json_round_trips_memory_fields(self, tmp_path):
+        # H100 + 4 Jetson SKUs are populated as of Phase 3.
+        out = tmp_path / "spec.json"
+        _run(output_path=out)
+        data = json.loads(out.read_text())
+        h100 = next(p for p in data["products"] if p["name"] == "H100-SXM5-80GB")
+        assert h100["memory_type"] == "hbm3"
+        assert h100["memory_bus_width_bits"] == 5120
+
+    def test_json_orin_family_bus_widths_lock_in_per_sku(self, tmp_path):
+        # Spec invariant: AGX=256, NX=128, Nano=128 bits. Verified via
+        # bandwidth math against NVIDIA's published BW figures
+        # (BW / DRAM-rate = bus_width). NX and Nano share the same
+        # 128-bit width but differ in sustained DRAM rate, which is
+        # what gives them different headline bandwidths.
+        out = tmp_path / "spec.json"
+        _run(output_path=out)
+        data = json.loads(out.read_text())
+        agx = next(p for p in data["products"] if p["name"] == "Jetson-Orin-AGX-64GB")
+        nx = next(p for p in data["products"] if p["name"] == "Jetson-Orin-NX-16GB")
+        nano = next(p for p in data["products"] if p["name"] == "Jetson-Orin-Nano-8GB")
+        assert agx["memory_bus_width_bits"] == 256
+        assert nx["memory_bus_width_bits"] == 128
+        assert nano["memory_bus_width_bits"] == 128
+        # All three are LPDDR5; Thor switches to LPDDR5X.
+        assert agx["memory_type"] == "lpddr5"
+        assert nx["memory_type"] == "lpddr5"
+        assert nano["memory_type"] == "lpddr5"
+
+    def test_unpopulated_chips_render_na_for_memory(self, tmp_path):
+        # A100 / B100 / V100 / T4 / etc. don't have populated PhysicalSpec
+        # yet, so memory_type renders None in JSON / empty in CSV / N/A
+        # in text+markdown. No crash, just graceful absence.
+        out = tmp_path / "spec.json"
+        _run(output_path=out)
+        data = json.loads(out.read_text())
+        a100 = next(p for p in data["products"] if p["name"] == "A100-SXM4-80GB")
+        assert a100["memory_type"] is None
+        assert a100["memory_bus_width_bits"] is None
