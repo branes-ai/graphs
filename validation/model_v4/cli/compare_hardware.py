@@ -40,7 +40,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from graphs.hardware.mappers import get_mapper_by_name
 from graphs.hardware.resource_model import HardwareResourceModel
@@ -126,8 +126,11 @@ def _enrich_predictions(
         "predicted_latency_ms": pred_lat * 1e3,
         "predicted_gflops": fp.flops / pred_lat / 1e9,
         "predicted_energy_j": pred_egy if pred_egy is not None else None,
+        # ``pred_lat > 0`` is already guaranteed by the early-return
+        # guard at the top of this function; only ``pred_egy`` may be
+        # None / zero.
         "predicted_avg_power_w": (
-            pred_egy / pred_lat if pred_egy and pred_lat > 0 else None
+            pred_egy / pred_lat if pred_egy else None
         ),
     }
 
@@ -176,8 +179,19 @@ def render_comparison(
     out_path: Path,
     dtype_overrides: Optional[Dict[str, str]] = None,
 ) -> None:
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
+    # matplotlib is an optional dependency (see requirements.txt --
+    # commented out so production CI doesn't ship it). Fail fast with
+    # an actionable hint instead of a bare ModuleNotFoundError when
+    # someone runs the CLI without the plotting extras installed.
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            "compare_hardware requires matplotlib. Install with: "
+            "`pip install matplotlib` (it's an optional plotting "
+            "dependency, not part of the core analyzer)."
+        ) from exc
 
     dtype_overrides = dtype_overrides or {}
 
@@ -307,7 +321,6 @@ def render_comparison(
         fontsize=9, framealpha=0.9,
     )
 
-    import matplotlib.pyplot as plt
     plt.tight_layout(rect=[0, 0.04, 1, 0.97])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=140, bbox_inches="tight")

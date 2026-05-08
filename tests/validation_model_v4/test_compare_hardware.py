@@ -11,8 +11,6 @@ What's pinned:
     path the user-driven 3-way comparison depends on).
 """
 
-from pathlib import Path
-
 import pytest
 
 from graphs.hardware.mappers import get_mapper_by_name
@@ -116,7 +114,13 @@ def test_enrich_predictions_kpu_matmul_faster_than_orin_nano():
 
 def test_render_comparison_produces_nonempty_png(tmp_path):
     """End-to-end smoke: default 3-target comparison renders without
-    raising and produces a non-empty file."""
+    raising and produces a non-empty file.
+
+    Skipped when matplotlib isn't installed -- it's a visualization-only
+    dependency, not a core dep of the analyzer/harness, and production
+    CI doesn't ship it (see .github/workflows for the install matrix).
+    The local dev path has matplotlib so this test fires there."""
+    pytest.importorskip("matplotlib")
     out = tmp_path / "compare.png"
     render_comparison(DEFAULT_TARGETS, out)
     assert out.exists()
