@@ -34,7 +34,7 @@ This document captures how we resolved that tension.
 Substantial pieces of the per-profile data layer already existed:
 
 - **`ThermalOperatingPoint`** (`src/graphs/hardware/resource_model.py:733`) represents one mode -- `name`, `tdp_watts`, `cooling_solution`, and `performance_specs: Dict[Precision, PerformanceCharacteristics]`.
-- **The Orin Nano resource model** (`src/graphs/hardware/models/edge/jetson_orin_nano_8gb.py`) already enumerated `7W`, `15W`, `MAXN` profiles with full per-profile clock and peak data populated from NVIDIA's published specs.
+- **The Orin Nano resource model** (`src/graphs/hardware/models/edge/jetson_orin_nano_8gb.py`) enumerates the four canonical Orin Nano Super modes -- `7W`, `15W`, `25W`, `MAXN` -- with full per-profile clock and peak data populated from NVIDIA's published specs. (The original Phase 1 implementation registered three; the `25W` mode was added when reconciling this doc with the user-directed mode count.)
 - **`HardwareMapper.__init__`** accepts `thermal_profile` to select which mode is active for the returned mapper.
 - **`HardwareResourceModel.default_thermal_profile`** designates a sensible default for "give me one number" queries.
 
@@ -60,7 +60,7 @@ Three concrete costs:
 
 2. **Drift risk.** When NVIDIA discloses a new transistor count or someone corrects a die-size measurement, you'd have to update all profile variants in lockstep. Single source of truth says: chip-level data should live in exactly one place.
 
-3. **Adding a new profile becomes a copy-paste exercise.** If NVIDIA ships an "Orin Nano Super 2.0" 25W mode, you'd construct a brand-new full-spec entry. With the alias model, you just add a new `ThermalOperatingPoint` to the existing resource model and the alias machinery picks it up automatically.
+3. **Adding a new profile becomes a copy-paste exercise.** If NVIDIA ships a new mode (e.g., a hypothetical 50W envelope on a future Super refresh), you'd construct a brand-new full-spec entry. With the alias model, you just add a new `ThermalOperatingPoint` to the existing resource model and the alias machinery picks it up automatically. (Concrete example: the `25W` mode was added to Orin Nano under issue #136 simply by registering one extra `ThermalOperatingPoint`; no registry, factory, or PhysicalSpec changes were needed.)
 
 ### Why "leave it as-is and have callers know about thermal_profile" didn't survive either
 
@@ -172,7 +172,7 @@ The mechanism doesn't impose itself where it's not useful: any chip with one the
 These are open questions deferred to Phases 2-5 or to a future RFC:
 
 - **Should we deprecate the dashed alias form?** The `@` form is unambiguous; the dashed form requires longest-prefix-match parsing. We support both for now because the dashed form is what the user originally proposed and it's friendlier to type. If we see the parsing become a maintenance burden, we can deprecate dashed in a future major version.
-- **Should aliases include short forms like `Jetson-Orin-Nano-8GB-7W` instead of the full profile name `Jetson-Orin-Nano-8GB@7W-battery`?** Currently aliases use whatever's in `thermal_operating_points` as the key. Short-form generation would require resolving collisions when two profiles share a TDP wattage but differ in cooling. Punted to Phase 2 if user demand surfaces.
+- **Should aliases include short forms or auto-generated TDP-based names?** Currently aliases use whatever's in `thermal_operating_points` as the key. We've already encountered the collision case in practice: Orin Nano's `25W` and `MAXN` modes both have `tdp_watts=25.0` (they differ in DVFS behavior, not envelope). If we ever auto-generate TDP-based aliases like `@25W` from raw watts, that approach would need a tiebreaker or compound key (e.g., `@25W-dvfs`, `@25W-locked`). Punted to a later phase.
 - **Should `default_thermal_profile` be discoverable from the alias?** Today, bare `Jetson-Orin-Nano-8GB` returns the default profile silently. We could emit `Jetson-Orin-Nano-8GB@default` as an alias, but that adds noise. Status quo stands until someone asks for it.
 - **How does this interact with the `embodied-schemas` ComputeProduct unification (RFC 0001)?** The `ComputeProduct` shape will need to express modes. We could put modes in a new `power_modes: list[PowerMode]` field at the spine level (mirroring `ThermalOperatingPoint` here), or as a property of each `Block` if modes are sometimes block-scoped. Decision deferred to Phase 1 of the unification RFC.
 

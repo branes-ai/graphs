@@ -110,6 +110,25 @@ class TestKwargPrecedence:
         assert m is not None
         assert m.thermal_profile == "MAXN"
 
+    def test_empty_string_kwarg_does_not_silently_fall_back_to_alias(self):
+        # ``thermal_profile=""`` is an explicit (if invalid) user signal,
+        # not a "not provided" sentinel. Precedence is checked with
+        # ``is not None`` so the empty string takes priority over the
+        # alias-encoded profile. The empty string isn't a registered
+        # profile, so the underlying factory call fails the lookup and
+        # the resource model raises -- but we should NOT have silently
+        # routed the request to the alias-encoded "7W".
+        try:
+            m = get_mapper_by_name(
+                "Jetson-Orin-Nano-8GB@7W", thermal_profile=""
+            )
+        except (ValueError, KeyError):
+            # Expected: empty string isn't a valid profile.
+            return
+        # If the factory was tolerant of empty-string and didn't raise,
+        # at minimum the alias-encoded "7W" should NOT have leaked through.
+        assert m is None or m.thermal_profile != "7W"
+
 
 class TestSkuEnumeration:
     def test_list_all_skus_includes_silicon_and_aliases(self):
@@ -131,14 +150,34 @@ class TestSkuEnumeration:
         for a in aliases:
             assert a.count("@") == 1
 
-    def test_list_all_skus_orin_nano_has_three_profiles(self):
-        # Orin Nano resource model registers 7W, 15W, MAXN. Confirm the
-        # alias enumeration matches.
+    def test_list_all_skus_orin_nano_has_four_profiles(self):
+        # Orin Nano Super resource model registers four canonical modes:
+        # 7W (battery), 15W (Phase B baseline), 25W (production cap with
+        # DVFS), MAXN (developer/burst, DVFS off). Anchored on the user
+        # directive captured in #136. Should this expand in the future
+        # (e.g., a 50W mode for some hypothetical refresh), update this
+        # test alongside the resource model -- the assertion is exact by
+        # design to catch silent profile additions/removals.
         nano_aliases = [
             s for s in list_all_skus() if s.startswith("Jetson-Orin-Nano-8GB@")
         ]
         profiles = sorted(s.split("@", 1)[1] for s in nano_aliases)
-        assert profiles == ["15W", "7W", "MAXN"]
+        assert profiles == ["15W", "25W", "7W", "MAXN"]
+
+    def test_orin_nano_25w_and_maxn_share_tdp_but_differ_in_dvfs(self):
+        # 25W mode and MAXN mode both cap at 25W TDP on the Super silicon
+        # but have different DVFS semantics: 25W allows scaling down for
+        # power-aware workloads, MAXN locks at boost. Spec invariant:
+        # both modes have tdp_watts=25.0 but different cooling and DVFS
+        # configurations.
+        m_25w = get_mapper_by_name("Jetson-Orin-Nano-8GB@25W")
+        m_maxn = get_mapper_by_name("Jetson-Orin-Nano-8GB@MAXN")
+        assert m_25w is not None and m_maxn is not None
+        rm_25w = m_25w.resource_model.thermal_operating_points["25W"]
+        rm_maxn = m_maxn.resource_model.thermal_operating_points["MAXN"]
+        assert rm_25w.tdp_watts == rm_maxn.tdp_watts == 25.0
+        # Distinct entries -- not aliases of the same object.
+        assert rm_25w.name != rm_maxn.name
 
     def test_include_profile_aliases_false_returns_silicon_only(self):
         skus = list_all_skus(include_profile_aliases=False)

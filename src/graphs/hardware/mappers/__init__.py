@@ -636,17 +636,27 @@ def get_mapper_by_name(name: str, thermal_profile: str = None):
             return None
         silicon, alias_profile = resolved
 
-    # Explicit kwarg wins over alias-derived profile.
-    profile_to_use = thermal_profile or alias_profile
+    # Explicit kwarg wins over alias-derived profile. Using ``is not None``
+    # rather than truthiness so an explicit empty-string ``thermal_profile=""``
+    # doesn't silently fall back to the alias profile (the empty string is
+    # an invalid profile anyway, but the precedence rule should be uniform).
+    profile_to_use = thermal_profile if thermal_profile is not None else alias_profile
     factory = _MAPPER_REGISTRY[silicon]["factory"]
     try:
-        if profile_to_use:
+        if profile_to_use is not None:
             return factory(thermal_profile=profile_to_use)
         return factory()
     except TypeError:
-        # Factory doesn't accept thermal_profile kwarg -- fall back to
-        # default-profile instantiation.
-        return factory()
+        # Factory doesn't accept thermal_profile kwarg. Instantiate with
+        # default and post-hoc-assign the requested profile if one was
+        # resolved (we already validated it exists during alias resolution
+        # / kwarg dispatch above, so no re-check needed).
+        mapper = factory()
+        if profile_to_use is not None and profile_to_use in (
+            mapper.resource_model.thermal_operating_points or {}
+        ):
+            mapper.thermal_profile = profile_to_use
+        return mapper
 
 
 def list_all_skus(include_profile_aliases: bool = True) -> List[str]:
