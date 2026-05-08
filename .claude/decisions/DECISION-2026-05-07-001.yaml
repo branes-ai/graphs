@@ -1,0 +1,141 @@
+decision_id: "DECISION-2026-05-07-001"
+timestamp: "2026-05-07T22:30:00Z"
+ai_model: "claude-opus-4-7"
+session_id: "795dedb2-8312-45b4-b3ca-8ca46555fac9"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "Model the attention head as a decomposed computational graph of existing operators (no fusion) as the v1 validation baseline; quantify the fusion gap when fused kernels (FlashAttention) land later."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "user_request"
+  content: "expand on the attention head modeling as first decomposing the attention head into the computational graph it represents, which should have all operators that map onto the set we already have defined. This will miss operator fusion optimizations, but it is a good first order assessment when the compiler and runtime are still under development."
+  context: "User reviewing the operator-validation-expansion-plan (Phase 5 of which is attention-head modeling). Initial draft proposed treating attention head as an atomic op with its own footprint formula. User redirected to a decomposition-first framing."
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+  - option: "Atomic-op model: treat attention head as a single operator with closed-form FLOPS/bytes/AI"
+    pros:
+      - "Single calibration target per (hw, op)"
+      - "Matches how FusedMHA / FlashAttention are actually shipped"
+      - "Smaller analyzer surface area"
+    cons:
+      - "Requires per-implementation calibration (FlashAttention v1, v2, v3, FusedMHA, ...)"
+      - "Can't introspect which sub-op is causing prediction error"
+      - "Doesn't validate the analyzer's compositionality"
+      - "Hides the fusion gap from architects -- they can't see what an unfused baseline would predict"
+    selected: false
+    rejected_reason: "The compiler / runtime layer is still under development; the realistic deployment baseline is PyTorch eager (which IS the unfused decomposition). Atomic-op modeling would couple validation to a specific fused implementation."
+
+  - option: "Decomposition-first: attention head = computational graph of already-modeled operators (linear, matmul, element-wise scale, softmax). Validate the composed prediction against PyTorch eager."
+    pros:
+      - "Every node is an operator we already have -- no new atomic ops to characterize"
+      - "Validates that the analyzer composes per-op models correctly"
+      - "If composed prediction is off, we know which sub-op to re-calibrate"
+      - "Matches PyTorch eager (the realistic baseline before any compiler work lands)"
+      - "When fused kernels land later, measured-fused vs predicted-unfused = the fusion uplift -- an architecturally meaningful number that prioritizes compiler / runtime work"
+      - "Forces the design of composite-op infrastructure (lands in Phase 3 for softmax) which subsequent phases inherit"
+    cons:
+      - "Decomposed prediction will look 'wrong' against fused-runtime measurements -- need clear documentation of the gap so V4 floor tests don't misfire"
+      - "Doesn't directly validate fused-kernel implementations (those need a separate FlashAttention op as a follow-up)"
+      - "Larger total analyzer surface (per-sub-op + composition logic) than atomic"
+    selected: true
+    selected_reason: "Right first-order assessment for the current state of the stack. The fusion gap is itself the most useful signal -- it tells the compiler / runtime team where to invest. Atomic-op modeling would obscure this signal."
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 1   # docs/v5/operator-validation-expansion-plan.md (Phase 5 section)
+  files_created: 0    # plan doc was a single new file
+  files_deleted: 0
+  lines_added: 130    # approximate -- the Phase 5 decomposition section
+  lines_removed: 25   # original atomic-op framing replaced
+  breaking_changes: false
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 0   # plan doc; no code changes yet
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "User reviewed Phase 5 framing in PR #128 description and approved it"
+    result: "PR #128 merged as commit 92dd7ca"
+  - action: "Decomposition diagram cross-checked: every node in the attention graph maps to an operator already in V4 (linear, matmul) or planned in earlier phases (element-wise scale = Phase 1/2, softmax = Phase 3)"
+    result: "All nodes covered; no new atomic ops introduced"
+  - action: "GitHub issue #127 filed with the decomposition diagram, 'what this does NOT model' section, and 4-PR delivery breakdown"
+    result: "Issue tracked; subsequent implementation work has clear scope boundaries"
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "Decomposed prediction will look 2-5x slower than fused-kernel measurements for long-sequence attention; if V4 floor tests are added against fused measurements, they will fail by construction"
+    mitigation: "Phase 5 acceptance criteria explicitly target PyTorch eager (decomposition-matching) measurements, not fused-runtime measurements. The fusion gap is documented as a separate quantification target, not a regression."
+    severity: "medium"
+    likelihood: "medium"
+
+  - risk: "Composite-op infrastructure (Phase 3) is the unknown. If the design doesn't generalize cleanly to attention's complex dataflow (3 inputs, 1 intermediate that flows into 2 ops), Phase 5 may need substantial rework"
+    mitigation: "Phase 3 deliverable PR-A is explicitly scoped to design + implement composite-op infrastructure with softmax as the first consumer. If the design doesn't generalize, that surfaces in Phase 3 review, not Phase 5."
+    severity: "medium"
+    likelihood: "low"
+
+  - risk: "Per-sub-op calibration error compounds. If matmul prediction is off 10% and softmax is off 15%, attention head could be off 30%+. The composed metric is more sensitive than any individual op"
+    mitigation: "Phase 5 acceptance criteria use 30% latency tolerance (looser than per-op 25%) explicitly to allow compounding. If compound exceeds 30%, that's a signal to re-calibrate the offending sub-op."
+    severity: "low"
+    likelihood: "medium"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "documentation"
+    path: "docs/v5/operator-validation-expansion-plan.md"
+    section: "Phase 5 -- Attention head (the capstone)"
+    url: ""
+  - type: "pr"
+    path: ""
+    section: ""
+    url: "https://github.com/branes-ai/graphs/pull/128"
+  - type: "issue"
+    path: ""
+    section: "Phase 5 tracking"
+    url: "https://github.com/branes-ai/graphs/issues/127"
+  - type: "issue"
+    path: ""
+    section: "Phase 3 (composite-op infrastructure dependency)"
+    url: "https://github.com/branes-ai/graphs/issues/125"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-05-07T22:30:00Z"
+  comments: "User explicitly directed the decomposition-first framing. PR #128 merged after CI green."
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "Phase 3 PR-A: design composite-op / graph-walker infrastructure that supports softmax (multi-pass) and attention (multi-input, fan-out intermediate). The design must accommodate Phase 5's needs to avoid rework."
+    owner: "stillwater"
+    due_date: "TBD (Phase 3 timeline)"
+    status: "pending"
+  - action: "Phase 5 PR-B: build the attention-head decomposition graph builder + validate against PyTorch eager on i7 + Orin Nano. Document the fused-vs-unfused gap (measure FlashAttention separately when available)."
+    owner: "stillwater"
+    due_date: "TBD (Phase 5 timeline, blocks on Phase 3)"
+    status: "pending"
+  - action: "When fused-kernel measurements (FlashAttention) become available, file a follow-up issue to model fused attention as a separate atomic op. Track measured-fused vs predicted-unfused as the fusion uplift metric."
+    owner: "stillwater"
+    due_date: "TBD"
+    status: "pending"
