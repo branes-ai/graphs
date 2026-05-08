@@ -7,7 +7,8 @@ This module provides a registry of all available hardware mappers and functions
 to discover and instantiate them.
 """
 
-from typing import Dict, List, Optional, Callable, Any
+import re
+from typing import Dict, List, Optional, Callable, Any, Tuple
 from dataclasses import dataclass
 
 # Lazy import to avoid circular dependencies
@@ -523,9 +524,90 @@ def _init_registry():
 
 
 def list_all_mappers() -> List[str]:
-    """Return list of all available mapper names."""
+    """Return list of all available silicon-bin mapper names.
+
+    Profile aliases (e.g., ``Jetson-Orin-Nano-8GB@7W-battery``) are NOT
+    included here -- this preserves the original API for callers that only
+    care about silicon SKUs. Use :func:`list_all_skus` to get the expanded
+    list including profile aliases.
+    """
     _init_registry()
     return list(_MAPPER_REGISTRY.keys())
+
+
+# ---------------------------------------------------------------------------
+# Profile-as-SKU addressing (issue #136)
+# ---------------------------------------------------------------------------
+#
+# For embodied AI deployment, the same silicon ships in multiple persistent
+# power profiles (e.g., Jetson Orin Nano: 7W / 15W / MAXN). These are
+# `nvpmodel` modes -- boot-time configurations that lock CPU/GPU/DLA
+# frequencies and yield materially different peak performance and TDP.
+#
+# We expose them as addressable SKUs without duplicating chip-level data:
+# the registry stores ONE entry per silicon-bin (its PhysicalSpec, factory,
+# metadata are unique). Profile addressability is provided by parsing
+# alias names of the form ``{silicon}@{profile}`` (or ``{silicon}-{profile}``
+# for a friendlier dashed form) at ``get_mapper_by_name`` time, validating
+# the profile against the mapper's registered ``thermal_operating_points``,
+# and instantiating the factory with the selected profile.
+
+_AT_PROFILE_RE = re.compile(r"^(.+?)@(.+)$")
+
+
+def _resolve_profile_alias(name: str) -> Optional[Tuple[str, str]]:
+    """Parse a profile-suffixed alias and return ``(silicon_bin, profile)``.
+
+    Two forms are supported, in priority order:
+
+    1. **Explicit separator**: ``"{silicon}@{profile}"``. Unambiguous;
+       ``@`` cannot appear in either silicon names or profile names.
+    2. **Dashed form**: ``"{silicon}-{profile}"``. Resolved by trying every
+       registered silicon-bin as a longest-match prefix; the suffix must
+       be a registered ``thermal_operating_point`` of that mapper.
+
+    Returns ``None`` if the input doesn't match any silicon-bin in the
+    registry or if the profile portion isn't a registered thermal profile.
+
+    Note: this function may instantiate factories to read the
+    ``thermal_operating_points`` dict. The cost is one factory call per
+    candidate prefix tried, so worst-case for the dashed form is O(N)
+    instantiations where N is the registry size. For frequently-queried
+    aliases consider an explicit-separator form which short-circuits.
+    """
+    _init_registry()
+
+    # Form 1: explicit separator.
+    m = _AT_PROFILE_RE.match(name)
+    if m:
+        silicon, profile = m.group(1), m.group(2)
+        info = _MAPPER_REGISTRY.get(silicon)
+        if info is None:
+            return None
+        try:
+            mapper = info["factory"]()
+        except Exception:
+            return None
+        if profile in mapper.resource_model.thermal_operating_points:
+            return silicon, profile
+        # @ form was tried explicitly; don't fall through to dashed.
+        return None
+
+    # Form 2: dashed. Try registry keys as prefixes, longest first to
+    # disambiguate (e.g., when "Foo-Bar" and "Foo" are both registered).
+    for silicon in sorted(_MAPPER_REGISTRY.keys(), key=len, reverse=True):
+        if not name.startswith(silicon + "-"):
+            continue
+        profile = name[len(silicon) + 1:]
+        try:
+            mapper = _MAPPER_REGISTRY[silicon]["factory"]()
+        except Exception:
+            continue
+        if profile in mapper.resource_model.thermal_operating_points:
+            return silicon, profile
+        # Don't break -- a shorter prefix might still resolve if the
+        # current prefix's thermal profiles don't cover the suffix.
+    return None
 
 
 def get_mapper_by_name(name: str, thermal_profile: str = None):
@@ -533,25 +615,68 @@ def get_mapper_by_name(name: str, thermal_profile: str = None):
     Get a hardware mapper by name.
 
     Args:
-        name: Mapper name (e.g., "Jetson-Orin-Nano-8GB")
-        thermal_profile: Optional thermal profile override
+        name: Either a silicon-bin name (e.g., ``"Jetson-Orin-Nano-8GB"``)
+              or a profile-aliased name (e.g., ``"Jetson-Orin-Nano-8GB@7W-battery"``
+              or the dashed form ``"Jetson-Orin-Nano-8GB-7W-battery"``).
+        thermal_profile: Optional thermal profile override. If provided, it
+              ALWAYS wins over a profile encoded in ``name``.
 
     Returns:
-        HardwareMapper instance or None if not found
+        HardwareMapper instance or ``None`` if neither the silicon-bin nor
+        any alias resolves.
     """
     _init_registry()
-    info = _MAPPER_REGISTRY.get(name)
-    if info is None:
-        return None
 
-    factory = info["factory"]
+    silicon = name
+    alias_profile: Optional[str] = None
+
+    if silicon not in _MAPPER_REGISTRY:
+        resolved = _resolve_profile_alias(name)
+        if resolved is None:
+            return None
+        silicon, alias_profile = resolved
+
+    # Explicit kwarg wins over alias-derived profile.
+    profile_to_use = thermal_profile or alias_profile
+    factory = _MAPPER_REGISTRY[silicon]["factory"]
     try:
-        if thermal_profile:
-            return factory(thermal_profile=thermal_profile)
+        if profile_to_use:
+            return factory(thermal_profile=profile_to_use)
         return factory()
     except TypeError:
-        # Factory doesn't accept thermal_profile
+        # Factory doesn't accept thermal_profile kwarg -- fall back to
+        # default-profile instantiation.
         return factory()
+
+
+def list_all_skus(include_profile_aliases: bool = True) -> List[str]:
+    """Return all addressable SKU names: silicon-bins plus profile aliases.
+
+    With ``include_profile_aliases=True`` (default), enumerates each
+    silicon-bin's ``thermal_operating_points`` and emits one alias of the
+    form ``"{silicon}@{profile}"`` per profile. The explicit-separator form
+    is used because the dashed form depends on parser disambiguation.
+
+    The ergonomics: deployments that target a specific power mode can
+    address it directly (``Jetson-Orin-Nano-8GB@7W-battery``). The agentic
+    system enumerating all available SKUs sees the full per-profile set.
+
+    Cost: instantiates every registered factory once. For a fast view of
+    silicon-bin names only, prefer :func:`list_all_mappers`.
+    """
+    _init_registry()
+    skus: List[str] = []
+    for silicon, info in _MAPPER_REGISTRY.items():
+        skus.append(silicon)
+        if not include_profile_aliases:
+            continue
+        try:
+            mapper = info["factory"]()
+        except Exception:
+            continue
+        for profile in mapper.resource_model.thermal_operating_points:
+            skus.append(f"{silicon}@{profile}")
+    return skus
 
 
 def get_mapper_info(name: str) -> Optional[Dict[str, Any]]:
@@ -609,6 +734,7 @@ def list_mappers_by_tdp_range(min_tdp_w: float, max_tdp_w: float) -> List[str]:
 
 __all__ = [
     "list_all_mappers",
+    "list_all_skus",
     "get_mapper_by_name",
     "get_mapper_info",
     "list_mappers_by_category",
