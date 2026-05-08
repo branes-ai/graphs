@@ -49,6 +49,12 @@ jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Required by graphs.hardware.physical_spec_loader for the 5
+    # YAML-backed factories (issue #136 Phase 3.5). The env var
+    # short-circuits the loader's path-resolution heuristic; the
+    # checkout below populates the directory it points at.
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +63,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          path: embodied-schemas
+          fetch-depth: 1
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -93,9 +106,18 @@ jobs:
   cli-tools:
     name: CLI Tools
     runs-on: ubuntu-latest
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          path: embodied-schemas
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -170,9 +192,18 @@ jobs:
   examples:
     name: Examples
     runs-on: ubuntu-latest
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          path: embodied-schemas
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -244,9 +275,18 @@ jobs:
   hardware-tests:
     name: Hardware Tests
     runs-on: ubuntu-latest
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          path: embodied-schemas
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -291,9 +331,18 @@ jobs:
   composition-check:
     name: Composition Check
     runs-on: ubuntu-latest
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          path: embodied-schemas
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5

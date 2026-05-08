@@ -74,9 +74,20 @@ jobs:
     # validation/ tree at the repo root.
     env:
       PYTHONPATH: ${{ github.workspace }}
+      # Required by graphs.hardware.physical_spec_loader for the 5
+      # YAML-backed factories (#136 Phase 3.5). Pointed at the sibling
+      # checkout below.
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          path: embodied-schemas
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
