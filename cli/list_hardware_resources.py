@@ -448,7 +448,11 @@ def generate_text_report(
         f"{'Die mm2':>10}"
         f"{'Tx (B)':>9}"
         f"{'Mtx/mm2':>10}"
-        f"{'Node':>10}"
+        # Node column widened to 14 so values like "Samsung 8LPP" (12)
+        # don't overflow and push later columns right. 13-char truncation
+        # protects against vendor-name combos longer than that (e.g.,
+        # "GlobalFoundries 12LP" would be 20 chars otherwise).
+        f"{'Node':>14}"
         f"{'Foundry':>10}"
         f"{'Arch':>14}"
         f"{'Memory':>9}"
@@ -490,8 +494,11 @@ def generate_text_report(
                 f"{_na(r.transistor_density_mtx_mm2):>10}"
                 # Prefer the named version; fall back to the raw nm value.
                 # Don't pre-format with _na -- "N/A" is truthy and would mask
-                # nm-only specs.
-                f"{(r.process_node_name or _na(r.process_node_nm)):>10}"
+                # nm-only specs. Truncate to 13 chars so very long composed
+                # names (e.g., "GlobalFoundries 12LP") don't push later
+                # columns right; the column is sized at 14 to leave a
+                # one-char visual gap.
+                f"{(r.process_node_name or _na(r.process_node_nm))[:13]:>14}"
                 f"{_na(r.foundry):>10}"
                 f"{(r.architecture or 'N/A')[:13]:>14}"
                 f"{(r.memory_type or 'N/A')[:8]:>9}"
