@@ -11,7 +11,6 @@ Locks in the contract:
 """
 
 import os
-from pathlib import Path
 
 import pytest
 
@@ -21,8 +20,10 @@ from graphs.hardware.physical_spec_loader import (
     _format_process_node_name,
     _resolve_data_dir,
     load_physical_spec,
+    load_physical_spec_or_none,
     validate_physical_spec,
 )
+import graphs.hardware.physical_spec_loader as _loader_module
 
 
 class TestLoaderRoundTrip:
@@ -237,4 +238,94 @@ class TestDataDirResolution:
             assert resolved.name == "data"
         finally:
             if old is not None:
+                os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+
+    def test_env_var_pointing_at_file_not_dir_raises(self, tmp_path):
+        # is_dir() check (not just exists()): if the env var points at
+        # a regular file, fail fast with a clear error rather than
+        # confusing downstream YAML lookup errors.
+        marker_file = tmp_path / "not_a_dir.txt"
+        marker_file.write_text("placeholder")
+        old = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
+        os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = str(marker_file)
+        try:
+            with pytest.raises(FileNotFoundError) as exc:
+                _resolve_data_dir()
+            assert "is not an existing directory" in str(exc.value)
+        finally:
+            if old is None:
+                del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
+            else:
+                os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+
+
+class TestGracefulLoader:
+    """``load_physical_spec_or_none`` returns None instead of raising
+    when embodied-schemas data isn't reachable, so factories don't
+    crash for users who pip-installed graphs without the [schemas]
+    extra. Emits a one-time warning to stderr on first miss.
+    """
+
+    def test_present_data_returns_real_spec(self):
+        # When data IS reachable, the helper returns the same value
+        # that load_physical_spec would.
+        spec = load_physical_spec_or_none("nvidia_h100_sxm5_80gb_hbm3")
+        assert spec is not None
+        assert spec.die_size_mm2 == 814.0
+
+    def test_missing_data_returns_none(self, tmp_path, capsys):
+        # Reset the module-level "warned once" flag so we can observe
+        # the warning emit cleanly.
+        _loader_module._warned_about_missing_data = False
+        marker_file = tmp_path / "not_a_dir"  # doesn't exist
+        old = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
+        os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = str(marker_file)
+        try:
+            result = load_physical_spec_or_none("nvidia_h100_sxm5_80gb_hbm3")
+            assert result is None
+            captured = capsys.readouterr()
+            assert "warning" in captured.err.lower()
+            assert "embodied-schemas" in captured.err
+        finally:
+            if old is None:
+                del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
+            else:
+                os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+            _loader_module._warned_about_missing_data = False
+
+    def test_missing_data_warning_fires_once_per_process(self, tmp_path, capsys):
+        # The warning is gated by a module-level flag so multiple
+        # factory calls in the same process don't spam stderr.
+        _loader_module._warned_about_missing_data = False
+        marker_file = tmp_path / "still_does_not_exist"
+        old = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
+        os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = str(marker_file)
+        try:
+            # Fire 3 misses; only the first should produce stderr output.
+            load_physical_spec_or_none("nvidia_h100_sxm5_80gb_hbm3")
+            load_physical_spec_or_none("nvidia_orin_gpu_64gb_lpddr5")
+            load_physical_spec_or_none("nvidia_thor_gpu_128gb_lpddr5x")
+            captured = capsys.readouterr()
+            # One "warning:" line; subsequent calls were silent.
+            assert captured.err.count("warning:") == 1
+        finally:
+            if old is None:
+                del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
+            else:
+                os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+            _loader_module._warned_about_missing_data = False
+
+    def test_strict_load_still_raises(self, tmp_path):
+        # The strict ``load_physical_spec`` keeps its raise-on-missing
+        # contract for callers (like tests) that need to fail loudly.
+        marker_file = tmp_path / "no_data_here"
+        old = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
+        os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = str(marker_file)
+        try:
+            with pytest.raises(FileNotFoundError):
+                load_physical_spec("nvidia_h100_sxm5_80gb_hbm3")
+        finally:
+            if old is None:
+                del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
+            else:
                 os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old

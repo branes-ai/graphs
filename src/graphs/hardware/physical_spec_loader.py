@@ -31,12 +31,19 @@ with guidance on how to make the data reachable.
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
 from graphs.hardware.physical_spec import PhysicalSpec
+
+
+# Module-level flag so the "embodied-schemas data unreachable" warning
+# fires AT MOST ONCE per process (avoids spam when multiple factories
+# call the graceful loader in succession).
+_warned_about_missing_data: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -108,24 +115,29 @@ def _resolve_data_dir() -> Path:
     Resolution order documented in the module docstring. Raises
     ``FileNotFoundError`` if no candidate path exists.
     """
-    # 1. Env var override.
+    # 1. Env var override. Require ``is_dir`` (not just ``exists``) so a
+    # user pointing the var at a regular file fails fast with a clear
+    # resolver message rather than confusing downstream YAML lookup
+    # errors.
     env_path = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
     if env_path:
         candidate = Path(env_path)
-        if candidate.exists():
+        if candidate.is_dir():
             return candidate
         raise FileNotFoundError(
             f"EMBODIED_SCHEMAS_DATA_DIR points to {env_path!r} but the path "
-            f"does not exist."
+            f"is not an existing directory."
         )
 
     # 2. Installed embodied_schemas package.
     try:
         from embodied_schemas.loaders import get_data_dir as _es_get_data_dir
         candidate = _es_get_data_dir()
-        if candidate.exists():
+        if candidate.is_dir():
             return candidate
     except ImportError:
+        # Optional dependency not installed in this environment; fall
+        # through to the sibling-clone heuristic.
         pass
 
     # 3. Sibling-clone heuristic. Walk up from this file looking for a
@@ -133,7 +145,7 @@ def _resolve_data_dir() -> Path:
     here = Path(__file__).resolve()
     for parent in here.parents:
         candidate = parent.parent / "embodied-schemas" / "src" / "embodied_schemas" / "data"
-        if candidate.exists():
+        if candidate.is_dir():
             return candidate
 
     raise FileNotFoundError(
@@ -356,3 +368,47 @@ def validate_physical_spec(
             )
 
     return warnings
+
+
+# ---------------------------------------------------------------------------
+# Graceful loader for factory functions
+# ---------------------------------------------------------------------------
+
+def load_physical_spec_or_none(
+    base_id: str, *, vendor: Optional[str] = None
+) -> Optional[PhysicalSpec]:
+    """Wrap :func:`load_physical_spec` with graceful ``None`` fallback.
+
+    Returns ``None`` when the embodied-schemas data directory or the
+    requested YAML can't be located, so factory functions don't crash
+    in environments where the optional ``embodied-schemas`` dependency
+    isn't installed (e.g., a downstream user who pip-installed
+    ``graphs`` without the ``[schemas]`` extra). The first such miss
+    in a process emits a single warning to stderr; subsequent misses
+    are silent.
+
+    Mappers continue to construct successfully -- they simply have
+    ``physical_spec = None``, which downstream consumers (the spec-sheet
+    CLI, the agentic system) already handle by rendering N/A.
+
+    Use the strict :func:`load_physical_spec` directly if you need to
+    fail loudly when the data is missing (e.g., in tests that assert
+    a specific spec was loaded).
+    """
+    global _warned_about_missing_data
+    try:
+        return load_physical_spec(base_id, vendor=vendor)
+    except FileNotFoundError as exc:
+        if not _warned_about_missing_data:
+            print(
+                f"warning: physical_spec_loader could not locate "
+                f"embodied-schemas data ({exc}). Mappers will be "
+                f"constructed without physical_spec. Install the "
+                f"'schemas' extra (pip install -e .[schemas]), set "
+                f"EMBODIED_SCHEMAS_DATA_DIR, or check out the "
+                f"embodied-schemas repo as a sibling. Subsequent "
+                f"misses will be silent.",
+                file=sys.stderr,
+            )
+            _warned_about_missing_data = True
+        return None

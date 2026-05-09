@@ -899,7 +899,7 @@ def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     from ..models.datacenter.h100_sxm5_80gb import h100_sxm5_80gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
     from ..technology_profile import DATACENTER_4NM_HBM3
-    from ..physical_spec_loader import load_physical_spec
+    from ..physical_spec_loader import load_physical_spec_or_none
 
     # Create resource model
     resource_model = h100_sxm5_80gb_resource_model()
@@ -911,7 +911,7 @@ def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
     )
 
     mapper = GPUMapper(resource_model, thermal_profile=thermal_profile)
-    mapper.physical_spec = load_physical_spec("nvidia_h100_sxm5_80gb_hbm3")
+    mapper.physical_spec = load_physical_spec_or_none(vendor="nvidia", base_id="nvidia_h100_sxm5_80gb_hbm3")
     return mapper
 
 
@@ -1132,7 +1132,7 @@ def create_jetson_orin_agx_64gb_mapper(
     from ..models.edge.jetson_orin_agx_64gb import jetson_orin_agx_64gb_resource_model
     from ..architectural_energy import DataParallelEnergyModel
     from ..technology_profile import EDGE_8NM_LPDDR5
-    from ..physical_spec_loader import load_physical_spec
+    from ..physical_spec_loader import load_physical_spec_or_none
 
     # Create resource model
     resource_model = jetson_orin_agx_64gb_resource_model()
@@ -1146,7 +1146,7 @@ def create_jetson_orin_agx_64gb_mapper(
     mapper = GPUMapper(
         resource_model, thermal_profile=thermal_profile, calibration=calibration
     )
-    mapper.physical_spec = load_physical_spec("nvidia_orin_gpu_64gb_lpddr5")
+    mapper.physical_spec = load_physical_spec_or_none(vendor="nvidia", base_id="nvidia_orin_gpu_64gb_lpddr5")
     return mapper
 
 
@@ -1167,14 +1167,14 @@ def create_jetson_orin_nano_8gb_mapper(
         GPUMapper configured for Jetson Orin Nano 8GB
     """
     from ..models.edge.jetson_orin_nano_8gb import jetson_orin_nano_8gb_resource_model
-    from ..physical_spec_loader import load_physical_spec
+    from ..physical_spec_loader import load_physical_spec_or_none
 
     mapper = GPUMapper(
         jetson_orin_nano_8gb_resource_model(),
         thermal_profile=thermal_profile,
         calibration=calibration,
     )
-    mapper.physical_spec = load_physical_spec("nvidia_orin_nano_gpu_8gb_lpddr5")
+    mapper.physical_spec = load_physical_spec_or_none(vendor="nvidia", base_id="nvidia_orin_nano_gpu_8gb_lpddr5")
     return mapper
 
 
@@ -1204,14 +1204,14 @@ def create_jetson_orin_nx_16gb_mapper(
         GPUMapper configured for Jetson Orin NX 16GB
     """
     from ..models.edge.jetson_orin_nx_16gb import jetson_orin_nx_16gb_resource_model
-    from ..physical_spec_loader import load_physical_spec
+    from ..physical_spec_loader import load_physical_spec_or_none
 
     mapper = GPUMapper(
         jetson_orin_nx_16gb_resource_model(),
         thermal_profile=thermal_profile,
         calibration=calibration,
     )
-    mapper.physical_spec = load_physical_spec("nvidia_orin_nx_gpu_16gb_lpddr5")
+    mapper.physical_spec = load_physical_spec_or_none(vendor="nvidia", base_id="nvidia_orin_nx_gpu_16gb_lpddr5")
     return mapper
 
 
@@ -1229,7 +1229,7 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for Jetson Thor 128GB
     """
     from ..models.automotive.jetson_thor_128gb import jetson_thor_128gb_resource_model
-    from ..physical_spec_loader import load_physical_spec
+    from ..physical_spec_loader import load_physical_spec_or_none
 
     mapper = GPUMapper(
         jetson_thor_128gb_resource_model(), thermal_profile=thermal_profile
@@ -1238,7 +1238,7 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
     # thor_gpu_128gb_lpddr5x.yaml. The YAML's 512-bit memory_bus_bits
     # value is incorrect (see branes-ai/embodied-schemas#8); the loader
     # applies a KNOWN_OVERRIDES correction to 256-bit at load time.
-    mapper.physical_spec = load_physical_spec("nvidia_thor_gpu_128gb_lpddr5x")
+    mapper.physical_spec = load_physical_spec_or_none(vendor="nvidia", base_id="nvidia_thor_gpu_128gb_lpddr5x")
     return mapper
 
 
