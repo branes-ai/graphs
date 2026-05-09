@@ -185,6 +185,14 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         name="7W-battery",
         tdp_watts=7.0,
         cooling_solution="passive-heatsink-small",
+        # Memory clock (issue #136 Phase 4). Conservative assumption:
+        # Orin Nano Super silicon supports LPDDR5-6400 (= 3200 MHz
+        # internal DRAM clock) across all nvpmodel profiles. NVIDIA
+        # doesn't publish a clean per-mode DRAM throttling table, so
+        # absent authoritative data we report the silicon's max rate.
+        # Refine in a follow-up when per-mode telemetry confirms or
+        # rejects throttling at 7W.
+        memory_clock_mhz=3200.0,
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -241,6 +249,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         name="15W-Super",
         tdp_watts=15.0,
         cooling_solution="passive-heatsink",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Super silicon's headline rate)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -308,6 +317,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         name="25W-Super",
         tdp_watts=25.0,
         cooling_solution="active-fan",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Super silicon's headline rate)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -366,6 +376,7 @@ def jetson_orin_nano_8gb_resource_model() -> HardwareResourceModel:
         name="MAXN-Super",
         tdp_watts=25.0,  # Super raised TDP cap from 15W to 25W
         cooling_solution="active-fan",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Super silicon's headline rate)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,

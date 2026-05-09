@@ -606,3 +606,71 @@ class TestPhase3MemoryColumn:
         a100 = next(p for p in data["products"] if p["name"] == "A100-SXM4-80GB")
         assert a100["memory_type"] is None
         assert a100["memory_bus_width_bits"] is None
+
+
+class TestPhase4MemoryClock:
+    """Phase 4 of #136: Memory Clock column. Per-profile memory_clock_mhz
+    surfaces from each ThermalOperatingPoint."""
+
+    def test_text_header_includes_mem_mhz_column(self):
+        stdout, _, _ = _run("--category", "gpu")
+        # Header has the new column ('Mem MHz', between 'Bus' and 'TDP').
+        assert "Mem MHz" in stdout
+
+    def test_markdown_header_includes_mem_mhz_column(self, tmp_path):
+        out = tmp_path / "spec.md"
+        _run(output_path=out)
+        assert "Mem MHz" in out.read_text()
+
+    def test_csv_includes_memory_clock_column(self, tmp_path):
+        out = tmp_path / "spec.csv"
+        _run(output_path=out)
+        header = next(csv.reader(out.open()))
+        assert "memory_clock_mhz" in header
+
+    def test_jetson_default_profiles_populated(self, tmp_path):
+        # Phase 4 backfilled all 4 Jetson SKUs with the silicon's
+        # headline DRAM rate. Default-mode rows (the ones rendered
+        # without --profiles all) should show those values.
+        out = tmp_path / "spec.json"
+        _run("--category", "gpu", output_path=out)
+        data = json.loads(out.read_text())
+        nano = next(p for p in data["products"] if p["name"] == "Jetson-Orin-Nano-8GB")
+        agx = next(p for p in data["products"] if p["name"] == "Jetson-Orin-AGX-64GB")
+        nx = next(p for p in data["products"] if p["name"] == "Jetson-Orin-NX-16GB")
+        thor = next(p for p in data["products"] if p["name"] == "Jetson-Thor-128GB")
+        # Orin family at LPDDR5-6400 (3200 MHz internal); Thor at
+        # LPDDR5X-8533 (4267 MHz internal).
+        assert nano["memory_clock_mhz"] == 3200.0
+        assert agx["memory_clock_mhz"] == 3200.0
+        assert nx["memory_clock_mhz"] == 3200.0
+        assert thor["memory_clock_mhz"] == 4267.0
+
+    def test_unpopulated_chips_render_none_for_mem_clock(self, tmp_path):
+        # H100 / A100 / B100 / etc. don't have memory_clock_mhz set on
+        # their thermal_operating_points yet -- they render None
+        # gracefully (-> "N/A" in text/markdown, "" in CSV).
+        out = tmp_path / "spec.json"
+        _run(output_path=out)
+        data = json.loads(out.read_text())
+        h100 = next(p for p in data["products"] if p["name"] == "H100-SXM5-80GB")
+        a100 = next(p for p in data["products"] if p["name"] == "A100-SXM4-80GB")
+        assert h100["memory_clock_mhz"] is None
+        assert a100["memory_clock_mhz"] is None
+
+    def test_profiles_all_propagates_per_profile_memory_clock(self, tmp_path):
+        # Under --profiles all, each Orin Nano alias row carries the
+        # memory_clock_mhz from its specific ThermalOperatingPoint. The
+        # current backfill assigns the same 3200 MHz to all 4 modes
+        # (Super silicon's max); when authoritative throttling data
+        # later refines 7W, the per-profile expansion will reflect that.
+        out = tmp_path / "spec.json"
+        _run("--profiles", "all", "--category", "gpu", output_path=out)
+        data = json.loads(out.read_text())
+        nano_records = [
+            p for p in data["products"]
+            if p["name"].startswith("Jetson-Orin-Nano-8GB@")
+        ]
+        # 4 Nano modes (7W/15W/25W/MAXN), each populated.
+        assert len(nano_records) == 4
+        assert all(r["memory_clock_mhz"] == 3200.0 for r in nano_records)

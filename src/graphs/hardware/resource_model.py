@@ -751,6 +751,18 @@ class ThermalOperatingPoint:
         default_factory=dict
     )
 
+    # Memory clock at this thermal profile, in MHz. Per-profile because
+    # Jetson nvpmodel can throttle DRAM separately from compute clocks
+    # (e.g., Orin Nano 7W mode reduces LPDDR5 to ~2133 MT/s while
+    # Orin Nano 15W runs at the full 6400 MT/s). Issue #136 Phase 4.
+    #
+    # Convention: this is the EFFECTIVE data rate divided by 2 (i.e.,
+    # the internal DRAM clock for DDR-style memory). For LPDDR5-6400
+    # the value is 3200; for HBM3 at 5.23 GT/s the value is ~2615.
+    # Renderers display it as "Memory Clock". None when not yet
+    # populated for a given profile.
+    memory_clock_mhz: Optional[float] = None
+
     def get_effective_ops(self, precision: Precision) -> float:
         """Get actual achieved performance for a precision"""
         perf_spec = self.performance_specs.get(precision)

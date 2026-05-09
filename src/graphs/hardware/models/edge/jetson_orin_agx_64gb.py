@@ -186,6 +186,7 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         name="15W-passive",
         tdp_watts=15.0,
         cooling_solution="passive-heatsink",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -238,6 +239,7 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         name="30W-active",
         tdp_watts=30.0,
         cooling_solution="active-fan",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -296,6 +298,7 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         name="50W-performance",
         tdp_watts=50.0,
         cooling_solution="active-fan-high",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -357,6 +360,7 @@ def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:
         name="MAXN-unconstrained",
         tdp_watts=60.0,  # Can exceed this, triggering throttling
         cooling_solution="active-fan-max",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,

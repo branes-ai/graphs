@@ -187,6 +187,7 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
         name="10W-battery",
         tdp_watts=10.0,
         cooling_solution="passive-heatsink-small",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -236,6 +237,7 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
         name="15W-compact",
         tdp_watts=15.0,
         cooling_solution="passive-heatsink",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -285,6 +287,7 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
         name="25W-standard",
         tdp_watts=25.0,
         cooling_solution="active-fan",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -334,6 +337,7 @@ def jetson_orin_nx_16gb_resource_model() -> HardwareResourceModel:
         name="40W-maxn-super",
         tdp_watts=40.0,
         cooling_solution="active-fan-high",
+        memory_clock_mhz=3200.0,  # LPDDR5-6400 (Orin GA10B silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
