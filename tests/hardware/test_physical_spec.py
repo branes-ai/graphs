@@ -119,7 +119,9 @@ class TestJetsonPhysicalSpecs:
         assert spec.process_node_nm == 8
         assert spec.foundry == "samsung"
         assert spec.architecture == "Ampere"
-        assert spec.launch_date == "2022-11-08"
+        # YAML ground truth (post-Phase-3.5 loader): GTC March 2022 launch
+        # date, $1999 module price.
+        assert spec.launch_date == "2022-03-22"
         assert spec.launch_msrp_usd == 1999.0
 
     def test_orin_nx_chip_fields_match_agx(self):
@@ -140,19 +142,27 @@ class TestJetsonPhysicalSpecs:
         assert nano.die_size_mm2 == agx.die_size_mm2
         assert nano.transistors_billion == agx.transistors_billion
         assert nano.process_node_nm == agx.process_node_nm
-        # Module-level
-        assert nano.launch_date == "2023-03-22"
-        assert nano.launch_msrp_usd == 499.0
+        # Module-level (YAML ground truth post-Phase-3.5):
+        # GTC 2023 announcement date; $199 production module price (not
+        # the $499 dev kit price the Phase 3 literal had).
+        assert nano.launch_date == "2023-03-07"
+        assert nano.launch_msrp_usd == 199.0
 
-    def test_thor_partial_population(self):
-        # Thor's die size and transistor count are not publicly disclosed,
-        # so they remain None. The rest of the chip-level fields plus
-        # module info are populated.
+    def test_thor_estimated_population(self):
+        # Thor's YAML carries ESTIMATED die size + transistor count
+        # (commented as ``# Estimated`` in the source) since NVIDIA hasn't
+        # publicly disclosed exact values. Phase 3.5's loader surfaces
+        # those estimates as-is rather than nulling them out -- the
+        # source citation in physical_spec.source points back to the
+        # YAML where the estimate provenance lives.
         spec = create_jetson_thor_128gb_mapper().physical_spec
         assert spec is not None
-        assert spec.die_size_mm2 is None
-        assert spec.transistors_billion is None
-        assert spec.transistor_density_mtx_mm2 is None  # depends on die + transistors
+        # Estimated values from embodied-schemas YAML
+        assert spec.die_size_mm2 == 600.0
+        assert spec.transistors_billion == 50.0
+        # Density derives from both
+        assert spec.transistor_density_mtx_mm2 is not None
+        # Hard-known fields
         assert spec.process_node_nm == 4
         assert spec.foundry == "tsmc"
         assert spec.architecture == "Blackwell"
