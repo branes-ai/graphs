@@ -1,0 +1,177 @@
+# Session log -- 2026-05-09
+
+**Topic:** PhysicalSpec foundation + profile-as-SKU addressing
+**Branches landed on `main`:** 9 PRs (#133, #134, #135, #137, #138, #139, #141,
+#142, #143)
+**Cross-repo:** `branes-ai/embodied-schemas#7` merged, `#8` filed;
+`branes-ai/embodied-ai-architect#201` merged.
+
+## What we set out to do
+
+The session opened with a small ask: did `graphs` have a script to dump a
+table of name / die size / transistor count / per-precision throughput / TDP
+for every hardware target in the registry? It didn't -- and answering that
+question pulled on a much bigger architectural thread:
+
+1. **Where does chip-level fab data live?** The existing `HardwareResourceModel`
+   captures everything the mapping path (roofline, energy, scheduling) needs,
+   but spec-sheet metadata (die size, transistor count, foundry, process node)
+   doesn't belong on the hot path -- it would just bloat constructors and slow
+   down what's already a tight inner loop.
+2. **Why are there four parallel YAML schemas in embodied-schemas?** GPU, CPU,
+   NPU, and Chip catalogs each have their own structure. 22/22 GPU YAMLs have
+   `die_spec`; 0/52 across CPU/NPU/Chip do.
+3. **How do you address "the same silicon at a different power profile"?**
+   `Jetson-Orin-Nano-8GB` is one piece of silicon but four deployment targets
+   (7W / 15W / 25W / MAXN). The orchestrator needs to talk about the deployment
+   target, not just the silicon.
+
+## Architectural decisions
+
+### `PhysicalSpec` as a sibling, not a member, of `HardwareResourceModel`
+
+We considered three options for where to put fab metadata: nested inside
+`HardwareResourceModel`, hung off the mapper as a separate field, or a global
+catalog keyed by `base_id`. Picked option 2: `mapper.physical_spec: Optional[
+PhysicalSpec]`, initialized to `None` in the base `__init__`, populated
+post-construction by factories that have data.
+
+Why: the mapping path *never* needs `physical_spec`. Roofline and energy
+estimators read `resource_model` and don't care that the H100 is 814 mm² of
+TSMC 4N. Keeping the two structures separate means spec-sheet tooling pays
+zero cost on the hot path.
+
+### Profile-as-alias, not profile-as-entry
+
+We had two ways to make `Jetson-Orin-Nano-8GB@7W` first-class:
+
+1. Register one `HardwareMapper` per (silicon × profile) combination -- 4
+   entries for Orin Nano, all sharing the same silicon-bin metadata.
+2. Register one `HardwareMapper` per silicon and resolve `@profile` aliases
+   at lookup time.
+
+Picked (2). One mapper per silicon means PhysicalSpec data is stored once,
+not duplicated four times; profile-specific differences live on
+`ThermalOperatingPoint` records, which is where they conceptually belong.
+The alias-resolution pass in `get_mapper_by_name` is cheap (longest-prefix
+match against `list_all_mappers()`) and the kwarg `thermal_profile=` always
+wins over an alias-encoded profile so callers can override.
+
+### Single source of truth for fab metadata
+
+Three iterations on this:
+
+- **First pass** (PR #133, #135): inline `PhysicalSpec(...)` literals in
+  factory functions. Fast to write, but the user pushed back: "why are we
+  setting the values in literals instead of using the hardware resource
+  database?" -- correct critique.
+- **Second pass** (PR #139): added `memory_type` / `memory_bus_width_bits` to
+  `PhysicalSpec` and continued the inline-literal pattern, which compounded
+  the duplication problem.
+- **Third pass** (PR #141, "Phase 3.5"): wrote `physical_spec_loader.py`
+  that reads embodied-schemas YAMLs at startup, validates them with a
+  bandwidth-math invariant (`BW = bus_width / 8 * DRAM_rate`, ±5%), and
+  applies field-level corrections for known YAML bugs via a `KNOWN_OVERRIDES`
+  dict cited to upstream issue tracking. Five factories converted; the
+  literal-vs-loader pattern is now established for the remaining 41
+  mappers.
+
+The bandwidth-math validator turned out to be load-bearing: it caught two
+real bugs in the embodied-schemas YAMLs (Thor 512 → 256 bits, Orin Nano 64 →
+128 bits), filed as `embodied-schemas#8`, with the override table acting as
+an interim patch until that issue is resolved. The validator now runs on
+every load, so future bus-width regressions are caught at import time.
+
+## Discoveries / surprises
+
+### NVIDIA Thor's memory bus
+
+User asked to double-check Thor's claimed 512-bit DRAM bus. The math doesn't
+support it: 273 GB/s ÷ 8.533 GT/s = 256 bits. NVIDIA's own Jetson Thor
+announcement blog confirms 256-bit LPDDR5X. The 512-bit figure in
+`embodied-schemas` was wrong -- a YAML transcription error.
+
+This kicked off a more disciplined approach: every bandwidth value needs a
+matching (bus_width, dram_rate) pair, and the validator should reject any
+combination that doesn't match the announced peak ±5%. Orin Nano had the
+same class of bug (64 bits where the datasheet says 128 bits).
+
+### Orin Nano has four power modes, not three
+
+User insisted: 7W / 15W / 25W / MAXN. Our registry had three: 7W, 15W,
+MAXN. Investigation showed that on Orin Nano *Super* silicon, MAXN is
+DVFS-off ("locked at boost, developer/burst") and 25W is DVFS-on
+("production deployment with explicit power cap"). Both share the 25W TDP
+ceiling but differ in DVFS behavior. Added the missing 25W
+`ThermalOperatingPoint`. This was the kind of detail you only learn by
+talking to someone who's actually deployed Jetsons in the field; the spec
+sheet alone doesn't separate the two modes clearly.
+
+### CodeRabbit caught a real issue on EAA #201
+
+Phase 5 (orchestrator update) renamed the dynamic catalog buckets from
+`datacenter_gpu` / `edge_gpu` / `accelerators` / `automotive` to the
+registry-canonical `gpu` / `tpu` / `kpu` / `accelerator` / `dsp`. I forgot
+to apply the same rename to `_FALLBACK_HARDWARE_CATALOG` -- the fallback
+that runs when `graphs` isn't installed. CodeRabbit flagged this as a Major
+finding: in fallback mode, `list_available_hardware(category="gpu")` would
+return "Unknown category" because the fallback bucket was named
+`datacenter_gpu`. Fixed in a review-fix commit + added two regression
+guards to lock in the contract that fallback keys match registry
+categories.
+
+### The Node column overflowed on "Samsung 8LPP"
+
+`cli/list_hardware_resources.py` had a `>10` Node column. "Samsung 8LPP" is
+12 chars; it overflowed and pushed every column after it right, breaking
+row alignment in the text view. User caught it. Widened to `>14` and added
+a `[:13]` truncation guard for the long-foundry-name case
+("GlobalFoundries 12LP"). PR #143.
+
+## What didn't ship
+
+- **Backfilling PhysicalSpec for the remaining 41 mappers.** The
+  loader pattern from Phase 3.5 makes this mechanical -- each factory
+  becomes a one-line `load_physical_spec_or_none(base_id)` call -- but the
+  upstream YAMLs need a coverage pass first (only 22/22 GPUs have
+  `die_spec`; CPUs / NPUs / SoCs are at 0%). Tracked in #130.
+- **Switching the loader to read from a unified `ComputeProduct` schema.**
+  That depends on RFC 0001 (now merged in embodied-schemas) progressing to
+  phase 4. Tracked in #132.
+- **Cross-repo path resolution polish.** The current loader's path
+  resolution (`EMBODIED_SCHEMAS_DATA_DIR` env var > installed package >
+  sibling-clone heuristic) works but emits a one-time stderr warning when
+  it falls back. CI is fine because we set the env var explicitly; local
+  dev workflows that don't set it will see the warning. Acceptable for
+  now; can be revisited if it becomes noisy.
+
+## Cross-repo deployment
+
+Three repos changed in this session:
+
+| Repo | What landed | Tracking |
+|------|-------------|----------|
+| `branes-ai/graphs` | 9 merged PRs (this changelog) | #131 closed; #136 phases 1-4 + 3.5 done; #130, #132 still open |
+| `branes-ai/embodied-schemas` | RFC 0001 merged (PR #7); YAML bug report filed | #8 still open |
+| `branes-ai/embodied-ai-architect` | Phase 5 of #136 -- dynamic catalog from `graphs` (PR #201) | None outstanding from this arc |
+
+The dynamic catalog in EAA is the payoff for everything else. With it, the
+LLM orchestrator's hardware list automatically tracks what `graphs` can
+analyze -- no more drift between "what the agent thinks exists" and "what
+the analysis tools accept." Profile aliases like
+`Jetson-Orin-Nano-8GB@7W` are now first-class deployment-target identifiers
+across all three repos.
+
+## Files of note
+
+| Path | Purpose |
+|------|---------|
+| `src/graphs/hardware/physical_spec.py` | `PhysicalSpec` dataclass |
+| `src/graphs/hardware/physical_spec_loader.py` | YAML loader + bandwidth validator + KNOWN_OVERRIDES |
+| `src/graphs/hardware/mappers/__init__.py` | Profile-alias resolution in `get_mapper_by_name` |
+| `cli/list_hardware_resources.py` | Spec-sheet CLI (4 formats, `--profiles all`) |
+| `docs/assessments/profile-as-sku-addressing.md` | Design doc for #136 |
+| `docs/assessments/compute-product-unification.md` | Design doc for embodied-schemas RFC 0001 |
+| `tests/hardware/test_physical_spec_loader.py` | Loader + override + validator coverage |
+| `tests/hardware/test_profile_aliases.py` | Alias resolution + kwarg precedence |
+| `tests/cli/test_list_hardware_resources.py` | CLI coverage incl. node-column width regression |
