@@ -106,6 +106,12 @@ class HardwareResourceInfo:
     mode: Optional[str] = None             # Profile name, e.g. "7W", "MAXN"
     core_base_mhz: Optional[float] = None
     core_boost_mhz: Optional[float] = None
+    # Phase 4 of #136. Per-profile memory clock from the active
+    # ThermalOperatingPoint.memory_clock_mhz. Internal DRAM clock (data
+    # rate / 2) -- e.g. 3200 for LPDDR5-6400, 4267 for LPDDR5X-8533.
+    # None for profiles whose ThermalOperatingPoint hasn't been
+    # backfilled with the field yet.
+    memory_clock_mhz: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +273,11 @@ def _build_record(
         peak_int16 = _per_profile_peak_gflops(mapper, active_profile, Precision.INT16)
         peak_int8 = _per_profile_peak_gflops(mapper, active_profile, Precision.INT8)
         base_mhz, boost_mhz = _clocks_from_profile(mapper, active_profile)
+        # Phase 4 of #136: per-profile memory clock from the active
+        # ThermalOperatingPoint. Defaults to None for profiles that
+        # haven't been backfilled.
+        active_top = mapper.resource_model.thermal_operating_points.get(active_profile)
+        mem_clock_mhz = active_top.memory_clock_mhz if active_top is not None else None
     else:
         peak_fp64 = _safe_peak_gflops(mapper, Precision.FP64)
         peak_fp32 = _safe_peak_gflops(mapper, Precision.FP32)
@@ -276,6 +287,7 @@ def _build_record(
         peak_int16 = _safe_peak_gflops(mapper, Precision.INT16)
         peak_int8 = _safe_peak_gflops(mapper, Precision.INT8)
         base_mhz, boost_mhz = None, None
+        mem_clock_mhz = None
 
     return HardwareResourceInfo(
         name=name,
@@ -294,6 +306,7 @@ def _build_record(
         mode=active_profile,
         core_base_mhz=base_mhz,
         core_boost_mhz=boost_mhz,
+        memory_clock_mhz=mem_clock_mhz,
         die_size_mm2=spec.die_size_mm2 if spec else None,
         transistors_billion=spec.transistors_billion if spec else None,
         transistor_density_mtx_mm2=spec.transistor_density_mtx_mm2 if spec else None,
@@ -440,6 +453,7 @@ def generate_text_report(
         f"{'Arch':>14}"
         f"{'Memory':>9}"
         f"{'Bus':>6}"
+        f"{'Mem MHz':>9}"
         f"{'TDP (W)':>10}"
         f"{'Base MHz':>10}"
         f"{'Boost MHz':>11}"
@@ -482,6 +496,7 @@ def generate_text_report(
                 f"{(r.architecture or 'N/A')[:13]:>14}"
                 f"{(r.memory_type or 'N/A')[:8]:>9}"
                 f"{_na(r.memory_bus_width_bits):>6}"
+                f"{_na(r.memory_clock_mhz):>9}"
                 f"{r.power_tdp:>10.1f}"
                 f"{_na(r.core_base_mhz):>10}"
                 f"{_na(r.core_boost_mhz):>11}"
@@ -583,10 +598,10 @@ def generate_markdown_report(
         print()
         print(
             "| Hardware | Vendor | Mode | Die mm² | Tx (B) | Mtx/mm² | Node | "
-            "Foundry | Arch | Memory | Bus | TDP (W) | Base MHz | Boost MHz | INT8 TOPS | Launched |"
+            "Foundry | Arch | Memory | Bus | Mem MHz | TDP (W) | Base MHz | Boost MHz | INT8 TOPS | Launched |"
         )
         print(
-            "| --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |"
+            "| --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"
         )
         for r in cat_records:
             print(
@@ -596,6 +611,7 @@ def generate_markdown_report(
                 f"{(r.process_node_name or _na(r.process_node_nm))} | "
                 f"{_na(r.foundry)} | {r.architecture or 'N/A'} | "
                 f"{r.memory_type or 'N/A'} | {_na(r.memory_bus_width_bits)} | "
+                f"{_na(r.memory_clock_mhz)} | "
                 f"{r.power_tdp:.1f} | {_na(r.core_base_mhz)} | {_na(r.core_boost_mhz)} | "
                 f"{r.peak_flops_int8/1000:.1f} | "
                 f"{_na(r.launch_date)} |"

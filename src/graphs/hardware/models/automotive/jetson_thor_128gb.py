@@ -142,6 +142,7 @@ def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
         name="30W-active",
         tdp_watts=30.0,
         cooling_solution="active-fan",
+        memory_clock_mhz=4267.0,  # LPDDR5X-8533 (Thor T5000 silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -192,6 +193,7 @@ def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
         name="60W-active",
         tdp_watts=60.0,
         cooling_solution="active-fan-enhanced",
+        memory_clock_mhz=4267.0,  # LPDDR5X-8533 (Thor T5000 silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
@@ -242,6 +244,7 @@ def jetson_thor_128gb_resource_model() -> HardwareResourceModel:
         name="100W-max",
         tdp_watts=100.0,
         cooling_solution="active-fan-max",
+        memory_clock_mhz=4267.0,  # LPDDR5X-8533 (Thor T5000 silicon spec)
         performance_specs={
             Precision.INT8: PerformanceCharacteristics(
                 precision=Precision.INT8,
