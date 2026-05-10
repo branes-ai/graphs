@@ -300,8 +300,9 @@ All cross-repo work landed via `embodied-schemas` PRs #9, #10, #11 and
 | 4b | Collapse 4 hand-coded factories into thin wrappers around the loader | done (graphs #145–#149) |
 | 5 | Mapper wiring -- `physical_spec` populated on every `create_kpu_t*_mapper()` | done (graphs #144) |
 | 6 | CI gate: every SKU YAML in the catalog validated by the registry on every push | done (graphs #150) |
-| 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | in progress |
-| 8 | **Stage 8 (later)**: DVFS feasibility, memory headroom, yield risk, **floorplanner + viz + geometric validators (KPU checkerboard pitch-match)** | deferred |
+| 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | done (graphs #151) |
+| 8a | Stage 8 floorplanner + ASCII viz + 3 GEOMETRY validators (`floorplan_pitch_match`, `floorplan_within_die_envelope`, `floorplan_aspect_ratio`) -- heuristic v1 (advisory; WARN-max thresholds) | done |
+| 8b | Stage 8 deferred (DVFS feasibility, memory headroom, yield risk, SVG viz, NoC routability validator, calibrate floorplan thresholds against measured silicon) | deferred |
 
 ## File inventory
 
@@ -394,15 +395,46 @@ above keeps each step's blast radius small. Preserved-as-is: the
 loader doesn't change anything until the factories actually get
 swapped over.
 
-## Open items deferred to Stage 8
+## Stage 8 (delivered, heuristic v1)
 
-- Floorplanner utility: takes `silicon_bin` + topology hint, emits 2D placement.
-- Visualization tool: SVG/PNG with annotated dimensions, pitches, IO ring.
-- Geometric constraint validators: pitch-match (KPU checkerboard), aspect ratios,
-  NoC routability, IO placement.
-- Whether cooling-solution -> ceiling table moves into a per-cooling Pydantic
-  field (currently planned to live there from day one) vs validator local
-  default. Resolved: lives in CoolingSolutionEntry.
-- DVFS feasibility validator (does throttling actually let advertised TOPS land?)
+Implemented in this branch:
+
+- `src/graphs/hardware/silicon_floorplan.py` -- `derive_kpu_floorplan(sku, node)`:
+  per-tile-class pitch derivation, unified-pitch mesh layout, PHY strip,
+  IO ring, control corner. Emits `Floorplan` (blocks + tile_pitches).
+- `cli/show_floorplan.py` -- ASCII art renderer with circuit-class
+  glyph legend; `--json` flag for machine-readable output. Auto-discovery
+  of catalog SKUs via `--list`.
+- `src/graphs/hardware/sku_validators/validators/geometry.py` -- 3 GEOMETRY
+  validators:
+  - `floorplan_pitch_match` (KPU checkerboard) -- WARN at >=1.20x ratio
+  - `floorplan_within_die_envelope` -- declared vs derived die area
+  - `floorplan_aspect_ratio` -- die aspect bounds
+- `tests/hardware/test_silicon_floorplan.py` -- 34 tests covering
+  structural correctness, validator registration, and CLI happy paths.
+
+Stage 8 stance: thresholds set so all 4 catalog SKUs land at WARN-max,
+not ERROR. The findings still surface real signal (T768 has 2.34x INT8/
+Matrix pitch mismatch; T64/T128 floorplan area is 1.87x the declared
+die.die_size_mm2). Tightening to ERROR-level is Stage 8b work after
+the heuristic is calibrated against measured silicon.
+
+## Open items deferred to Stage 8b
+
+- SVG / PNG visualization with annotated dimensions, pitches, IO ring
+  (Stage 8a ships ASCII only).
+- Calibrate `_PITCH_RATIO_ERROR` and `_DIE_AREA_RATIO_ERROR` against
+  measured T256 silicon; tighten to ERROR-level once trustable.
+- Resolve T64/T128 floorplan-vs-declared-die mismatch: either rebalance
+  silicon_bin coefficients, adjust declared `die.die_size_mm2`, or
+  refine the floorplan's PHY-strip / IO-ring overhead estimate.
+- NoC routability validator (max wire length per hop, tile-fanout
+  feasibility).
+- IO-pad-pitch validator (pad ring vs IO bandwidth requirements).
+- DVFS feasibility validator (does throttling actually let advertised
+  TOPS land?).
 - Memory bandwidth headroom validator (roofline knee).
-- Process yield risk (D0 × area).
+- Process yield risk (D0 x area).
+- Whether cooling-solution -> ceiling table moves into a per-cooling
+  Pydantic field (currently planned to live there from day one) vs
+  validator local default. Resolved: lives in CoolingSolutionEntry.

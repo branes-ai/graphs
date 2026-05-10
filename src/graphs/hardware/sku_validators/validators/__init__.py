@@ -13,8 +13,15 @@ Phase 2b validator modules:
                composite_density_envelope (AREA)
 - energy:      tops_per_watt_envelope (ENERGY)
 
-Stage-2c / 2d / Stage-8 modules will be appended here as new validators
-arrive.
+Phase 2c/2d additions:
+
+- thermal:     thermal_hotspot (THERMAL)
+- reliability: electromigration (RELIABILITY)
+
+Stage 8 additions (heuristic-v1 floorplan; advisory until calibrated):
+
+- geometry:    floorplan_pitch_match, floorplan_within_die_envelope,
+               floorplan_aspect_ratio (GEOMETRY)
 """
 
 # Importing each module triggers the @register_class decorators inside.
@@ -22,5 +29,6 @@ from . import area  # noqa: F401
 from . import consistency  # noqa: F401
 from . import electrical  # noqa: F401
 from . import energy  # noqa: F401
+from . import geometry  # noqa: F401
 from . import reliability  # noqa: F401
 from . import thermal  # noqa: F401
