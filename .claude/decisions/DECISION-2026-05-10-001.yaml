@@ -1,0 +1,206 @@
+decision_id: "DECISION-2026-05-10-001"
+timestamp: "2026-05-10T21:25:00Z"
+ai_model: "claude-opus-4-7"
+session_id: "631ac2a4-4093-45a6-9ab4-6464f6d49a64"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "Ship two complementary KPU floorplan views (circuit-class + architectural-role) derived from the same silicon_bin, default the CLI to the architectural view, and key memory controllers to memory_type + per-channel I/O width rather than a generic mesh-scaled chunk."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "user_request"
+  content: "Initial: 'proceed to the floorplanner, visualization, and geometric constraint validator'. Mid-session redirect: 'that glyph table at the circuit type level is not useful. We need to see the size of the compute tile, which consists of the compute fabric, the L1, and the L2, and the memory tile which consists of the L3.' Later: 'the die plot shows the wrong checkerboard. Each tile needs to be surrounded by four alternative tile types... memory controllers are not adjusted to the I/Os they drive. memory controller die areas tend to be rectangular not square as they adjust to the shape of the pins they need to drive.'"
+  context: "Stage 8 of docs/designs/kpu-sku-and-process-node-plan.md. The plan reserved Stage 8 for 'floorplanner + viz + geometric constraint validators (KPU checkerboard pitch-match)'. Initial implementation defaulted to a circuit-class binning (HP_LOGIC / SRAM / ANALOG / IO) -- useful for foundry / library reviews but silent on the *primary* architectural concern: do compute tiles share a pitch with the memory tiles they alternate with in the checkerboard? User pushed for an architectural-role binning that surfaces this directly, and over two rounds corrected the checkerboard topology and memory-controller sizing to match how real silicon is built."
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+  - option: "Single circuit-class view only (Stage 8a as shipped first)"
+    pros:
+      - "Smaller surface area, one derivation function, one renderer"
+      - "Direct consumer of silicon_bin block.circuit_class field; no architectural reinterpretation needed"
+      - "Useful for foundry / library validation: tells you how much HP_LOGIC vs SRAM vs ANALOG was built"
+    cons:
+      - "Hides the primary KPU geometric concern (compute pitch vs memory pitch in the checkerboard pairing)"
+      - "Compute tile classes Matrix and BF16-primary both use HP_LOGIC, so they're indistinguishable in glyphs"
+      - "User cannot see which class drives die size or whitespace -- just sees aggregate library areas"
+      - "Memory controllers presented as ANALOG blocks aggregated into one PHY strip -- no channel structure"
+    selected: false
+    rejected_reason: "Primary review use case (architecture review of an SKU) is not served. The user redirected after seeing the first cut: architectural roles + per-class areas + what-if-all-class-X die estimates were the actually-actionable signal."
+
+  - option: "Replace circuit-class view with architectural-role view as the only view"
+    pros:
+      - "Single canonical view; less code to maintain"
+      - "Forces every consumer to use the new abstraction"
+      - "Simpler mental model"
+    cons:
+      - "Loses the foundry-library-tag information that the circuit-class view exposes (e.g., 'how much SRAM_HD did we build?')"
+      - "Existing Stage 8a tests + 3 GEOMETRY validators built against the circuit-class derivation would need to be rewritten or thrown away"
+      - "The two views answer fundamentally different questions; collapsing them muddles both"
+    selected: false
+    rejected_reason: "Both questions are legitimate and have different audiences. Collapsing would force a single binning to serve both, which is awkward; keeping them as siblings is cleaner."
+
+  - option: "Two complementary views (circuit-class + architectural-role), default CLI to architectural"
+    pros:
+      - "Each view answers exactly one question well: circuit = 'what was built (library-wise)', architectural = 'what does what (role-wise)'"
+      - "Both share the same silicon_bin classification helper (`_classify_silicon_bin_blocks`) so per-tile area math is single-sourced"
+      - "Stage 8a code (3 validators + circuit derivation + circuit JSON/CSV/MD renderers) survives unchanged as `--view circuit`"
+      - "Stage 8b adds 2 new GEOMETRY validators that operate on the architectural derivation (`floorplan_compute_memory_pitch_match`, `floorplan_whitespace_fraction`) -- they catch concerns the circuit-class validators can't see"
+      - "Architectural view becomes the new default because it's what the user reaches for during architecture review"
+      - "Clear path for Stage 8c: SVG/HTML renderer can render either view without choosing"
+    cons:
+      - "More code (1510 lines in silicon_floorplan.py vs ~570 if circuit-only)"
+      - "Two glyph maps to maintain in cli/show_floorplan.py (one per view)"
+      - "User has to know which view they want (mitigated by sensible default + `--view` flag)"
+      - "5 GEOMETRY validators total (some firing on the same SKU from different angles) -- need to clearly differentiate findings in messages"
+    selected: true
+    selected_reason: "The two views cleanly separate two real concerns. Foundry-library validation (which class of cells consumes the most silicon) and architectural-role validation (does the checkerboard pitch-match) have different audiences and shouldn't be force-fit into one binning. The shared `_classify_silicon_bin_blocks` keeps the math single-sourced; the per-view layout strategy diverges where the underlying questions diverge."
+
+  - option: "(Within the architectural view) Memory controllers as N=4 default square chunks scaled by sqrt(silicon_bin_phy_area / 4)"
+    pros:
+      - "Doesn't require knowing memory_type"
+      - "Single piece of information needed: total PHY area from silicon_bin"
+      - "Renders trivially in any aspect"
+    cons:
+      - "Architecturally wrong: real PHY blocks are rectangular, sized by per-channel I/O width and bump pattern (LPDDR ~5:1 stripes, HBM ~1.5:1 microbumps)"
+      - "MC count != memory.memory_controllers (T256 has 16 LPDDR ch, T768 has 8 HBM stacks; default 4 hides this)"
+      - "MC area scales with mesh size, hiding the I/O-perimeter constraint that often DRIVES die size"
+      - "User immediately flagged this as wrong on inspection"
+    selected: false
+    rejected_reason: "The user pointed out that memory controller area is bump-pitch-driven, not mesh-driven, and that LPDDR vs HBM have very different MC shapes. Hiding this in a default-4 generic chunk wastes the schema info we already have."
+
+  - option: "(Within the architectural view) Memory controllers from sku.kpu_architecture.memory.{memory_type, memory_controllers, memory_bus_bits} with rectangular MCs sized by per-channel I/O width"
+    pros:
+      - "MC count matches the schema (T256=16, T128=8, T64=4, T768=8 -- not a default)"
+      - "Per-channel area + aspect ratio are memory-type-specific (lpddr5 narrow stripes, hbm3 squarer microbump arrays)"
+      - "Off-die DRAM channel labels paired 1:1 with MCs let the user see MC<->channel connectivity"
+      - "Die expands when channels x long_dim > mesh edge -- preserves the invariant that MC area is independent of mesh size"
+      - "Surfaces the cost of memory-system choices (T768 HBM3 die: 1214 mm^2 mostly because Matrix tiles dominate the unified pitch)"
+    cons:
+      - "Per-channel area heuristic (`_PER_CHANNEL_PHY_AREA_MM2`) is uncalibrated; real PDK numbers will differ"
+      - "Aspect ratios are typed but coarse (one number per memory family)"
+      - "Need lookup tables for every memory type the catalog might use (currently lpddr4/4x/5/5x, ddr4/5, gddr6/6x, hbm2/2e/3/3e)"
+    selected: true
+    selected_reason: "The schema already exposes channel count + memory type + bus width. Using them produces a much more architecturally faithful view that reveals real design tradeoffs. Calibrating the per-channel area heuristic against PDK data is Stage 8c follow-up and doesn't block shipping."
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 3       # validators/__init__.py, test_sku_validators_phase2cd.py, kpu-sku-and-process-node-plan.md
+  files_created: 4        # silicon_floorplan.py, show_floorplan.py, validators/geometry.py, test_silicon_floorplan.py
+  files_deleted: 0
+  lines_added: 3498
+  lines_removed: 19
+  breaking_changes: false  # additive: existing circuit-class derive_kpu_floorplan unchanged
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 74      # 73 new tests + 1 modified count assertion
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "Ran pytest tests/hardware/ tests/validation_model_v4/"
+    result: "837 passed, 4 skipped, 4 xfailed"
+  - action: "Rendered all 4 catalog SKUs in both views (circuit + architectural) at --width 80 and --width 110"
+    result: "All renderings clean; checkerboard structure visible; MCs distributed correctly; IO ring intact; control logic outside mesh"
+  - action: "T768 architectural view manually inspected"
+    result: "Surfaces 3.59x compute/memory pitch ratio (Matrix tiles 0.508mm vs memory 0.142mm), 76% architectural whitespace, all-INT8 alternative is 471 mm^2 (61% smaller than mixed 1214 mm^2). Validator findings match the visible reality."
+  - action: "T256 LPDDR5 placement verified vs schema"
+    result: "16 controllers placed (matches memory.memory_controllers=16), each ~2.93x0.59 mm rectangular stripe (5:1 aspect for LPDDR), 4 per edge with corners reserved for vertical MCs"
+  - action: "T768 HBM3 placement verified vs schema"
+    result: "8 controllers placed (matches memory.memory_controllers=8), each ~3.61x2.40 mm (1.5:1 aspect for HBM), 2 per edge"
+  - action: "CLI auto-format dispatch tested"
+    result: "--output fp.json/.csv/.md all produce correct format; --width 0 rejected with clear error"
+  - action: "PR #152 CI"
+    result: "18/18 checks pass: Tests (Python 3.10/3.11/3.12), Hardware Tests, V4 Model Validation, SKU Catalog Gate, CodeQL, CodeRabbit, CLI Tools, Code Quality, Composition Check, Data Hygiene, Examples, Package Installation"
+  - action: "CodeRabbit review resolution"
+    result: "All 6 actionable findings + 5 lint findings resolved in commit 754f7bf; subsequent CodeRabbit review filed no new actionable items"
+  - action: "PR #152 merged as squash commit 48cb7e7 onto main"
+    result: "Branch deleted, main green"
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "Per-channel PHY area heuristic (`_PER_CHANNEL_PHY_AREA_MM2`) is uncalibrated; real PDK numbers may differ by 2-3x"
+    mitigation: "Stage 8c calibration against measured silicon. The lookup table is centralized so calibration is a single-file edit. Validator thresholds set high (WARN-max, never ERROR for current SKUs) so uncalibrated heuristic doesn't fail CI."
+    severity: "low"
+    likelihood: "high"
+  - risk: "Two views diverge in subtle ways over time (e.g., one gets a bug fix the other doesn't)"
+    mitigation: "Shared `_classify_silicon_bin_blocks` helper does the silicon_bin -> per-tile-area math once; per-view code only diverges in layout + glyph + summary. Tests parametrize over the catalog and exercise both views, catching divergence."
+    severity: "medium"
+    likelihood: "low"
+  - risk: "Architectural view glyphs (C/M/D/:/*) make every compute tile look identical -- user can't visually distinguish INT8 from BF16 from Matrix"
+    mitigation: "Per-class area summary table prints alongside the ASCII; class differences surface there. SVG/HTML renderer (Stage 8c) can colour-code by class without symbol pressure."
+    severity: "low"
+    likelihood: "medium"
+  - risk: "Floor-consistent rasterizer rounding (vs round-half-up) chosen for tile uniformity may produce 1-pixel gaps or overlaps for non-tile-aligned blocks at unfortunate canvas widths"
+    mitigation: "Min-1-cell rule ensures no block ever collapses to zero. ASCII at width=80 verified across all 4 SKUs; SVG renderer (Stage 8c) won't have this rasterization concern."
+    severity: "low"
+    likelihood: "low"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "documentation"
+    path: "docs/designs/kpu-sku-and-process-node-plan.md"
+    section: "Stage 8 (delivered, heuristic v1)"
+  - type: "code"
+    path: "src/graphs/hardware/silicon_floorplan.py"
+    section: "derive_kpu_floorplan + derive_kpu_architectural_floorplan"
+  - type: "code"
+    path: "cli/show_floorplan.py"
+    section: "main() with --view {architectural,circuit}"
+  - type: "code"
+    path: "src/graphs/hardware/sku_validators/validators/geometry.py"
+    section: "5 GEOMETRY validators"
+  - type: "code"
+    path: "tests/hardware/test_silicon_floorplan.py"
+    section: "74 parametrized tests"
+  - type: "pr"
+    path: ""
+    section: ""
+    url: "https://github.com/branes-ai/graphs/pull/152"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-05-10T21:11:59Z"  # PR #152 merge timestamp
+  comments: "Merged as commit 48cb7e7. CodeRabbit findings resolved in 754f7bf; no new feedback on the resolution commit."
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "Calibrate _PITCH_RATIO_ERROR, _DIE_AREA_RATIO_ERROR, _WHITESPACE_FRACTION_ERROR against measured T256 silicon; tighten WARN -> ERROR thresholds"
+    owner: "stillwater"
+    due_date: ""
+    status: "pending"
+  - action: "Resolve T64/T128 floorplan-vs-declared-die mismatch (1.87x): rebalance silicon_bin coefficients, adjust declared die_size_mm2, or refine PHY-strip/IO-ring overhead estimate"
+    owner: "stillwater"
+    due_date: ""
+    status: "pending"
+  - action: "SVG / HTML renderer with NoC topology overlay (2D mesh / ring / CLOS)"
+    owner: ""
+    due_date: ""
+    status: "pending"
+  - action: "Calibrate _PER_CHANNEL_PHY_AREA_MM2 against PDK data per memory type"
+    owner: ""
+    due_date: ""
+    status: "pending"
+  - action: "NoC routability validator (max wire length per hop, tile-fanout feasibility)"
+    owner: ""
+    due_date: ""
+    status: "pending"
