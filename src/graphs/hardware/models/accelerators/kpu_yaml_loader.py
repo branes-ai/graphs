@@ -627,14 +627,28 @@ def load_kpu_resource_model_from_yaml(
     peak_bandwidth_bps = mem.memory_bandwidth_gbps * 1e9
     main_memory_bytes = int(mem.memory_size_gb * 1024**3)
     l3_per_tile_bytes = mem.l3_kib_per_tile * 1024
-    l3_total_bytes = l3_per_tile_bytes * sku.kpu_architecture.total_tiles
     # The historical "l1_cache_per_unit" on KPU resource models is the
     # per-tile scratchpad (= L3 in the per-tile-L3 vocabulary). Map there
     # so existing consumers see the same field semantics.
     l1_cache_per_unit_bytes = l3_per_tile_bytes
-    # "l2_cache_total" historically held the chip-wide shared SRAM
-    # rolled to one number. Use total L3 in this loader for parity.
-    l2_cache_total_bytes = l3_total_bytes
+    # "l2_cache_total" on the resource_model is read by KPUMapper as
+    # ADDITIVE to ``num_tiles * l1_cache_per_unit`` to compute total
+    # on-chip capacity, so it must NOT also include the per-tile L3
+    # (that would double-count). The hand-coded factories pre-Phase-4b
+    # used per-SKU literal values matching this convention; the loader
+    # mirrors them here so PR 5 (factory collapse) is purely mechanical.
+    # Architectural note: M0.5 has no chip-wide L2 above per-tile L3;
+    # these values are legacy-architectural placeholders. Eventual
+    # cleanup tracked in docs/designs/kpu-test-contract-snapshot.md.
+    _LEGACY_L2_CACHE_TOTAL_MB = {
+        "stillwater_kpu_t64":  4,
+        "stillwater_kpu_t128": 8,
+        "stillwater_kpu_t256": 16,
+        "stillwater_kpu_t768": 32,
+    }
+    l2_cache_total_bytes = (
+        _LEGACY_L2_CACHE_TOTAL_MB.get(base_id, 0) * 1024 * 1024
+    )
 
     # Per-PE thread count proxy: the largest tile-class PE array. Used
     # by mappers that compute parallelism budgets.

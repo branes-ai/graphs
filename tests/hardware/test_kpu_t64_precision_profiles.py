@@ -32,11 +32,16 @@ def test_kpu_t64_lists_precision(kpu_t64, precision):
 @pytest.mark.parametrize(
     "precision,expected_tops",
     [
-        (Precision.INT4, 132.8),
-        (Precision.INT8, 66.4),
-        (Precision.BF16, 33.2),
-        (Precision.FP16, 33.2),
-        (Precision.FP32, 1.5),
+        # Phase 4b PR 4 reconciled to M0.5 / loader values. Previous
+        # numbers came from a pre-M0.5 16x16 PE-array model that
+        # contradicted the 32x32 ops_per_tile_per_clock already declared
+        # in this file's TileSpecialization block. See
+        # docs/designs/kpu-test-contract-snapshot.md sections 1, 5.
+        (Precision.INT4, 162.2),  # 44 INT8-tiles x 4096 INT4 x 900 MHz
+        (Precision.INT8, 118.0),  # 64 tiles x 2048 INT8 x 900 MHz
+        (Precision.BF16, 59.0),   # 64 tiles x 1024 BF16 x 900 MHz
+        (Precision.FP16, 59.0),   # = BF16 throughput (same datapath)
+        (Precision.FP32, 6.0),    # 13 BF16-primary tiles x 512 FP32 x 900 MHz
     ],
 )
 def test_kpu_t64_peak_ops(kpu_t64, precision, expected_tops):
