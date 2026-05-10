@@ -10,6 +10,11 @@ The validator package self-registers a category-by-category set of
 checks at import time (consistency, electrical, area, energy, thermal,
 reliability). Use ``--category`` to focus on one risk class.
 
+Phase 6 catalog gate: pass ``--all`` (in place of an SKU id) to validate
+every KPU SKU in the embodied-schemas catalog and exit non-zero on any
+ERROR. Identical contract to ``tests/hardware/test_sku_catalog_validation.py``;
+useful for human-driven sweeps.
+
 Usage:
     python cli/validate_sku.py stillwater_kpu_t256
     python cli/validate_sku.py stillwater_kpu_t768 --category thermal
@@ -17,6 +22,8 @@ Usage:
     python cli/validate_sku.py stillwater_kpu_t256 --output findings.json
     python cli/validate_sku.py stillwater_kpu_t256 --output findings.csv
     python cli/validate_sku.py stillwater_kpu_t256 --output findings.md
+    python cli/validate_sku.py --all                  # gate every catalog SKU
+    python cli/validate_sku.py --all --strict         # also fail on warnings
 
 Exit codes:
     0 = no ERROR findings (or filtered out by --severity)
@@ -158,6 +165,76 @@ def _render_csv(findings: List[Finding], sku_id: str, validator_count: int) -> s
     return buf.getvalue()
 
 
+def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
+    """Phase 6 catalog gate -- iterate over every KPU SKU and report
+    a per-SKU table to stdout. Returns non-zero on any ERROR finding
+    (or any WARNING if ``--strict``).
+    """
+    from embodied_schemas import load_kpus
+    try:
+        kpus = load_kpus()
+    except Exception as exc:
+        print(f"error: failed to load KPU catalog: {exc}", file=sys.stderr)
+        return 2
+
+    if not kpus:
+        print("error: KPU catalog is empty", file=sys.stderr)
+        return 2
+
+    print(f"=== SKU catalog gate ({len(kpus)} SKUs, "
+          f"{validator_count} validators) ===")
+    print(f"  {'sku_id':32s} {'errors':>6s} {'warnings':>9s} {'info':>5s}  status")
+
+    overall_errors = 0
+    overall_warnings = 0
+    failed_skus: List[str] = []
+
+    for sku_id in sorted(kpus):
+        try:
+            ctx = build_context_for_kpu(sku_id)
+        except ContextError as exc:
+            print(f"  {sku_id:32s} {'-':>6s} {'-':>9s} {'-':>5s}  context-error: {exc}")
+            failed_skus.append(sku_id)
+            continue
+
+        if args.category:
+            cat = ValidatorCategory(args.category)
+            findings = default_registry.run_category(ctx, cat)
+        else:
+            findings = default_registry.run_all(ctx)
+        if args.severity:
+            findings = filter_findings(
+                findings, min_severity=Severity(args.severity)
+            )
+
+        n_err = sum(1 for f in findings if f.severity == Severity.ERROR)
+        n_warn = sum(1 for f in findings if f.severity == Severity.WARNING)
+        n_info = sum(1 for f in findings if f.severity == Severity.INFO)
+        overall_errors += n_err
+        overall_warnings += n_warn
+
+        status = "ok"
+        if n_err > 0:
+            status = "FAIL"
+            failed_skus.append(sku_id)
+        elif args.strict and n_warn > 0:
+            status = "FAIL (--strict)"
+            failed_skus.append(sku_id)
+
+        print(f"  {sku_id:32s} {n_err:>6d} {n_warn:>9d} {n_info:>5d}  {status}")
+
+    print()
+    print(f"Catalog summary: {overall_errors} error(s), "
+          f"{overall_warnings} warning(s) across {len(kpus)} SKU(s)")
+
+    if failed_skus:
+        print(f"\nFailing SKUs ({len(failed_skus)}):")
+        for sku in failed_skus:
+            print(f"  - {sku}")
+        return 1
+    return 0
+
+
 def _detect_format(output: Optional[str]) -> str:
     if not output:
         return "text"
@@ -172,7 +249,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run SKU validators against a KPU SKU and report findings."
     )
-    parser.add_argument("sku_id", help="SKU id, e.g., stillwater_kpu_t256")
+    sku_group = parser.add_mutually_exclusive_group(required=True)
+    sku_group.add_argument(
+        "sku_id", nargs="?", help="SKU id, e.g., stillwater_kpu_t256"
+    )
+    sku_group.add_argument(
+        "--all",
+        action="store_true",
+        help="Phase 6 catalog gate: validate every KPU SKU in the "
+        "embodied-schemas catalog. Exit non-zero on any ERROR finding "
+        "across the whole catalog.",
+    )
     parser.add_argument(
         "--category",
         choices=sorted(c.value for c in ValidatorCategory),
@@ -186,7 +273,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         help="Output file. Format auto-detected from extension (.json/.md/.txt). "
-        "Default: stdout text.",
+        "Default: stdout text. Ignored in --all mode.",
     )
     parser.add_argument(
         "--strict",
@@ -197,6 +284,10 @@ def main() -> int:
 
     # Trigger validator self-registration.
     validator_count = load_validators()
+
+    # ---- --all mode: catalog sweep ----
+    if args.all:
+        return _run_catalog_sweep(args, validator_count)
 
     # Build context.
     try:
