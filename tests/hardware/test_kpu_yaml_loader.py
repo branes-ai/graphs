@@ -183,3 +183,155 @@ def test_loader_unresolved_process_node_raises(catalogs):
             kpus={bad_sku.id: bad_sku},
             process_nodes=catalogs["process_nodes"],
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4b PR 2: tile_energy_model + soc_fabric
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_loader_populates_tile_energy_model(sku_id, catalogs):
+    """The loader must attach a KPUTileEnergyModel; the existing factory
+    factories also do this, so analyzers expect it to be present."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    assert m.tile_energy_model is not None
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_tile_energy_model_architectural_shape_matches_yaml(sku_id, catalogs):
+    """num_tiles, tile_mesh_dimensions, l1/l2/l3 sizes, dram bandwidth,
+    clock are all direct reads from the SKU YAML."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    sku = catalogs["kpus"][sku_id]
+    arch = sku.kpu_architecture
+    tem = m.tile_energy_model
+    assert tem.num_tiles == arch.total_tiles
+    assert tem.tile_mesh_dimensions == (arch.noc.mesh_rows, arch.noc.mesh_cols)
+    assert tem.dram_bandwidth_gb_s == arch.memory.memory_bandwidth_gbps
+    assert tem.l3_size_per_tile == arch.memory.l3_kib_per_tile * 1024
+    assert tem.l2_size_per_tile == arch.memory.l2_kib_per_tile * 1024
+    assert tem.l1_size_per_pe == arch.memory.l1_kib_per_pe * 1024
+    # Default profile clock
+    default = next(
+        p for p in sku.power.thermal_profiles
+        if p.name == sku.power.default_thermal_profile
+    )
+    assert tem.clock_frequency_hz == default.clock_mhz * 1e6
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_tile_energy_model_pes_per_tile_uses_dominant_class(sku_id, catalogs):
+    """pes_per_tile reads from the tile class with the largest num_tiles
+    (the dominant compute class). For all 4 Stillwater SKUs this is the
+    INT8-primary class."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    sku = catalogs["kpus"][sku_id]
+    dominant = max(sku.kpu_architecture.tiles, key=lambda t: t.num_tiles)
+    expected = dominant.pe_array_rows * dominant.pe_array_cols
+    assert m.tile_energy_model.pes_per_tile == expected
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_tile_energy_model_mac_energies_in_plausible_range(sku_id, catalogs):
+    """MAC energies must land in the same range the existing
+    test_kpu_*_gemm tests expect for energy_per_mac_j (0.3-1.5 pJ for
+    16 nm, scaling down at advanced nodes). The loader pulls from the
+    process node's energy_per_op_pj table."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    tem = m.tile_energy_model
+    # All four current SKUs have these; relaxed plausibility ranges.
+    assert 0.05e-12 <= tem.mac_energy_int8 <= 5e-12, \
+        f"INT8 MAC energy {tem.mac_energy_int8 * 1e12:.3f} pJ implausible"
+    assert 0.1e-12 <= tem.mac_energy_bf16 <= 10e-12, \
+        f"BF16 MAC energy {tem.mac_energy_bf16 * 1e12:.3f} pJ implausible"
+    assert 0.1e-12 <= tem.mac_energy_fp32 <= 20e-12, \
+        f"FP32 MAC energy {tem.mac_energy_fp32 * 1e12:.3f} pJ implausible"
+    # FP32 should be at least as expensive as BF16 which is at least as
+    # expensive as INT8 (datapath width ratios).
+    assert tem.mac_energy_int8 <= tem.mac_energy_bf16 <= tem.mac_energy_fp32
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_tile_energy_model_dram_phy_energy_per_byte(sku_id, catalogs):
+    """DRAM read energy comes from the per-memory-type table (LPDDR5
+    = 10 pJ/byte, HBM3 = 6 pJ/byte, etc.); write is 1.2x read."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    tem = m.tile_energy_model
+    # Read >= write is wrong; write is heavier.
+    assert tem.dram_write_energy_per_byte > tem.dram_read_energy_per_byte
+    # Both in plausible 4-15 pJ/byte range.
+    assert 4e-12 <= tem.dram_read_energy_per_byte <= 15e-12
+    assert 4e-12 <= tem.dram_write_energy_per_byte <= 18e-12
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_tile_energy_model_sram_hierarchy_inversely_ordered(sku_id, catalogs):
+    """L1 <= L2 <= L3 <= DRAM in per-byte energy (closer to PE = cheaper)."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    tem = m.tile_energy_model
+    assert tem.l1_read_energy_per_byte < tem.l2_read_energy_per_byte
+    assert tem.l2_read_energy_per_byte < tem.l3_read_energy_per_byte
+    assert tem.l3_read_energy_per_byte < tem.dram_read_energy_per_byte
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_loader_populates_soc_fabric(sku_id, catalogs):
+    """The loader must attach a SoCFabricModel matching the YAML's
+    kpu_architecture.noc declaration."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    assert m.soc_fabric is not None
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_soc_fabric_topology_and_dimensions_match_yaml(sku_id, catalogs):
+    """topology, mesh_dimensions, flit_size_bytes, controller_count,
+    bisection_bandwidth_gbps -- all direct reads from
+    kpu_architecture.noc + total_tiles."""
+    from graphs.hardware.fabric_model import Topology
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    sku = catalogs["kpus"][sku_id]
+    noc = sku.kpu_architecture.noc
+    fab = m.soc_fabric
+    # All 4 Stillwater SKUs use mesh_2d
+    assert fab.topology == Topology.MESH_2D
+    assert fab.low_confidence is False
+    assert fab.mesh_dimensions == (noc.mesh_rows, noc.mesh_cols)
+    assert fab.flit_size_bytes == noc.flit_bytes
+    assert fab.controller_count == sku.kpu_architecture.total_tiles
+    if noc.bisection_bandwidth_gbps is not None:
+        assert fab.bisection_bandwidth_gbps == noc.bisection_bandwidth_gbps
+
+
+def test_soc_fabric_unknown_topology_marks_low_confidence(catalogs):
+    """Unknown topology strings should produce Topology.UNKNOWN with
+    low_confidence=True instead of crashing -- defensive behavior so
+    new YAML topology values land cleanly even before the enum map
+    is updated."""
+    from graphs.hardware.fabric_model import Topology
+    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    bad_arch = real.kpu_architecture.model_copy(
+        update={"noc": real.kpu_architecture.noc.model_copy(
+            update={"topology": "future_topology_3d_torus"}
+        )}
+    )
+    bad_sku = real.model_copy(update={"kpu_architecture": bad_arch})
+    m = load_kpu_resource_model_from_yaml(
+        bad_sku.id,
+        kpus={bad_sku.id: bad_sku},
+        process_nodes=catalogs["process_nodes"],
+    )
+    assert m.soc_fabric.topology == Topology.UNKNOWN
+    assert m.soc_fabric.low_confidence is True
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_loader_output_remains_kpu_mapper_compatible(sku_id, catalogs):
+    """The KPUMapper energy paths use ``mapper.tile_energy_model``;
+    confirm the loader-populated model passes through cleanly."""
+    from graphs.hardware.mappers.accelerators.kpu import KPUMapper
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    mapper = KPUMapper(m)
+    # The mapper reads l1_cache_per_unit, l2_cache_total, num_tiles --
+    # verify they're consistent with the loaded model.
+    assert mapper.num_tiles == m.tile_energy_model.num_tiles
+    assert mapper.scratchpad_per_tile == m.l1_cache_per_unit
