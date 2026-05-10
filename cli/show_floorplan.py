@@ -50,6 +50,7 @@ from graphs.hardware.silicon_floorplan import (
     ArchTile,
     Floorplan,
     FloorplanBlock,
+    MemoryChannel,
     TileRole,
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
@@ -71,9 +72,22 @@ _ARCH_GLYPH_BY_ROLE = {
     TileRole.CONTROL: "*",
 }
 
+# Off-die channel glyphs by edge -- each channel is a strip of these
+# characters running parallel to its edge.
+_CHANNEL_GLYPH_BY_EDGE = {
+    "top": "=",
+    "bottom": "=",
+    "left": "|",
+    "right": "|",
+}
+
 
 def _arch_glyph_for(block: ArchTile) -> str:
     return _ARCH_GLYPH_BY_ROLE.get(block.role, "?")
+
+
+def _channel_glyph_for(ch: MemoryChannel) -> str:
+    return _CHANNEL_GLYPH_BY_EDGE.get(ch.edge, "#")
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +164,10 @@ def _render_architectural_summary(fp: ArchitecturalFloorplan) -> str:
         f"  blocks:            compute={len(fp.compute_tiles())}, "
         f"memory={len(fp.memory_tiles())}, "
         f"controllers={fp.num_memory_controllers}",
+        f"  memory subsystem:  {fp.memory_type}  "
+        f"channels={fp.num_memory_controllers}  "
+        f"width/ch={fp.per_channel_width_bits}b  "
+        f"PHY/ch={fp.per_channel_phy_area_mm2:.2f} mm^2",
         "",
         "Compute tile classes (PE + L2 per tile):",
     ]
@@ -199,18 +217,66 @@ def _arch_glyph_legend(fp: ArchitecturalFloorplan) -> str:
     for role, glyph in _ARCH_GLYPH_BY_ROLE.items():
         if role in used:
             parts.append(f"{glyph}={role.value}")
+    if fp.memory_channels:
+        # Show the off-die channel glyphs in the legend too
+        edges_used = {ch.edge for ch in fp.memory_channels}
+        ch_glyphs = sorted({_CHANNEL_GLYPH_BY_EDGE[e] for e in edges_used})
+        parts.append(
+            f"{'/'.join(ch_glyphs)}=dram_channel ({fp.memory_type} "
+            f"{fp.per_channel_width_bits}b)"
+        )
     return "  Legend: " + "  ".join(parts)
 
 
 def render_architectural_ascii(
     fp: ArchitecturalFloorplan, *, char_width: int = 80
 ) -> str:
-    pairs = [
-        ((b.x_mm, b.y_mm, b.width_mm, b.height_mm), _arch_glyph_for(b))
-        for b in fp.blocks
-    ]
+    """Render the die + off-die DRAM channels in a single canvas.
+
+    Channels live just outside the die boundary at negative or beyond-
+    die-edge coordinates. The renderer expands the canvas to include
+    them and translates everything into canvas coordinates so the
+    visual MC <-> channel association is preserved.
+    """
+    # Compute outer margins from channel placements
+    top_margin = 0.0
+    right_margin = 0.0
+    bottom_margin = 0.0
+    left_margin = 0.0
+    for ch in fp.memory_channels:
+        if ch.edge == "top":
+            top_margin = max(top_margin, ch.height_mm)
+        elif ch.edge == "bottom":
+            bottom_margin = max(bottom_margin, ch.height_mm)
+        elif ch.edge == "left":
+            left_margin = max(left_margin, ch.width_mm)
+        elif ch.edge == "right":
+            right_margin = max(right_margin, ch.width_mm)
+
+    canvas_w = fp.die_width_mm + left_margin + right_margin
+    canvas_h = fp.die_height_mm + bottom_margin + top_margin
+    if canvas_w <= 0 or canvas_h <= 0:
+        return "(empty floorplan)"
+
+    pairs = []
+    # Die blocks: translate by (left_margin, bottom_margin)
+    for b in fp.blocks:
+        pairs.append((
+            (b.x_mm + left_margin, b.y_mm + bottom_margin,
+             b.width_mm, b.height_mm),
+            _arch_glyph_for(b),
+        ))
+    # Off-die channels: translate. Channels for 'top' have y_mm >=
+    # die_height_mm; 'bottom' have y_mm < 0; etc. Translation aligns
+    # them in canvas space.
+    for ch in fp.memory_channels:
+        pairs.append((
+            (ch.x_mm + left_margin, ch.y_mm + bottom_margin,
+             ch.width_mm, ch.height_mm),
+            _channel_glyph_for(ch),
+        ))
     return _render_blocks_to_ascii(
-        pairs, fp.die_width_mm, fp.die_height_mm, char_width=char_width
+        pairs, canvas_w, canvas_h, char_width=char_width
     )
 
 
@@ -227,6 +293,20 @@ def _arch_to_dict(fp: ArchitecturalFloorplan) -> dict:
         "whitespace_mm2": fp.whitespace_mm2(),
         "whitespace_fraction": fp.whitespace_fraction(),
         "num_memory_controllers": fp.num_memory_controllers,
+        "memory_type": fp.memory_type,
+        "per_channel_width_bits": fp.per_channel_width_bits,
+        "per_channel_phy_area_mm2": fp.per_channel_phy_area_mm2,
+        "memory_channels": [
+            {
+                "channel_id": ch.channel_id,
+                "memory_type": ch.memory_type,
+                "width_bits": ch.width_bits,
+                "x_mm": ch.x_mm, "y_mm": ch.y_mm,
+                "width_mm": ch.width_mm, "height_mm": ch.height_mm,
+                "controller_name": ch.controller_name,
+                "edge": ch.edge,
+            } for ch in fp.memory_channels
+        ],
         "compute_summaries": {
             tc: {
                 "num_tiles": s.num_tiles,

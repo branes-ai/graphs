@@ -687,6 +687,45 @@ class MemoryClassSummary:
 
 
 @dataclass(frozen=True)
+class MemoryChannel:
+    """Off-die DRAM channel + connectivity to its driving memory
+    controller.
+
+    Drawn just OUTSIDE the die boundary by the visualizer so the
+    architect can see (a) which controller drives which channel and
+    (b) how the channel-count + I/O width affect the overall die
+    geometry. Dimensions match the controller PHY block they pair
+    with; placement is exterior-aligned.
+    """
+
+    channel_id: int
+    """0..N-1 over all channels, walking the perimeter clockwise from
+    top-center."""
+
+    memory_type: str
+    """e.g., 'lpddr5', 'hbm3' -- from the KPU memory spec."""
+
+    width_bits: int
+    """Per-channel I/O width (``memory_bus_bits / memory_controllers``).
+    LPDDR5 typically 16, HBM3 stack 1024 (or 512 with two halves)."""
+
+    x_mm: float
+    y_mm: float
+    width_mm: float
+    height_mm: float
+    """Position + dimensions of the channel rectangle. Sits adjacent
+    to its controller on the outside of the die."""
+
+    controller_name: str
+    """Name of the corresponding ``ArchTile`` of role
+    ``MEMORY_CONTROLLER`` inside the die."""
+
+    edge: str
+    """'top', 'right', 'bottom', or 'left' -- which die edge this
+    channel sits beyond."""
+
+
+@dataclass(frozen=True)
 class WhatIfDieEstimate:
     """What the die would look like if every compute tile were one class.
 
@@ -736,6 +775,20 @@ class ArchitecturalFloorplan:
     what_if: list[WhatIfDieEstimate] = field(default_factory=list)
     """Per-class 'if every compute tile were class X' die estimates."""
 
+    memory_channels: list[MemoryChannel] = field(default_factory=list)
+    """Off-die DRAM channels paired 1:1 with the memory controllers
+    inside the die. Empty if the SKU's memory spec doesn't expose
+    channel info."""
+
+    memory_type: str = ""
+    """e.g., 'lpddr5', 'hbm3' from the SKU memory spec."""
+
+    per_channel_width_bits: int = 0
+    """Per-channel I/O width."""
+
+    per_channel_phy_area_mm2: float = 0.0
+    """Heuristic PHY area per channel; total MC area = num x this."""
+
     notes: str = ""
 
     @property
@@ -782,12 +835,82 @@ class ArchitecturalFloorplan:
 # Architectural derivation
 # ---------------------------------------------------------------------------
 
-# Default memory-controller arity when silicon_bin doesn't expose a
-# distinct count. 4 corresponds to one controller centered on each of
-# the four die edges -- typical of LPDDR-class accelerators. HBM-class
-# parts often want 8 (two per edge); the heuristic below upgrades to
-# match if silicon_bin contains multiple distinct PHY blocks.
+# Default memory-controller arity when the SKU memory spec doesn't
+# expose a distinct count. The architectural derivation prefers
+# ``sku.kpu_architecture.memory.memory_controllers`` when present.
 _DEFAULT_NUM_MEMORY_CONTROLLERS = 4
+
+
+# ---------------------------------------------------------------------------
+# Per-channel PHY heuristics (rectangular MCs)
+# ---------------------------------------------------------------------------
+#
+# Memory-controller PHY blocks are NOT proportional to compute-mesh
+# size -- they're proportional to the number + width of memory channels
+# they drive, and shaped by the I/O bump pattern of the package
+# interface:
+#
+#   * LPDDR{4,5,5X}: long narrow stripes parallel to the bump line
+#     (ball pitch sets the long edge; thin perpendicular dimension).
+#     Aspect ratio ~5:1.
+#   * DDR{4,5}: similar to LPDDR but slightly squarer (4:1).
+#   * GDDR6/6X: 3:1, sits next to GDDR packages on PCB.
+#   * HBM{2,2e,3,3e}: nearly square (1.5:1) microbump arrays sitting
+#     under the HBM stack via interposer.
+#
+# Per-channel area scales with channel width. Coefficients land in the
+# published-PHY-area ballpark for current-gen ~16nm logic; refine in
+# Stage 8c after PDK calibration.
+
+_PER_CHANNEL_PHY_AREA_MM2: dict = {
+    "lpddr4":  lambda w: 0.5 + 0.06 * w,    # 16b -> 1.46 mm^2
+    "lpddr4x": lambda w: 0.5 + 0.06 * w,
+    "lpddr5":  lambda w: 0.6 + 0.07 * w,    # 16b -> 1.72, 32b -> 2.84
+    "lpddr5x": lambda w: 0.6 + 0.07 * w,
+    "ddr4":    lambda w: 1.0 + 0.05 * w,    # 64b -> 4.20 mm^2
+    "ddr5":    lambda w: 1.2 + 0.06 * w,    # 64b -> 5.04
+    "gddr6":   lambda w: 0.8 + 0.06 * w,    # 32b -> 2.72
+    "gddr6x":  lambda w: 0.8 + 0.06 * w,
+    "hbm2":    lambda w: 1.5 + 0.012 * w,   # 1024b -> 13.79 (per stack)
+    "hbm2e":   lambda w: 1.5 + 0.012 * w,
+    "hbm3":    lambda w: 1.5 + 0.014 * w,   # 1024b -> 15.85, 512b -> 8.67
+    "hbm3e":   lambda w: 1.5 + 0.014 * w,
+}
+
+_PHY_ASPECT_RATIO: dict = {
+    "lpddr4":  5.0,
+    "lpddr4x": 5.0,
+    "lpddr5":  5.0,
+    "lpddr5x": 5.0,
+    "ddr4":    4.0,
+    "ddr5":    4.0,
+    "gddr6":   3.0,
+    "gddr6x":  3.0,
+    "hbm2":    1.5,
+    "hbm2e":   1.5,
+    "hbm3":    1.5,
+    "hbm3e":   1.5,
+}
+
+
+def _per_channel_phy_dims(memory_type: str, width_bits: int) -> tuple[float, float, float]:
+    """Per-channel PHY block dimensions (long_dim, short_dim, area_mm2).
+
+    long_dim is the dimension parallel to the I/O bump edge (sits along
+    the die edge); short_dim is perpendicular. For LPDDR
+    long >> short; for HBM long ~ short.
+    """
+    type_key = memory_type.lower()
+    area_fn = _PER_CHANNEL_PHY_AREA_MM2.get(
+        type_key, lambda w: 1.0 + 0.05 * w
+    )
+    aspect = _PHY_ASPECT_RATIO.get(type_key, 3.0)
+    area = area_fn(width_bits) if width_bits > 0 else 0.0
+    if area <= 0 or aspect <= 0:
+        return (0.0, 0.0, 0.0)
+    long_dim = math.sqrt(area * aspect)
+    short_dim = math.sqrt(area / aspect)
+    return (long_dim, short_dim, area)
 
 
 def derive_kpu_architectural_floorplan(
@@ -795,36 +918,36 @@ def derive_kpu_architectural_floorplan(
 ) -> ArchitecturalFloorplan:
     """Produce the architectural-role floorplan for a KPU SKU.
 
-    Layout (heuristic v1):
+    Layout (heuristic v2 -- corrected from v1):
 
     1. Per compute tile class: pitch = sqrt(per_tile_PE_area +
-       per_tile_L2_area).
-    2. Memory tile pitch = sqrt(per_tile_L3_area). One memory tile per
-       compute tile (1:1 pairing -- each compute tile owns its L3).
-    3. Unified pitch = max(max_compute_pitch, memory_pitch). Smaller
-       cells leave whitespace.
-    4. Physical mesh = ``mesh_rows x (2 * mesh_cols)``: every compute
-       tile is paired with a memory tile to its right (column-pair
-       checkerboard). True 2D checkerboards are also reasonable; this
-       layout was picked because it renders cleanly in ASCII and
-       preserves N/S compute-compute neighbours within the NoC.
-    5. Memory controllers: ``N`` distinct PHY blocks (or default 4) of
-       equal size, distributed around the perimeter clockwise from
-       top-center.
-    6. IO ring: thin pad ring around the perimeter.
-    7. Control: corner block.
-
-    NoC routers are not drawn -- they're embedded inside the tile
-    envelopes physically. A future SVG/HTML renderer can overlay the
-    NoC topology (mesh / ring / CLOS) on top of the placed blocks.
+       per_tile_L2_area). Memory tile pitch = sqrt(per_tile_L3_area).
+    2. Unified pitch = max(max_compute_pitch, memory_pitch).
+    3. **True 2D checkerboard**: physical mesh is
+       ``mesh_rows x (2 * mesh_cols)`` cells, with compute placed
+       where ``(row + col) % 2 == 0`` and memory where odd. Every
+       interior compute tile has 4 memory neighbours (N/S/E/W) and
+       vice versa.
+    4. **Memory controllers** = exactly ``memory.memory_controllers``
+       PHY blocks, sized from ``memory_type`` + ``per_channel_width``
+       (LPDDR is long narrow stripes, HBM is squarer microbump arrays;
+       see ``_per_channel_phy_dims``). Distributed as an edge ring;
+       MC area is independent of mesh size, scales only with channel
+       count + width.
+    5. **DRAM channels** placed *outside* the die boundary, each
+       paired 1:1 with its driving controller -- gives the architect
+       a visual of MC <-> channel connectivity and channel-count
+       impact on die geometry.
+    6. IO ring + control corner unchanged from v1.
     """
     arch = sku.kpu_architecture
+    mem = arch.memory
     pe_by_tile_type, chip_l2_area, chip_l3_area, other_blocks = (
         _classify_silicon_bin_blocks(sku, node)
     )
     total_compute_tiles = arch.total_tiles
 
-    # Per-tile L2 / L3 (shared by every compute / memory tile)
+    # Per-tile L2 / L3
     per_tile_l2 = (
         chip_l2_area / total_compute_tiles if total_compute_tiles > 0 else 0.0
     )
@@ -846,12 +969,11 @@ def derive_kpu_architectural_floorplan(
         compute_pitches[tile.tile_type] = pitch
         compute_pe_areas[tile.tile_type] = pe_area
 
-    # Unified pitch dominates compute and memory
     max_compute_pitch = max(compute_pitches.values(), default=0.0)
     unified_pitch = max(max_compute_pitch, memory_pitch)
     cell_area = unified_pitch * unified_pitch
 
-    # Per-class summaries with whitespace
+    # Per-class summaries
     compute_summaries: dict[str, ComputeClassSummary] = {}
     for tile in arch.tiles:
         pe_area = compute_pe_areas[tile.tile_type]
@@ -867,7 +989,6 @@ def derive_kpu_architectural_floorplan(
             whitespace_per_tile_mm2=ws_per_tile,
             class_whitespace_mm2=ws_per_tile * tile.num_tiles,
         )
-
     memory_ws_per_tile = max(0.0, cell_area - per_tile_l3)
     memory_summary = MemoryClassSummary(
         num_tiles=total_compute_tiles,
@@ -878,61 +999,99 @@ def derive_kpu_architectural_floorplan(
         class_whitespace_mm2=memory_ws_per_tile * total_compute_tiles,
     )
 
-    # Mesh rectangle
+    # Physical mesh rectangle: 2 * mesh_cols wide so total cells = 2N
+    # and a true 2D checkerboard places exactly N compute + N memory.
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
-    physical_cols = 2 * mesh_cols  # compute + memory pairs per row
+    physical_cols = 2 * mesh_cols
     mesh_width = physical_cols * unified_pitch
     mesh_height = mesh_rows * unified_pitch
 
-    # Memory controllers around the periphery
-    phy_blocks = [
-        (n, a, c) for (n, a, c) in other_blocks if "phy" in n.lower()
-    ]
-    phy_total_area = sum(a for _, a, _ in phy_blocks)
-    distinct_phys = len(phy_blocks)
+    # Memory configuration from the SKU schema (preferred) -- falls
+    # back to the silicon_bin PHY blocks + a default 4 if unset.
+    memory_type = mem.memory_type.value if mem.memory_type else "lpddr5"
     num_controllers = (
-        distinct_phys if distinct_phys > 1
+        mem.memory_controllers if mem.memory_controllers > 0
         else _DEFAULT_NUM_MEMORY_CONTROLLERS
     )
-    controller_side = (
-        math.sqrt(phy_total_area / num_controllers)
-        if num_controllers > 0 and phy_total_area > 0 else 0.0
+    bus_bits = mem.memory_bus_bits if mem.memory_bus_bits > 0 else 0
+    per_channel_width_bits = (
+        bus_bits // num_controllers if num_controllers > 0 else 0
+    )
+    long_dim, short_dim, per_channel_phy_area = _per_channel_phy_dims(
+        memory_type, per_channel_width_bits
     )
 
-    # Die envelope: mesh + controller margin on all 4 edges + IO ring
-    edge_pad = _IO_RING_THICKNESS_MM + controller_side
-    die_width = mesh_width + 2 * edge_pad
-    die_height = mesh_height + 2 * edge_pad
-    mesh_origin_x = edge_pad
-    mesh_origin_y = edge_pad
+    # Distribute channels across edges (equal split; remainder
+    # absorbed top -> right -> bottom -> left). Used both to size the
+    # die (so MCs fit their edge) and to lay them out below.
+    base_per_edge = num_controllers // 4
+    rem = num_controllers % 4
+    edge_counts_for_size = [
+        base_per_edge + (1 if i < rem else 0) for i in range(4)
+    ]
+    # Required edge length (x for top/bottom, y for left/right) =
+    # MCs-on-that-edge x long_dim. If the mesh edge is shorter than
+    # required, expand the die so the I/O perimeter actually fits --
+    # MC area is bump-pitch-driven, not mesh-driven, so the die
+    # follows the larger constraint.
+    required_horizontal_edge = (
+        max(edge_counts_for_size[0], edge_counts_for_size[2]) * long_dim
+    )
+    required_vertical_edge = (
+        max(edge_counts_for_size[1], edge_counts_for_size[3]) * long_dim
+    )
+    # Corner reservation: vertical MCs claim full die_h (corners
+    # belong to them); horizontal MCs are inset by short_dim on each
+    # x-side so they don't visually overlap vertical MCs in the corners.
+    # That means horizontal MCs need extra ``2 * short_dim`` of inner-x
+    # to fit; vertical MCs use the full inner-y.
+    extra_x = max(0.0, required_horizontal_edge + 2 * short_dim - mesh_width)
+    extra_y = max(0.0, required_vertical_edge - mesh_height)
+
+    # Die envelope: max(mesh, I/O perimeter) + IO ring + MC inset
+    mc_inset = short_dim
+    edge_pad = _IO_RING_THICKNESS_MM + mc_inset
+    die_width = mesh_width + extra_x + 2 * edge_pad
+    die_height = mesh_height + extra_y + 2 * edge_pad
+    # Mesh centered inside the (possibly-larger) inner area
+    mesh_origin_x = edge_pad + extra_x / 2
+    mesh_origin_y = edge_pad + extra_y / 2
 
     blocks: list[ArchTile] = []
 
-    # IO ring (4 thin edge segments at the very perimeter)
+    # IO ring
     blocks.extend(_arch_place_io_ring(die_width, die_height, other_blocks))
 
-    # Compute + memory tiles (column-pair checkerboard)
+    # Memory controllers (rectangular, sized by channel I/O width).
+    # Placed BEFORE the mesh so that the rasterizer's later-block-wins
+    # rule keeps mesh tiles on top at the mesh/MC boundary -- otherwise
+    # pixel quantization at shared edges paints the top mesh row with
+    # MC glyphs.
+    mc_blocks, channel_blocks = _arch_place_memory_subsystem(
+        num_channels=num_controllers,
+        memory_type=memory_type,
+        channel_width_bits=per_channel_width_bits,
+        long_dim=long_dim, short_dim=short_dim,
+        mesh_origin_x=mesh_origin_x, mesh_origin_y=mesh_origin_y,
+        mesh_width=mesh_width, mesh_height=mesh_height,
+        die_width=die_width, die_height=die_height,
+    )
+    blocks.extend(mc_blocks)
+
+    # Compute + memory tiles -- TRUE 2D checkerboard (drawn last so
+    # mesh wins shared pixels at the mesh/MC boundary).
     blocks.extend(_arch_place_checkerboard(
         arch, mesh_origin_x, mesh_origin_y, unified_pitch,
         per_tile_l2, per_tile_l3, compute_pe_areas,
     ))
 
-    # Memory controllers around the periphery
-    blocks.extend(_arch_place_memory_controllers(
-        num_controllers, controller_side, phy_blocks,
-        die_width, die_height,
-        mesh_origin_x, mesh_origin_y, mesh_width, mesh_height,
-    ))
-
-    # Control logic in bottom-left corner of the mesh
+    # Control logic
     blocks.extend(_arch_place_control(
         other_blocks, mesh_origin_x, mesh_origin_y, die_height
     ))
 
-    # What-if estimates: re-compute die area assuming every compute
-    # tile is class X. Periphery scales the same; mesh resizes around
-    # the new unified pitch.
+    # What-if estimates (periphery-aware: edge_pad held constant)
     what_if = _arch_what_if_estimates(
         compute_pitches, memory_pitch, total_compute_tiles,
         mesh_rows, mesh_cols, edge_pad,
@@ -949,11 +1108,17 @@ def derive_kpu_architectural_floorplan(
         num_memory_controllers=num_controllers,
         unified_pitch_mm=unified_pitch,
         what_if=what_if,
+        memory_channels=channel_blocks,
+        memory_type=memory_type,
+        per_channel_width_bits=per_channel_width_bits,
+        per_channel_phy_area_mm2=per_channel_phy_area,
         notes=(
-            f"Architectural v1: {mesh_rows}x{mesh_cols} compute + "
-            f"{mesh_rows}x{mesh_cols} memory in column-pair checkerboard "
-            f"@ {unified_pitch:.3f} mm pitch; {num_controllers} memory "
-            f"controllers around periphery."
+            f"Architectural v2: {mesh_rows}x{mesh_cols} mesh as true 2D "
+            f"checkerboard ({physical_cols}x{mesh_rows} cells) @ "
+            f"{unified_pitch:.3f} mm pitch; {num_controllers} {memory_type} "
+            f"channels @ {per_channel_width_bits}b each "
+            f"({per_channel_phy_area:.2f} mm^2 PHY/channel, "
+            f"{long_dim:.2f}x{short_dim:.2f} mm) distributed as edge ring."
         ),
     )
 
@@ -1006,113 +1171,216 @@ def _arch_place_checkerboard(
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
 ) -> list[ArchTile]:
-    """Lay out compute + memory tiles in a column-pair checkerboard.
+    """Lay out compute + memory tiles in a TRUE 2D checkerboard.
 
-    Pattern (every row identical):
-        [C M] [C M] [C M] [C M] ...
-    Each row has ``mesh_cols`` compute + ``mesh_cols`` memory tiles.
-    Compute classes assigned in row-major order over compute positions.
+    Physical mesh: ``mesh_rows`` rows x ``2 * mesh_cols`` cols. Cell
+    is COMPUTE iff ``(row + col) % 2 == 0``, MEMORY otherwise. Every
+    interior compute tile has 4 memory neighbours (N/S/E/W) and vice
+    versa -- the L3 scratchpad is reachable from every direction.
+
+    Pattern (rows alternate offset by one):
+        C M C M C M C M C M C M ...
+        M C M C M C M C M C M C ...
+        C M C M C M C M C M C M ...
+        M C M C M C M C M C M C ...
+
+    Compute tile-class assignment: row-major walk over the compute
+    positions only, drawing from ``arch.tiles`` in declaration order.
     """
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
+    physical_cols = 2 * mesh_cols
+    expected_compute = mesh_rows * mesh_cols  # half the physical cells
 
-    # Tile-class assignment for compute positions (row-major)
+    # Compute-class assignment (in declaration order)
     compute_assignment: list[KPUTileSpec] = []
     for tile in arch.tiles:
         compute_assignment.extend([tile] * tile.num_tiles)
-    while len(compute_assignment) < mesh_rows * mesh_cols:
+    while len(compute_assignment) < expected_compute:
         compute_assignment.append(arch.tiles[-1])
-    compute_assignment = compute_assignment[: mesh_rows * mesh_cols]
+    compute_assignment = compute_assignment[:expected_compute]
 
     blocks: list[ArchTile] = []
     compute_idx = 0
     for r in range(mesh_rows):
-        for c_pair in range(mesh_cols):
-            # Compute tile (left half of the pair)
-            tile = compute_assignment[compute_idx]
-            compute_idx += 1
-            blocks.append(ArchTile(
-                name=f"compute[{r},{c_pair}]",
-                role=TileRole.COMPUTE,
-                x_mm=origin_x + (2 * c_pair) * pitch,
-                y_mm=origin_y + r * pitch,
-                width_mm=pitch,
-                height_mm=pitch,
-                tile_class=tile.tile_type,
-                pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
-                l2_area_mm2=per_tile_l2,
-            ))
-            # Memory tile (right half of the pair)
-            blocks.append(ArchTile(
-                name=f"memory[{r},{c_pair}]",
-                role=TileRole.MEMORY,
-                x_mm=origin_x + (2 * c_pair + 1) * pitch,
-                y_mm=origin_y + r * pitch,
-                width_mm=pitch,
-                height_mm=pitch,
-                l3_area_mm2=per_tile_l3,
-            ))
+        for c in range(physical_cols):
+            x = origin_x + c * pitch
+            y = origin_y + r * pitch
+            if (r + c) % 2 == 0:
+                tile = compute_assignment[compute_idx]
+                compute_idx += 1
+                blocks.append(ArchTile(
+                    name=f"compute[{r},{c}]",
+                    role=TileRole.COMPUTE,
+                    x_mm=x, y_mm=y, width_mm=pitch, height_mm=pitch,
+                    tile_class=tile.tile_type,
+                    pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
+                    l2_area_mm2=per_tile_l2,
+                ))
+            else:
+                blocks.append(ArchTile(
+                    name=f"memory[{r},{c}]",
+                    role=TileRole.MEMORY,
+                    x_mm=x, y_mm=y, width_mm=pitch, height_mm=pitch,
+                    l3_area_mm2=per_tile_l3,
+                ))
     return blocks
 
 
-def _arch_place_memory_controllers(
-    num: int,
-    side: float,
-    phy_blocks: list[tuple[str, float, CircuitClass]],
-    die_w: float, die_h: float,
-    mesh_x: float, mesh_y: float,
-    mesh_w: float, mesh_h: float,
-) -> list[ArchTile]:
-    """Distribute ``num`` controllers around the perimeter.
+def _arch_place_memory_subsystem(
+    *,
+    num_channels: int,
+    memory_type: str,
+    channel_width_bits: int,
+    long_dim: float,
+    short_dim: float,
+    mesh_origin_x: float, mesh_origin_y: float,
+    mesh_width: float, mesh_height: float,
+    die_width: float, die_height: float,
+) -> tuple[list[ArchTile], list[MemoryChannel]]:
+    """Place rectangular memory controllers + their off-die channels.
 
-    Walk: top edge first, then right, bottom, left, in order. Each edge
-    gets ``num // 4`` plus a remainder. Controllers sit just inside
-    the IO ring, hugging the mesh on the outer side.
+    Walks the perimeter clockwise from top-center, distributing
+    ``num_channels`` controllers as an edge ring. Each MC has the
+    long dimension parallel to its edge (matching the I/O bump
+    pattern), short dimension perpendicular. The corresponding DRAM
+    channel sits just *outside* the die boundary, mirroring the MC's
+    shape so MC <-> channel association is visually obvious.
+
+    Distribution: equal split across 4 edges; remainder absorbed top
+    -> right -> bottom -> left so high channel counts (16 LPDDR ch
+    on T256) get a balanced ring. Future Stage 8c work: bias HBM to
+    interposer-stack edges only.
     """
-    if num <= 0 or side <= 0:
-        return []
-    # Even split with remainder absorbed by earlier edges
-    base = num // 4
-    rem = num % 4
-    counts = [base + (1 if i < rem else 0) for i in range(4)]  # T, R, B, L
-    blocks: list[ArchTile] = []
-    idx = 0
+    if num_channels <= 0 or long_dim <= 0 or short_dim <= 0:
+        return ([], [])
 
-    def make(name: str, x: float, y: float) -> ArchTile:
-        return ArchTile(
-            name=name, role=TileRole.MEMORY_CONTROLLER,
-            x_mm=x, y_mm=y, width_mm=side, height_mm=side,
-            notes=(
-                f"PHY block #{idx} of {num} "
-                f"(area {side * side:.2f} mm^2)"
-            ),
-        )
+    base = num_channels // 4
+    rem = num_channels % 4
+    edge_counts = [base + (1 if i < rem else 0) for i in range(4)]
 
-    # Top edge: hug above the mesh
-    top_y = mesh_y + mesh_h
-    for i in range(counts[0]):
-        x = mesh_x + (i + 0.5) / counts[0] * mesh_w - side / 2
-        blocks.append(make(f"mc_top_{i}", x, top_y))
-        idx += 1
-    # Right edge: hug right of the mesh
-    right_x = mesh_x + mesh_w
-    for i in range(counts[1]):
-        y = mesh_y + (i + 0.5) / counts[1] * mesh_h - side / 2
-        blocks.append(make(f"mc_right_{i}", right_x, y))
-        idx += 1
-    # Bottom edge: hug below the mesh
-    bottom_y = mesh_y - side
-    for i in range(counts[2]):
-        x = mesh_x + (i + 0.5) / counts[2] * mesh_w - side / 2
-        blocks.append(make(f"mc_bottom_{i}", x, bottom_y))
-        idx += 1
-    # Left edge: hug left of the mesh
-    left_x = mesh_x - side
-    for i in range(counts[3]):
-        y = mesh_y + (i + 0.5) / counts[3] * mesh_h - side / 2
-        blocks.append(make(f"mc_left_{i}", left_x, y))
-        idx += 1
-    return blocks
+    mc_blocks: list[ArchTile] = []
+    channel_blocks: list[MemoryChannel] = []
+    chan_id = 0
+
+    # Channel rectangle sits short_dim outside the die, mirroring the
+    # MC's cross-section so MC<->channel alignment is visually obvious.
+    channel_offset = short_dim
+
+    # Inner-edge ranges (MC distribution domain). The die may have been
+    # expanded to fit the I/O perimeter; MCs distribute over the FULL
+    # inner extent (mesh + any I/O-driven extras), not just the mesh.
+    #
+    # Corner reservation: vertical MCs (left/right) use the full inner
+    # y-range and claim the corner regions. Horizontal MCs (top/bottom)
+    # inset by short_dim on each x-side so they don't visually overlap
+    # vertical MCs in the corners.
+    edge_pad_inner = _IO_RING_THICKNESS_MM + short_dim    # = edge_pad
+    inner_x_lo_horiz = edge_pad_inner + short_dim   # inset for corner
+    inner_x_hi_horiz = die_width - edge_pad_inner - short_dim
+    inner_w_horiz = inner_x_hi_horiz - inner_x_lo_horiz
+
+    inner_y_lo_vert = edge_pad_inner   # vertical MCs span full inner
+    inner_y_hi_vert = die_height - edge_pad_inner
+    inner_h_vert = inner_y_hi_vert - inner_y_lo_vert
+
+    def _ch_note(ch_id: int) -> str:
+        return f"channel {ch_id} ({memory_type} {channel_width_bits}b)"
+
+    # Top edge: MC sits just above the mesh (y = mesh_origin_y +
+    # mesh_height); width = long_dim, height = short_dim. Inset from
+    # corners so vertical MCs claim them.
+    if edge_counts[0] > 0 and inner_w_horiz > 0:
+        n = edge_counts[0]
+        for i in range(n):
+            x = inner_x_lo_horiz + (i + 0.5) / n * inner_w_horiz - long_dim / 2
+            mc_y = mesh_origin_y + mesh_height
+            mc_name = f"mc_top_ch{chan_id}"
+            mc_blocks.append(ArchTile(
+                name=mc_name, role=TileRole.MEMORY_CONTROLLER,
+                x_mm=x, y_mm=mc_y,
+                width_mm=long_dim, height_mm=short_dim,
+                notes=_ch_note(chan_id),
+            ))
+            channel_blocks.append(MemoryChannel(
+                channel_id=chan_id, memory_type=memory_type,
+                width_bits=channel_width_bits,
+                x_mm=x, y_mm=die_height,
+                width_mm=long_dim, height_mm=channel_offset,
+                controller_name=mc_name, edge="top",
+            ))
+            chan_id += 1
+
+    # Right edge: MC sits just right of the mesh; width = short_dim,
+    # height = long_dim along the edge. Spans full inner y including
+    # corners.
+    if edge_counts[1] > 0 and inner_h_vert > 0:
+        n = edge_counts[1]
+        for i in range(n):
+            y = inner_y_lo_vert + (i + 0.5) / n * inner_h_vert - long_dim / 2
+            mc_x = mesh_origin_x + mesh_width
+            mc_name = f"mc_right_ch{chan_id}"
+            mc_blocks.append(ArchTile(
+                name=mc_name, role=TileRole.MEMORY_CONTROLLER,
+                x_mm=mc_x, y_mm=y,
+                width_mm=short_dim, height_mm=long_dim,
+                notes=_ch_note(chan_id),
+            ))
+            channel_blocks.append(MemoryChannel(
+                channel_id=chan_id, memory_type=memory_type,
+                width_bits=channel_width_bits,
+                x_mm=die_width, y_mm=y,
+                width_mm=channel_offset, height_mm=long_dim,
+                controller_name=mc_name, edge="right",
+            ))
+            chan_id += 1
+
+    # Bottom edge: MC sits just below the mesh. Inset from corners.
+    if edge_counts[2] > 0 and inner_w_horiz > 0:
+        n = edge_counts[2]
+        for i in range(n):
+            x = inner_x_lo_horiz + (i + 0.5) / n * inner_w_horiz - long_dim / 2
+            mc_y = mesh_origin_y - short_dim
+            mc_name = f"mc_bottom_ch{chan_id}"
+            mc_blocks.append(ArchTile(
+                name=mc_name, role=TileRole.MEMORY_CONTROLLER,
+                x_mm=x, y_mm=mc_y,
+                width_mm=long_dim, height_mm=short_dim,
+                notes=_ch_note(chan_id),
+            ))
+            channel_blocks.append(MemoryChannel(
+                channel_id=chan_id, memory_type=memory_type,
+                width_bits=channel_width_bits,
+                x_mm=x, y_mm=-channel_offset,
+                width_mm=long_dim, height_mm=channel_offset,
+                controller_name=mc_name, edge="bottom",
+            ))
+            chan_id += 1
+
+    # Left edge: MC sits just left of the mesh. Spans full inner y
+    # including corners.
+    if edge_counts[3] > 0 and inner_h_vert > 0:
+        n = edge_counts[3]
+        for i in range(n):
+            y = inner_y_lo_vert + (i + 0.5) / n * inner_h_vert - long_dim / 2
+            mc_x = mesh_origin_x - short_dim
+            mc_name = f"mc_left_ch{chan_id}"
+            mc_blocks.append(ArchTile(
+                name=mc_name, role=TileRole.MEMORY_CONTROLLER,
+                x_mm=mc_x, y_mm=y,
+                width_mm=short_dim, height_mm=long_dim,
+                notes=_ch_note(chan_id),
+            ))
+            channel_blocks.append(MemoryChannel(
+                channel_id=chan_id, memory_type=memory_type,
+                width_bits=channel_width_bits,
+                x_mm=-channel_offset, y_mm=y,
+                width_mm=channel_offset, height_mm=long_dim,
+                controller_name=mc_name, edge="left",
+            ))
+            chan_id += 1
+
+    return (mc_blocks, channel_blocks)
 
 
 def _arch_place_control(

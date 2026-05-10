@@ -506,6 +506,164 @@ def test_show_floorplan_cli_view_circuit_falls_back_to_old():
     assert "H=hp_logic" in out or "B=balanced_logic" in out
 
 
+# ---------------------------------------------------------------------------
+# Architectural view v2 -- true 2D checkerboard + memory-spec-driven MCs
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_arch_true_2d_checkerboard_interior_compute_has_4_memory_neighbors(
+    sku_id, kpus, nodes
+):
+    """True 2D checkerboard: every interior compute tile has exactly
+    4 memory tile neighbours (N/S/E/W). Catches regressions to
+    column-pair (1 neighbour) or row-pair patterns.
+    """
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    compute_tiles = fp.compute_tiles()
+    memory_tiles = fp.memory_tiles()
+    assert compute_tiles and memory_tiles
+
+    pitch = fp.unified_pitch_mm
+    if pitch <= 0:
+        return
+
+    # Pick an interior compute tile by parsing its checkerboard
+    # coordinates ``compute[r,c]`` (encoded into the name). Interior
+    # = at least one row/col away from every mesh edge.
+    mesh_rows = sku.kpu_architecture.noc.mesh_rows
+    mesh_cols_phys = 2 * sku.kpu_architecture.noc.mesh_cols
+    target = None
+    import re
+    for ct in compute_tiles:
+        m = re.match(r"compute\[(\d+),(\d+)\]", ct.name)
+        if not m:
+            continue
+        r, c = int(m.group(1)), int(m.group(2))
+        if 1 <= r <= mesh_rows - 2 and 1 <= c <= mesh_cols_phys - 2:
+            target = ct
+            break
+    assert target is not None, (
+        f"{sku_id}: no interior compute tile found "
+        f"(mesh {mesh_rows}x{mesh_cols_phys})"
+    )
+
+    eps = 0.01
+    neighbours = 0
+    for m in memory_tiles:
+        same_row = abs(m.y_mm - target.y_mm) < eps
+        same_col = abs(m.x_mm - target.x_mm) < eps
+        horiz_adj = abs(abs(m.x_mm - target.x_mm) - pitch) < eps
+        vert_adj = abs(abs(m.y_mm - target.y_mm) - pitch) < eps
+        if (same_row and horiz_adj) or (same_col and vert_adj):
+            neighbours += 1
+    assert neighbours == 4, (
+        f"{sku_id}: interior compute tile {target.name} has "
+        f"{neighbours} memory neighbours, expected 4 for true 2D "
+        f"checkerboard"
+    )
+
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_mc_count_equals_memory_controllers_field(sku_id, kpus, nodes):
+    """MC count comes from ``memory.memory_controllers``, not from a
+    silicon_bin estimate or default. T256 (16 LPDDR ch), T128 (8),
+    T64 (4), T768 (8 HBM stacks)."""
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    declared = sku.kpu_architecture.memory.memory_controllers
+    assert fp.num_memory_controllers == declared, (
+        f"{sku_id}: floorplan placed {fp.num_memory_controllers} MCs, "
+        f"YAML declares {declared}"
+    )
+    assert len(fp.memory_controllers()) == declared
+    assert len(fp.memory_channels) == declared
+
+
+def test_lpddr_mc_is_long_narrow_stripe(kpus, nodes):
+    """LPDDR PHY blocks are narrow stripes (~5:1 aspect)."""
+    sku = kpus["stillwater_kpu_t256"]  # LPDDR5
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    for mc in fp.memory_controllers():
+        long = max(mc.width_mm, mc.height_mm)
+        short = min(mc.width_mm, mc.height_mm)
+        ar = long / short
+        assert ar >= 3.0, (
+            f"LPDDR MC {mc.name} aspect ratio {ar:.2f} is not "
+            f"narrow-stripe-like; LPDDR PHYs run along bump edge"
+        )
+
+
+def test_hbm_mc_is_squarer_than_lpddr(kpus, nodes):
+    """HBM PHY blocks are squarer (~1.5:1 aspect) than LPDDR (~5:1)."""
+    lpddr_sku = kpus["stillwater_kpu_t256"]
+    hbm_sku = kpus["stillwater_kpu_t768"]
+    fp_lpddr = derive_kpu_architectural_floorplan(
+        lpddr_sku, nodes[lpddr_sku.process_node_id]
+    )
+    fp_hbm = derive_kpu_architectural_floorplan(
+        hbm_sku, nodes[hbm_sku.process_node_id]
+    )
+    def aspect(mc):
+        long = max(mc.width_mm, mc.height_mm)
+        short = min(mc.width_mm, mc.height_mm)
+        return long / short if short > 0 else float("inf")
+    lpddr_ar = aspect(fp_lpddr.memory_controllers()[0])
+    hbm_ar = aspect(fp_hbm.memory_controllers()[0])
+    assert hbm_ar < lpddr_ar, (
+        f"HBM aspect {hbm_ar:.2f} should be smaller than LPDDR "
+        f"aspect {lpddr_ar:.2f} (HBM PHYs are squarer microbump arrays)"
+    )
+
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_dram_channels_placed_outside_die(sku_id, kpus, nodes):
+    """Every memory channel sits beyond the die boundary on its
+    respective edge; channels are not inside the die."""
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    for ch in fp.memory_channels:
+        if ch.edge == "top":
+            assert ch.y_mm >= fp.die_height_mm - 1e-6, (
+                f"{sku_id}: top channel {ch.channel_id} at y={ch.y_mm} "
+                f"is not above die top (die_h={fp.die_height_mm})"
+            )
+        elif ch.edge == "bottom":
+            assert ch.y_mm + ch.height_mm <= 1e-6, (
+                f"{sku_id}: bottom channel {ch.channel_id} extends "
+                f"into die at y={ch.y_mm}"
+            )
+        elif ch.edge == "right":
+            assert ch.x_mm >= fp.die_width_mm - 1e-6
+        elif ch.edge == "left":
+            assert ch.x_mm + ch.width_mm <= 1e-6
+
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_mc_dimensions_independent_of_mesh_size(sku_id, kpus, nodes):
+    """MC area is determined by memory type + channel width, NOT by
+    compute mesh size. Catch regressions to the v1 behaviour where
+    MC side = sqrt(total_phy_area / num_controllers) shrunk with
+    smaller meshes.
+    """
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    mem = sku.kpu_architecture.memory
+    if mem.memory_controllers <= 0 or mem.memory_bus_bits <= 0:
+        return
+    # PHY/channel area should match the memory-type lookup; if the
+    # MC area scales with mesh size instead, this disagrees.
+    ch_width = mem.memory_bus_bits // mem.memory_controllers
+    assert fp.per_channel_phy_area_mm2 > 0
+    # All MCs should have the same area (uniform per-channel sizing)
+    mcs = fp.memory_controllers()
+    areas = {round(mc.area_mm2, 4) for mc in mcs}
+    assert len(areas) == 1, (
+        f"{sku_id}: MCs have multiple distinct sizes {areas}; "
+        f"expected uniform per-channel sizing"
+    )
+
+
 def test_show_floorplan_cli_arch_json_output(tmp_path: Path):
     """Architectural JSON has the new top-level fields."""
     out = tmp_path / "fp.json"

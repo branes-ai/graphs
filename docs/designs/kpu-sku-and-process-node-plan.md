@@ -302,7 +302,7 @@ All cross-repo work landed via `embodied-schemas` PRs #9, #10, #11 and
 | 6 | CI gate: every SKU YAML in the catalog validated by the registry on every push | done (graphs #150) |
 | 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | done (graphs #151) |
 | 8a | Stage 8a circuit-class floorplanner + ASCII viz + 3 GEOMETRY validators (`floorplan_pitch_match`, `floorplan_within_die_envelope`, `floorplan_aspect_ratio`) -- heuristic v1 (advisory; WARN-max thresholds) | done |
-| 8b | Stage 8b architectural-role floorplanner: COMPUTE / MEMORY / MEMORY_CONTROLLER / IO / CONTROL roles, true checkerboard layout, distributed controllers, what-if-all-class-X die estimates, and 2 new validators (`floorplan_compute_memory_pitch_match`, `floorplan_whitespace_fraction`). `cli/show_floorplan.py` defaults to the architectural view; `--view circuit` falls back to 8a. | done |
+| 8b | Stage 8b architectural-role floorplanner: COMPUTE / MEMORY / MEMORY_CONTROLLER / IO / CONTROL roles, **true 2D checkerboard** layout (every interior compute tile has 4 memory neighbours), **rectangular MCs sized by memory type + channel I/O width** (LPDDR narrow stripes, HBM squarer microbump arrays) with **count = ``memory.memory_controllers``**, **off-die DRAM channel labels** showing MC<->channel connectivity, what-if-all-class-X die estimates, and 2 new validators (`floorplan_compute_memory_pitch_match`, `floorplan_whitespace_fraction`). `cli/show_floorplan.py` defaults to the architectural view; `--view circuit` falls back to 8a. | done |
 | 8c | Stage 8 deferred (DVFS feasibility, memory headroom, yield risk, SVG/HTML viz w/ NoC overlay (mesh / ring / CLOS), NoC routability validator, calibrate floorplan thresholds against measured silicon) | deferred |
 
 ## File inventory
@@ -419,17 +419,33 @@ Re-bins the same silicon_bin areas by what the architect calls them:
 
 - **COMPUTE** tile = PE fabric + L1 + L2 (per compute tile)
 - **MEMORY** tile = L3 (per compute tile, paired 1:1 in checkerboard)
-- **MEMORY_CONTROLLER** = DRAM PHY, distributed around the periphery
-  at the arity of the memory configuration (default 4: top/right/
-  bottom/left edge midpoints; scales when silicon_bin contains
-  multiple distinct PHY blocks)
+- **MEMORY_CONTROLLER** = DRAM PHY block. Count = SKU's
+  ``memory.memory_controllers`` (16 for T256 LPDDR5, 8 for T768 HBM3,
+  etc.). Sized by memory type + per-channel I/O width: LPDDR PHYs are
+  long narrow stripes (~5:1 aspect, parallel to bump edge); HBM PHYs
+  are squarer microbump arrays (~1.5:1). Distributed as an edge ring
+  around the periphery, with corners reserved for vertical (left/
+  right) MCs to avoid layout overlap.
 - **IO_PAD** = pad ring
 - **CONTROL** = scheduler/dispatch in corner
 
-Layout: column-pair checkerboard `[C M] [C M] [C M] ...`. Unified
-pitch = `max(max_compute_pitch, memory_pitch)`. Smaller cells leave
-whitespace -- the floorplan reports the per-class breakdown so the
-architect sees which class costs the most silicon.
+External, drawn outside the die boundary:
+
+- **DRAM channels** -- one rectangle per MC, mirroring its shape
+  on the outside of the die. Visualizes MC<->channel connectivity
+  and shows how memory I/O width affects die geometry.
+
+Layout: TRUE 2D checkerboard (``mesh_rows x 2*mesh_cols`` cells with
+``(r+c) % 2 == 0`` -> COMPUTE, else MEMORY). Every interior compute
+tile has 4 memory neighbours (N/S/E/W). Unified pitch =
+``max(max_compute_pitch, memory_pitch)``. Smaller cells leave
+whitespace -- the floorplan reports the per-class breakdown.
+
+Die size is the max of (mesh extent + IO ring + MC inset) and
+(I/O perimeter required to fit the MC count). For LPDDR-heavy SKUs
+where channel count exceeds what fits along the mesh edge, the die
+expands so the MCs tile cleanly, with whitespace around the centred
+mesh.
 
 What-if analysis: for each compute tile class, recompute the die
 area assuming every compute tile in the mesh were that class. Lets
