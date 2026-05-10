@@ -9,7 +9,6 @@ from ..framework import Finding, Severity
 from ..silicon_math import (
     SiliconMathError,
     resolve_block_area,
-    resolve_block_transistors,
 )
 
 

@@ -147,11 +147,7 @@ def main() -> int:
 
     # Generate.
     try:
-        entry = generate_kpu_sku(
-            spec,
-            process_nodes=process_nodes,
-            cooling_solutions=cooling_solutions,
-        )
+        entry = generate_kpu_sku(spec, process_nodes=process_nodes)
     except GeneratorError as exc:
         print(f"error: generator failed: {exc}", file=sys.stderr)
         return 2

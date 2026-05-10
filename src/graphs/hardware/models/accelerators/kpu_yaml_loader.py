@@ -315,10 +315,9 @@ def load_kpu_resource_model_from_yaml(
                 pipeline_drain_cycles=tile.pipeline_drain_cycles,
             )
         )
-    kpu_compute = KPUComputeResource(
-        total_tiles=sku.kpu_architecture.total_tiles,
-        tile_specializations=tile_specializations,
-    )
+    # Each ThermalOperatingPoint builds its own profile-specific
+    # KPUComputeResource below (with the profile clock baked in), so
+    # there's no chip-level KPUComputeResource to retain here.
 
     # ------------------------------------------------------------------
     # ThermalOperatingPoints from YAML thermal_profiles

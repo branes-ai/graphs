@@ -18,7 +18,6 @@ from graphs.hardware.sku_validators import (
     Finding,
     Severity,
     ValidatorCategory,
-    ValidatorContext,
     ValidatorRegistry,
     build_context_for_kpu,
     filter_findings,

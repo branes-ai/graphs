@@ -38,8 +38,6 @@ from embodied_schemas.process_node import ProcessNodeEntry
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 from ..silicon_math import (
-    estimate_block_leakage_w,
-    estimate_block_peak_dynamic_w,
     resolve_block_area,
     SiliconMathError,
 )

@@ -15,7 +15,6 @@ from __future__ import annotations
 import pytest
 
 from embodied_schemas import (
-    KPUEntry,
     KPUTheoreticalPerformance,
     SiliconBinBlock,
     TransistorSource,

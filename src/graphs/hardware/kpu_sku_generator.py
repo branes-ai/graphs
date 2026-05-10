@@ -36,10 +36,8 @@ from embodied_schemas import (
     KPUEntry,
     KPUPowerSpec,
     KPUTheoreticalPerformance,
-    load_cooling_solutions,
     load_process_nodes,
 )
-from embodied_schemas.cooling_solution import CoolingSolutionEntry
 from embodied_schemas.process_node import ProcessNodeEntry
 
 from .kpu_sku_input import KPUSKUInputSpec
@@ -62,7 +60,6 @@ def generate_kpu_sku(
     spec: KPUSKUInputSpec,
     *,
     process_nodes: Optional[dict[str, ProcessNodeEntry]] = None,
-    cooling_solutions: Optional[dict[str, CoolingSolutionEntry]] = None,
 ) -> KPUEntry:
     """Produce a fully-populated KPUEntry from an input spec.
 
@@ -70,18 +67,20 @@ def generate_kpu_sku(
         spec: The architect-authored input.
         process_nodes: Optional pre-loaded process-node catalog. Falls
             back to ``embodied_schemas.load_process_nodes()`` if absent.
-        cooling_solutions: Optional pre-loaded cooling-solution catalog.
-            Falls back to ``embodied_schemas.load_cooling_solutions()``.
 
     Raises:
         GeneratorError: if the spec's process_node_id doesn't resolve,
         if the default thermal profile name isn't in the profile list,
         or if no silicon_bin block resolves cleanly.
+
+    Note:
+        Cooling-solution refs on ``spec.thermal_profiles`` are NOT
+        resolved here -- the validator framework's
+        ``cross_ref_consistency`` check surfaces unresolvable ids when
+        the caller runs the full registry against the generated SKU.
     """
     if process_nodes is None:
         process_nodes = load_process_nodes()
-    if cooling_solutions is None:
-        cooling_solutions = load_cooling_solutions()
 
     # ---- Resolve the process node ----
     node = process_nodes.get(spec.process_node_id)

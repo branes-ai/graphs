@@ -26,7 +26,6 @@ from graphs.hardware.models.accelerators.kpu_yaml_loader import (
 from graphs.hardware.resource_model import (
     HardwareType,
     Precision,
-    PrecisionProfile,
     ThermalOperatingPoint,
 )
 

@@ -26,7 +26,7 @@ import json
 import os
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from embodied_schemas import load_cooling_solutions
 from embodied_schemas.cooling_solution import CoolingSolutionEntry

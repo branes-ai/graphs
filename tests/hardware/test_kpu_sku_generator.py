@@ -64,7 +64,6 @@ def test_roundtrip_die_within_rounding(sku_id, catalogs):
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
-        cooling_solutions=catalogs["cooling_solutions"],
     )
     # Within 2% (the generator rounds to 1 dp for area / 3 dp for
     # transistors; the hand-authored YAMLs round earlier in the
@@ -89,7 +88,6 @@ def test_roundtrip_performance_within_rounding(sku_id, catalogs):
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
-        cooling_solutions=catalogs["cooling_solutions"],
     )
     for attr in ("int8_tops", "bf16_tflops", "fp32_tflops"):
         a = getattr(original.performance, attr)
@@ -115,7 +113,6 @@ def test_roundtrip_power_default_tdp_passes_through(sku_id, catalogs):
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
-        cooling_solutions=catalogs["cooling_solutions"],
     )
     assert regen.power.tdp_watts == original.power.tdp_watts
     assert regen.power.default_thermal_profile == original.power.default_thermal_profile
@@ -137,7 +134,6 @@ def test_generated_sku_validates_clean(sku_id, catalogs):
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
-        cooling_solutions=catalogs["cooling_solutions"],
     )
     ctx = ValidatorContext(
         sku=regen,
@@ -166,7 +162,6 @@ def test_unknown_process_node_raises(catalogs):
         generate_kpu_sku(
             spec,
             process_nodes=catalogs["process_nodes"],
-            cooling_solutions=catalogs["cooling_solutions"],
         )
 
 
@@ -180,7 +175,6 @@ def test_bad_default_profile_name_raises(catalogs):
         generate_kpu_sku(
             spec,
             process_nodes=catalogs["process_nodes"],
-            cooling_solutions=catalogs["cooling_solutions"],
         )
 
 
@@ -194,7 +188,6 @@ def test_empty_silicon_bin_raises(catalogs):
         generate_kpu_sku(
             spec,
             process_nodes=catalogs["process_nodes"],
-            cooling_solutions=catalogs["cooling_solutions"],
         )
 
 

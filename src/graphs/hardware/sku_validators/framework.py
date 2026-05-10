@@ -209,7 +209,8 @@ class SKUValidator(Protocol):
     category: ValidatorCategory
 
     def check(self, ctx: ValidatorContext) -> List[Finding]:
-        ...
+        # Protocol stub -- implementations override this.
+        pass
 
 
 # ---------------------------------------------------------------------------
