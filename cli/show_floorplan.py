@@ -38,9 +38,13 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
+import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 from embodied_schemas import load_kpus, load_process_nodes
 from embodied_schemas.process_node import CircuitClass
@@ -55,6 +59,42 @@ from graphs.hardware.silicon_floorplan import (
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+def _positive_int(value: str) -> int:
+    """argparse type-checker: reject zero/negative widths early.
+
+    ``_render_blocks_to_ascii`` divides by ``char_width``; a non-positive
+    value crashes deep in the rasterizer with no actionable message.
+    """
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--width must be a positive integer (got {parsed})"
+        )
+    return parsed
+
+
+def _detect_format(output: Optional[str], json_flag: bool) -> str:
+    """Map ``--output`` extension to format. Mirrors validate_sku.py.
+
+    Per the project's CLI rules, every ``--output`` accepts JSON, CSV,
+    MD, and text via extension auto-detection. ``--json`` overrides
+    extension when set.
+    """
+    if json_flag:
+        return "json"
+    if not output:
+        return "text"
+    ext = os.path.splitext(output)[1].lower().lstrip(".")
+    return {
+        "json": "json", "csv": "csv", "md": "md",
+        "markdown": "md", "txt": "text",
+    }.get(ext, "text")
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +494,140 @@ def _circuit_to_dict(fp: Floorplan) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# CSV / Markdown renderers (architectural + circuit views)
+# ---------------------------------------------------------------------------
+
+def _arch_to_csv(fp: ArchitecturalFloorplan) -> str:
+    """One row per placed block + per memory channel. Header columns:
+    sku_id, kind, role/edge, name, tile_class, x_mm, y_mm, width_mm,
+    height_mm, area_mm2.
+    """
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=[
+            "sku_id", "kind", "role_or_edge", "name", "tile_class",
+            "x_mm", "y_mm", "width_mm", "height_mm", "area_mm2",
+        ],
+    )
+    writer.writeheader()
+    for b in fp.blocks:
+        writer.writerow({
+            "sku_id": fp.sku_id, "kind": "block",
+            "role_or_edge": b.role.value, "name": b.name,
+            "tile_class": b.tile_class or "",
+            "x_mm": f"{b.x_mm:.4f}", "y_mm": f"{b.y_mm:.4f}",
+            "width_mm": f"{b.width_mm:.4f}", "height_mm": f"{b.height_mm:.4f}",
+            "area_mm2": f"{b.area_mm2:.4f}",
+        })
+    for ch in fp.memory_channels:
+        writer.writerow({
+            "sku_id": fp.sku_id, "kind": "dram_channel",
+            "role_or_edge": ch.edge,
+            "name": f"channel_{ch.channel_id}",
+            "tile_class": "",
+            "x_mm": f"{ch.x_mm:.4f}", "y_mm": f"{ch.y_mm:.4f}",
+            "width_mm": f"{ch.width_mm:.4f}", "height_mm": f"{ch.height_mm:.4f}",
+            "area_mm2": f"{ch.width_mm * ch.height_mm:.4f}",
+        })
+    return buf.getvalue()
+
+
+def _arch_to_md(fp: ArchitecturalFloorplan) -> str:
+    lines = [
+        f"# Architectural floorplan: `{fp.sku_id}`", "",
+        f"- **die**: {fp.die_width_mm:.2f} x {fp.die_height_mm:.2f} mm "
+        f"= {fp.die_area_mm2:.1f} mm^2",
+        f"- **unified pitch**: {fp.unified_pitch_mm:.3f} mm",
+        f"- **C/M pitch ratio**: {fp.compute_memory_pitch_ratio:.2f}x",
+        f"- **whitespace**: {fp.whitespace_fraction()*100:.1f}%",
+        f"- **memory subsystem**: {fp.memory_type}, "
+        f"{fp.num_memory_controllers} channels @ "
+        f"{fp.per_channel_width_bits}b "
+        f"({fp.per_channel_phy_area_mm2:.2f} mm^2/channel)",
+        "",
+        "## Compute tile classes (PE + L2)",
+        "",
+        "| class | N | PE mm^2 | L2 mm^2 | total mm^2 | pitch mm | whitespace mm^2 |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for tc, s in sorted(fp.compute_summaries.items()):
+        lines.append(
+            f"| `{tc}` | {s.num_tiles} | {s.pe_area_mm2:.4f} | "
+            f"{s.l2_area_mm2:.4f} | {s.total_area_mm2:.4f} | "
+            f"{s.pitch_mm:.3f} | {s.class_whitespace_mm2:.1f} |"
+        )
+    s = fp.memory_summary
+    lines.extend([
+        "",
+        "## Memory tile (L3)",
+        "",
+        f"| N | L3 mm^2 | pitch mm | whitespace mm^2 |",
+        "|---:|---:|---:|---:|",
+        f"| {s.num_tiles} | {s.l3_area_mm2:.4f} | {s.pitch_mm:.3f} | "
+        f"{s.class_whitespace_mm2:.1f} |",
+        "",
+        "## What-if (all-class-X die area)",
+        "",
+        "| class | unified pitch mm | die mm^2 | whitespace |",
+        "|---|---:|---:|---:|",
+    ])
+    for wi in sorted(fp.what_if, key=lambda w: w.die_area_mm2):
+        lines.append(
+            f"| `{wi.tile_class}` | {wi.unified_pitch_mm:.3f} | "
+            f"{wi.die_area_mm2:.1f} | {wi.whitespace_fraction*100:.1f}% |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _circuit_to_csv(fp: Floorplan) -> str:
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=[
+            "sku_id", "name", "circuit_class", "is_compute_tile",
+            "tile_class", "x_mm", "y_mm", "width_mm", "height_mm",
+            "area_mm2",
+        ],
+    )
+    writer.writeheader()
+    for b in fp.blocks:
+        writer.writerow({
+            "sku_id": fp.sku_id, "name": b.name,
+            "circuit_class": b.circuit_class.value,
+            "is_compute_tile": b.is_compute_tile,
+            "tile_class": b.tile_class or "",
+            "x_mm": f"{b.x_mm:.4f}", "y_mm": f"{b.y_mm:.4f}",
+            "width_mm": f"{b.width_mm:.4f}", "height_mm": f"{b.height_mm:.4f}",
+            "area_mm2": f"{b.area_mm2:.4f}",
+        })
+    return buf.getvalue()
+
+
+def _circuit_to_md(fp: Floorplan) -> str:
+    lines = [
+        f"# Circuit-class floorplan: `{fp.sku_id}`", "",
+        f"- **die**: {fp.die_width_mm:.2f} x {fp.die_height_mm:.2f} mm "
+        f"= {fp.die_area_mm2:.1f} mm^2",
+        f"- **unified pitch**: {fp.unified_pitch_mm:.3f} mm",
+        f"- **whitespace**: {fp.whitespace_fraction()*100:.1f}%",
+        "",
+        "## Per-tile-class pitches",
+        "",
+        "| tile class | PE mm^2 | SRAM mm^2 | total mm^2 | pitch mm |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for tc, tp in sorted(fp.tile_pitches.items()):
+        lines.append(
+            f"| `{tc}` | {tp.pe_area_mm2:.4f} | {tp.sram_area_mm2:.4f} | "
+            f"{tp.total_area_mm2:.4f} | {tp.pitch_mm:.3f} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -487,18 +661,18 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--width", type=int, default=80,
-        help="ASCII grid width in characters (default 80).",
+        "--width", type=_positive_int, default=80,
+        help="ASCII grid width in characters (default 80, must be > 0).",
     )
     parser.add_argument(
         "--json", action="store_true",
-        help="Emit JSON (machine-readable) instead of ASCII art.",
+        help="Emit JSON (overrides extension auto-detect on --output).",
     )
     parser.add_argument(
         "--output", "-o",
         help=(
-            "Write to a file (extension .json selects JSON unless --json "
-            "is also passed)."
+            "Write to a file. Format auto-detected from extension: "
+            ".json/.csv/.md/.markdown/.txt; default text."
         ),
     )
     parser.add_argument(
@@ -531,14 +705,16 @@ def main() -> int:
         return 2
     node = nodes[sku.process_node_id]
 
-    use_json = args.json or (
-        args.output and args.output.lower().endswith(".json")
-    )
+    fmt = _detect_format(args.output, args.json)
 
     if args.view == "architectural":
         fp_arch = derive_kpu_architectural_floorplan(sku, node)
-        if use_json:
+        if fmt == "json":
             payload = json.dumps(_arch_to_dict(fp_arch), indent=2)
+        elif fmt == "csv":
+            payload = _arch_to_csv(fp_arch)
+        elif fmt == "md":
+            payload = _arch_to_md(fp_arch)
         else:
             payload = (
                 _render_architectural_summary(fp_arch)
@@ -548,8 +724,12 @@ def main() -> int:
             )
     else:  # circuit
         fp_circ = derive_kpu_floorplan(sku, node)
-        if use_json:
+        if fmt == "json":
             payload = json.dumps(_circuit_to_dict(fp_circ), indent=2)
+        elif fmt == "csv":
+            payload = _circuit_to_csv(fp_circ)
+        elif fmt == "md":
+            payload = _circuit_to_md(fp_circ)
         else:
             payload = (
                 _render_circuit_summary(fp_circ)

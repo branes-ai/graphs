@@ -29,11 +29,6 @@ from embodied_schemas import (
 )
 
 from graphs.hardware.silicon_floorplan import (
-    ArchitecturalFloorplan,
-    ArchTile,
-    Floorplan,
-    FloorplanBlock,
-    TileRole,
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
@@ -653,7 +648,6 @@ def test_mc_dimensions_independent_of_mesh_size(sku_id, kpus, nodes):
         return
     # PHY/channel area should match the memory-type lookup; if the
     # MC area scales with mesh size instead, this disagrees.
-    ch_width = mem.memory_bus_bits // mem.memory_controllers
     assert fp.per_channel_phy_area_mm2 > 0
     # All MCs should have the same area (uniform per-channel sizing)
     mcs = fp.memory_controllers()

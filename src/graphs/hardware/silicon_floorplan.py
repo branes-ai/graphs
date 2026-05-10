@@ -33,15 +33,18 @@ validator, multi-architecture floorplanners (CPU, GPU).
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+
+_logger = logging.getLogger(__name__)
+
 from embodied_schemas.kpu import KPUEntry, KPUTileSpec
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
-from .models.accelerators.kpu_yaml_loader import _DRAM_READ_PJ_PER_BYTE  # noqa: F401  (re-export not needed but keeps import group tidy)
 from .sku_validators.silicon_math import (
     SiliconMathError,
     resolve_block_area,
@@ -211,7 +214,18 @@ def _classify_silicon_bin_blocks(
     for block in sku.silicon_bin.blocks:
         try:
             ba = resolve_block_area(block, sku, node)
-        except SiliconMathError:
+        except SiliconMathError as exc:
+            # Don't silently drop -- log so the missing area surfaces in
+            # the floorplan output, but keep going so a single bad
+            # silicon_bin block doesn't kill the whole visualizer for
+            # an otherwise-valid SKU. The GEOMETRY validators (which
+            # care about correctness) call resolve_block_area
+            # independently and will surface the same failure as a
+            # finding.
+            _logger.warning(
+                "silicon_floorplan: skipping block %r in sku %r: %s",
+                block.name, sku.id, exc,
+            )
             continue
         ts = block.transistor_source
         if ts.kind.value == "per_pe" and ts.count_ref and ts.count_ref.startswith("tile."):
@@ -377,9 +391,12 @@ def _place_io_ring(
 ) -> list[FloorplanBlock]:
     """Four edge rectangles forming the IO ring.
 
-    The ``io_pads`` silicon_bin block contributes the total IO area;
-    this function spreads it across the four edges proportional to
-    edge length. Each edge is ``_IO_RING_THICKNESS_MM`` thick.
+    Uses ``_IO_RING_THICKNESS_MM`` (typical pad-pitch depth) regardless
+    of silicon_bin io_pads area -- pad count and pad-ring depth are
+    different concerns. ``derive_kpu_floorplan`` reserves
+    ``2 * _IO_RING_THICKNESS_MM`` of die margin on each axis assuming
+    this same thickness; using the area-derived value here would
+    create a moat between the ring and the rest of the die.
     """
     io_area = sum(
         area for name, area, _ in other_blocks
@@ -387,17 +404,7 @@ def _place_io_ring(
     )
     if io_area <= 0:
         return []
-    perimeter = 2 * (die_width_mm + die_height_mm)
-    if perimeter <= 0:
-        return []
-    # If the IO area exceeds what fits in the ring, the ring is "thick"
-    # and may be larger than _IO_RING_THICKNESS_MM. Solve for the actual
-    # thickness given total IO area + perimeter.
-    # area = perimeter * t - 4 * t^2  (correcting for corner overlap)
-    # For small t relative to die dimensions this is approximately
-    # area ~ perimeter * t. Use the simpler estimate; corner overlap
-    # is at most a small percentage.
-    thickness = min(io_area / perimeter, _IO_RING_THICKNESS_MM)
+    thickness = _IO_RING_THICKNESS_MM
 
     return [
         # Bottom
@@ -444,6 +451,11 @@ def _place_compute_mesh(
     class taking ``num_tiles`` consecutive grid positions.
     """
     arch = sku.kpu_architecture
+    if not arch.tiles:
+        raise ValueError(
+            f"sku {sku.id!r}: kpu_architecture.tiles is empty; cannot "
+            f"place a compute mesh"
+        )
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
     expected_total = mesh_rows * mesh_cols
@@ -1196,6 +1208,11 @@ def _arch_place_checkerboard(
     Compute tile-class assignment: row-major walk over the compute
     positions only, drawing from ``arch.tiles`` in declaration order.
     """
+    if not arch.tiles:
+        raise ValueError(
+            "kpu_architecture.tiles is empty; architectural floorplan "
+            "needs at least one tile class"
+        )
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
     physical_cols = 2 * mesh_cols
@@ -1296,14 +1313,22 @@ def _arch_place_memory_subsystem(
     def _ch_note(ch_id: int) -> str:
         return f"channel {ch_id} ({memory_type} {channel_width_bits}b)"
 
-    # Top edge: MC sits just above the mesh (y = mesh_origin_y +
-    # mesh_height); width = long_dim, height = short_dim. Inset from
-    # corners so vertical MCs claim them.
+    # Top edge: MC anchored to die top (just inside top IO ring), NOT
+    # to mesh top -- otherwise when extra_y > 0 the MC floats inside
+    # the die instead of hugging the edge. Same for the other 3 edges
+    # below.
+    mc_top_y = die_height - _IO_RING_THICKNESS_MM - short_dim
+    mc_bottom_y = _IO_RING_THICKNESS_MM
+    mc_right_x = die_width - _IO_RING_THICKNESS_MM - short_dim
+    mc_left_x = _IO_RING_THICKNESS_MM
+
+    # Top edge: MC sits just inside the top IO ring; width = long_dim,
+    # height = short_dim. Inset from corners so vertical MCs claim them.
     if edge_counts[0] > 0 and inner_w_horiz > 0:
         n = edge_counts[0]
         for i in range(n):
             x = inner_x_lo_horiz + (i + 0.5) / n * inner_w_horiz - long_dim / 2
-            mc_y = mesh_origin_y + mesh_height
+            mc_y = mc_top_y
             mc_name = f"mc_top_ch{chan_id}"
             mc_blocks.append(ArchTile(
                 name=mc_name, role=TileRole.MEMORY_CONTROLLER,
@@ -1320,14 +1345,14 @@ def _arch_place_memory_subsystem(
             ))
             chan_id += 1
 
-    # Right edge: MC sits just right of the mesh; width = short_dim,
-    # height = long_dim along the edge. Spans full inner y including
-    # corners.
+    # Right edge: MC anchored to die right (just inside right IO ring);
+    # width = short_dim, height = long_dim. Spans full inner y
+    # including corners.
     if edge_counts[1] > 0 and inner_h_vert > 0:
         n = edge_counts[1]
         for i in range(n):
             y = inner_y_lo_vert + (i + 0.5) / n * inner_h_vert - long_dim / 2
-            mc_x = mesh_origin_x + mesh_width
+            mc_x = mc_right_x
             mc_name = f"mc_right_ch{chan_id}"
             mc_blocks.append(ArchTile(
                 name=mc_name, role=TileRole.MEMORY_CONTROLLER,
@@ -1344,12 +1369,13 @@ def _arch_place_memory_subsystem(
             ))
             chan_id += 1
 
-    # Bottom edge: MC sits just below the mesh. Inset from corners.
+    # Bottom edge: MC anchored to die bottom (just above bottom IO
+    # ring). Inset from corners.
     if edge_counts[2] > 0 and inner_w_horiz > 0:
         n = edge_counts[2]
         for i in range(n):
             x = inner_x_lo_horiz + (i + 0.5) / n * inner_w_horiz - long_dim / 2
-            mc_y = mesh_origin_y - short_dim
+            mc_y = mc_bottom_y
             mc_name = f"mc_bottom_ch{chan_id}"
             mc_blocks.append(ArchTile(
                 name=mc_name, role=TileRole.MEMORY_CONTROLLER,
@@ -1366,13 +1392,13 @@ def _arch_place_memory_subsystem(
             ))
             chan_id += 1
 
-    # Left edge: MC sits just left of the mesh. Spans full inner y
-    # including corners.
+    # Left edge: MC anchored to die left (just inside left IO ring).
+    # Spans full inner y including corners.
     if edge_counts[3] > 0 and inner_h_vert > 0:
         n = edge_counts[3]
         for i in range(n):
             y = inner_y_lo_vert + (i + 0.5) / n * inner_h_vert - long_dim / 2
-            mc_x = mesh_origin_x - short_dim
+            mc_x = mc_left_x
             mc_name = f"mc_left_ch{chan_id}"
             mc_blocks.append(ArchTile(
                 name=mc_name, role=TileRole.MEMORY_CONTROLLER,
@@ -1460,7 +1486,6 @@ def _arch_what_if_estimates(
     out: list[WhatIfDieEstimate] = []
     for class_name, class_pitch in compute_pitches.items():
         unified = max(class_pitch, memory_pitch)
-        cell_area = unified * unified
         physical_cols = 2 * mesh_cols
         mesh_w = physical_cols * unified
         mesh_h = mesh_rows * unified
