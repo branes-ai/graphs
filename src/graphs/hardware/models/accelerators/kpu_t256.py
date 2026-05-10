@@ -430,11 +430,17 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
         },
         default_thermal_profile="30W",
 
-        # Legacy precision profiles (calculated from fabrics)
+        # Precision profiles -- M0.5 values (Phase 4b PR 4 reconciled
+        # to match the YAML loader). The previous BF16 number used the
+        # ComputeFabric peak-ops helper which undercounted the BF16
+        # contribution from INT8-primary tiles by ~3.3x; the corrected
+        # value sums BF16 throughput across all tile classes that
+        # declare bf16 ops_per_tile_per_clock.
         precision_profiles={
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                peak_ops_per_sec=total_int8_peak,  # INT8 tiles + Matrix tiles
+                # 256 tiles x 800 INT8 ops/tile x 1.4 GHz = 286.72 TOPS
+                peak_ops_per_sec=286.7e12,
                 tensor_core_supported=True,
                 relative_speedup=2.0,
                 bytes_per_element=1,
@@ -442,21 +448,32 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
             ),
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=total_bf16_peak,  # BF16 tiles + Matrix tiles
+                # 256 tiles x 400 BF16 ops/tile x 1.4 GHz = 143.36 TFLOPS
+                peak_ops_per_sec=143.4e12,
+                tensor_core_supported=True,
+                relative_speedup=1.0,
+                bytes_per_element=2,
+            ),
+            # FP16 = BF16 throughput (same datapath on KPU).
+            Precision.FP16: PrecisionProfile(
+                precision=Precision.FP16,
+                peak_ops_per_sec=143.4e12,
                 tensor_core_supported=True,
                 relative_speedup=1.0,
                 bytes_per_element=2,
             ),
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=fp32_peak,  # BF16 tiles only
+                # 51 BF16-primary tiles x 200 FP32 ops/tile x 1.4 GHz = 14.28 TFLOPS
+                peak_ops_per_sec=14.3e12,
                 tensor_core_supported=False,
-                relative_speedup=0.5,
+                relative_speedup=0.05,
                 bytes_per_element=4,
             ),
             Precision.INT4: PrecisionProfile(
                 precision=Precision.INT4,
-                peak_ops_per_sec=int4_peak,  # INT8 tiles only
+                # 179 INT8-primary tiles x 1600 INT4 ops/tile x 1.4 GHz = 400.96 TOPS
+                peak_ops_per_sec=401.0e12,
                 tensor_core_supported=True,
                 relative_speedup=2.5,
                 bytes_per_element=0.5,

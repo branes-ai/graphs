@@ -384,12 +384,16 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
         },
         default_thermal_profile="6W",
 
-        # Legacy precision profiles
+        # Precision profiles -- M0.5 values (Phase 4b PR 4 reconciled
+        # to match graphs.hardware.models.accelerators.kpu_yaml_loader.
+        # The previous numbers came from a pre-M0.5 16x16 PE-array
+        # interpretation that contradicted the 32x32 ops_per_tile_per_clock
+        # already declared in this file's TileSpecialization block.
         precision_profiles={
             Precision.INT8: PrecisionProfile(
                 precision=Precision.INT8,
-                # 36,864 PEs * 2 ops * 900 MHz ~= 66.4 TOPS INT8 peak
-                peak_ops_per_sec=66.4e12,
+                # 64 tiles x 2048 INT8 ops/tile x 900 MHz = 117.96 TOPS
+                peak_ops_per_sec=118.0e12,
                 tensor_core_supported=True,
                 relative_speedup=2.0,
                 bytes_per_element=1,
@@ -397,33 +401,32 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
             ),
             Precision.BF16: PrecisionProfile(
                 precision=Precision.BF16,
-                peak_ops_per_sec=33.2e12,  # 33.2 TFLOPS BF16
+                # 64 tiles x 1024 BF16 ops/tile x 900 MHz = 58.98 TFLOPS
+                peak_ops_per_sec=59.0e12,
                 tensor_core_supported=True,
                 relative_speedup=1.0,
                 bytes_per_element=2,
             ),
-            # FP16 runs on the same BF16 tile fabric (issue #53). Without an
-            # explicit entry, get_peak_ops() silently falls back to INT8 and
-            # makes -p fp16 byte-identical to -p int8 in the analyzer output.
+            # FP16 = BF16 throughput (same datapath on KPU, issue #53).
             Precision.FP16: PrecisionProfile(
                 precision=Precision.FP16,
-                peak_ops_per_sec=33.2e12,  # FP16 >= BF16 throughput on KPU
+                peak_ops_per_sec=59.0e12,
                 tensor_core_supported=True,
                 relative_speedup=1.0,
                 bytes_per_element=2,
             ),
-            # FP32 is supported but at much lower throughput; matches the
-            # 1.5 TFLOPS already reported by `mcp specs stillwater_kpu_t64`.
             Precision.FP32: PrecisionProfile(
                 precision=Precision.FP32,
-                peak_ops_per_sec=1.5e12,
+                # 13 BF16-primary tiles x 512 FP32 ops/tile x 900 MHz = 5.99 TFLOPS
+                peak_ops_per_sec=6.0e12,
                 tensor_core_supported=True,
-                relative_speedup=0.045,  # vs INT8
+                relative_speedup=0.05,
                 bytes_per_element=4,
             ),
             Precision.INT4: PrecisionProfile(
                 precision=Precision.INT4,
-                peak_ops_per_sec=132.8e12,  # 132.8 TOPS INT4
+                # 44 INT8-primary tiles x 4096 INT4 ops/tile x 900 MHz = 162.20 TOPS
+                peak_ops_per_sec=162.2e12,
                 tensor_core_supported=True,
                 relative_speedup=2.5,
                 bytes_per_element=0.5,
