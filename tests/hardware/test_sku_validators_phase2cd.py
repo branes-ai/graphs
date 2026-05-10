@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-from embodied_schemas import KPUTheoreticalPerformance
-
 from graphs.hardware.sku_validators import (
     Severity,
     ValidatorCategory,
@@ -93,23 +91,42 @@ def test_thermal_hotspot_emits_dvfs_throttle_warning(ctx):
     assert all("throttling to" in f.message for f in warns)
 
 
-def test_thermal_hotspot_petaop_at_25w_fires(ctx):
-    """The headline catch: a profile claiming PetaOP at very low TDP
-    triggers thermal_hotspot from the PE-block density side."""
-    bad_perf = KPUTheoreticalPerformance(
-        int8_tops=1_000_000.0, bf16_tflops=0.0, fp32_tflops=0.0,
-    )
-    bad_power = ctx.sku.power.model_copy(update={"tdp_watts": 25.0})
-    bad_ctx = _ctx_with(ctx, performance=bad_perf, power=bad_power)
-    # tops_per_watt_envelope catches this independently; verify thermal
-    # also flags the PE-block density at peak.
+def test_thermal_hotspot_fires_when_petaop_class_compute_meets_weak_cooling(ctx):
+    """The headline catch path on the thermal side: a SKU whose PE
+    blocks have PetaOP-class peak power density (= the silicon_bin's
+    compute blocks at the profile clock) paired with a tiny cooling
+    ceiling triggers the validator's "fundamentally hot" ERROR.
+
+    Note: thermal_hotspot reads silicon_bin + profile.clock_mhz +
+    cooling.max_power_density -- NOT performance.int8_tops or
+    power.tdp_watts (those are aggregate fields the energy / consistency
+    validators consume). To actually exercise this validator's catch
+    path we have to perturb its inputs: swap a thermal profile to point
+    at the smallest cooling ceiling in the catalog.
+    """
+    profiles = list(ctx.sku.power.thermal_profiles)
+    # Repoint the default profile's cooling at the tiny passive_fanless
+    # ceiling (0.3 W/mm^2). The chip's PE blocks are real silicon
+    # designed for active_fan / passive_heatsink_large -- the mismatch
+    # is large enough to produce the >5x ERROR finding.
+    for i, p in enumerate(profiles):
+        if p.name == ctx.sku.power.default_thermal_profile:
+            profiles[i] = p.model_copy(
+                update={"cooling_solution_id": "passive_fanless"}
+            )
+    bad_power = ctx.sku.power.model_copy(update={"thermal_profiles": profiles})
+    bad_ctx = _ctx_with(ctx, power=bad_power)
     findings = _findings_for("thermal_hotspot", bad_ctx)
-    block_warns = [
+    pe_errors = [
         f for f in findings
         if f.block and f.block.startswith("pe_")
-        and f.severity in (Severity.WARNING, Severity.ERROR)
+        and f.severity == Severity.ERROR
     ]
-    assert block_warns
+    assert pe_errors, (
+        "expected thermal_hotspot ERROR on PE blocks when paired with "
+        "passive_fanless cooling; got: "
+        + ", ".join(f.render_one_line() for f in findings)
+    )
 
 
 # ---------------------------------------------------------------------------

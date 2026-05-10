@@ -157,6 +157,10 @@ def real_ctx():
         return build_context_for_kpu("stillwater_kpu_t256")
     except Exception as exc:
         pytest.skip(f"catalog unreachable: {exc}")
+        # pytest.skip raises Skipped; the explicit raise below makes the
+        # control-flow contract clear to static analyzers (no implicit
+        # None fall-through after the try/except).
+        raise AssertionError("unreachable")  # pragma: no cover
 
 
 def test_run_all_returns_empty_when_registry_empty(real_ctx):

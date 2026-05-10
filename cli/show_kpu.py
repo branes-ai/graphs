@@ -15,6 +15,8 @@ Usage:
 """
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
@@ -22,6 +24,43 @@ from typing import Optional
 
 from embodied_schemas import load_kpus
 from embodied_schemas.kpu import KPUEntry
+
+
+def _render_csv(e: KPUEntry) -> str:
+    """Single-row CSV with the headline-numbers a SKU author tracks.
+
+    Detail-view CSV is awkward (KPUEntry has nested structures), so this
+    renders a flat row of the most-comparable scalars. JSON is the right
+    format for the full nested view; CSV is here for spreadsheet
+    interop on the headline metrics."""
+    total_pes = sum(t.total_pes for t in e.kpu_architecture.tiles)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "id", "name", "vendor", "process_node_id",
+        "total_tiles", "total_pes",
+        "die_size_mm2", "transistors_billion",
+        "default_tdp_w", "default_clock_mhz",
+        "int8_tops", "bf16_tflops", "fp32_tflops", "int4_tops",
+        "memory_type", "memory_size_gb", "memory_bandwidth_gbps",
+    ])
+    default_clock = next(
+        (p.clock_mhz for p in e.power.thermal_profiles
+         if p.name == e.power.default_thermal_profile),
+        0.0,
+    )
+    writer.writerow([
+        e.id, e.name, e.vendor, e.process_node_id,
+        e.kpu_architecture.total_tiles, total_pes,
+        e.die.die_size_mm2, e.die.transistors_billion,
+        e.power.tdp_watts, default_clock,
+        e.performance.int8_tops, e.performance.bf16_tflops,
+        e.performance.fp32_tflops, e.performance.int4_tops or "",
+        e.kpu_architecture.memory.memory_type.value,
+        e.kpu_architecture.memory.memory_size_gb,
+        e.kpu_architecture.memory.memory_bandwidth_gbps,
+    ])
+    return buf.getvalue()
 
 
 def _render_text(e: KPUEntry) -> str:
@@ -155,7 +194,10 @@ def _detect_format(output: Optional[str]) -> str:
     if not output:
         return "text"
     ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "md": "md", "markdown": "md", "txt": "text"}.get(ext, "text")
+    return {
+        "json": "json", "csv": "csv", "md": "md",
+        "markdown": "md", "txt": "text",
+    }.get(ext, "text")
 
 
 def main() -> int:
@@ -185,6 +227,8 @@ def main() -> int:
     fmt = _detect_format(args.output)
     if fmt == "json":
         rendered = json.dumps(e.model_dump(mode="json"), indent=2) + "\n"
+    elif fmt == "csv":
+        rendered = _render_csv(e)
     elif fmt == "md":
         # Reuse text but wrap in code block; keeps the inspector simple
         rendered = "```\n" + _render_text(e) + "```\n"

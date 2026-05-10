@@ -69,6 +69,16 @@ def test_roundtrip_die_within_rounding(sku_id, catalogs):
     # transistors; the hand-authored YAMLs round earlier in the
     # back-of-envelope chain, so a couple of percent of difference is
     # rounding only, not a real generator drift).
+    # Defensive guards: zero transistors / zero die size would mean a
+    # broken catalog entry, not a generator issue -- fail loudly with
+    # a clear message rather than ZeroDivisionError if a future SKU
+    # YAML is misauthored.
+    assert original.die.transistors_billion > 0, (
+        f"{sku_id}: catalog entry has die.transistors_billion <= 0"
+    )
+    assert original.die.die_size_mm2 > 0, (
+        f"{sku_id}: catalog entry has die.die_size_mm2 <= 0"
+    )
     assert abs(regen.die.transistors_billion - original.die.transistors_billion) \
         / original.die.transistors_billion <= 0.02
     assert abs(regen.die.die_size_mm2 - original.die.die_size_mm2) \

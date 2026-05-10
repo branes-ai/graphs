@@ -6,15 +6,16 @@ Runs every registered validator against a SKU and prints findings, sorted
 by severity. Returns non-zero exit code if any ERROR finding is produced
 -- suitable as a CI gate.
 
-Phase 2a: framework only -- no validators registered yet. The CLI runs
-cleanly and reports 0 findings until Phase 2b populates
-``graphs.hardware.sku_validators.validators``.
+The validator package self-registers a category-by-category set of
+checks at import time (consistency, electrical, area, energy, thermal,
+reliability). Use ``--category`` to focus on one risk class.
 
 Usage:
     python cli/validate_sku.py stillwater_kpu_t256
     python cli/validate_sku.py stillwater_kpu_t768 --category thermal
     python cli/validate_sku.py stillwater_kpu_t64 --severity warning
     python cli/validate_sku.py stillwater_kpu_t256 --output findings.json
+    python cli/validate_sku.py stillwater_kpu_t256 --output findings.csv
     python cli/validate_sku.py stillwater_kpu_t256 --output findings.md
 
 Exit codes:
@@ -24,10 +25,11 @@ Exit codes:
 """
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
-from dataclasses import asdict
 from typing import List, Optional
 
 from graphs.hardware.sku_validators import (
@@ -52,8 +54,8 @@ def _render_text(
     out.append(f"  findings:              {len(findings)}")
     if validator_count == 0:
         out.append("")
-        out.append("  No validators are registered. Phase 2a ships the")
-        out.append("  validator framework only; Phase 2b adds the validators.")
+        out.append("  No validators are registered. Ensure")
+        out.append("  graphs.hardware.sku_validators.validators is importable.")
         out.append("")
         return "\n".join(out)
     if not findings:
@@ -110,7 +112,8 @@ def _render_md(findings: List[Finding], sku_id: str, validator_count: int) -> st
     lines.append("")
     if validator_count == 0:
         lines.append(
-            "_No validators are registered. Phase 2a ships the framework only._"
+            "_No validators are registered. Ensure "
+            "`graphs.hardware.sku_validators.validators` is importable._"
         )
         lines.append("")
         return "\n".join(lines)
@@ -129,13 +132,40 @@ def _render_md(findings: List[Finding], sku_id: str, validator_count: int) -> st
     return "\n".join(lines)
 
 
+def _render_csv(findings: List[Finding], sku_id: str, validator_count: int) -> str:
+    """One row per finding. Header columns: sku_id, severity, category,
+    validator, block, profile, message, citation."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=[
+            "sku_id", "severity", "category", "validator",
+            "block", "profile", "message", "citation",
+        ],
+    )
+    writer.writeheader()
+    for f in findings:
+        writer.writerow({
+            "sku_id": sku_id,
+            "severity": f.severity.value,
+            "category": f.category.value,
+            "validator": f.validator,
+            "block": f.block or "",
+            "profile": f.profile or "",
+            "message": f.message,
+            "citation": f.citation or "",
+        })
+    return buf.getvalue()
+
+
 def _detect_format(output: Optional[str]) -> str:
     if not output:
         return "text"
     ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "md": "md", "markdown": "md", "txt": "text"}.get(
-        ext, "text"
-    )
+    return {
+        "json": "json", "csv": "csv", "md": "md",
+        "markdown": "md", "txt": "text",
+    }.get(ext, "text")
 
 
 def main() -> int:
@@ -195,6 +225,8 @@ def main() -> int:
     fmt = _detect_format(args.output)
     if fmt == "json":
         rendered = _render_json(findings, args.sku_id, validator_count)
+    elif fmt == "csv":
+        rendered = _render_csv(findings, args.sku_id, validator_count)
     elif fmt == "md":
         rendered = _render_md(findings, args.sku_id, validator_count) + "\n"
     else:

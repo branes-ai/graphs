@@ -15,9 +15,12 @@ The thermal_hotspot validator catches it three ways:
    otherwise the chip can't even idle within its thermal envelope.
 3. **Per-block peak power density vs cooling ceiling**: for every block
    (PE blocks especially), peak W/mm^2 vs cooling.max_power_density.
-   Above 2x ceiling -> ERROR (sustained peak is impossible).
-   1-2x -> WARNING with explicit "DVFS throttle to N%" required.
+   Above 5x ceiling -> ERROR (throttle factor so aggressive the SKU
+   claim is misleading; check coefficients or cooling choice).
+   1-5x  -> WARNING with explicit "DVFS throttle to N%" required.
    0.8-1x -> INFO (operating near thermal limits).
+   Thresholds are the ``_DENSITY_*_MULT`` constants below; see their
+   docstring for the rationale.
 """
 
 from __future__ import annotations
