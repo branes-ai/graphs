@@ -324,6 +324,75 @@ def test_soc_fabric_unknown_topology_marks_low_confidence(catalogs):
     assert m.soc_fabric.low_confidence is True
 
 
+def test_soc_fabric_lossy_torus_mapping_marks_low_confidence(catalogs):
+    """``torus_2d`` is approximated as ``Topology.MESH_2D`` because the
+    Topology enum has no TORUS_2D value. Mark this lossy mapping with
+    ``low_confidence=True`` so consumers (hop-count, bisection-bandwidth
+    formulas) see the approximation."""
+    from graphs.hardware.fabric_model import Topology
+    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    arch = real.kpu_architecture.model_copy(
+        update={"noc": real.kpu_architecture.noc.model_copy(
+            update={"topology": "torus_2d"}
+        )}
+    )
+    bad_sku = real.model_copy(update={"kpu_architecture": arch})
+    m = load_kpu_resource_model_from_yaml(
+        bad_sku.id,
+        kpus={bad_sku.id: bad_sku},
+        process_nodes=catalogs["process_nodes"],
+    )
+    # Maps to MESH_2D (the closest available enum value)...
+    assert m.soc_fabric.topology == Topology.MESH_2D
+    # ...but flagged as approximation.
+    assert m.soc_fabric.low_confidence is True
+
+
+def test_tile_energy_model_mac_fallback_is_node_scaled(catalogs):
+    """When a process node lacks ``balanced_logic:<precision>`` entries,
+    the MAC fallback must scale with ``node.node_nm`` via
+    ``get_base_alu_energy``, not collapse to a fixed constant. Lower
+    nm -> lower fallback MAC energy."""
+    from embodied_schemas.process_node import CircuitClass
+    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    n16_node = catalogs["process_nodes"]["tsmc_n16"]
+    # Strip every balanced_logic energy entry to force the fallback path.
+    sparse_n16 = n16_node.model_copy(update={
+        "energy_per_op_pj": {
+            k: v for k, v in n16_node.energy_per_op_pj.items()
+            if not k.startswith(f"{CircuitClass.BALANCED_LOGIC.value}:")
+        }
+    })
+    m_n16 = load_kpu_resource_model_from_yaml(
+        real.id,
+        kpus={real.id: real},
+        process_nodes={real.process_node_id: sparse_n16},
+    )
+
+    # Same SKU, but pretend it's on TSMC N5 (much smaller node).
+    n5_node = catalogs["process_nodes"]["tsmc_n5"]
+    sparse_n5 = n5_node.model_copy(update={
+        "id": "tsmc_n16",  # rebrand so the SKU's process_node_id resolves
+        "energy_per_op_pj": {
+            k: v for k, v in n5_node.energy_per_op_pj.items()
+            if not k.startswith(f"{CircuitClass.BALANCED_LOGIC.value}:")
+        }
+    })
+    m_n5 = load_kpu_resource_model_from_yaml(
+        real.id,
+        kpus={real.id: real},
+        process_nodes={real.process_node_id: sparse_n5},
+    )
+
+    # N5 is a smaller node than N16 -> fallback MAC energy must be lower.
+    assert m_n5.tile_energy_model.mac_energy_int8 < m_n16.tile_energy_model.mac_energy_int8
+    assert m_n5.tile_energy_model.mac_energy_bf16 < m_n16.tile_energy_model.mac_energy_bf16
+    assert m_n5.tile_energy_model.mac_energy_fp32 < m_n16.tile_energy_model.mac_energy_fp32
+    # Sanity: ordering INT8 <= BF16 <= FP32 still holds in fallback path.
+    tem = m_n16.tile_energy_model
+    assert tem.mac_energy_int8 <= tem.mac_energy_bf16 <= tem.mac_energy_fp32
+
+
 @pytest.mark.parametrize("sku_id", SKU_IDS)
 def test_loader_output_remains_kpu_mapper_compatible(sku_id, catalogs):
     """The KPUMapper energy paths use ``mapper.tile_energy_model``;

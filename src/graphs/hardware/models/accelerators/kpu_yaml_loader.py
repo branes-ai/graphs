@@ -201,6 +201,14 @@ _NOC_TOPOLOGY_MAP: dict[str, Topology] = {
     "full_mesh": Topology.FULL_MESH,
 }
 
+# Topology strings whose mapping above is *lossy* -- we approximate
+# them with the closest enum value but downstream consumers should
+# treat the result as low-confidence (different bisection bandwidth,
+# different hop-count formula, etc.). Keep this set narrow: only
+# entries where the resolved Topology genuinely misrepresents the
+# underlying interconnect.
+_LOSSY_TOPOLOGY_MAPPINGS: frozenset[str] = frozenset({"torus_2d"})
+
 
 # ---------------------------------------------------------------------------
 # Energy lookups
@@ -266,7 +274,7 @@ def _build_tile_energy_model(
       DRAM bandwidth, clock) -- direct read from
       ``sku.kpu_architecture``.
     * ``pes_per_tile`` -- the dominant tile class's PE count
-      (``num_tiles`` × array). The energy model uses this for routing,
+      (``num_tiles`` x array). The energy model uses this for routing,
       L1 sizing, and per-tile compute energy; the dominant class's
       footprint is the right ballpark for those calculations.
     * ``mac_energy_int8/bf16/fp32`` -- from
@@ -292,12 +300,26 @@ def _build_tile_energy_model(
     # tile class are typically balanced; the matrix tile uses HP_LOGIC
     # but the model only carries one set of MAC energies, so the
     # majority class wins).
-    def _mac_energy_pj(precision: str, fallback_pj: float) -> float:
+    #
+    # Fallback strategy: when the YAML's energy_per_op_pj table is
+    # sparse for a precision, scale ``get_base_alu_energy(node_nm,
+    # "standard_cell")`` by precision-typical ratios. This keeps a
+    # node like TSMC N7 (low base energy) from collapsing back to a
+    # node-agnostic constant; sparse PDK tables stay node-aware.
+    base_alu_energy_j = get_base_alu_energy(node.node_nm, "standard_cell")
+    base_alu_energy_pj = base_alu_energy_j * 1e12
+    # Ratios are PE-datapath-width typicals: INT8 ~12% of FP32 (from
+    # observed factory ratios across N16/N7), BF16 ~50%, FP32 = 1.0
+    # (the alu energy table is FP32-keyed by convention).
+    _PRECISION_FALLBACK_RATIO = {"int8": 0.12, "bf16": 0.50, "fp32": 1.0}
+
+    def _mac_energy_pj(precision: str) -> float:
         key = f"{CircuitClass.BALANCED_LOGIC.value}:{precision}"
         pj = node.energy_per_op_pj.get(key)
-        if pj is None or pj <= 0:
-            return fallback_pj
-        return pj
+        if pj is not None and pj > 0:
+            return pj
+        ratio = _PRECISION_FALLBACK_RATIO.get(precision, 1.0)
+        return base_alu_energy_pj * ratio
 
     # DRAM PHY energy from the memory-type table (with 1.2x ratio for write).
     dram_read_pj = _DRAM_READ_PJ_PER_BYTE.get(mem.memory_type.value, 10.0)
@@ -322,10 +344,10 @@ def _build_tile_energy_model(
         l2_write_energy_per_byte=_L2_WRITE_PJ_PER_BYTE * 1e-12,
         l1_read_energy_per_byte=_L1_READ_PJ_PER_BYTE * 1e-12,
         l1_write_energy_per_byte=_L1_WRITE_PJ_PER_BYTE * 1e-12,
-        # MAC energies from PDK
-        mac_energy_int8=_mac_energy_pj("int8", 0.30) * 1e-12,
-        mac_energy_bf16=_mac_energy_pj("bf16", 0.45) * 1e-12,
-        mac_energy_fp32=_mac_energy_pj("fp32", 0.90) * 1e-12,
+        # MAC energies from PDK; node-scaled fallback when YAML is sparse
+        mac_energy_int8=_mac_energy_pj("int8") * 1e-12,
+        mac_energy_bf16=_mac_energy_pj("bf16") * 1e-12,
+        mac_energy_fp32=_mac_energy_pj("fp32") * 1e-12,
     )
 
 
@@ -352,8 +374,15 @@ def _build_soc_fabric(
     arch = sku.kpu_architecture
     noc = arch.noc
 
-    topology = _NOC_TOPOLOGY_MAP.get(noc.topology.lower(), Topology.UNKNOWN)
-    low_confidence = topology is Topology.UNKNOWN
+    topology_key = noc.topology.lower()
+    topology = _NOC_TOPOLOGY_MAP.get(topology_key, Topology.UNKNOWN)
+    # Mark low_confidence for both UNKNOWN topologies AND lossy
+    # mappings (e.g., torus_2d -> mesh_2d) so downstream consumers
+    # see the approximation instead of treating it as exact.
+    low_confidence = (
+        topology is Topology.UNKNOWN
+        or topology_key in _LOSSY_TOPOLOGY_MAPPINGS
+    )
 
     return SoCFabricModel(
         topology=topology,
