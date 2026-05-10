@@ -38,8 +38,9 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
         volume_tier="10K+",
         process_node="7nm",
         year=2025,
-        notes="High-end Autonomous Driving AI accelerator. 768 tiles, "
+        notes="Datacenter AI inference accelerator. 768 tiles, "
               "7nm process, multi-chip or interposer packaging. "
-              "HBM2e/LPDDR5X memory. Liquid cooling capable.",
+              "HBM3 memory (64 GB / 1.6 TB/s). Liquid cooling at the "
+              "100 W profile.",
     )
     return model
