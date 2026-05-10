@@ -348,6 +348,110 @@ def test_soc_fabric_lossy_torus_mapping_marks_low_confidence(catalogs):
     assert m.soc_fabric.low_confidence is True
 
 
+# ---------------------------------------------------------------------------
+# Phase 4b PR 3: per-(profile, precision) efficiency / tile_utilization
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_loader_reads_per_precision_efficiency_from_yaml(sku_id, catalogs):
+    """When KPUThermalProfile.efficiency_factor_by_precision is set in
+    the YAML, the loader must propagate it to the matching
+    PerformanceCharacteristics. Phase 4b PR 3 backfilled the four
+    SKU YAMLs with values from the corresponding factories."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    sku = catalogs["kpus"][sku_id]
+    for profile in sku.power.thermal_profiles:
+        if not profile.efficiency_factor_by_precision:
+            continue
+        top = m.thermal_operating_points[profile.name]
+        for precision_name, expected_eff in profile.efficiency_factor_by_precision.items():
+            precision = next(
+                (p for p in Precision if p.value == precision_name), None
+            )
+            if precision is None or precision not in top.performance_specs:
+                continue
+            actual = top.performance_specs[precision].efficiency_factor
+            assert actual == expected_eff, (
+                f"{sku_id} {profile.name} {precision_name}: "
+                f"loader produced efficiency_factor={actual} but YAML says {expected_eff}"
+            )
+
+
+@pytest.mark.parametrize("sku_id", SKU_IDS)
+def test_loader_reads_per_precision_tile_utilization_from_yaml(sku_id, catalogs):
+    """Same as efficiency but for tile_utilization."""
+    m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+    sku = catalogs["kpus"][sku_id]
+    for profile in sku.power.thermal_profiles:
+        if not profile.tile_utilization_by_precision:
+            continue
+        top = m.thermal_operating_points[profile.name]
+        for precision_name, expected_util in profile.tile_utilization_by_precision.items():
+            precision = next(
+                (p for p in Precision if p.value == precision_name), None
+            )
+            if precision is None or precision not in top.performance_specs:
+                continue
+            actual = top.performance_specs[precision].tile_utilization
+            assert actual == expected_util, (
+                f"{sku_id} {profile.name} {precision_name}: "
+                f"loader produced tile_utilization={actual} but YAML says {expected_util}"
+            )
+
+
+def test_loader_falls_back_to_placeholder_when_yaml_omits_efficiency(catalogs):
+    """A YAML thermal_profile without
+    ``efficiency_factor_by_precision`` should produce the historical
+    flat placeholder (0.70 / 0.95). This is the backward-compat path
+    for external user YAMLs that haven't backfilled."""
+    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    profiles = [
+        p.model_copy(
+            update={
+                "efficiency_factor_by_precision": None,
+                "tile_utilization_by_precision": None,
+            }
+        )
+        for p in real.power.thermal_profiles
+    ]
+    bare_power = real.power.model_copy(update={"thermal_profiles": profiles})
+    bare_sku = real.model_copy(update={"power": bare_power})
+    m = load_kpu_resource_model_from_yaml(
+        bare_sku.id,
+        kpus={bare_sku.id: bare_sku},
+        process_nodes=catalogs["process_nodes"],
+    )
+    # All profiles should now use the placeholder.
+    for top in m.thermal_operating_points.values():
+        for ps in top.performance_specs.values():
+            assert ps.efficiency_factor == 0.70
+            assert ps.tile_utilization == 0.95
+
+
+def test_loader_efficiency_increases_with_tdp_per_yaml(catalogs):
+    """Sanity check on the catalog values: across the catalog, INT8
+    efficiency_factor should be non-decreasing as TDP rises within
+    a SKU (more thermal headroom -> less DVFS throttling -> higher
+    sustained efficiency)."""
+    for sku_id in SKU_IDS:
+        m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
+        # Sort profiles by TDP and check INT8 efficiency is monotonic.
+        sku = catalogs["kpus"][sku_id]
+        sorted_profiles = sorted(
+            sku.power.thermal_profiles, key=lambda p: p.tdp_watts
+        )
+        prev_eff = 0.0
+        for profile in sorted_profiles:
+            top = m.thermal_operating_points[profile.name]
+            int8_eff = top.performance_specs[Precision.INT8].efficiency_factor
+            assert int8_eff >= prev_eff, (
+                f"{sku_id} INT8 efficiency at {profile.name} "
+                f"({int8_eff}) is lower than at the previous TDP "
+                f"({prev_eff}) -- expected monotonic per Phase 4b PR 3 backfill"
+            )
+            prev_eff = int8_eff
+
+
 def test_tile_energy_model_mac_fallback_is_node_scaled(catalogs):
     """When a process node lacks ``balanced_logic:<precision>`` entries,
     the MAC fallback must scale with ``node.node_nm`` via
