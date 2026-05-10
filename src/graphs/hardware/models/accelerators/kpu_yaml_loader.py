@@ -53,6 +53,8 @@ from embodied_schemas import (
 )
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
+from ...architectural_energy import KPUTileEnergyModel
+from ...fabric_model import SoCFabricModel, Topology
 from ...resource_model import (
     ClockDomain,
     ComputeFabric,
@@ -144,6 +146,71 @@ _CIRCUIT_TYPE_LABEL: dict[CircuitClass, str] = {
 
 
 # ---------------------------------------------------------------------------
+# Per-memory-type DRAM PHY energy (pJ per byte). Mirrors the table in
+# silicon_math, kept here so the loader can build tile_energy_model
+# without importing sku_validators (avoids a circular dep).
+# ---------------------------------------------------------------------------
+
+_DRAM_READ_PJ_PER_BYTE: dict[str, float] = {
+    "lpddr4": 12.0,
+    "lpddr4x": 11.0,
+    "lpddr5": 10.0,
+    "lpddr5x": 9.5,
+    "ddr5": 13.0,
+    "gddr6": 8.0,
+    "gddr6x": 7.5,
+    "hbm2": 7.0,
+    "hbm2e": 6.5,
+    "hbm3": 6.0,
+    "hbm3e": 5.5,
+    "unified": 10.0,
+}
+# Write PHY energy is typically ~20 % above read for DDR-style DRAM and
+# ~15 % above read for HBM. Apply a single 1.2x heuristic; the
+# difference vs measured silicon is well below the loader's other
+# uncertainties and matches the existing factory convention.
+_DRAM_WRITE_RATIO = 1.2
+
+
+# ---------------------------------------------------------------------------
+# On-chip SRAM energy (pJ per byte read / write). Node-agnostic v1
+# placeholders mirroring the values the existing factories hard-code
+# (which themselves are 16 nm ballpark numbers used uniformly across
+# T64 / T256 / T768). When PDK SRAM characterization data lands, swap
+# this for a per-node table.
+# ---------------------------------------------------------------------------
+
+_L3_READ_PJ_PER_BYTE = 2.0
+_L3_WRITE_PJ_PER_BYTE = 2.5
+_L2_READ_PJ_PER_BYTE = 0.8
+_L2_WRITE_PJ_PER_BYTE = 1.0
+_L1_READ_PJ_PER_BYTE = 0.3
+_L1_WRITE_PJ_PER_BYTE = 0.4
+
+
+# ---------------------------------------------------------------------------
+# YAML NoC topology -> resource_model Topology enum
+# ---------------------------------------------------------------------------
+
+_NOC_TOPOLOGY_MAP: dict[str, Topology] = {
+    "mesh_2d": Topology.MESH_2D,
+    "torus_2d": Topology.MESH_2D,  # closest fit; no TORUS_2D enum value
+    "crossbar": Topology.CROSSBAR,
+    "ring": Topology.RING,
+    "clos": Topology.CLOS,
+    "full_mesh": Topology.FULL_MESH,
+}
+
+# Topology strings whose mapping above is *lossy* -- we approximate
+# them with the closest enum value but downstream consumers should
+# treat the result as low-confidence (different bisection bandwidth,
+# different hop-count formula, etc.). Keep this set narrow: only
+# entries where the resolved Topology genuinely misrepresents the
+# underlying interconnect.
+_LOSSY_TOPOLOGY_MAPPINGS: frozenset[str] = frozenset({"torus_2d"})
+
+
+# ---------------------------------------------------------------------------
 # Energy lookups
 # ---------------------------------------------------------------------------
 
@@ -195,6 +262,146 @@ def _fabric_energy_scaling(
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
+
+def _build_tile_energy_model(
+    sku: KPUEntry, node: ProcessNodeEntry, *, default_clock_hz: float
+) -> KPUTileEnergyModel:
+    """Construct a KPUTileEnergyModel from the YAML SKU + process node.
+
+    Mappings:
+
+    * Architectural shape (num_tiles, mesh, L1/L2/L3 sizes,
+      DRAM bandwidth, clock) -- direct read from
+      ``sku.kpu_architecture``.
+    * ``pes_per_tile`` -- the dominant tile class's PE count
+      (``num_tiles`` x array). The energy model uses this for routing,
+      L1 sizing, and per-tile compute energy; the dominant class's
+      footprint is the right ballpark for those calculations.
+    * ``mac_energy_int8/bf16/fp32`` -- from
+      ``node.energy_per_op_pj["balanced_logic:<precision>"]``. Falls
+      back to ``get_base_alu_energy(node_nm, "standard_cell")`` scaled
+      by precision-typical ratios when the YAML doesn't list a value.
+    * ``dram_read/write_energy_per_byte`` -- from the per-memory-type
+      table above.
+    * ``l1/l2/l3_read/write_energy_per_byte`` -- node-agnostic v1
+      placeholders matching the existing factory values; PR (later)
+      will swap for a per-process-node SRAM table when PDK data lands.
+    """
+    arch = sku.kpu_architecture
+    mem = arch.memory
+
+    # Dominant tile class -- the one with the highest num_tiles. In all
+    # four hand-authored Stillwater SKUs this is INT8-primary.
+    dominant_tile = max(arch.tiles, key=lambda t: t.num_tiles)
+    pes_per_tile = dominant_tile.pe_array_rows * dominant_tile.pe_array_cols
+
+    # MAC energies from the process node's per-(class, precision) table.
+    # Use BALANCED_LOGIC as the default class (the PEs of the dominant
+    # tile class are typically balanced; the matrix tile uses HP_LOGIC
+    # but the model only carries one set of MAC energies, so the
+    # majority class wins).
+    #
+    # Fallback strategy: when the YAML's energy_per_op_pj table is
+    # sparse for a precision, scale ``get_base_alu_energy(node_nm,
+    # "standard_cell")`` by precision-typical ratios. This keeps a
+    # node like TSMC N7 (low base energy) from collapsing back to a
+    # node-agnostic constant; sparse PDK tables stay node-aware.
+    base_alu_energy_j = get_base_alu_energy(node.node_nm, "standard_cell")
+    base_alu_energy_pj = base_alu_energy_j * 1e12
+    # Ratios are PE-datapath-width typicals: INT8 ~12% of FP32 (from
+    # observed factory ratios across N16/N7), BF16 ~50%, FP32 = 1.0
+    # (the alu energy table is FP32-keyed by convention).
+    _PRECISION_FALLBACK_RATIO = {"int8": 0.12, "bf16": 0.50, "fp32": 1.0}
+
+    def _mac_energy_pj(precision: str) -> float:
+        key = f"{CircuitClass.BALANCED_LOGIC.value}:{precision}"
+        pj = node.energy_per_op_pj.get(key)
+        if pj is not None and pj > 0:
+            return pj
+        ratio = _PRECISION_FALLBACK_RATIO.get(precision, 1.0)
+        return base_alu_energy_pj * ratio
+
+    # DRAM PHY energy from the memory-type table (with 1.2x ratio for write).
+    dram_read_pj = _DRAM_READ_PJ_PER_BYTE.get(mem.memory_type.value, 10.0)
+    dram_write_pj = dram_read_pj * _DRAM_WRITE_RATIO
+
+    return KPUTileEnergyModel(
+        num_tiles=arch.total_tiles,
+        pes_per_tile=pes_per_tile,
+        tile_mesh_dimensions=(arch.noc.mesh_rows, arch.noc.mesh_cols),
+        dram_bandwidth_gb_s=mem.memory_bandwidth_gbps,
+        l3_size_per_tile=mem.l3_kib_per_tile * 1024,
+        l2_size_per_tile=mem.l2_kib_per_tile * 1024,
+        l1_size_per_pe=mem.l1_kib_per_pe * 1024,
+        clock_frequency_hz=default_clock_hz,
+        # DRAM PHY energy
+        dram_read_energy_per_byte=dram_read_pj * 1e-12,
+        dram_write_energy_per_byte=dram_write_pj * 1e-12,
+        # On-chip SRAM energies (node-agnostic v1)
+        l3_read_energy_per_byte=_L3_READ_PJ_PER_BYTE * 1e-12,
+        l3_write_energy_per_byte=_L3_WRITE_PJ_PER_BYTE * 1e-12,
+        l2_read_energy_per_byte=_L2_READ_PJ_PER_BYTE * 1e-12,
+        l2_write_energy_per_byte=_L2_WRITE_PJ_PER_BYTE * 1e-12,
+        l1_read_energy_per_byte=_L1_READ_PJ_PER_BYTE * 1e-12,
+        l1_write_energy_per_byte=_L1_WRITE_PJ_PER_BYTE * 1e-12,
+        # MAC energies from PDK; node-scaled fallback when YAML is sparse
+        mac_energy_int8=_mac_energy_pj("int8") * 1e-12,
+        mac_energy_bf16=_mac_energy_pj("bf16") * 1e-12,
+        mac_energy_fp32=_mac_energy_pj("fp32") * 1e-12,
+    )
+
+
+def _build_soc_fabric(
+    sku: KPUEntry, node: ProcessNodeEntry
+) -> SoCFabricModel:
+    """Construct a SoCFabricModel from the YAML SKU's NoC declaration.
+
+    Maps ``kpu_architecture.noc`` directly to the resource_model fabric:
+
+    * ``topology`` -- string -> ``Topology`` enum via _NOC_TOPOLOGY_MAP.
+      Unknown topology strings produce ``Topology.UNKNOWN`` with
+      ``low_confidence=True`` so downstream consumers see the gap.
+    * ``mesh_dimensions`` -- ``(mesh_rows, mesh_cols)``.
+    * ``flit_size_bytes`` -- direct from ``noc.flit_bytes``.
+    * ``bisection_bandwidth_gbps`` -- direct, with 0.0 fallback when
+      the YAML doesn't declare it.
+    * ``controller_count`` -- ``total_tiles`` (each tile is a NoC node).
+    * ``hop_latency_ns``, ``pj_per_flit_per_hop`` -- node-agnostic v1
+      placeholders matching the values the existing factories use; the
+      analyzer treats them as approximations and is robust to
+      modest differences.
+    """
+    arch = sku.kpu_architecture
+    noc = arch.noc
+
+    topology_key = noc.topology.lower()
+    topology = _NOC_TOPOLOGY_MAP.get(topology_key, Topology.UNKNOWN)
+    # Mark low_confidence for both UNKNOWN topologies AND lossy
+    # mappings (e.g., torus_2d -> mesh_2d) so downstream consumers
+    # see the approximation instead of treating it as exact.
+    low_confidence = (
+        topology is Topology.UNKNOWN
+        or topology_key in _LOSSY_TOPOLOGY_MAPPINGS
+    )
+
+    return SoCFabricModel(
+        topology=topology,
+        hop_latency_ns=1.0,           # 16 nm-ish typical; see factory comments
+        pj_per_flit_per_hop=0.5,      # ditto
+        bisection_bandwidth_gbps=noc.bisection_bandwidth_gbps or 0.0,
+        controller_count=arch.total_tiles,
+        flit_size_bytes=noc.flit_bytes,
+        mesh_dimensions=(noc.mesh_rows, noc.mesh_cols),
+        routing_distance_factor=1.2,  # typical XY routing with detours
+        low_confidence=low_confidence,
+        provenance=(
+            f"{sku.name} NoC from "
+            f"embodied-schemas:kpus/{sku.vendor}/{sku.id}.yaml "
+            f"(kpu_architecture.noc); on-chip SRAM + per-hop energy "
+            f"are node-agnostic v1 placeholders"
+        ),
+    )
+
 
 def load_kpu_resource_model_from_yaml(
     base_id: str,
@@ -451,9 +658,17 @@ def load_kpu_resource_model_from_yaml(
     energy_per_byte = _MEM_PJ_PER_BYTE.get(mem.memory_type.value, 10.0) * 1e-12
 
     # ------------------------------------------------------------------
+    # KPUTileEnergyModel + SoCFabricModel (Phase 4b PR 2)
+    # ------------------------------------------------------------------
+    tile_energy_model = _build_tile_energy_model(
+        sku, node, default_clock_hz=default_clock_hz
+    )
+    soc_fabric = _build_soc_fabric(sku, node)
+
+    # ------------------------------------------------------------------
     # Construct the model
     # ------------------------------------------------------------------
-    return HardwareResourceModel(
+    model = HardwareResourceModel(
         name=sku.name,
         hardware_type=HardwareType.KPU,
         compute_units=sku.kpu_architecture.total_tiles,
@@ -475,3 +690,12 @@ def load_kpu_resource_model_from_yaml(
         max_concurrent_kernels=4,
         wave_quantization=2,
     )
+
+    # tile_energy_model and soc_fabric aren't constructor args on
+    # HardwareResourceModel -- the existing factories attach them as
+    # post-construction attributes. Match that convention so downstream
+    # consumers (analyzers, the KPUMapper energy path) see the same shape.
+    model.tile_energy_model = tile_energy_model
+    model.soc_fabric = soc_fabric
+
+    return model
