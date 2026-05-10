@@ -280,25 +280,28 @@ different leakage model, lower peak density but wider DVFS range).
 
 ## Phasing
 
+All cross-repo work landed via `embodied-schemas` PRs #9, #10, #11 and
+`graphs` PRs #144, #145, #146, #147, #148, #149.
+
 | # | Phase | Status |
 |---|---|---|
-| 0 | Cross-repo schema slots: `kpus/`, `process-nodes/`, `cooling-solutions/` directories in embodied-schemas | in progress |
-| 0a | `ProcessNodeEntry` / `CircuitClass` / `TransistorTopology` schema (Pydantic) | in progress |
-| 0a | `CoolingSolutionEntry` schema (Pydantic) | in progress |
-| 0b | Hand-authored 8 ProcessNode YAMLs + 7 CoolingSolution YAMLs | in progress |
-| 0c | Inspection CLIs (5 tools) | pending |
-| 1 | KPU SKU YAML schema (silicon_bin + process_node_id + cooling refs) | pending |
-| 2a | Validator framework (registry, Finding, base classes) | pending |
-| 2b | Initial validators (consistency, density, library, energy) | pending |
-| 2c | Thermal hotspot validator | pending |
-| 2d | EM validator | pending |
-| 3 | Generator (`generate_kpu_sku`) | pending |
-| 4a | KPU resource-model loader (`load_kpu_resource_model_from_yaml`) | done (2026-05-09) |
-| 4b | Collapse 4 hand-coded factories into thin wrappers around the loader | pending |
-| 5 | Mapper wiring (4 × 2 lines in `accelerators/kpu.py`) | pending |
-| 6 | CI gate: every SKU YAML validated | pending |
-| 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` override | pending |
-| 8 | **Stage 8 (later)**: DVFS feasibility, memory headroom, yield risk, **floorplanner + viz + geometric validators (KPU checkerboard pitch-match)** | pending |
+| 0 | Cross-repo schema slots: `kpus/`, `process-nodes/`, `cooling-solutions/` directories in embodied-schemas | done (#9) |
+| 0a | `ProcessNodeEntry` / `CircuitClass` / `TransistorTopology` schema (Pydantic) | done (#9) |
+| 0a | `CoolingSolutionEntry` schema (Pydantic) | done (#9) |
+| 0b | Hand-authored 8 ProcessNode YAMLs + 7 CoolingSolution YAMLs | done (#9) |
+| 0c | Inspection CLIs (`list_process_nodes`, `show_process_node`, `list_circuit_classes`, `list_cooling_solutions`, `show_cooling_solution`) | done (graphs #144) |
+| 1 | KPU SKU YAML schema (silicon_bin + process_node_id + cooling refs) + 4 Stillwater SKUs | done (#9, graphs #144) |
+| 2a | Validator framework (registry, `Finding`, `Severity`, `ValidatorCategory`, `ValidatorContext`) | done (graphs #144) |
+| 2b | Initial 7 validators (tile_mix_consistency, cross_ref_consistency, power_profile_monotonicity, block_library_validity, area_self_consistency, composite_density_envelope, tops_per_watt_envelope) | done (graphs #144) |
+| 2c | `thermal_hotspot` validator with explicit DVFS-throttle messaging | done (graphs #144) |
+| 2d | `electromigration` validator (sustained current vs PDN capacity at hottest Tj) | done (graphs #144) |
+| 3 | Generator (`generate_kpu_sku`) + `KPUSKUInputSpec` + `cli/generate_kpu_sku.py` | done (graphs #144) |
+| 4a | KPU resource-model loader (`load_kpu_resource_model_from_yaml`) | done (graphs #144) |
+| 4b | Collapse 4 hand-coded factories into thin wrappers around the loader | done (graphs #145–#149) |
+| 5 | Mapper wiring -- `physical_spec` populated on every `create_kpu_t*_mapper()` | done (graphs #144) |
+| 6 | CI gate: every SKU YAML in the catalog validated by the registry on every push | in progress |
+| 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | not started |
+| 8 | **Stage 8 (later)**: DVFS feasibility, memory headroom, yield risk, **floorplanner + viz + geometric validators (KPU checkerboard pitch-match)** | deferred |
 
 ## File inventory
 

@@ -404,11 +404,71 @@ jobs:
         run: |
           python validation/composition/test_layer_composition.py --verbose
 
-  # Job 9: Summary
+  # Job 9: SKU catalog validation gate (Phase 6)
+  # Runs the full registry of SKU validators against every KPU YAML in
+  # the embodied-schemas catalog. Fails the build on any ERROR finding
+  # so a regression in a new SKU YAML (or in the validators themselves)
+  # surfaces before merge. WARNINGs (the "DVFS throttle to N%"
+  # diagnostics) are allowed; --strict would also fail on warnings.
+  sku-catalog-gate:
+    name: SKU Catalog Gate
+    runs-on: ubuntu-latest
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          # Pinned to embodied-schemas main; bump when later schema
+          # changes need to be picked up. History:
+          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
+          ref: bd61f3c0b53e4b1c8aa92a9139a7dbc8f0dc50cd
+          path: embodied-schemas
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+          pip install -e ./embodied-schemas
+          pip install pytest
+
+      - name: Run catalog-validation gate
+        run: |
+          python cli/validate_sku.py --all
+          echo "✅ Catalog validation gate passed"
+
+      - name: Run catalog-validation pytest gate
+        run: |
+          # The pytest version of the gate auto-discovers SKUs and
+          # produces a structured per-SKU pass/fail report. Both the
+          # CLI and pytest paths must pass.
+          pytest tests/hardware/test_sku_catalog_validation.py -v
+
+  # Job 10: Summary
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [package-check, test, cli-tools, examples, lint, hardware-tests, data-hygiene, composition-check]
+    needs: [package-check, test, cli-tools, examples, lint, hardware-tests, data-hygiene, composition-check, sku-catalog-gate]
     steps:
       - name: All checks passed
         run: |
@@ -425,5 +485,6 @@ jobs:
           echo "  Hardware tests completed"
           echo "  Data hygiene verified"
           echo "  Composition check passed"
+          echo "  SKU catalog gate passed (Phase 6)"
           echo ""
           echo "Ready to merge!"
