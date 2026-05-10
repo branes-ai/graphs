@@ -1086,9 +1086,11 @@ def derive_kpu_architectural_floorplan(
         per_tile_l2, per_tile_l3, compute_pe_areas,
     ))
 
-    # Control logic
+    # Control logic (bottom-left corner gap, outside the mesh)
     blocks.extend(_arch_place_control(
-        other_blocks, mesh_origin_x, mesh_origin_y, die_height
+        other_blocks,
+        mesh_origin_x=mesh_origin_x, mesh_origin_y=mesh_origin_y,
+        short_dim=short_dim, die_height=die_height,
     ))
 
     # What-if estimates (periphery-aware: edge_pad held constant)
@@ -1128,16 +1130,23 @@ def _arch_place_io_ring(
     die_height_mm: float,
     other_blocks: list[tuple[str, float, CircuitClass]],
 ) -> list[ArchTile]:
+    """Pad ring around the perimeter.
+
+    Ring thickness is fixed at ``_IO_RING_THICKNESS_MM`` (typical pad-
+    pitch depth for current packages) regardless of silicon_bin
+    io_pads area -- the pad count drives how many pads fit, not how
+    deep the ring sits. Earlier code scaled thickness by
+    ``io_area/perimeter``, which collapsed the ring below visual
+    resolution when io_pads was small (1 character cell renders only
+    when the rect is at least mm_per_col wide).
+    """
     io_area = sum(
         a for n, a, _ in other_blocks
         if "io" in n.lower() and "phy" not in n.lower()
     )
     if io_area <= 0:
         return []
-    perimeter = 2 * (die_width_mm + die_height_mm)
-    if perimeter <= 0:
-        return []
-    thickness = min(io_area / perimeter, _IO_RING_THICKNESS_MM)
+    thickness = _IO_RING_THICKNESS_MM
     return [
         ArchTile(
             name="io_ring_bottom", role=TileRole.IO_PAD,
@@ -1385,23 +1394,52 @@ def _arch_place_memory_subsystem(
 
 def _arch_place_control(
     other_blocks: list[tuple[str, float, CircuitClass]],
-    mesh_origin_x: float, mesh_origin_y: float, die_height: float,
+    *,
+    mesh_origin_x: float,
+    mesh_origin_y: float,
+    short_dim: float,
+    die_height: float,
 ) -> list[ArchTile]:
+    """Place control logic in the bottom-left corner GAP.
+
+    With the v2 layout the bottom-left corner has a small unclaimed
+    region: the bottom IO ring is at y < IO, the bottom horizontal MC
+    starts at x = IO + 2*short_dim, and the left vertical MC starts at
+    y = IO + short_dim. That leaves a rectangle of size
+    ``2*short_dim x short_dim`` at ``(IO, IO)`` available for control,
+    OUTSIDE the mesh. The previous version sat inside the mesh and
+    overlapped the bottom-left compute tile.
+    """
     ctrl_blocks = [
         (n, a, c) for n, a, c in other_blocks if "control" in n.lower()
     ]
     if not ctrl_blocks:
         return []
     total_area = sum(a for _, a, _ in ctrl_blocks)
-    side = math.sqrt(total_area) if total_area > 0 else 0.0
-    side = min(side, die_height * _CONTROL_CORNER_FRACTION)
-    if side <= 0:
+    if total_area <= 0:
+        return []
+    # Available corner gap: max width = 2*short_dim, max height = short_dim.
+    # Scale the silicon_bin's control block to fit inside this envelope
+    # with the same aspect ratio.
+    gap_w = 2 * short_dim
+    gap_h = short_dim
+    if gap_w <= 0 or gap_h <= 0:
+        return []
+    # Square-ish control block (side derived from area, capped by gap)
+    side = math.sqrt(total_area)
+    width = min(side, gap_w)
+    height = min(side, gap_h)
+    if width <= 0 or height <= 0:
         return []
     return [ArchTile(
         name="control_logic", role=TileRole.CONTROL,
-        x_mm=mesh_origin_x, y_mm=mesh_origin_y,
-        width_mm=side, height_mm=side,
-        notes=f"Aggregates {len(ctrl_blocks)} control block(s)",
+        x_mm=_IO_RING_THICKNESS_MM,
+        y_mm=_IO_RING_THICKNESS_MM,
+        width_mm=width, height_mm=height,
+        notes=(
+            f"Aggregates {len(ctrl_blocks)} control block(s); "
+            f"placed in bottom-left corner gap (outside mesh)"
+        ),
     )]
 
 

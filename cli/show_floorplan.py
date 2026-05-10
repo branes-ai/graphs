@@ -123,24 +123,39 @@ def _render_blocks_to_ascii(
     *,
     char_width: int = 80,
 ) -> str:
-    """Rasterize a list of (rectangle, glyph) pairs into an ASCII grid.
+    """Rasterize (rectangle, glyph) pairs into an ASCII grid.
 
     Terminal characters are roughly 2:1 tall:wide; the height scales
     accordingly so the printed die preserves its true aspect ratio.
+
+    Both edge endpoints use ``floor`` (``int()``) so adjacent
+    rectangles share a boundary cell (no gaps, no overlaps) AND every
+    tile gets the same visual size. ``round`` was tried earlier but
+    produced periodic +1-cell tiles (e.g., 7 tiles of 2 rows + 1 of
+    3) because the rounding direction flipped at half-pitch boundaries.
+    With floor, tile_size = floor(N*pitch/r) - floor((N-1)*pitch/r) is
+    uniform across the mesh.
     """
     if die_width_mm <= 0 or die_height_mm <= 0:
         return "(empty floorplan)"
     mm_per_col = die_width_mm / char_width
     mm_per_row = mm_per_col * 2.0
-    rows = max(1, int(die_height_mm / mm_per_row + 0.5))
+    rows = max(1, int(die_height_mm / mm_per_row))
     grid = [[" "] * char_width for _ in range(rows)]
     for (x, y, w, h), glyph in blocks_with_glyphs:
         col_lo = max(0, int(x / mm_per_col))
-        col_hi = min(char_width, int((x + w) / mm_per_col + 0.5))
+        col_hi = min(char_width, int((x + w) / mm_per_col))
         # Flip y: grid row 0 = top of die (high y)
         y_top = y + h
         row_lo = max(0, int((die_height_mm - y_top) / mm_per_row))
-        row_hi = min(rows, int((die_height_mm - y) / mm_per_row + 0.5))
+        row_hi = min(rows, int((die_height_mm - y) / mm_per_row))
+        # Ensure non-empty rectangles render at least 1 cell -- otherwise
+        # thin blocks (IO ring at 0.3mm with mm_per_col 0.23) collapse
+        # to col_lo == col_hi and disappear.
+        if col_hi == col_lo and w > 0:
+            col_hi = min(char_width, col_lo + 1)
+        if row_hi == row_lo and h > 0:
+            row_hi = min(rows, row_lo + 1)
         for r in range(row_lo, row_hi):
             for c in range(col_lo, col_hi):
                 grid[r][c] = glyph
