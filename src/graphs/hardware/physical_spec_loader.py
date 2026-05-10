@@ -164,13 +164,17 @@ def _yaml_path_for(base_id: str, *, vendor: Optional[str] = None) -> Path:
     """Locate the YAML file for ``base_id`` within the data directory.
 
     Searches by vendor sub-directory if ``vendor`` is given, else scans
-    every gpu/cpu/npu/chip vendor directory until it finds a file whose
-    ``id:`` field matches ``base_id``. Caches nothing -- this is meant
-    to be called O(N) times per process at factory-import time.
+    every gpu/cpu/kpu/npu/chip vendor directory until it finds a file
+    whose ``id:`` field matches ``base_id``. Caches nothing -- this is
+    meant to be called O(N) times per process at factory-import time.
+
+    KPUs are a peer category alongside GPU/CPU/NPU (general SURE/SARE
+    parallel execution engines, distinct from NPUs). Stillwater KPU SKU
+    YAMLs live under ``data/kpus/stillwater/``.
     """
     data_dir = _resolve_data_dir()
     # The known top-level categories that hold individual chip YAMLs.
-    categories = ("gpus", "cpus", "npus", "chips")
+    categories = ("gpus", "cpus", "kpus", "npus", "chips")
     if vendor:
         # Direct lookup -- caller knows category + vendor.
         for category in categories:
