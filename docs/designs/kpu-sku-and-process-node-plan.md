@@ -299,8 +299,8 @@ All cross-repo work landed via `embodied-schemas` PRs #9, #10, #11 and
 | 4a | KPU resource-model loader (`load_kpu_resource_model_from_yaml`) | done (graphs #144) |
 | 4b | Collapse 4 hand-coded factories into thin wrappers around the loader | done (graphs #145–#149) |
 | 5 | Mapper wiring -- `physical_spec` populated on every `create_kpu_t*_mapper()` | done (graphs #144) |
-| 6 | CI gate: every SKU YAML in the catalog validated by the registry on every push | in progress |
-| 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | not started |
+| 6 | CI gate: every SKU YAML in the catalog validated by the registry on every push | done (graphs #150) |
+| 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | in progress |
 | 8 | **Stage 8 (later)**: DVFS feasibility, memory headroom, yield risk, **floorplanner + viz + geometric validators (KPU checkerboard pitch-match)** | deferred |
 
 ## File inventory
