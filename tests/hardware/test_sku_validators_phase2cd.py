@@ -206,7 +206,13 @@ def test_run_category_reliability_only(ctx):
     assert all(f.category == ValidatorCategory.RELIABILITY for f in findings)
 
 
-def test_total_validator_count_is_nine_after_phase2cd():
-    """Phase 2c added thermal_hotspot, Phase 2d added electromigration --
-    we should have 9 validators total (7 from Phase 2b + 2 from 2c+d)."""
-    assert len(default_registry) == 9
+def test_total_validator_count_after_phase2cd_and_stage8():
+    """Validator count tracker:
+    - Phase 2b:   7 (consistency x2, electrical x1, area x3, energy x1)
+    - Phase 2c+d: +2 (thermal_hotspot, electromigration)
+    - Stage 8a:   +3 (floorplan_pitch_match, floorplan_within_die_envelope,
+                       floorplan_aspect_ratio)
+    - Stage 8b:   +2 (floorplan_compute_memory_pitch_match,
+                       floorplan_whitespace_fraction)
+    """
+    assert len(default_registry) == 14
