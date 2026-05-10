@@ -569,17 +569,21 @@ def load_kpu_resource_model_from_yaml(
             tile_specializations=profile_specializations,
         )
 
+        # Per-(profile, precision) calibration data lives on the YAML's
+        # KPUThermalProfile (Phase 4b PR 3, embodied-schemas#10). When
+        # absent, fall back to the historical placeholders -- the field
+        # is Optional precisely so external user YAMLs don't need to
+        # backfill for the loader to function.
+        eff_by_prec = profile.efficiency_factor_by_precision or {}
+        util_by_prec = profile.tile_utilization_by_precision or {}
+
         performance_specs: dict[Precision, PerformanceCharacteristics] = {}
         for precision in supported_precisions:
             performance_specs[precision] = PerformanceCharacteristics(
                 precision=precision,
                 compute_resource=profile_compute,
-                # v1: assume KPU achieves ~70% efficiency at the default
-                # profile, ~60% at the highest, ~80% at the lowest. These
-                # are placeholders -- Phase 4b will read measured
-                # efficiency factors from a calibration source.
-                efficiency_factor=0.70,
-                tile_utilization=0.95,
+                efficiency_factor=eff_by_prec.get(precision.value, 0.70),
+                tile_utilization=util_by_prec.get(precision.value, 0.95),
                 native_acceleration=True,
             )
 
