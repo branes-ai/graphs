@@ -35,6 +35,13 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     model.tile_energy_model.mac_energy_int8 = 0.10e-12
     model.tile_energy_model.mac_energy_bf16 = 0.16e-12
     model.tile_energy_model.mac_energy_fp32 = 0.30e-12
+    # Per-tile L1 scratchpad bandwidth: each PE delivers ~1.5 GB/s of
+    # steady-state demand. Aggregate L1 BW ~96 TB/s across 64 tiles.
+    # Shared L2 BW: 4 MB shared L2 feeds the tile mesh at NoC bisection
+    # BW; vendor spec is 200 GB/s aggregate. Used by the V4 classifier;
+    # locked in by tests/validation_model_v4/test_classify_with_bw_peaks.py.
+    model.l1_bandwidth_per_unit_bps = 1.5e12
+    model.l2_bandwidth_bps = 200e9
     model.bom_cost_profile = BOMCostProfile(
         silicon_die_cost=75.0,        # 16nm TSMC (small die)
         package_cost=15.0,             # Flip-chip BGA
