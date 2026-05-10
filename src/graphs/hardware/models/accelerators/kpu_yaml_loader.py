@@ -612,9 +612,17 @@ def load_kpu_resource_model_from_yaml(
         )
         if peak <= 0:
             continue
+        # Round to 0.1 TOPS / TFLOPS so the loader matches the
+        # cleanly-published numbers downstream consumers (and the
+        # hand-coded factory literals) use. The raw fabric x clock
+        # arithmetic produces 117.9648e12 for T64 INT8; published
+        # value is 118.0 TOPS. Rounding to 1 decimal place in the
+        # T/G unit matches both the YAML's performance.* roll-ups
+        # and the legacy factory literals to within 0.1%.
+        peak_rounded = round(peak / 1e12, 1) * 1e12
         precision_profiles[precision] = PrecisionProfile(
             precision=precision,
-            peak_ops_per_sec=peak,
+            peak_ops_per_sec=peak_rounded,
             tensor_core_supported=True,
             relative_speedup=1.0,
             bytes_per_element=bytes_by_precision.get(precision, 4),
@@ -715,5 +723,54 @@ def load_kpu_resource_model_from_yaml(
     # consumers (analyzers, the KPUMapper energy path) see the same shape.
     model.tile_energy_model = tile_energy_model
     model.soc_fabric = soc_fabric
+
+    # M3-M7 layer attributes -- KPU-architecture constants (not in YAML)
+    # plus values derivable from kpu_architecture.memory. Matches what
+    # the hand-coded factories were setting post-construction; pushed
+    # into the loader as part of Phase 4b PR 5 so the factory wrappers
+    # don't need to repeat them.
+    model.l1_storage_kind = "scratchpad"
+    model.l2_cache_per_unit = mem.l2_kib_per_tile * 1024
+    model.l2_topology = "per-unit"
+    model.l3_present = True
+    model.l3_cache_total = (
+        mem.l3_kib_per_tile * 1024 * sku.kpu_architecture.total_tiles
+    )
+    model.coherence_protocol = "none"
+
+    # M7 Layer 7 -- DRAM PHY. Memory technology + per-byte read/write
+    # energy in pJ. Reads from the per-memory-type table mirroring the
+    # generator's _MEM_PHY_PJ_PER_BYTE_BY_TYPE.
+    model.memory_technology = mem.memory_type.value.upper()
+    model.memory_read_energy_per_byte_pj = _DRAM_READ_PJ_PER_BYTE.get(
+        mem.memory_type.value, 10.0
+    )
+    model.memory_write_energy_per_byte_pj = (
+        model.memory_read_energy_per_byte_pj * _DRAM_WRITE_RATIO
+    )
+
+    # Provenance for the M3-M7 attributes set above. Source citations
+    # tie back to the YAML file path and the M0.5 KPU dataflow-tile
+    # abstraction that drives these conventions.
+    yaml_source = (
+        f"embodied-schemas:kpus/{sku.vendor}/{sku.id}.yaml"
+    )
+    from graphs.core.confidence import EstimationConfidence
+    _PROVENANCE = EstimationConfidence.theoretical(
+        score=0.85,
+        source=(
+            f"{sku.name} M0.5 dataflow-tile abstraction; derived from {yaml_source}"
+        ),
+    )
+    for key in (
+        "l1_cache_per_unit", "l1_storage_kind",
+        "l2_cache_per_unit", "l2_topology",
+        "l3_present", "l3_cache_total", "coherence_protocol",
+        "soc_fabric",
+        "memory_technology",
+        "memory_read_energy_per_byte_pj",
+        "memory_write_energy_per_byte_pj",
+    ):
+        model.set_provenance(key, _PROVENANCE)
 
     return model
