@@ -18,10 +18,17 @@ Phase 2c/2d additions:
 - thermal:     thermal_hotspot (THERMAL)
 - reliability: electromigration (RELIABILITY)
 
-Stage 8 additions (heuristic-v1 floorplan; advisory until calibrated):
+Stage 8a additions (circuit-class floorplan; advisory until calibrated):
 
 - geometry:    floorplan_pitch_match, floorplan_within_die_envelope,
                floorplan_aspect_ratio (GEOMETRY)
+
+Stage 8b additions (architectural-role floorplan; advisory):
+
+- geometry:    floorplan_compute_memory_pitch_match (the primary KPU
+               checkerboard concern), floorplan_whitespace_fraction
+               (with what-if-all-class-X die-area shrink suggestion)
+               (GEOMETRY)
 """
 
 # Importing each module triggers the @register_class decorators inside.

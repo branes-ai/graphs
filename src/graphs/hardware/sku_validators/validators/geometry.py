@@ -28,7 +28,10 @@ from __future__ import annotations
 
 from typing import List
 
-from ...silicon_floorplan import derive_kpu_floorplan
+from ...silicon_floorplan import (
+    derive_kpu_architectural_floorplan,
+    derive_kpu_floorplan,
+)
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 
@@ -71,6 +74,27 @@ _DIE_ASPECT_ERROR = 5.0
 # uncalibrated. Tighten to ~2.0x after first measured-silicon callibration.
 _DIE_AREA_RATIO_WARNING = 1.5
 _DIE_AREA_RATIO_ERROR = 3.0
+
+# Compute-vs-memory tile-pitch mismatch in the KPU checkerboard. The
+# *primary* geometric concern: every compute tile is paired 1:1 with a
+# memory tile (L3) in the alternating layout. If their pitches differ
+# significantly, the die pays whitespace inside the smaller cell.
+#
+# Bands match the within-class pitch validator: WARN at >=1.20x
+# (notable design imbalance), ERROR at >=5.0x (broken layout). For
+# Stage 8 the ERROR threshold is set high so all 4 catalog SKUs land
+# at WARN-max while the heuristic is uncalibrated. Tighten to ~2.0x
+# after measured-silicon calibration.
+_CM_PITCH_RATIO_WARNING = 1.20
+_CM_PITCH_RATIO_ERROR = 5.00
+
+# Whitespace-fraction warning band for the architectural floorplan.
+# A KPU mesh with >50% mesh-area whitespace is paying a lot of silicon
+# for nothing (typically because Matrix tiles set the unified pitch
+# while the bulk of tiles are smaller INT8). WARN at >=40%, ERROR at
+# >=80% (essentially "the design is half air").
+_WHITESPACE_FRACTION_WARNING = 0.40
+_WHITESPACE_FRACTION_ERROR = 0.80
 
 
 # ---------------------------------------------------------------------------
@@ -239,5 +263,159 @@ class FloorplanAspectRatio:
             citation=(
                 f"silicon_floorplan v1 heuristic; aspect threshold "
                 f"WARN={_DIE_ASPECT_WARNING} ERR={_DIE_ASPECT_ERROR}"
+            ),
+        )]
+
+
+# ---------------------------------------------------------------------------
+# floorplan_compute_memory_pitch_match  (architectural view)
+# ---------------------------------------------------------------------------
+
+@default_registry.register_class
+class FloorplanComputeMemoryPitchMatch:
+    """Flag compute-vs-memory tile-pitch mismatch in the KPU checkerboard.
+
+    The KPU's M0.5 layout pairs every compute tile (PE + L1 + L2) with
+    a memory tile (L3) in a checkerboard. For the layout to tile
+    densely, ``compute_pitch ~= memory_pitch``. When they diverge, the
+    smaller tile leaves whitespace inside its cell -- the larger pitch
+    sets the cell size.
+
+    This is a different concern from ``floorplan_pitch_match``, which
+    catches mismatches *within* compute classes (INT8 vs Matrix). Both
+    fire because they describe different geometric problems.
+    """
+
+    name = "floorplan_compute_memory_pitch_match"
+    category = ValidatorCategory.GEOMETRY
+
+    def check(self, ctx: ValidatorContext) -> List[Finding]:
+        try:
+            fp = derive_kpu_architectural_floorplan(
+                ctx.sku, ctx.process_node
+            )
+        except Exception as exc:
+            return [Finding(
+                validator=self.name,
+                category=self.category,
+                severity=Severity.ERROR,
+                message=(
+                    f"could not derive architectural floorplan: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                citation="graphs.hardware.silicon_floorplan",
+            )]
+        if not fp.compute_summaries or fp.memory_summary.pitch_mm <= 0:
+            return []
+
+        memory_pitch = fp.memory_summary.pitch_mm
+        out: List[Finding] = []
+        for class_name, summary in fp.compute_summaries.items():
+            cp = summary.pitch_mm
+            if cp <= 0:
+                continue
+            ratio = max(cp, memory_pitch) / min(cp, memory_pitch)
+            if ratio < _CM_PITCH_RATIO_WARNING:
+                continue
+            sev = (
+                Severity.ERROR if ratio >= _CM_PITCH_RATIO_ERROR
+                else Severity.WARNING
+            )
+            larger = "compute" if cp > memory_pitch else "memory"
+            out.append(Finding(
+                validator=self.name,
+                category=self.category,
+                severity=sev,
+                message=(
+                    f"compute tile {class_name!r} pitch {cp:.3f} mm vs "
+                    f"memory pitch {memory_pitch:.3f} mm = {ratio:.2f}x "
+                    f"({larger} side dominates); checkerboard pairing "
+                    f"will leave whitespace in the smaller cell "
+                    f"(class waste {summary.class_whitespace_mm2:.1f} mm^2)"
+                ),
+                block=f"tile_class:{class_name}",
+                citation=(
+                    f"silicon_floorplan v1 heuristic; C/M pitch threshold "
+                    f"WARN={_CM_PITCH_RATIO_WARNING}x "
+                    f"ERR={_CM_PITCH_RATIO_ERROR}x"
+                ),
+            ))
+        return out
+
+
+# ---------------------------------------------------------------------------
+# floorplan_whitespace_fraction
+# ---------------------------------------------------------------------------
+
+@default_registry.register_class
+class FloorplanWhitespaceFraction:
+    """Flag SKUs whose architectural die has too much whitespace.
+
+    A high whitespace fraction means the chosen tile-class mix is
+    paying silicon area for nothing -- typically because the largest
+    class (Matrix) sets the unified pitch while the bulk of compute
+    tiles are smaller. Useful as a top-level "die efficiency" alarm.
+
+    The companion what-if estimates show the architect what the die
+    would cost if every tile were of one class.
+    """
+
+    name = "floorplan_whitespace_fraction"
+    category = ValidatorCategory.GEOMETRY
+
+    def check(self, ctx: ValidatorContext) -> List[Finding]:
+        try:
+            fp = derive_kpu_architectural_floorplan(
+                ctx.sku, ctx.process_node
+            )
+        except Exception:
+            return []  # The pitch validator already reports derivation errors
+
+        ws_frac = fp.whitespace_fraction()
+        if ws_frac < _WHITESPACE_FRACTION_WARNING:
+            return []
+        sev = (
+            Severity.ERROR if ws_frac >= _WHITESPACE_FRACTION_ERROR
+            else Severity.WARNING
+        )
+        # Find the smallest compute class (most whitespace contributor) and
+        # the all-X what-if that would shrink the die the most.
+        worst_class = max(
+            fp.compute_summaries.values(),
+            key=lambda s: s.class_whitespace_mm2,
+            default=None,
+        )
+        best_what_if = min(
+            fp.what_if, key=lambda w: w.die_area_mm2, default=None,
+        )
+        what_if_msg = ""
+        if best_what_if and best_what_if.die_area_mm2 < fp.die_area_mm2:
+            shrink = (
+                1.0 - best_what_if.die_area_mm2 / fp.die_area_mm2
+            ) * 100.0
+            what_if_msg = (
+                f"; an all-{best_what_if.tile_class!r} mesh would be "
+                f"{best_what_if.die_area_mm2:.1f} mm^2 ({shrink:.0f}% smaller)"
+            )
+        worst_msg = ""
+        if worst_class:
+            worst_msg = (
+                f"; biggest contributor is {worst_class.tile_class!r} "
+                f"({worst_class.class_whitespace_mm2:.1f} mm^2 whitespace "
+                f"across {worst_class.num_tiles} tiles)"
+            )
+        return [Finding(
+            validator=self.name,
+            category=self.category,
+            severity=sev,
+            message=(
+                f"architectural die whitespace {ws_frac*100:.0f}% "
+                f"({fp.whitespace_mm2():.1f} mm^2 of "
+                f"{fp.die_area_mm2:.1f} mm^2){worst_msg}{what_if_msg}"
+            ),
+            citation=(
+                f"silicon_floorplan v1 architectural; whitespace "
+                f"threshold WARN={_WHITESPACE_FRACTION_WARNING*100:.0f}% "
+                f"ERR={_WHITESPACE_FRACTION_ERROR*100:.0f}%"
             ),
         )]

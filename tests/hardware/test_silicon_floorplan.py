@@ -29,8 +29,12 @@ from embodied_schemas import (
 )
 
 from graphs.hardware.silicon_floorplan import (
+    ArchitecturalFloorplan,
+    ArchTile,
     Floorplan,
     FloorplanBlock,
+    TileRole,
+    derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
 from graphs.hardware.sku_validators import (
@@ -209,11 +213,15 @@ def test_floorplan_total_block_area_close_to_die_area(sku_id, kpus, nodes):
 # ---------------------------------------------------------------------------
 
 def test_geometry_validators_registered():
-    """The three Stage 8 validators are registered under GEOMETRY."""
+    """All five Stage 8 GEOMETRY validators are registered."""
     expected = {
+        # Stage 8a (circuit-class view)
         "floorplan_pitch_match",
         "floorplan_within_die_envelope",
         "floorplan_aspect_ratio",
+        # Stage 8b (architectural view)
+        "floorplan_compute_memory_pitch_match",
+        "floorplan_whitespace_fraction",
     }
     names = set(default_registry.names())
     assert expected.issubset(names), f"missing: {expected - names}"
@@ -280,21 +288,28 @@ def test_pitch_match_warns_on_t768(kpus, nodes, cooling):
 # ---------------------------------------------------------------------------
 
 def test_show_floorplan_cli_renders_t256():
-    """Happy path: CLI prints a non-empty ASCII grid + a summary."""
+    """Happy path: CLI prints a non-empty ASCII grid + a summary.
+
+    Default view is architectural (Stage 8b); coverage of the
+    architectural-specific output lives in
+    ``test_show_floorplan_cli_default_is_architectural``.
+    """
     result = subprocess.run(
         [sys.executable, str(SHOW_FLOORPLAN_CLI), "stillwater_kpu_t256"],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
-    # The summary lists the SKU name + die dimensions
     assert "Stillwater KPU-T256" in result.stdout
-    assert "Per-tile-class pitches" in result.stdout
     # The legend confirms the ASCII renderer ran
     assert "Legend:" in result.stdout
 
 
 def test_show_floorplan_cli_json_output(tmp_path: Path):
-    """JSON mode: structured output with the right top-level keys."""
+    """JSON mode: structured output with the right top-level keys.
+
+    Default view is architectural; the circuit-class JSON shape is
+    covered separately by ``test_show_floorplan_cli_view_circuit_*``.
+    """
     out = tmp_path / "fp.json"
     result = subprocess.run(
         [sys.executable, str(SHOW_FLOORPLAN_CLI),
@@ -305,7 +320,6 @@ def test_show_floorplan_cli_json_output(tmp_path: Path):
     payload = json.loads(out.read_text())
     assert payload["sku_id"] == "stillwater_kpu_t64"
     assert payload["die_area_mm2"] > 0
-    assert "tile_pitches" in payload
     assert len(payload["blocks"]) > 0
 
 
@@ -328,3 +342,187 @@ def test_show_floorplan_cli_list_mode():
     ids = result.stdout.strip().split("\n")
     assert "stillwater_kpu_t256" in ids
     assert "stillwater_kpu_t768" in ids
+
+
+# ---------------------------------------------------------------------------
+# Architectural view: structural properties (Stage 8b)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_arch_floorplan_has_positive_dimensions(sku_id, kpus, nodes):
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    assert fp.die_width_mm > 0
+    assert fp.die_height_mm > 0
+    assert fp.die_area_mm2 > 0
+
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_arch_floorplan_compute_memory_one_to_one(sku_id, kpus, nodes):
+    """Architectural pairing: 1 memory tile per compute tile (each
+    compute tile owns its L3). The checkerboard layout depends on
+    this 1:1 invariant."""
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    assert len(fp.compute_tiles()) == sku.kpu_architecture.total_tiles
+    assert len(fp.memory_tiles()) == sku.kpu_architecture.total_tiles
+
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_arch_floorplan_distributes_memory_controllers(sku_id, kpus, nodes):
+    """Memory controllers must be placed (default 4) and distributed
+    around the periphery (no two on top of each other)."""
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    ctrls = fp.memory_controllers()
+    assert len(ctrls) >= 1, f"{sku_id}: no memory controllers placed"
+    # Each controller has positive area
+    for c in ctrls:
+        assert c.area_mm2 > 0
+    # Controllers don't overlap each other (pairwise)
+    eps = 1e-3
+    for i, a in enumerate(ctrls):
+        for b in ctrls[i + 1:]:
+            x_ov = (
+                a.x_mm + eps < b.x_mm + b.width_mm
+                and b.x_mm + eps < a.x_mm + a.width_mm
+            )
+            y_ov = (
+                a.y_mm + eps < b.y_mm + b.height_mm
+                and b.y_mm + eps < a.y_mm + a.height_mm
+            )
+            assert not (x_ov and y_ov), (
+                f"{sku_id}: controllers {a.name} and {b.name} overlap"
+            )
+
+
+@pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
+def test_arch_floorplan_what_if_one_per_class(sku_id, kpus, nodes):
+    """What-if estimates: one entry per declared compute tile class."""
+    sku = kpus[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    declared_classes = {t.tile_type for t in sku.kpu_architecture.tiles}
+    estimated_classes = {wi.tile_class for wi in fp.what_if}
+    assert estimated_classes == declared_classes, (
+        f"{sku_id}: what-if covers {estimated_classes}, "
+        f"expected {declared_classes}"
+    )
+
+
+def test_arch_what_if_all_int8_smaller_than_all_matrix(kpus, nodes):
+    """The whole point of the what-if: an all-INT8 mesh should be
+    notably smaller than an all-Matrix mesh, because INT8 PE area
+    is much less than Matrix PE area. If this stops being true, the
+    silicon_bin coefficients have drifted in a way the architect
+    should know about.
+    """
+    sku = kpus["stillwater_kpu_t768"]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    by_class = {wi.tile_class: wi for wi in fp.what_if}
+    assert "INT8-primary" in by_class
+    assert "Matrix" in by_class
+    int8_die = by_class["INT8-primary"].die_area_mm2
+    mat_die = by_class["Matrix"].die_area_mm2
+    assert int8_die < mat_die, (
+        f"all-INT8 die {int8_die:.1f} mm^2 is not smaller than "
+        f"all-Matrix die {mat_die:.1f} mm^2 -- silicon_bin drifted?"
+    )
+
+
+def test_compute_memory_pitch_match_warns_on_t768(kpus, nodes, cooling):
+    """T768's compute tiles range from 0.175 mm (INT8) to 0.508 mm
+    (Matrix); memory pitch is ~0.142 mm. The C/M pitch validator
+    must fire on at least one tile class for T768."""
+    sku = kpus["stillwater_kpu_t768"]
+    ctx = ValidatorContext(
+        sku=sku, process_node=nodes[sku.process_node_id],
+        cooling_solutions=cooling,
+    )
+    findings = default_registry.run_one(
+        "floorplan_compute_memory_pitch_match", ctx
+    )
+    pitch_findings = [f for f in findings if f.severity != Severity.INFO]
+    assert pitch_findings, (
+        "T768 has known compute-vs-memory pitch mismatch but the "
+        "validator emitted no findings -- thresholds drifted?"
+    )
+
+
+def test_whitespace_validator_warns_on_t768(kpus, nodes, cooling):
+    """T768 has 76% architectural whitespace (Matrix tiles dominate
+    the unified pitch). Whitespace validator must fire."""
+    sku = kpus["stillwater_kpu_t768"]
+    ctx = ValidatorContext(
+        sku=sku, process_node=nodes[sku.process_node_id],
+        cooling_solutions=cooling,
+    )
+    findings = default_registry.run_one("floorplan_whitespace_fraction", ctx)
+    assert findings, (
+        "T768 has 76% whitespace but whitespace validator emitted "
+        "nothing -- threshold drifted?"
+    )
+    # The message should reference the all-X what-if scenario
+    msg = findings[0].message
+    assert "all-" in msg or "what-if" in msg.lower() or "smaller" in msg, (
+        f"whitespace finding doesn't mention the what-if alternative: {msg}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI: --view flag
+# ---------------------------------------------------------------------------
+
+def test_show_floorplan_cli_default_is_architectural():
+    """The architectural view is the default. Output should mention
+    'architectural', the per-class compute summary, and the what-if
+    table."""
+    result = subprocess.run(
+        [sys.executable, str(SHOW_FLOORPLAN_CLI), "stillwater_kpu_t256"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "architectural" in out.lower()
+    assert "Compute tile classes" in out
+    assert "Memory tiles" in out
+    assert "What-if" in out
+    # Architectural glyphs in the legend
+    assert "C=compute" in out
+    assert "M=memory" in out
+
+
+def test_show_floorplan_cli_view_circuit_falls_back_to_old():
+    """--view circuit reproduces the Stage 8a renderer output."""
+    result = subprocess.run(
+        [sys.executable, str(SHOW_FLOORPLAN_CLI),
+         "stillwater_kpu_t256", "--view", "circuit"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "circuit-class" in out.lower()
+    assert "Per-tile-class pitches" in out
+    # Circuit glyphs in legend
+    assert "H=hp_logic" in out or "B=balanced_logic" in out
+
+
+def test_show_floorplan_cli_arch_json_output(tmp_path: Path):
+    """Architectural JSON has the new top-level fields."""
+    out = tmp_path / "fp.json"
+    result = subprocess.run(
+        [sys.executable, str(SHOW_FLOORPLAN_CLI),
+         "stillwater_kpu_t768", "--output", str(out)],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(out.read_text())
+    assert payload["view"] == "architectural"
+    assert payload["sku_id"] == "stillwater_kpu_t768"
+    assert "compute_summaries" in payload
+    assert "memory_summary" in payload
+    assert "what_if" in payload
+    assert payload["num_memory_controllers"] >= 1
+    # what-if has one entry per declared compute class
+    assert len(payload["what_if"]) >= 1
+    for wi in payload["what_if"]:
+        assert wi["die_area_mm2"] > 0

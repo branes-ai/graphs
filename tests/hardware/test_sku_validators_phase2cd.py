@@ -208,9 +208,11 @@ def test_run_category_reliability_only(ctx):
 
 def test_total_validator_count_after_phase2cd_and_stage8():
     """Validator count tracker:
-    - Phase 2b: 7 (consistency x2, electrical x1, area x3, energy x1)
+    - Phase 2b:   7 (consistency x2, electrical x1, area x3, energy x1)
     - Phase 2c+d: +2 (thermal_hotspot, electromigration)
-    - Stage 8:   +3 (floorplan_pitch_match, floorplan_within_die_envelope,
-                     floorplan_aspect_ratio)
+    - Stage 8a:   +3 (floorplan_pitch_match, floorplan_within_die_envelope,
+                       floorplan_aspect_ratio)
+    - Stage 8b:   +2 (floorplan_compute_memory_pitch_match,
+                       floorplan_whitespace_fraction)
     """
-    assert len(default_registry) == 12
+    assert len(default_registry) == 14

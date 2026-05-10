@@ -301,8 +301,9 @@ All cross-repo work landed via `embodied-schemas` PRs #9, #10, #11 and
 | 5 | Mapper wiring -- `physical_spec` populated on every `create_kpu_t*_mapper()` | done (graphs #144) |
 | 6 | CI gate: every SKU YAML in the catalog validated by the registry on every push | done (graphs #150) |
 | 7 | PDK ingestion + `PROCESS_NODE_DATA_DIR` env override | done (graphs #151) |
-| 8a | Stage 8 floorplanner + ASCII viz + 3 GEOMETRY validators (`floorplan_pitch_match`, `floorplan_within_die_envelope`, `floorplan_aspect_ratio`) -- heuristic v1 (advisory; WARN-max thresholds) | done |
-| 8b | Stage 8 deferred (DVFS feasibility, memory headroom, yield risk, SVG viz, NoC routability validator, calibrate floorplan thresholds against measured silicon) | deferred |
+| 8a | Stage 8a circuit-class floorplanner + ASCII viz + 3 GEOMETRY validators (`floorplan_pitch_match`, `floorplan_within_die_envelope`, `floorplan_aspect_ratio`) -- heuristic v1 (advisory; WARN-max thresholds) | done |
+| 8b | Stage 8b architectural-role floorplanner: COMPUTE / MEMORY / MEMORY_CONTROLLER / IO / CONTROL roles, true checkerboard layout, distributed controllers, what-if-all-class-X die estimates, and 2 new validators (`floorplan_compute_memory_pitch_match`, `floorplan_whitespace_fraction`). `cli/show_floorplan.py` defaults to the architectural view; `--view circuit` falls back to 8a. | done |
+| 8c | Stage 8 deferred (DVFS feasibility, memory headroom, yield risk, SVG/HTML viz w/ NoC overlay (mesh / ring / CLOS), NoC routability validator, calibrate floorplan thresholds against measured silicon) | deferred |
 
 ## File inventory
 
@@ -399,27 +400,75 @@ swapped over.
 
 Implemented in this branch:
 
+### Stage 8a -- circuit-class view
+
 - `src/graphs/hardware/silicon_floorplan.py` -- `derive_kpu_floorplan(sku, node)`:
-  per-tile-class pitch derivation, unified-pitch mesh layout, PHY strip,
-  IO ring, control corner. Emits `Floorplan` (blocks + tile_pitches).
-- `cli/show_floorplan.py` -- ASCII art renderer with circuit-class
-  glyph legend; `--json` flag for machine-readable output. Auto-discovery
-  of catalog SKUs via `--list`.
-- `src/graphs/hardware/sku_validators/validators/geometry.py` -- 3 GEOMETRY
-  validators:
-  - `floorplan_pitch_match` (KPU checkerboard) -- WARN at >=1.20x ratio
+  per-tile-class pitch derivation keyed on silicon library
+  (HP_LOGIC / BAL / SRAM / ANALOG / IO), unified-pitch mesh layout,
+  PHY strip, IO ring, control corner. Emits `Floorplan`.
+- `cli/show_floorplan.py --view circuit` -- ASCII art with
+  circuit-class glyphs (`H`/`B`/`L`/`U`/`#`/`~`/`:`).
+- 3 GEOMETRY validators:
+  - `floorplan_pitch_match` (within-compute-class) -- WARN at >=1.20x ratio
   - `floorplan_within_die_envelope` -- declared vs derived die area
   - `floorplan_aspect_ratio` -- die aspect bounds
-- `tests/hardware/test_silicon_floorplan.py` -- 34 tests covering
-  structural correctness, validator registration, and CLI happy paths.
 
-Stage 8 stance: thresholds set so all 4 catalog SKUs land at WARN-max,
-not ERROR. The findings still surface real signal (T768 has 2.34x INT8/
-Matrix pitch mismatch; T64/T128 floorplan area is 1.87x the declared
-die.die_size_mm2). Tightening to ERROR-level is Stage 8b work after
-the heuristic is calibrated against measured silicon.
+### Stage 8b -- architectural-role view
 
-## Open items deferred to Stage 8b
+Re-bins the same silicon_bin areas by what the architect calls them:
+
+- **COMPUTE** tile = PE fabric + L1 + L2 (per compute tile)
+- **MEMORY** tile = L3 (per compute tile, paired 1:1 in checkerboard)
+- **MEMORY_CONTROLLER** = DRAM PHY, distributed around the periphery
+  at the arity of the memory configuration (default 4: top/right/
+  bottom/left edge midpoints; scales when silicon_bin contains
+  multiple distinct PHY blocks)
+- **IO_PAD** = pad ring
+- **CONTROL** = scheduler/dispatch in corner
+
+Layout: column-pair checkerboard `[C M] [C M] [C M] ...`. Unified
+pitch = `max(max_compute_pitch, memory_pitch)`. Smaller cells leave
+whitespace -- the floorplan reports the per-class breakdown so the
+architect sees which class costs the most silicon.
+
+What-if analysis: for each compute tile class, recompute the die
+area assuming every compute tile in the mesh were that class. Lets
+the architect see the silicon cost of the heterogeneous mix.
+
+- `derive_kpu_architectural_floorplan(sku, node)` -- new, sibling
+  function to the circuit-class one
+- `ArchitecturalFloorplan`, `ArchTile`, `TileRole`,
+  `ComputeClassSummary`, `MemoryClassSummary`,
+  `WhatIfDieEstimate` -- new dataclasses
+- `cli/show_floorplan.py` (new default `--view architectural`) --
+  ASCII art with role glyphs (`C`/`M`/`D`/`:`/`*`) + per-class
+  whitespace + what-if table
+- 2 new GEOMETRY validators:
+  - `floorplan_compute_memory_pitch_match` (the primary KPU
+    checkerboard concern: compute pitch vs memory pitch) -- WARN
+    at >=1.20x ratio
+  - `floorplan_whitespace_fraction` -- WARN at >=40% architectural
+    whitespace; message names the worst-contributor class and the
+    smallest-die what-if alternative
+
+### Stage 8 stance
+
+Thresholds set so all 4 catalog SKUs land at WARN-max, not ERROR.
+Findings surface real signal:
+
+- T768: **3.59x** compute-vs-memory pitch ratio (Matrix tile dominates,
+  memory tile is tiny); 76% architectural whitespace; an all-INT8
+  mesh would be 471 mm^2 vs the mixed 1214 mm^2 (61% smaller).
+- T256: 1.41x C/M ratio (memory dominates over INT8); 68% whitespace;
+  all-INT8 alternative would be 32% smaller.
+- T64/T128: 2.08x C/M ratio (Matrix dominates); ~77% whitespace;
+  all-INT8 alternative ~62% smaller.
+- T64/T128 floorplan area is 1.87x the declared `die.die_size_mm2`.
+
+Tightening to ERROR-level is Stage 8c work after the heuristic is
+calibrated against measured silicon.
+
+## Open items deferred to Stage 8c
 
 - SVG / PNG visualization with annotated dimensions, pitches, IO ring
   (Stage 8a ships ASCII only).
