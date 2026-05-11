@@ -298,7 +298,7 @@ KNOWN_TDP_WATTS = {
 
     # ==== DATA CENTER ACCELERATORS ====
     'qualcomm_cloud_ai_100': 75,  # 75W PCIe card
-    'stillwater_kpu_t768': {
+    'kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc': {
         '30W': 30,
         '60W': 60,
         '100W': 100,
@@ -363,14 +363,14 @@ KNOWN_TDP_WATTS = {
     },
 
     # ==== EMBODIED AI - Stillwater KPU ====
-    'stillwater_kpu_t256': {
+    'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp': {
         '15W': 15,
         '30W': 30,
         '50W': 50,
     },
 
     # ==== EDGE AI - Stillwater KPU ====
-    'stillwater_kpu_t64': {
+    'kpu_t64_32x32_lp5x4_16nm_tsmc_ffp': {
         '3W': 3,
         '6W': 6,
         '10W': 10,
@@ -717,9 +717,9 @@ def get_power_profiles_str(profile) -> str:
         'jetson_orin_agx_gpu': '15W/30W/50W/MAXN',
         'nvidia_jetson_thor_128gb': '30W/60W/100W',
         'qualcomm_snapdragon_ride': '65W/100W/130W',
-        'stillwater_kpu_t64': '3W/6W/10W',
-        'stillwater_kpu_t256': '15W/30W/50W',
-        'stillwater_kpu_t768': '30W/60W/100W',
+        'kpu_t64_32x32_lp5x4_16nm_tsmc_ffp': '3W/6W/10W',
+        'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp': '15W/30W/50W',
+        'kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc': '30W/60W/100W',
     }
 
     return power_profiles.get(hw_id, '-')

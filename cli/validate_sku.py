@@ -16,12 +16,12 @@ ERROR. Identical contract to ``tests/hardware/test_sku_catalog_validation.py``;
 useful for human-driven sweeps.
 
 Usage:
-    python cli/validate_sku.py stillwater_kpu_t256
-    python cli/validate_sku.py stillwater_kpu_t768 --category thermal
-    python cli/validate_sku.py stillwater_kpu_t64 --severity warning
-    python cli/validate_sku.py stillwater_kpu_t256 --output findings.json
-    python cli/validate_sku.py stillwater_kpu_t256 --output findings.csv
-    python cli/validate_sku.py stillwater_kpu_t256 --output findings.md
+    python cli/validate_sku.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+    python cli/validate_sku.py kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc --category thermal
+    python cli/validate_sku.py kpu_t64_32x32_lp5x4_16nm_tsmc_ffp --severity warning
+    python cli/validate_sku.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output findings.json
+    python cli/validate_sku.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output findings.csv
+    python cli/validate_sku.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output findings.md
     python cli/validate_sku.py --all                  # gate every catalog SKU
     python cli/validate_sku.py --all --strict         # also fail on warnings
 
@@ -251,7 +251,7 @@ def main() -> int:
     )
     sku_group = parser.add_mutually_exclusive_group(required=True)
     sku_group.add_argument(
-        "sku_id", nargs="?", help="SKU id, e.g., stillwater_kpu_t256"
+        "sku_id", nargs="?", help="SKU id, e.g., kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"
     )
     sku_group.add_argument(
         "--all",

@@ -24,11 +24,11 @@ Future work: SVG / HTML renderer that overlays the NoC topology
 (2D mesh / ring / CLOS) on top of the placed blocks.
 
 Usage:
-    python cli/show_floorplan.py stillwater_kpu_t256
-    python cli/show_floorplan.py stillwater_kpu_t768 --width 100
-    python cli/show_floorplan.py stillwater_kpu_t256 --view circuit
-    python cli/show_floorplan.py stillwater_kpu_t64 --output fp.txt
-    python cli/show_floorplan.py stillwater_kpu_t128 --json --output fp.json
+    python cli/show_floorplan.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+    python cli/show_floorplan.py kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc --width 100
+    python cli/show_floorplan.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --view circuit
+    python cli/show_floorplan.py kpu_t64_32x32_lp5x4_16nm_tsmc_ffp --output fp.txt
+    python cli/show_floorplan.py kpu_t128_32x32_lp5x8_16nm_tsmc_ffp --json --output fp.json
 
 Exit codes:
     0 = rendered successfully
@@ -642,7 +642,7 @@ def main() -> int:
         "sku_id",
         nargs="?",
         help=(
-            "KPU SKU id (e.g., stillwater_kpu_t256). Omit with --list to "
+            "KPU SKU id (e.g., kpu_t256_32x32_lp5x16_16nm_tsmc_ffp). Omit with --list to "
             "list available ids."
         ),
     )

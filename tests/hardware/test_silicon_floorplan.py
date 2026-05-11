@@ -258,7 +258,7 @@ def test_pitch_match_warns_on_t768(kpus, nodes, cooling):
     accidentally hides the T768 pitch mismatch (e.g., by inflating
     INT8 per-PE area), this test fails so we notice.
     """
-    sku = kpus["stillwater_kpu_t768"]
+    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     ctx = ValidatorContext(
         sku=sku,
         process_node=nodes[sku.process_node_id],
@@ -290,7 +290,7 @@ def test_show_floorplan_cli_renders_t256():
     ``test_show_floorplan_cli_default_is_architectural``.
     """
     result = subprocess.run(
-        [sys.executable, str(SHOW_FLOORPLAN_CLI), "stillwater_kpu_t256"],
+        [sys.executable, str(SHOW_FLOORPLAN_CLI), "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
@@ -308,19 +308,19 @@ def test_show_floorplan_cli_json_output(tmp_path: Path):
     out = tmp_path / "fp.json"
     result = subprocess.run(
         [sys.executable, str(SHOW_FLOORPLAN_CLI),
-         "stillwater_kpu_t64", "--output", str(out)],
+         "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp", "--output", str(out)],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(out.read_text())
-    assert payload["sku_id"] == "stillwater_kpu_t64"
+    assert payload["sku_id"] == "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"
     assert payload["die_area_mm2"] > 0
     assert len(payload["blocks"]) > 0
 
 
 def test_show_floorplan_cli_unknown_sku():
     result = subprocess.run(
-        [sys.executable, str(SHOW_FLOORPLAN_CLI), "stillwater_kpu_t999"],
+        [sys.executable, str(SHOW_FLOORPLAN_CLI), "kpu_t999_32x32_lp5x4_5nm_tsmc_hpc"],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 2
@@ -335,8 +335,8 @@ def test_show_floorplan_cli_list_mode():
     )
     assert result.returncode == 0
     ids = result.stdout.strip().split("\n")
-    assert "stillwater_kpu_t256" in ids
-    assert "stillwater_kpu_t768" in ids
+    assert "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp" in ids
+    assert "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc" in ids
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +411,7 @@ def test_arch_what_if_all_int8_smaller_than_all_matrix(kpus, nodes):
     silicon_bin coefficients have drifted in a way the architect
     should know about.
     """
-    sku = kpus["stillwater_kpu_t768"]
+    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
     by_class = {wi.tile_class: wi for wi in fp.what_if}
     assert "INT8-primary" in by_class
@@ -428,7 +428,7 @@ def test_compute_memory_pitch_match_warns_on_t768(kpus, nodes, cooling):
     """T768's compute tiles range from 0.175 mm (INT8) to 0.508 mm
     (Matrix); memory pitch is ~0.142 mm. The C/M pitch validator
     must fire on at least one tile class for T768."""
-    sku = kpus["stillwater_kpu_t768"]
+    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     ctx = ValidatorContext(
         sku=sku, process_node=nodes[sku.process_node_id],
         cooling_solutions=cooling,
@@ -446,7 +446,7 @@ def test_compute_memory_pitch_match_warns_on_t768(kpus, nodes, cooling):
 def test_whitespace_validator_warns_on_t768(kpus, nodes, cooling):
     """T768 has 76% architectural whitespace (Matrix tiles dominate
     the unified pitch). Whitespace validator must fire."""
-    sku = kpus["stillwater_kpu_t768"]
+    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     ctx = ValidatorContext(
         sku=sku, process_node=nodes[sku.process_node_id],
         cooling_solutions=cooling,
@@ -472,7 +472,7 @@ def test_show_floorplan_cli_default_is_architectural():
     'architectural', the per-class compute summary, and the what-if
     table."""
     result = subprocess.run(
-        [sys.executable, str(SHOW_FLOORPLAN_CLI), "stillwater_kpu_t256"],
+        [sys.executable, str(SHOW_FLOORPLAN_CLI), "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
@@ -490,7 +490,7 @@ def test_show_floorplan_cli_view_circuit_falls_back_to_old():
     """--view circuit reproduces the Stage 8a renderer output."""
     result = subprocess.run(
         [sys.executable, str(SHOW_FLOORPLAN_CLI),
-         "stillwater_kpu_t256", "--view", "circuit"],
+         "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp", "--view", "circuit"],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
@@ -577,7 +577,7 @@ def test_mc_count_equals_memory_controllers_field(sku_id, kpus, nodes):
 
 def test_lpddr_mc_is_long_narrow_stripe(kpus, nodes):
     """LPDDR PHY blocks are narrow stripes (~5:1 aspect)."""
-    sku = kpus["stillwater_kpu_t256"]  # LPDDR5
+    sku = kpus["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]  # LPDDR5
     fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
     for mc in fp.memory_controllers():
         long = max(mc.width_mm, mc.height_mm)
@@ -591,8 +591,8 @@ def test_lpddr_mc_is_long_narrow_stripe(kpus, nodes):
 
 def test_hbm_mc_is_squarer_than_lpddr(kpus, nodes):
     """HBM PHY blocks are squarer (~1.5:1 aspect) than LPDDR (~5:1)."""
-    lpddr_sku = kpus["stillwater_kpu_t256"]
-    hbm_sku = kpus["stillwater_kpu_t768"]
+    lpddr_sku = kpus["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
+    hbm_sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     fp_lpddr = derive_kpu_architectural_floorplan(
         lpddr_sku, nodes[lpddr_sku.process_node_id]
     )
@@ -663,13 +663,13 @@ def test_show_floorplan_cli_arch_json_output(tmp_path: Path):
     out = tmp_path / "fp.json"
     result = subprocess.run(
         [sys.executable, str(SHOW_FLOORPLAN_CLI),
-         "stillwater_kpu_t768", "--output", str(out)],
+         "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc", "--output", str(out)],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(out.read_text())
     assert payload["view"] == "architectural"
-    assert payload["sku_id"] == "stillwater_kpu_t768"
+    assert payload["sku_id"] == "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"
     assert "compute_summaries" in payload
     assert "memory_summary" in payload
     assert "what_if" in payload

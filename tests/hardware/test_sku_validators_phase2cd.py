@@ -23,7 +23,7 @@ load_validators()
 
 @pytest.fixture
 def ctx() -> ValidatorContext:
-    return build_context_for_kpu("stillwater_kpu_t256")
+    return build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
 
 
 def _ctx_with(ctx, **sku_updates) -> ValidatorContext:
@@ -177,10 +177,10 @@ def test_em_catches_outrageous_design(ctx):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sku_id", [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ])
 def test_real_skus_have_no_errors_after_phase2cd(sku_id):
     """All four hand-authored SKUs should have zero ERROR findings

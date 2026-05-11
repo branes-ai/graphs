@@ -3,7 +3,7 @@
 Thin wrapper around ``load_kpu_resource_model_from_yaml`` (Phase 4b PR 5).
 Architecture, performance, thermal profiles, energy, fabric, and M3-M7
 layer attributes all come from
-``embodied-schemas:kpus/stillwater/stillwater_kpu_t64.yaml`` via the
+``embodied-schemas:kpus/stillwater/kpu_t64_32x32_lp5x4_16nm_tsmc_ffp.yaml`` via the
 loader. This factory only adds the BOM cost profile, which is
 economic / market data not tracked in the silicon-architecture YAML.
 
@@ -25,7 +25,7 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     arrays, TSMC N16. Targets battery-powered drones, robots, edge AI.
     Power profiles: 3W (battery), 6W (standard, default), 10W (peak).
     """
-    model = load_kpu_resource_model_from_yaml("stillwater_kpu_t64")
+    model = load_kpu_resource_model_from_yaml("kpu_t64_32x32_lp5x4_16nm_tsmc_ffp")
     # M0.5 domain-flow MAC energies are more aggressive than the
     # generic N16 BALANCED_LOGIC numbers in process-nodes/tsmc/n16.yaml.
     # Preserved here so the per-MAC energy ranges asserted by

@@ -18,7 +18,7 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     datacenter LLM inference, batch-processing AI workloads.
     Power profiles: 30W, 60W (default), 100W (liquid-cooled).
     """
-    model = load_kpu_resource_model_from_yaml("stillwater_kpu_t768")
+    model = load_kpu_resource_model_from_yaml("kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc")
     # M0.5 domain-flow MAC energies, datacenter-tuned. See kpu_t64.py
     # for the override rationale; T768 uses lower per-MAC numbers
     # than the T64-T256 family (more aggressive datacenter binning).

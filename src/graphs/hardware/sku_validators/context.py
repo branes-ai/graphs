@@ -40,7 +40,7 @@ def build_context_for_kpu(
     """Build a ValidatorContext for KPU SKU ``sku_id``.
 
     Args:
-        sku_id: The KPU SKU id, e.g., ``"stillwater_kpu_t256"``.
+        sku_id: The KPU SKU id, e.g., ``"kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"``.
         kpus / process_nodes / cooling_solutions: Optional pre-loaded
             catalogs. Tests pass small in-memory dicts here to avoid
             disk IO; the CLI lets them default to disk loaders.

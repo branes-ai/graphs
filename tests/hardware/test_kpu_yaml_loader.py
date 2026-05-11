@@ -39,10 +39,10 @@ def catalogs():
 
 
 SKU_IDS = [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ]
 
 
@@ -175,7 +175,7 @@ def test_loader_unknown_base_id_raises(catalogs):
 
 def test_loader_unresolved_process_node_raises(catalogs):
     """Hand-craft a SKU pointing at a non-existent process node."""
-    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     bad_sku = real.model_copy(update={"process_node_id": "nonexistent"})
     with pytest.raises(KPUYamlLoaderError, match="does not resolve"):
         load_kpu_resource_model_from_yaml(
@@ -308,7 +308,7 @@ def test_soc_fabric_unknown_topology_marks_low_confidence(catalogs):
     new YAML topology values land cleanly even before the enum map
     is updated."""
     from graphs.hardware.fabric_model import Topology
-    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     bad_arch = real.kpu_architecture.model_copy(
         update={"noc": real.kpu_architecture.noc.model_copy(
             update={"topology": "future_topology_3d_torus"}
@@ -330,7 +330,7 @@ def test_soc_fabric_lossy_torus_mapping_marks_low_confidence(catalogs):
     ``low_confidence=True`` so consumers (hop-count, bisection-bandwidth
     formulas) see the approximation."""
     from graphs.hardware.fabric_model import Topology
-    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     arch = real.kpu_architecture.model_copy(
         update={"noc": real.kpu_architecture.noc.model_copy(
             update={"topology": "torus_2d"}
@@ -404,7 +404,7 @@ def test_loader_falls_back_to_placeholder_when_yaml_omits_efficiency(catalogs):
     ``efficiency_factor_by_precision`` should produce the historical
     flat placeholder (0.70 / 0.95). This is the backward-compat path
     for external user YAMLs that haven't backfilled."""
-    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     profiles = [
         p.model_copy(
             update={
@@ -458,7 +458,7 @@ def test_tile_energy_model_mac_fallback_is_node_scaled(catalogs):
     ``get_base_alu_energy``, not collapse to a fixed constant. Lower
     nm -> lower fallback MAC energy."""
     from embodied_schemas.process_node import CircuitClass
-    real = catalogs["kpus"]["stillwater_kpu_t256"]
+    real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     n16_node = catalogs["process_nodes"]["tsmc_n16"]
     # Strip every balanced_logic energy entry to force the fallback path.
     sparse_n16 = n16_node.model_copy(update={

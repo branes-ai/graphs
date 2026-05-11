@@ -1,7 +1,7 @@
 """Phase 6 CI gate: every SKU YAML in the catalog must validate cleanly.
 
 The Phase 2 validator framework + Phase 4b factories tested specific
-SKUs by id (T64/T128/T256/T768) -- a future ``stillwater_kpu_t1024``
+SKUs by id (T64/T128/T256/T768) -- a future ``kpu_t1024_..._tsmc_n5_hpc``
 or third-party KPU SKU added to the catalog wouldn't trip those tests.
 
 This module parametrizes over ``load_kpus().keys()`` so every SKU in
@@ -95,8 +95,8 @@ def test_kpu_catalog_is_non_empty():
     assert sku_ids, "embodied-schemas catalog has zero KPU SKUs"
     # Sanity: the four Stillwater SKUs Phase 4b authored should be present.
     for required in (
-        "stillwater_kpu_t64", "stillwater_kpu_t128",
-        "stillwater_kpu_t256", "stillwater_kpu_t768",
+        "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp", "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+        "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp", "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
     ):
         assert required in sku_ids, (
             f"{required!r} missing from catalog -- Phase 4b SKUs must "

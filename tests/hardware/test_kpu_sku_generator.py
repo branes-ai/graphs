@@ -52,10 +52,10 @@ def catalogs():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sku_id", [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ])
 def test_roundtrip_die_within_rounding(sku_id, catalogs):
     """Generator-derived die.transistors_billion and die.die_size_mm2
@@ -87,10 +87,10 @@ def test_roundtrip_die_within_rounding(sku_id, catalogs):
 
 
 @pytest.mark.parametrize("sku_id", [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ])
 def test_roundtrip_performance_within_rounding(sku_id, catalogs):
     """int8_tops, bf16_tflops, fp32_tflops should round-trip within 1%."""
@@ -111,10 +111,10 @@ def test_roundtrip_performance_within_rounding(sku_id, catalogs):
 
 
 @pytest.mark.parametrize("sku_id", [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ])
 def test_roundtrip_power_default_tdp_is_derived(sku_id, catalogs):
     """power.tdp_watts is DERIVED by the kpu_power_model from
@@ -144,10 +144,10 @@ def test_roundtrip_power_default_tdp_is_derived(sku_id, catalogs):
 
 
 @pytest.mark.parametrize("sku_id", [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ])
 def test_generated_sku_validates_clean(sku_id, catalogs):
     """Output of the generator should have zero ERROR findings when run
@@ -178,7 +178,7 @@ def test_generated_sku_validates_clean(sku_id, catalogs):
 
 def test_unknown_process_node_raises(catalogs):
     """A spec referencing a non-existent process_node_id raises GeneratorError."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original).model_copy(
         update={"process_node_id": "no_such_node"}
     )
@@ -191,7 +191,7 @@ def test_unknown_process_node_raises(catalogs):
 
 def test_bad_default_profile_name_raises(catalogs):
     """default_thermal_profile must name an existing profile."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original).model_copy(
         update={"default_thermal_profile": "9000W"}
     )
@@ -204,7 +204,7 @@ def test_bad_default_profile_name_raises(catalogs):
 
 def test_empty_silicon_bin_raises(catalogs):
     """A spec with an empty silicon_bin (no resolvable blocks) raises."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original).model_copy(
         update={"silicon_bin": KPUSiliconBin(blocks=[])}
     )
@@ -220,7 +220,7 @@ def test_empty_silicon_bin_raises(catalogs):
 # ---------------------------------------------------------------------------
 
 def test_input_spec_preserves_architecture(catalogs):
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original)
     assert spec.kpu_architecture == original.kpu_architecture
     assert spec.silicon_bin == original.silicon_bin
@@ -233,7 +233,7 @@ def test_input_spec_does_not_carry_die_or_perf_rollups(catalogs):
     """The spec's shape excludes the generator-derived roll-ups -- if a
     field is in KPUEntry but not in KPUSKUInputSpec, the spec is
     correctly minimal."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original)
     spec_fields = set(type(spec).model_fields)
     assert "die" not in spec_fields
@@ -247,7 +247,7 @@ def test_input_spec_does_not_carry_die_or_perf_rollups(catalogs):
 
 def test_pe_array_override_is_no_op_when_dims_unchanged(catalogs):
     """Override to the spec's existing PE-array dims must round-trip."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original)
     rows = spec.kpu_architecture.tiles[0].pe_array_rows
     cols = spec.kpu_architecture.tiles[0].pe_array_cols
@@ -261,7 +261,7 @@ def test_pe_array_override_is_no_op_when_dims_unchanged(catalogs):
 
 def test_pe_array_override_preserves_ops_per_pe_ratio(catalogs):
     """Scaling PE-array size must keep ops/PE/clock constant."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original)
     overridden = apply_pe_array_override(spec, 16, 16)
     for orig_t, new_t in zip(spec.kpu_architecture.tiles, overridden.kpu_architecture.tiles):
@@ -275,7 +275,7 @@ def test_pe_array_override_preserves_ops_per_pe_ratio(catalogs):
 def test_pe_array_override_scales_die_area(catalogs):
     """Halving PE-array dims should reduce die area but not below the
     fixed (IO/control/memory_phys) floor."""
-    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(original)
     g_full = generate_kpu_sku(spec, process_nodes=catalogs["process_nodes"])
     g_half = generate_kpu_sku(
@@ -287,7 +287,7 @@ def test_pe_array_override_scales_die_area(catalogs):
 
 
 def test_pe_array_override_rejects_non_positive_dims(catalogs):
-    spec = input_spec_from_kpu_entry(catalogs["kpus"]["stillwater_kpu_t256"])
+    spec = input_spec_from_kpu_entry(catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"])
     with pytest.raises(ValueError):
         apply_pe_array_override(spec, 0, 32)
     with pytest.raises(ValueError):
@@ -304,7 +304,7 @@ from graphs.hardware.kpu_power_model import compute_thermal_profile_tdp_breakdow
 def test_tdp_scales_quadratically_with_vdd(catalogs):
     """Dropping Vdd by sqrt(2) should halve the dynamic power; total
     TDP drops by half the dynamic share."""
-    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(sku)
     node = catalogs["process_nodes"][sku.process_node_id]
     # Take the default profile and run with two Vdds: nominal and nominal/sqrt(2).
@@ -320,7 +320,7 @@ def test_tdp_scales_quadratically_with_vdd(catalogs):
 
 def test_tdp_scales_linearly_with_clock(catalogs):
     """At fixed Vdd, doubling clock doubles dynamic power."""
-    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(sku)
     node = catalogs["process_nodes"][sku.process_node_id]
     base = sku.power.thermal_profiles[1]
@@ -334,7 +334,7 @@ def test_tdp_scales_linearly_with_clock(catalogs):
 def test_activity_factor_scales_dynamic(catalogs):
     """Per-profile activity_factor=0.5 should halve dynamic power
     (it's a multiplier on the workload duty cycle)."""
-    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(sku)
     node = catalogs["process_nodes"][sku.process_node_id]
     base = sku.power.thermal_profiles[1]
@@ -350,7 +350,7 @@ def test_pe_array_sweep_tdp_monotonic(catalogs):
     """Across a PE-array sweep at fixed clock + Vdd, derived TDP must
     strictly increase with PE count -- the whole point of programmable
     PE arrays for roadmap generation."""
-    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_kpu_entry(sku)
     node = catalogs["process_nodes"][sku.process_node_id]
     base = sku.power.thermal_profiles[1]
