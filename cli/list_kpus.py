@@ -148,8 +148,11 @@ def _filter_rows(
     if node_nm is not None:
         out = [r for r in out if r.node_nm == node_nm]
     if library:
+        # Match against the LAST '_'-segment of the SKU id (the library
+        # tag's position in the naming convention) so short tags like
+        # 'lp' don't accidentally match memory tokens such as 'lp5x16'.
         lib = library.lower()
-        out = [r for r in out if lib in r.id.lower()]
+        out = [r for r in out if lib in r.id.rsplit("_", 1)[-1].lower()]
     return out
 
 

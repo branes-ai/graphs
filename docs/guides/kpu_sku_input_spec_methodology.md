@@ -8,7 +8,7 @@ Let create one and read through the nested types.
    usage: generate_kpu_sku.py [-h] (--input INPUT | --from-sku FROM_SKU)
                                 [--output OUTPUT] [--validate] [--strict]
 
-python /home/stillwater/dev/branes/clones/graphs/cli/generate_kpu_sku.py --from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output /tmp/t256_input_spec.yaml
+python cli/generate_kpu_sku.py --from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output /tmp/t256_input_spec.yaml
 ```
 
 There are no example input-spec YAMLs checked in — start from a round-trip template and edit it. Here's the workflow plus the field-by-field rules.

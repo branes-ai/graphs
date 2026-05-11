@@ -21,6 +21,8 @@ Usage:
 """
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
@@ -224,11 +226,60 @@ def _compose_json(
     }
 
 
+def _compose_csv(
+    sku: KPUEntry,
+    node: Optional[ProcessNodeEntry],
+    cools: Dict[str, CoolingSolutionEntry],
+) -> str:
+    """One CSV row per thermal profile; the assembled hierarchy doesn't
+    flatten cleanly into a single table, so this emits the cross-check
+    panel (the most spreadsheet-friendly slice) with the SKU id and node
+    resolution status as context columns. Use --output FILE.json for the
+    full nested view."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=[
+            "compute_product_id",
+            "process_node_id",
+            "process_node_resolved",
+            "profile",
+            "tdp_w",
+            "power_density_w_per_mm2",
+            "cooling_id",
+            "cool_max_total_w",
+            "cool_max_w_per_mm2",
+            "status",
+        ],
+    )
+    writer.writeheader()
+    for r in _thermal_check_rows(sku, cools):
+        writer.writerow({
+            "compute_product_id": sku.id,
+            "process_node_id": sku.process_node_id,
+            "process_node_resolved": node is not None,
+            "profile": r[0],
+            "tdp_w": None if r[1] == "?" else float(r[1]),
+            "power_density_w_per_mm2": None if r[2] == "?" else float(r[2]),
+            "cooling_id": r[3],
+            "cool_max_total_w": None if r[4] == "?" else float(r[4]),
+            "cool_max_w_per_mm2": None if r[5] == "?" else float(r[5]),
+            "status": r[6],
+        })
+    return buf.getvalue()
+
+
 def _detect_format(output: Optional[str]) -> str:
     if not output:
         return "text"
     ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "md": "md", "markdown": "md", "txt": "text"}.get(ext, "text")
+    return {
+        "json": "json",
+        "csv": "csv",
+        "md": "md",
+        "markdown": "md",
+        "txt": "text",
+    }.get(ext, "text")
 
 
 def main() -> int:
@@ -239,7 +290,8 @@ def main() -> int:
     parser.add_argument("kpu_id", help="KPU SKU id, e.g., kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     parser.add_argument(
         "--output",
-        help="Output file. Format auto-detected from extension (.json/.md/.txt).",
+        help="Output file. Format auto-detected from extension "
+        "(.json/.csv/.md/.txt).",
     )
     args = parser.parse_args()
 
@@ -270,6 +322,8 @@ def main() -> int:
         rendered = json.dumps(
             _compose_json(sku, node, cools, cool_unresolved), indent=2
         ) + "\n"
+    elif fmt == "csv":
+        rendered = _compose_csv(sku, node, cools)
     elif fmt == "md":
         rendered = _compose_md(sku, node, cools, cool_unresolved) + "\n"
     else:
