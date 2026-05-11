@@ -298,10 +298,7 @@ def test_pe_array_override_rejects_non_positive_dims(catalogs):
 # Power model -- V^2*f scaling, sweep monotonicity, activity_factor knob
 # ---------------------------------------------------------------------------
 
-from graphs.hardware.kpu_power_model import (
-    WorkloadAssumption,
-    compute_thermal_profile_tdp_breakdown,
-)
+from graphs.hardware.kpu_power_model import compute_thermal_profile_tdp_breakdown
 
 
 def test_tdp_scales_quadratically_with_vdd(catalogs):
