@@ -23,6 +23,7 @@ from embodied_schemas import (
 
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
+    apply_pe_array_override,
     generate_kpu_sku,
     input_spec_from_kpu_entry,
 )
@@ -115,18 +116,31 @@ def test_roundtrip_performance_within_rounding(sku_id, catalogs):
     "stillwater_kpu_t256",
     "stillwater_kpu_t768",
 ])
-def test_roundtrip_power_default_tdp_passes_through(sku_id, catalogs):
-    """power.tdp_watts comes from the default thermal profile -- the
-    generator must not change it."""
+def test_roundtrip_power_default_tdp_is_derived(sku_id, catalogs):
+    """power.tdp_watts is DERIVED by the kpu_power_model from
+    (clock, Vdd, ProcessNode energies, WorkloadAssumption). The catalog
+    YAML's tdp_watts must match the generator's derived value to within
+    0.5W -- the architect tunes (clock, Vdd) per profile so derivation
+    lands at the target TDP."""
     original = catalogs["kpus"][sku_id]
     spec = input_spec_from_kpu_entry(original)
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
     )
-    assert regen.power.tdp_watts == original.power.tdp_watts
     assert regen.power.default_thermal_profile == original.power.default_thermal_profile
     assert len(regen.power.thermal_profiles) == len(original.power.thermal_profiles)
+    # Default-profile TDP within rounding of catalog target
+    assert abs(regen.power.tdp_watts - original.power.tdp_watts) < 0.5, (
+        f"{sku_id}: catalog default TDP={original.power.tdp_watts} W, "
+        f"derived={regen.power.tdp_watts} W"
+    )
+    # Per-profile derived TDPs match catalog targets
+    for o, r in zip(original.power.thermal_profiles, regen.power.thermal_profiles):
+        assert abs(r.tdp_watts - o.tdp_watts) < 0.5, (
+            f"{sku_id} profile {o.name}: catalog={o.tdp_watts} W, "
+            f"derived={r.tdp_watts} W"
+        )
 
 
 @pytest.mark.parametrize("sku_id", [
@@ -225,3 +239,130 @@ def test_input_spec_does_not_carry_die_or_perf_rollups(catalogs):
     assert "die" not in spec_fields
     assert "performance" not in spec_fields
     assert "power" not in spec_fields  # Power.tdp roll-up is generator-derived; profiles are separate
+
+
+# ---------------------------------------------------------------------------
+# apply_pe_array_override -- PE-array sweep helper
+# ---------------------------------------------------------------------------
+
+def test_pe_array_override_is_no_op_when_dims_unchanged(catalogs):
+    """Override to the spec's existing PE-array dims must round-trip."""
+    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(original)
+    rows = spec.kpu_architecture.tiles[0].pe_array_rows
+    cols = spec.kpu_architecture.tiles[0].pe_array_cols
+    overridden = apply_pe_array_override(spec, rows, cols)
+    g_orig = generate_kpu_sku(spec, process_nodes=catalogs["process_nodes"])
+    g_over = generate_kpu_sku(overridden, process_nodes=catalogs["process_nodes"])
+    assert g_orig.die.die_size_mm2 == g_over.die.die_size_mm2
+    assert g_orig.die.transistors_billion == g_over.die.transistors_billion
+    assert g_orig.performance == g_over.performance
+
+
+def test_pe_array_override_preserves_ops_per_pe_ratio(catalogs):
+    """Scaling PE-array size must keep ops/PE/clock constant."""
+    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(original)
+    overridden = apply_pe_array_override(spec, 16, 16)
+    for orig_t, new_t in zip(spec.kpu_architecture.tiles, overridden.kpu_architecture.tiles):
+        old_pes = orig_t.pe_array_rows * orig_t.pe_array_cols
+        new_pes = new_t.pe_array_rows * new_t.pe_array_cols
+        for precision, old_ops in orig_t.ops_per_tile_per_clock.items():
+            new_ops = new_t.ops_per_tile_per_clock[precision]
+            assert (new_ops / new_pes) == pytest.approx(old_ops / old_pes)
+
+
+def test_pe_array_override_scales_die_area(catalogs):
+    """Halving PE-array dims should reduce die area but not below the
+    fixed (IO/control/memory_phys) floor."""
+    original = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(original)
+    g_full = generate_kpu_sku(spec, process_nodes=catalogs["process_nodes"])
+    g_half = generate_kpu_sku(
+        apply_pe_array_override(spec, 16, 16),
+        process_nodes=catalogs["process_nodes"],
+    )
+    assert g_half.die.die_size_mm2 < g_full.die.die_size_mm2
+    assert g_half.performance.int8_tops < g_full.performance.int8_tops
+
+
+def test_pe_array_override_rejects_non_positive_dims(catalogs):
+    spec = input_spec_from_kpu_entry(catalogs["kpus"]["stillwater_kpu_t256"])
+    with pytest.raises(ValueError):
+        apply_pe_array_override(spec, 0, 32)
+    with pytest.raises(ValueError):
+        apply_pe_array_override(spec, 32, -1)
+
+
+# ---------------------------------------------------------------------------
+# Power model -- V^2*f scaling, sweep monotonicity, activity_factor knob
+# ---------------------------------------------------------------------------
+
+from graphs.hardware.kpu_power_model import (
+    WorkloadAssumption,
+    compute_thermal_profile_tdp_breakdown,
+)
+
+
+def test_tdp_scales_quadratically_with_vdd(catalogs):
+    """Dropping Vdd by sqrt(2) should halve the dynamic power; total
+    TDP drops by half the dynamic share."""
+    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(sku)
+    node = catalogs["process_nodes"][sku.process_node_id]
+    # Take the default profile and run with two Vdds: nominal and nominal/sqrt(2).
+    base = sku.power.thermal_profiles[1]  # 30W profile
+    high_v = base.model_copy(update={"vdd_v": 0.80})  # ~ Vnom
+    low_v = base.model_copy(update={"vdd_v": 0.80 / (2 ** 0.5)})  # halved V^2
+    bd_high = compute_thermal_profile_tdp_breakdown(spec, high_v, node)
+    bd_low = compute_thermal_profile_tdp_breakdown(spec, low_v, node)
+    # Dynamic should halve; leakage unchanged.
+    assert bd_low.dynamic_w == pytest.approx(bd_high.dynamic_w / 2.0, rel=0.01)
+    assert bd_low.leakage_w == pytest.approx(bd_high.leakage_w)
+
+
+def test_tdp_scales_linearly_with_clock(catalogs):
+    """At fixed Vdd, doubling clock doubles dynamic power."""
+    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(sku)
+    node = catalogs["process_nodes"][sku.process_node_id]
+    base = sku.power.thermal_profiles[1]
+    p_low = base.model_copy(update={"clock_mhz": 500.0, "vdd_v": 0.80})
+    p_high = base.model_copy(update={"clock_mhz": 1000.0, "vdd_v": 0.80})
+    bd_low = compute_thermal_profile_tdp_breakdown(spec, p_low, node)
+    bd_high = compute_thermal_profile_tdp_breakdown(spec, p_high, node)
+    assert bd_high.dynamic_w == pytest.approx(2.0 * bd_low.dynamic_w, rel=0.01)
+
+
+def test_activity_factor_scales_dynamic(catalogs):
+    """Per-profile activity_factor=0.5 should halve dynamic power
+    (it's a multiplier on the workload duty cycle)."""
+    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(sku)
+    node = catalogs["process_nodes"][sku.process_node_id]
+    base = sku.power.thermal_profiles[1]
+    full = base.model_copy(update={"activity_factor": 1.0})
+    half = base.model_copy(update={"activity_factor": 0.5})
+    bd_full = compute_thermal_profile_tdp_breakdown(spec, full, node)
+    bd_half = compute_thermal_profile_tdp_breakdown(spec, half, node)
+    assert bd_half.dynamic_w == pytest.approx(bd_full.dynamic_w / 2.0, rel=0.01)
+    assert bd_half.leakage_w == pytest.approx(bd_full.leakage_w)
+
+
+def test_pe_array_sweep_tdp_monotonic(catalogs):
+    """Across a PE-array sweep at fixed clock + Vdd, derived TDP must
+    strictly increase with PE count -- the whole point of programmable
+    PE arrays for roadmap generation."""
+    sku = catalogs["kpus"]["stillwater_kpu_t256"]
+    spec = input_spec_from_kpu_entry(sku)
+    node = catalogs["process_nodes"][sku.process_node_id]
+    base = sku.power.thermal_profiles[1]
+    sweep = [(16, 16), (24, 24), (32, 32), (40, 40)]
+    tdps = []
+    for rows, cols in sweep:
+        s = apply_pe_array_override(spec, rows, cols)
+        bd = compute_thermal_profile_tdp_breakdown(s, base, node)
+        tdps.append(bd.total_tdp_w)
+    assert tdps == sorted(tdps), (
+        f"TDP not monotonic across PE-array sweep: {list(zip(sweep, tdps))}"
+    )

@@ -10,8 +10,11 @@ inputs and the referenced ``ProcessNodeEntry``:
 * ``performance.{int8_tops, bf16_tflops, fp32_tflops, int4_tops}`` --
   Σ(tile.num_tiles × ops_per_tile_per_clock) × default-profile clock
 * ``power.{tdp_watts, max_power_watts, min_power_watts,
-  default_thermal_profile, thermal_profiles}`` -- from the input
-  thermal profiles (architect-declared)
+  thermal_profiles[].tdp_watts}`` -- DERIVED via the kpu_power_model
+  from clock + architecture + ProcessNode energies under a
+  ``WorkloadAssumption``. The architect's hand-authored tdp_watts in
+  the input spec is ignored. The architect chooses clocks and cooling;
+  TDP is the consequence.
 * ``power.idle_power_watts`` -- chip-wide leakage from ProcessNode
   ``leakage_w_per_mm2`` × per-block area
 
@@ -38,8 +41,14 @@ from embodied_schemas import (
     KPUTheoreticalPerformance,
     load_process_nodes,
 )
+from embodied_schemas.kpu import KPUThermalProfile
 from embodied_schemas.process_node import ProcessNodeEntry
 
+from .kpu_power_model import (
+    DEFAULT_WORKLOAD,
+    WorkloadAssumption,
+    compute_thermal_profile_tdp_w,
+)
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import (
     SiliconMathError,
@@ -60,6 +69,7 @@ def generate_kpu_sku(
     spec: KPUSKUInputSpec,
     *,
     process_nodes: Optional[dict[str, ProcessNodeEntry]] = None,
+    workload: Optional[WorkloadAssumption] = None,
 ) -> KPUEntry:
     """Produce a fully-populated KPUEntry from an input spec.
 
@@ -201,20 +211,31 @@ def generate_kpu_sku(
     )
 
     # ---- Power roll-up ----
-    # tdp_watts comes from the default profile (architect-declared).
-    # max/min from the highest/lowest profile TDP.
-    max_w = max(p.tdp_watts for p in spec.thermal_profiles)
-    min_w = min(p.tdp_watts for p in spec.thermal_profiles)
+    # TDP per profile is DERIVED from the chip configuration (clock,
+    # architecture, ProcessNode energies) under the workload assumption
+    # in graphs.hardware.kpu_power_model.WorkloadAssumption. The
+    # architect's hand-authored tdp_watts in the input spec is ignored
+    # -- it's the consequence of the design, not an input.
+    workload = workload or DEFAULT_WORKLOAD
+    derived_profiles: list[KPUThermalProfile] = []
+    for p in spec.thermal_profiles:
+        derived_tdp = compute_thermal_profile_tdp_w(spec, p, node, workload)
+        derived_profiles.append(p.model_copy(update={"tdp_watts": derived_tdp}))
+    derived_default = next(
+        dp for dp in derived_profiles if dp.name == spec.default_thermal_profile
+    )
+    max_w = max(p.tdp_watts for p in derived_profiles)
+    min_w = min(p.tdp_watts for p in derived_profiles)
     leakage_w = total_chip_leakage_w(placeholder_sku, node)
     idle_w = round(leakage_w, 2) if leakage_w > 0 else None
 
     power = KPUPowerSpec(
-        tdp_watts=default_profile.tdp_watts,
+        tdp_watts=derived_default.tdp_watts,
         max_power_watts=max_w,
         min_power_watts=min_w,
         idle_power_watts=idle_w,
         default_thermal_profile=spec.default_thermal_profile,
-        thermal_profiles=spec.thermal_profiles,
+        thermal_profiles=derived_profiles,
     )
 
     # ---- Construct the final KPUEntry ----
@@ -234,6 +255,61 @@ def generate_kpu_sku(
         datasheet_url=spec.datasheet_url,
         last_updated=spec.last_updated,
     )
+
+
+def apply_pe_array_override(
+    spec: KPUSKUInputSpec,
+    pe_array_rows: int,
+    pe_array_cols: int,
+) -> KPUSKUInputSpec:
+    """Resize the PE array on every tile class in a spec.
+
+    Returns a new ``KPUSKUInputSpec`` with ``pe_array_rows`` /
+    ``pe_array_cols`` set to the given dimensions on every tile class,
+    and ``ops_per_tile_per_clock`` rescaled by ``new_pes / old_pes`` so
+    the per-PE op throughput (e.g., int8=2 ops/PE/clock) is preserved.
+    Pipeline fill / drain cycles are also rescaled to track the longer
+    PE-array dimension, matching the family convention (T64/T128 use 32
+    fill/drain at 32x32; T768 uses 16 at 16x8).
+
+    Designed for roadmap sweeps -- run the generator across PE-array
+    sizes without hand-editing each tile class. Caller is responsible
+    for choosing dimensions that make architectural sense (e.g., a
+    32x32 array is dense in NoC routers per PE; a 16x16 leaves more
+    NoC headroom).
+
+    Note: silicon_bin coefficients are *not* touched -- per-PE blocks
+    use ``kind=per_pe`` so total area auto-scales with the new PE
+    count. Per-tile and fixed blocks are insensitive to PE size.
+    """
+    if pe_array_rows <= 0 or pe_array_cols <= 0:
+        raise ValueError(
+            f"pe_array dimensions must be positive; got "
+            f"rows={pe_array_rows}, cols={pe_array_cols}"
+        )
+    new_pes = pe_array_rows * pe_array_cols
+    new_pipeline_depth = max(pe_array_rows, pe_array_cols)
+    new_tiles = []
+    for t in spec.kpu_architecture.tiles:
+        old_pes = t.pe_array_rows * t.pe_array_cols
+        scale = new_pes / old_pes
+        new_ops = {
+            precision: ops * scale
+            for precision, ops in t.ops_per_tile_per_clock.items()
+        }
+        new_tiles.append(
+            t.model_copy(
+                update={
+                    "pe_array_rows": pe_array_rows,
+                    "pe_array_cols": pe_array_cols,
+                    "ops_per_tile_per_clock": new_ops,
+                    "pipeline_fill_cycles": new_pipeline_depth,
+                    "pipeline_drain_cycles": new_pipeline_depth,
+                }
+            )
+        )
+    new_arch = spec.kpu_architecture.model_copy(update={"tiles": new_tiles})
+    return spec.model_copy(update={"kpu_architecture": new_arch})
 
 
 def input_spec_from_kpu_entry(entry: KPUEntry) -> KPUSKUInputSpec:
