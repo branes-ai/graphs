@@ -43,16 +43,19 @@ class TestPE_ArraySizes:
         for spec in cr.tile_specializations:
             assert spec.array_dimensions == (32, 32)
 
-    def test_t256_uses_20x20_pe_arrays(self):
-        """T256 uses 20x20 (revised from 16x16 after commercial review).
-        At 16x16 x 256 tiles, T256 had fewer total PEs (65,536) than T128
-        (73,728) - making it commercially unjustifiable at 2.5x TDP.
-        20x20 x 256 = 102,400 PEs gives T256 a ~1.56x peak advantage."""
+    def test_t256_uses_32x32_pe_arrays(self):
+        """T256 uses 32x32 (uniform with T64/T128 since the post-PR#152
+        family-consistency rebuild). The earlier 20x20 design was a
+        hand-tuned compromise to keep T256 in a 30W envelope at 1.4 GHz;
+        once TDP became derived from (clock, Vdd) per PR #153, the
+        20x20 inverse-scaling design produced a discontinuity in the
+        cost/perf curve and was retired in favor of the uniform 32x32.
+        T256 now has 256 tiles x 1024 PEs = 262,144 PEs total."""
         model = kpu_t256_resource_model()
         tp = model.thermal_operating_points[model.default_thermal_profile]
         cr = tp.performance_specs[Precision.INT8].compute_resource
         for spec in cr.tile_specializations:
-            assert spec.array_dimensions == (20, 20)
+            assert spec.array_dimensions == (32, 32)
 
 
 class TestScheduleClass:
@@ -238,15 +241,16 @@ class TestEnergyAdvantage:
         )
 
     def test_kpu_array_size_sanity(self):
-        """M0.5 canonical KPU tile is 32x32; T64 and T128 both use it.
-        T256 uses a smaller 20x20 per-tile array to trade per-tile
-        array size for tile count as the engine grows:
-        T64  = 32x32 (1024 PEs/tile) - canonical tile
-        T128 = 32x32 (1024 PEs/tile) - canonical tile, 2x count
-        T256 = 20x20 (400 PEs/tile)  - smaller tiles for the big engine
-        The 32x32 tile for T64 and T128 exceeds the original 6 W / 12 W
-        ALU envelopes at listed clocks; rerun cli/check_tdp_feasibility.py
-        to pick new TDP targets."""
+        """All edge KPUs use the canonical 32x32 PE tile. T256 was
+        retrofitted from 20x20 to 32x32 in the post-PR#152 family-
+        consistency rebuild so PE count scales linearly with tile count
+        across the family, making roadmap sweeps clean:
+        T64  = 32x32 (1024 PEs/tile) -> 65,536 PEs total
+        T128 = 32x32 (1024 PEs/tile) -> 131,072 PEs total
+        T256 = 32x32 (1024 PEs/tile) -> 262,144 PEs total
+        TDP scaling is handled per-profile via (clock, Vdd) operating
+        points (PR #153); the 32x32 design no longer creates an
+        envelope problem because the architect tunes Vdd per profile."""
         t64 = kpu_t64_resource_model()
         t128 = kpu_t128_resource_model()
         t256 = kpu_t256_resource_model()
@@ -256,7 +260,7 @@ class TestEnergyAdvantage:
             return cr.tile_specializations[0].pe_count
         assert pe_count(t64) == 1024
         assert pe_count(t128) == 1024
-        assert pe_count(t256) == 400
+        assert pe_count(t256) == 1024
 
     def test_t256_peak_throughput_exceeds_t128(self):
         """Commercial sanity: T256 at the bigger TDP must deliver more
