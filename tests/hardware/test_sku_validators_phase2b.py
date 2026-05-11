@@ -6,7 +6,7 @@ produce) the expected Findings. Uses ``model_copy(update=)`` to mutate
 Pydantic models without touching disk.
 
 Test fixtures:
-- ``ctx``: real ValidatorContext for stillwater_kpu_t256 (a known-good
+- ``ctx``: real ValidatorContext for kpu_t256_32x32_lp5x16_16nm_tsmc_ffp (a known-good
   SKU). Tests perturb it to verify catches.
 """
 
@@ -40,7 +40,7 @@ load_validators()
 def ctx() -> ValidatorContext:
     """Real context for a known-good SKU. Tests mutate sku/process_node
     via model_copy and feed the result into a perturbed context."""
-    return build_context_for_kpu("stillwater_kpu_t256")
+    return build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
 
 
 def _ctx_with_sku(ctx: ValidatorContext, **sku_updates) -> ValidatorContext:
@@ -62,10 +62,10 @@ def _findings_for(name: str, ctx: ValidatorContext):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sku_id", [
-    "stillwater_kpu_t64",
-    "stillwater_kpu_t128",
-    "stillwater_kpu_t256",
-    "stillwater_kpu_t768",
+    "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
+    "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
+    "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 ])
 def test_real_skus_have_no_errors(sku_id):
     """Hand-authored SKUs should pass every validator. If a future YAML

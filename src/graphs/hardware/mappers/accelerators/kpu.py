@@ -539,7 +539,7 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
     mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="stillwater_kpu_t64"
+        vendor="stillwater", base_id="kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"
     )
     return mapper
 
@@ -567,7 +567,7 @@ def create_kpu_t128_mapper(thermal_profile: str = None) -> KPUMapper:
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
     mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="stillwater_kpu_t128"
+        vendor="stillwater", base_id="kpu_t128_32x32_lp5x8_16nm_tsmc_ffp"
     )
     return mapper
 
@@ -594,7 +594,7 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
     mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="stillwater_kpu_t256"
+        vendor="stillwater", base_id="kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"
     )
     return mapper
 
@@ -621,6 +621,6 @@ def create_kpu_t768_mapper(thermal_profile: str = None) -> KPUMapper:
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
     mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="stillwater_kpu_t768"
+        vendor="stillwater", base_id="kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"
     )
     return mapper

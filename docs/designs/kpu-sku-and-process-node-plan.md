@@ -315,7 +315,7 @@ All cross-repo work landed via `embodied-schemas` PRs #9, #10, #11 and
 - `src/embodied_schemas/loaders.py` — register new types
 - `src/embodied_schemas/data/process-nodes/{tsmc,samsung,globalfoundries}/*.yaml`
 - `src/embodied_schemas/data/cooling-solutions/*.yaml`
-- `src/embodied_schemas/data/kpus/stillwater/stillwater_kpu_t{64,128,256,768}.yaml`
+- `src/embodied_schemas/data/kpus/stillwater/kpu_t{64,128,256,768}_*_*nm_*_*.yaml` (catalog uses the new naming convention: `kpu_t<count>_<rows>x<cols>_<mem><ch>_<value>nm_<foundry>_<library>`)
 
 ### graphs (this repo)
 

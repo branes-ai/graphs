@@ -17,7 +17,7 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     (102K). Targets autonomous robots, advanced edge AI. Power
     profiles: 6W, 12W (default), 18W.
     """
-    model = load_kpu_resource_model_from_yaml("stillwater_kpu_t128")
+    model = load_kpu_resource_model_from_yaml("kpu_t128_32x32_lp5x8_16nm_tsmc_ffp")
     # M0.5 domain-flow MAC energies (see kpu_t64.py for rationale).
     model.tile_energy_model.mac_energy_int8 = 0.10e-12
     model.tile_energy_model.mac_energy_bf16 = 0.16e-12

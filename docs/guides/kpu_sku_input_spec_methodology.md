@@ -8,7 +8,7 @@ Let create one and read through the nested types.
    usage: generate_kpu_sku.py [-h] (--input INPUT | --from-sku FROM_SKU)
                                 [--output OUTPUT] [--validate] [--strict]
 
-python /home/stillwater/dev/branes/clones/graphs/cli/generate_kpu_sku.py --from-sku stillwater_kpu_t256 --output /tmp/t256_input_spec.yaml
+python cli/generate_kpu_sku.py --from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output /tmp/t256_input_spec.yaml
 ```
 
 There are no example input-spec YAMLs checked in — start from a round-trip template and edit it. Here's the workflow plus the field-by-field rules.
@@ -20,7 +20,7 @@ There are no example input-spec YAMLs checked in — start from a round-trip tem
   python -c "
   import yaml; from embodied_schemas import load_kpus
   from graphs.hardware.kpu_sku_generator import input_spec_from_kpu_entry
-  spec = input_spec_from_kpu_entry(load_kpus()['stillwater_kpu_t256'])
+  spec = input_spec_from_kpu_entry(load_kpus()['kpu_t256_32x32_lp5x16_16nm_tsmc_ffp'])
   print(yaml.safe_dump(spec.model_dump(mode='json', exclude_none=True),
                        sort_keys=False, default_flow_style=False, indent=2))
   " > my_kpu_spec.yaml
@@ -40,7 +40,7 @@ The generator owns the derived fields (die.transistors_billion, die.die_size_mm2
 ## Identity (top-level)
 
 ```yaml
-  id: stillwater_kpu_t512        # globally unique; convention: <vendor>_kpu_t<tile_count>
+  id: kpu_t512_32x32_lp5x32_12nm_gf_fdx        # globally unique; convention: kpu_t<count>_<rows>x<cols>_<mem><ch>_<value>nm_<foundry>_<library>
   name: Stillwater KPU-T512
   vendor: stillwater
   process_node_id: tsmc_n16      # MUST resolve in data/process-nodes/<foundry>/<node>.yaml
@@ -188,4 +188,4 @@ on the same node.
 3. Run cli/show_compute_product.py <new_id> after generation — the thermal cross-check panel catches TDP-vs-cooling violations that the generator may flag as warnings.
 4. The four shipped SKUs (t64/t128/t256/t768) are your reference points — they cover the entry/mid/high/datacenter tiers and span tsmc_n16 → tsmc_n7, so most new SKUs are an interpolation.
 
-A worked round-trip dump for stillwater_kpu_t256 is in /tmp/t256_input_spec.yaml if you want to inspect a complete file.
+A worked round-trip dump for kpu_t256_32x32_lp5x16_16nm_tsmc_ffp is in /tmp/t256_input_spec.yaml if you want to inspect a complete file.
