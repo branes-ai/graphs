@@ -24,6 +24,13 @@ Two modes:
     python cli/generate_kpu_sku.py --from-sku stillwater_kpu_t256 \\
         --output regenerated_t256.yaml --validate
 
+3. Roadmap sweep -- override PE-array size while keeping everything else:
+
+    for pe in 16x16 24x24 32x32 40x40; do
+      python cli/generate_kpu_sku.py --from-sku stillwater_kpu_t256 \\
+          --pe-array $pe --output t256_$pe.yaml
+    done
+
 Exit codes:
     0 = generation succeeded (and --validate, if used, found no ERROR)
     1 = validator produced ERROR finding(s) on the generated SKU
@@ -42,6 +49,7 @@ from embodied_schemas import load_cooling_solutions, load_kpus, load_process_nod
 
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
+    apply_pe_array_override,
     generate_kpu_sku,
     input_spec_from_kpu_entry,
 )
@@ -99,6 +107,15 @@ def main() -> int:
         "(.yaml / .yml / .json). Default: stdout YAML.",
     )
     parser.add_argument(
+        "--pe-array",
+        metavar="ROWSxCOLS",
+        help="Override PE-array dimensions across every tile class "
+        "(e.g., '32x32', '16x16'). ops_per_tile_per_clock and pipeline "
+        "fill/drain cycles are scaled to match. Use for roadmap sweeps: "
+        "`--from-sku stillwater_kpu_t256 --pe-array 16x16` regenerates "
+        "T256 with smaller PEs to compare cost / capability.",
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="Run the validator registry against the generated SKU. "
@@ -144,6 +161,24 @@ def main() -> int:
             )
             return 2
         spec = input_spec_from_kpu_entry(existing)
+
+    # Apply PE-array override (after spec load, before generation).
+    if args.pe_array:
+        try:
+            rows_str, cols_str = args.pe_array.lower().split("x", 1)
+            rows, cols = int(rows_str), int(cols_str)
+        except (ValueError, AttributeError):
+            print(
+                f"error: --pe-array must be ROWSxCOLS (e.g., '32x32'); "
+                f"got {args.pe_array!r}",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            spec = apply_pe_array_override(spec, rows, cols)
+        except ValueError as exc:
+            print(f"error: --pe-array: {exc}", file=sys.stderr)
+            return 2
 
     # Generate.
     try:

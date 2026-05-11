@@ -32,22 +32,21 @@ def test_kpu_t64_lists_precision(kpu_t64, precision):
 @pytest.mark.parametrize(
     "precision,expected_tops",
     [
-        # Phase 4b PR 4 reconciled to M0.5 / loader values. Previous
-        # numbers came from a pre-M0.5 16x16 PE-array model that
-        # contradicted the 32x32 ops_per_tile_per_clock already declared
-        # in this file's TileSpecialization block. See
-        # docs/designs/kpu-test-contract-snapshot.md sections 1, 5.
-        (Precision.INT4, 162.2),  # 44 INT8-tiles x 4096 INT4 x 900 MHz
-        (Precision.INT8, 118.0),  # 64 tiles x 2048 INT8 x 900 MHz
-        (Precision.BF16, 59.0),   # 64 tiles x 1024 BF16 x 900 MHz
-        (Precision.FP16, 59.0),   # = BF16 throughput (same datapath)
-        (Precision.FP32, 6.0),    # 13 BF16-primary tiles x 512 FP32 x 900 MHz
+        # PR #153 dropped the catalog default profile clock from 900 MHz
+        # to 475 MHz when Vdd was added per profile (Orin-style DVFS).
+        # Peak TOPS scales linearly with clock so values are 475/900 of
+        # the prior numbers. Architecture (32x32 PE, 64 tiles) unchanged.
+        (Precision.INT4,  85.6),  # 44 INT8-tiles x 4096 INT4 x 475 MHz
+        (Precision.INT8,  62.3),  # 64 tiles x 2048 INT8 x 475 MHz
+        (Precision.BF16,  31.1),  # 64 tiles x 1024 BF16 x 475 MHz
+        (Precision.FP16,  31.1),  # = BF16 throughput (same datapath)
+        (Precision.FP32,   3.2),  # 13 BF16-primary tiles x 512 FP32 x 475 MHz
     ],
 )
 def test_kpu_t64_peak_ops(kpu_t64, precision, expected_tops):
     """get_peak_ops must return the per-precision value, not the INT8 fallback."""
     actual_tops = kpu_t64.get_peak_ops(precision) / 1e12
-    assert actual_tops == pytest.approx(expected_tops, rel=1e-6)
+    assert actual_tops == pytest.approx(expected_tops, abs=0.05)
 
 
 @pytest.mark.parametrize(

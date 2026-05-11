@@ -170,18 +170,22 @@ def test_cross_ref_catches_unsupported_circuit_class(ctx):
 # ---------------------------------------------------------------------------
 
 def test_power_monotonicity_catches_inverted_clocks(ctx):
-    """A higher-TDP profile that runs slower than a lower-TDP one."""
+    """A higher-TDP profile that runs slower than a lower-TDP one. Pick
+    the inverted clock relative to the catalog's middle-profile clock so
+    the test stays robust as catalog clocks evolve (PR #153 dropped the
+    catalog clocks substantially when Vdd was added per profile)."""
     profiles = list(ctx.sku.power.thermal_profiles)
-    # Sorted by TDP ascending: 15W -> 1100, 30W -> 1400, 50W -> 1650
-    # Force 50W to run at 1000 MHz (slower than 30W's 1400).
+    by_tdp = sorted(profiles, key=lambda p: p.tdp_watts)
+    middle, top = by_tdp[1], by_tdp[2]
+    inverted_clock = middle.clock_mhz - 50.0  # below middle profile's clock
     for i, p in enumerate(profiles):
-        if p.name == "50W":
-            profiles[i] = p.model_copy(update={"clock_mhz": 1000.0})
+        if p.name == top.name:
+            profiles[i] = p.model_copy(update={"clock_mhz": inverted_clock})
     bad_power = ctx.sku.power.model_copy(update={"thermal_profiles": profiles})
     bad_ctx = _ctx_with_sku(ctx, power=bad_power)
     findings = _findings_for("power_profile_monotonicity", bad_ctx)
     assert any(
-        f.severity == Severity.WARNING and f.profile == "50W"
+        f.severity == Severity.WARNING and f.profile == top.name
         for f in findings
     )
 
