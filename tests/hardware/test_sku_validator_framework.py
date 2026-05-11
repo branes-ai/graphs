@@ -154,7 +154,7 @@ def real_ctx():
     """Build a context against the real catalog. Skipped if catalog not
     reachable (e.g., embodied-schemas not installed in this environment)."""
     try:
-        return build_context_for_kpu("stillwater_kpu_t256")
+        return build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     except Exception as exc:
         pytest.skip(f"catalog unreachable: {exc}")
         # pytest.skip raises Skipped; the explicit raise below makes the
@@ -289,8 +289,8 @@ def test_has_errors_detects_errors():
 # ---------------------------------------------------------------------------
 
 def test_build_context_for_existing_kpu():
-    ctx = build_context_for_kpu("stillwater_kpu_t256")
-    assert ctx.sku.id == "stillwater_kpu_t256"
+    ctx = build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
+    assert ctx.sku.id == "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"
     assert ctx.process_node.id == "tsmc_n16"
     assert "active_fan" in ctx.cooling_solutions
 
@@ -302,9 +302,9 @@ def test_build_context_unknown_sku_raises():
 
 def test_build_context_passes_in_memory_catalogs():
     """Tests can short-circuit disk IO by passing pre-built dicts."""
-    real = build_context_for_kpu("stillwater_kpu_t256")
+    real = build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     ctx = build_context_for_kpu(
-        "stillwater_kpu_t256",
+        "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
         kpus={real.sku.id: real.sku},
         process_nodes={real.process_node.id: real.process_node},
         cooling_solutions=real.cooling_solutions,
@@ -314,13 +314,13 @@ def test_build_context_passes_in_memory_catalogs():
 
 
 def test_context_cooling_for_resolves_existing_profile():
-    ctx = build_context_for_kpu("stillwater_kpu_t256")
+    ctx = build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     cs = ctx.cooling_for("15W")
     assert cs is not None and cs.id == "passive_heatsink_large"
 
 
 def test_context_cooling_for_returns_none_for_unknown_profile():
-    ctx = build_context_for_kpu("stillwater_kpu_t256")
+    ctx = build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     assert ctx.cooling_for("not_a_profile") is None
 
 
@@ -328,7 +328,7 @@ def test_context_unresolved_process_node_raises():
     """Hand-build a SKU that points at a non-existent process node and
     confirm build_context surfaces it as ContextError. Uses an
     in-memory catalog override so we don't need to author a broken YAML."""
-    real = build_context_for_kpu("stillwater_kpu_t256")
+    real = build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     broken_sku = real.sku.model_copy(update={"process_node_id": "nonexistent_node"})
     with pytest.raises(ContextError, match="does not resolve"):
         build_context_for_kpu(

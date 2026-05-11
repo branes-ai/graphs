@@ -21,13 +21,13 @@ Two modes:
 
 2. Extract a spec from an existing SKU and regenerate (template / round-trip):
 
-    python cli/generate_kpu_sku.py --from-sku stillwater_kpu_t256 \\
+    python cli/generate_kpu_sku.py --from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp \\
         --output regenerated_t256.yaml --validate
 
 3. Roadmap sweep -- override PE-array size while keeping everything else:
 
     for pe in 16x16 24x24 32x32 40x40; do
-      python cli/generate_kpu_sku.py --from-sku stillwater_kpu_t256 \\
+      python cli/generate_kpu_sku.py --from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp \\
           --pe-array $pe --output t256_$pe.yaml
     done
 
@@ -112,7 +112,7 @@ def main() -> int:
         help="Override PE-array dimensions across every tile class "
         "(e.g., '32x32', '16x16'). ops_per_tile_per_clock and pipeline "
         "fill/drain cycles are scaled to match. Use for roadmap sweeps: "
-        "`--from-sku stillwater_kpu_t256 --pe-array 16x16` regenerates "
+        "`--from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --pe-array 16x16` regenerates "
         "T256 with smaller PEs to compare cost / capability.",
     )
     parser.add_argument(

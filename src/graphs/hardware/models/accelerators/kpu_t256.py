@@ -17,7 +17,7 @@ def kpu_t256_resource_model() -> HardwareResourceModel:
     Targets edge servers, autonomous vehicles, advanced drones.
     Power profiles: 15W, 30W (default), 50W.
     """
-    model = load_kpu_resource_model_from_yaml("stillwater_kpu_t256")
+    model = load_kpu_resource_model_from_yaml("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     # M0.5 domain-flow MAC energies (see kpu_t64.py for rationale).
     model.tile_energy_model.mac_energy_int8 = 0.10e-12
     model.tile_energy_model.mac_energy_bf16 = 0.16e-12

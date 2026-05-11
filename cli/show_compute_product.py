@@ -15,9 +15,9 @@ Today only KPU SKUs are supported -- extend when other product types
 need the same composed view.
 
 Usage:
-    python cli/show_compute_product.py stillwater_kpu_t256
-    python cli/show_compute_product.py stillwater_kpu_t768 --output t768.json
-    python cli/show_compute_product.py stillwater_kpu_t64  --output t64.md
+    python cli/show_compute_product.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+    python cli/show_compute_product.py kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc --output t768.json
+    python cli/show_compute_product.py kpu_t64_32x32_lp5x4_16nm_tsmc_ffp  --output t64.md
 """
 
 import argparse
@@ -236,7 +236,7 @@ def main() -> int:
         description="Show the full assembled ComputeProduct hierarchy "
                     "(SKU + ProcessNode + CoolingSolutions) for one KPU SKU."
     )
-    parser.add_argument("kpu_id", help="KPU SKU id, e.g., stillwater_kpu_t256")
+    parser.add_argument("kpu_id", help="KPU SKU id, e.g., kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     parser.add_argument(
         "--output",
         help="Output file. Format auto-detected from extension (.json/.md/.txt).",

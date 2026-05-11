@@ -412,7 +412,7 @@ def load_kpu_resource_model_from_yaml(
     """Build a ``HardwareResourceModel`` for ``base_id`` from the YAML catalog.
 
     Args:
-        base_id: KPU SKU id, e.g., ``"stillwater_kpu_t256"``.
+        base_id: KPU SKU id, e.g., ``"kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"``.
         kpus / process_nodes: Optional pre-loaded catalogs (tests pass
             in-memory dicts to avoid disk I/O). Defaults load from the
             installed ``embodied-schemas`` package.
@@ -649,10 +649,10 @@ def load_kpu_resource_model_from_yaml(
     # these values are legacy-architectural placeholders. Eventual
     # cleanup tracked in docs/designs/kpu-test-contract-snapshot.md.
     _LEGACY_L2_CACHE_TOTAL_MB = {
-        "stillwater_kpu_t64":  4,
-        "stillwater_kpu_t128": 8,
-        "stillwater_kpu_t256": 16,
-        "stillwater_kpu_t768": 32,
+        "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp":  4,
+        "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp": 8,
+        "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp": 16,
+        "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc": 32,
     }
     l2_cache_total_bytes = (
         _LEGACY_L2_CACHE_TOTAL_MB.get(base_id, 0) * 1024 * 1024

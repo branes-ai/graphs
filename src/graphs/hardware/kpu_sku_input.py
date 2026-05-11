@@ -44,7 +44,7 @@ class KPUSKUInputSpec(BaseModel):
     """
 
     # Identity
-    id: str = Field(..., description="Unique id, e.g., 'stillwater_kpu_t1024'")
+    id: str = Field(..., description="Unique id, e.g., 'kpu_t1024_32x32_lp5x4_5nm_tsmc_hpc'")
     name: str = Field(..., description="Human-readable name")
     vendor: str = Field(..., description="Vendor, e.g., 'stillwater'")
 

@@ -12,7 +12,7 @@ Typical use:
         build_context_for_kpu,
     )
 
-    ctx = build_context_for_kpu("stillwater_kpu_t256")
+    ctx = build_context_for_kpu("kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
     findings = default_registry.run_all(ctx)
     for f in findings:
         print(f.render_one_line())
