@@ -66,14 +66,11 @@ class TestKPUFeasibility:
             f"(over by {row.overshoot:.2f}x)"
         )
 
-    @pytest.mark.xfail(
-        reason="T64/T128 moved to canonical 32x32 tile; their 6 W / "
-               "12 W TDP targets need re-derivation. Run "
-               "cli/check_tdp_feasibility.py and pick envelopes that "
-               "accommodate 1024 PE/tile at the listed clocks.",
-        strict=True,
-    )
     def test_t64_t128_feasible_at_32x32(self):
+        """T64/T128 moved to canonical 32x32 tile; PR #153 then dropped
+        catalog clocks and added per-profile Vdd so derived TDPs land on
+        the 6 W / 12 W targets cleanly. Both SKUs are now feasible at
+        their default operating points (xfail removed)."""
         tool = _load_tool()
         for sku in ("Stillwater-KPU-T64", "Stillwater-KPU-T128"):
             row = tool.check_sku(sku)
@@ -104,19 +101,21 @@ class TestKPUFeasibility:
 class TestCLI:
     def test_cli_runs_default(self):
         tool = _load_tool()
-        # T128 at 32x32 exceeds its 12 W TDP; exit 0 still expected when
-        # --fail-on-infeasible is not set (tool reports and returns 0).
+        # Tool returns 0 by default whether or not the SKU is feasible;
+        # only --fail-on-infeasible elevates the exit code (T128 is in
+        # fact feasible at its post-PR#153 12W operating point).
         rc = tool.main(["--hardware", "kpu_t128"])
         assert rc == 0
 
     def test_cli_fail_on_infeasible_flag(self):
         tool = _load_tool()
-        # T64 and T128 moved to canonical 32x32 tile and now exceed
-        # their original 6 W / 12 W envelopes; the --fail-on-infeasible
-        # run is expected to return 1 until new TDP targets are chosen.
+        # PR #153 dropped catalog clocks and added per-profile Vdd; T64,
+        # T128, and T256 now derive cleanly to their 6 W / 12 W / 30 W
+        # targets and are all feasible. --fail-on-infeasible should
+        # return 0 since no infeasible SKUs are passed.
         rc = tool.main(["--hardware", "kpu_t64", "kpu_t128", "kpu_t256",
                         "--fail-on-infeasible"])
-        assert rc == 1
+        assert rc == 0
 
     def test_cli_t256_alone_still_feasible(self):
         tool = _load_tool()
