@@ -265,6 +265,69 @@ RFC 0001 are not present anywhere in the codebase:
 
 ---
 
+## Memory caveat (memory dies are first-class, not a chip-level field)
+
+The KPU's `KPUMemorySubsystem` packs memory as a single homogeneous chip-level
+field (one memory type, one bandwidth, on-die caches as per-tile/per-PE
+constants). That works for a monolithic edge KPU where all memory is either
+in `silicon_bin` (L1/L2/L3 SRAM as part of the compute die) or off-package
+LPDDR. It breaks for the entire class of products where memory is **its own
+die or stack of dies on-package**:
+
+| Product | Memory dies on-package |
+|---|---|
+| AMD Ryzen 7800X3D / EPYC 9684X | 1 CCD + 1 V-Cache SRAM die (3D-stacked via TSVs) |
+| AMD MI300A | 6 GPU chiplets + 3 CPU chiplets + IOD + **8 HBM3 stacks** |
+| AMD MI300X | 8 GPU chiplets + IOD + **8 HBM3 stacks (192 GB)** |
+| NVIDIA H100 SXM5 | 1 GPU die + **5 HBM3 stacks (80 GB)** |
+| NVIDIA B100 / B200 | 2 GPU dies + **8 HBM3e stacks (192 GB)** |
+| Grace-Hopper | Grace CPU + Hopper GPU + **6 HBM3 stacks** + 480 GB LPDDR5X on Grace |
+| Apple M3 Max | 1 SoC die + **8x LPDDR5 dies on-package** (PoP) |
+| Jetson Orin AGX | 1 SoC die + **64 GB LPDDR5 on-module** |
+| Samsung HBM-PIM | HBM stacks with **per-stack compute** -- memory IS compute |
+
+Each memory die has properties of its own that don't fit a flat `memory:`
+field on the parent ComputeProduct:
+
+- **Process node** -- HBM uses DRAM-friendly older nodes (10-12 nm class)
+  different from the compute die's logic node. V-Cache is on the same node
+  as the CCD it stacks onto. LPDDR PoP dies are on yet another node. Each
+  needs its own `process_node_id`.
+- **Capacity, bandwidth, latency, energy-per-byte** -- per stack /
+  per die.
+- **Interconnect to compute die(s)** -- HBM via CoWoS / EMIB interposer
+  (~1024-bit per stack), V-Cache via TSV (through-silicon vias), LPDDR on-
+  package via PoP traces, GDDR via PCB. Each has its own bandwidth,
+  latency, and energy-per-byte. The same `Interconnect` first-class entity
+  proposed for inter-compute-die links covers this.
+- **Power budget** -- HBM stacks are 5-15 W each; V-Cache is ~2-3 W.
+  Aggregating to a chip-level TDP loses this.
+- **Internal hierarchy** -- an HBM stack is itself 4-12 DRAM dies +
+  a base logic die, connected via TSVs. From the ComputeProduct
+  perspective the stack acts as one logical Die, but the per-stack metadata
+  needs `dies_in_stack` and `stack_height_um` to support thermal /
+  reliability analysis.
+
+There are three categories of memory to model, and they live in different
+parts of the schema:
+
+| Memory category | Examples | Where it lives |
+|---|---|---|
+| On-die SRAM (caches) | L1/L2/L3 inside compute silicon | Compute Die's `silicon_bin` (already correct -- KPU model does this for L2/L3) |
+| On-package memory dies | HBM stacks, V-Cache, PoP LPDDR | First-class entries in `dies: list[Die]` with `MemoryBlock` blocks; `Interconnect`s describe how they connect to compute dies |
+| Off-package memory | Socketed DIMMs, GDDR on PCB, CXL modules | Modelled at board / system level via `contains: list[ProductRef]` |
+
+The "on-package vs off-package" boundary is fuzzy (Jetson on-module LPDDR
+behaves as on-package; AM5 socketed DDR5 is off-package) -- the rule is
+"is the memory die in the same physical package boundary that the product
+ships as a unit?"
+
+**My earlier migration sketch had `memory:` as a flat chip-level field**
+under ComputeProduct -- that repeats the same monolithic-only flaw the
+chiplet caveat below identifies for `process_node_id`. The shape needs to
+move memory dies into `dies: list[Die]` and reduce the chip-level
+`memory:` to off-package summary information only.
+
 ## Chiplet caveat (the KPU template does NOT generalize as-is)
 
 The KPU is monolithic: one die, one process node, one `silicon_bin`. So
@@ -319,28 +382,125 @@ ComputeProduct
   - packaging: { kind, num_dies, package_type, ... }
   - dies: list[Die]                       # NEW -- per-die structure
       Die:
-        - die_id (e.g., "ccd0", "iod", "compute_tile_p", "compute_tile_e")
-        - process_node_id                  # PER-DIE
+        - die_id (e.g., "ccd0", "iod", "compute_tile_p",
+                  "hbm3_stack_0", "v_cache_die")
+        - die_role: enum                   # COMPUTE | MEMORY | IO | BRIDGE | MIXED
+        - process_node_id                  # PER-DIE (HBM uses different node)
         - die_size_mm2, transistors_billion
         - silicon_bin                      # PER-DIE area decomposition
         - blocks: list[Block]              # discriminated union per RFC 0001
-                                           # KPUBlock | GPUBlock | CPUBlock | NPUBlock | DSPBlock | ...
+                                           # KPUBlock | GPUBlock | CPUBlock |
+                                           # NPUBlock | DSPBlock | MemoryBlock |
+                                           # IOBlock | BridgeBlock | ...
         - clocks (per-die clock domain)
-  - interconnects: list[Interconnect]      # NEW -- inter-die links
+        - dies_in_stack: int = 1           # for HBM stacks (4-12 DRAM dies +
+                                           #   1 base die); 1 for non-stacked
+        - stack_height_um: float | None    # for thermal modelling
+
+  Block (discriminated union, kind: ...)
+    KPUBlock:    tiles + NoC + memory subsystem (today's KPUArchitecture)
+    GPUBlock:    SMs, tensor cores, RT cores, etc.
+    CPUBlock:    cores (P/E split), caches, vector ext
+    NPUBlock:    NPU type, dataflow class, peak TOPS
+    DSPBlock:    VLIW + vector + tensor units
+    MemoryBlock:                            # NEW -- on-package memory dies
+      - kind: hbm2 | hbm3 | hbm3e | hbm4 |
+              sram_3d_stacked (V-Cache) | lpddr5 | lpddr5x |
+              ddr5 | gddr6 | gddr6x | gddr7 | hbm_pim
+      - capacity_gb
+      - bandwidth_gbps                      # per stack/die
+      - bus_width_bits                      # 1024 for HBM, etc.
+      - data_rate_mbps                      # 6400 for HBM3, etc.
+      - latency_ns                          # tCAS-equivalent
+      - energy_pj_per_byte                  # PHY-side + array access
+      - num_channels                        # per die/stack
+      - has_compute: bool = False           # True for HBM-PIM
+    IOBlock:    PCIe complex, NVLink controller, NIC
+    BridgeBlock: NVSwitch, IOD coherence fabric
+
+  - interconnects: list[Interconnect]      # NEW -- ALL inter-die links
       Interconnect:
-        - kind (NVLink-C2C | NV-HBI | InfinityFabric | UltraFusion | EMIB | NVSwitch | PCIe | ...)
+        - kind: nvlink_c2c | nv_hbi | infinity_fabric | ultra_fusion |
+                emib | tsv_3d_stack | cowos | hbm_phy | nvswitch |
+                pcie | lpddr_pop | gddr_pcb
         - bandwidth_gbps, latency_ns, energy_pj_per_byte
         - connects: [die_id, die_id]       # which dies it connects
-  - memory:                                # on-package, shared across dies
-      memory_type, on_package_gb, bandwidth_gbps, ...
+        - lanes / channels (kind-specific)
+
+  - memory_summary: { ... } | None         # OPTIONAL roll-up for queries
+                                           # e.g., total_on_package_gb,
+                                           # peak_aggregate_bandwidth_gbps;
+                                           # derived from dies + interconnects,
+                                           # not a source of truth
+
   - power:                                 # chip-level envelope
-      tdp_watts (sum or peak), thermal_profiles: list[ThermalProfile]
+      tdp_watts (sum across dies), thermal_profiles: list[ThermalProfile]
       ThermalProfile:
         - cooling_solution_id              # package-level cooling
         - per_die_tdp_w: dict[die_id, float]    # per-die power allocation
+                                                # (HBM stack ~5-15W each;
+                                                #  V-Cache ~2-3W;
+                                                #  compute die remainder)
         - clock_mhz, vdd_v can vary per-die (need per-die clock+Vdd here too)
+
   - market
   - contains: list[ProductRef]             # board/system-level: { id, count }
+                                           # also where socketed DIMMs / CXL
+                                           # modules / GDDR on PCB go
+```
+
+Worked example -- NVIDIA H100 SXM5 (1 GPU die + 5 HBM3 stacks):
+
+```
+ComputeProduct(id="nvidia_h100_sxm5_80gb")
+  dies:
+    - Die(die_id="gh100", die_role=COMPUTE,
+          process_node_id="tsmc_n4",
+          die_size_mm2=814, transistors_billion=80,
+          blocks: [GPUBlock(sms=132, tensor_cores=528, ...)])
+    - Die(die_id="hbm3_stack_0", die_role=MEMORY,
+          process_node_id="sk_hynix_1a_dram",
+          die_size_mm2=92, transistors_billion=24,
+          dies_in_stack=12,                    # 12-Hi HBM3
+          blocks: [MemoryBlock(kind=hbm3, capacity_gb=16,
+                               bandwidth_gbps=819, bus_width_bits=1024,
+                               num_channels=16)])
+    - Die(die_id="hbm3_stack_1", ...)         # 4 more HBM3 stacks
+    - ...
+  interconnects:
+    - Interconnect(kind=hbm_phy, bandwidth_gbps=819,
+                   connects=["gh100", "hbm3_stack_0"])
+    - ...                                      # 4 more HBM PHY links
+  power:
+    thermal_profiles:
+      - per_die_tdp_w: {gh100: 600, hbm3_stack_0: 12, hbm3_stack_1: 12, ...}
+        cooling_solution_id: "datacenter_dtc_700w"
+```
+
+Worked example -- AMD Ryzen 7800X3D (1 CCD + 1 V-Cache + 1 IOD):
+
+```
+ComputeProduct(id="amd_ryzen_7800x3d")
+  dies:
+    - Die(die_id="ccd0", die_role=COMPUTE,
+          process_node_id="tsmc_n5",
+          blocks: [CPUBlock(cores=8, isa=x86_64, vector_ext=[avx2, avx512])])
+    - Die(die_id="v_cache_0", die_role=MEMORY,
+          process_node_id="tsmc_n7",            # different node from CCD
+          blocks: [MemoryBlock(kind=sram_3d_stacked, capacity_gb=0.064,
+                               bandwidth_gbps=2000, latency_ns=4,
+                               energy_pj_per_byte=0.3)])
+    - Die(die_id="iod", die_role=IO,
+          process_node_id="tsmc_n6",            # third node
+          blocks: [IOBlock(pcie_lanes=24, ...),
+                   MemoryBlock(kind=ddr5, capacity_gb=0,  # DRAM is off-pkg
+                               num_channels=2)])           # MC for 2-ch DDR5
+  interconnects:
+    - Interconnect(kind=tsv_3d_stack, bandwidth_gbps=2000,
+                   connects=["ccd0", "v_cache_0"])         # V-Cache to CCD
+    - Interconnect(kind=infinity_fabric, bandwidth_gbps=64,
+                   connects=["ccd0", "iod"])               # CCD to IOD
+  contains: [{id: "ddr5_5200_dimm_16gb", count: 2}]        # off-package DRAM
 ```
 
 Migration steps:
@@ -362,9 +522,16 @@ Migration steps:
    monolithic.
 5. Add `contains: list[ProductRef]` for board / system level products.
 6. Migrate one monolithic SKU per category as proof (existing `KPUEntry`
-   loaders write into the new schema, then read back). Then migrate one
-   chiplet product (AMD MI300A is the canonical stress test) end-to-end
-   to validate the per-die scoping.
+   loaders write into the new schema, then read back). Then migrate two
+   chiplet products end-to-end to validate the per-die scoping:
+   - **AMD MI300A** -- canonical stress test for compute chiplets on
+     mixed nodes + 8 HBM3 stacks + IOD; exercises every block kind in
+     one product.
+   - **AMD Ryzen 7800X3D** -- canonical stress test for 3D-stacked
+     SRAM memory die (V-Cache); validates the `tsv_3d_stack`
+     interconnect kind and the `MemoryBlock(kind=sram_3d_stacked)`
+     shape against a real product where the SRAM die is on a different
+     process node from the compute die it stacks onto.
 7. Promote the validator/generator/power-model frameworks from KPU-specific
    (`graphs.hardware.kpu_*`) to ComputeProduct-aware:
    - Validators iterate over dies + blocks, dispatch by `block.kind`.
