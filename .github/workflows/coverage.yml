@@ -1,0 +1,75 @@
+name: Coverage
+
+# Coverage runs out-of-band so per-PR Tests stay fast. The main ci.yml
+# workflow runs pytest without --cov on every PR for the pass/fail
+# signal; this workflow runs the same suite with coverage on pushes
+# to main and on a nightly schedule, where the extra ~30-40% overhead
+# is acceptable.
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 03:00 UTC daily -- catches drift introduced by external dep
+    # updates even when no PR landed that day.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    name: Coverage (Python 3.12)
+    runs-on: ubuntu-latest
+    env:
+      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout embodied-schemas (PhysicalSpec data source)
+        uses: actions/checkout@v4
+        with:
+          repository: branes-ai/embodied-schemas
+          # Pinned to embodied-schemas main; bump when later schema
+          # changes need to be picked up. History:
+          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
+          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
+          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
+          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
+          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
+          #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
+          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
+          ref: 845a9f2939fa8a49df16c203f1be72a54f838578
+          path: embodied-schemas
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py3.12-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-py3.12-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+          pip install -e ./embodied-schemas
+          pip install pytest pytest-cov
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest tests/ --cov=src/graphs --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 30

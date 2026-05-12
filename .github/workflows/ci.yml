@@ -22,7 +22,7 @@ jobs:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -61,7 +61,12 @@ jobs:
         # 3.9 dropped because embodied-schemas (transitive dep via the
         # SKU validator framework, generator, and YAML loader) declares
         # requires-python = ">=3.10".
-        python-version: ['3.10', '3.11', '3.12']
+        #
+        # Matrix is conditional to keep PR cycle time short: PRs run
+        # only the production target (3.12); pushes to main and manual
+        # dispatches run the full sweep so any version-specific
+        # breakage gets caught before release.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.10", "3.11", "3.12"]') }}
 
     steps:
       - name: Checkout code
@@ -91,7 +96,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-py${{ matrix.python-version }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -103,12 +108,16 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e .
           pip install -e ./embodied-schemas
-          pip install pytest pytest-cov
+          pip install pytest
 
       - name: Run unit tests
+        # Coverage is intentionally NOT collected here -- pytest-cov
+        # adds 30-40% overhead on the 2,700-test suite. Coverage runs
+        # in the dedicated coverage.yml workflow on push to main and
+        # nightly. PRs only need the pass/fail signal.
         run: |
-          pytest tests/ -v --cov=src/graphs --cov-report=term-missing
-          echo "✅ Unit tests passed"
+          pytest tests/ -v
+          echo "Unit tests passed"
 
       - name: Run validation tests (smoke tests only)
         run: |
@@ -151,7 +160,7 @@ jobs:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -249,7 +258,7 @@ jobs:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -344,7 +353,7 @@ jobs:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -412,7 +421,7 @@ jobs:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -468,7 +477,7 @@ jobs:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
