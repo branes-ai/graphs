@@ -16,10 +16,10 @@ import csv
 import importlib.util
 import io
 import json
-import subprocess
-import sys
 from contextlib import redirect_stdout
 from pathlib import Path
+
+import pytest
 
 CLI = Path(__file__).resolve().parents[2] / "cli" / "list_hardware_resources.py"
 
@@ -36,16 +36,21 @@ def _import_cli_as_module():
     return module
 
 
-def _run(*args, output_path=None, expect_zero=True):
-    cmd = [sys.executable, str(CLI), *args]
-    if output_path is not None:
-        cmd.extend(["--output", str(output_path)])
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if expect_zero:
-        assert proc.returncode == 0, (
-            f"CLI failed (rc={proc.returncode})\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
-        )
-    return proc.stdout, proc.stderr, proc.returncode
+@pytest.fixture
+def _run(cli_runner):
+    """Wrap the global cli_runner with this file's CLI path. Returns
+    (stdout, stderr, returncode) -- the historical order this file used."""
+    def _do(*args, output_path=None, expect_zero=True):
+        cli_args = list(args)
+        if output_path is not None:
+            cli_args.extend(["--output", str(output_path)])
+        rc, stdout, stderr = cli_runner(CLI, cli_args)
+        if expect_zero:
+            assert rc == 0, (
+                f"CLI failed (rc={rc})\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            )
+        return stdout, stderr, rc
+    return _do
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +58,7 @@ def _run(*args, output_path=None, expect_zero=True):
 # ---------------------------------------------------------------------------
 
 class TestRunsAcrossAllMappers:
-    def test_default_text_runs_clean(self):
+    def test_default_text_runs_clean(self, _run):
         stdout, _, _ = _run()
         assert "HARDWARE RESOURCES SPEC SHEET" in stdout
         assert "Total products:" in stdout
@@ -61,7 +66,7 @@ class TestRunsAcrossAllMappers:
         # >=10 to stay robust as new mappers are added.
         assert "PhysicalSpec coverage:" in stdout
 
-    def test_help_works(self):
+    def test_help_works(self, _run):
         stdout, _, _ = _run("--help")
         assert "--category" in stdout
         assert "--sort" in stdout
@@ -74,7 +79,7 @@ class TestRunsAcrossAllMappers:
 # ---------------------------------------------------------------------------
 
 class TestJsonFormat:
-    def test_stdout_json_parses(self):
+    def test_stdout_json_parses(self, _run):
         stdout, _, _ = _run("--format", "json")
         data = json.loads(stdout)
         assert "total_products" in data
@@ -82,7 +87,7 @@ class TestJsonFormat:
         assert "products" in data
         assert data["total_products"] == len(data["products"])
 
-    def test_json_round_trips_h100_physical_spec(self, tmp_path):
+    def test_json_round_trips_h100_physical_spec(self, tmp_path, _run):
         out = tmp_path / "spec.json"
         _, _, _ = _run(output_path=out)
         data = json.loads(out.read_text())
@@ -95,7 +100,7 @@ class TestJsonFormat:
         # Density is derived; expect ~98.3 Mtx/mm^2
         assert abs(h100["transistor_density_mtx_mm2"] - 98.28) < 0.1
 
-    def test_json_unpopulated_mappers_render_as_null(self, tmp_path):
+    def test_json_unpopulated_mappers_render_as_null(self, tmp_path, _run):
         out = tmp_path / "spec.json"
         _, _, _ = _run(output_path=out)
         data = json.loads(out.read_text())
@@ -112,7 +117,7 @@ class TestJsonFormat:
 # ---------------------------------------------------------------------------
 
 class TestCsvFormat:
-    def test_csv_extension_routes_to_csv(self, tmp_path):
+    def test_csv_extension_routes_to_csv(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
         _, stderr, _ = _run(output_path=out)
         assert "Wrote csv report" in stderr
@@ -130,7 +135,7 @@ class TestCsvFormat:
         ):
             assert col in header
 
-    def test_csv_unpopulated_fields_are_empty(self, tmp_path):
+    def test_csv_unpopulated_fields_are_empty(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         rows = list(csv.DictReader(out.open()))
@@ -138,7 +143,7 @@ class TestCsvFormat:
         assert a100_row["die_size_mm2"] == ""
         assert a100_row["transistors_billion"] == ""
 
-    def test_csv_h100_row_is_fully_populated(self, tmp_path):
+    def test_csv_h100_row_is_fully_populated(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         rows = list(csv.DictReader(out.open()))
@@ -153,7 +158,7 @@ class TestCsvFormat:
 # ---------------------------------------------------------------------------
 
 class TestMarkdownAndTextFormat:
-    def test_md_extension_writes_real_markdown_table(self, tmp_path):
+    def test_md_extension_writes_real_markdown_table(self, tmp_path, _run):
         out = tmp_path / "spec.md"
         _, stderr, _ = _run(output_path=out)
         assert "Wrote markdown report" in stderr
@@ -164,18 +169,18 @@ class TestMarkdownAndTextFormat:
         # Per-category header
         assert "## GPU" in body
 
-    def test_markdown_extension_alias(self, tmp_path):
+    def test_markdown_extension_alias(self, tmp_path, _run):
         out = tmp_path / "spec.markdown"
         _, stderr, _ = _run(output_path=out)
         assert "Wrote markdown report" in stderr
 
-    def test_txt_extension_routes_to_text(self, tmp_path):
+    def test_txt_extension_routes_to_text(self, tmp_path, _run):
         out = tmp_path / "spec.txt"
         _, _, _ = _run(output_path=out)
         body = out.read_text()
         assert "HARDWARE RESOURCES SPEC SHEET" in body
 
-    def test_unknown_extension_falls_back_to_format(self, tmp_path):
+    def test_unknown_extension_falls_back_to_format(self, tmp_path, _run):
         out = tmp_path / "spec.weird"
         _run("--format", "json", output_path=out)
         # Loadable as JSON despite the unknown extension
@@ -191,13 +196,13 @@ class TestFormatPrecedence:
     silently re-routed `--output spec.csv --format json` to CSV.
     """
 
-    def test_explicit_format_overrides_recognized_extension(self, tmp_path):
+    def test_explicit_format_overrides_recognized_extension(self, tmp_path, _run):
         out = tmp_path / "override.csv"
         _, stderr, _ = _run("--format", "json", output_path=out)
         assert "Wrote json report" in stderr
         json.loads(out.read_text())  # parses as JSON despite .csv extension
 
-    def test_md_alias_for_markdown_format(self, tmp_path):
+    def test_md_alias_for_markdown_format(self, tmp_path, _run):
         # ``md`` on --format is an alias for ``markdown`` (matches the .md
         # file-extension naming).
         out = tmp_path / "doc.txt"
@@ -205,7 +210,7 @@ class TestFormatPrecedence:
         assert "Wrote markdown report" in stderr
         assert out.read_text().startswith("# Hardware Resources Spec Sheet")
 
-    def test_auto_detect_when_no_format_flag(self, tmp_path):
+    def test_auto_detect_when_no_format_flag(self, tmp_path, _run):
         # When --format is omitted, the file extension drives format selection.
         out = tmp_path / "auto.csv"
         _, stderr, _ = _run(output_path=out)
@@ -217,14 +222,14 @@ class TestFormatPrecedence:
 # ---------------------------------------------------------------------------
 
 class TestCategoryFilter:
-    def test_category_gpu_only(self, tmp_path):
+    def test_category_gpu_only(self, tmp_path, _run):
         out = tmp_path / "spec.json"
         _run("--category", "gpu", output_path=out)
         data = json.loads(out.read_text())
         assert data["total_products"] >= 5
         assert all(p["category"] == "gpu" for p in data["products"])
 
-    def test_category_is_case_insensitive(self, tmp_path):
+    def test_category_is_case_insensitive(self, tmp_path, _run):
         out = tmp_path / "spec.json"
         _run("--category", "GPU", output_path=out)
         data = json.loads(out.read_text())
@@ -232,26 +237,26 @@ class TestCategoryFilter:
 
 
 class TestSorting:
-    def _names_for_sort(self, tmp_path, *args):
+    def _names_for_sort(self, tmp_path, _run, *args):
         out = tmp_path / "spec.json"
         _run(*args, output_path=out)
         data = json.loads(out.read_text())
         return [p["name"] for p in data["products"]]
 
-    def _records_for_sort(self, tmp_path, *args):
+    def _records_for_sort(self, tmp_path, _run, *args):
         out = tmp_path / "spec.json"
         _run(*args, output_path=out)
         data = json.loads(out.read_text())
         return data["products"]
 
-    def test_sort_die_size_reverse_populated_rows_precede_missing(self, tmp_path):
+    def test_sort_die_size_reverse_populated_rows_precede_missing(self, tmp_path, _run):
         # The contract: missing-value rows always trail, regardless of
         # sort direction. This is the regression guard for the original
         # missing-value-placement bug (PR #134) -- with the naive
         # `key=(missing, value), reverse=True` approach, missing rows
         # would flip to the FRONT under --reverse.
         records = self._records_for_sort(
-            tmp_path, "--category", "gpu", "--sort", "die_size", "--reverse"
+            tmp_path, _run, "--category", "gpu", "--sort", "die_size", "--reverse"
         )
         die_sizes = [r["die_size_mm2"] for r in records]
         # Non-None dies first, then Nones.
@@ -266,11 +271,11 @@ class TestSorting:
         # And H100 (largest die at 814 mm^2) should come first among GPUs.
         assert records[0]["name"] == "H100-SXM5-80GB"
 
-    def test_sort_die_size_ascending_populated_rows_precede_missing(self, tmp_path):
+    def test_sort_die_size_ascending_populated_rows_precede_missing(self, tmp_path, _run):
         # Same contract as above for ascending order: populated rows first,
         # then missing. Populated rows sorted ascending.
         records = self._records_for_sort(
-            tmp_path, "--category", "gpu", "--sort", "die_size"
+            tmp_path, _run, "--category", "gpu", "--sort", "die_size"
         )
         die_sizes = [r["die_size_mm2"] for r in records]
         last_populated = next(
@@ -281,11 +286,11 @@ class TestSorting:
         populated = die_sizes[:last_populated]
         assert populated == sorted(populated)
 
-    def test_sort_name_default_is_alphabetical(self, tmp_path):
-        names = self._names_for_sort(tmp_path, "--category", "gpu")
+    def test_sort_name_default_is_alphabetical(self, tmp_path, _run):
+        names = self._names_for_sort(tmp_path, _run, "--category", "gpu")
         assert names == sorted(names, key=str.lower)
 
-    def test_sort_tops_per_watt_works(self, tmp_path):
+    def test_sort_tops_per_watt_works(self, tmp_path, _run):
         out = tmp_path / "spec.json"
         _run("--sort", "tops_per_watt", "--reverse", output_path=out)
         data = json.loads(out.read_text())
@@ -299,7 +304,7 @@ class TestSorting:
 # ---------------------------------------------------------------------------
 
 class TestVerbose:
-    def test_verbose_text_includes_provenance(self):
+    def test_verbose_text_includes_provenance(self, _run):
         stdout, _, _ = _run("--category", "gpu", "--verbose")
         # H100 has a populated PhysicalSpec source; verbose should surface it
         assert "embodied-schemas:" in stdout
@@ -359,7 +364,7 @@ class TestProcessNodeFallback:
             extras={},
         )
 
-    def test_text_renderer_falls_back_to_nm(self):
+    def test_text_renderer_falls_back_to_nm(self, _run):
         lhr = _import_cli_as_module()
         record = self._synthetic_record_nm_only(lhr)
         buf = io.StringIO()
@@ -374,7 +379,7 @@ class TestProcessNodeFallback:
         # The node column displays the nm value formatted by _na(int)
         assert " 7" in synth_line, f"Expected nm=7 in row, got: {synth_line!r}"
 
-    def test_markdown_renderer_falls_back_to_nm(self):
+    def test_markdown_renderer_falls_back_to_nm(self, _run):
         lhr = _import_cli_as_module()
         record = self._synthetic_record_nm_only(lhr)
         buf = io.StringIO()
@@ -395,7 +400,7 @@ class TestProfilesExpansion:
     multiple thermal_operating_points; chips with a single profile keep their
     silicon-bin row (no degenerate name@default duplicates)."""
 
-    def test_default_mode_row_count_unchanged(self, tmp_path):
+    def test_default_mode_row_count_unchanged(self, tmp_path, _run):
         # Backward compat: without --profiles, the row count matches the
         # silicon-bin count (one row per registered mapper).
         out = tmp_path / "spec.json"
@@ -406,7 +411,7 @@ class TestProfilesExpansion:
         from graphs.hardware.mappers import list_all_mappers
         assert data["total_products"] == len(list_all_mappers())
 
-    def test_profiles_all_emits_more_rows(self, tmp_path):
+    def test_profiles_all_emits_more_rows(self, tmp_path, _run):
         # --profiles all expands multi-profile chips into one row per
         # profile, so the total grows.
         default_out = tmp_path / "default.json"
@@ -417,7 +422,7 @@ class TestProfilesExpansion:
         all_data = json.loads(all_out.read_text())
         assert all_data["total_products"] > default_data["total_products"]
 
-    def test_profiles_all_orin_nano_emits_four_rows(self, tmp_path):
+    def test_profiles_all_orin_nano_emits_four_rows(self, tmp_path, _run):
         # Orin Nano has 4 modes (7W / 15W / 25W / MAXN per #136). Under
         # --profiles all, the silicon-bin row is replaced by 4 alias rows.
         out = tmp_path / "spec.json"
@@ -437,7 +442,7 @@ class TestProfilesExpansion:
             "Jetson-Orin-Nano-8GB@MAXN",
         ]
 
-    def test_profiles_all_per_profile_tdp_distinct(self, tmp_path):
+    def test_profiles_all_per_profile_tdp_distinct(self, tmp_path, _run):
         # Each Orin Nano alias row should report its OWN TDP, not the
         # default profile's TDP. Spec invariant: 7W=7W, 15W=15W, 25W=25W,
         # MAXN=25W (Super silicon's max envelope).
@@ -451,7 +456,7 @@ class TestProfilesExpansion:
         }
         assert tdps == {"7W": 7.0, "15W": 15.0, "25W": 25.0, "MAXN": 25.0}
 
-    def test_profiles_all_per_profile_clocks_distinct(self, tmp_path):
+    def test_profiles_all_per_profile_clocks_distinct(self, tmp_path, _run):
         # 7W mode boosts to 918 MHz; 15W/25W/MAXN boost to 1020 MHz.
         # Documents the per-profile clock variation that makes Phase 2
         # worth shipping in the first place.
@@ -468,7 +473,7 @@ class TestProfilesExpansion:
         assert boosts["25W"] == 1020.0
         assert boosts["MAXN"] == 1020.0
 
-    def test_profiles_all_single_profile_chip_keeps_silicon_name(self, tmp_path):
+    def test_profiles_all_single_profile_chip_keeps_silicon_name(self, tmp_path, _run):
         # H100 has a single placeholder thermal_operating_point named
         # "default". Under --profiles all, this chip should NOT get a
         # degenerate "H100-SXM5-80GB@default" alias -- the silicon-bin
@@ -481,7 +486,7 @@ class TestProfilesExpansion:
         assert len(h100_rows) == 1
         assert h100_rows[0]["name"] == "H100-SXM5-80GB"  # bare silicon-bin
 
-    def test_default_mode_populates_clocks_for_jetson(self, tmp_path):
+    def test_default_mode_populates_clocks_for_jetson(self, tmp_path, _run):
         # Even in default mode, Jetson chips should populate Base/Boost MHz
         # from their default thermal profile's ClockDomain. This is the
         # "even default mode is more informative now" win from Phase 2.
@@ -497,7 +502,7 @@ class TestProfilesExpansion:
         assert nano["core_base_mhz"] == 306.0
         assert nano["core_boost_mhz"] == 1020.0
 
-    def test_default_mode_chips_without_clock_domain_render_none(self, tmp_path):
+    def test_default_mode_chips_without_clock_domain_render_none(self, tmp_path, _run):
         # KPUs use KPUComputeResource which doesn't expose a ClockDomain.
         # The defensive _clocks_from_profile helper falls back to None.
         # The CLI renders None as empty (CSV) / N/A (text/markdown), no
@@ -521,19 +526,19 @@ class TestPhase2Renderers:
     output. CSV / JSON pick up the new fields automatically via the
     dataclass field iteration."""
 
-    def test_text_header_includes_new_columns(self):
+    def test_text_header_includes_new_columns(self, _run):
         stdout, _, _ = _run("--category", "gpu")
         for col in ("Mode", "Base MHz", "Boost MHz"):
             assert col in stdout, f"text header missing column: {col}"
 
-    def test_markdown_header_includes_new_columns(self, tmp_path):
+    def test_markdown_header_includes_new_columns(self, tmp_path, _run):
         out = tmp_path / "spec.md"
         _run(output_path=out)
         body = out.read_text()
         for col in ("Mode", "Base MHz", "Boost MHz"):
             assert col in body, f"markdown header missing column: {col}"
 
-    def test_csv_includes_new_field_columns(self, tmp_path):
+    def test_csv_includes_new_field_columns(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         rows = list(csv.reader(out.open()))
@@ -547,12 +552,12 @@ class TestPhase3MemoryColumn:
     memory_bus_width_bits are now PhysicalSpec fields, surfaced in the
     spec-sheet view across all four output formats."""
 
-    def test_text_header_includes_memory_columns(self):
+    def test_text_header_includes_memory_columns(self, _run):
         stdout, _, _ = _run("--category", "gpu")
         assert "Memory" in stdout, "text header missing 'Memory' column"
         assert "Bus" in stdout, "text header missing 'Bus' column"
 
-    def test_markdown_header_includes_memory_columns(self, tmp_path):
+    def test_markdown_header_includes_memory_columns(self, tmp_path, _run):
         out = tmp_path / "spec.md"
         _run(output_path=out)
         body = out.read_text()
@@ -560,14 +565,14 @@ class TestPhase3MemoryColumn:
         # Markdown uses literal "Bus" (not "Bus (bits)") to keep header tight.
         assert "| Bus |" in body
 
-    def test_csv_includes_memory_columns(self, tmp_path):
+    def test_csv_includes_memory_columns(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         header = next(csv.reader(out.open()))
         assert "memory_type" in header
         assert "memory_bus_width_bits" in header
 
-    def test_json_round_trips_memory_fields(self, tmp_path):
+    def test_json_round_trips_memory_fields(self, tmp_path, _run):
         # H100 + 4 Jetson SKUs are populated as of Phase 3.
         out = tmp_path / "spec.json"
         _run(output_path=out)
@@ -576,7 +581,7 @@ class TestPhase3MemoryColumn:
         assert h100["memory_type"] == "hbm3"
         assert h100["memory_bus_width_bits"] == 5120
 
-    def test_json_orin_family_bus_widths_lock_in_per_sku(self, tmp_path):
+    def test_json_orin_family_bus_widths_lock_in_per_sku(self, tmp_path, _run):
         # Spec invariant: AGX=256, NX=128, Nano=128 bits. Verified via
         # bandwidth math against NVIDIA's published BW figures
         # (BW / DRAM-rate = bus_width). NX and Nano share the same
@@ -596,7 +601,7 @@ class TestPhase3MemoryColumn:
         assert nx["memory_type"] == "lpddr5"
         assert nano["memory_type"] == "lpddr5"
 
-    def test_unpopulated_chips_render_na_for_memory(self, tmp_path):
+    def test_unpopulated_chips_render_na_for_memory(self, tmp_path, _run):
         # A100 / B100 / V100 / T4 / etc. don't have populated PhysicalSpec
         # yet, so memory_type renders None in JSON / empty in CSV / N/A
         # in text+markdown. No crash, just graceful absence.
@@ -612,23 +617,23 @@ class TestPhase4MemoryClock:
     """Phase 4 of #136: Memory Clock column. Per-profile memory_clock_mhz
     surfaces from each ThermalOperatingPoint."""
 
-    def test_text_header_includes_mem_mhz_column(self):
+    def test_text_header_includes_mem_mhz_column(self, _run):
         stdout, _, _ = _run("--category", "gpu")
         # Header has the new column ('Mem MHz', between 'Bus' and 'TDP').
         assert "Mem MHz" in stdout
 
-    def test_markdown_header_includes_mem_mhz_column(self, tmp_path):
+    def test_markdown_header_includes_mem_mhz_column(self, tmp_path, _run):
         out = tmp_path / "spec.md"
         _run(output_path=out)
         assert "Mem MHz" in out.read_text()
 
-    def test_csv_includes_memory_clock_column(self, tmp_path):
+    def test_csv_includes_memory_clock_column(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         header = next(csv.reader(out.open()))
         assert "memory_clock_mhz" in header
 
-    def test_jetson_default_profiles_populated(self, tmp_path):
+    def test_jetson_default_profiles_populated(self, tmp_path, _run):
         # Phase 4 backfilled all 4 Jetson SKUs with the silicon's
         # headline DRAM rate. Default-mode rows (the ones rendered
         # without --profiles all) should show those values.
@@ -646,7 +651,7 @@ class TestPhase4MemoryClock:
         assert nx["memory_clock_mhz"] == 3200.0
         assert thor["memory_clock_mhz"] == 4267.0
 
-    def test_unpopulated_chips_render_none_for_mem_clock(self, tmp_path):
+    def test_unpopulated_chips_render_none_for_mem_clock(self, tmp_path, _run):
         # H100 / A100 / B100 / etc. don't have memory_clock_mhz set on
         # their thermal_operating_points yet -- they render None
         # gracefully (-> "N/A" in text/markdown, "" in CSV).
@@ -658,7 +663,7 @@ class TestPhase4MemoryClock:
         assert h100["memory_clock_mhz"] is None
         assert a100["memory_clock_mhz"] is None
 
-    def test_profiles_all_propagates_per_profile_memory_clock(self, tmp_path):
+    def test_profiles_all_propagates_per_profile_memory_clock(self, tmp_path, _run):
         # Under --profiles all, each Orin Nano alias row carries the
         # memory_clock_mhz from its specific ThermalOperatingPoint. The
         # current backfill assigns the same 3200 MHz to all 4 modes

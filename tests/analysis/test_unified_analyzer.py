@@ -90,7 +90,11 @@ class TestUnifiedAnalyzer(unittest.TestCase):
     def test_different_precisions(self):
         """Test FP32, FP16"""
         for precision in [Precision.FP32, Precision.FP16]:
-            with self.subTest(precision=precision):
+            # Pass .value (string) rather than the enum itself --
+            # pytest-xdist's execnet serializer can't pickle custom
+            # enums across worker boundaries, which would crash the
+            # worker after the assertion otherwise passes.
+            with self.subTest(precision=precision.value):
                 result = self.analyzer.analyze_model(
                     model_name='resnet18',
                     hardware_name='H100',
