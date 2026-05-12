@@ -994,6 +994,297 @@ For a chiplet with HBM stacks the cross-check then becomes per-die: each
 die's `peak_power_w` and `peak_power_density_w_per_mm2` are checked
 against the cooling solution(s) that cover it.
 
+## Interconnect topology caveat (graphs, not flat fields; switches as first-class)
+
+Interconnect is the most under-developed axis in the current model. The
+KPU catches one slice (intra-die `KPUNoCSpec` -- mesh_rows / mesh_cols /
+flit_bytes / router_circuit_class / bisection_bandwidth_gbps), and the
+chiplet caveat above proposed a flat `Interconnect` list for inter-die
+links. Both are point-solutions. The general problem is bigger.
+
+### What today's model captures vs what's needed
+
+| Level | Today | Needed |
+|---|---|---|
+| Intra-die NoC | `KPUNoCSpec` (one mesh, single topology string) | First-class with multiple NoCs per die, routing kind, VCs, per-router latency / energy |
+| Inter-die within package | proposed `Interconnect` list (chiplet caveat) | Topology-aware: hub-and-spoke (AMD IOD), point-to-point (Grace-Hopper), 3D-stack (V-Cache), mesh (multiple GPU chiplets) |
+| Inter-package within board / node | **nothing** | PCIe (P2P or via PEX switch), NVLink (P2P or via NVSwitch), xGMI / Infinity Fabric (AMD socket-to-socket), Intel UPI, CXL fabric |
+| Inter-node within rack | **nothing** | InfiniBand (HDR / NDR / XDR), Ethernet (RoCE), NVLink Switch fabric, Slingshot, Tofu |
+| Inter-rack / cluster | **nothing** | Spine-leaf datacenter networks; partially in scope |
+| Storage / IO | **nothing** | NVMe, SAS, IB-storage |
+| Coherence domain | **nothing** (implicit) | Which dies / blocks share a coherent address space, vs DMA-only |
+
+The proposed `contains: list[ProductRef]` field can express "DGX H100 has
+8x H100 + 4x NVSwitch + 2x Sapphire Rapids + 8x ConnectX-7" as a
+membership list, but it does not express **how** those 14 components are
+wired together -- which is exactly what a fabric-aware estimator needs to
+compute all-reduce latency, model congestion, or evaluate placement.
+
+### Topology is a graph, not a flat field
+
+Real interconnect fabrics have:
+
+- **Nodes**: dies, ports, lanes, switches, NICs
+- **Edges**: links with bandwidth, latency, energy/byte, lane count
+- **Topology patterns**: how edges form (point_to_point, ring, mesh_2d,
+  mesh_3d, torus, fat_tree, dragonfly, all_to_all, hub_and_spoke,
+  switched, hierarchical, custom)
+- **Routing policy**: deterministic XY, deterministic dimension-order,
+  adaptive, oblivious, multi-path
+- **Quality-of-service**: virtual channels, traffic classes, priority
+- **Coherence overlay**: which links carry coherent traffic, which are DMA-only
+- **Asymmetry**: PCIe full-duplex but P2P read vs write to peer memory
+  has different realized BW; HBM read vs write at different power; NVLink
+  uplink vs downlink in some asymmetric topologies
+- **Oversubscription**: switched fabrics often oversubscribe (e.g., a
+  fat tree with 1.5:1 from spine to leaf)
+
+Collapsing this into a single `bandwidth_gbps` per `Interconnect` loses
+the structure that drives realistic perf/power modelling.
+
+### Real-product examples the current model can't represent
+
+| Product | What today's model misses |
+|---|---|
+| DGX H100 | 8 GPUs + 4 NVSwitches forming a 3-stage NVLink fabric; cross-section BW = 7.2 TB/s but only at certain communication patterns; PCIe topology to dual SPR + 8 ConnectX-7 NICs is separate |
+| AMD MI300X 8-GPU node | 8x MI300X + Infinity Fabric in a fully-connected mesh (every GPU to every other GPU at 128 GB/s per peer); cross-section depends on direction |
+| NVIDIA GH200 NVL32 | 32x Grace-Hopper SuperChips connected by NVLink Switch System; 4x NVL32 form an "exascale" cluster |
+| Cerebras WSE | Single die with a 2D mesh of 850K cores -- the NoC IS the chip; mesh has fault-tolerant adaptive routing, can map dead sites |
+| Google TPU v5p pod | 8960 TPUs in a 3D torus; topology is the architecture; collective operations are torus-aware |
+| Tesla Dojo | Hierarchical: D1 chip mesh of cores; tile of 25 D1s mesh; tray of tiles; cabinet of trays. Each level has its own topology + BW |
+| Grace-Hopper | Coherent NVLink-C2C between Grace CPU and Hopper GPU (one product); separate non-coherent NVLink to other GH chips (DGX-class system) |
+| AMD EPYC dual socket | xGMI between sockets; UMA vs NUMA configuration; coherent across sockets |
+
+### Schema additions
+
+```
+Interconnect (extended from prior caveats)
+  - id                                   # unique within scope
+  - level: InterconnectLevel             # NEW enum
+      noc_intra_die       |   # within one die
+      die_to_die          |   # within one package (NV-HBI, EMIB, TSV)
+      package_to_package  |   # within one board / node (PCIe, NVLink)
+      node_to_node        |   # within one rack (IB, Ethernet, NVL Switch)
+      rack_to_rack        |   # cross-rack
+      storage             |   # NVMe / SAS / IB-storage
+  - link_kind: enum                      # PHY-level identification
+      nvlink5 | nvlink4 | nvlink_c2c | nv_hbi |
+      infinity_fabric | xgmi | upi |
+      pcie5 | pcie6 | cxl3 |
+      hbm_phy | tsv_3d_stack | cowos | emib | lpddr_pop | gddr_pcb |
+      ib_ndr | ib_xdr | roce_400g | nvswitch | slingshot | tofu_d |
+      ethernet_400g | ethernet_800g
+  - topology: TopologyKind               # NEW enum
+      point_to_point | ring | mesh_2d | mesh_3d | torus_2d | torus_3d |
+      fat_tree | dragonfly | hypercube | all_to_all | hub_and_spoke |
+      switched | hierarchical | custom
+  - dimensions: dict[str, int] | None    # NEW -- topology-specific
+                                         # mesh: {rows, cols}
+                                         # torus_3d: {x, y, z}
+                                         # fat_tree: {radix, levels}
+  - per_link_bandwidth_gbps              # one direction
+  - per_link_bandwidth_full_duplex_gbps  # bidirectional capacity
+  - per_link_latency_ns                  # zero-load latency per hop
+  - per_link_energy_pj_per_byte          # PHY + protocol overhead
+  - num_links                            # total in this topology
+  - aggregate_bisection_bandwidth_gbps   # derived; cached for queries
+  - oversubscription_ratio: float = 1.0  # for switched / fat-tree
+                                         # (1.5:1, 3:1, etc.)
+  - coherent: bool                       # cache-coherent or DMA-only
+  - routing: RoutingKind                 # NEW enum
+      deterministic_xy | deterministic_dim_order |
+      adaptive_minimal | adaptive_nonminimal | oblivious_valiant
+  - virtual_channels: int = 1
+  - asymmetric_bandwidth: bool = False
+  - asymmetric_send_gbps / asymmetric_receive_gbps: float | None
+  - endpoints: list[EndpointRef]         # what this connects
+      EndpointRef:
+        - kind: die | port | block | product_ref | switch
+        - id
+        - port_index: int | None         # for multi-port endpoints
+```
+
+```
+Switch                                   # NEW first-class entity
+  - id
+  - kind: nvswitch3 | ib_switch_ndr | ethernet_switch_400g |
+          pcie_pex_switch | xgmi_switch
+  - port_count
+  - per_port_bandwidth_gbps
+  - aggregate_bandwidth_gbps             # all ports
+  - latency_ns_per_hop                   # cut-through or store-forward
+  - power_w
+  - is_blocking: bool                    # blocking vs non-blocking
+  - process_node_id                      # switches are silicon too
+  - die: DieRef                          # often packaged on its own die
+```
+
+```
+CoherenceDomain                          # NEW overlay structure
+  - id
+  - members: list[EndpointRef]           # which dies / blocks share
+                                         # a coherent address space
+  - protocol: MOESI | MESIF | MOESI_F | DASH | custom
+  - max_latency_ns                       # worst-case coherence latency
+                                         # (matters for false sharing model)
+```
+
+```
+ComputeProduct (system-level, kind: system)
+  - contains: list[ProductRef]           # already proposed
+      ProductRef:
+        - id
+        - count
+        - position: dict | None          # NEW -- where in the system
+                                         # (rack_unit, socket, bay, ...)
+  - interconnects: list[Interconnect]    # promoted to system level
+                                         # endpoints can be ProductRef
+                                         # (e.g., GPU0 to NVSwitch3)
+  - switches: list[Switch]               # NEW -- first-class
+  - coherence_domains: list[CoherenceDomain]    # NEW
+  - topology_summary: dict               # OPTIONAL roll-up for queries
+                                         # e.g., bisection BW at each
+                                         # level, hop count matrix
+```
+
+### Worked example -- DGX H100 8-GPU node
+
+```
+ComputeProduct(id="nvidia_dgx_h100", kind=system)
+  contains: [
+    {id: "nvidia_h100_sxm5_80gb",   count: 8, position: {bay: 0..7}},
+    {id: "nvidia_nvswitch3",        count: 4, position: {bay: switch0..3}},
+    {id: "intel_xeon_8480c_spr",    count: 2, position: {socket: 0, 1}},
+    {id: "nvidia_connectx7_400g",   count: 8, position: {nic: 0..7}},
+  ]
+  switches: [
+    Switch(id="nvs0", kind=nvswitch3, port_count=64,
+           per_port_bandwidth_gbps=900, aggregate_bandwidth_gbps=57600,
+           latency_ns_per_hop=300, power_w=70),
+    ...                              # 3 more NVSwitch3
+  ]
+  interconnects: [
+    # NVLink fabric: each GPU to all 4 NVSwitches
+    Interconnect(level=node_to_node, link_kind=nvlink4, topology=fat_tree,
+                 dimensions={radix: 18, levels: 2},
+                 per_link_bandwidth_gbps=900,
+                 per_link_bandwidth_full_duplex_gbps=1800,
+                 per_link_latency_ns=300,
+                 per_link_energy_pj_per_byte=1.5,
+                 num_links=32,                   # 8 GPUs * 4 switches
+                 aggregate_bisection_bandwidth_gbps=7200,
+                 oversubscription_ratio=1.0,
+                 coherent=False,                  # NVLink is DMA, not coherent
+                 routing=adaptive_minimal,
+                 virtual_channels=4,
+                 endpoints=[
+                   {kind=product_ref, id="nvidia_h100_sxm5_80gb", port_index=0..17},
+                   {kind=switch, id="nvs0..nvs3"},
+                 ]),
+
+    # PCIe: each GPU to its companion NIC + to a CPU socket
+    Interconnect(level=package_to_package, link_kind=pcie5, topology=switched,
+                 per_link_bandwidth_gbps=64,           # PCIe 5.0 x16
+                 per_link_latency_ns=500,
+                 num_links=8,
+                 coherent=False,
+                 endpoints=[
+                   {kind=product_ref, id="nvidia_h100_sxm5_80gb"},
+                   {kind=product_ref, id="nvidia_connectx7_400g"},
+                 ]),
+
+    # UPI: socket-to-socket on the dual-Xeon host
+    Interconnect(level=package_to_package, link_kind=upi, topology=point_to_point,
+                 per_link_bandwidth_gbps=180,
+                 coherent=True,                  # UPI is coherent
+                 num_links=4,
+                 endpoints=[
+                   {kind=product_ref, id="intel_xeon_8480c_spr", port_index=0..3},
+                 ]),
+  ]
+  coherence_domains: [
+    # Two NUMA domains, one per CPU socket
+    CoherenceDomain(id="numa0", protocol=MESIF,
+                    members=[{kind=product_ref, id=cpu0}]),
+    CoherenceDomain(id="numa1", protocol=MESIF,
+                    members=[{kind=product_ref, id=cpu1}]),
+    # GPUs are NOT in the CPU coherence domain (PCIe DMA)
+  ]
+```
+
+### Worked example -- intra-die KPU NoC (replaces today's `KPUNoCSpec`)
+
+```
+Die(die_id="kpu_compute")
+  blocks: [
+    KPUBlock(...)
+  ]
+  interconnects: [                       # NEW -- per-die NoCs in here
+    Interconnect(id="compute_noc",
+                 level=noc_intra_die,
+                 link_kind=custom,        # KPU-specific NoC
+                 topology=mesh_2d,
+                 dimensions={rows: 16, cols: 16},
+                 per_link_bandwidth_gbps=128,    # per-flit-direction
+                 per_link_latency_ns=1,
+                 per_link_energy_pj_per_byte=1.0,
+                 num_links=480,                  # 16*15*2 horiz + 15*16*2 vert
+                 aggregate_bisection_bandwidth_gbps=2048,
+                 routing=deterministic_xy,
+                 virtual_channels=2,
+                 endpoints=[
+                   {kind=block, id=tile_0_0..15_15},   # all tiles
+                 ]),
+
+    # If the chip has separate NoCs (compute, coherence, DMA), add them too:
+    Interconnect(id="dma_noc", level=noc_intra_die, ...),
+  ]
+```
+
+The KPU's monolithic single-NoC case becomes one element in the per-die
+`interconnects` list. Multi-NoC designs (Cerebras WSE has multiple NoCs;
+Tesla Dojo has hierarchical NoCs; Apple has separate compute / coherence
+fabrics) become multiple elements.
+
+### Why this shape matters for the estimator path
+
+The whole point of the ComputeProduct unification is that mappers and
+estimators in `graphs.estimation` can reason uniformly. For interconnect
+this means:
+
+- **Hop count matrix**: estimator wants "how many hops between resource
+  A and resource B?" -- a graph BFS over the interconnect list with
+  switches as relay nodes
+- **Cross-section bandwidth**: "what's the BW between any two halves of
+  this fabric?" -- min-cut over the bandwidth-weighted graph
+- **Collective operation cost**: all-reduce, all-gather, broadcast costs
+  depend on the topology pattern and oversubscription
+- **Coherence cost**: "is this access coherent or does it require
+  explicit DMA?" -- coherence domain membership lookup
+- **Power roll-up**: "what's the dynamic power of the interconnect at
+  this workload's BW utilization?" -- per-link energy * byte_rate * util
+- **Asymmetric placement**: "which GPU pair has highest BW for this
+  collective?" -- topology-aware placement
+
+None of these queries work over a flat `bandwidth_gbps` field. They all
+require the interconnect to be a graph with a stable schema for the
+nodes and edges.
+
+### KPU today vs the unified model
+
+The KPU is a single-die monolithic part with one NoC, no inter-die or
+inter-package interconnect. Migration is structural with no data loss:
+
+- Move `kpu_architecture.noc: KPUNoCSpec` into
+  `Die.interconnects: list[Interconnect]` as one element
+  (level=noc_intra_die)
+- Translate `topology: "mesh_2d"` to enum + `dimensions: {rows, cols}`
+- Translate `bisection_bandwidth_gbps` to `aggregate_bisection_bandwidth_gbps`
+- Add `routing: deterministic_xy` and `virtual_channels: 2` (best-guess
+  defaults; architect refines if needed)
+- The KPU has no switches, no inter-die / inter-package fabric, no
+  coherence domain -- those lists stay empty
+
 ## Summary -- the "anything that can vary across dies / SKUs / rails" rule
 
 The pattern across all four caveats: **anything that can vary independently
@@ -1022,6 +1313,12 @@ own first-class structure, not a flat top-level field.**
 | Thermal interface material (TIM) | Cooling SKU variants (paste vs solder vs liquid metal) | `CoolingSolutionEntry.tim_kind` + `r_cs_c_per_w` |
 | Temperature grade | SKU variants (commercial vs industrial vs automotive vs military) | `ComputeProduct.temp_grade` + `ambient_c_range` |
 | Cooling scope | Cooling SKUs (per-die / per-package / per-node / per-rack) | `CoolingSolutionEntry.scope` + `applies_to_dies`; `ThermalProfile.cooling_solution_ids: list` |
+| Interconnect topology | Levels (intra-die NoC / die-to-die / package-to-package / node-to-node / rack-to-rack) | `Interconnect.level` + `topology` + `dimensions`; switches as first-class entities; endpoints as graph nodes (not flat fields) |
+| Interconnect routing & QoS | Per-fabric (deterministic XY vs adaptive vs oblivious; VCs; oversubscription) | `Interconnect.routing` + `virtual_channels` + `oversubscription_ratio` |
+| Asymmetric link bandwidth | Per-link (PCIe P2P read vs write; HBM read vs write; NVLink uplink vs downlink) | `Interconnect.asymmetric_send_gbps` / `_receive_gbps` |
+| Cache-coherence overlay | Selected dies / blocks / sockets (Grace-Hopper coherent NVLink-C2C, EPYC dual-socket UPI/xGMI, GPU-to-GPU NOT coherent) | `CoherenceDomain` first-class with members + protocol |
+| Switch / fabric components | Systems (NVSwitch, IB switch, PCIe PEX, xGMI switch -- silicon in their own right) | `Switch` first-class entity at system level (not a `Block` -- it's package-scoped) |
+| System-level composition | Boards, nodes, racks (DGX H100 = 8 GPUs + 4 NVSwitches + 2 CPUs + 8 NICs wired together) | `ComputeProduct(kind=system)` with `contains` + system-level `interconnects` + `switches` + `coherence_domains` |
 
 The flat-field anti-pattern is the same in every case: collapse N
 independent things into one top-level value, lose information, and break
