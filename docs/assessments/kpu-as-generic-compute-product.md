@@ -1314,10 +1314,10 @@ theoretically do?"** The roofline / energy / latency models in
 | AMD MI300X | ROCm + MIOpen + RCCL + hipBLASLt + Composable Kernel | ~70% of CUDA-equivalent for many workloads in 2026; gap shrinks every release |
 | Apple M3 Max | Metal + MLX + Core ML + Accelerate + MPS for PyTorch | MLX is faster than PyTorch-MPS by 2-3x on transformer inference |
 | Intel Xeon SPR | oneAPI + oneDNN + MKL + OpenVINO + IPEX | OpenVINO INT8 achieves 4-8x over FP32 |
-| Hailo-8 | HailoRT + Dataflow Compiler | Vendor-only path; PyTorch model -> Hailo binary |
-| Stillwater KPU | Dataflow Compiler (proprietary) | Single SDK; no PyTorch backend yet |
-| Tesla Dojo | Dojo compiler + Dojo SDK | Vendor-only |
-| Cerebras WSE | Cerebras SDK + CGCS | Vendor-only |
+| Hailo-8 | HailoRT + Hailo Dataflow Compiler | Vendor-only path; PyTorch model -> Hailo binary; generic dataflow compilation (op graph -> token-firing schedule on Hailo's tile fabric) |
+| Stillwater KPU | Stillwater Domain Flow Compiler (proprietary) | Single SDK; no PyTorch backend yet. **Compilation is fundamentally different from generic dataflow**: SURE / SARE programs (systems of recurrence equations) are space-time mapped onto the 2D PE mesh via polyhedral scheduling. Kernel reuse with Cerebras / Hailo / Dojo toolchains is essentially zero -- they share neither IR, scheduler, nor cost model. |
+| Tesla Dojo | Dojo compiler + Dojo SDK | Vendor-only; generic dataflow over hierarchical mesh of D1 chips |
+| Cerebras WSE | Cerebras SDK + CGCS | Vendor-only; generic dataflow over single-die 850K-core mesh with fault-tolerant routing |
 
 ### Schema additions
 
@@ -1328,7 +1328,17 @@ ComputeProduct
         - programming_models: list[ProgrammingModel]    # NEW enum
             simt          |   # CUDA, ROCm
             spmd          |   # TPU XLA, OpenCL
-            dataflow      |   # Cerebras, Tesla Dojo, KPU
+            dataflow      |   # Cerebras WSE, Tesla Dojo, Hailo --
+                              # token-firing through an op graph; firing
+                              # rule is "all inputs available"; structure
+                              # can be irregular and runtime-dependent
+            domain_flow   |   # Stillwater KPU -- DISTRIBUTED dataflow
+                              # executing systems of recurrence equations
+                              # (SURE / SARE) over a regular iteration
+                              # domain; computation is statically scheduled
+                              # by polyhedral space-time mapping onto the
+                              # 2D PE mesh. NOT the same as generic
+                              # dataflow -- separate compiler discipline.
             vliw          |   # Hexagon DSP, Tensilica
             x86_simd      |   # CPU AVX
             arm_neon_sve  |
@@ -1341,7 +1351,16 @@ ComputeProduct
               - id (e.g., "cuda_12_4", "rocm_6_2", "metal_3_2")
               - kind: cuda | rocm | oneapi | metal | mlx | hailort |
                       tensorrt | xla | iree | mlir | dojo |
-                      dataflow_compiler | custom
+                      hailo_dataflow_compiler |
+                      stillwater_domain_flow_compiler |
+                      custom
+                                          # NOTE: domain-flow compiler
+                                          # (Stillwater KPU, polyhedral
+                                          # SURE/SARE -> mesh) is a
+                                          # SEPARATE kind from generic
+                                          # dataflow compilers (Hailo,
+                                          # Cerebras, Dojo) -- different
+                                          # IR, scheduler, cost model
               - vendor: str
               - version
               - lts: bool
@@ -1396,6 +1415,32 @@ For the KPU specifically: today's `multi_precision_alu` field on
 `KPUArchitecture` says what the HARDWARE supports; the new `software.sdks`
 + `software.native_quantization` say what the SOFTWARE actually exposes
 to user code -- usually a subset.
+
+### Why dataflow vs domain_flow is a load-bearing distinction (not a marketing-tier label)
+
+The `programming_models` enum splits **dataflow** (Cerebras WSE, Tesla
+Dojo, Hailo) from **domain_flow** (Stillwater KPU). They sound similar
+but the catalog needs to keep them separate because the compilation
+pipelines, IRs, schedulers, and cost models are entirely different --
+kernel reuse across the boundary is essentially zero.
+
+| Dimension | Generic dataflow (Cerebras / Hailo / Dojo) | Domain flow (Stillwater KPU) |
+|---|---|---|
+| Program shape | Arbitrary directed graph of operators | System of recurrence equations (SURE / SARE) over an iteration domain |
+| Firing rule | Token-driven: an op fires when all inputs are available; can be data-dependent | Statically scheduled: every PE knows what to compute and when via a polyhedral space-time map |
+| Scheduling discipline | Operator placement + token routing; runtime-adaptive | Polyhedral space-time scheduling; affine transformations on iteration spaces |
+| Compiler IR | Op graph IR (typically an MLIR dialect or proprietary graph IR) | Polyhedral IR (Z-polyhedra, affine schedules, space-time mappings) |
+| Cost model | Op latency + token routing congestion | Wavefront timing + PE utilization on the regular mesh |
+| Handles irregular control flow | Yes (data-dependent token firing) | No -- requires affine bounds; non-affine code falls back to a host |
+| Best fit | Heterogeneous op graphs; vision pipelines with branching | Dense linear algebra; convolutions; structured tensor ops where the iteration domain is a polyhedron |
+| Catalog implication | A `Hailo` SDK kernel can plausibly be ported to `Cerebras` with shared IR / scheduler concepts | A `KPU` kernel cannot be ported to a generic dataflow target without redesigning both the IR and the scheduling discipline |
+
+Estimator-path implication: latency / energy models for a generic-dataflow
+target predict on operator latency + token routing; for a domain-flow
+target they predict on wavefront timing + PE utilization on the iteration
+polytope. These are different roofline shapes; the estimator dispatch
+needs to know which it's looking at, which is what the
+`programming_models` enum is for.
 
 Where it lives: software is a property of the **product** (sometimes the
 **product family**), not the silicon. Same H100 silicon underpins every
@@ -1610,8 +1655,8 @@ own first-class structure, not a flat top-level field.**
 | Cache-coherence overlay | Selected dies / blocks / sockets (Grace-Hopper coherent NVLink-C2C, EPYC dual-socket UPI/xGMI, GPU-to-GPU NOT coherent) | `CoherenceDomain` first-class with members + protocol |
 | Switch / fabric components | Systems (NVSwitch, IB switch, PCIe PEX, xGMI switch -- silicon in their own right) | `Switch` first-class entity at system level (not a `Block` -- it's package-scoped) |
 | System-level composition | Boards, nodes, racks (DGX H100 = 8 GPUs + 4 NVSwitches + 2 CPUs + 8 NICs wired together) | `ComputeProduct(kind=system)` with `contains` + system-level `interconnects` + `switches` + `coherence_domains` |
-| Programming model | Architecture (SIMT vs SPMD vs dataflow vs VLIW vs SIMD vs Metal) | `SoftwareSupport.programming_models: list[ProgrammingModel]` |
-| SDK / toolchain availability | Vendors per product (CUDA / ROCm / oneAPI / Metal / MLX / HailoRT / TensorRT / dataflow_compiler / ...) | `SoftwareSupport.sdks: list[SDKSupport]` with kind / version / lts / eol |
+| Programming model | Architecture (SIMT vs SPMD vs **dataflow** vs **domain_flow** vs VLIW vs SIMD vs Metal -- domain_flow is the KPU-specific SURE/SARE polyhedral execution model, NOT the same as generic dataflow) | `SoftwareSupport.programming_models: list[ProgrammingModel]` |
+| SDK / toolchain availability | Vendors per product (CUDA / ROCm / oneAPI / Metal / MLX / HailoRT / TensorRT / Stillwater domain-flow compiler / Hailo dataflow compiler / ...) | `SoftwareSupport.sdks: list[SDKSupport]` with kind / version / lts / eol |
 | Framework backend tier | Per (framework, product) pair (PyTorch native on NVIDIA, vendor-supported on AMD, community on Apple MLX, translated via ZLUDA, ...) | `SoftwareSupport.framework_backends: list[FrameworkBackend]` with tier + `performance_relative_to_native` |
 | Native quantization / sparsity | Per SDK (int8 / int4 / fp8_e4m3 / fp8_e5m2 / nf4 / awq / gptq; 2:4 sparse vs block-sparse) | `SoftwareSupport.native_quantization` + `native_sparsity` lists |
 | Driver / firmware versions | Deployment-time (NVIDIA driver minor versions move perf 5-15% on big workloads) | `ComputeProduct.driver_firmware: DriverFirmwareInfo` with min versions + tested set + determinism flag |
