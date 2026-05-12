@@ -265,6 +265,203 @@ RFC 0001 are not present anywhere in the codebase:
 
 ---
 
+## Voltage and clock domain caveat (single-rail single-clock breaks DVFS modelling)
+
+The KPU's `KPUThermalProfile` carries a single `vdd_v` and a single `clock_mhz`
+that apply chip-wide. That captures monolithic edge KPUs reasonably -- one
+voltage rail, one clock domain, every tile on the same DVFS schedule. It
+breaks for the products where aggressive DVFS is the central performance /
+power lever:
+
+| Product | Independent voltage / clock domains |
+|---|---|
+| NVIDIA Hopper (H100) | compute clock (~1980 MHz boost), memory clock (HBM3 5.2 GHz), fabric/uncore clock, I/O clock -- all DVFS independently |
+| AMD Zen 4 | per-core voltage / clock via Curve Optimizer (each of 16 cores); CCD vs IOD on separate rails |
+| Apple M3 | GPU performance-state rail, ANE rail, P-cluster rail, E-cluster rail, fabric rail -- all independent |
+| Intel hybrid (Alder Lake+) | P-core ratio domain, E-core ratio domain, ring/uncore domain |
+| Jetson Orin AGX | per-rail VDD on Carmel CPU cluster, GPU, DLA0/DLA1, PVA, NVENC, NVDEC -- nvpmodel changes 6+ rails |
+| FD-SOI (12FDX, GF 22FDX) | body-bias domains in addition to Vdd; ULL retention domain at near-threshold |
+| 3D-stacked V-Cache | TSV-coupled but on its own voltage rail (Vdd_cache != Vdd_core) |
+
+**Aggressive DVFS policies that today's model can't express:**
+
+- Race-to-sleep on the memory rail while compute holds at boost
+- Droop-compensation guard-bands per rail
+- Per-block sleep states (NVENC powered-off while GPU active)
+- Asymmetric DVFS during heterogeneous compute (P-cores at boost, E-cores at idle)
+- Body-bias on FD-SOI in addition to Vdd
+- AVFS / per-instance adaptive voltage (each SM picks its own Vdd based on
+  ring-oscillator measurements; common on Hopper / Blackwell)
+
+**What needs to change in the schema:**
+
+```
+Die
+  - voltage_rails: list[VoltageRail]      # NEW per-die rails
+      VoltageRail:
+        - rail_id (e.g., "vdd_compute", "vdd_l2", "vdd_phy",
+                  "vdd_uncore", "vdd_p_cluster", "vdd_e_cluster")
+        - nominal_v
+        - operating_range_v: (min_v, max_v)
+        - powers_blocks: list[block_id]   # which blocks share this rail
+        - body_bias_supported: bool       # FD-SOI rails have FBB/RBB
+        - body_bias_range_mv: (min, max) | None
+
+  - clock_domains: list[ClockDomain]      # NEW per-die clock domains
+      ClockDomain:
+        - domain_id (e.g., "compute_clk", "mem_clk", "fabric_clk",
+                    "io_clk", "p_core_clk", "e_core_clk")
+        - base_mhz, max_mhz
+        - drives_blocks: list[block_id]   # which blocks share this clock
+        - source_rail: rail_id            # voltage rail this domain runs on
+                                          # (clock and voltage usually but
+                                          # not always co-vary)
+
+ThermalProfile (per-product, per operating point):
+  - vdd_by_rail: dict[rail_id, float]     # multi-rail Vdd per profile
+  - body_bias_by_rail: dict[rail_id, int] | None    # mV, FD-SOI only
+  - clock_by_domain: dict[domain_id, float]         # multi-clock per profile
+  - per_die_tdp_w: dict[die_id, float]
+  - cooling_solution_id
+  - active_blocks: list[block_id] | None  # NEW -- which blocks are powered
+                                          # in this profile (for sleep states)
+```
+
+The current single `vdd_v` and single `clock_mhz` on `KPUThermalProfile`
+become a special case where every block is on a single rail / domain. The
+power model already scales by `(vdd / nominal_vdd)^2`; with multi-rail it
+applies the rail-specific Vdd per block.
+
+Body-bias on FD-SOI rails is what makes the GF 12FDX SKUs interesting --
+FBB raises Fmax at the same Vdd, RBB crashes leakage. The current schema
+captures `body_bias_supported` and `back_bias_range_mv` on `ProcessNodeEntry`
+but doesn't express the per-rail bias choice in a thermal profile. That's a
+hole even today for the 12FDX sweep SKUs.
+
+## Floorsweeping / harvested SKU caveat (separate ComputeProducts, linked by parentage)
+
+Real silicon ships in multiple SKUs with different sections enabled to
+recover yield. The same physical die family often spans 3-6 catalog SKUs:
+
+| Silicon family | Shipping SKUs |
+|---|---|
+| NVIDIA GH100 (144 SMs designed) | H100 SXM5 (132 SMs / 80 GB HBM3 / 6-stack), H100 PCIe (114 SMs / 80 GB / 5-stack), H100 NVL (132 SMs / 188 GB / paired-card), H200 SXM5 (132 SMs / 141 GB HBM3e), H800 (export-control restricted), CMP HX (compute-only mining variant) |
+| NVIDIA GB200 | B100, B200, B200 NVL, GB200 NVL72 (board-level) |
+| AMD Zen 4 CCD | Ryzen 7950X (16C, 2 CCDs), 7900X (12C, harvested), 7800X3D (8C + V-Cache), 7700X (8C, no V-Cache), 7600X (6C, harvested CCD) |
+| Apple M3 family | M3 (8 GPU cores), M3 Pro (14-18 GPU cores, harvested die), M3 Max (30-40 GPU cores, separate die actually), M3 Ultra (2x M3 Max bonded) |
+| Intel Raptor Lake | i9-13900K (24C), i7-13700K (16C, harvested), i5-13600K (14C, more harvesting) |
+
+**Two modelling approaches and the one to pick:**
+
+| Option | Pro | Con |
+|---|---|---|
+| (A) Each SKU is its own `ComputeProduct` | Simple queries (no resolve-enables pass); matches how vendors publish specs; each SKU's price/availability/binning is a market fact not derived; the catalog is queryable directly | More YAML files (one per SKU); shared metadata duplicated across the family unless deduplicated by reference |
+| (B) One `ComputeProduct` per silicon family + enable/disable flags + per-variant overrides | Less data duplication; the silicon family is a first-class concept; yield / cost model is direct | Every consumer needs an "apply variant" pass before reading config; mapper / estimator paths get conditional on variant; pricing / availability becomes per-variant which awkwardly nests under a single product |
+
+**Recommendation: option (A)** -- each shipping SKU is its own ComputeProduct,
+with an optional `harvested_from: ProductRef` field linking to the
+full-silicon parent. As-shipped config is the source of truth for performance
+modelling; the parent reference is metadata for yield / cost modelling and
+for "which SKUs come from the same die?" queries.
+
+```
+ComputeProduct
+  - harvested_from: ProductRef | None     # NEW -- optional parent (full silicon)
+                                          # h100_sxm5_80gb.harvested_from =
+                                          #   gh100_full_silicon
+  - dies: list[Die]                       # AS-SHIPPED -- 5 HBM stacks on
+                                          # H100 PCIe, 6 on the parent
+
+  Die.blocks reflects AS-SHIPPED config:
+    KPUBlock:
+      - num_tiles: 132                    # AS-SHIPPED enabled count
+      (no num_tiles_max -- look up the parent product if you want
+       the full-silicon count)
+
+  market:
+    - binning_class: enum                 # NEW -- reference (full silicon) |
+                                          #        primary | salvage | export_restricted
+    - sibling_skus: list[ProductRef] | None    # OPTIONAL siblings from same parent
+                                                #   (could be derived from
+                                                #    reverse-traversing harvested_from)
+```
+
+Worked example -- the GH100 silicon family:
+
+```
+ComputeProduct(id="nvidia_gh100_full_silicon")
+  binning_class: REFERENCE
+  dies: [Die(blocks: [GPUBlock(sms=144, ...)]),
+         Die(blocks: [MemoryBlock(kind=hbm3, capacity_gb=16)]) x 6]
+                                          # 6-stack HBM = 96 GB max
+  market: { is_available: false }         # not a shipping product
+
+ComputeProduct(id="nvidia_h100_sxm5_80gb")
+  harvested_from: { id: "nvidia_gh100_full_silicon" }
+  binning_class: PRIMARY
+  dies: [Die(blocks: [GPUBlock(sms=132, ...)]),    # 12 SMs disabled
+         Die(blocks: [MemoryBlock(kind=hbm3, capacity_gb=16)]) x 5]
+                                          # 5-stack = 80 GB; 6th stack
+                                          # disabled or absent
+  market: { is_available: true, msrp_usd: 30000 }
+
+ComputeProduct(id="nvidia_h100_pcie_80gb")
+  harvested_from: { id: "nvidia_gh100_full_silicon" }
+  binning_class: SALVAGE                  # heavier harvesting + lower TDP
+  dies: [Die(blocks: [GPUBlock(sms=114, ...)]),    # 30 SMs disabled
+         Die(blocks: [MemoryBlock(kind=hbm3, capacity_gb=16)]) x 5]
+  market: { is_available: true, msrp_usd: 25000 }
+
+ComputeProduct(id="nvidia_h800_sxm5")
+  harvested_from: { id: "nvidia_gh100_full_silicon" }
+  binning_class: EXPORT_RESTRICTED
+  dies: [Die(blocks: [GPUBlock(sms=132, ...,
+                               nvlink_gbps_capped=400)])  # vendor-disabled
+                                                          # FP64 + bandwidth
+                                                          # for export rules
+         Die(blocks: [MemoryBlock(kind=hbm3, capacity_gb=16)]) x 5]
+  market: { is_available: true, available_in_regions: [china] }
+```
+
+Why this shape works:
+
+- **Performance / power modelling** reads the as-shipped `dies + blocks`
+  directly; no resolve-enables logic needed in the mapper / estimator hot
+  path. This matters a lot -- `graphs.estimation.unified_analyzer` and the
+  mappers shouldn't need to know about harvesting at all.
+- **Yield / cost modelling** traverses the `harvested_from` chain and reads
+  the parent's `silicon_bin` (full silicon area is a physical property of
+  the die, not what's enabled) to compute defect-density-driven yield
+  equations.
+- **"Which SKUs share silicon?"** is a graph traversal (group by
+  `harvested_from.id`).
+- **Vendor publishes new harvest** = add one new ComputeProduct YAML;
+  parent and other siblings are unaffected.
+- **Per-SKU pricing, availability, binning class** are first-class fields
+  on each SKU, not nested overrides.
+
+What lives where:
+
+| Property | Lives on | Why |
+|---|---|---|
+| `silicon_bin` | parent (full silicon) | Physical property of the die; doesn't change with harvesting |
+| `dies[].die_size_mm2` | parent | Physical property of the die |
+| `dies[].process_node_id` | parent | Physical property of the die |
+| `dies[].blocks` | each shipping SKU | As-shipped enabled count; **differs per SKU** |
+| `dies[].voltage_rails` | parent | Physical wiring -- can't be added per-SKU |
+| `power.thermal_profiles` | each shipping SKU | Per-SKU TDP envelope (often differs: H100 SXM5 700W vs PCIe 350W) |
+| `market.binning_class` | each shipping SKU | Marketing fact |
+| `harvested_from` | each shipping SKU | Pointer up |
+
+The KPU is monolithic AND has no harvested variants today, so today's
+single-SKU-per-silicon model works. But the unified ComputeProduct needs
+this concept to handle the GPU and CPU SKUs already in the catalog
+(`nvidia_h100_sxm5_80gb` and `intel_core_i7_12700k` both have harvested
+siblings in the wild). Adding `harvested_from` is cheap, and adding it now
+prevents the catalog from growing into a soup of independent SKUs that
+"happen to look similar" -- the parentage relationship would be
+recoverable only by humans inspecting names.
+
 ## Memory caveat (memory dies are first-class, not a chip-level field)
 
 The KPU's `KPUMemorySubsystem` packs memory as a single homogeneous chip-level
@@ -536,15 +733,51 @@ Migration steps:
    (`graphs.hardware.kpu_*`) to ComputeProduct-aware:
    - Validators iterate over dies + blocks, dispatch by `block.kind`.
    - Power model rolls up per-die contributions (each die has its own
-     ProcessNode -> energies) and adds inter-die interconnect power.
+     ProcessNode -> energies, each die has its own voltage rails and
+     clock domains) and adds inter-die interconnect power.
    - Generator becomes per-die area/transistor roll-up + chip-level
-     aggregation.
+     aggregation; per-rail Vdd, per-domain clock fed into the power model
+     as a vector instead of two scalars.
 8. Keep the legacy `GPUEntry` / `CPUEntry` / `NPUEntry` / `KPUEntry`
    schemas as deprecation shims for one or two releases; loaders return
    `ComputeProduct` instances regardless of source format.
 
-The RFC 0001 sketch should be amended to reflect this per-die scoping
-before any implementation begins.
+The RFC 0001 sketch should be amended to reflect per-die scoping (process
+node, silicon bin, area), per-die voltage rails and clock domains,
+first-class memory dies (`MemoryBlock` in the discriminated union), and
+the harvested-SKU pattern (separate ComputeProducts linked by
+`harvested_from`) before any implementation begins.
+
+## Summary -- the "anything that can vary across dies / SKUs / rails" rule
+
+The pattern across all four caveats: **anything that can vary independently
+across dies, harvested variants, voltage rails, or clock domains needs its
+own first-class structure, not a flat top-level field.**
+
+| Property | Varies independently across | Needs |
+|---|---|---|
+| Process node | Dies (CCD on N5, IOD on N6, V-Cache on N7) | `Die.process_node_id` |
+| Silicon decomposition | Dies (each die has its own area / transistor budget) | `Die.silicon_bin` |
+| Memory type / capacity / BW | Dies (HBM stacks / V-Cache / PoP LPDDR each carry their own) | `MemoryBlock` in `Die.blocks`; `Interconnect` for the link to compute dies |
+| Voltage | Rails (compute / memory / fabric / I/O / per-cluster / per-IP) | `Die.voltage_rails`; `ThermalProfile.vdd_by_rail` |
+| Clock | Domains (compute / memory / fabric / I/O / per-cluster) | `Die.clock_domains`; `ThermalProfile.clock_by_domain` |
+| Body bias (FD-SOI) | Rails (per-rail FBB/RBB) | `VoltageRail.body_bias_supported`; `ThermalProfile.body_bias_by_rail` |
+| Active-block selection | Profiles (sleep states; per-block power-gating) | `ThermalProfile.active_blocks` |
+| Enabled block count | Harvested variants (132 SMs vs 144) | Each shipping SKU is a separate `ComputeProduct` with its own `Die.blocks`; optional `harvested_from` links to parent |
+| TDP | Variants (H100 SXM5 700W vs PCIe 350W from same silicon) | Per-SKU `ThermalProfile`; `per_die_tdp_w` for chiplet allocation |
+| Pricing / availability / binning | Variants (each harvested SKU has its own market position) | Per-SKU `market` |
+| Off-package memory | Boards / systems (DIMMs, GDDR PCB, CXL modules) | `contains: list[ProductRef]` at board level |
+
+The flat-field anti-pattern is the same in every case: collapse N
+independent things into one top-level value, lose information, and break
+the moment a real product needs the discrimination. Putting them in a
+list / dict structure with stable ids preserves the per-thing facts and
+lets consumers traverse, filter, or roll up as they need.
+
+The KPU's monolithic single-die single-rail single-clock single-SKU
+shape is a degenerate case of this richer structure -- one element in
+each list. Migrating the KPU to the new shape costs one extra nesting
+level and zero data loss.
 
 ---
 
