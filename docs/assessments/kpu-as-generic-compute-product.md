@@ -748,6 +748,252 @@ first-class memory dies (`MemoryBlock` in the discriminated union), and
 the harvested-SKU pattern (separate ComputeProducts linked by
 `harvested_from`) before any implementation begins.
 
+## Thermal and cooling caveat (per-die limits, stack coupling, throttle policy, time-domain, TIM, temp grade, scope)
+
+Today's thermal model has `KPUThermalProfile.cooling_solution_id` per profile,
+`CoolingSolutionEntry` carrying `max_total_w` / `max_power_density_w_per_mm2`
+/ `mechanism`, and a chip-level `idle_power_watts` derived from the leakage
+model. The cross-check panel in `show_compute_product.py` compares per-profile
+TDP against the cooling envelope and flags violations.
+
+That works for a monolithic edge KPU with a single cooling solution covering
+the package. It misses everything that arises once dies have different
+thermal characteristics, or once cooling becomes a real-time problem rather
+than an envelope check.
+
+### 1. Per-die junction temperature limits
+
+Different dies have different `Tj_max` and different sensitivity to it:
+
+| Die kind | Typical Tj_max (commercial) | Behaviour at limit |
+|---|---:|---|
+| Logic (HP/balanced) | 95-105 C | DVFS throttle; reliability degrades exponentially above limit |
+| HBM3 / HBM3e | 85-95 C | Refresh rate doubles at ~85 C, full throttle ~95 C |
+| LPDDR5 / LPDDR5X | 95 C | Refresh rate ramps; controller-managed |
+| GDDR6 / GDDR6X | 100-110 C | Self-refresh rate, then hard-stop at junction |
+| 3D V-Cache (SRAM) | 95 C | Limits the CCD's max Vdd (X3D parts have lower boost) |
+| FD-SOI ULL retention | 125 C | Designed for always-on; near-threshold |
+| Automotive grade | 125 C | AEC-Q100 Grade 2 |
+| Industrial grade | 105 C | Higher than commercial, lower than automotive |
+
+The chip-level `idle_power_watts` (= total leakage) and the cross-check's
+chip-level TDP miss that an HBM stack at 14W in a hot corner of the
+package is a thermal violation independent of the chip-level TDP being
+within the cooling envelope.
+
+### 2. 3D-stack thermal coupling
+
+This is the canonical example everyone gets wrong: AMD's X3D parts have
+*lower* max boost than their non-X3D siblings (7800X3D boost 5.0 GHz vs
+7700X 5.4 GHz). The reason is purely thermal -- the V-Cache SRAM die
+stacked on top of the CCD blocks heat escape, raising the effective
+junction-to-case thermal resistance of the CCD.
+
+```
+            ambient
+              |
+              v
+  +------------------------+
+  |     heatspreader       |   <- TIM_2 (CCD top to IHS)
+  +------------------------+
+            |
+            v
+  +------------------------+
+  |   V-Cache SRAM die     |   <- adds R_thermal_above to CCD
+  +------------------------+   <- TSV interconnect
+  +------------------------+
+  |        CCD compute     |   <- hotspot here
+  +------------------------+
+            |
+            v
+       substrate / IOD
+```
+
+The schema needs to express vertical stacking AND its thermal cost:
+
+```
+Die
+  - thermal: DieThermal             # NEW
+      DieThermal:
+        - tj_max_c                  # junction temp limit
+        - rjc_c_per_w               # junction-to-case (no cooling)
+        - peak_power_density_w_per_mm2
+        - peak_power_density_window_s    # time the hotspot density
+                                          # is sustainable
+        - thermal_couples_above: [die_id] | None
+                                    # which dies sit on top and add
+                                    # thermal resistance
+        - couples_above_extra_c_per_w: float
+                                    # how much each stacked die above
+                                    # adds to effective Rjc
+
+  - dies_in_stack                   # already proposed for HBM
+  - stack_height_um                 # already proposed
+```
+
+The same applies to HBM stacks (each DRAM die in the stack adds thermal
+resistance for the dies below it; the bottom die runs hottest because
+it's furthest from the heatspreader).
+
+### 3. Throttle policy is per-die, not chip-wide
+
+When the cooling envelope is exceeded the chip throttles, but *what* it
+does differs by die:
+
+| Die kind | Throttle response |
+|---|---|
+| Compute logic | DVFS: drop clock first, then Vdd, then both. Modern parts use AVFS to find the lowest stable point per-instance. |
+| HBM | Refresh-rate ramp (no Vdd/clock change at the DRAM die; controller manages); full stop at limit |
+| Memory PHY (compute side) | Drop bandwidth (lane width, data rate) before stopping |
+| Fixed-function (NVENC, ISP) | Hard-stop (frame drop) -- can't DVFS without breaking the IP |
+| HBM-PIM | Drop compute first (preserve memory function), then memory stops too |
+
+```
+Die
+  - thermal: DieThermal
+      ...
+      - throttle_policy: ThrottlePolicy   # NEW
+          ThrottlePolicy:
+            - kind: dvfs | refresh_ramp | bandwidth_step |
+                    hard_stop | tile_powergate
+            - throttle_steps: list[ThrottleStep]    # what reductions
+                                                    # are available
+            - host_signal: bool   # does the die signal the host
+                                  # before throttling? (NVML / RAPL etc.)
+```
+
+The current `efficiency_factor_by_precision` and
+`tile_utilization_by_precision` on `KPUThermalProfile` partially capture
+"what fraction of peak does the chip realize at this profile" -- that's
+a coarse proxy for throttle behaviour. The new `throttle_policy` says
+*what mechanism* causes the realized fraction to differ from peak.
+
+### 4. Time-domain thermal: boost vs sustained
+
+`tdp_watts` is a single number. Real chips have:
+
+- **Peak power** (instantaneous, 100us scale): C * V^2 * f at full activity
+- **Boost power** (seconds scale, while die warms): higher than TDP, time-bounded
+- **TDP** (sustained, minutes scale): the cooling solution's continuous capability
+- **Idle power** (no workload, leakage + clocks running)
+- **Sleep power** (gated, retention only)
+
+Cooling solutions also have time constants (a heatsink with high thermal
+mass tolerates short bursts; a thin one doesn't). Workloads have duty
+cycles (LLM inference is bursty; training is sustained).
+
+```
+ThermalProfile
+  - tdp_watts                        # sustained envelope (today's value)
+  - peak_power_w                     # NEW -- instantaneous capability
+  - boost_power_w                    # NEW -- short-window (seconds) capability
+  - boost_window_s                   # how long boost is sustainable
+  - sleep_power_w                    # NEW -- with clocks gated, retention only
+  - per_die_tdp_w                    # already proposed for chiplet
+  - per_die_peak_w                   # NEW -- per-die instantaneous
+
+CoolingSolutionEntry
+  - max_total_w                      # sustained (today's value)
+  - max_burst_w                      # NEW -- short-window capacity
+  - burst_window_s                   # NEW -- how long burst is sustainable
+  - thermal_capacitance_j_per_c      # NEW -- heat the cooling can absorb
+                                     # before T_case rises 1 C; controls
+                                     # how long bursts last
+```
+
+NVIDIA's GPU Boost is exactly this -- the chip runs above TDP until junction
+temperature rises into the throttle band, then steps down. Without
+peak/boost/sustained separation in the schema, the catalog can't represent
+this behaviour faithfully.
+
+### 5. Thermal interface material (TIM) is first-class
+
+Two cooling solutions with identical `max_total_w` but different TIM
+deliver wildly different `max_w_per_mm2` at the die surface:
+
+| TIM kind | Typical R_cs (C/W) | Notes |
+|---|---:|---|
+| Standard paste | 0.10 - 0.30 | Default; ages over 2-5 years (pump-out) |
+| Premium paste (Conductonaut, etc.) | 0.05 - 0.15 | Better but pump-out worse |
+| Solder TIM (indium) | 0.02 - 0.05 | NVIDIA Hopper, AMD high-end; doesn't pump out |
+| Liquid metal | 0.02 - 0.04 | Best paste; conductive; risk of spillover |
+| Direct die (delidded) | 0 (TIM eliminated) | DIY only; bypasses IHS |
+| Phase-change | 0.05 - 0.15 | Industrial; thermal pad alternative |
+
+```
+CoolingSolutionEntry
+  - tim_kind: TIMKind                # NEW enum
+  - r_cs_c_per_w: float              # NEW -- case-to-sink resistance
+                                     # (depends on TIM choice)
+  - tim_pump_out_years: float | None # NEW -- expected service life
+                                     # before TIM degradation; None for
+                                     # solder TIM (no pump-out)
+```
+
+The current `max_power_density_w_per_mm2` is implicitly TIM-dependent.
+Splitting TIM out lets the cooling solution catalog cover one heatsink
+SKU shipped with multiple TIM options.
+
+### 6. Temperature grade is per-SKU
+
+Same silicon ships in commercial / industrial / automotive grades with
+different ambient and Tj_max guarantees. Often the automotive part is
+the same wafer as the commercial part, screened harder for high-temp
+operation -- making it a **harvested binning** variant (links back to
+the harvested-SKU caveat above).
+
+```
+ComputeProduct
+  - temp_grade: enum                 # NEW
+      commercial   |   # 0..70 C ambient, Tj_max 95-105 C
+      extended     |   # -40..85 C
+      industrial   |   # -40..85 C, Tj_max 105-125 C
+      automotive_grade2 |   # AEC-Q100 G2: -40..105 C
+      automotive_grade1 |   # AEC-Q100 G1: -40..125 C
+      military     |   # -55..125 C
+  - ambient_c_range: (min, max)      # NEW -- supported ambient
+```
+
+The KPU catalog already implicitly has this -- the GF 12FDX SKUs are
+positioned for industrial / automotive (12FDX has a 125 C Tj_max
+characterized in the datasheet) but the schema doesn't express it.
+
+### 7. Cooling scope -- who does this cooling cover?
+
+`cooling_solution_id` on every `KPUThermalProfile` implicitly assumes
+"one cooling solution covers the whole package." That's mostly true but
+breaks at two extremes:
+
+- **Sub-package**: rare but real -- some HBM stacks have additional
+  per-stack heatspreaders or separate liquid loops; some board-level
+  designs put a small fan over the HBM area independent of the main heatsink.
+- **Super-package**: DGX systems have one chassis cooling that covers
+  8 H100s + 2 Sapphire Rapids + NVSwitch + ConnectX -- the cooling
+  solution applies at the system level, not per-product.
+
+```
+CoolingSolutionEntry
+  - scope: CoolingScope              # NEW enum
+      per_die       |   # rare: applies to one die in the package
+      per_package   |   # common: covers all dies in one package
+      per_node      |   # 1U/2U server-level cooling
+      per_rack      |   # rack-level direct-to-chip liquid
+      per_facility  |   # immersion / heat-recovery
+  - applies_to_dies: list[die_id] | None
+                                     # used when scope=per_die
+                                     # (which die in the package)
+
+ThermalProfile
+  - cooling_solution_ids: list[str]  # NEW -- a profile can reference
+                                     # multiple coolers (e.g., per-die
+                                     # cold plate + chassis fan).
+                                     # Single-id is the degenerate case.
+```
+
+For a chiplet with HBM stacks the cross-check then becomes per-die: each
+die's `peak_power_w` and `peak_power_density_w_per_mm2` are checked
+against the cooling solution(s) that cover it.
+
 ## Summary -- the "anything that can vary across dies / SKUs / rails" rule
 
 The pattern across all four caveats: **anything that can vary independently
@@ -767,6 +1013,15 @@ own first-class structure, not a flat top-level field.**
 | TDP | Variants (H100 SXM5 700W vs PCIe 350W from same silicon) | Per-SKU `ThermalProfile`; `per_die_tdp_w` for chiplet allocation |
 | Pricing / availability / binning | Variants (each harvested SKU has its own market position) | Per-SKU `market` |
 | Off-package memory | Boards / systems (DIMMs, GDDR PCB, CXL modules) | `contains: list[ProductRef]` at board level |
+| Junction temperature limit | Dies (HBM 85 C vs compute 105 C vs ULL 125 C) | `Die.thermal.tj_max_c` |
+| Hotspot density limit | Dies (PE compute area vs SRAM array vs PHY) | `Die.thermal.peak_power_density_w_per_mm2` |
+| Throttle policy (response to hotspot) | Dies (compute does DVFS, HBM does refresh ramp, fixed-function hard-stops) | `Die.thermal.throttle_policy` |
+| Vertical thermal coupling | Stacked dies (V-Cache above CCD lowers boost) | `Die.thermal.thermal_couples_above` + per-pair Rja modifier |
+| Peak vs sustained power | Time domain (boost for seconds, TDP for sustained) | `ThermalProfile.{peak,boost,sustained}_power_w` + `boost_window_s` |
+| Sleep / retention power | Power state (clocks gated, retention only) | `ThermalProfile.sleep_power_w` |
+| Thermal interface material (TIM) | Cooling SKU variants (paste vs solder vs liquid metal) | `CoolingSolutionEntry.tim_kind` + `r_cs_c_per_w` |
+| Temperature grade | SKU variants (commercial vs industrial vs automotive vs military) | `ComputeProduct.temp_grade` + `ambient_c_range` |
+| Cooling scope | Cooling SKUs (per-die / per-package / per-node / per-rack) | `CoolingSolutionEntry.scope` + `applies_to_dies`; `ThermalProfile.cooling_solution_ids: list` |
 
 The flat-field anti-pattern is the same in every case: collapse N
 independent things into one top-level value, lose information, and break
