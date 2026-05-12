@@ -14,15 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -61,14 +61,19 @@ jobs:
         # 3.9 dropped because embodied-schemas (transitive dep via the
         # SKU validator framework, generator, and YAML loader) declares
         # requires-python = ">=3.10".
-        python-version: ['3.10', '3.11', '3.12']
+        #
+        # Matrix is conditional to keep PR cycle time short: PRs run
+        # only the production target (3.12); pushes to main and manual
+        # dispatches run the full sweep so any version-specific
+        # breakage gets caught before release.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.10", "3.11", "3.12"]') }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
@@ -87,12 +92,12 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-py${{ matrix.python-version }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -104,12 +109,21 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e .
           pip install -e ./embodied-schemas
-          pip install pytest pytest-cov
+          pip install pytest pytest-xdist
 
       - name: Run unit tests
+        # -n 4 fans the 2,700-test suite across the 4 vCPUs of the
+        # GitHub-hosted runner. Combined with the in-process CLI test
+        # runner in tests/conftest.py (each subprocess CLI test
+        # previously paid a ~2s torch-import tax), this drops the
+        # unit-test step from ~10 minutes serial-with-coverage to ~2
+        # minutes. Coverage is intentionally NOT collected here --
+        # pytest-cov adds 30-40% overhead. Coverage runs in the
+        # dedicated coverage.yml workflow on push to main and nightly;
+        # PRs only need the pass/fail signal.
         run: |
-          pytest tests/ -v --cov=src/graphs --cov-report=term-missing
-          echo "✅ Unit tests passed"
+          pytest tests/ -n 4 -v
+          echo "Unit tests passed"
 
       - name: Run validation tests (smoke tests only)
         run: |
@@ -126,10 +140,10 @@ jobs:
       EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
@@ -148,12 +162,12 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -225,10 +239,10 @@ jobs:
       EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
@@ -247,12 +261,12 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -286,10 +300,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
@@ -321,10 +335,10 @@ jobs:
       EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
@@ -343,12 +357,12 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -372,7 +386,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check no legacy measurement JSON reads
         run: bash ci/check_no_legacy_json_reads.sh
@@ -390,10 +404,10 @@ jobs:
       EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
@@ -412,12 +426,12 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -447,10 +461,10 @@ jobs:
       EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
@@ -469,12 +483,12 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
       - name: Cache pip packages
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -514,7 +528,7 @@ jobs:
           echo ""
           echo "Summary:"
           echo "  Package installation verified"
-          echo "  Tests passed on Python 3.9, 3.10, 3.11, 3.12"
+          echo "  Tests passed on Python 3.10, 3.11, 3.12 (single-version 3.12 on PRs)"
           echo "  CLI tools working correctly"
           echo "  Examples validated"
           echo "  Code quality checked"

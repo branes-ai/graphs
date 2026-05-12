@@ -14,7 +14,6 @@ These are integration tests that run the actual CLI tools and verify:
 - Error handling is appropriate
 """
 
-import subprocess
 import json
 import csv
 import os
@@ -33,28 +32,6 @@ ANALYZE_GRAPH_MAPPING = CLI_DIR / "analyze_graph_mapping.py"
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-def run_cli(script, args, timeout=120):
-    """
-    Run a CLI script and return output
-
-    Args:
-        script: Path to script
-        args: List of command-line arguments
-        timeout: Timeout in seconds
-
-    Returns:
-        (returncode, stdout, stderr)
-    """
-    cmd = ["python", str(script)] + args
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout
-    )
-    return result.returncode, result.stdout, result.stderr
-
 
 def check_json_output(json_str):
     """Validate JSON output and return parsed data"""
@@ -83,9 +60,9 @@ def check_csv_output(csv_file):
 class TestAnalyzeComprehensive:
     """Tests for analyze_comprehensive.py"""
 
-    def test_basic_execution(self):
+    def test_basic_execution(self, cli_runner):
         """Test basic execution with default settings"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_COMPREHENSIVE,
             ["--model", "resnet18", "--hardware", "H100", "--quiet"]
         )
@@ -95,13 +72,13 @@ class TestAnalyzeComprehensive:
         assert "ResNet-18" in stdout
         assert "H100" in stdout
 
-    def test_json_output(self):
+    def test_json_output(self, cli_runner):
         """Test JSON output format"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_COMPREHENSIVE,
                 [
                     "--model", "resnet18",
@@ -134,13 +111,13 @@ class TestAnalyzeComprehensive:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 
-    def test_csv_output(self):
+    def test_csv_output(self, cli_runner):
         """Test CSV output format"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_COMPREHENSIVE,
                 [
                     "--model", "resnet18",
@@ -169,13 +146,13 @@ class TestAnalyzeComprehensive:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 
-    def test_markdown_output(self):
+    def test_markdown_output(self, cli_runner):
         """Test Markdown output format"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_COMPREHENSIVE,
                 [
                     "--model", "resnet18",
@@ -201,9 +178,9 @@ class TestAnalyzeComprehensive:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 
-    def test_different_precision(self):
+    def test_different_precision(self, cli_runner):
         """Test with different precision settings"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_COMPREHENSIVE,
             [
                 "--model", "resnet18",
@@ -216,9 +193,9 @@ class TestAnalyzeComprehensive:
         assert returncode == 0, f"Tool failed: {stderr}"
         assert "FP16" in stdout or "fp16" in stdout.lower()
 
-    def test_different_model(self):
+    def test_different_model(self, cli_runner):
         """Test with different model"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_COMPREHENSIVE,
             [
                 "--model", "mobilenet_v2",
@@ -230,9 +207,9 @@ class TestAnalyzeComprehensive:
         assert returncode == 0, f"Tool failed: {stderr}"
         assert "MobileNet" in stdout
 
-    def test_invalid_model(self):
+    def test_invalid_model(self, cli_runner):
         """Test error handling for invalid model"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_COMPREHENSIVE,
             ["--model", "invalid_model", "--hardware", "H100", "--quiet"]
         )
@@ -248,13 +225,13 @@ class TestAnalyzeComprehensive:
 class TestAnalyzeBatch:
     """Tests for analyze_batch.py"""
 
-    def test_batch_size_sweep(self):
+    def test_batch_size_sweep(self, cli_runner):
         """Test batch size sweep"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_BATCH,
                 [
                     "--model", "resnet18",
@@ -285,13 +262,13 @@ class TestAnalyzeBatch:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 
-    def test_model_comparison(self):
+    def test_model_comparison(self, cli_runner):
         """Test model comparison"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_BATCH,
                 [
                     "--models", "resnet18", "mobilenet_v2",
@@ -317,13 +294,13 @@ class TestAnalyzeBatch:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 
-    def test_hardware_comparison(self):
+    def test_hardware_comparison(self, cli_runner):
         """Test hardware comparison"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_BATCH,
                 [
                     "--model", "resnet18",
@@ -350,13 +327,13 @@ class TestAnalyzeBatch:
                 os.unlink(output_file)
 
     @pytest.mark.skip(reason="Bug: analyze_batch.py doesn't properly output JSON format (outputs text instead)")
-    def test_json_output_format(self):
+    def test_json_output_format(self, cli_runner):
         """Test JSON output format"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_BATCH,
                 [
                     "--model", "resnet18",
@@ -389,13 +366,13 @@ class TestAnalyzeBatch:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 
-    def test_show_insights(self):
+    def test_show_insights(self, cli_runner):
         """Test batch size insights display"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_BATCH,
                 [
                     "--model", "resnet18",
@@ -425,9 +402,9 @@ class TestAnalyzeBatch:
 class TestAnalyzeGraphMappingEnhanced:
     """Tests for enhanced analyze_graph_mapping.py"""
 
-    def test_basic_mode_backward_compatibility(self):
+    def test_basic_mode_backward_compatibility(self, cli_runner):
         """Test that basic mode works (backward compatibility)"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_GRAPH_MAPPING,
             ["--model", "resnet18", "--hardware", "H100"]
         )
@@ -438,9 +415,9 @@ class TestAnalyzeGraphMappingEnhanced:
         # Should NOT have Phase 3 analysis in basic mode
         assert "PHASE 3" not in stdout
 
-    def test_energy_analysis_mode(self):
+    def test_energy_analysis_mode(self, cli_runner):
         """Test energy analysis mode"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_GRAPH_MAPPING,
             [
                 "--model", "resnet18",
@@ -457,9 +434,9 @@ class TestAnalyzeGraphMappingEnhanced:
         assert "Static Energy" in stdout
         assert "Energy Breakdown" in stdout
 
-    def test_roofline_analysis_mode(self):
+    def test_roofline_analysis_mode(self, cli_runner):
         """Test roofline analysis mode"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_GRAPH_MAPPING,
             [
                 "--model", "resnet18",
@@ -474,9 +451,9 @@ class TestAnalyzeGraphMappingEnhanced:
         assert "Arithmetic Intensity" in stdout
         assert "Bottleneck Distribution" in stdout
 
-    def test_memory_analysis_mode(self):
+    def test_memory_analysis_mode(self, cli_runner):
         """Test memory analysis mode"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_GRAPH_MAPPING,
             [
                 "--model", "resnet18",
@@ -490,9 +467,9 @@ class TestAnalyzeGraphMappingEnhanced:
         assert "Peak Memory" in stdout
         assert "Hardware Fit" in stdout
 
-    def test_full_analysis_mode(self):
+    def test_full_analysis_mode(self, cli_runner):
         """Test full analysis mode (roofline + energy + memory)"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_GRAPH_MAPPING,
             [
                 "--model", "resnet18",
@@ -507,9 +484,9 @@ class TestAnalyzeGraphMappingEnhanced:
         assert "ENERGY ANALYSIS" in stdout
         assert "MEMORY ANALYSIS" in stdout
 
-    def test_all_visualizations(self):
+    def test_all_visualizations(self, cli_runner):
         """Test all visualization flags together"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_GRAPH_MAPPING,
             [
                 "--model", "resnet18",
@@ -534,7 +511,7 @@ class TestCrossToolIntegration:
     """Tests that verify consistency across tools"""
 
     @pytest.mark.skip(reason="Bug: analyze_batch.py doesn't properly output JSON format (depends on test_json_output_format)")
-    def test_consistent_results_comprehensive_vs_batch(self):
+    def test_consistent_results_comprehensive_vs_batch(self, cli_runner):
         """Test that analyze_comprehensive and analyze_batch give consistent results"""
 
         # Run analyze_comprehensive
@@ -542,7 +519,7 @@ class TestCrossToolIntegration:
             comp_output = f.name
 
         try:
-            run_cli(
+            cli_runner(
                 ANALYZE_COMPREHENSIVE,
                 [
                     "--model", "resnet18",
@@ -561,7 +538,7 @@ class TestCrossToolIntegration:
                 batch_output = f.name
 
             try:
-                run_cli(
+                cli_runner(
                     ANALYZE_BATCH,
                     [
                         "--model", "resnet18",
@@ -602,12 +579,12 @@ class TestCrossToolIntegration:
 class TestPerformance:
     """Tests to ensure tools run in reasonable time"""
 
-    def test_comprehensive_performance(self):
+    def test_comprehensive_performance(self, cli_runner):
         """Test that analyze_comprehensive completes in reasonable time"""
         import time
 
         start = time.time()
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             ANALYZE_COMPREHENSIVE,
             ["--model", "resnet18", "--hardware", "H100", "--quiet"],
             timeout=60
@@ -617,7 +594,7 @@ class TestPerformance:
         assert returncode == 0, f"Tool failed: {stderr}"
         assert elapsed < 30, f"Tool too slow: {elapsed:.1f}s (should be < 30s)"
 
-    def test_batch_sweep_performance(self):
+    def test_batch_sweep_performance(self, cli_runner):
         """Test that batch sweep completes in reasonable time"""
         import time
 
@@ -626,7 +603,7 @@ class TestPerformance:
 
         try:
             start = time.time()
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 ANALYZE_BATCH,
                 [
                     "--model", "resnet18",
