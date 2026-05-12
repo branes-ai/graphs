@@ -5,6 +5,15 @@ name: Coverage
 # signal; this workflow runs the same suite with coverage on pushes
 # to main and on a nightly schedule, where the extra ~30-40% overhead
 # is acceptable.
+
+# Minimal permissions per the principle of least privilege. This
+# workflow only checks out the source, runs pytest, and uploads a
+# coverage artifact -- no PR comments, no release writes, no security
+# tokens. Matches the v4-validation.yml pattern (CodeQL alert #19 on
+# this PR flagged the missing block).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
