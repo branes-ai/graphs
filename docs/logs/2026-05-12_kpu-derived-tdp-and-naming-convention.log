@@ -1,0 +1,228 @@
+# Session log -- 2026-05-12
+
+**Topic:** KPU derived TDP (V²·f power model) + self-describing SKU naming convention with cross-foundry comparison sweeps
+**Branches landed on `main`:**
+  - graphs PR #153 (squash commit `3549472`)
+  - graphs PR #155 (squash commit `e8e2463`)
+  - embodied-schemas PR #14 (squash commit `846a0d2`)
+**Cross-repo:** yes — embodied-schemas (schema additions + 8 new SKU YAMLs + 4 legacy renames + 1 ProcessNode update) + graphs (power model module + naming-convention adoption everywhere)
+
+## What we set out to do
+
+The session opened with the user asking whether we had a utility to print a
+ComputeProduct YAML hierarchy for a given KPU id. That spawned `cli/show_compute_product.py`, which composed the existing per-layer inspectors into one assembled view. Spotting the t256 PE-array discontinuity (20×20 vs the rest of the family at 32×32) during catalog inspection became the entry point for the much larger arc that landed today: deriving TDP from configuration, fixing t256's PE array, and adopting a self-describing SKU naming convention so the catalog reads as a comparison matrix.
+
+Three arcs of design progression, each with a user-driven course correction:
+
+1. **Arc 1 — t256 PE-array fix + PE-array programmability** (graphs PR #153
+   first half). User asked to bump t256 from 20×20 to 32×32 (uniform with
+   t64/t128) and to make PE-array size programmable so we can quickly
+   generate roadmap sweeps. Shipped `apply_pe_array_override(spec, rows,
+   cols)` that resizes every tile class and rescales `ops_per_tile_per_clock`
+   by `new_pes/old_pes` to preserve per-PE op throughput. Surfaced as
+   `--pe-array ROWSxCOLS` on `cli/generate_kpu_sku.py`. Roadmap sweep at
+   fixed 256 tiles, 1.4 GHz: 16×16 → 183 TOPS / 124 mm², 32×32 → 734 TOPS
+   / 188 mm², 40×40 → 1147 TOPS / 236 mm² — clean cost/perf curve.
+
+2. **Arc 2 — derived TDP from V/f/workload** (graphs PR #153 second half +
+   embodied-schemas PR #14 schema additions). User: "yes, derive TDP from
+   configuration." First cut was a compute-only model with an
+   `activity_factor` back-computed to make t256 land at 30W. Lined up within
+   ~20% on t64/t128/t256 but undercounted t768 (datacenter, more
+   memory-bound) by 56%. User picked the fuller model:
+   "Add SRAM/NoC/DRAM energy terms." Schema gained
+   `ProcessNodeEntry.{sram_access_pj_per_byte, dram_io_pj_per_byte,
+   noc_pj_per_flit_per_hop}` and `KPUThermalProfile.{vdd_v, activity_factor}`.
+   New `graphs.hardware.kpu_power_model` module ships a 5-term roll-up
+   (PE compute + L2 + L3 + NoC + DRAM PHY + leakage) with V²·f scaling on
+   all dynamic terms.
+
+   The big course-correction was the user's question: "How do you get
+   different profiles, such as 11.3/12.3/13.2 for the t64?" — pointing out
+   that varying clock alone (within the catalog's narrow 850/900/950 MHz
+   spread) only swings TDP by 12% when real chips like Orin span 3-5× via
+   `V²·f`. Added per-profile `vdd_v` to the schema. Catalog regen for all
+   4 legacy SKUs landed derived TDPs within ±0.5W of catalog targets, but
+   required dropping clocks substantially (e.g., t256 default 1400 → 600
+   MHz) — the prior catalog clocks were aspirational marketing numbers,
+   not sustainable operating points. New clocks line up with real-world
+   Orin AGX (420/624/828 MHz at 15/30/50W).
+
+3. **Arc 3 — self-describing SKU naming convention** (embodied-schemas
+   PR #14 + graphs PR #155). User wanted a strict comparison protocol where
+   only one variable changes at a time, with the variable encoded in the
+   SKU id so `list_kpus.py` reads as a comparison matrix. Three convention
+   proposals presented (positional / compact-with-feature-tags / faceted-
+   kebab); user picked the compact form. Refined across multiple rounds:
+
+   - Tile count first (`t<N>` prefix): "tile count is the strongest top-
+     level attribute"
+   - Process node as `<value>nm` (matches industry usage)
+   - Add foundry as separate segment to dodge cross-foundry collisions
+     (`_12nm` alone is ambiguous between GF 12FDX, GF 12LP+, TSMC N12)
+   - Always include library variant tag — even when not strictly needed
+     for disambiguation today — because the library tag conveys product
+     positioning (`fdx`/`ull` = energy-efficient FD-SOI, `hpc` = datacenter
+     compute, `lpp`/`pp`/`ffp` = FinFET performance)
+
+   Final convention: `kpu_t<count>_<rows>x<cols>_<mem><ch>_<value>nm_<foundry>_<library>`
+
+   Test sweep at GF 12FDX (4 SKUs: t64/t128/t256/t512 with channels
+   doubling 4/8/16/32) validated the convention. User: "create a 7nm tsmc
+   sweep as well so we can see the first comparison." Mirror sweep at
+   TSMC N7 HPC with identical architecture and operating points landed,
+   producing the canonical cross-foundry comparison: 256-tile / 32×32 PE,
+   600 MHz @ 0.65V — 12FDX gives 22W / 214 mm² / 315 TOPS while N7 HPC
+   gives 10W / 59 mm² / 315 TOPS. **Same compute at half the power and
+   3.6× smaller die** — exactly the process-node delta in isolation, which
+   is what the comparison protocol is designed to surface.
+
+   Three refinements during the convention adoption: dynamic column widths
+   in `list_kpus.py` (the new SKU ids broke the hardcoded 30-char column);
+   added `--foundry` / `--node-nm` / `--library` filter flags for query
+   ergonomics; tier vocabulary expanded `entry < mid < high < datacenter`
+   to `entry < mid < high < enthusiast < datacenter` so the t512 SKUs
+   slot into the "enthusiast" bucket (Intel Core X / AMD Threadripper /
+   NVIDIA RTX Spark prosumer positioning) rather than overloading the
+   `model_tier` field with my initial `sweep_12fdx` placeholder string
+   (which the user rightly flagged as carrying no good information).
+
+After all three arcs, the user requested a full migration of the legacy
+`stillwater_kpu_*` SKUs to the new convention. Mechanical rename touched 30+
+files: 4 catalog YAMLs renamed (with internal `id` field updates), 8 source
+files (factories, mappers, loader, validators), 5 test files
+(parametrize lists), 3 `hardware_registry/` directories, 6 CLI tools' default
+args/examples, 2 doc files. 680/680 hardware tests pass on the migrated
+branch.
+
+## Decisions
+
+- **DECISION-2026-05-12-001** — Derived TDP from configuration with V²·f
+  scaling and full memory-subsystem terms (chose option 2 from the fidelity
+  question). Required schema extensions on `ProcessNodeEntry` (SRAM/NoC/DRAM
+  per-byte / per-flit / per-byte energies) and on `KPUThermalProfile`
+  (`vdd_v`, `activity_factor`). The compute-only quick-win and the annotate-
+  alongside-existing-TDP options were rejected because they couldn't honor
+  the user's downstream goal of a roadmap-honest cost/perf curve.
+
+- **DECISION-2026-05-12-002** — Self-describing SKU naming convention adopted
+  catalog-wide with full migration of legacy SKUs (chose
+  `kpu_t<count>_<rows>x<cols>_<mem><ch>_<value>nm_<foundry>_<library>` over
+  positional all-fields-explicit and faceted-kebab alternatives, then
+  refined to add foundry-and-library segments). The "soft deprecation" and
+  "annotate-only" options were rejected because the catalog is the source
+  of truth and any consumer querying by SKU id needs the new convention to
+  identify SKUs by their architecturally-distinguishing dimensions.
+
+## Files modified
+
+### embodied-schemas (PR #14, +2515 / -985 across 17 files)
+
+**Schema** (2 files): `src/embodied_schemas/kpu.py` (added `vdd_v` and
+`activity_factor` to `KPUThermalProfile`), `src/embodied_schemas/process_node.py`
+(added `sram_access_pj_per_byte`, `dram_io_pj_per_byte`,
+`noc_pj_per_flit_per_hop` to `ProcessNodeEntry`).
+
+**ProcessNode YAMLs** (3 files): `data/process-nodes/tsmc/n16.yaml` and
+`tsmc/n7.yaml` populated with the new energy fields (PR #13 prior session,
+included in #14's squash); `globalfoundries/12fdx.yaml` populated this
+session.
+
+**KPU SKU YAMLs** (12 files):
+- 4 legacy renames: `stillwater_kpu_t{64,128,256,768}.yaml` →
+  `kpu_t{64,128,256}_..._16nm_tsmc_ffp.yaml` and
+  `kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc.yaml`
+- 8 new sweep SKUs: `kpu_t{64,128,256,512}_..._12nm_gf_fdx.yaml` and
+  `kpu_t{64,128,256,512}_..._7nm_tsmc_hpc.yaml`
+
+### graphs (PR #153 +938/-65 across 11 files; PR #155 +283/-147 across 30 files)
+
+**New modules** (PR #153): `src/graphs/hardware/kpu_power_model.py` (315
+lines), `cli/show_compute_product.py` (296 lines).
+
+**Modified source** (both PRs): `src/graphs/hardware/kpu_sku_generator.py`
+(derived TDP integration), `src/graphs/hardware/{kpu_sku_input.py,
+mappers/accelerators/kpu.py, models/accelerators/{kpu_t64,kpu_t128,kpu_t256,
+kpu_t768,kpu_yaml_loader}.py, sku_validators/{__init__,context}.py}`
+(naming-convention id updates).
+
+**Modified CLI** (both PRs): `cli/generate_kpu_sku.py`,
+`cli/list_kpus.py` (3 new filter flags + dynamic column widths),
+`cli/show_compute_product.py` (new + later CSV addition),
+`cli/{show_kpu, show_floorplan, show_tops_per_watt, validate_sku}.py`
+(naming-convention id updates).
+
+**Modified tests** (both PRs): `tests/hardware/test_kpu_sku_generator.py`
+(+25 new tests), `tests/hardware/{test_kpu_yaml_loader, test_silicon_floorplan,
+test_sku_catalog_validation, test_sku_validator_framework,
+test_sku_validators_phase2b, test_sku_validators_phase2cd,
+test_kpu_t64_precision_profiles, test_kpu_domainflow_tile}.py`,
+`tests/cli/test_check_tdp_feasibility.py`. Pre-existing test failures
+revealed by the catalog regen also fixed in-flight (TOPS pegged to old
+clocks, `xfail(strict=True)` no longer xfailing, etc.).
+
+**Modified hardware_registry** (PR #155): renamed 3 directories
+(`stillwater_kpu_t{64,256,768}/` → `kpu_t..._tsmc_{ffp,hpc}/`) with internal
+`spec.json` `id` updates.
+
+**Modified docs** (PR #155): `docs/designs/kpu-sku-and-process-node-plan.md`
+(brace-expansion catalog path), `docs/guides/kpu_sku_input_spec_methodology.md`
+(example id + repo-relative invocation per CodeRabbit).
+
+**Modified CI workflows**: `.github/workflows/{ci.yml, v4-validation.yml}`
+embodied-schemas pin bumped twice — to PR #13's commit on PR #153 (so
+schema fields exist), then to PR #14's commit on PR #155 (so renamed
+catalog ids exist).
+
+## Tests run
+
+- Local: `pytest tests/hardware/` — 680/680 pass on the rebased PR #155
+  state. PR #153 final test count was 22 net new generator tests in
+  `test_kpu_sku_generator.py` (round-trip TDP for all 4 SKUs ×3 modes,
+  V²·f scaling, clock linearity, activity_factor, PE-array sweep
+  monotonicity). The merged main has the 25 new tests + the 5 fixed
+  pre-existing tests.
+- CI on PR #153: 19/19 checks green after the test fixes + pin bump
+  rounds (3 rounds total — pin bump for schema fields, test-fix
+  backports for the 11 catalog-regen-revealed failures, unused-import
+  drop for `github-code-quality`).
+- CI on PR #155: 19/19 checks green after the rebase + 4 review fixes
+  (`--library` last-segment match, `show_compute_product.py` CSV
+  support, doc absolute path, plus the auto-resolved unused-import) +
+  1 pin bump (to PR #14's catalog).
+
+## Cross-repo dependency choreography
+
+- embodied-schemas PR #13 (Phase 7 PROCESS_NODE_DATA_DIR + schema
+  additions for vdd_v and ProcessNode SRAM/NoC/DRAM energies) was
+  squash-merged by the user before the rename arc started.
+- graphs PR #153's CI failed initially because the embodied-schemas pin
+  was at PR #12 (no `vdd_v` etc.); bumped to PR #13's squash commit
+  `5741e75`.
+- embodied-schemas PR #14 squash-merged as `846a0d2`. CodeRabbit's only
+  actionable finding (a stale "~734 INT8 TOPS" note) was fixed; 3
+  nitpicks (thermal profile naming convention, `print()` vs `logging`
+  in pre-existing code) acknowledged with reasoning and skipped.
+- graphs PR #155's CI failed initially because the embodied-schemas pin
+  was still at PR #13 (legacy `stillwater_kpu_t*` ids); bumped to PR #14's
+  squash commit `846a0d2`.
+
+Both rebases (PR #153's onto post-#12 main, PR #155's onto post-#153
+main) hit the same phantom-conflict pattern from squash-merge
+double-application — auto-resolved by `rebase --onto`.
+
+## Follow-ups
+
+- **graphs#154** (filed) — leakage doesn't scale with Vdd in
+  `kpu_power_model`. Today's V²·f scaling captures dynamic-only;
+  leakage is held at its `nominal_vdd_v` value, overstating low-power
+  profile leakage by 2-3× under physical sub-threshold scaling.
+  Proposes either a per-node `leakage_vdd_exponent` scalar or per-library
+  `leakage_vdd_curve` samples on `ProcessNodeEntry`.
+- The convention's library-tag-as-positioning insight (`fdx` = energy
+  efficient, `hpc` = datacenter, etc.) suggests a future
+  `model_tier`/`positioning` column derived from the library tag for
+  `list_kpus.py` and similar tools.
+- Heterogeneous-PE-array tile mixes (e.g., t768's 16×8 INT8/BF16 + 8×8
+  systolic Matrix) currently encoded by the dominant tile-class size.
+  Convention may need a variant suffix when more SKUs use this pattern.

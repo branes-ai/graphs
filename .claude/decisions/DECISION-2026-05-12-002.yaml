@@ -1,0 +1,175 @@
+decision_id: "DECISION-2026-05-12-002"
+timestamp: "2026-05-11T23:35:58Z"
+ai_model: "claude-opus-4-7"
+session_id: "631ac2a4-4093-45a6-9ab4-6464f6d49a64"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "Adopt a self-describing KPU SKU naming convention catalog-wide (kpu_t<count>_<rows>x<cols>_<mem><ch>_<value>nm_<foundry>_<library>) with full migration of legacy stillwater_kpu_t* SKUs. Library tag carries product positioning (fdx/ull energy-eff, hpc datacenter, lpp/pp/ffp performance). Vendor encoded in directory path. list_kpus.py gains --foundry / --node-nm / --library filter flags so 'vary one variable at a time' comparison sweeps are query-able. Tier vocabulary expanded from entry/mid/high/datacenter to entry/mid/high/enthusiast/datacenter."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "user_request"
+  content: "Initial: 'For the list_kpus.py query to be useful, and for kpu studies in general, we need to follow a strict comparison protocol that varies only one variable at the time. The variables we are interested in are array size, array type, tile arity, memory type, memory controller arity, process node, and likely more in the future. To differentiate skus, we need these attributes in the name. You can remove the superfluous \"stillwater_\" from the SKU name so that we gain some characters. Can you propose three different SKU naming conventions that could support our requirement?' Plus subsequent refinements: 'Option B is better, but always start with the number of tiles', 'add the foundry name as additional segment, so _12nm_gf', 'don't make an exception for tsmc, add the library designation explicit as well', and 'remove the old stillwater_ named skus, which are now deprecated'."
+  context: "After the prior decisions to fix the t256 PE-array discontinuity (uniform 32x32 with t64/t128) and adopt derived TDP, the catalog had 4 SKUs whose names (stillwater_kpu_t64/128/256/768) didn't carry their architecturally-distinguishing dimensions. With sweeps coming (PE-array roadmap, cross-foundry comparison, etc.), the user wanted the SKU id itself to identify the configuration. Three convention proposals were presented (positional all-fields-explicit / compact-with-feature-tags / faceted-kebab); user picked compact, then refined the format across multiple rounds: tile count first as the strongest top-level attribute, process node as <value>nm matching industry usage, foundry as separate segment to dodge cross-foundry collisions (12nm alone is ambiguous between GF 12FDX, GF 12LP+, TSMC N12), and library tag always required because it conveys product positioning."
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+  - option: "Convention A -- Full positional encoding (all fields explicit, fixed order, prefixed)"
+    pros:
+      - "Every variable visible in the id; zero ambiguity"
+      - "Alphabetical sort groups by tile count first then PE array"
+      - "Trivially machine-parseable; impossible to misread"
+      - "New fields appended at the end stay backward-compatible"
+    cons:
+      - "Long names (35-45 chars per SKU); the cls/sched fields are usually constant and feel like noise"
+      - "Verbose for the common case where most fields are at family defaults"
+    selected: false
+    rejected_reason: "User picked the more compact Convention B for everyday use. The zero-ambiguity benefit doesn't outweigh the typing cost for catalogs where most fields are at family defaults."
+
+  - option: "Convention C -- Faceted kebab-case with sweep-axis-first ordering"
+    pros:
+      - "Most-varied dimension first (PE array) makes the changed field jump out visually in any sweep"
+      - "Dual separator ('-' for top-level, '_' inside compound fields) keeps compound fields legible"
+      - "Better matches the actual workflow: 'what changed?' answers immediately"
+    cons:
+      - "Kebab-case is mildly unusual in the Python ecosystem (filenames typically '_')"
+      - "Mixed '-' / '_' requires discipline; ordering convention has to be memorized"
+      - "Fixed sweep-first ordering occasionally feels backwards if you think 'tile count first'"
+    selected: false
+    rejected_reason: "User explicitly preferred tile count first ('the strongest, top-level attribute'). The sweep-axis-first ordering's clever readability didn't outweigh the conventional 'product-name first' mental model."
+
+  - option: "Soft deprecation: keep stillwater_kpu_t* SKUs but mark is_discontinued=true; new work uses new convention"
+    pros:
+      - "Zero breakage in existing tests / mappers / factories / hardware_registry / CLI tools / docs"
+      - "Legacy SKUs stay as historical/comparison data"
+      - "Migration scope minimal -- just add new SKUs under the new convention"
+    cons:
+      - "Catalog has two parallel naming conventions indefinitely -- confusing for new contributors"
+      - "Comparison protocol breaks: stillwater_kpu_t64 vs kpu_t64_..._12nm_gf_fdx don't visibly identify their differences in the SKU id"
+      - "list_kpus.py output is bimodal; query flags have to handle both naming patterns"
+    selected: false
+    rejected_reason: "User explicitly chose 'Full migration: rename to new convention, keep all data' after seeing the soft-deprecation alternative. Coexistence is worse than committing to one convention."
+
+  - option: "Convention B -- Compact dimensional code, with refinements: tile-count-first, foundry-as-separate-segment, library-tag-always-required"
+    pros:
+      - "Tile count first matches user mental model ('the strongest top-level attribute')"
+      - "Compact (~30-35 chars per SKU) with all six dimensions still visible"
+      - "Foundry as separate segment dodges cross-foundry collisions (12nm alone is ambiguous between GF 12FDX, GF 12LP+, TSMC N12; 12nm_gf still has variant ambiguity within GF, resolved by mandatory library tag)"
+      - "Library tag carries product positioning (fdx/ull energy-eff, hpc datacenter, lpp/pp/ffp performance) -- semantic value beyond disambiguation"
+      - "Library-tag-always-required catches future cases (Intel 14nm vs 14nm++) without retroactive renames"
+      - "list_kpus.py with --foundry / --node-nm / --library filter flags makes 'vary one variable at a time' query-able"
+    cons:
+      - "Names are longer than the legacy stillwater_kpu_t* convention (~30-35 chars vs ~18)"
+      - "Memory shorthand has parsing ambiguity if the shorthand ends in a digit (lp5x4 could mean lpddr5x with 4 channels OR lpddr5 with 4 channels); requires committing to one variant per memory family in the catalog"
+      - "Library tag may not always be unambiguous (GF has 12FDX/12LP/12LP+ all at 12nm; rare but real)"
+      - "Migration touched 30+ files: 4 catalog YAMLs renamed, 8 graphs source files (factories, mappers, loader, validators), 5 tests, 3 hardware_registry directories, 6 CLI tools, 2 docs"
+    selected: true
+    selected_reason: "Best balance of the three properties the user cares about: (1) every architecturally-distinguishing dimension visible in the id, (2) library tag carries semantic positioning info, not just disambiguation, (3) compact enough to type in CLI args. Migration cost is one-time; convention payoff is permanent. Cross-foundry comparison sweep on the fresh-renamed catalog (12FDX vs N7 HPC at fixed architecture) demonstrates the convention works as intended -- the only difference between two compared SKUs is the foundry+library segment, exactly what the user wanted."
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 47  # 17 in embodied-schemas + 30 in graphs
+  files_created: 8    # 8 new sweep KPU YAMLs
+  files_deleted: 0    # legacy YAMLs renamed (git mv preserves history); only the file paths changed
+  lines_added: 2798   # 2515 (embodied-schemas) + 283 (graphs)
+  lines_removed: 1132 # 985 (embodied-schemas) + 147 (graphs)
+  breaking_changes: true  # all stillwater_kpu_t* ids no longer resolve
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 9  # 9 test files updated; all 680 hardware tests still pass
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "All 12 catalog SKUs load via load_kpus() under the new convention"
+    result: "load_kpus() returns 12 SKUs; all keys match the new naming convention; zero stillwater_kpu_t* keys remain"
+  - action: "list_kpus.py filter sanity"
+    result: "--foundry gf returns 4 GF 12FDX SKUs (with 'gf' alias resolving to 'globalfoundries'); --node-nm 7 returns 5 N7 SKUs (4 sweep + legacy t768 renamed); --library fdx returns 4 FD-SOI SKUs; --library lp returns 0 (correct -- no SKU has the bare 'lp' library tag, last-segment match avoids false positives on lp5x16 memory tokens); --foundry tsmc --node-nm 7 (AND-combined) returns 5 SKUs"
+  - action: "Cross-foundry comparison validation"
+    result: "256-tile / 32x32 PE / 600 MHz @ 0.65V -- 12FDX gives 22W / 214 mm^2 / 315 INT8 TOPS, N7 HPC gives 10W / 59 mm^2 / 315 INT8 TOPS; same compute at half the power and 3.6x smaller die. The convention isolates the process-node delta cleanly"
+  - action: "Full pytest tests/hardware/ on rebased PR #155"
+    result: "680/680 hardware tests pass after the rename + 4 review fixes (--library last-segment match, show_compute_product CSV support, doc absolute path, auto-resolved unused-import) + 1 pin bump (to PR #14's catalog)"
+  - action: "Pre-existing test failures revealed by the catalog regen also fixed in-flight"
+    result: "test_kpu_t64_peak_ops (5 cases), test_t256_uses_20x20_pe_arrays -> *_uses_32x32, test_kpu_array_size_sanity, test_power_monotonicity_catches_inverted_clocks, test_t64_t128_feasible_at_32x32 (xfail removed), test_cli_fail_on_infeasible_flag (rc==1 -> rc==0)"
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "Memory shorthand parsing ambiguity if the catalog ever has both lpddr5 and lpddr5x at the same channel count (e.g., lp5x4 could mean either)"
+    mitigation: "Catalog currently has only lpddr5x; if both are needed in the future, switch to channel-prefix convention (lp5c4 vs lp5xc4) uniformly. Not blocking today"
+    severity: "low"
+    likelihood: "low"
+  - risk: "Library-tag-not-unique case for foundries with multiple processes at the same node label (GF 12FDX/12LP/12LP+ all '12nm'; Intel 14nm/14nm+/14nm++)"
+    mitigation: "Catalog name uses the foundry's variant code (12fdx, 12lpp, 14pp) rather than just the marketing nm; the convention's library segment IS that variant code. Cross-foundry comparison still works because foundry segment disambiguates"
+    severity: "low"
+    likelihood: "medium"
+  - risk: "30+ files touched in the rename migration; CI/test/CLI/docs all need updating in lockstep"
+    mitigation: "Mechanical sed renames + reviewable diff; tests catch missed references. Pre-existing test failures revealed by the broader change were also fixed in the same migration to keep CI green"
+    severity: "low"
+    likelihood: "low"
+  - risk: "Heterogeneous-PE-array tile mixes (t768's 16x8 INT8/BF16 + 8x8 systolic Matrix) currently encoded by the dominant tile-class size; convention may need a variant suffix when more SKUs use this pattern"
+    mitigation: "Internal YAML carries the full truth (KPUTileSpec per tile class); naming convention is a best-effort summary. Variant suffix can be added if needed (e.g., '_+matrix8'). Not blocking today since t768 is the only such SKU"
+    severity: "low"
+    likelihood: "medium"
+  - risk: "Tier vocabulary 'enthusiast' is a marketing term; may not be the right tier label for B2B AI accelerator audience"
+    mitigation: "Term is established across CPU (Intel Core X / AMD Threadripper) and GPU (NVIDIA RTX Spark / Titan / DGX Spark) markets, where the customers are similar to KPU enthusiast-tier buyers (developers, researchers, robotics labs). Easy to rename later if the audience prefers another term ('workstation', 'prosumer')"
+    severity: "low"
+    likelihood: "low"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "pr"
+    path: ""
+    url: "https://github.com/branes-ai/embodied-schemas/pull/14"
+    section: "Naming convention + 12FDX/N7 sweeps + legacy migration"
+  - type: "pr"
+    path: ""
+    url: "https://github.com/branes-ai/graphs/pull/155"
+    section: "Naming convention adoption in graphs (factory/mapper/loader/validator/test/CLI/docs/registry rename)"
+  - type: "code"
+    path: "cli/list_kpus.py"
+    section: "_filter_rows -- foundry/node-nm/library filter flags with foundry short-form aliases"
+  - type: "code"
+    path: "embodied-schemas:src/embodied_schemas/data/kpus/stillwater/"
+    section: "12 SKU YAMLs under the new naming convention (4 legacy renames + 8 sweep variants)"
+  - type: "documentation"
+    path: "docs/changelog/2026-05-12.md"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-05-11T23:35:58Z"  # PR #155 merge
+  comments: "User drove the convention design across multiple rounds (3 proposals, then 4 refinement rounds for tile-count-first, value-nm process tag, foundry-as-segment, library-mandatory). Approved via merge of both PRs (embodied-schemas #14 and graphs #155). The merged main demonstrates the convention works: cross-foundry comparison sweep at fixed architecture gives a clean process-node-only delta."
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "Update embodied-schemas coding guidelines doc to scope the {vendor}_{product}_{variant} rule to non-KPU hardware types, since the KPU convention diverges deliberately"
+    owner: "stillwater"
+    due_date: ""
+    status: "pending"
+  - action: "Consider future variant tag for heterogeneous-PE-array SKUs (currently only t768 uses this; convention's dominant-tile-class-size encoding works for now)"
+    owner: "stillwater"
+    due_date: ""
+    status: "pending"
+  - action: "list_kpus.py could derive a 'positioning' column from the library tag (fdx -> energy-eff, hpc -> datacenter, etc.) for at-a-glance product-class identification"
+    owner: ""
+    due_date: ""
+    status: "pending"

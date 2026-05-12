@@ -1,0 +1,161 @@
+decision_id: "DECISION-2026-05-12-001"
+timestamp: "2026-05-11T23:35:58Z"
+ai_model: "claude-opus-4-7"
+session_id: "631ac2a4-4093-45a6-9ab4-6464f6d49a64"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "Derive KPU thermal-profile TDP from chip configuration via a 5-term roll-up (PE compute + L2 + L3 + NoC + DRAM PHY + leakage) with V^2*f scaling instead of trusting the architect-declared tdp_watts. Required schema additions on ProcessNodeEntry (sram/dram/noc per-byte-or-flit energies) and KPUThermalProfile (per-profile vdd_v + activity_factor)."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "user_request"
+  content: "Initial: 'yes, derive TDP from configuration' (after the prior session flagged it as a follow-up). Mid-session course correction after seeing the first cut: 'how do you get different profiles, such as 11.3/12.3/13.2 for the t64? I need to understand that first before I can answer your questions.' Final scope decision: 'Add SRAM/NoC/DRAM energy terms.'"
+  context: "The prior session's PR #155-precursor work fixed t256's PE array (20x20 -> 32x32 uniform with t64/t128) but flagged a project-direction note: 'TDP should now be generated from the KPU configuration, and the fact that the T256 has a different array size is creating a bad discontinuity.' This session was the implementation of that direction. The user-driven correction was that the initial compute-only model's per-profile TDP spread was too narrow (t64 across 850/900/950 MHz only swung TDP 12% because varying clock alone at fixed Vdd is linear); real chips like Orin span 3-5x via V^2*f, requiring per-profile Vdd in the schema. The fidelity decision (compute-only vs full memory subsystem) was framed against 4 SKU calibration data showing compute-only undercounted t768 by 56% while landing within 20% on t64/t128/t256."
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+  - option: "Compute-only model with per-profile activity_factor"
+    pros:
+      - "Quick win: single ProcessNode lookup (energy_per_op_pj) already in the schema"
+      - "Lands within 20% on t64/t128/t256 with default activity_factor=0.15"
+      - "Architect tunes activity_factor per profile to absorb missing terms"
+      - "No new schema fields on ProcessNode required"
+    cons:
+      - "Undercounts memory-heavy SKUs by 56% (t768 derived 26.6W vs catalog 60W) because compute-only misses L2/L3 access power, NoC traversal, DRAM PHY"
+      - "activity_factor becomes a fudge factor that the architect tunes per-profile to make derived TDP match -- which is the same hand-authoring with extra steps, not real derivation"
+      - "Doesn't honor the user's roadmap-honesty goal: PE-array sweeps would scale TDP non-physically because memory term is absent"
+    selected: false
+    rejected_reason: "User picked the fuller model after seeing the compute-only fidelity data: 'Add SRAM/NoC/DRAM energy terms.' The compute-only model would have shipped a TDP-derivation feature that doesn't actually derive TDP from physics for the SKUs that matter most (datacenter t768)."
+
+  - option: "Annotate existing TDP with derived value, don't overwrite"
+    pros:
+      - "Least disruptive: catalog stays as-is"
+      - "Architect uses the ratio between architect-declared and derived TDP to scale when sweeping"
+      - "No risk of breaking downstream consumers that read tdp_watts"
+    cons:
+      - "Fails the stated goal -- TDP is no longer derived from configuration if the architect-declared value remains the source of truth"
+      - "Catalog and model disagree silently; downstream tools have to know which value to trust"
+      - "Roadmap sweeps still produce hand-tuned TDPs unless the architect maintains the ratio per profile"
+    selected: false
+    rejected_reason: "Doesn't solve the stated problem. The user wants honest cost/perf curves from PE-array sweeps; that requires the catalog's tdp_watts to BE the derived value, not an annotation alongside it."
+
+  - option: "Full derivation: compute + SRAM access + NoC + DRAM PHY + leakage, with V^2*f scaling on dynamic terms"
+    pros:
+      - "Physics-defensible: every term traces to a ProcessNode-level energy figure (energy_per_op_pj for compute, sram_access_pj_per_byte for L2/L3, noc_pj_per_flit_per_hop for NoC, dram_io_pj_per_byte for PHY) and a workload-level access-rate assumption (compute_duty_cycle, bytes_per_op, L1/L2/L3 hit rates)"
+      - "Lands within 0.5W of catalog targets on all 4 legacy SKUs after architect picks (clock, Vdd) per profile"
+      - "Captures the cross-foundry comparison cleanly: same architecture + same operating point on N7 HPC vs 12FDX gives 10W vs 22W (process-node delta in isolation)"
+      - "PE-array sweeps now produce roadmap-honest TDPs: bigger PE arrays draw more compute power, which scales with V^2*f per profile"
+      - "Per-profile vdd_v lets architects express Orin-style DVFS where lower-power modes drop both clock AND voltage; the V^2*f product spreads TDP across profiles as expected (fixed-Vdd clock-only would give 12% spread on t64)"
+    cons:
+      - "Larger schema surface area: 3 new ProcessNode fields + 2 new KPUThermalProfile fields"
+      - "Required dropping catalog clocks substantially (t256 default 1400 -> 600 MHz) because the prior catalog clocks were aspirational marketing numbers; architect-declared TDPs were unachievable at those clocks under any reasonable workload"
+      - "Workload assumption (compute_duty_cycle=0.15 etc.) is itself a tunable -- architect-supplied if non-default per-SKU"
+      - "Leakage held flat at nominal_vdd_v in this version (a known limitation; tracked as graphs#154)"
+    selected: true
+    selected_reason: "User picked it after seeing the compute-only model's t768 undercount. The fuller model is the only path that honors 'TDP derived from configuration' for both edge and datacenter SKUs. The catalog-clock drop is a feature, not a bug -- it makes the catalog match physical reality, which is what the comparison protocol needs."
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 11
+  files_created: 2  # kpu_power_model.py, show_compute_product.py
+  files_deleted: 0
+  lines_added: 938
+  lines_removed: 65
+  breaking_changes: true
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 25  # +25 net new generator/power-model tests
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "Round-trip test all 4 catalog SKUs through the generator"
+    result: "All 12 thermal profiles (4 SKUs x 3 profiles each) derive TDP within +/- 0.5W of catalog targets"
+  - action: "Unit tests for V^2*f scaling, clock linearity, activity_factor knob, PE-array sweep monotonicity"
+    result: "25 new tests pass; tdp_scales_quadratically_with_vdd verifies dropping V by sqrt(2) halves dynamic; tdp_scales_linearly_with_clock verifies doubling clock doubles dynamic; pe_array_sweep_tdp_monotonic verifies 16x16 < 24x24 < 32x32 < 40x40 strictly"
+  - action: "Cross-foundry comparison validation (12FDX vs N7 HPC at fixed architecture and operating point)"
+    result: "256-tile / 32x32 PE / 600 MHz @ 0.65V: 12FDX = 22W / 214 mm^2 / 315 INT8 TOPS, N7 HPC = 10W / 59 mm^2 / 315 INT8 TOPS. Same compute at half the power and 3.6x smaller die -- exactly the process-node delta in isolation"
+  - action: "CI on PR #153"
+    result: "19/19 checks SUCCESS after pin bump (embodied-schemas to PR #13's commit) and test-fix backports for pre-existing failures revealed by the catalog regen"
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "Catalog clocks dropped 40-60% on edge SKUs (t256 default 1400 -> 600 MHz). Marketing positioning for these SKUs may need re-derivation -- the prior 'high boost clock' numbers were aspirational"
+    mitigation: "New clocks line up with real-world Orin AGX operating points (420/624/828 MHz at 15/30/50W). Honest catalog values are more useful for procurement / architecture decisions than aspirational ones"
+    severity: "medium"
+    likelihood: "high"
+  - risk: "Leakage is held at nominal_vdd_v across all profiles (V^2*f scaling applies only to dynamic terms). Low-power profiles overstate leakage by 2-3x under physical sub-threshold scaling"
+    mitigation: "Tracked as graphs#154; proposes either a per-node leakage_vdd_exponent scalar or a per-library leakage_vdd_curve sample list on ProcessNodeEntry. Doesn't affect the high-power profiles where leakage is small relative to dynamic"
+    severity: "low"
+    likelihood: "high"
+  - risk: "WorkloadAssumption defaults (compute_duty_cycle=0.15 etc.) are a single calibration point; different KPU-target workloads (memory-bound LLM inference vs compute-bound batch) may need different defaults per-SKU or per-profile"
+    mitigation: "The optional activity_factor per thermal profile lets architects tune relative to the workload baseline without changing global defaults. WorkloadAssumption is a function arg to generate_kpu_sku() so callers can override per-SKU"
+    severity: "low"
+    likelihood: "medium"
+  - risk: "Adding 3 fields to ProcessNodeEntry + 2 fields to KPUThermalProfile is a schema break for downstream consumers if they validate strict-mode against the schema"
+    mitigation: "All 5 new fields are Optional with sensible defaults (Vnom for vdd_v, None / empty-dict for the rest). Existing catalog YAMLs without these fields still load; the power model falls back to ProcessNode.nominal_vdd_v and to default workload constants. embodied-schemas PR #13 + #14 ship the fields ahead of consumers needing them"
+    severity: "low"
+    likelihood: "low"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "pr"
+    path: ""
+    url: "https://github.com/branes-ai/graphs/pull/153"
+  - type: "pr"
+    path: ""
+    url: "https://github.com/branes-ai/embodied-schemas/pull/14"
+  - type: "issue"
+    path: ""
+    url: "https://github.com/branes-ai/graphs/issues/154"
+    section: "Leakage(Vdd) follow-up tracking"
+  - type: "code"
+    path: "src/graphs/hardware/kpu_power_model.py"
+    section: "compute_thermal_profile_tdp_breakdown -- the 5-term roll-up; WorkloadAssumption dataclass"
+  - type: "code"
+    path: "src/graphs/hardware/kpu_sku_generator.py"
+    section: "generate_kpu_sku -- TDP integration replacing architect-declared tdp_watts"
+  - type: "code"
+    path: "embodied-schemas:src/embodied_schemas/process_node.py"
+    section: "ProcessNodeEntry.{sram_access_pj_per_byte, dram_io_pj_per_byte, noc_pj_per_flit_per_hop}"
+  - type: "code"
+    path: "embodied-schemas:src/embodied_schemas/kpu.py"
+    section: "KPUThermalProfile.{vdd_v, activity_factor}"
+  - type: "documentation"
+    path: "docs/changelog/2026-05-12.md"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-05-11T23:02:30Z"  # PR #153 merge
+  comments: "User explicitly chose the fuller model after seeing the compute-only fidelity data, then drove the per-profile Vdd addition after spotting the narrow clock-spread issue on t64. Approved via merge."
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "Implement leakage(Vdd) scaling per graphs#154"
+    owner: "stillwater"
+    due_date: ""
+    status: "pending"
+  - action: "Calibrate WorkloadAssumption defaults per-SKU once measured power data on real silicon arrives (current defaults calibrate to t768 60W profile)"
+    owner: "stillwater"
+    due_date: ""
+    status: "pending"
