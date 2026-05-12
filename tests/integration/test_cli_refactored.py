@@ -6,24 +6,17 @@ and produce consistent results.
 """
 
 import unittest
-import subprocess
 import tempfile
 import os
 import json
 import csv
 from pathlib import Path
 
-
-def run_cli(script_path, args, timeout=120):
-    """Run CLI script and return (returncode, stdout, stderr)"""
-    cmd = ['python', script_path] + args
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout
-    )
-    return result.returncode, result.stdout, result.stderr
+# In-process CLI runner from tests/conftest.py. unittest.TestCase
+# methods can't receive pytest fixtures via parameters, so we import
+# the underlying function directly. Saves ~2s/test by reusing torch
+# imported once into a cached module.
+from conftest import _run_cli_inprocess as cli_runner
 
 
 class TestRefactoredCLITools(unittest.TestCase):
@@ -42,7 +35,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_comprehensive_basic_execution(self):
         """Test basic execution of analyze_comprehensive.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'H100', '--quiet']
         )
@@ -58,7 +51,7 @@ class TestRefactoredCLITools(unittest.TestCase):
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 str(self.comprehensive),
                 ['--model', 'resnet18', '--hardware', 'H100', '--output', output_file, '--quiet']
             )
@@ -84,7 +77,7 @@ class TestRefactoredCLITools(unittest.TestCase):
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 str(self.comprehensive),
                 ['--model', 'resnet18', '--hardware', 'H100', '--output', output_file, '--quiet']
             )
@@ -112,7 +105,7 @@ class TestRefactoredCLITools(unittest.TestCase):
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 str(self.comprehensive),
                 ['--model', 'resnet18', '--hardware', 'H100', '--output', output_file, '--quiet']
             )
@@ -134,7 +127,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_comprehensive_different_precision(self):
         """Test different precision with analyze_comprehensive.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'H100', '--precision', 'fp16', '--quiet']
         )
@@ -144,7 +137,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_comprehensive_different_batch_size(self):
         """Test different batch size with analyze_comprehensive.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '8', '--quiet']
         )
@@ -155,7 +148,7 @@ class TestRefactoredCLITools(unittest.TestCase):
     @unittest.skip("Bug: analyze_batch.py doesn't properly output JSON format")
     def test_comprehensive_format_flag(self):
         """Test explicit format flag with analyze_comprehensive.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'H100', '--format', 'json', '--quiet']
         )
@@ -168,7 +161,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_comprehensive_invalid_model(self):
         """Test error handling for invalid model"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'invalid_model_xyz', '--hardware', 'H100', '--quiet']
         )
@@ -178,7 +171,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_comprehensive_invalid_hardware(self):
         """Test error handling for invalid hardware"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'invalid_hw_xyz', '--quiet']
         )
@@ -192,7 +185,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_batch_basic_execution(self):
         """Test basic execution of analyze_batch.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.batch),
             ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1', '4', '--quiet', '--no-insights']
         )
@@ -203,7 +196,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_batch_with_insights(self):
         """Test batch analysis with insights"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.batch),
             ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1', '4', '8']
         )
@@ -219,7 +212,7 @@ class TestRefactoredCLITools(unittest.TestCase):
             output_file = f.name
 
         try:
-            returncode, stdout, stderr = run_cli(
+            returncode, stdout, stderr = cli_runner(
                 str(self.batch),
                 ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1', '4',
                  '--output', output_file, '--quiet']
@@ -242,7 +235,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_batch_model_comparison(self):
         """Test model comparison with analyze_batch.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.batch),
             ['--models', 'resnet18', 'mobilenet_v2', '--hardware', 'H100',
              '--batch-size', '1', '4', '--quiet', '--no-insights']
@@ -254,7 +247,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_batch_hardware_comparison(self):
         """Test hardware comparison with analyze_batch.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.batch),
             ['--model', 'resnet18', '--hardware', 'H100', 'Jetson-Orin-Nano',
              '--batch-size', '1', '4', '--quiet', '--no-insights'],
@@ -267,7 +260,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
     def test_batch_different_precision(self):
         """Test different precision with analyze_batch.py"""
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.batch),
             ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1', '4',
              '--precision', 'fp16', '--quiet', '--no-insights']
@@ -284,7 +277,7 @@ class TestRefactoredCLITools(unittest.TestCase):
     def test_consistency_comprehensive_vs_batch_single_config(self):
         """Test that comprehensive and batch tools produce consistent results for same config"""
         # Run comprehensive
-        returncode1, stdout1, stderr1 = run_cli(
+        returncode1, stdout1, stderr1 = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1',
              '--format', 'json', '--quiet']
@@ -298,7 +291,7 @@ class TestRefactoredCLITools(unittest.TestCase):
             output_file = f.name
 
         try:
-            returncode2, stdout2, stderr2 = run_cli(
+            returncode2, stdout2, stderr2 = cli_runner(
                 str(self.batch),
                 ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1',
                  '--output', output_file, '--quiet']
@@ -332,7 +325,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
         start = time.time()
 
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.comprehensive),
             ['--model', 'resnet18', '--hardware', 'H100', '--quiet']
         )
@@ -348,7 +341,7 @@ class TestRefactoredCLITools(unittest.TestCase):
 
         start = time.time()
 
-        returncode, stdout, stderr = run_cli(
+        returncode, stdout, stderr = cli_runner(
             str(self.batch),
             ['--model', 'resnet18', '--hardware', 'H100', '--batch-size', '1', '4',
              '--quiet', '--no-insights']

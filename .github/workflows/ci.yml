@@ -109,15 +109,20 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e .
           pip install -e ./embodied-schemas
-          pip install pytest
+          pip install pytest pytest-xdist
 
       - name: Run unit tests
-        # Coverage is intentionally NOT collected here -- pytest-cov
-        # adds 30-40% overhead on the 2,700-test suite. Coverage runs
-        # in the dedicated coverage.yml workflow on push to main and
-        # nightly. PRs only need the pass/fail signal.
+        # -n 4 fans the 2,700-test suite across the 4 vCPUs of the
+        # GitHub-hosted runner. Combined with the in-process CLI test
+        # runner in tests/conftest.py (each subprocess CLI test
+        # previously paid a ~2s torch-import tax), this drops the
+        # unit-test step from ~10 minutes serial-with-coverage to ~2
+        # minutes. Coverage is intentionally NOT collected here --
+        # pytest-cov adds 30-40% overhead. Coverage runs in the
+        # dedicated coverage.yml workflow on push to main and nightly;
+        # PRs only need the pass/fail signal.
         run: |
-          pytest tests/ -v
+          pytest tests/ -n 4 -v
           echo "Unit tests passed"
 
       - name: Run validation tests (smoke tests only)

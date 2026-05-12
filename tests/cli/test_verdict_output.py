@@ -5,8 +5,6 @@ options and the --format verdict output in analyze_comprehensive.py.
 """
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -15,28 +13,25 @@ import pytest
 CLI_PATH = Path(__file__).parent.parent.parent / "cli" / "analyze_comprehensive.py"
 
 
-def run_cli(*args, timeout=120):
-    """Run the CLI and return parsed JSON output."""
-    cmd = [sys.executable, str(CLI_PATH), "--quiet"] + list(args)
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={"PYTHONPATH": str(Path(__file__).parent.parent.parent / "src")},
-    )
-    # Find the JSON output (skip any progress messages)
-    output = result.stdout
-    json_start = output.find("{")
-    if json_start == -1:
-        raise ValueError(f"No JSON output found. stdout: {output}, stderr: {result.stderr}")
-    return json.loads(output[json_start:])
+@pytest.fixture
+def run_cli(cli_runner):
+    """Wrap the global cli_runner with this file's CLI_PATH and JSON
+    parsing. Returns parsed JSON output (skipping leading progress text)."""
+    def _run(*args, timeout=120):
+        rc, stdout, stderr = cli_runner(CLI_PATH, ["--quiet", *args])
+        json_start = stdout.find("{")
+        if json_start == -1:
+            raise ValueError(
+                f"No JSON output found. stdout: {stdout}, stderr: {stderr}"
+            )
+        return json.loads(stdout[json_start:])
+    return _run
 
 
 class TestVerdictOutput:
     """Test verdict-first output format."""
 
-    def test_latency_pass(self):
+    def test_latency_pass(self, run_cli):
         """Test PASS verdict when latency is under target."""
         result = run_cli(
             "--model", "resnet18",
@@ -49,7 +44,7 @@ class TestVerdictOutput:
         assert result["constraint_threshold"] == 100.0
         assert result["constraint_margin_pct"] > 0
 
-    def test_latency_fail(self):
+    def test_latency_fail(self, run_cli):
         """Test FAIL verdict when latency exceeds target."""
         result = run_cli(
             "--model", "resnet18",
@@ -60,7 +55,7 @@ class TestVerdictOutput:
         assert result["constraint_margin_pct"] < 0
         assert "exceeds" in result["summary"].lower()
 
-    def test_power_constraint(self):
+    def test_power_constraint(self, run_cli):
         """Test power budget constraint checking."""
         result = run_cli(
             "--model", "resnet18",
@@ -71,7 +66,7 @@ class TestVerdictOutput:
         assert result["constraint_metric"] == "power"
         assert "constraint_actual" in result
 
-    def test_memory_constraint_pass(self):
+    def test_memory_constraint_pass(self, run_cli):
         """Test PASS verdict when memory is under limit."""
         result = run_cli(
             "--model", "resnet18",
@@ -81,7 +76,7 @@ class TestVerdictOutput:
         assert result["verdict"] == "PASS"
         assert result["constraint_metric"] == "memory"
 
-    def test_memory_constraint_fail(self):
+    def test_memory_constraint_fail(self, run_cli):
         """Test FAIL verdict when memory exceeds limit."""
         result = run_cli(
             "--model", "resnet18",
@@ -92,7 +87,7 @@ class TestVerdictOutput:
         assert result["constraint_metric"] == "memory"
         assert result["constraint_margin_pct"] < 0
 
-    def test_explicit_verdict_format(self):
+    def test_explicit_verdict_format(self, run_cli):
         """Test explicit --format verdict flag."""
         result = run_cli(
             "--model", "resnet18",
@@ -104,7 +99,7 @@ class TestVerdictOutput:
         assert "summary" in result
         assert "latency_ms" in result
 
-    def test_verdict_contains_key_metrics(self):
+    def test_verdict_contains_key_metrics(self, run_cli):
         """Test that verdict output contains all key metrics."""
         result = run_cli(
             "--model", "resnet18",
@@ -130,7 +125,7 @@ class TestVerdictOutput:
         assert "constraint_actual" in result
         assert "constraint_margin_pct" in result
 
-    def test_verdict_contains_breakdowns(self):
+    def test_verdict_contains_breakdowns(self, run_cli):
         """Test that verdict output contains detailed breakdowns."""
         result = run_cli(
             "--model", "resnet18",
@@ -151,7 +146,7 @@ class TestVerdictOutput:
         assert "memory_energy_mj" in result["energy"]
         assert "static_energy_mj" in result["energy"]
 
-    def test_fail_has_suggestions(self):
+    def test_fail_has_suggestions(self, run_cli):
         """Test that FAIL verdict includes suggestions."""
         result = run_cli(
             "--model", "resnet18",
@@ -166,7 +161,7 @@ class TestVerdictOutput:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_only_one_constraint(self):
+    def test_only_one_constraint(self, run_cli):
         """Test that only one constraint can be specified at a time."""
         # The last constraint specified should be used
         result = run_cli(
@@ -176,7 +171,7 @@ class TestEdgeCases:
         )
         assert result["constraint_metric"] == "latency"
 
-    def test_constraint_margin_calculation(self):
+    def test_constraint_margin_calculation(self, run_cli):
         """Test that margin percentage is calculated correctly."""
         result = run_cli(
             "--model", "resnet18",
