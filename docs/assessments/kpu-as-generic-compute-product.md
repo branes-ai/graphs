@@ -1285,6 +1285,297 @@ inter-package interconnect. Migration is structural with no data loss:
 - The KPU has no switches, no inter-die / inter-package fabric, no
   coherence domain -- those lists stay empty
 
+## Software / SDK caveat (realized perf is SDK-gated, not just silicon-gated)
+
+Today's catalog has near-zero coverage of software stack. `NPUEntry` carries
+a `SoftwareSpec` (basic SDK name + version + supported frameworks);
+`KPUEntry` / `GPUEntry` / `CPUEntry` are silent. But the realized performance
+on a chip is gated by the SDK and framework backends as much as by the
+hardware -- same H100 silicon delivers very different throughput under naive
+CUDA vs cuBLAS vs cuDNN vs TensorRT vs FlashAttention vs cutlass.
+
+Without modelling this, the estimator can't honestly answer **"what will
+this workload achieve on this product?"** -- only **"what can this hardware
+theoretically do?"** The roofline / energy / latency models in
+`graphs.estimation` need to know which SDK is assumed, because:
+
+- Different SDKs have different operator coverage (custom kernels, fused
+  attention, sparse kernels)
+- Different SDKs have different driver overhead per launch
+- Different SDKs ship different kernel libraries with different efficiency
+- Frameworks have native vs translated backends (PyTorch on Apple MLX is
+  native; PyTorch on AMD via ZLUDA-style translation is not)
+
+### Real-product examples the model can't represent
+
+| Product | SDK ecosystem | Realized vs theoretical |
+|---|---|---|
+| NVIDIA H100 | CUDA + cuBLAS + cuDNN + TensorRT-LLM + cutlass + Triton + FlashAttention | TensorRT-LLM achieves 2-3x naive PyTorch on LLM inference |
+| AMD MI300X | ROCm + MIOpen + RCCL + hipBLASLt + Composable Kernel | ~70% of CUDA-equivalent for many workloads in 2026; gap shrinks every release |
+| Apple M3 Max | Metal + MLX + Core ML + Accelerate + MPS for PyTorch | MLX is faster than PyTorch-MPS by 2-3x on transformer inference |
+| Intel Xeon SPR | oneAPI + oneDNN + MKL + OpenVINO + IPEX | OpenVINO INT8 achieves 4-8x over FP32 |
+| Hailo-8 | HailoRT + Dataflow Compiler | Vendor-only path; PyTorch model -> Hailo binary |
+| Stillwater KPU | Dataflow Compiler (proprietary) | Single SDK; no PyTorch backend yet |
+| Tesla Dojo | Dojo compiler + Dojo SDK | Vendor-only |
+| Cerebras WSE | Cerebras SDK + CGCS | Vendor-only |
+
+### Schema additions
+
+```
+ComputeProduct
+  - software: SoftwareSupport            # NEW
+      SoftwareSupport:
+        - programming_models: list[ProgrammingModel]    # NEW enum
+            simt          |   # CUDA, ROCm
+            spmd          |   # TPU XLA, OpenCL
+            dataflow      |   # Cerebras, Tesla Dojo, KPU
+            vliw          |   # Hexagon DSP, Tensilica
+            x86_simd      |   # CPU AVX
+            arm_neon_sve  |
+            riscv_vector  |
+            metal         |   # Apple
+            custom
+
+        - sdks: list[SDKSupport]
+            SDKSupport:
+              - id (e.g., "cuda_12_4", "rocm_6_2", "metal_3_2")
+              - kind: cuda | rocm | oneapi | metal | mlx | hailort |
+                      tensorrt | xla | iree | mlir | dojo |
+                      dataflow_compiler | custom
+              - vendor: str
+              - version
+              - lts: bool
+              - eol_date: str | None
+              - supports_features: list[str]    # tensor_cores, sparse,
+                                                # fp8, transformer_engine, ...
+
+        - framework_backends: list[FrameworkBackend]
+            FrameworkBackend:
+              - framework: pytorch | tensorflow | tflite | jax |
+                           onnxruntime | tensorrt_llm | vllm | mlx |
+                           sglang | llama_cpp
+              - backend_id: str           # "torch.cuda", "torch.mps",
+                                          # "ort_trt_ep", "vllm_cuda",
+                                          # "jax_xla_pjrt"
+              - tier: TierKind            # NEW enum
+                  native        |   # vendor first-party (CUDA on NV)
+                  vendor_supported | # vendor-supported but not first-party
+                                     # (PyTorch on AMD ROCm)
+                  community    |    # community port (PyTorch on Apple MLX)
+                  translated   |    # translation layer (CUDA-on-ROCm via
+                                    # ZLUDA, etc.) -- usually slower
+                  experimental
+              - performance_relative_to_native: float | None
+                                          # 1.0 = same as native; 0.7 =
+                                          # 30% slower; useful for
+                                          # estimator dispatch
+
+        - inference_runtimes: list[str]   # vLLM, TensorRT-LLM, llama.cpp,
+                                          # MLX-LM, sglang, etc.
+
+        - operator_coverage_ref: str | None
+                                          # URL or catalog ref to a
+                                          # detailed (SDK x op x precision)
+                                          # support matrix; lives outside
+                                          # the ComputeProduct YAML
+
+        - native_quantization: list[str]  # int8 | int4 | fp8_e4m3 |
+                                          # fp8_e5m2 | fp4 | nf4 |
+                                          # awq | gptq | gguf
+        - native_sparsity: list[str]      # 2:4 | 4:8 | block_sparse | none
+
+  - driver_firmware: DriverFirmwareInfo | None    # NEW (deployment-time)
+      - min_driver_version
+      - min_firmware_version
+      - tested_versions: list[str]
+      - determinism_supported: bool       # bit-exact reproducibility
+                                          # mode available?
+```
+
+For the KPU specifically: today's `multi_precision_alu` field on
+`KPUArchitecture` says what the HARDWARE supports; the new `software.sdks`
++ `software.native_quantization` say what the SOFTWARE actually exposes
+to user code -- usually a subset.
+
+Where it lives: software is a property of the **product** (sometimes the
+**product family**), not the silicon. Same H100 silicon underpins every
+H100 SXM5 / PCIe / NVL / H200 / H800 SKU; they share the SDK story but
+differ on driver feature flags (export-restricted SKUs disable certain
+SDKs / runtimes). So `SoftwareSupport` lives on `ComputeProduct`, with
+the harvested-SKU links carrying the vendor-disabled feature deltas.
+
+## Sensors caveat (telemetry on the chip + input sensors the chip is wired to)
+
+"Sensors" in this codebase has two meanings, both relevant to the
+ComputeProduct goal:
+
+1. **On-chip telemetry sensors** -- what the silicon exposes for
+   measurement (per-rail power, per-die thermal, per-link BW counters,
+   activity monitors). Drives validation (compare model predictions
+   against measured values), online DVFS feedback, and reliability
+   monitoring.
+
+2. **Embodied-AI input sensors** -- what the product is *connected to*
+   (cameras, lidar, radar, IMU, audio). Drives workload definition for
+   the autonomous-vehicle / robotics / smart-city use cases the
+   embodied-schemas catalog actually targets. The existing
+   `embodied_schemas/sensors.py` defines `SensorEntry`; ComputeProduct
+   needs to express which sensors it's compatible with and how many
+   it can handle concurrently.
+
+Both are missing today.
+
+### 1. On-chip telemetry sensors
+
+What modern chips expose:
+
+| Vendor | Telemetry interface | What's exposed |
+|---|---|---|
+| NVIDIA | NVML / DCGM / nvidia-smi | Per-GPU power, per-rail power (limited), GPU temp, memory temp, clock, Vdd (some), SM utilization, memory BW, PCIe BW |
+| AMD GPU | rocm-smi / amd-smi | Per-GPU power, edge/junction/HBM temp, clock, Vdd, GPU/MEM utilization, fan |
+| AMD CPU | AMD u-Profile / RAPL | Per-package + per-core energy, frequency, temperature |
+| Intel CPU | RAPL / powercap / Intel PMU | Per-package + per-core + DRAM energy, frequency, temperature, MSR-level perf counters |
+| Apple | powermetrics / IOReport | Per-cluster power (P/E cores, GPU, ANE), thermal, ANE utilization (limited) |
+| Jetson | tegrastats / jetson_clocks | Per-rail power (CPU/GPU/SOC/DDR/SYS), per-rail freq, thermal zones |
+| Hailo | HailoRT API | Per-chip power, thermal |
+| KPU | (vendor-specific) | TBD |
+
+Schema additions:
+
+```
+ComputeProduct
+  - telemetry: TelemetrySupport          # NEW
+      TelemetrySupport:
+        - interface: TelemetryInterface  # NEW enum
+            nvml | dcgm | rocm_smi | amd_smi | rapl | powercap |
+            ipmi | redfish | tegrastats | powermetrics | ioreport |
+            vendor_proprietary
+        - power_per_die: bool            # per-die power readings?
+        - power_per_rail: bool           # per-voltage-rail readings?
+        - power_per_block: bool          # per-block utilization-derived?
+        - power_resolution_w: float      # smallest meaningful reading
+        - power_sample_period_us: float  # min interval between reads
+
+        - thermal_per_die_sensors: dict[die_id, int]    # count per die
+        - thermal_resolution_c: float
+        - thermal_sample_period_us: float
+
+        - bandwidth_counters: list[str]  # which links are monitored
+                                         # ("hbm_phy_0..4", "nvlink_0..17",
+                                         #  "pcie_root", ...)
+
+        - activity_counters: list[str]   # ("sm_busy", "tensor_core_active",
+                                         #  "tile_active", "dma_busy", ...)
+
+        - reliability_monitors: list[str]    # NBTI, HCI, EM degradation
+                                             # monitors; rare but real
+                                             # on automotive parts
+
+        - access: TelemetryAccess        # NEW enum
+            user_unprivileged   |
+            user_privileged     |
+            kernel_only         |
+            firmware_only       |
+            offline_only        # only via PMIC / BMC
+```
+
+This matters for **validation**: today's `kpu_power_model` produces
+estimates; once silicon ships, the validation framework wants to compare
+against per-die measured power. The catalog needs to say *what's
+measurable* on each product so validation harnesses can be wired up.
+
+### 2. Embodied-AI input sensors
+
+The existing `SensorEntry` in `embodied_schemas/sensors.py` covers
+cameras, lidar, radar, IMU, depth sensors, microphones. ComputeProducts
+in the embodied-AI catalog (Jetson Orin, KPU edge SKUs, Hailo-8) target
+specific sensor configurations -- and the connection isn't expressed.
+
+Schema additions:
+
+```
+ComputeProduct
+  - sensor_io: SensorIOSupport | None    # NEW; None for datacenter parts
+      SensorIOSupport:
+        - interfaces: list[SensorInterface]
+            SensorInterface:
+              - kind: mipi_csi2 | mipi_csi2_v3 | gmsl2 | gmsl3 |
+                      fpd_link4 | hispi | sublvds | parallel |
+                      lvds | usb3 | gige_vision | ethernet_avb |
+                      can | canfd | flexray | i2c | spi
+              - lanes / channels
+              - bandwidth_gbps
+              - port_count                # how many of this interface
+
+        - max_concurrent_sensors: dict[str, int]
+                                          # NEW -- per sensor kind
+                                          # {"camera_4k": 8, "lidar": 2,
+                                          #  "radar_77ghz": 6, "imu": 1}
+
+        - preprocessing_blocks: list[BlockRef]
+                                          # NEW -- which on-die blocks
+                                          # do the sensor preprocessing
+                                          # (ISP, video decoder, JPEG
+                                          # decoder, audio codec, etc.)
+                                          # references blocks in dies[]
+
+        - sensor_to_compute_path:
+                                          # NEW -- pipeline metadata
+            - latency_us                  # sensor-frame to compute-ready
+            - bandwidth_gbps_aggregate    # all sensors at full rate
+            - dma_path: enum              # direct_to_l3 | through_dram |
+                                          #   through_l2
+
+        - compatible_sensor_refs: list[ProductRef]
+                                          # KNOWN-GOOD sensor SKUs
+                                          # (links to sensors.py entries)
+        - target_sensor_workloads: list[str]
+                                          # ("8x_4k_camera_object_detection",
+                                          #  "32x_lidar_segmentation",
+                                          #  "4x_camera_+_4_radar_avp", ...)
+```
+
+For the KPU SKUs in our catalog: the t64/t128/t256 SKUs are positioned
+for embodied AI (drones, robots, edge servers). The catalog YAML
+*describes* this in the `notes:` field as free text -- the reader has to
+infer what camera/lidar configurations the chip can actually handle.
+Promoting to structured `sensor_io` lets the LLM orchestrator answer
+questions like "give me all SKUs that support 8x 4K cameras" or "give me
+all SKUs targeted at automotive ADAS".
+
+### Where preprocessing blocks fit
+
+Sensor preprocessing accelerators (ISPs, video decoders, JPEG decoders,
+audio codecs) are blocks on the die in heterogeneous SoCs:
+
+| Product | Sensor preprocessing blocks |
+|---|---|
+| Jetson Orin AGX | 2x ISP, NVENC (4-stream 4K), NVDEC (12-stream 4K), VIC, OFA, PVA |
+| Apple M3 | Image Signal Processor (ISP), ProRes encoder, hardware H.264/HEVC/AV1 |
+| Qualcomm Snapdragon | Spectra ISP, Adreno GPU, Hexagon DSP for audio |
+| Hailo-15 | Image signal processor + neural processing combined |
+| KPU edge SKU | (today: none; could add ISP block for camera-pipeline use cases) |
+
+These are real blocks with their own area, power, and silicon decomposition
+-- they fit naturally into the per-die `blocks: list[Block]` discriminated
+union proposed earlier:
+
+```
+Block (extended discriminator)
+  ...
+  ISPBlock:    image signal processor (camera input pipeline)
+  VideoCodecBlock: NVENC / NVDEC / VPU / hardware H.264/265/AV1
+  AudioCodecBlock: MFCC, DSP for voice processing
+  RadarDSPBlock:  77 GHz radar baseband / FFT
+  LidarPreprocBlock: point-cloud accumulation + filtering
+```
+
+This closes the loop: a Jetson Orin AGX `ComputeProduct` has compute
+blocks (CPU + GPU + DLA + PVA) AND preprocessing blocks (ISP + NVENC +
+NVDEC + VIC) AND sensor I/O interfaces (MIPI CSI-2 v3 ports + GMSL2 +
+CAN bus) AND a target sensor workload list -- a full description of
+what the product can actually be deployed to do.
+
 ## Summary -- the "anything that can vary across dies / SKUs / rails" rule
 
 The pattern across all four caveats: **anything that can vary independently
@@ -1319,6 +1610,14 @@ own first-class structure, not a flat top-level field.**
 | Cache-coherence overlay | Selected dies / blocks / sockets (Grace-Hopper coherent NVLink-C2C, EPYC dual-socket UPI/xGMI, GPU-to-GPU NOT coherent) | `CoherenceDomain` first-class with members + protocol |
 | Switch / fabric components | Systems (NVSwitch, IB switch, PCIe PEX, xGMI switch -- silicon in their own right) | `Switch` first-class entity at system level (not a `Block` -- it's package-scoped) |
 | System-level composition | Boards, nodes, racks (DGX H100 = 8 GPUs + 4 NVSwitches + 2 CPUs + 8 NICs wired together) | `ComputeProduct(kind=system)` with `contains` + system-level `interconnects` + `switches` + `coherence_domains` |
+| Programming model | Architecture (SIMT vs SPMD vs dataflow vs VLIW vs SIMD vs Metal) | `SoftwareSupport.programming_models: list[ProgrammingModel]` |
+| SDK / toolchain availability | Vendors per product (CUDA / ROCm / oneAPI / Metal / MLX / HailoRT / TensorRT / dataflow_compiler / ...) | `SoftwareSupport.sdks: list[SDKSupport]` with kind / version / lts / eol |
+| Framework backend tier | Per (framework, product) pair (PyTorch native on NVIDIA, vendor-supported on AMD, community on Apple MLX, translated via ZLUDA, ...) | `SoftwareSupport.framework_backends: list[FrameworkBackend]` with tier + `performance_relative_to_native` |
+| Native quantization / sparsity | Per SDK (int8 / int4 / fp8_e4m3 / fp8_e5m2 / nf4 / awq / gptq; 2:4 sparse vs block-sparse) | `SoftwareSupport.native_quantization` + `native_sparsity` lists |
+| Driver / firmware versions | Deployment-time (NVIDIA driver minor versions move perf 5-15% on big workloads) | `ComputeProduct.driver_firmware: DriverFirmwareInfo` with min versions + tested set + determinism flag |
+| On-chip telemetry sensors | Per product (NVML on NVIDIA, RAPL on Intel, rocm-smi on AMD, tegrastats on Jetson, ...) | `ComputeProduct.telemetry: TelemetrySupport` with interface + per-die / per-rail flags + sample period + access tier |
+| Embodied-AI input sensor support | Per edge product (Jetson Orin handles 8x 4K cameras + lidar + radar; KPU edge SKU TBD) | `ComputeProduct.sensor_io: SensorIOSupport` with interfaces + max_concurrent + preprocessing_blocks + compatible_sensor_refs |
+| Sensor preprocessing accelerators | Per die (ISP, NVENC, NVDEC, VIC, audio codec on heterogeneous SoCs) | `ISPBlock` / `VideoCodecBlock` / `AudioCodecBlock` / etc. extending the `Block` discriminator on `Die.blocks` |
 
 The flat-field anti-pattern is the same in every case: collapse N
 independent things into one top-level value, lose information, and break
