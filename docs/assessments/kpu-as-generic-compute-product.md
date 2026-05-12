@@ -1621,6 +1621,309 @@ NVDEC + VIC) AND sensor I/O interfaces (MIPI CSI-2 v3 ports + GMSL2 +
 CAN bus) AND a target sensor workload list -- a full description of
 what the product can actually be deployed to do.
 
+## Lifecycle, certification, security, form-factor, and mission-profile caveat
+
+These six axes are the operational and regulatory metadata a catalog needs
+to answer real procurement / design questions:
+
+- *"Can I use this part in an ASIL-D automotive design?"* (functional safety)
+- *"Is this part still production or has it gone EOL?"* (lifecycle state)
+- *"Does this product support confidential computing for our workload?"* (security)
+- *"What's the replacement part for this discontinued SKU?"* (roadmap chain)
+- *"Can I use this in a fanless industrial enclosure at 70C ambient?"* (mission profile)
+- *"Will this fit in our 1U server with 12VHPWR power and SXM connectors?"* (form factor)
+
+The current catalog covers `market.{is_available, is_discontinued,
+launch_date, launch_msrp_usd, target_market, model_tier}` -- a thin
+slice. Each of the six axes below has structural needs beyond a
+single boolean or string.
+
+### 1. Lifecycle state and roadmap chain
+
+`is_discontinued: bool` is binary and lossy. Real product lifecycles
+have multiple stages with different procurement implications:
+
+```
+ComputeProduct
+  - lifecycle: LifecycleStatus            # NEW enum (replaces is_discontinued)
+      engineering_sample  |   # ES -- pre-production silicon for early access
+      pilot              |   # limited production for validation customers
+      production         |   # full availability
+      mature             |   # stable; long-term support guaranteed
+      nrnd               |   # Not Recommended for New Designs
+                              # (still buyable but use replacement)
+      ltb                |   # Last-Time Buy window (e.g., next 12 months)
+      eol                |   # End of Life; not buyable
+  - lifecycle_dates:                      # NEW
+      first_silicon: str | None
+      production_release: str | None
+      nrnd_announced: str | None
+      ltb_deadline: str | None
+      eol_date: str | None
+      longevity_commitment_years: int | None    # 5/7/10/15
+  - replaces: ProductRef | None           # NEW -- supersedes which SKU
+  - replaced_by: ProductRef | None        # NEW -- successor SKU
+                                          # (lets us walk a chain:
+                                          #  H100 -> H200 -> B200)
+  - generation: str | None                # NEW -- Hopper / Blackwell /
+                                          # Zen 4 / Zen 5 -- groups SKUs
+                                          # within a vendor architecture
+  - sibling_generations: list[str] | None # for scheduling roadmap studies
+```
+
+Lifecycle is per-SKU (the harvested-SKU chain may have one parent and
+multiple children at different lifecycle stages -- e.g., GH100 reference
+silicon may be EOL while H100 SXM5 is still production).
+
+### 2. Certifications and functional safety
+
+Whether a part can be used in an automotive / aerospace / industrial /
+medical design is a categorical fact, not a free-text market label:
+
+```
+ComputeProduct
+  - certifications: list[Certification]   # NEW
+      Certification:
+        - kind: CertKind
+            aec_q100_g0 | aec_q100_g1 | aec_q100_g2 | aec_q100_g3 |
+                # Automotive Electronics Council temperature grades
+            iso_26262_asil_a | _asil_b | _asil_c | _asil_d |
+                # Automotive functional safety
+            iec_61508_sil_1 | _sil_2 | _sil_3 | _sil_4 |
+                # Industrial functional safety
+            do_254_dal_a | _dal_b | _dal_c | _dal_d | _dal_e |
+                # Aviation hardware
+            iec_62304_class_a | _class_b | _class_c |
+                # Medical software (often co-applied to MD products)
+            iso_13485 |     # medical device QMS
+            fda_510k |      # FDA medical clearance
+            iso_21434 |     # automotive cybersecurity
+            iec_62443 |     # industrial cybersecurity
+            fips_140_2 | fips_140_3 |   # crypto module
+            common_criteria_eal_4 | _eal_5 | _eal_6 | _eal_7 |
+                # security evaluation
+            ce | fcc | kcc | vcci |
+                # regional electromagnetic compliance
+            rohs | reach | weee |
+                # environmental / hazardous substances
+            tier_4 | tier_3 | tier_2 |
+                # datacenter facility tier (for board-level systems)
+            uptime_institute_*
+        - certification_id: str | None    # certificate / lot reference
+        - issued_date, expires_date
+        - scope: str                      # what part of the product
+                                          # is covered (whole / specific
+                                          # subsystem / specific use case)
+
+  - export_control: ExportControl | None  # NEW
+      ExportControl:
+        - eccn: str | None                # EAR ECCN (e.g., 3A090.a)
+        - itar_category: str | None       # ITAR USML category if applicable
+        - sanctioned_destinations: list[str]   # EAR-restricted countries
+                                                # (current export rules)
+        - end_use_restrictions: list[str]     # 'no AI training above X TOPS',
+                                                # 'no military use', etc.
+                                                # H100 vs H800 vs CMP HX --
+                                                # all driven by this field
+```
+
+Certifications can change per harvested SKU (auto-grade variant gets
+ASIL-D + AEC-Q100 G2; commercial-grade sibling gets neither). They
+also have expiry dates -- the catalog needs to flag stale
+certifications.
+
+### 3. Hardware security features
+
+Security capabilities are categorical features that a workload either
+needs or doesn't. Today's catalog has no representation:
+
+```
+ComputeProduct
+  - security: SecurityFeatures            # NEW
+      SecurityFeatures:
+        - secure_boot: bool
+        - root_of_trust: RootOfTrust | None
+            RootOfTrust:
+              - kind: tpm_2_0 | apple_secure_enclave | nvidia_amp |
+                      arm_trustzone | intel_pttm | amd_psp | ttp_custom
+              - vendor: str
+              - certified: list[CertKind]   # FIPS / Common Criteria
+
+        - confidential_compute: list[CCFlavor]
+            CCFlavor:
+              - kind: intel_tdx | intel_sgx | amd_sev_snp |
+                      arm_realm | nvidia_cc | apple_pcc
+              - attestation: bool
+              - memory_encryption: bool
+              - max_enclave_size_gb: float | None
+
+        - memory_encryption: list[MemEncryption]
+            MemEncryption:
+              - kind: intel_tme | intel_mktme | amd_sme | amd_sev |
+                      nvidia_amp_encrypted_pcie
+              - per_vm: bool                # multi-tenant encryption keys
+
+        - crypto_accel: list[CryptoEngine]
+            CryptoEngine:
+              - kind: aes_ni | aes_gcm | sha2 | sha3 | rsa | ecc |
+                      kyber | dilithium | rng_trng | rng_drng
+              - throughput_gbps: float | None
+
+        - side_channel_mitigations: list[str]
+                                          # e.g., ['spectre_v2_ibrs',
+                                          #        'meltdown_kpti',
+                                          #        'mds_clear_cpu_buffers',
+                                          #        'l1tf_l1d_flush']
+
+        - anti_tamper: list[str] | None
+                                          # physical-level (mesh, sensors)
+                                          # for HSM / payment / military
+
+        - vulnerability_disclosure_url: str | None
+        - cve_history: list[str] | None   # CVEs that affect this product
+```
+
+Security feature variation drives binning: same silicon ships with /
+without confidential compute enabled (e.g., H100 has NVIDIA Confidential
+Compute as a feature flag; the export-restricted H800 disables it).
+Lives at the per-SKU level (links to harvested-SKU caveat).
+
+### 4. Form factor and electrical interface
+
+Product fit (will it physically go in this server?) is structural for
+the catalog. Existing schemas have partial coverage (`GPUEntry.board:
+BoardSpec`); CPU/KPU/NPU don't.
+
+```
+ComputeProduct
+  - form_factor: FormFactorSpec           # NEW
+      FormFactorSpec:
+        - kind: FormFactorKind
+            sxm5 | sxm4 | sxm3 |          # NVIDIA datacenter modules
+            oam | oam_1_5 |               # OCP Accelerator Module
+            pcie_full_height_full_length |
+            pcie_full_height_half_length |
+            pcie_low_profile |
+            mxm_b | mxm_a |               # mobile module
+            bga | lga |                   # bare chip
+            soc_module |                  # embedded module
+            som |                          # System on Module
+            board | rack
+        - dimensions_mm: {length, width, height}
+        - weight_g: float | None
+        - mounting: str | None            # 'screws', 'clips', 'sxm_socket', ...
+        - orientation_constraints: list[str] | None
+                                          # e.g., 'horizontal_only',
+                                          # 'fan_facing_up'
+
+  - electrical: ElectricalInterface       # NEW
+      ElectricalInterface:
+        - input_voltages_v: list[float]   # [3.3, 5, 12]; or [48] for OCP;
+                                          # or [12, 12.0] for SXM5 / 12VHPWR
+        - power_connectors: list[str]
+            # ['none' (BGA only), '8pin_eps', '12vhpwr', 'sxm_socket',
+            #  'm2_slot_power', 'poe_class_4', 'mcio', 'edsff', ...]
+        - inrush_current_a: float | None
+        - power_sequencing_us: int | None
+        - hot_plug: bool
+        - efficiency_curve: list[(load_pct, efficiency_pct)] | None
+
+  - host_interfaces: list[HostInterface]  # NEW
+      HostInterface:
+        - kind: pcie_5_x16 | pcie_4_x16 | pcie_5_x8 |
+                cxl_3 | nvlink_5 | usb4 | thunderbolt5 |
+                ethernet_25g | ethernet_100g |
+                serial_console | jtag | swd
+        - count
+        - lanes
+        - supports_p2p: bool
+        - cable_type: str | None
+```
+
+Electrical and form-factor are per-SKU (an H100 SXM5 and H100 PCIe are
+the same silicon in different physical packages with different power
+budgets, different connectors, different fit; that distinction is what
+makes them separate harvested SKUs).
+
+### 5. Operational environment / mission profile
+
+Beyond the temp_grade caveat above, products are designed for specific
+operating environments and mission profiles -- battery-bound vs always-on
+mains, fanless vs forced-air, vibration / shock / humidity / altitude
+limits.
+
+```
+ComputeProduct
+  - operating_environment: OperatingEnvironment   # NEW
+      OperatingEnvironment:
+        - temp_grade                      # already proposed in thermal caveat
+        - ambient_c_range                 # already proposed
+        - humidity_pct_range: (min, max) | None
+        - altitude_m_max: int | None      # important for thermal at altitude
+        - shock_g_max: float | None       # AEC-Q100 spec when applicable
+        - vibration_grms_max: float | None
+        - corrosive_atmosphere_rating: str | None    # IP rating, salt spray
+        - ingress_protection: str | None  # IP65 / IP67 / IP68
+
+  - mission_profile: MissionProfile | None        # NEW
+      MissionProfile:
+        - kind: MissionKind
+            datacenter_24x7        |   # always-on, mains, forced-air
+            edge_inference_24x7    |   # always-on, edge, fanless or active
+            battery_intermittent   |   # drone, mobile robot
+            always_on_low_power    |   # smart speaker, doorbell, sensor hub
+            burst_workload         |   # automotive (trip duration)
+            mission_critical_safety |  # automotive ASIL, aerospace
+            research_short_run        # benchtop, hours per day
+        - duty_cycle_pct: float | None    # avg time at workload over service life
+        - service_life_years: int | None  # design service life
+        - mtbf_hours: int | None          # mean time between failures
+        - fit_rate: float | None          # failures-in-time (per 10^9 hrs)
+        - failure_mode: enum
+            silent_data_corruption | fail_stop | fail_safe | fail_operational
+```
+
+The KPU edge SKUs in our catalog (12FDX sweep) are positioned for
+embodied AI / battery-bound use cases but the schema only carries this as
+free text in `notes:`. Promoting to structured `mission_profile` makes
+the LLM orchestrator's "give me all SKUs that meet ASIL-D + 10-year
+service life + battery profile" query work directly.
+
+### 6. Documentation, IP, and supply
+
+Mostly metadata, but a few catalog-level fields are worth structuring:
+
+```
+ComputeProduct
+  - documentation: DocumentationRefs      # NEW
+      - datasheet_status: public | nda_required | restricted
+      - datasheet_url: str | None         # already exists; promote to here
+      - reference_design_url: str | None
+      - evaluation_kit_id: ProductRef | None
+      - errata_url: str | None
+      - source_code_url: str | None       # for open-source IP
+
+  - ip_licenses: list[str] | None         # NEW
+                                          # ['arm_neoverse_v2',
+                                          #  'risc_v_rva23',
+                                          #  'tensorrt_runtime', ...]
+                                          # affects redistribution rights
+
+  - supply: SupplyInfo | None             # NEW
+      SupplyInfo:
+        - lead_time_weeks: int | None
+        - moq: int | None                 # minimum order quantity
+        - distribution_channels: list[str]    # direct / arrow / digikey / ...
+        - multi_source: bool              # are there second-source vendors?
+        - assembly_country: str | None
+        - conflict_minerals_compliant: bool
+```
+
+These are deployment / procurement metadata. The performance / power /
+energy estimator path doesn't read them, but the LLM orchestrator and
+catalog tools (e.g., a future `cli/list_products_meeting_criteria.py`)
+do.
+
 ## Summary -- the "anything that can vary across dies / SKUs / rails" rule
 
 The pattern across all four caveats: **anything that can vary independently
@@ -1663,6 +1966,16 @@ own first-class structure, not a flat top-level field.**
 | On-chip telemetry sensors | Per product (NVML on NVIDIA, RAPL on Intel, rocm-smi on AMD, tegrastats on Jetson, ...) | `ComputeProduct.telemetry: TelemetrySupport` with interface + per-die / per-rail flags + sample period + access tier |
 | Embodied-AI input sensor support | Per edge product (Jetson Orin handles 8x 4K cameras + lidar + radar; KPU edge SKU TBD) | `ComputeProduct.sensor_io: SensorIOSupport` with interfaces + max_concurrent + preprocessing_blocks + compatible_sensor_refs |
 | Sensor preprocessing accelerators | Per die (ISP, NVENC, NVDEC, VIC, audio codec on heterogeneous SoCs) | `ISPBlock` / `VideoCodecBlock` / `AudioCodecBlock` / etc. extending the `Block` discriminator on `Die.blocks` |
+| Lifecycle state | Per SKU (engineering sample / pilot / production / mature / NRND / LTB / EOL) | `ComputeProduct.lifecycle: LifecycleStatus` + `lifecycle_dates`; `replaces` / `replaced_by` for the supersession chain |
+| Generation / family lineage | Per SKU (Hopper / Blackwell / Zen 4 / Zen 5 -- groups SKUs within a vendor architecture) | `ComputeProduct.generation` + `sibling_generations` |
+| Functional safety certification | Per SKU (AEC-Q100 grade / ISO 26262 ASIL / IEC 61508 SIL / DO-254 DAL / IEC 62304 / FIPS 140-3 / Common Criteria EAL) | `ComputeProduct.certifications: list[Certification]` with kind + scope + dates |
+| Export control classification | Per SKU (EAR ECCN / ITAR / sanctioned destinations / end-use restrictions -- the H100 vs H800 vs CMP HX driver) | `ComputeProduct.export_control: ExportControl` |
+| Hardware security features | Per SKU (secure boot / root of trust / confidential compute / memory encryption / crypto accel / side-channel mitigations) | `ComputeProduct.security: SecurityFeatures` with discriminated sub-types per capability |
+| Form factor | Per SKU (SXM5 vs PCIe full-height vs OAM vs M.2 vs SoC module -- same silicon, different physical fit) | `ComputeProduct.form_factor: FormFactorSpec` with kind + dimensions + mounting + orientation |
+| Electrical interface | Per SKU (input voltages / power connectors / hot-plug / inrush / efficiency curve) | `ComputeProduct.electrical: ElectricalInterface` |
+| Host interfaces | Per SKU (PCIe5 x16 vs CXL3 vs NVLink5 vs USB4 vs Ethernet -- how the host talks to the device) | `ComputeProduct.host_interfaces: list[HostInterface]` |
+| Operating environment | Per SKU (humidity / altitude / shock / vibration / IP rating beyond just temp grade) | `ComputeProduct.operating_environment: OperatingEnvironment` |
+| Mission profile | Per SKU (datacenter 24x7 / edge 24x7 / battery intermittent / always-on low power / burst / safety-critical / research) | `ComputeProduct.mission_profile: MissionProfile` with duty cycle, service life, MTBF, FIT rate, failure mode |
 
 The flat-field anti-pattern is the same in every case: collapse N
 independent things into one top-level value, lose information, and break
@@ -1701,3 +2014,93 @@ level and zero data loss.
 | `HardwareMapper` (ABC) | `graphs/src/graphs/hardware/resource_model.py:1718` | Base class for per-architecture mappers |
 | RFC 0001 | `embodied-schemas/docs/rfcs/0001-compute-product-unification.md` | The unification plan (Draft) |
 | Prior assessment | `graphs/docs/assessments/compute-product-unification.md` | Earlier framing (2026-05-08) |
+
+---
+
+## Closing -- structural inventory complete
+
+This pass over the catalog looked for every place where the KPU model
+got the structure right "by accident of being monolithic" and where
+that shape would break for a real ComputeProduct catalog. Eight caveat
+sections were added across two days of investigation:
+
+1. **Chiplet** -- per-die `process_node_id` / `silicon_bin` / `die area`
+2. **Memory** -- on-package memory dies as first-class `MemoryBlock`s in
+   `dies[]` rather than a flat chip-level `memory:` field
+3. **Voltage / clock domains** -- `voltage_rails` + `clock_domains` per
+   die with multi-rail Vdd / multi-domain clock per `ThermalProfile`
+4. **Floorsweeping / harvested SKU** -- separate `ComputeProduct` per
+   shipping SKU with optional `harvested_from` link to silicon parent
+5. **Thermal / cooling** -- per-die Tj limits, 3D-stack thermal coupling,
+   throttle policy, time-domain peak/boost/sustained, TIM, temp grade,
+   cooling scope
+6. **Interconnect topology** -- `Interconnect` as graph (level / topology /
+   dimensions / routing / VCs / oversubscription / coherence /
+   asymmetric BW); `Switch` as first-class entity; `CoherenceDomain`
+   overlay; `ComputeProduct(kind=system)` for board / node level
+7. **Software / SDK** -- programming model (with **`domain_flow`**
+   distinct from generic dataflow), SDKs with version / lts / eol,
+   framework backends with tier + `performance_relative_to_native`,
+   native quantization / sparsity, driver / firmware versions
+8. **Sensors** -- on-chip telemetry (NVML / RAPL / rocm-smi / tegrastats
+   / ...) for validation + DVFS feedback; embodied-AI input sensors
+   (cameras / lidar / radar / IMU / audio) with interfaces, max-
+   concurrent counts, preprocessing blocks, compatible sensor refs
+9. **Operational metadata** -- lifecycle state + roadmap chain;
+   functional safety + export control; hardware security; form factor +
+   electrical interface; operating environment; mission profile;
+   documentation / IP / supply
+
+The summary table at the top of this section tracks 35+ properties
+against the structure each needs. Across all of them the single design
+rule holds:
+
+> Anything that can vary independently across dies, harvested SKUs,
+> voltage rails, clock domains, software stacks, mission profiles, or
+> certification scopes needs its own first-class structure -- a list /
+> dict / discriminated union with stable ids -- not a flat top-level
+> field.
+
+The KPU's monolithic single-die single-rail single-clock single-SKU
+single-SDK single-sensor-config single-mission shape is a *degenerate
+case* of this richer structure -- one element in each list,
+discriminator pinned to the KPU-specific value. Migration of the KPU
+into a unified ComputeProduct schema is structural with zero data loss;
+each existing field nests one level deeper but its content is preserved.
+
+The harder migration is the one that brings GPU / CPU / NPU / DSP up to
+the same shape: those schemas today are flat and shallow, missing
+ProcessNode references, silicon decomposition, validators, generators,
+power models, and most of the metadata axes covered above. The KPU is
+the right exemplar to promote, but RFC 0001's spec needs the revisions
+captured here -- per-die / per-rail / per-SKU scoping -- before
+implementation, otherwise the new schema bakes in the same flatness
+bugs the legacy schemas already have.
+
+### What this assessment is NOT
+
+- A claim that the KPU schema is finished -- the eight caveats are gaps
+  to fill before unification, even for KPU's own evolution (the
+  voltage-rail / time-domain / cooling-scope axes apply to KPU
+  immediately, not just hypothetical chiplet products).
+- An implementation plan -- the migration steps in each caveat are
+  sketches; turning them into Pydantic classes + loaders + validators
+  + generator updates is a multi-PR sprint of its own.
+- A prescription for RFC 0001 -- the RFC author should treat this as
+  technical input. Several caveats (harvested-SKU pattern, per-die
+  thermal coupling, programming-model split for domain_flow) are
+  judgment calls where reasonable architects would pick differently.
+
+### What this assessment IS
+
+- A structural inventory of every catalog axis I could identify across
+  the recent KPU sprint and the broader ComputeProduct goal
+- A worked-example library (DGX H100 / AMD MI300A / Ryzen 7800X3D /
+  Apple M3 Max / Jetson Orin AGX) showing what each axis looks like for
+  real silicon
+- A test set for any future unified `ComputeProduct` schema: any
+  proposed shape that can't represent the worked examples without
+  flattening one of the load-bearing axes is incomplete
+
+When the unification implementation begins, this doc is the spec sheet
+the new `ComputeProduct` Pydantic model is measured against.
