@@ -275,7 +275,7 @@ power lever:
 
 | Product | Independent voltage / clock domains |
 |---|---|
-| NVIDIA Hopper (H100) | compute clock (~1980 MHz boost), memory clock (HBM3 5.2 GHz), fabric/uncore clock, I/O clock -- all DVFS independently |
+| NVIDIA Hopper (H100) | compute clock (~1980 MHz boost), memory data rate (HBM3 ~5.2 Gbps/pin), fabric/uncore clock, I/O clock -- all clock-managed independently per the Hopper whitepaper; per-rail Vdd partitioning is industry inference |
 | AMD Zen 4 | per-core voltage / clock via Curve Optimizer (each of 16 cores); CCD vs IOD on separate rails |
 | Apple M3 | GPU performance-state rail, ANE rail, P-cluster rail, E-cluster rail, fabric rail -- all independent |
 | Intel hybrid (Alder Lake+) | P-core ratio domain, E-core ratio domain, ring/uncore domain |
@@ -345,10 +345,10 @@ recover yield. The same physical die family often spans 3-6 catalog SKUs:
 
 | Silicon family | Shipping SKUs |
 |---|---|
-| NVIDIA GH100 (144 SMs designed) | H100 SXM5 (132 SMs / 80 GB HBM3 / 6-stack), H100 PCIe (114 SMs / 80 GB / 5-stack), H100 NVL (132 SMs / 188 GB / paired-card), H200 SXM5 (132 SMs / 141 GB HBM3e), H800 (export-control restricted), CMP HX (compute-only mining variant) |
+| NVIDIA GH100 (144 SMs designed) | H100 SXM5 (132 SMs / 80 GB HBM3), H100 PCIe (114 SMs / 80 GB), H100 NVL (132 SMs / 188 GB / paired-card), H200 SXM5 (132 SMs / 141 GB HBM3e), H800 (export-control restricted), CMP HX (compute-only mining variant). Per-SKU HBM stack count and HBM3 vs HBM2e mix differs across PCIe vs SXM variants -- consult the per-SKU product brief |
 | NVIDIA GB200 | B100, B200, B200 NVL, GB200 NVL72 (board-level) |
 | AMD Zen 4 CCD | Ryzen 7950X (16C, 2 CCDs), 7900X (12C, harvested), 7800X3D (8C + V-Cache), 7700X (8C, no V-Cache), 7600X (6C, harvested CCD) |
-| Apple M3 family | M3 (8 GPU cores), M3 Pro (14-18 GPU cores, harvested die), M3 Max (30-40 GPU cores, separate die actually), M3 Ultra (2x M3 Max bonded) |
+| Apple M3 family | M3 (8/10 GPU cores), M3 Pro (14-18 GPU cores; 192-bit memory bus suggests separate die from M3 Max), M3 Max (30 or 40 GPU cores, 24 or 32 memory controllers enabled out of 32 -- harvesting WITHIN the M3 Max die), M3 Ultra (2x M3 Max bonded via UltraFusion; up to 32-core CPU + 80-core GPU; released March 2025) |
 | Intel Raptor Lake | i9-13900K (24C), i7-13700K (16C, harvested), i5-13600K (14C, more harvesting) |
 
 **Two modelling approaches and the one to pick:**
@@ -474,12 +474,12 @@ die or stack of dies on-package**:
 | Product | Memory dies on-package |
 |---|---|
 | AMD Ryzen 7800X3D / EPYC 9684X | 1 CCD + 1 V-Cache SRAM die (3D-stacked via TSVs) |
-| AMD MI300A | 6 GPU chiplets + 3 CPU chiplets + IOD + **8 HBM3 stacks** |
-| AMD MI300X | 8 GPU chiplets + IOD + **8 HBM3 stacks (192 GB)** |
+| AMD MI300A | 6 GPU chiplets (XCDs) + 3 CPU chiplets (CCDs) + 4 IODs + **8 HBM3 stacks (128 GB)**; XCDs/CCDs are 3D-stacked on the IODs via hybrid bonding |
+| AMD MI300X | 8 GPU chiplets (XCDs) + 4 IODs + **8 HBM3 stacks (192 GB)** |
 | NVIDIA H100 SXM5 | 1 GPU die + **5 HBM3 stacks (80 GB)** |
 | NVIDIA B100 / B200 | 2 GPU dies + **8 HBM3e stacks (192 GB)** |
 | Grace-Hopper | Grace CPU + Hopper GPU + **6 HBM3 stacks** + 480 GB LPDDR5X on Grace |
-| Apple M3 Max | 1 SoC die + **8x LPDDR5 dies on-package** (PoP) |
+| Apple M3 Max | 1 SoC die + **on-package LPDDR5 dies** (PoP); supports up to 128 GB unified memory; exact LPDDR die count not publicly documented per SKU |
 | Jetson Orin AGX | 1 SoC die + **64 GB LPDDR5 on-module** |
 | Samsung HBM-PIM | HBM stacks with **per-stack compute** -- memory IS compute |
 
@@ -1046,10 +1046,10 @@ the structure that drives realistic perf/power modelling.
 
 | Product | What today's model misses |
 |---|---|
-| DGX H100 | 8 GPUs + 4 NVSwitches forming a 3-stage NVLink fabric; cross-section BW = 7.2 TB/s but only at certain communication patterns; PCIe topology to dual SPR + 8 ConnectX-7 NICs is separate |
+| DGX H100 | 8 GPUs + 4 NVSwitches forming a single-tier non-blocking NVLink fabric (each GPU has 18 NVLinks split across the 4 switches); 7.2 TB/s all-to-all bidirectional, 3.6 TB/s bisection. SuperPOD scale-out via the NVLink Switch System uses a 2:1 tapered fat-tree to up to 32 nodes / 256 GPUs. PCIe topology to dual SPR + 8 ConnectX-7 NICs is a separate fabric |
 | AMD MI300X 8-GPU node | 8x MI300X + Infinity Fabric in a fully-connected mesh (every GPU to every other GPU at 128 GB/s per peer); cross-section depends on direction |
 | NVIDIA GH200 NVL32 | 32x Grace-Hopper SuperChips connected by NVLink Switch System; 4x NVL32 form an "exascale" cluster |
-| Cerebras WSE | Single die with a 2D mesh of 850K cores -- the NoC IS the chip; mesh has fault-tolerant adaptive routing, can map dead sites |
+| Cerebras WSE-3 | Single die with a 2D mesh of 900K cores (WSE-2 had 850K) -- the NoC IS the chip; mesh has fault-tolerant adaptive routing, can map dead sites; ~1% spare cores, distributed autonomous repair/mapping logic |
 | Google TPU v5p pod | 8960 TPUs in a 3D torus; topology is the architecture; collective operations are torus-aware |
 | Tesla Dojo | Hierarchical: D1 chip mesh of cores; tile of 25 D1s mesh; tray of tiles; cabinet of trays. Each level has its own topology + BW |
 | Grace-Hopper | Coherent NVLink-C2C between Grace CPU and Hopper GPU (one product); separate non-coherent NVLink to other GH chips (DGX-class system) |
@@ -1164,15 +1164,18 @@ ComputeProduct(id="nvidia_dgx_h100", kind=system)
     ...                              # 3 more NVSwitch3
   ]
   interconnects: [
-    # NVLink fabric: each GPU to all 4 NVSwitches
-    Interconnect(level=node_to_node, link_kind=nvlink4, topology=fat_tree,
-                 dimensions={radix: 18, levels: 2},
+    # NVLink fabric: each GPU has 18 NVLinks split across the 4 NVSwitches
+    # (single-tier non-blocking switched fabric, NOT a fat-tree at this scale --
+    # the 2:1 tapered fat-tree only appears in the SuperPOD scale-out via
+    # the NVLink Switch System tying multiple DGX nodes together)
+    Interconnect(level=node_to_node, link_kind=nvlink4, topology=switched,
                  per_link_bandwidth_gbps=900,
                  per_link_bandwidth_full_duplex_gbps=1800,
                  per_link_latency_ns=300,
                  per_link_energy_pj_per_byte=1.5,
-                 num_links=32,                   # 8 GPUs * 4 switches
-                 aggregate_bisection_bandwidth_gbps=7200,
+                 num_links=144,                  # 8 GPUs * 18 NVLinks each
+                 aggregate_bisection_bandwidth_gbps=3600,    # half of 7.2 TB/s
+                                                             # all-to-all
                  oversubscription_ratio=1.0,
                  coherent=False,                  # NVLink is DMA, not coherent
                  routing=adaptive_minimal,
@@ -2104,3 +2107,72 @@ bugs the legacy schemas already have.
 
 When the unification implementation begins, this doc is the spec sheet
 the new `ComputeProduct` Pydantic model is measured against.
+
+---
+
+## Verification notes (corrections from earlier drafts)
+
+This document makes many specific factual claims about real products
+(NVIDIA / AMD / Apple / Intel / Cerebras / Tesla / Google / Stillwater
+silicon). After completion, the claims were spot-checked against
+publicly verifiable sources (vendor whitepapers, IEEE Xplore, Hot
+Chips proceedings). Corrections applied:
+
+- **DGX H100 NVLink fabric**: earlier draft said "3-stage NVLink fabric;
+  cross-section BW = 7.2 TB/s." The basic DGX H100 box is a
+  single-tier non-blocking switched fabric (8 GPUs * 18 NVLinks each
+  = 144 links, distributed across 4 NVSwitches); 7.2 TB/s is the
+  all-to-all bidirectional bandwidth, 3.6 TB/s is the bisection.
+  The 2:1 tapered fat-tree only appears in the SuperPOD scale-out via
+  the NVLink Switch System tying multiple DGX nodes together. Fixed
+  in both the interconnect-table row and the worked example.
+
+- **HBM3 frequency on H100**: earlier draft said "memory clock (HBM3
+  5.2 GHz)" -- the 5.2 figure is the per-pin data rate in Gbps, not
+  GHz. The actual HBM3 memory clock is ~1.5 GHz; per-pin data rate
+  is ~5.1-5.2 Gbps. Corrected to "memory data rate (HBM3 ~5.2 Gbps/pin)."
+
+- **Cerebras WSE core count**: earlier draft said "850K cores" for
+  generic Cerebras WSE -- that's WSE-2's count. WSE-3 (2024) has
+  900K cores. Specified the generation.
+
+- **AMD MI300A / MI300X composition**: earlier drafts said "+ IOD"
+  (singular implied). MI300A and MI300X both have **4 IODs** with the
+  XCDs/CCDs 3D-stacked on top via hybrid bonding. MI300A composition
+  is 6 XCDs (GPU) + 3 CCDs (CPU) + 4 IODs + 8 HBM3 stacks (128 GB);
+  MI300X is 8 XCDs + 4 IODs + 8 HBM3 stacks (192 GB).
+
+- **Apple M3 Pro / M3 Max die origin**: earlier draft said M3 Pro is
+  "harvested die" from M3 Max. The 192-bit memory bus on M3 Pro vs
+  the 384/512-bit on M3 Max suggests M3 Pro is its OWN die, not a
+  harvested M3 Max. Harvesting WITHIN the M3 Max die (24 vs 32 memory
+  controllers enabled) is documented; M3 Pro as a harvest of M3 Max
+  is not. Softened.
+
+- **Apple M3 Max LPDDR die count**: earlier draft asserted "8x LPDDR5
+  dies on-package." The exact LPDDR die count per M3 Max SKU is not
+  publicly documented. Softened to "on-package LPDDR5 dies (PoP)
+  supporting up to 128 GB unified memory."
+
+- **H100 SXM5 / PCIe HBM stack count**: earlier draft asserted
+  specific stack counts ("6-stack" for SXM5, "5-stack" for PCIe).
+  Sources are inconsistent on the per-variant HBM stack count and
+  HBM3 vs HBM2e mix (the original H100 PCIe shipped with HBM2e;
+  later variants added HBM3). Softened to drop the specific
+  per-variant stack-count claims; readers should consult the
+  per-SKU NVIDIA product brief.
+
+- **NVIDIA Hopper per-rail Vdd**: earlier drafts implied per-rail Vdd
+  partitioning is documented in the public Hopper whitepaper. The
+  whitepaper documents per-GPC clock-domain hierarchy and separate
+  memory / fabric clock domains, but per-rail Vdd partitioning is
+  industry inference, NOT formally documented in the public material.
+  Flagged as such in the body text, the table row, and the design
+  doc (`docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md`)
+  which references this assessment.
+
+Verification sources used: NVIDIA H100 / Blackwell architecture
+whitepapers; AMD MI300 datasheets and Hot Chips 2024 presentation;
+Apple M3 announcements and EveryMac specifications; Hot Chips
+proceedings 31 / 34 / 36 for Cerebras / Tesla Dojo; Wikipedia and
+chipsandcheese.com for cross-reference.
