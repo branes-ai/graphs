@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from embodied_schemas import load_kpus, load_process_nodes
+from embodied_schemas import load_process_nodes
+
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 
 from graphs.hardware.mappers.accelerators.kpu import KPUMapper
 from graphs.hardware.models.accelerators.kpu_yaml_loader import (
@@ -33,7 +35,7 @@ from graphs.hardware.resource_model import (
 @pytest.fixture(scope="module")
 def catalogs():
     return {
-        "kpus": load_kpus(),
+        "kpus": load_compute_products_unified(),
         "process_nodes": load_process_nodes(),
     }
 
@@ -60,14 +62,14 @@ def test_loader_returns_kpu_hardware_type(sku_id, catalogs):
 def test_loader_compute_units_matches_total_tiles(sku_id, catalogs):
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    assert m.compute_units == sku.kpu_architecture.total_tiles
+    assert m.compute_units == sku.dies[0].blocks[0].total_tiles
 
 
 @pytest.mark.parametrize("sku_id", SKU_IDS)
 def test_loader_one_fabric_per_tile_class(sku_id, catalogs):
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    assert len(m.compute_fabrics) == len(sku.kpu_architecture.tiles)
+    assert len(m.compute_fabrics) == len(sku.dies[0].blocks[0].tiles)
 
 
 @pytest.mark.parametrize("sku_id", SKU_IDS)
@@ -125,7 +127,7 @@ def test_loader_bf16_peak_matches_yaml(sku_id, catalogs):
 def test_loader_memory_bandwidth_matches_yaml(sku_id, catalogs):
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    expected = sku.kpu_architecture.memory.memory_bandwidth_gbps * 1e9
+    expected = sku.dies[0].blocks[0].memory.memory_bandwidth_gbps * 1e9
     assert m.peak_bandwidth == expected
 
 
@@ -133,7 +135,7 @@ def test_loader_memory_bandwidth_matches_yaml(sku_id, catalogs):
 def test_loader_main_memory_matches_yaml(sku_id, catalogs):
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    expected = int(sku.kpu_architecture.memory.memory_size_gb * 1024**3)
+    expected = int(sku.dies[0].blocks[0].memory.memory_size_gb * 1024**3)
     assert m.main_memory == expected
 
 
@@ -143,7 +145,7 @@ def test_loader_l1_per_tile_is_l3_kib_per_tile(sku_id, catalogs):
     to YAML's per-tile L3 scratchpad."""
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    expected = sku.kpu_architecture.memory.l3_kib_per_tile * 1024
+    expected = sku.dies[0].blocks[0].memory.l3_kib_per_tile * 1024
     assert m.l1_cache_per_unit == expected
 
 
@@ -176,7 +178,10 @@ def test_loader_unknown_base_id_raises(catalogs):
 def test_loader_unresolved_process_node_raises(catalogs):
     """Hand-craft a SKU pointing at a non-existent process node."""
     real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    bad_sku = real.model_copy(update={"process_node_id": "nonexistent"})
+    # process_node_id lives on the die in the unified schema; mutate it
+    # there to test the loader's resolution error path.
+    bad_die = real.dies[0].model_copy(update={"process_node_id": "nonexistent"})
+    bad_sku = real.model_copy(update={"dies": [bad_die]})
     with pytest.raises(KPUYamlLoaderError, match="does not resolve"):
         load_kpu_resource_model_from_yaml(
             bad_sku.id,
@@ -203,7 +208,7 @@ def test_tile_energy_model_architectural_shape_matches_yaml(sku_id, catalogs):
     clock are all direct reads from the SKU YAML."""
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    arch = sku.kpu_architecture
+    arch = sku.dies[0].blocks[0]
     tem = m.tile_energy_model
     assert tem.num_tiles == arch.total_tiles
     assert tem.tile_mesh_dimensions == (arch.noc.mesh_rows, arch.noc.mesh_cols)
@@ -226,7 +231,7 @@ def test_tile_energy_model_pes_per_tile_uses_dominant_class(sku_id, catalogs):
     INT8-primary class."""
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    dominant = max(sku.kpu_architecture.tiles, key=lambda t: t.num_tiles)
+    dominant = max(sku.dies[0].blocks[0].tiles, key=lambda t: t.num_tiles)
     expected = dominant.pe_array_rows * dominant.pe_array_cols
     assert m.tile_energy_model.pes_per_tile == expected
 
@@ -290,14 +295,14 @@ def test_soc_fabric_topology_and_dimensions_match_yaml(sku_id, catalogs):
     from graphs.hardware.fabric_model import Topology
     m = load_kpu_resource_model_from_yaml(sku_id, **catalogs)
     sku = catalogs["kpus"][sku_id]
-    noc = sku.kpu_architecture.noc
+    noc = sku.dies[0].blocks[0].noc
     fab = m.soc_fabric
     # All 4 Stillwater SKUs use mesh_2d
     assert fab.topology == Topology.MESH_2D
     assert fab.low_confidence is False
     assert fab.mesh_dimensions == (noc.mesh_rows, noc.mesh_cols)
     assert fab.flit_size_bytes == noc.flit_bytes
-    assert fab.controller_count == sku.kpu_architecture.total_tiles
+    assert fab.controller_count == sku.dies[0].blocks[0].total_tiles
     if noc.bisection_bandwidth_gbps is not None:
         assert fab.bisection_bandwidth_gbps == noc.bisection_bandwidth_gbps
 
@@ -309,12 +314,15 @@ def test_soc_fabric_unknown_topology_marks_low_confidence(catalogs):
     is updated."""
     from graphs.hardware.fabric_model import Topology
     real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    bad_arch = real.kpu_architecture.model_copy(
-        update={"noc": real.kpu_architecture.noc.model_copy(
+    # KPUBlock now lives at cp.dies[0].blocks[0]; mutate the noc through it.
+    block = real.dies[0].blocks[0]
+    bad_block = block.model_copy(
+        update={"noc": block.noc.model_copy(
             update={"topology": "future_topology_3d_torus"}
         )}
     )
-    bad_sku = real.model_copy(update={"kpu_architecture": bad_arch})
+    bad_die = real.dies[0].model_copy(update={"blocks": [bad_block]})
+    bad_sku = real.model_copy(update={"dies": [bad_die]})
     m = load_kpu_resource_model_from_yaml(
         bad_sku.id,
         kpus={bad_sku.id: bad_sku},
@@ -331,12 +339,14 @@ def test_soc_fabric_lossy_torus_mapping_marks_low_confidence(catalogs):
     formulas) see the approximation."""
     from graphs.hardware.fabric_model import Topology
     real = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    arch = real.kpu_architecture.model_copy(
-        update={"noc": real.kpu_architecture.noc.model_copy(
+    block = real.dies[0].blocks[0]
+    bad_block = block.model_copy(
+        update={"noc": block.noc.model_copy(
             update={"topology": "torus_2d"}
         )}
     )
-    bad_sku = real.model_copy(update={"kpu_architecture": arch})
+    bad_die = real.dies[0].model_copy(update={"blocks": [bad_block]})
+    bad_sku = real.model_copy(update={"dies": [bad_die]})
     m = load_kpu_resource_model_from_yaml(
         bad_sku.id,
         kpus={bad_sku.id: bad_sku},
@@ -470,7 +480,7 @@ def test_tile_energy_model_mac_fallback_is_node_scaled(catalogs):
     m_n16 = load_kpu_resource_model_from_yaml(
         real.id,
         kpus={real.id: real},
-        process_nodes={real.process_node_id: sparse_n16},
+        process_nodes={real.dies[0].process_node_id: sparse_n16},
     )
 
     # Same SKU, but pretend it's on TSMC N5 (much smaller node).
@@ -485,7 +495,7 @@ def test_tile_energy_model_mac_fallback_is_node_scaled(catalogs):
     m_n5 = load_kpu_resource_model_from_yaml(
         real.id,
         kpus={real.id: real},
-        process_nodes={real.process_node_id: sparse_n5},
+        process_nodes={real.dies[0].process_node_id: sparse_n5},
     )
 
     # N5 is a smaller node than N16 -> fallback MAC energy must be lower.
