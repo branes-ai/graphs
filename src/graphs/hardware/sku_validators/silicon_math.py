@@ -37,8 +37,30 @@ def _kpu_block(cp: ComputeProduct) -> KPUBlock:
 
     Today every KPU ComputeProduct has exactly one Die with one
     KPUBlock; chiplet KPU products will need iteration when they land.
+
+    Raises ``SiliconMathError`` (not IndexError / TypeError) for
+    malformed shape so the validator framework converts the failure
+    into a Finding instead of crashing the validator. ComputeProduct
+    schema enforces dies/blocks min_length=1 at construction, but
+    instances built via ``model_construct()`` can bypass validation.
     """
-    return cp.dies[0].blocks[0]
+    if not cp.dies:
+        raise SiliconMathError(
+            f"compute product {cp.id!r} has no dies; expected one KPU die"
+        )
+    die = cp.dies[0]
+    if not die.blocks:
+        raise SiliconMathError(
+            f"compute product {cp.id!r} die {die.die_id!r} has no blocks; "
+            f"expected one KPUBlock"
+        )
+    block = die.blocks[0]
+    if not isinstance(block, KPUBlock):
+        raise SiliconMathError(
+            f"compute product {cp.id!r} die {die.die_id!r} first block is "
+            f"{type(block).__name__}, expected KPUBlock"
+        )
+    return block
 
 
 # ---------------------------------------------------------------------------

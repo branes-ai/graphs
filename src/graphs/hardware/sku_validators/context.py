@@ -69,6 +69,14 @@ def build_context_for_kpu(
             f"no KPU SKU with id={sku_id!r}. Available: {available}"
         )
 
+    # ComputeProduct enforces dies min_length=1 at construction time, but
+    # an instance built with model_construct() (skipping validation) could
+    # still have empty dies. Surface as ContextError so the CLI emits one
+    # clear message instead of an opaque IndexError.
+    if not sku.dies:
+        raise ContextError(
+            f"SKU {sku_id!r} has no dies; expected at least one die"
+        )
     process_node_id = sku.dies[0].process_node_id
     pn = process_nodes.get(process_node_id)
     if pn is None:

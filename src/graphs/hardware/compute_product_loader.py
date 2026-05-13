@@ -168,6 +168,14 @@ def compute_product_to_kpu_entry(
             f"compute_product_to_kpu_entry: only KPUBlock is supported, "
             f"got {type(block).__name__} for {cp.id!r}"
         )
+    if process_node.id != die.process_node_id:
+        raise ValueError(
+            f"compute_product_to_kpu_entry: process_node.id "
+            f"{process_node.id!r} does not match die.process_node_id "
+            f"{die.process_node_id!r} for {cp.id!r}; the resulting "
+            f"KPUEntry would be self-inconsistent (foundry / process_name "
+            f"/ process_nm copied from the wrong node)"
+        )
 
     return KPUEntry(
         id=cp.id,
