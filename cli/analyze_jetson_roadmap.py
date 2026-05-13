@@ -69,9 +69,11 @@ CSV output includes both metrics so you can pick the framing that
 matches your slide.
 
 Usage:
-  python cli/jetson_roadmap.py --output jetson_roadmap.png
-  python cli/jetson_roadmap.py --output jetson_roadmap.csv
-  python cli/jetson_roadmap.py --precision int8 --output roadmap_int8.png
+  python cli/analyze_jetson_roadmap.py --output jetson_roadmap.png
+  python cli/analyze_jetson_roadmap.py --output jetson_roadmap.csv
+  python cli/analyze_jetson_roadmap.py --output jetson_roadmap.json
+  python cli/analyze_jetson_roadmap.py --output jetson_roadmap.md
+  python cli/analyze_jetson_roadmap.py --precision int8 --output roadmap_int8.png
 """
 
 from __future__ import annotations
@@ -256,34 +258,78 @@ def analyze(
 # Output
 # ---------------------------------------------------------------------------
 
+def _row_dict(r: ProductResult) -> dict:
+    """Per-product dict used by csv/json/md/txt writers. One source of
+    truth so all four formats see identical columns + rounding."""
+    avg_power_w = r.energy_mj / r.latency_ms if r.latency_ms > 0 else 0.0
+    throughput_per_tdp = r.perf_inf_per_s / r.tdp_w if r.tdp_w > 0 else 0.0
+    return {
+        "name": r.product.name,
+        "release_date": r.product.release_date.isoformat(),
+        "architecture": r.product.architecture,
+        "process_node": r.product.process_node,
+        "tdp_w": r.tdp_w,
+        "latency_ms": round(r.latency_ms, 3),
+        "energy_per_inference_mj": round(r.energy_mj, 3),
+        "avg_power_w_during_inference": round(avg_power_w, 2),
+        "perf_inferences_per_sec": round(r.perf_inf_per_s, 1),
+        "energy_efficiency_inferences_per_joule": round(r.intelligence_inf_per_j, 1),
+        "throughput_per_tdp_inferences_per_sec_per_w": round(throughput_per_tdp, 1),
+    }
+
+
+_FIELDS = [
+    "name", "release_date", "architecture", "process_node",
+    "tdp_w", "latency_ms", "energy_per_inference_mj",
+    "avg_power_w_during_inference",
+    "perf_inferences_per_sec",
+    "energy_efficiency_inferences_per_joule",
+    "throughput_per_tdp_inferences_per_sec_per_w",
+]
+
+
 def write_csv(results: List[ProductResult], out: Path) -> None:
-    fields = [
-        "name", "release_date", "architecture", "process_node",
-        "tdp_w", "latency_ms", "energy_per_inference_mj",
-        "avg_power_w_during_inference",
-        "perf_inferences_per_sec",
-        "energy_efficiency_inferences_per_joule",
-        "throughput_per_tdp_inferences_per_sec_per_w",
-    ]
     with out.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
+        writer = csv.DictWriter(f, fieldnames=_FIELDS)
         writer.writeheader()
         for r in results:
-            avg_power_w = r.energy_mj / r.latency_ms if r.latency_ms > 0 else 0.0
-            throughput_per_tdp = r.perf_inf_per_s / r.tdp_w if r.tdp_w > 0 else 0.0
-            writer.writerow({
-                "name": r.product.name,
-                "release_date": r.product.release_date.isoformat(),
-                "architecture": r.product.architecture,
-                "process_node": r.product.process_node,
-                "tdp_w": r.tdp_w,
-                "latency_ms": round(r.latency_ms, 3),
-                "energy_per_inference_mj": round(r.energy_mj, 3),
-                "avg_power_w_during_inference": round(avg_power_w, 2),
-                "perf_inferences_per_sec": round(r.perf_inf_per_s, 1),
-                "energy_efficiency_inferences_per_joule": round(r.intelligence_inf_per_j, 1),
-                "throughput_per_tdp_inferences_per_sec_per_w": round(throughput_per_tdp, 1),
-            })
+            writer.writerow(_row_dict(r))
+    print(f"info: wrote {out}", file=sys.stderr)
+
+
+def write_json(results: List[ProductResult], out: Path) -> None:
+    import json
+    payload = [_row_dict(r) for r in results]
+    out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    print(f"info: wrote {out}", file=sys.stderr)
+
+
+def write_markdown(results: List[ProductResult], out: Path) -> None:
+    headers = _FIELDS
+    rows = [_row_dict(r) for r in results]
+    lines: list[str] = []
+    lines.append("# Jetson industrial roadmap")
+    lines.append("")
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("|" + "|".join("---" for _ in headers) + "|")
+    for row in rows:
+        lines.append("| " + " | ".join(str(row[h]) for h in headers) + " |")
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"info: wrote {out}", file=sys.stderr)
+
+
+def write_text(results: List[ProductResult], out: Path) -> None:
+    rows = [_row_dict(r) for r in results]
+    # Column widths from the longer of header / value
+    widths = {h: max(len(h), max((len(str(r[h])) for r in rows), default=0)) for h in _FIELDS}
+    lines: list[str] = []
+    lines.append("Jetson industrial roadmap")
+    lines.append("")
+    lines.append("  " + "  ".join(h.ljust(widths[h]) for h in _FIELDS))
+    lines.append("  " + "  ".join("-" * widths[h] for h in _FIELDS))
+    for row in rows:
+        lines.append("  " + "  ".join(str(row[h]).ljust(widths[h]) for h in _FIELDS))
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"info: wrote {out}", file=sys.stderr)
 
 
@@ -451,9 +497,17 @@ def main() -> int:
         )
 
     out = Path(args.output)
-    if out.suffix.lower() == ".csv":
+    suffix = out.suffix.lower()
+    if suffix == ".csv":
         write_csv(results, out)
+    elif suffix == ".json":
+        write_json(results, out)
+    elif suffix in {".md", ".markdown"}:
+        write_markdown(results, out)
+    elif suffix in {".txt", ".text"}:
+        write_text(results, out)
     else:
+        # Default: render plot (covers .png, .pdf, .svg, anything matplotlib accepts)
         write_plot(results, out, workload_name, args.precision.upper())
 
     return 0
