@@ -90,6 +90,7 @@ import torch
 import torch.nn as nn
 
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
+from graphs.hardware.mappers.cpu import create_ampere_ampereone_192_mapper
 from graphs.hardware.mappers.gpu import (
     create_jetson_orin_agx_64gb_mapper,
     create_jetson_thor_128gb_mapper,
@@ -131,7 +132,7 @@ def build_workload(width: int) -> tuple[nn.Module, torch.Tensor, str]:
 # ---------------------------------------------------------------------------
 
 @dataclass
-class JetsonProduct:
+class RoadmapProduct:
     """One Jetson industrial SKU on the roadmap.
 
     ``factory`` is ``None`` for SKUs whose silicon doesn't have a
@@ -161,8 +162,8 @@ class JetsonProduct:
 # The four-generation industrial-grade Jetson lineage. Dates / EOLs in
 # the module docstring above. Chart x-axis is year-resolution; the day
 # of the month is illustrative.
-JETSONS: List[JetsonProduct] = [
-    JetsonProduct(
+PRODUCTS: List[RoadmapProduct] = [
+    RoadmapProduct(
         name="Jetson TX2i",
         factory=None,  # Pascal resource model not in catalog yet
         release_date=date(2018, 4, 24),
@@ -172,7 +173,7 @@ JETSONS: List[JetsonProduct] = [
         color="#9467bd",   # tab:purple
         marker="D",
     ),
-    JetsonProduct(
+    RoadmapProduct(
         name="Jetson AGX Xavier Industrial",
         factory=None,  # Volta resource model not in catalog yet
         release_date=date(2021, 7, 1),
@@ -182,7 +183,7 @@ JETSONS: List[JetsonProduct] = [
         color="#ff7f0e",   # tab:orange
         marker="s",
     ),
-    JetsonProduct(
+    RoadmapProduct(
         name="Jetson AGX Orin Industrial",
         factory=create_jetson_orin_agx_64gb_mapper,
         release_date=date(2023, 6, 1),  # COMPUTEX 2023 May 29; mid-2023 GA
@@ -193,7 +194,7 @@ JETSONS: List[JetsonProduct] = [
         marker="o",
         factory_proxy_note="Mapper proxy: AGX Orin 64GB commercial",
     ),
-    JetsonProduct(
+    RoadmapProduct(
         name="IGX T5000",
         factory=create_jetson_thor_128gb_mapper,
         release_date=date(2025, 12, 1),  # IGX T5000 SoM GA Dec 2025
@@ -204,6 +205,23 @@ JETSONS: List[JetsonProduct] = [
         marker="^",
         factory_proxy_note="Mapper proxy: Jetson T5000 commercial (same silicon)",
     ),
+    # Reference data point: a 192-core ARM server CPU sized roughly the
+    # same calendar window as the Orin / Thor industrial generation.
+    # Included to sanity-check what the CPU mapper does with a single
+    # batch=1 Linear -- naively splitting 4M weights across 192 cores
+    # would leave each core with ~21K weights of work, well below any
+    # reasonable per-core efficiency floor; the mapper should resolve
+    # this as a single-core (or few-core) job, not a 192-way fanout.
+    RoadmapProduct(
+        name="Ampere AmpereOne A192",
+        factory=create_ampere_ampereone_192_mapper,
+        release_date=date(2024, 5, 1),  # AmpereOne A192-32X general availability
+        eol_date=date(2031, 5, 1),  # estimate: ~7y server lifecycle (no published EOL)
+        architecture="ARM v8.6+ (192c)",
+        process_node="TSMC 5nm",
+        color="#d62728",   # tab:red
+        marker="v",
+    ),
 ]
 
 
@@ -213,7 +231,7 @@ JETSONS: List[JetsonProduct] = [
 
 @dataclass
 class ProductResult:
-    product: JetsonProduct
+    product: RoadmapProduct
     latency_ms: float
     energy_mj: float
     tdp_w: float
@@ -222,7 +240,7 @@ class ProductResult:
 
 
 def analyze(
-    product: JetsonProduct,
+    product: RoadmapProduct,
     model: nn.Module,
     input_tensor: torch.Tensor,
     precision: Precision,
@@ -354,7 +372,7 @@ def write_plot(
 
     # Title
     fig.suptitle(
-        f"NVIDIA Jetson roadmap @ {precision_label}\n"
+        f"Compute roadmap @ {precision_label}\n"
         f"Workload: {workload_name}",
         fontsize=12, y=0.995,
     )
@@ -409,6 +427,17 @@ def write_plot(
     # roadmap-style timeline regardless of which SKUs are present.
     ax2.set_xlim(date(2020, 1, 1), date(2040, 1, 1))
 
+    # Y-axis: float each bar with whitespace above and below the metric
+    # range. matplotlib's auto-ylim hugs the data tightly with thick
+    # hlines, which makes the top/bottom bars look like they're glued
+    # to the axis. 18% margin gives every bar visual breathing room.
+    for ax, get in ((ax1, lambda r: r.perf_inf_per_s),
+                    (ax2, lambda r: r.intelligence_inf_per_j)):
+        ys = [get(r) for r in results]
+        ymin, ymax = min(ys), max(ys)
+        span = max(ymax - ymin, ymax * 0.1)  # avoid zero-span if all equal
+        ax.set_ylim(ymin - 0.18 * span, ymax + 0.18 * span)
+
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(out, dpi=120, bbox_inches="tight")
     print(f"info: wrote {out}", file=sys.stderr)
@@ -457,8 +486,8 @@ def main() -> int:
     print(file=sys.stderr)
 
     results: List[ProductResult] = []
-    skipped: List[JetsonProduct] = []
-    for p in JETSONS:
+    skipped: List[RoadmapProduct] = []
+    for p in PRODUCTS:
         if p.factory is None:
             skipped.append(p)
             print(
