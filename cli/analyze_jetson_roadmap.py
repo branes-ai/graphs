@@ -360,47 +360,34 @@ def write_plot(
     )
 
     def _draw_lifecycle_bar(ax, r: ProductResult, y: float, with_label: bool) -> None:
-        """Horizontal bar from release_date to EOL at metric y-value.
-
-        Bars communicate the *application window* of each SKU: the period
-        where it can actually be designed in. Filled marker at the
-        release-date end (start of availability), open marker at EOL."""
+        """Thick horizontal bar from release_date to EOL at the metric's
+        y-value. The bar's position on the calendar axis already implies
+        release and EOL, so no start/end markers and no release/EOL text."""
         legend_label = (
-            f"{r.product.short_name()} -- "
+            f"{r.product.name} -- "
             f"{r.product.architecture} on {r.product.process_node}, "
-            f"{r.tdp_w:.0f}W "
-            f"({r.product.release_date.year}-{r.product.eol_date.year})"
+            f"{r.tdp_w:.0f}W"
         ) if with_label else None
         ax.hlines(
             y=y,
             xmin=r.product.release_date,
             xmax=r.product.eol_date,
-            color=r.product.color, linewidth=8, alpha=0.85, zorder=2,
+            color=r.product.color, linewidth=22, alpha=0.85, zorder=2,
             label=legend_label,
         )
-        # Filled marker at release (in-market start)
-        ax.scatter(
-            [r.product.release_date], [y],
-            c=r.product.color, marker=r.product.marker, s=160,
-            edgecolors="black", linewidth=1.0, zorder=3,
-        )
-        # Open marker at EOL (end-of-availability)
-        ax.scatter(
-            [r.product.eol_date], [y],
-            facecolors="white", edgecolors=r.product.color,
-            marker=r.product.marker, s=120, linewidth=1.5, zorder=3,
-        )
+        midpoint = r.product.release_date + (r.product.eol_date - r.product.release_date) / 2
         ax.annotate(
-            r.product.short_name(),
-            xy=(r.product.release_date, y),
-            xytext=(8, 8), textcoords="offset points", fontsize=9,
+            r.product.name,
+            xy=(midpoint, y),
+            ha="center", va="center",
+            color="white", fontsize=10, fontweight="bold", zorder=4,
         )
 
     # Panel 1: throughput
     for r in results:
         _draw_lifecycle_bar(ax1, r, r.perf_inf_per_s, with_label=True)
     ax1.set_ylabel("Sustained throughput (inferences / sec)")
-    ax1.set_title("Performance over availability window: release date -> EOL")
+    ax1.set_title("Performance over availability window")
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc="upper left", fontsize=9, framealpha=0.95)
 
@@ -409,21 +396,18 @@ def write_plot(
         _draw_lifecycle_bar(ax2, r, r.intelligence_inf_per_j, with_label=False)
     ax2.set_ylabel("Energy efficiency (inferences / joule)")
     ax2.set_title("Efficiency over availability window: process + architecture impact")
-    ax2.set_xlabel("Calendar year (filled = release / GA, open = EOL)")
+    ax2.set_xlabel("Calendar year")
     ax2.grid(True, alpha=0.3)
 
-    # X-axis formatting -- yearly major ticks, quarterly minors
-    ax2.xaxis.set_major_locator(mdates.YearLocator())
+    # X-axis: fixed 5-year majors at 2020 / 2025 / ... so the axis reads
+    # as a calendar timeline rather than a tight integer scale.
+    ax2.xaxis.set_major_locator(mdates.YearLocator(base=5, month=1, day=1))
     ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-    ax2.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
+    ax2.xaxis.set_minor_locator(mdates.YearLocator(base=1))
 
-    # Pad the x-axis to cover the full release -> EOL span
-    earliest = min(r.product.release_date for r in results)
-    latest = max(r.product.eol_date for r in results)
-    span_days = (latest - earliest).days
-    pad = max(120, span_days // 30)
-    from datetime import timedelta
-    ax2.set_xlim(earliest - timedelta(days=pad), latest + timedelta(days=pad))
+    # Anchor x-axis to a fixed 2020 -> 2040 window so the bars sit on a
+    # roadmap-style timeline regardless of which SKUs are present.
+    ax2.set_xlim(date(2020, 1, 1), date(2040, 1, 1))
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(out, dpi=120, bbox_inches="tight")
