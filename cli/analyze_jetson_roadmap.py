@@ -90,8 +90,11 @@ import torch
 import torch.nn as nn
 
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
+from graphs.hardware.mappers.accelerators.kpu import (
+    create_kpu_t64_mapper,
+    create_kpu_t256_mapper,
+)
 from graphs.hardware.mappers.cpu import (
-    create_ampere_ampereone_192_mapper,
     create_ampere_ampereone_1core_reference_mapper,
 )
 from graphs.hardware.mappers.gpu import (
@@ -215,31 +218,44 @@ PRODUCTS: List[RoadmapProduct] = [
     # would leave each core with ~21K weights of work, well below any
     # reasonable per-core efficiency floor; the mapper should resolve
     # this as a single-core (or few-core) job, not a 192-way fanout.
-    RoadmapProduct(
-        name="Ampere AmpereOne A192",
-        factory=create_ampere_ampereone_192_mapper,
-        release_date=date(2024, 5, 1),  # AmpereOne A192-32X general availability
-        eol_date=date(2031, 5, 1),  # estimate: ~7y server lifecycle (no published EOL)
-        architecture="ARM v8.6+ (192c)",
-        process_node="TSMC 5nm",
-        color="#d62728",   # tab:red
-        marker="v",
-    ),
-    # Synthetic single-core reference paired with the 192-core SKU above.
-    # Same architectural unit, num_cores=1. Surfaces what realistic
-    # single-core throughput looks like for issue #175 (CPU mapper
-    # batch=1 fanout overcount). The gap between this bar and the
-    # 192-core bar above shows how much of the multi-core scaling is
-    # genuine vs an artifact of LLC capacity scaling with num_cores.
+    # Synthetic single-core ARM reference. Issue #175 demonstrated that
+    # the multi-core AmpereOne SKUs report unreliable throughput on
+    # batch=1 matvec (naive compute fanout across all cores), so the
+    # AmpereOne A192 SKU is intentionally omitted from this chart until
+    # the per-operator concurrency cap lands. The 1-core slice is kept
+    # as a useful per-core ARM data point in its own right.
     RoadmapProduct(
         name="AmpereOne 1-core (synthetic ref)",
         factory=create_ampere_ampereone_1core_reference_mapper,
-        release_date=date(2024, 5, 1),  # paired with the 192-core SKU
+        release_date=date(2024, 5, 1),
         eol_date=date(2031, 5, 1),
         architecture="ARM v8.6+ (1c)",
         process_node="TSMC 5nm",
         color="#8c564b",   # tab:brown
         marker="x",
+    ),
+    # KPU reference SKUs. KPU release dates are forward-looking per the
+    # spec ("KPU release dates will be 2027, 2028, 2029"); placing T64
+    # at 2027 and T256 at 2029 with overlapping availability windows.
+    RoadmapProduct(
+        name="Stillwater KPU-T64",
+        factory=create_kpu_t64_mapper,
+        release_date=date(2027, 1, 1),
+        eol_date=date(2037, 1, 1),
+        architecture="KPU domain-flow (64 tiles)",
+        process_node="TSMC 16FFP",
+        color="#9467bd",   # tab:purple
+        marker="P",
+    ),
+    RoadmapProduct(
+        name="Stillwater KPU-T256",
+        factory=create_kpu_t256_mapper,
+        release_date=date(2029, 1, 1),
+        eol_date=date(2039, 1, 1),
+        architecture="KPU domain-flow (256 tiles)",
+        process_node="TSMC 16FFP",
+        color="#17becf",   # tab:cyan
+        marker="*",
     ),
 ]
 
