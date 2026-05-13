@@ -7,7 +7,7 @@ Coverage:
     real SKUs.
   - GeneratorError on bad inputs (missing process node, bad default
     profile name, empty silicon_bin).
-  - input_spec_from_kpu_entry preserves architect-authored fields.
+  - input_spec_from_compute_product preserves architect-authored fields.
 """
 
 from __future__ import annotations
@@ -17,16 +17,15 @@ import pytest
 from embodied_schemas import (
     KPUSiliconBin,
     load_cooling_solutions,
-    load_kpus,
     load_process_nodes,
 )
 
-from graphs.hardware.compute_product_loader import kpu_entry_to_compute_product
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
     apply_pe_array_override,
     generate_kpu_sku,
-    input_spec_from_kpu_entry,
+    input_spec_from_compute_product,
 )
 from graphs.hardware.sku_validators import (
     Severity,
@@ -42,7 +41,7 @@ load_validators()
 @pytest.fixture(scope="module")
 def catalogs():
     return {
-        "kpus": load_kpus(),
+        "kpus": load_compute_products_unified(),
         "process_nodes": load_process_nodes(),
         "cooling_solutions": load_cooling_solutions(),
     }
@@ -62,7 +61,7 @@ def test_roundtrip_die_within_rounding(sku_id, catalogs):
     """Generator-derived die.transistors_billion and die.die_size_mm2
     must match the YAML's hand-authored values within rounding."""
     original = catalogs["kpus"][sku_id]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
@@ -75,16 +74,16 @@ def test_roundtrip_die_within_rounding(sku_id, catalogs):
     # broken catalog entry, not a generator issue -- fail loudly with
     # a clear message rather than ZeroDivisionError if a future SKU
     # YAML is misauthored.
-    assert original.die.transistors_billion > 0, (
+    assert original.dies[0].transistors_billion > 0, (
         f"{sku_id}: catalog entry has die.transistors_billion <= 0"
     )
-    assert original.die.die_size_mm2 > 0, (
+    assert original.dies[0].die_size_mm2 > 0, (
         f"{sku_id}: catalog entry has die.die_size_mm2 <= 0"
     )
-    assert abs(regen.die.transistors_billion - original.die.transistors_billion) \
-        / original.die.transistors_billion <= 0.02
-    assert abs(regen.die.die_size_mm2 - original.die.die_size_mm2) \
-        / original.die.die_size_mm2 <= 0.02
+    assert abs(regen.dies[0].transistors_billion - original.dies[0].transistors_billion) \
+        / original.dies[0].transistors_billion <= 0.02
+    assert abs(regen.dies[0].die_size_mm2 - original.dies[0].die_size_mm2) \
+        / original.dies[0].die_size_mm2 <= 0.02
 
 
 @pytest.mark.parametrize("sku_id", [
@@ -96,7 +95,7 @@ def test_roundtrip_die_within_rounding(sku_id, catalogs):
 def test_roundtrip_performance_within_rounding(sku_id, catalogs):
     """int8_tops, bf16_tflops, fp32_tflops should round-trip within 1%."""
     original = catalogs["kpus"][sku_id]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
@@ -124,7 +123,7 @@ def test_roundtrip_power_default_tdp_is_derived(sku_id, catalogs):
     0.5W -- the architect tunes (clock, Vdd) per profile so derivation
     lands at the target TDP."""
     original = catalogs["kpus"][sku_id]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
@@ -155,18 +154,16 @@ def test_generated_sku_validates_clean(sku_id, catalogs):
     through the validator framework. WARNINGs are expected (DVFS
     throttle messages)."""
     original = catalogs["kpus"][sku_id]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     regen = generate_kpu_sku(
         spec,
         process_nodes=catalogs["process_nodes"],
     )
-    # generate_kpu_sku still returns a KPUEntry (its own migration is a
-    # later PR). The validator framework now takes ComputeProduct, so
-    # forward-adapt before constructing the context.
-    regen_cp = kpu_entry_to_compute_product(regen)
+    # generate_kpu_sku now returns a ComputeProduct directly; pass to the
+    # ValidatorContext without an adapter.
     ctx = ValidatorContext(
-        sku=regen_cp,
-        process_node=catalogs["process_nodes"][regen.process_node_id],
+        sku=regen,
+        process_node=catalogs["process_nodes"][regen.dies[0].process_node_id],
         cooling_solutions=catalogs["cooling_solutions"],
     )
     findings = default_registry.run_all(ctx)
@@ -184,7 +181,7 @@ def test_generated_sku_validates_clean(sku_id, catalogs):
 def test_unknown_process_node_raises(catalogs):
     """A spec referencing a non-existent process_node_id raises GeneratorError."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original).model_copy(
+    spec = input_spec_from_compute_product(original).model_copy(
         update={"process_node_id": "no_such_node"}
     )
     with pytest.raises(GeneratorError, match="does not resolve"):
@@ -197,7 +194,7 @@ def test_unknown_process_node_raises(catalogs):
 def test_bad_default_profile_name_raises(catalogs):
     """default_thermal_profile must name an existing profile."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original).model_copy(
+    spec = input_spec_from_compute_product(original).model_copy(
         update={"default_thermal_profile": "9000W"}
     )
     with pytest.raises(GeneratorError, match="not in thermal_profiles"):
@@ -210,7 +207,7 @@ def test_bad_default_profile_name_raises(catalogs):
 def test_empty_silicon_bin_raises(catalogs):
     """A spec with an empty silicon_bin (no resolvable blocks) raises."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original).model_copy(
+    spec = input_spec_from_compute_product(original).model_copy(
         update={"silicon_bin": KPUSiliconBin(blocks=[])}
     )
     with pytest.raises(GeneratorError, match="silicon_bin"):
@@ -221,17 +218,31 @@ def test_empty_silicon_bin_raises(catalogs):
 
 
 # ---------------------------------------------------------------------------
-# input_spec_from_kpu_entry preserves architect-authored fields
+# input_spec_from_compute_product preserves architect-authored fields
 # ---------------------------------------------------------------------------
 
 def test_input_spec_preserves_architecture(catalogs):
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original)
-    assert spec.kpu_architecture == original.kpu_architecture
-    assert spec.silicon_bin == original.silicon_bin
+    spec = input_spec_from_compute_product(original)
+    die = original.dies[0]
+    block = die.blocks[0]
+    # KPUArchitecture (legacy spec field) is structurally identical to
+    # KPUBlock (new schema): same total_tiles, multi_precision_alu,
+    # tiles, noc, memory.
+    assert spec.kpu_architecture.total_tiles == block.total_tiles
+    assert spec.kpu_architecture.tiles == block.tiles
+    assert spec.kpu_architecture.noc == block.noc
+    assert spec.kpu_architecture.memory == block.memory
+    assert spec.silicon_bin == die.silicon_bin
     assert spec.thermal_profiles == original.power.thermal_profiles
-    assert spec.market == original.market
-    assert spec.clocks == original.clocks
+    # KPUMarket has is_discontinued; ComputeProduct.market is the new
+    # Market (no is_discontinued -- it lives in cp.lifecycle). Compare
+    # the fields that DO overlap.
+    assert spec.market.target_market == original.market.target_market
+    assert spec.market.product_family == original.market.product_family
+    assert spec.market.model_tier == original.market.model_tier
+    assert spec.market.is_available == original.market.is_available
+    assert spec.clocks == die.clocks
 
 
 def test_input_spec_does_not_carry_die_or_perf_rollups(catalogs):
@@ -239,7 +250,7 @@ def test_input_spec_does_not_carry_die_or_perf_rollups(catalogs):
     field is in KPUEntry but not in KPUSKUInputSpec, the spec is
     correctly minimal."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     spec_fields = set(type(spec).model_fields)
     assert "die" not in spec_fields
     assert "performance" not in spec_fields
@@ -253,21 +264,21 @@ def test_input_spec_does_not_carry_die_or_perf_rollups(catalogs):
 def test_pe_array_override_is_no_op_when_dims_unchanged(catalogs):
     """Override to the spec's existing PE-array dims must round-trip."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     rows = spec.kpu_architecture.tiles[0].pe_array_rows
     cols = spec.kpu_architecture.tiles[0].pe_array_cols
     overridden = apply_pe_array_override(spec, rows, cols)
     g_orig = generate_kpu_sku(spec, process_nodes=catalogs["process_nodes"])
     g_over = generate_kpu_sku(overridden, process_nodes=catalogs["process_nodes"])
-    assert g_orig.die.die_size_mm2 == g_over.die.die_size_mm2
-    assert g_orig.die.transistors_billion == g_over.die.transistors_billion
+    assert g_orig.dies[0].die_size_mm2 == g_over.dies[0].die_size_mm2
+    assert g_orig.dies[0].transistors_billion == g_over.dies[0].transistors_billion
     assert g_orig.performance == g_over.performance
 
 
 def test_pe_array_override_preserves_ops_per_pe_ratio(catalogs):
     """Scaling PE-array size must keep ops/PE/clock constant."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     overridden = apply_pe_array_override(spec, 16, 16)
     for orig_t, new_t in zip(spec.kpu_architecture.tiles, overridden.kpu_architecture.tiles):
         old_pes = orig_t.pe_array_rows * orig_t.pe_array_cols
@@ -281,18 +292,18 @@ def test_pe_array_override_scales_die_area(catalogs):
     """Halving PE-array dims should reduce die area but not below the
     fixed (IO/control/memory_phys) floor."""
     original = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(original)
+    spec = input_spec_from_compute_product(original)
     g_full = generate_kpu_sku(spec, process_nodes=catalogs["process_nodes"])
     g_half = generate_kpu_sku(
         apply_pe_array_override(spec, 16, 16),
         process_nodes=catalogs["process_nodes"],
     )
-    assert g_half.die.die_size_mm2 < g_full.die.die_size_mm2
+    assert g_half.dies[0].die_size_mm2 < g_full.dies[0].die_size_mm2
     assert g_half.performance.int8_tops < g_full.performance.int8_tops
 
 
 def test_pe_array_override_rejects_non_positive_dims(catalogs):
-    spec = input_spec_from_kpu_entry(catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"])
+    spec = input_spec_from_compute_product(catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"])
     with pytest.raises(ValueError):
         apply_pe_array_override(spec, 0, 32)
     with pytest.raises(ValueError):
@@ -310,8 +321,8 @@ def test_tdp_scales_quadratically_with_vdd(catalogs):
     """Dropping Vdd by sqrt(2) should halve the dynamic power; total
     TDP drops by half the dynamic share."""
     sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(sku)
-    node = catalogs["process_nodes"][sku.process_node_id]
+    spec = input_spec_from_compute_product(sku)
+    node = catalogs["process_nodes"][sku.dies[0].process_node_id]
     # Take the default profile and run with two Vdds: nominal and nominal/sqrt(2).
     base = sku.power.thermal_profiles[1]  # 30W profile
     high_v = base.model_copy(update={"vdd_v": 0.80})  # ~ Vnom
@@ -326,8 +337,8 @@ def test_tdp_scales_quadratically_with_vdd(catalogs):
 def test_tdp_scales_linearly_with_clock(catalogs):
     """At fixed Vdd, doubling clock doubles dynamic power."""
     sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(sku)
-    node = catalogs["process_nodes"][sku.process_node_id]
+    spec = input_spec_from_compute_product(sku)
+    node = catalogs["process_nodes"][sku.dies[0].process_node_id]
     base = sku.power.thermal_profiles[1]
     p_low = base.model_copy(update={"clock_mhz": 500.0, "vdd_v": 0.80})
     p_high = base.model_copy(update={"clock_mhz": 1000.0, "vdd_v": 0.80})
@@ -340,8 +351,8 @@ def test_activity_factor_scales_dynamic(catalogs):
     """Per-profile activity_factor=0.5 should halve dynamic power
     (it's a multiplier on the workload duty cycle)."""
     sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(sku)
-    node = catalogs["process_nodes"][sku.process_node_id]
+    spec = input_spec_from_compute_product(sku)
+    node = catalogs["process_nodes"][sku.dies[0].process_node_id]
     base = sku.power.thermal_profiles[1]
     full = base.model_copy(update={"activity_factor": 1.0})
     half = base.model_copy(update={"activity_factor": 0.5})
@@ -356,8 +367,8 @@ def test_pe_array_sweep_tdp_monotonic(catalogs):
     strictly increase with PE count -- the whole point of programmable
     PE arrays for roadmap generation."""
     sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    spec = input_spec_from_kpu_entry(sku)
-    node = catalogs["process_nodes"][sku.process_node_id]
+    spec = input_spec_from_compute_product(sku)
+    node = catalogs["process_nodes"][sku.dies[0].process_node_id]
     base = sku.power.thermal_profiles[1]
     sweep = [(16, 16), (24, 24), (32, 32), (40, 40)]
     tdps = []
