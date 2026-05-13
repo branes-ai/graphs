@@ -407,84 +407,209 @@ def write_plot(
     workload_name: str,
     precision_label: str,
 ) -> None:
+    """Render the roadmap chart with a broken-axis treatment per panel.
+
+    The chart compares conventional silicon (Jetsons + ARM CPU) against
+    a KPU. The KPU's metrics on this workload are >100x the conventional
+    bars, which collapses the conventional band onto the axis line if
+    plotted on a single linear y-axis. To keep both regimes visible
+    *and* preserve linear semantics within each regime, each metric
+    panel is split into two stacked sub-axes:
+
+      * upper sub-axis: zoomed onto the high-band metric (KPU)
+      * lower sub-axis: zoomed onto the low-band metric (others)
+
+    Diagonal slash markers between the sub-axes indicate the y-axis
+    discontinuity. Bars are drawn on whichever sub-axis their value
+    falls in (bars in the wrong band sit outside ylim and aren't
+    rendered).
+    """
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
     results = sorted(results, key=lambda r: r.product.release_date)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8.5), sharex=True)
+    # Partition the products into a high-band (>10x the next-largest
+    # value) and the low-band on each metric. In practice the partition
+    # is the same for both metrics here, but we compute it per metric
+    # so the chart degrades gracefully if we add SKUs later.
+    def _partition(values: List[float]) -> tuple[float, float, float]:
+        """Return (low_band_max, high_band_min, gap_factor). Gap factor
+        > 10 means a broken axis is worth it; otherwise we'd just use
+        one axis. Caller decides what to do with the verdict."""
+        s = sorted(values)
+        # Find the largest gap between adjacent sorted values.
+        gaps = [(s[i+1] / max(s[i], 1e-9), i) for i in range(len(s) - 1)]
+        ratio, idx = max(gaps, key=lambda t: t[0])
+        return s[idx], s[idx + 1], ratio
 
-    # Title
+    perf_vals = [r.perf_inf_per_s for r in results]
+    eff_vals = [r.intelligence_inf_per_j for r in results]
+    perf_low_max, perf_high_min, perf_gap = _partition(perf_vals)
+    eff_low_max, eff_high_min, eff_gap = _partition(eff_vals)
+
+    # gridspec: 5 rows = perf-top / perf-bot / SPACER / eff-top /
+    # eff-bot. The middle row is empty so the Performance and Efficiency
+    # panels don't run into each other; without it the Efficiency title
+    # sits flush against the Performance lower band. The high-band rows
+    # get less vertical space because they carry one bar each.
+    fig = plt.figure(figsize=(11, 10.5))
+    gs = fig.add_gridspec(
+        5, 1,
+        height_ratios=[1.2, 2.6, 0.5, 1.2, 2.6],
+        hspace=0.06,
+    )
+    ax_perf_top = fig.add_subplot(gs[0])
+    ax_perf_bot = fig.add_subplot(gs[1], sharex=ax_perf_top)
+    ax_eff_top = fig.add_subplot(gs[3], sharex=ax_perf_top)
+    ax_eff_bot = fig.add_subplot(gs[4], sharex=ax_perf_top)
+
     fig.suptitle(
         f"Compute roadmap @ {precision_label}\n"
         f"Workload: {workload_name}",
         fontsize=12, y=0.995,
     )
 
-    def _draw_lifecycle_bar(ax, r: ProductResult, y: float, with_label: bool) -> None:
-        """Thick horizontal bar from release_date to EOL at the metric's
-        y-value. The bar's position on the calendar axis already implies
-        release and EOL, so no start/end markers and no release/EOL text."""
+    def _draw_lifecycle_bar(axes: tuple, r: ProductResult, y: float,
+                            with_label: bool) -> None:
+        """Draw the bar on BOTH sub-axes; ylim clips to the right band."""
         legend_label = (
             f"{r.product.name} -- "
             f"{r.product.architecture} on {r.product.process_node}, "
             f"{r.tdp_w:.0f}W"
         ) if with_label else None
-        ax.hlines(
-            y=y,
-            xmin=r.product.release_date,
-            xmax=r.product.eol_date,
-            color=r.product.color, linewidth=22, alpha=0.85, zorder=2,
-            label=legend_label,
-        )
-        midpoint = r.product.release_date + (r.product.eol_date - r.product.release_date) / 2
-        ax.annotate(
-            r.product.name,
-            xy=(midpoint, y),
-            ha="center", va="center",
-            color="white", fontsize=10, fontweight="bold", zorder=4,
-        )
+        midpoint = (r.product.release_date
+                    + (r.product.eol_date - r.product.release_date) / 2)
+        for i, ax in enumerate(axes):
+            ax.hlines(
+                y=y,
+                xmin=r.product.release_date,
+                xmax=r.product.eol_date,
+                color=r.product.color, linewidth=22, alpha=0.85, zorder=2,
+                # Only register the legend entry on one sub-axis to
+                # avoid duplicate entries.
+                label=legend_label if i == 0 else None,
+            )
+            ax.annotate(
+                r.product.name,
+                xy=(midpoint, y),
+                ha="center", va="center",
+                color="white", fontsize=10, fontweight="bold", zorder=4,
+            )
 
-    # Panel 1: throughput
+    # Draw bars
     for r in results:
-        _draw_lifecycle_bar(ax1, r, r.perf_inf_per_s, with_label=True)
-    ax1.set_ylabel("Sustained throughput (inferences / sec)")
-    ax1.set_title("Performance over availability window")
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(loc="upper left", fontsize=9, framealpha=0.95)
+        _draw_lifecycle_bar((ax_perf_top, ax_perf_bot), r,
+                            r.perf_inf_per_s, with_label=True)
+        _draw_lifecycle_bar((ax_eff_top, ax_eff_bot), r,
+                            r.intelligence_inf_per_j, with_label=False)
 
-    # Panel 2: energy efficiency
-    for r in results:
-        _draw_lifecycle_bar(ax2, r, r.intelligence_inf_per_j, with_label=False)
-    ax2.set_ylabel("Energy efficiency (inferences / joule)")
-    ax2.set_title("Efficiency over availability window: process + architecture impact")
-    ax2.set_xlabel("Calendar year")
-    ax2.grid(True, alpha=0.3)
+    # Y-axis bands. 18% margin around each cluster so bars float in
+    # whitespace instead of touching the axis edges.
+    def _band_ylim(low: float, high: float) -> tuple[float, float]:
+        span = max(high - low, high * 0.1)
+        return (low - 0.18 * span, high + 0.18 * span)
 
-    # X-axis: fixed 5-year majors at 2020 / 2025 / ... so the axis reads
-    # as a calendar timeline rather than a tight integer scale.
-    ax2.xaxis.set_major_locator(mdates.YearLocator(base=5, month=1, day=1))
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-    ax2.xaxis.set_minor_locator(mdates.YearLocator(base=1))
+    # Performance: low band covers everyone <= perf_low_max, high band
+    # covers KPU value(s) >= perf_high_min.
+    perf_lows = [v for v in perf_vals if v <= perf_low_max]
+    perf_highs = [v for v in perf_vals if v >= perf_high_min]
+    ax_perf_bot.set_ylim(*_band_ylim(min(perf_lows), max(perf_lows)))
+    ax_perf_top.set_ylim(*_band_ylim(min(perf_highs), max(perf_highs)))
 
-    # Anchor x-axis to a fixed 2020 -> 2040 window so the bars sit on a
-    # roadmap-style timeline regardless of which SKUs are present.
-    ax2.set_xlim(date(2020, 1, 1), date(2040, 1, 1))
+    eff_lows = [v for v in eff_vals if v <= eff_low_max]
+    eff_highs = [v for v in eff_vals if v >= eff_high_min]
+    ax_eff_bot.set_ylim(*_band_ylim(min(eff_lows), max(eff_lows)))
+    ax_eff_top.set_ylim(*_band_ylim(min(eff_highs), max(eff_highs)))
 
-    # Y-axis: float each bar with whitespace above and below the metric
-    # range. matplotlib's auto-ylim hugs the data tightly with thick
-    # hlines, which makes the top/bottom bars look like they're glued
-    # to the axis. 18% margin gives every bar visual breathing room.
-    for ax, get in ((ax1, lambda r: r.perf_inf_per_s),
-                    (ax2, lambda r: r.intelligence_inf_per_j)):
-        ys = [get(r) for r in results]
-        ymin, ymax = min(ys), max(ys)
-        span = max(ymax - ymin, ymax * 0.1)  # avoid zero-span if all equal
-        ax.set_ylim(ymin - 0.18 * span, ymax + 0.18 * span)
+    # Hide spines / ticks at the broken-axis seam, then add diagonal
+    # slash markers across the seam so the discontinuity reads visually.
+    def _add_break(top_ax, bot_ax) -> None:
+        top_ax.spines["bottom"].set_visible(False)
+        bot_ax.spines["top"].set_visible(False)
+        top_ax.tick_params(axis="x", which="both",
+                           bottom=False, labelbottom=False)
+        # Diagonal "wiggle" -- short slashes at the break boundary on
+        # both sub-axes' left and right spines.
+        d = 0.012
+        kw = dict(color="black", clip_on=False, linewidth=1.2)
+        top_ax.plot((-d, +d), (-d, +d),
+                    transform=top_ax.transAxes, **kw)
+        top_ax.plot((1 - d, 1 + d), (-d, +d),
+                    transform=top_ax.transAxes, **kw)
+        bot_ax.plot((-d, +d), (1 - d, 1 + d),
+                    transform=bot_ax.transAxes, **kw)
+        bot_ax.plot((1 - d, 1 + d), (1 - d, 1 + d),
+                    transform=bot_ax.transAxes, **kw)
+
+    _add_break(ax_perf_top, ax_perf_bot)
+    _add_break(ax_eff_top, ax_eff_bot)
+
+    # Hide the in-between xticks on the inner axes (perf_bot and
+    # eff_top); only the bottom-most axis carries the year labels.
+    ax_perf_bot.tick_params(axis="x", which="both",
+                            bottom=False, labelbottom=False)
+    ax_eff_top.tick_params(axis="x", which="both",
+                           bottom=False, labelbottom=False)
+
+    # Titles, labels, grid
+    ax_perf_top.set_title("Performance over availability window")
+    ax_eff_top.set_title("Efficiency over availability window: "
+                         "process + architecture impact")
+    # Y-labels span the broken pair: anchor on the bottom axis with
+    # adjusted y position so they read as one label per panel.
+    ax_perf_bot.set_ylabel("Sustained throughput (inferences / sec)",
+                           y=0.7)
+    ax_eff_bot.set_ylabel("Energy efficiency (inferences / joule)",
+                          y=0.7)
+    ax_eff_bot.set_xlabel("Calendar year")
+    for ax in (ax_perf_top, ax_perf_bot, ax_eff_top, ax_eff_bot):
+        ax.grid(True, alpha=0.3)
+    # Place the legend BELOW the chart in a 2-column row so it never
+    # collides with bars or the broken-axis seam. Anchored in figure
+    # coordinates so it floats below ax_eff_bot regardless of layout.
+    handles, labels = ax_perf_top.get_legend_handles_labels()
+    fig.legend(
+        handles, labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.02),
+        bbox_transform=fig.transFigure,
+        fontsize=9, framealpha=0.95, ncol=2,
+    )
+
+    # X-axis: fixed 5-year majors so the axis reads as a calendar
+    # timeline. Anchored to 2020 -> 2040.
+    ax_eff_bot.xaxis.set_major_locator(
+        mdates.YearLocator(base=5, month=1, day=1))
+    ax_eff_bot.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax_eff_bot.xaxis.set_minor_locator(mdates.YearLocator(base=1))
+    ax_eff_bot.set_xlim(date(2020, 1, 1), date(2040, 1, 1))
+
+    # Replace the matplotlib "1e6" exponent badge on the top sub-axes
+    # with an inline "M" suffix on each tick label -- reads more
+    # naturally on a perf chart and avoids the exponent floating into
+    # the chart area.
+    from matplotlib.ticker import FuncFormatter
+
+    def _abbrev(value: float, _pos) -> str:
+        if abs(value) >= 1e6:
+            return f"{value / 1e6:.2f}M"
+        if abs(value) >= 100e3:
+            return f"{value / 1e3:.0f}K"
+        if abs(value) >= 1e3:
+            # Keep one decimal under 100K so adjacent ticks like
+            # 23.5K / 24.0K / 24.5K don't all collapse to "24K".
+            return f"{value / 1e3:.1f}K"
+        return f"{value:.0f}"
+
+    for ax in (ax_perf_top, ax_perf_bot, ax_eff_top, ax_eff_bot):
+        ax.yaxis.set_major_formatter(FuncFormatter(_abbrev))
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(out, dpi=120, bbox_inches="tight")
     print(f"info: wrote {out}", file=sys.stderr)
+    print(f"info: perf gap = {perf_gap:.1f}x, "
+          f"eff gap = {eff_gap:.1f}x", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
