@@ -49,6 +49,7 @@ from .kpu_power_model import (
     WorkloadAssumption,
     compute_thermal_profile_tdp_w,
 )
+from .compute_product_loader import kpu_entry_to_compute_product
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import (
     SiliconMathError,
@@ -155,13 +156,16 @@ def generate_kpu_sku(
         datasheet_url=spec.datasheet_url,
         last_updated=spec.last_updated,
     )
+    # Forward-adapt to ComputeProduct: silicon_math has migrated. Bridge
+    # until kpu_sku_generator itself migrates in a follow-up PR.
+    placeholder_cp = kpu_entry_to_compute_product(placeholder_sku)
 
     total_area = 0.0
     total_mtx = 0.0
     unresolved: list[str] = []
     for block in spec.silicon_bin.blocks:
         try:
-            ba = resolve_block_area(block, placeholder_sku, node)
+            ba = resolve_block_area(block, placeholder_cp, node)
         except SiliconMathError as exc:
             unresolved.append(f"{block.name}: {exc}")
             continue
@@ -226,7 +230,7 @@ def generate_kpu_sku(
     )
     max_w = max(p.tdp_watts for p in derived_profiles)
     min_w = min(p.tdp_watts for p in derived_profiles)
-    leakage_w = total_chip_leakage_w(placeholder_sku, node)
+    leakage_w = total_chip_leakage_w(placeholder_cp, node)
     idle_w = round(leakage_w, 2) if leakage_w > 0 else None
 
     power = KPUPowerSpec(

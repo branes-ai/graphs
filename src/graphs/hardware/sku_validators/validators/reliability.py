@@ -172,7 +172,7 @@ class Electromigration:
         # Compute total area of resolvable blocks for the proportional
         # current-distribution model.
         total_area_mm2 = 0.0
-        for block in sku.silicon_bin.blocks:
+        for block in sku.dies[0].silicon_bin.blocks:
             try:
                 total_area_mm2 += resolve_block_area(block, sku, node).area_mm2
             except SiliconMathError:
@@ -180,7 +180,7 @@ class Electromigration:
         if total_area_mm2 <= 0:
             return findings
 
-        for block in sku.silicon_bin.blocks:
+        for block in sku.dies[0].silicon_bin.blocks:
             try:
                 ba = resolve_block_area(block, sku, node)
             except SiliconMathError:

@@ -21,6 +21,7 @@ from embodied_schemas import (
     load_process_nodes,
 )
 
+from graphs.hardware.compute_product_loader import kpu_entry_to_compute_product
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
     apply_pe_array_override,
@@ -159,8 +160,12 @@ def test_generated_sku_validates_clean(sku_id, catalogs):
         spec,
         process_nodes=catalogs["process_nodes"],
     )
+    # generate_kpu_sku still returns a KPUEntry (its own migration is a
+    # later PR). The validator framework now takes ComputeProduct, so
+    # forward-adapt before constructing the context.
+    regen_cp = kpu_entry_to_compute_product(regen)
     ctx = ValidatorContext(
-        sku=regen,
+        sku=regen_cp,
         process_node=catalogs["process_nodes"][regen.process_node_id],
         cooling_solutions=catalogs["cooling_solutions"],
     )

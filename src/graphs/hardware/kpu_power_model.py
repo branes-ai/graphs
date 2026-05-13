@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from embodied_schemas.kpu import KPUEntry, KPUThermalProfile
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
+from .compute_product_loader import kpu_entry_to_compute_product
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import total_chip_leakage_w
 
@@ -164,7 +165,10 @@ def compute_thermal_profile_tdp_breakdown(
     # silicon_bin (it expects a sized chip). The transistor / die fields
     # don't affect leakage math -- only the per-block area does.
     placeholder = _placeholder_entry(spec, profile, node)
-    leakage_w = max(0.0, total_chip_leakage_w(placeholder, node))
+    # Forward-adapt to ComputeProduct: silicon_math has migrated. Bridge
+    # until kpu_power_model itself migrates in a follow-up PR.
+    placeholder_cp = kpu_entry_to_compute_product(placeholder)
+    leakage_w = max(0.0, total_chip_leakage_w(placeholder_cp, node))
 
     # Voltage scaling: dynamic power scales by (V/Vnom)^2. Defaults to
     # nominal_vdd if the profile doesn't pick a Vdd. This is what spreads

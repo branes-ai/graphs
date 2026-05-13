@@ -45,6 +45,7 @@ _logger = logging.getLogger(__name__)
 from embodied_schemas.kpu import KPUEntry, KPUTileSpec
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
+from .compute_product_loader import kpu_entry_to_compute_product
 from .sku_validators.silicon_math import (
     SiliconMathError,
     resolve_block_area,
@@ -211,9 +212,13 @@ def _classify_silicon_bin_blocks(
     chip_l3_area = 0.0
     other_blocks: list[tuple[str, float, CircuitClass]] = []
 
+    # Forward-adapt to ComputeProduct: silicon_math has migrated to the
+    # unified schema, but silicon_floorplan still takes KPUEntry from its
+    # callers. Bridge until silicon_floorplan migrates in a follow-up PR.
+    cp = kpu_entry_to_compute_product(sku)
     for block in sku.silicon_bin.blocks:
         try:
-            ba = resolve_block_area(block, sku, node)
+            ba = resolve_block_area(block, cp, node)
         except SiliconMathError as exc:
             # Don't silently drop -- log so the missing area surfaces in
             # the floorplan output, but keep going so a single bad
