@@ -384,9 +384,32 @@ def input_spec_from_compute_product(cp: ComputeProduct) -> KPUSKUInputSpec:
     Translates the ComputeProduct's per-die structure back to the
     spec's flat shape. v1 KPU monolithic products are assumed (one Die,
     one KPUBlock); the input spec doesn't model multi-die yet.
+
+    Raises ``GeneratorError`` for shape mismatches (empty dies, empty
+    blocks, non-KPUBlock first block). The Pydantic schema enforces
+    dies/blocks min_length=1 at construction, but instances built via
+    ``model_construct()`` bypass validation -- the explicit checks
+    surface the failure with a clear message rather than IndexError /
+    AttributeError.
     """
+    if not cp.dies:
+        raise GeneratorError(
+            f"input_spec_from_compute_product: ComputeProduct {cp.id!r} "
+            f"has no dies; expected one Die for v1 KPU monolithic"
+        )
     die = cp.dies[0]
+    if not die.blocks:
+        raise GeneratorError(
+            f"input_spec_from_compute_product: ComputeProduct {cp.id!r} "
+            f"die {die.die_id!r} has no blocks; expected one KPUBlock"
+        )
     block = die.blocks[0]
+    if not isinstance(block, KPUBlock):
+        raise GeneratorError(
+            f"input_spec_from_compute_product: ComputeProduct {cp.id!r} "
+            f"die {die.die_id!r} first block is "
+            f"{type(block).__name__}, expected KPUBlock"
+        )
     return KPUSKUInputSpec(
         id=cp.id,
         name=cp.name,
