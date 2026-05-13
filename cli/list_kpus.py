@@ -37,8 +37,13 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
-from embodied_schemas import load_kpus, load_process_nodes, load_cooling_solutions
-from embodied_schemas.kpu import KPUEntry
+from embodied_schemas import (
+    ComputeProduct,
+    load_cooling_solutions,
+    load_process_nodes,
+)
+
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 
 
 @dataclass
@@ -65,36 +70,40 @@ class KPURow:
 
 
 def _build_row(
-    e: KPUEntry,
+    cp: ComputeProduct,
     nodes: Dict[str, Any],
     sols: Dict[str, Any],
 ) -> KPURow:
-    total_pes = sum(t.total_pes for t in e.kpu_architecture.tiles)
+    # v1 KPU monolithic: one Die, one KPUBlock. Future chiplet KPUs will
+    # need to walk dies/blocks; bridge accordingly when that lands.
+    die = cp.dies[0]
+    block = die.blocks[0]
+    total_pes = sum(t.total_pes for t in block.tiles)
     cooling_unresolved = [
         tp.cooling_solution_id
-        for tp in e.power.thermal_profiles
+        for tp in cp.power.thermal_profiles
         if tp.cooling_solution_id not in sols
     ]
-    node = nodes.get(e.process_node_id)
+    node = nodes.get(die.process_node_id)
     return KPURow(
-        id=e.id,
-        name=e.name,
-        vendor=e.vendor,
-        process_node_id=e.process_node_id,
+        id=cp.id,
+        name=cp.name,
+        vendor=cp.vendor,
+        process_node_id=die.process_node_id,
         process_node_resolved=node is not None,
         foundry=node.foundry.value if node is not None else "",
         node_nm=node.node_nm if node is not None else 0,
-        total_tiles=e.kpu_architecture.total_tiles,
+        total_tiles=block.total_tiles,
         total_pes=total_pes,
-        default_tdp_w=e.power.tdp_watts,
-        int8_tops=e.performance.int8_tops,
-        bf16_tflops=e.performance.bf16_tflops,
-        die_size_mm2=e.die.die_size_mm2,
-        transistors_billion=e.die.transistors_billion,
-        memory_gb=e.kpu_architecture.memory.memory_size_gb,
-        memory_bandwidth_gbps=e.kpu_architecture.memory.memory_bandwidth_gbps,
-        target_market=e.market.target_market,
-        model_tier=e.market.model_tier,
+        default_tdp_w=cp.power.tdp_watts,
+        int8_tops=cp.performance.int8_tops,
+        bf16_tflops=cp.performance.bf16_tflops,
+        die_size_mm2=die.die_size_mm2,
+        transistors_billion=die.transistors_billion,
+        memory_gb=block.memory.memory_size_gb,
+        memory_bandwidth_gbps=block.memory.memory_bandwidth_gbps,
+        target_market=cp.market.target_market,
+        model_tier=cp.market.model_tier,
         cooling_unresolved=cooling_unresolved,
     )
 
@@ -290,14 +299,14 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        kpus = load_kpus()
+        cps = load_compute_products_unified()
         nodes = load_process_nodes()
         sols = load_cooling_solutions()
     except Exception as exc:
         print(f"error: failed to load catalog: {exc}", file=sys.stderr)
         return 1
 
-    rows = [_build_row(k, nodes, sols) for k in kpus.values()]
+    rows = [_build_row(cp, nodes, sols) for cp in cps.values()]
     rows = _filter_rows(
         rows, args.vendor, args.target_market,
         args.foundry, args.node_nm, args.library,
