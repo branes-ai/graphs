@@ -1,32 +1,72 @@
 #!/usr/bin/env python
-"""NVIDIA Jetson roadmap visualization.
+"""NVIDIA Jetson **industrial** roadmap visualization (embodied / industrial AI).
 
-Plots sustained throughput and intelligence-per-Watt for a single
-``Linear(D, D) + bias + atan(.)`` workload at batch=1, across the three
-relevant Jetson products in chronological release order:
+Targets the four-generation industrial-grade Jetson lineage. Verified
+2026-05-13:
 
-  * Jetson AGX Orin 64GB    (Mar 2022 announce, 2022-Q2 GA, Ampere on Samsung 8nm)
-  * Jetson Orin NX 16GB     (Sep 2022 announce, 2023-Q1 GA, Ampere on Samsung 8nm)
-  * Jetson AGX Thor 128GB   (GTC 2024 announce, 2025 GA, Blackwell on TSMC 4NP)
+  | SKU                          | GPU arch  | Process     | GA date         | EOL                       |
+  |------------------------------|-----------|-------------|-----------------|---------------------------|
+  | Jetson TX2i                  | Pascal    | TSMC 16FF   | Apr 2018        | LTB Jul 2026 / LTS Jul 2027 |
+  | Jetson AGX Xavier Industrial | Volta     | TSMC 12FFN  | Jul 2021        | LTB Jul 2026 / LTS Jul 2027 |
+  | Jetson AGX Orin Industrial   | Ampere    | Samsung 8nm | Mid 2023        | Active (lifecycle through Jul 2033) |
+  | IGX T5000 (Thor industrial)  | Blackwell | TSMC 4NP    | Dec 2025        | Active (lifecycle through Aug 2035) |
 
-Workload: a ``Linear(2048, 2048)`` (4M weights = 4 MB at INT8) plus the
-bias add and an elementwise atan activation. At batch=1 this is solidly
-memory-bandwidth bound on every Jetson (the matrix has to stream from
-LPDDR; on-chip L2 is 2-8 MB and the GPU L2 isn't modeled as a coherent
-weight pool -- per-launch L2 set-aside on Hopper+ isn't covered yet). The
-operator fuses into one subgraph so the 2K-element activation vectors
-stay in registers / shared memory; only the weight matrix and the
-external input/output activations cross the DRAM boundary.
+Sources:
+  TX2i:                  https://forums.developer.nvidia.com/t/jetson-product-eol-updates/370052
+  AGX Xavier Industrial: https://blogs.nvidia.com/blog/jetson-agx-xavier-industrial-use-ai/
+  AGX Orin Industrial:   https://developer.nvidia.com/blog/step-into-the-future-of-industrial-grade-edge-ai-with-nvidia-jetson-agx-orin-industrial
+  IGX T5000:             https://blogs.nvidia.com/blog/igx-thor-processor-physical-ai-industrial-medical-edge/
+  Jetson T5000 (commercial Thor module that IGX T5000 derives from):
+                         https://nvidianews.nvidia.com/news/nvidia-blackwell-powered-jetson-thor-now-available-accelerating-the-age-of-general-robotics
+
+Caveats worth keeping in mind for any slide based on this output:
+
+  1. **Thor industrial branding is split.** NVIDIA does not yet ship a
+     SKU literally named "Jetson AGX Thor Industrial." The industrial /
+     medical-grade Blackwell-Thor platform is **IGX Thor** (IGX T5000
+     SoM, IGX T7000 board kit). The commercial **Jetson T5000** module
+     (Aug 2025 GA) is the same silicon but is NOT industrial-grade
+     (no extended-temp / ECC / functional-safety guarantees). DRIVE AGX
+     Thor (automotive) is dev-kit-only.
+  2. **TX2i / Xavier Industrial EOLs were both accelerated** in an April
+     2026 PCN due to LPDDR4 manufacturer EOL. NVIDIA's lifecycle page
+     may still show stale "available through 2031" entries -- treat the
+     forum PCN as authoritative.
+  3. **No resource models exist in the graphs/ catalog for TX2 or Xavier
+     yet.** This script lists those SKUs as the slide's *intent* but
+     skips them at analysis time with a console warning. Adding TX2
+     (Pascal, 16nm) + Xavier (Volta, 12nm) resource models is tracked
+     separately. The two we do have are mapped via the commercial-grade
+     mapper as a proxy for the industrial sibling -- same silicon,
+     different binning / temp grade / package; performance and energy
+     per workload are essentially identical.
+
+Workload: ``Linear(2048, 2048) + bias + atan`` at batch=1.
+4M weights = 4 MB at INT8. At batch=1 this is solidly memory-bandwidth
+bound on every Jetson (the matrix has to stream from LPDDR; on-chip L2
+is 2-8 MB and the GPU L2 isn't modeled as a coherent weight pool --
+per-launch L2 set-aside on Hopper+ isn't covered here). The operator
+fuses into one subgraph so the 2K-element activation vectors stay in
+registers / shared memory; only the weight matrix and the external
+input/output activations cross the DRAM boundary.
 
 Two metrics are plotted vs release date:
 
   * **Sustained throughput** (inferences / sec) -- 1 / latency
-  * **Intelligence per Watt** (inferences / joule) -- 1 / energy_per_inference
+  * **Energy efficiency** (inferences / joule) -- 1 / energy_per_inference
 
 Both are derived from the existing roofline + energy model
 (``UnifiedAnalyzer``); no measurement here. Each chip is analyzed with
 its mapper's default thermal profile (the closest thing to "stock"
 behavior) and the per-chip TDP appears in the legend for context.
+
+**Note on terminology**: "intelligence per Watt" in NVIDIA's marketing is
+``throughput / TDP`` (industry convention). That's a different number
+from ``inferences / joule`` because the chip rarely runs at its full TDP
+on a small workload; the model here estimates average power as
+``energy / latency``, which for this workload is well below TDP. The
+CSV output includes both metrics so you can pick the framing that
+matches your slide.
 
 Usage:
   python cli/jetson_roadmap.py --output jetson_roadmap.png
@@ -50,7 +90,6 @@ import torch.nn as nn
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
 from graphs.hardware.mappers.gpu import (
     create_jetson_orin_agx_64gb_mapper,
-    create_jetson_orin_nx_16gb_mapper,
     create_jetson_thor_128gb_mapper,
 )
 from graphs.hardware.resource_model import Precision
@@ -91,50 +130,72 @@ def build_workload(width: int) -> tuple[nn.Module, torch.Tensor, str]:
 
 @dataclass
 class JetsonProduct:
-    """One Jetson on the roadmap."""
+    """One Jetson industrial SKU on the roadmap.
+
+    ``factory`` is ``None`` for SKUs whose silicon doesn't have a
+    resource model in the catalog yet (TX2 / Pascal, Xavier / Volta);
+    those rows still document the slide's intent but are skipped at
+    analysis time with a console warning. ``factory_proxy_note`` says
+    which commercial-grade mapper stands in for the industrial sibling
+    when the two share silicon."""
 
     name: str
-    factory: Callable
+    factory: Optional[Callable]
     release_date: date
     architecture: str
     process_node: str
     color: str
     marker: str
+    factory_proxy_note: str = ""
 
     def short_name(self) -> str:
-        return self.name.replace("Jetson ", "").replace(" 64GB", "").replace(" 16GB", "").replace(" 128GB", "")
+        return (
+            self.name.replace("Jetson ", "")
+            .replace(" Industrial", " Ind.")
+        )
 
 
-# Release dates: announced-at-GTC dates rather than discrete-product GA
-# (which varies by region / form factor / partner). Chart x-axis is
-# year-resolution-ish so a few months of slop doesn't matter.
+# The four-generation industrial-grade Jetson lineage. Dates / EOLs in
+# the module docstring above. Chart x-axis is year-resolution; the day
+# of the month is illustrative.
 JETSONS: List[JetsonProduct] = [
     JetsonProduct(
-        name="Jetson AGX Orin 64GB",
+        name="Jetson TX2i",
+        factory=None,  # Pascal resource model not in catalog yet
+        release_date=date(2018, 4, 24),
+        architecture="Pascal",
+        process_node="TSMC 16FF",
+        color="#9467bd",   # tab:purple
+        marker="D",
+    ),
+    JetsonProduct(
+        name="Jetson AGX Xavier Industrial",
+        factory=None,  # Volta resource model not in catalog yet
+        release_date=date(2021, 7, 1),
+        architecture="Volta",
+        process_node="TSMC 12FFN",
+        color="#ff7f0e",   # tab:orange
+        marker="s",
+    ),
+    JetsonProduct(
+        name="Jetson AGX Orin Industrial",
         factory=create_jetson_orin_agx_64gb_mapper,
-        release_date=date(2022, 4, 1),
+        release_date=date(2023, 6, 1),  # COMPUTEX 2023 May 29; mid-2023 GA
         architecture="Ampere",
         process_node="Samsung 8nm",
         color="#1f77b4",   # tab:blue
         marker="o",
+        factory_proxy_note="Mapper proxy: AGX Orin 64GB commercial",
     ),
     JetsonProduct(
-        name="Jetson Orin NX 16GB",
-        factory=create_jetson_orin_nx_16gb_mapper,
-        release_date=date(2023, 1, 1),
-        architecture="Ampere",
-        process_node="Samsung 8nm",
-        color="#1f77b4",   # tab:blue (same architecture)
-        marker="s",
-    ),
-    JetsonProduct(
-        name="Jetson AGX Thor 128GB",
+        name="IGX T5000",
         factory=create_jetson_thor_128gb_mapper,
-        release_date=date(2025, 9, 1),
+        release_date=date(2025, 12, 1),  # IGX T5000 SoM GA Dec 2025
         architecture="Blackwell",
         process_node="TSMC 4NP",
         color="#2ca02c",   # tab:green
         marker="^",
+        factory_proxy_note="Mapper proxy: Jetson T5000 commercial (same silicon)",
     ),
 ]
 
@@ -199,12 +260,17 @@ def write_csv(results: List[ProductResult], out: Path) -> None:
     fields = [
         "name", "release_date", "architecture", "process_node",
         "tdp_w", "latency_ms", "energy_per_inference_mj",
-        "perf_inferences_per_sec", "intelligence_inferences_per_joule",
+        "avg_power_w_during_inference",
+        "perf_inferences_per_sec",
+        "energy_efficiency_inferences_per_joule",
+        "throughput_per_tdp_inferences_per_sec_per_w",
     ]
     with out.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         for r in results:
+            avg_power_w = r.energy_mj / r.latency_ms if r.latency_ms > 0 else 0.0
+            throughput_per_tdp = r.perf_inf_per_s / r.tdp_w if r.tdp_w > 0 else 0.0
             writer.writerow({
                 "name": r.product.name,
                 "release_date": r.product.release_date.isoformat(),
@@ -213,8 +279,10 @@ def write_csv(results: List[ProductResult], out: Path) -> None:
                 "tdp_w": r.tdp_w,
                 "latency_ms": round(r.latency_ms, 3),
                 "energy_per_inference_mj": round(r.energy_mj, 3),
+                "avg_power_w_during_inference": round(avg_power_w, 2),
                 "perf_inferences_per_sec": round(r.perf_inf_per_s, 1),
-                "intelligence_inferences_per_joule": round(r.intelligence_inf_per_j, 1),
+                "energy_efficiency_inferences_per_joule": round(r.intelligence_inf_per_j, 1),
+                "throughput_per_tdp_inferences_per_sec_per_w": round(throughput_per_tdp, 1),
             })
     print(f"info: wrote {out}", file=sys.stderr)
 
@@ -285,8 +353,8 @@ def write_plot(
         [r.intelligence_inf_per_j for r in results],
         color="gray", linestyle=":", linewidth=1, alpha=0.5, zorder=1,
     )
-    ax2.set_ylabel("Intelligence per Watt (inferences / joule)")
-    ax2.set_title("Efficiency: process + architecture impact on intelligence-per-Watt")
+    ax2.set_ylabel("Energy efficiency (inferences / joule)")
+    ax2.set_title("Efficiency: process + architecture impact on energy per inference")
     ax2.set_xlabel("Release date")
     ax2.grid(True, alpha=0.3)
 
@@ -351,16 +419,34 @@ def main() -> int:
     print(file=sys.stderr)
 
     results: List[ProductResult] = []
+    skipped: List[JetsonProduct] = []
     for p in JETSONS:
+        if p.factory is None:
+            skipped.append(p)
+            print(
+                f"  {p.short_name():28s} SKIPPED -- no resource model in catalog "
+                f"({p.architecture}, {p.process_node})",
+                file=sys.stderr,
+            )
+            continue
         r = analyze(p, model, input_tensor, precision, workload_name)
         results.append(r)
         print(
-            f"  {p.short_name():22s} "
+            f"  {p.short_name():28s} "
             f"{r.tdp_w:5.1f}W  "
             f"{r.latency_ms:7.3f} ms  "
             f"{r.energy_mj:7.3f} mJ  "
             f"-> {r.perf_inf_per_s:8.1f} inf/s, "
             f"{r.intelligence_inf_per_j:8.1f} inf/J",
+            file=sys.stderr,
+        )
+
+    if skipped:
+        print(
+            f"\nnote: {len(skipped)} SKU(s) skipped because their silicon's "
+            "resource model is not in the graphs/ catalog yet. The chart's "
+            "data series only covers the analyzable products; the SKU table "
+            "in this script's docstring documents the full intended roadmap.",
             file=sys.stderr,
         )
 
