@@ -42,14 +42,24 @@ from typing import Optional
 
 _logger = logging.getLogger(__name__)
 
-from embodied_schemas.kpu import KPUEntry, KPUTileSpec
+from embodied_schemas import ComputeProduct
+from embodied_schemas.compute_product import KPUBlock
+from embodied_schemas.kpu import KPUTileSpec
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
-from .compute_product_loader import kpu_entry_to_compute_product
 from .sku_validators.silicon_math import (
     SiliconMathError,
     resolve_block_area,
 )
+
+
+def _kpu_block(cp: ComputeProduct) -> KPUBlock:
+    """Return the KPUBlock from a v1 monolithic-KPU ``ComputeProduct``.
+
+    v1 KPU products are monolithic (one Die, one KPUBlock); chiplet KPU
+    products will need iteration when they land. Mirrored from
+    ``sku_validators.silicon_math._kpu_block``."""
+    return cp.dies[0].blocks[0]
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +167,7 @@ class Floorplan:
 # ---------------------------------------------------------------------------
 
 def _per_tile_pe_area_mm2(
-    sku: KPUEntry,
+    cp: ComputeProduct,
     node: ProcessNodeEntry,
     tile: KPUTileSpec,
     pe_blocks_by_tile_type: dict[str, float],
@@ -174,7 +184,7 @@ def _per_tile_pe_area_mm2(
 
 
 def _per_tile_sram_area_mm2(
-    sku: KPUEntry,
+    cp: ComputeProduct,
     node: ProcessNodeEntry,
     chip_l2_area_mm2: float,
     chip_l3_area_mm2: float,
@@ -185,14 +195,14 @@ def _per_tile_sram_area_mm2(
     per-tile L3 (256 KiB scratchpad). silicon_bin reports them as
     chip-wide aggregates; per-tile is aggregate / num_tiles.
     """
-    total_tiles = sku.kpu_architecture.total_tiles
+    total_tiles = _kpu_block(cp).total_tiles
     if total_tiles <= 0:
         return 0.0
     return (chip_l2_area_mm2 + chip_l3_area_mm2) / total_tiles
 
 
 def _classify_silicon_bin_blocks(
-    sku: KPUEntry, node: ProcessNodeEntry
+    cp: ComputeProduct, node: ProcessNodeEntry
 ) -> tuple[
     dict[str, float],         # pe_area by tile_type
     float,                    # chip-wide L2 area
@@ -212,11 +222,7 @@ def _classify_silicon_bin_blocks(
     chip_l3_area = 0.0
     other_blocks: list[tuple[str, float, CircuitClass]] = []
 
-    # Forward-adapt to ComputeProduct: silicon_math has migrated to the
-    # unified schema, but silicon_floorplan still takes KPUEntry from its
-    # callers. Bridge until silicon_floorplan migrates in a follow-up PR.
-    cp = kpu_entry_to_compute_product(sku)
-    for block in sku.silicon_bin.blocks:
+    for block in cp.dies[0].silicon_bin.blocks:
         try:
             ba = resolve_block_area(block, cp, node)
         except SiliconMathError as exc:
@@ -229,7 +235,7 @@ def _classify_silicon_bin_blocks(
             # finding.
             _logger.warning(
                 "silicon_floorplan: skipping block %r in sku %r: %s",
-                block.name, sku.id, exc,
+                block.name, cp.id, exc,
             )
             continue
         ts = block.transistor_source
@@ -261,7 +267,7 @@ _CONTROL_CORNER_FRACTION = 0.05  # Of die_height for the control square
 
 
 def derive_kpu_floorplan(
-    sku: KPUEntry, node: ProcessNodeEntry
+    cp: ComputeProduct, node: ProcessNodeEntry
 ) -> Floorplan:
     """Heuristic 2D floorplan for a KPU SKU.
 
@@ -289,20 +295,20 @@ def derive_kpu_floorplan(
     overlaps. NoC routers are *not* placed as separate blocks --
     in real silicon they're embedded inside the tile envelopes.
     """
-    arch = sku.kpu_architecture
+    arch = _kpu_block(cp)
 
     # 1. Bucket silicon_bin blocks
     pe_by_tile_type, chip_l2_area, chip_l3_area, other_blocks = (
-        _classify_silicon_bin_blocks(sku, node)
+        _classify_silicon_bin_blocks(cp, node)
     )
 
     # 2. Per-tile-class pitch
     per_tile_sram = _per_tile_sram_area_mm2(
-        sku, node, chip_l2_area, chip_l3_area
+        cp, node, chip_l2_area, chip_l3_area
     )
     tile_pitches: dict[str, TilePitch] = {}
     for tile in arch.tiles:
-        pe_area = _per_tile_pe_area_mm2(sku, node, tile, pe_by_tile_type)
+        pe_area = _per_tile_pe_area_mm2(cp, node, tile, pe_by_tile_type)
         total = pe_area + per_tile_sram
         pitch = math.sqrt(total) if total > 0 else 0.0
         tile_pitches[tile.tile_type] = TilePitch(
@@ -351,7 +357,7 @@ def derive_kpu_floorplan(
     mesh_origin_y = _IO_RING_THICKNESS_MM
     blocks.extend(
         _place_compute_mesh(
-            sku, mesh_origin_x, mesh_origin_y, unified_pitch
+            cp, mesh_origin_x, mesh_origin_y, unified_pitch
         )
     )
 
@@ -375,8 +381,8 @@ def derive_kpu_floorplan(
     ))
 
     return Floorplan(
-        sku_id=sku.id,
-        sku_name=sku.name,
+        sku_id=cp.id,
+        sku_name=cp.name,
         die_width_mm=die_width,
         die_height_mm=die_height,
         blocks=blocks,
@@ -444,7 +450,7 @@ def _place_io_ring(
 
 
 def _place_compute_mesh(
-    sku: KPUEntry,
+    cp: ComputeProduct,
     origin_x_mm: float,
     origin_y_mm: float,
     pitch_mm: float,
@@ -455,10 +461,10 @@ def _place_compute_mesh(
     order (INT8-primary first, then BF16-primary, then Matrix), each
     class taking ``num_tiles`` consecutive grid positions.
     """
-    arch = sku.kpu_architecture
+    arch = _kpu_block(cp)
     if not arch.tiles:
         raise ValueError(
-            f"sku {sku.id!r}: kpu_architecture.tiles is empty; cannot "
+            f"sku {cp.id!r}: kpu_architecture.tiles is empty; cannot "
             f"place a compute mesh"
         )
     mesh_rows = arch.noc.mesh_rows
@@ -854,7 +860,7 @@ class ArchitecturalFloorplan:
 
 # Default memory-controller arity when the SKU memory spec doesn't
 # expose a distinct count. The architectural derivation prefers
-# ``sku.kpu_architecture.memory.memory_controllers`` when present.
+# ``_kpu_block(cp).memory.memory_controllers`` when present.
 _DEFAULT_NUM_MEMORY_CONTROLLERS = 4
 
 
@@ -931,7 +937,7 @@ def _per_channel_phy_dims(memory_type: str, width_bits: int) -> tuple[float, flo
 
 
 def derive_kpu_architectural_floorplan(
-    sku: KPUEntry, node: ProcessNodeEntry
+    cp: ComputeProduct, node: ProcessNodeEntry
 ) -> ArchitecturalFloorplan:
     """Produce the architectural-role floorplan for a KPU SKU.
 
@@ -957,10 +963,10 @@ def derive_kpu_architectural_floorplan(
        impact on die geometry.
     6. IO ring + control corner unchanged from v1.
     """
-    arch = sku.kpu_architecture
+    arch = _kpu_block(cp)
     mem = arch.memory
     pe_by_tile_type, chip_l2_area, chip_l3_area, other_blocks = (
-        _classify_silicon_bin_blocks(sku, node)
+        _classify_silicon_bin_blocks(cp, node)
     )
     total_compute_tiles = arch.total_tiles
 
@@ -1117,8 +1123,8 @@ def derive_kpu_architectural_floorplan(
     )
 
     return ArchitecturalFloorplan(
-        sku_id=sku.id,
-        sku_name=sku.name,
+        sku_id=cp.id,
+        sku_name=cp.name,
         die_width_mm=die_width,
         die_height_mm=die_height,
         blocks=blocks,
