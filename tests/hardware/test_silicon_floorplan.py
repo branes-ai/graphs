@@ -24,7 +24,6 @@ import pytest
 
 from embodied_schemas import (
     load_cooling_solutions,
-    load_kpus,
     load_process_nodes,
 )
 
@@ -47,7 +46,7 @@ SHOW_FLOORPLAN_CLI = REPO_ROOT / "cli" / "show_floorplan.py"
 
 # Auto-discovery: test against every KPU SKU in the catalog. New SKUs
 # get covered automatically, matching the Phase 6 catalog gate pattern.
-ALL_KPU_IDS = sorted(load_kpus().keys())
+ALL_KPU_IDS = sorted(load_compute_products_unified().keys())
 
 
 # ---------------------------------------------------------------------------
@@ -55,17 +54,11 @@ ALL_KPU_IDS = sorted(load_kpus().keys())
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def kpus():
-    """Legacy KPUEntry catalog. Used by derive_kpu_floorplan / derive_
-    kpu_architectural_floorplan, which still take KPUEntry until their
-    own migration PR. Validator tests use the ``cps`` fixture below."""
-    return load_kpus()
-
-
-@pytest.fixture(scope="module")
 def cps():
-    """ComputeProduct catalog. Used to construct ValidatorContext, which
-    after the sku_validators migration takes ``sku: ComputeProduct``."""
+    """ComputeProduct catalog. Used by derive_kpu_floorplan,
+    derive_kpu_architectural_floorplan, and ValidatorContext --
+    everything in this module operates on ComputeProduct now that
+    silicon_floorplan + sku_validators have migrated."""
     return load_compute_products_unified()
 
 
@@ -90,21 +83,21 @@ def _register():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_floorplan_has_positive_dimensions(sku_id, kpus, nodes):
+def test_floorplan_has_positive_dimensions(sku_id, cps, nodes):
     """Every SKU produces a die with positive width / height / area.
 
     Catches the case where a missing silicon_bin block (no PHY, no IO,
     etc.) would zero-out a die dimension.
     """
-    sku = kpus[sku_id]
-    fp = derive_kpu_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_floorplan(sku, nodes[sku.dies[0].process_node_id])
     assert fp.die_width_mm > 0, f"{sku_id} has non-positive die width"
     assert fp.die_height_mm > 0, f"{sku_id} has non-positive die height"
     assert fp.die_area_mm2 > 0
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_floorplan_compute_tile_count_matches_mesh(sku_id, kpus, nodes):
+def test_floorplan_compute_tile_count_matches_mesh(sku_id, cps, nodes):
     """``mesh_rows x mesh_cols`` compute tiles must be placed.
 
     The KPU NoC mesh is what defines the tile count -- if the
@@ -112,9 +105,9 @@ def test_floorplan_compute_tile_count_matches_mesh(sku_id, kpus, nodes):
     don't sum to the mesh capacity (real bug) or the layout heuristic
     silently dropped tiles (also a bug).
     """
-    sku = kpus[sku_id]
-    fp = derive_kpu_floorplan(sku, nodes[sku.process_node_id])
-    arch = sku.kpu_architecture
+    sku = cps[sku_id]
+    fp = derive_kpu_floorplan(sku, nodes[sku.dies[0].process_node_id])
+    arch = sku.dies[0].blocks[0]
     expected = arch.noc.mesh_rows * arch.noc.mesh_cols
     assert len(fp.compute_tiles()) == expected, (
         f"{sku_id}: placed {len(fp.compute_tiles())} compute tiles, "
@@ -123,12 +116,12 @@ def test_floorplan_compute_tile_count_matches_mesh(sku_id, kpus, nodes):
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_floorplan_every_compute_tile_has_class(sku_id, kpus, nodes):
+def test_floorplan_every_compute_tile_has_class(sku_id, cps, nodes):
     """Every compute tile must carry a tile_class label so geometry
     validators can group findings by class."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_floorplan(sku, nodes[sku.process_node_id])
-    declared_classes = {t.tile_type for t in sku.kpu_architecture.tiles}
+    sku = cps[sku_id]
+    fp = derive_kpu_floorplan(sku, nodes[sku.dies[0].process_node_id])
+    declared_classes = {t.tile_type for t in sku.dies[0].blocks[0].tiles}
     for block in fp.compute_tiles():
         assert block.tile_class is not None, (
             f"{sku_id}: compute tile {block.name} missing tile_class"
@@ -140,14 +133,14 @@ def test_floorplan_every_compute_tile_has_class(sku_id, kpus, nodes):
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_floorplan_compute_tiles_dont_overlap(sku_id, kpus, nodes):
+def test_floorplan_compute_tiles_dont_overlap(sku_id, cps, nodes):
     """Compute tiles in the mesh must be axis-aligned, non-overlapping.
 
     Uses the mesh row/col ordering implicit in the tile name format
     ``tile[r,c]`` and checks neighbouring tiles share an edge.
     """
-    sku = kpus[sku_id]
-    fp = derive_kpu_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_floorplan(sku, nodes[sku.dies[0].process_node_id])
     tiles = fp.compute_tiles()
 
     # All tiles share the same width and height (unified pitch)
@@ -183,13 +176,13 @@ def test_floorplan_compute_tiles_dont_overlap(sku_id, kpus, nodes):
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
 def test_floorplan_unified_pitch_dominates_tile_class_pitches(
-    sku_id, kpus, nodes
+    sku_id, cps, nodes
 ):
     """The unified mesh pitch is the max across tile classes -- no
     class can have a pitch greater than the unified pitch (otherwise
     larger tiles would overflow the mesh cell)."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_floorplan(sku, nodes[sku.dies[0].process_node_id])
     for tile_class, tp in fp.tile_pitches.items():
         assert tp.pitch_mm <= fp.unified_pitch_mm + 1e-6, (
             f"{sku_id}: tile class {tile_class!r} pitch {tp.pitch_mm} "
@@ -198,15 +191,15 @@ def test_floorplan_unified_pitch_dominates_tile_class_pitches(
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_floorplan_total_block_area_close_to_die_area(sku_id, kpus, nodes):
+def test_floorplan_total_block_area_close_to_die_area(sku_id, cps, nodes):
     """Total placed-block area must be at most the die area.
 
     Whitespace is allowed; overlap is not. ``total_block_area > die_area``
     means the floorplanner placed overlapping rectangles or computed
     the die envelope incorrectly.
     """
-    sku = kpus[sku_id]
-    fp = derive_kpu_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_floorplan(sku, nodes[sku.dies[0].process_node_id])
     # Allow 1% slop for floating-point rounding in the IO ring corners
     assert fp.total_block_area_mm2() <= fp.die_area_mm2 * 1.01, (
         f"{sku_id}: blocks total {fp.total_block_area_mm2():.2f} mm^2 "
@@ -355,31 +348,31 @@ def test_show_floorplan_cli_list_mode():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_arch_floorplan_has_positive_dimensions(sku_id, kpus, nodes):
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+def test_arch_floorplan_has_positive_dimensions(sku_id, cps, nodes):
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
     assert fp.die_width_mm > 0
     assert fp.die_height_mm > 0
     assert fp.die_area_mm2 > 0
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_arch_floorplan_compute_memory_one_to_one(sku_id, kpus, nodes):
+def test_arch_floorplan_compute_memory_one_to_one(sku_id, cps, nodes):
     """Architectural pairing: 1 memory tile per compute tile (each
     compute tile owns its L3). The checkerboard layout depends on
     this 1:1 invariant."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
-    assert len(fp.compute_tiles()) == sku.kpu_architecture.total_tiles
-    assert len(fp.memory_tiles()) == sku.kpu_architecture.total_tiles
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
+    assert len(fp.compute_tiles()) == sku.dies[0].blocks[0].total_tiles
+    assert len(fp.memory_tiles()) == sku.dies[0].blocks[0].total_tiles
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_arch_floorplan_distributes_memory_controllers(sku_id, kpus, nodes):
+def test_arch_floorplan_distributes_memory_controllers(sku_id, cps, nodes):
     """Memory controllers must be placed (default 4) and distributed
     around the periphery (no two on top of each other)."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
     ctrls = fp.memory_controllers()
     assert len(ctrls) >= 1, f"{sku_id}: no memory controllers placed"
     # Each controller has positive area
@@ -403,11 +396,11 @@ def test_arch_floorplan_distributes_memory_controllers(sku_id, kpus, nodes):
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_arch_floorplan_what_if_one_per_class(sku_id, kpus, nodes):
+def test_arch_floorplan_what_if_one_per_class(sku_id, cps, nodes):
     """What-if estimates: one entry per declared compute tile class."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
-    declared_classes = {t.tile_type for t in sku.kpu_architecture.tiles}
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
+    declared_classes = {t.tile_type for t in sku.dies[0].blocks[0].tiles}
     estimated_classes = {wi.tile_class for wi in fp.what_if}
     assert estimated_classes == declared_classes, (
         f"{sku_id}: what-if covers {estimated_classes}, "
@@ -415,15 +408,15 @@ def test_arch_floorplan_what_if_one_per_class(sku_id, kpus, nodes):
     )
 
 
-def test_arch_what_if_all_int8_smaller_than_all_matrix(kpus, nodes):
+def test_arch_what_if_all_int8_smaller_than_all_matrix(cps, nodes):
     """The whole point of the what-if: an all-INT8 mesh should be
     notably smaller than an all-Matrix mesh, because INT8 PE area
     is much less than Matrix PE area. If this stops being true, the
     silicon_bin coefficients have drifted in a way the architect
     should know about.
     """
-    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
     by_class = {wi.tile_class: wi for wi in fp.what_if}
     assert "INT8-primary" in by_class
     assert "Matrix" in by_class
@@ -518,14 +511,14 @@ def test_show_floorplan_cli_view_circuit_falls_back_to_old():
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
 def test_arch_true_2d_checkerboard_interior_compute_has_4_memory_neighbors(
-    sku_id, kpus, nodes
+    sku_id, cps, nodes
 ):
     """True 2D checkerboard: every interior compute tile has exactly
     4 memory tile neighbours (N/S/E/W). Catches regressions to
     column-pair (1 neighbour) or row-pair patterns.
     """
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
     compute_tiles = fp.compute_tiles()
     memory_tiles = fp.memory_tiles()
     assert compute_tiles and memory_tiles
@@ -537,8 +530,8 @@ def test_arch_true_2d_checkerboard_interior_compute_has_4_memory_neighbors(
     # Pick an interior compute tile by parsing its checkerboard
     # coordinates ``compute[r,c]`` (encoded into the name). Interior
     # = at least one row/col away from every mesh edge.
-    mesh_rows = sku.kpu_architecture.noc.mesh_rows
-    mesh_cols_phys = 2 * sku.kpu_architecture.noc.mesh_cols
+    mesh_rows = sku.dies[0].blocks[0].noc.mesh_rows
+    mesh_cols_phys = 2 * sku.dies[0].blocks[0].noc.mesh_cols
     target = None
     import re
     for ct in compute_tiles:
@@ -571,13 +564,13 @@ def test_arch_true_2d_checkerboard_interior_compute_has_4_memory_neighbors(
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_mc_count_equals_memory_controllers_field(sku_id, kpus, nodes):
+def test_mc_count_equals_memory_controllers_field(sku_id, cps, nodes):
     """MC count comes from ``memory.memory_controllers``, not from a
     silicon_bin estimate or default. T256 (16 LPDDR ch), T128 (8),
     T64 (4), T768 (8 HBM stacks)."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
-    declared = sku.kpu_architecture.memory.memory_controllers
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
+    declared = sku.dies[0].blocks[0].memory.memory_controllers
     assert fp.num_memory_controllers == declared, (
         f"{sku_id}: floorplan placed {fp.num_memory_controllers} MCs, "
         f"YAML declares {declared}"
@@ -586,10 +579,10 @@ def test_mc_count_equals_memory_controllers_field(sku_id, kpus, nodes):
     assert len(fp.memory_channels) == declared
 
 
-def test_lpddr_mc_is_long_narrow_stripe(kpus, nodes):
+def test_lpddr_mc_is_long_narrow_stripe(cps, nodes):
     """LPDDR PHY blocks are narrow stripes (~5:1 aspect)."""
-    sku = kpus["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]  # LPDDR5
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]  # LPDDR5
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
     for mc in fp.memory_controllers():
         long = max(mc.width_mm, mc.height_mm)
         short = min(mc.width_mm, mc.height_mm)
@@ -600,15 +593,15 @@ def test_lpddr_mc_is_long_narrow_stripe(kpus, nodes):
         )
 
 
-def test_hbm_mc_is_squarer_than_lpddr(kpus, nodes):
+def test_hbm_mc_is_squarer_than_lpddr(cps, nodes):
     """HBM PHY blocks are squarer (~1.5:1 aspect) than LPDDR (~5:1)."""
-    lpddr_sku = kpus["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
-    hbm_sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
+    lpddr_sku = cps["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
+    hbm_sku = cps["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     fp_lpddr = derive_kpu_architectural_floorplan(
-        lpddr_sku, nodes[lpddr_sku.process_node_id]
+        lpddr_sku, nodes[lpddr_sku.dies[0].process_node_id]
     )
     fp_hbm = derive_kpu_architectural_floorplan(
-        hbm_sku, nodes[hbm_sku.process_node_id]
+        hbm_sku, nodes[hbm_sku.dies[0].process_node_id]
     )
     def aspect(mc):
         long = max(mc.width_mm, mc.height_mm)
@@ -623,11 +616,11 @@ def test_hbm_mc_is_squarer_than_lpddr(kpus, nodes):
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_dram_channels_placed_outside_die(sku_id, kpus, nodes):
+def test_dram_channels_placed_outside_die(sku_id, cps, nodes):
     """Every memory channel sits beyond the die boundary on its
     respective edge; channels are not inside the die."""
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
     for ch in fp.memory_channels:
         if ch.edge == "top":
             assert ch.y_mm >= fp.die_height_mm - 1e-6, (
@@ -646,15 +639,15 @@ def test_dram_channels_placed_outside_die(sku_id, kpus, nodes):
 
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
-def test_mc_dimensions_independent_of_mesh_size(sku_id, kpus, nodes):
+def test_mc_dimensions_independent_of_mesh_size(sku_id, cps, nodes):
     """MC area is determined by memory type + channel width, NOT by
     compute mesh size. Catch regressions to the v1 behaviour where
     MC side = sqrt(total_phy_area / num_controllers) shrunk with
     smaller meshes.
     """
-    sku = kpus[sku_id]
-    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.process_node_id])
-    mem = sku.kpu_architecture.memory
+    sku = cps[sku_id]
+    fp = derive_kpu_architectural_floorplan(sku, nodes[sku.dies[0].process_node_id])
+    mem = sku.dies[0].blocks[0].memory
     if mem.memory_controllers <= 0 or mem.memory_bus_bits <= 0:
         return
     # PHY/channel area should match the memory-type lookup; if the
