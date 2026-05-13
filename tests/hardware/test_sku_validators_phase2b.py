@@ -44,8 +44,39 @@ def ctx() -> ValidatorContext:
 
 
 def _ctx_with_sku(ctx: ValidatorContext, **sku_updates) -> ValidatorContext:
-    """Return a new context with sku replaced by the perturbed version."""
+    """Return a new context with sku replaced by the perturbed version.
+
+    For top-level ComputeProduct field updates (e.g., performance, power,
+    market). For per-die mutations (silicon_bin, clocks, die_size_mm2)
+    use ``_ctx_with_die``; for KPUBlock mutations (tiles, total_tiles,
+    noc, memory) use ``_ctx_with_block``."""
     new_sku = ctx.sku.model_copy(update=sku_updates)
+    return ValidatorContext(
+        sku=new_sku,
+        process_node=ctx.process_node,
+        cooling_solutions=ctx.cooling_solutions,
+    )
+
+
+def _ctx_with_die(ctx: ValidatorContext, **die_updates) -> ValidatorContext:
+    """Return a new context with the (single) Die replaced. v1 KPU
+    monolithic always has exactly one Die under cp.dies[0]."""
+    new_die = ctx.sku.dies[0].model_copy(update=die_updates)
+    new_sku = ctx.sku.model_copy(update={"dies": [new_die]})
+    return ValidatorContext(
+        sku=new_sku,
+        process_node=ctx.process_node,
+        cooling_solutions=ctx.cooling_solutions,
+    )
+
+
+def _ctx_with_block(ctx: ValidatorContext, **block_updates) -> ValidatorContext:
+    """Return a new context with the (single) KPUBlock replaced. v1 KPU
+    monolithic always has exactly one KPUBlock under cp.dies[0].blocks[0]."""
+    die = ctx.sku.dies[0]
+    new_block = die.blocks[0].model_copy(update=block_updates)
+    new_die = die.model_copy(update={"blocks": [new_block]})
+    new_sku = ctx.sku.model_copy(update={"dies": [new_die]})
     return ValidatorContext(
         sku=new_sku,
         process_node=ctx.process_node,
@@ -95,8 +126,7 @@ def test_tile_mix_consistency_catches_bad_int8_tops(ctx):
 
 def test_tile_mix_consistency_catches_total_tiles_mismatch(ctx):
     """Σtile.num_tiles must equal total_tiles."""
-    bad_arch = ctx.sku.kpu_architecture.model_copy(update={"total_tiles": 999})
-    bad_ctx = _ctx_with_sku(ctx, kpu_architecture=bad_arch)
+    bad_ctx = _ctx_with_block(ctx, total_tiles=999)
     findings = _findings_for("tile_mix_consistency", bad_ctx)
     assert any(
         f.severity == Severity.ERROR and "total_tiles" in f.message
@@ -146,7 +176,7 @@ def test_cross_ref_catches_dangling_cooling_id(ctx):
 def test_cross_ref_catches_unsupported_circuit_class(ctx):
     """A silicon_bin block tagged with a CircuitClass the node doesn't
     offer (e.g., SRAM_HP on a node without dual-port SRAM)."""
-    blocks = list(ctx.sku.silicon_bin.blocks)
+    blocks = list(ctx.sku.dies[0].silicon_bin.blocks)
     blocks[0] = SiliconBinBlock(
         name="bogus",
         circuit_class=CircuitClass.SRAM_HP,  # tsmc_n16 doesn't list HP-SRAM
@@ -154,8 +184,8 @@ def test_cross_ref_catches_unsupported_circuit_class(ctx):
             kind=TransistorSourceKind.FIXED, mtx=1.0
         ),
     )
-    bad_bin = ctx.sku.silicon_bin.model_copy(update={"blocks": blocks})
-    bad_ctx = _ctx_with_sku(ctx, silicon_bin=bad_bin)
+    bad_bin = ctx.sku.dies[0].silicon_bin.model_copy(update={"blocks": blocks})
+    bad_ctx = _ctx_with_die(ctx, silicon_bin=bad_bin)
     findings = _findings_for("cross_ref_consistency", bad_ctx)
     assert any(
         f.severity == Severity.ERROR
@@ -203,7 +233,7 @@ def test_power_monotonicity_passes_real_sku(ctx):
 def test_block_library_validity_catches_unsupported_class(ctx):
     """Same as the cross_ref check, but exposed in the AREA category for
     users who --filter to AREA."""
-    blocks = list(ctx.sku.silicon_bin.blocks)
+    blocks = list(ctx.sku.dies[0].silicon_bin.blocks)
     blocks.append(
         SiliconBinBlock(
             name="bogus_ull",
@@ -213,8 +243,8 @@ def test_block_library_validity_catches_unsupported_class(ctx):
             ),
         )
     )
-    bad_bin = ctx.sku.silicon_bin.model_copy(update={"blocks": blocks})
-    bad_ctx = _ctx_with_sku(ctx, silicon_bin=bad_bin)
+    bad_bin = ctx.sku.dies[0].silicon_bin.model_copy(update={"blocks": blocks})
+    bad_ctx = _ctx_with_die(ctx, silicon_bin=bad_bin)
     findings = _findings_for("block_library_validity", bad_ctx)
     assert any(
         f.severity == Severity.ERROR and f.block == "bogus_ull"
@@ -234,10 +264,9 @@ def test_block_library_validity_passes_when_class_supported(ctx):
 
 def test_area_self_consistency_catches_inflated_die(ctx):
     """Doubling claimed die_size while leaving silicon_bin alone -> ERROR."""
-    bad_die = ctx.sku.die.model_copy(
-        update={"die_size_mm2": ctx.sku.die.die_size_mm2 * 2.0}
+    bad_ctx = _ctx_with_die(
+        ctx, die_size_mm2=ctx.sku.dies[0].die_size_mm2 * 2.0
     )
-    bad_ctx = _ctx_with_sku(ctx, die=bad_die)
     findings = _findings_for("area_self_consistency", bad_ctx)
     assert any(
         f.severity == Severity.ERROR and "die.die_size_mm2" in f.message
@@ -247,10 +276,9 @@ def test_area_self_consistency_catches_inflated_die(ctx):
 
 def test_area_self_consistency_catches_minor_mismatch_as_warning(ctx):
     """A 10% die_size error sits in the WARN band (5-25%)."""
-    bad_die = ctx.sku.die.model_copy(
-        update={"die_size_mm2": ctx.sku.die.die_size_mm2 * 1.10}
+    bad_ctx = _ctx_with_die(
+        ctx, die_size_mm2=ctx.sku.dies[0].die_size_mm2 * 1.10
     )
-    bad_ctx = _ctx_with_sku(ctx, die=bad_die)
     findings = _findings_for("area_self_consistency", bad_ctx)
     assert any(
         f.severity == Severity.WARNING and "die.die_size_mm2" in f.message
@@ -270,10 +298,9 @@ def test_area_self_consistency_passes_real_sku(ctx):
 def test_composite_density_catches_above_node_max(ctx):
     """Claim 100 B transistors on a 50 mm^2 die at TSMC N16 -> 2000
     Mtx/mm^2 composite, way above N16's max library density (60)."""
-    bad_die = ctx.sku.die.model_copy(
-        update={"transistors_billion": 100.0, "die_size_mm2": 50.0}
+    bad_ctx = _ctx_with_die(
+        ctx, transistors_billion=100.0, die_size_mm2=50.0
     )
-    bad_ctx = _ctx_with_sku(ctx, die=bad_die)
     findings = _findings_for("composite_density_envelope", bad_ctx)
     assert any(
         f.severity == Severity.ERROR and "exceeds" in f.message

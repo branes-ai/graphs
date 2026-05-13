@@ -17,8 +17,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from embodied_schemas import ComputeProduct
+from embodied_schemas.compute_product import KPUBlock
 from embodied_schemas.kpu import (
-    KPUEntry,
     SiliconBinBlock,
     TransistorSourceKind,
 )
@@ -31,51 +32,78 @@ class SiliconMathError(Exception):
     Findings rather than crashing."""
 
 
+def _kpu_block(cp: ComputeProduct) -> KPUBlock:
+    """Return the KPUBlock from a v1 monolithic-KPU ``ComputeProduct``.
+
+    Today every KPU ComputeProduct has exactly one Die with one
+    KPUBlock; chiplet KPU products will need iteration when they land.
+
+    Raises ``SiliconMathError`` (not IndexError / TypeError) for
+    malformed shape so the validator framework converts the failure
+    into a Finding instead of crashing the validator. ComputeProduct
+    schema enforces dies/blocks min_length=1 at construction, but
+    instances built via ``model_construct()`` can bypass validation.
+    """
+    if not cp.dies:
+        raise SiliconMathError(
+            f"compute product {cp.id!r} has no dies; expected one KPU die"
+        )
+    die = cp.dies[0]
+    if not die.blocks:
+        raise SiliconMathError(
+            f"compute product {cp.id!r} die {die.die_id!r} has no blocks; "
+            f"expected one KPUBlock"
+        )
+    block = die.blocks[0]
+    if not isinstance(block, KPUBlock):
+        raise SiliconMathError(
+            f"compute product {cp.id!r} die {die.die_id!r} first block is "
+            f"{type(block).__name__}, expected KPUBlock"
+        )
+    return block
+
+
 # ---------------------------------------------------------------------------
 # Architecture-level rollups
 # ---------------------------------------------------------------------------
 
-def total_pe_count(sku: KPUEntry) -> int:
+def total_pe_count(cp: ComputeProduct) -> int:
     """Total PE count summed across every tile class."""
-    return sum(t.total_pes for t in sku.kpu_architecture.tiles)
+    return sum(t.total_pes for t in _kpu_block(cp).tiles)
 
 
-def total_l1_kib(sku: KPUEntry) -> int:
+def total_l1_kib(cp: ComputeProduct) -> int:
     """Total per-PE L1 SRAM in KiB across the chip."""
-    return sku.kpu_architecture.memory.l1_kib_per_pe * total_pe_count(sku)
+    return _kpu_block(cp).memory.l1_kib_per_pe * total_pe_count(cp)
 
 
-def total_l2_kib(sku: KPUEntry) -> int:
+def total_l2_kib(cp: ComputeProduct) -> int:
     """Total per-tile L2 SRAM in KiB across the chip."""
-    return (
-        sku.kpu_architecture.memory.l2_kib_per_tile
-        * sku.kpu_architecture.total_tiles
-    )
+    block = _kpu_block(cp)
+    return block.memory.l2_kib_per_tile * block.total_tiles
 
 
-def total_l3_kib(sku: KPUEntry) -> int:
+def total_l3_kib(cp: ComputeProduct) -> int:
     """Total per-tile L3 SRAM in KiB across the chip."""
-    return (
-        sku.kpu_architecture.memory.l3_kib_per_tile
-        * sku.kpu_architecture.total_tiles
-    )
+    block = _kpu_block(cp)
+    return block.memory.l3_kib_per_tile * block.total_tiles
 
 
-def num_tiles_by_type(sku: KPUEntry) -> dict[str, int]:
+def num_tiles_by_type(cp: ComputeProduct) -> dict[str, int]:
     """Map of tile_type -> num_tiles. Useful for ``count_ref="tile.<type>"``."""
-    return {t.tile_type: t.num_tiles for t in sku.kpu_architecture.tiles}
+    return {t.tile_type: t.num_tiles for t in _kpu_block(cp).tiles}
 
 
-def total_pes_by_tile_type(sku: KPUEntry) -> dict[str, int]:
+def total_pes_by_tile_type(cp: ComputeProduct) -> dict[str, int]:
     """Map of tile_type -> total PE count for that tile class."""
-    return {t.tile_type: t.total_pes for t in sku.kpu_architecture.tiles}
+    return {t.tile_type: t.total_pes for t in _kpu_block(cp).tiles}
 
 
 # ---------------------------------------------------------------------------
 # Transistor count resolution
 # ---------------------------------------------------------------------------
 
-def resolve_block_transistors(block: SiliconBinBlock, sku: KPUEntry) -> float:
+def resolve_block_transistors(block: SiliconBinBlock, cp: ComputeProduct) -> float:
     """Compute the absolute transistor count (in millions) for a silicon_bin
     block, given the SKU's architecture context.
 
@@ -86,7 +114,7 @@ def resolve_block_transistors(block: SiliconBinBlock, sku: KPUEntry) -> float:
       ``per_unit_mtx * total_pes(<tile_type>)``.
     * **PER_KIB**: ``count_ref`` is one of ``l1_total_kib``,
       ``l2_total_kib``, ``l3_total_kib``. Returns
-      ``per_unit_mtx * total_<level>_kib(sku)``.
+      ``per_unit_mtx * total_<level>_kib(cp)``.
     * **PER_ROUTER**: ``count_ref`` is ``"noc"``. Returns
       ``per_unit_mtx * noc.num_routers``.
     * **PER_CONTROLLER**: ``count_ref`` is ``"memory"``. Returns
@@ -121,7 +149,7 @@ def resolve_block_transistors(block: SiliconBinBlock, sku: KPUEntry) -> float:
                 f"got {ts.count_ref!r}"
             )
         tile_type = ts.count_ref.split(".", 1)[1]
-        pes_by_type = total_pes_by_tile_type(sku)
+        pes_by_type = total_pes_by_tile_type(cp)
         if tile_type not in pes_by_type:
             raise SiliconMathError(
                 f"block {block.name!r}: unknown tile_type {tile_type!r}. "
@@ -140,7 +168,7 @@ def resolve_block_transistors(block: SiliconBinBlock, sku: KPUEntry) -> float:
                 f"block {block.name!r}: PER_KIB count_ref must be one of "
                 f"{sorted(kib_resolvers)}, got {ts.count_ref!r}"
             )
-        kib = kib_resolvers[ts.count_ref](sku)
+        kib = kib_resolvers[ts.count_ref](cp)
         return float(ts.per_unit_mtx) * kib
 
     if ts.kind == TransistorSourceKind.PER_ROUTER:
@@ -149,7 +177,7 @@ def resolve_block_transistors(block: SiliconBinBlock, sku: KPUEntry) -> float:
                 f"block {block.name!r}: PER_ROUTER count_ref must be 'noc', "
                 f"got {ts.count_ref!r}"
             )
-        return float(ts.per_unit_mtx) * sku.kpu_architecture.noc.num_routers
+        return float(ts.per_unit_mtx) * _kpu_block(cp).noc.num_routers
 
     if ts.kind == TransistorSourceKind.PER_CONTROLLER:
         if ts.count_ref != "memory":
@@ -159,7 +187,7 @@ def resolve_block_transistors(block: SiliconBinBlock, sku: KPUEntry) -> float:
             )
         return (
             float(ts.per_unit_mtx)
-            * sku.kpu_architecture.memory.memory_controllers
+            * _kpu_block(cp).memory.memory_controllers
         )
 
     raise SiliconMathError(
@@ -183,7 +211,7 @@ class BlockArea:
 
 
 def resolve_block_area(
-    block: SiliconBinBlock, sku: KPUEntry, node: ProcessNodeEntry
+    block: SiliconBinBlock, cp: ComputeProduct, node: ProcessNodeEntry
 ) -> BlockArea:
     """Compute area for one silicon_bin block at the SKU's process node.
 
@@ -197,7 +225,7 @@ def resolve_block_area(
             f"offer library {block.circuit_class.value!r}. Available: "
             f"{sorted(c.value for c in node.densities)}"
         )
-    transistors = resolve_block_transistors(block, sku)
+    transistors = resolve_block_transistors(block, cp)
     density = node.density_for(block.circuit_class).mtx_per_mm2
     return BlockArea(
         name=block.name,
@@ -209,7 +237,7 @@ def resolve_block_area(
 
 
 def resolve_all_block_areas(
-    sku: KPUEntry, node: ProcessNodeEntry
+    cp: ComputeProduct, node: ProcessNodeEntry
 ) -> list[BlockArea]:
     """Resolve every silicon_bin block. Skips blocks whose circuit_class
     is unsupported by the node (the block_library_validity validator
@@ -217,9 +245,9 @@ def resolve_all_block_areas(
     coverage.
     """
     out: list[BlockArea] = []
-    for block in sku.silicon_bin.blocks:
+    for block in cp.dies[0].silicon_bin.blocks:
         try:
-            out.append(resolve_block_area(block, sku, node))
+            out.append(resolve_block_area(block, cp, node))
         except SiliconMathError:
             continue
     return out
@@ -248,7 +276,7 @@ _MEM_PHY_PJ_PER_BYTE_BY_TYPE: dict[str, float] = {
 
 
 def estimate_block_leakage_w(
-    block: SiliconBinBlock, sku: KPUEntry, node: ProcessNodeEntry
+    block: SiliconBinBlock, cp: ComputeProduct, node: ProcessNodeEntry
 ) -> float:
     """Per-block static (leakage) power in watts.
 
@@ -257,7 +285,7 @@ def estimate_block_leakage_w(
     process-node author left the data sparse and we don't invent a value.
     """
     try:
-        ba = resolve_block_area(block, sku, node)
+        ba = resolve_block_area(block, cp, node)
     except SiliconMathError:
         return 0.0
     leakage_density = node.leakage_w_per_mm2.get(block.circuit_class, 0.0)
@@ -266,7 +294,7 @@ def estimate_block_leakage_w(
 
 def estimate_block_peak_dynamic_w(
     block: SiliconBinBlock,
-    sku: KPUEntry,
+    cp: ComputeProduct,
     node: ProcessNodeEntry,
     *,
     clock_mhz: float,
@@ -296,6 +324,7 @@ def estimate_block_peak_dynamic_w(
     uses peak power to detect hotspots that would force throttling.
     """
     name = block.name.lower()
+    kpu = _kpu_block(cp)
 
     # ---- PE blocks ----
     if name.startswith("pe_"):
@@ -304,7 +333,7 @@ def estimate_block_peak_dynamic_w(
             return 0.0
         tile_type = ts.count_ref.removeprefix("tile.")
         tile = next(
-            (t for t in sku.kpu_architecture.tiles if t.tile_type == tile_type),
+            (t for t in kpu.tiles if t.tile_type == tile_type),
             None,
         )
         if tile is None:
@@ -325,7 +354,7 @@ def estimate_block_peak_dynamic_w(
 
     # ---- Memory PHY ----
     if "phy" in name or "mem_phy" in name or name == "memory_phys":
-        mem = sku.kpu_architecture.memory
+        mem = kpu.memory
         pj_per_byte = _MEM_PHY_PJ_PER_BYTE_BY_TYPE.get(
             mem.memory_type.value, 10.0
         )
@@ -334,7 +363,7 @@ def estimate_block_peak_dynamic_w(
     # ---- NoC routers (coarse: 5 % of default TDP) ----
     if name.startswith("noc"):
         # Use the SKU's default-profile TDP as the budget.
-        tdp = sku.power.tdp_watts
+        tdp = cp.power.tdp_watts
         return tdp * 0.05
 
     # ---- Other (control logic, IO pads): leakage-only at v1 ----
@@ -343,7 +372,7 @@ def estimate_block_peak_dynamic_w(
 
 def estimate_block_total_peak_w(
     block: SiliconBinBlock,
-    sku: KPUEntry,
+    cp: ComputeProduct,
     node: ProcessNodeEntry,
     *,
     clock_mhz: float,
@@ -351,16 +380,16 @@ def estimate_block_total_peak_w(
 ) -> float:
     """Per-block total power at peak = leakage + dynamic."""
     return (
-        estimate_block_leakage_w(block, sku, node)
+        estimate_block_leakage_w(block, cp, node)
         + estimate_block_peak_dynamic_w(
-            block, sku, node, clock_mhz=clock_mhz, precision=precision
+            block, cp, node, clock_mhz=clock_mhz, precision=precision
         )
     )
 
 
-def total_chip_leakage_w(sku: KPUEntry, node: ProcessNodeEntry) -> float:
+def total_chip_leakage_w(cp: ComputeProduct, node: ProcessNodeEntry) -> float:
     """Sum of every block's leakage."""
     return sum(
-        estimate_block_leakage_w(b, sku, node)
-        for b in sku.silicon_bin.blocks
+        estimate_block_leakage_w(b, cp, node)
+        for b in cp.dies[0].silicon_bin.blocks
     )

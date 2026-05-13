@@ -45,6 +45,13 @@ from embodied_schemas import (
     load_compute_products,
     load_kpus,
 )
+from embodied_schemas.kpu import (
+    KPUArchitecture,
+    KPUDieSpec,
+    KPUMarket,
+    KPUPowerSpec,
+)
+from embodied_schemas.process_node import ProcessNodeEntry
 
 
 def kpu_entry_to_compute_product(entry: KPUEntry) -> ComputeProduct:
@@ -120,6 +127,101 @@ def kpu_entry_to_compute_product(entry: KPUEntry) -> ComputeProduct:
         notes=entry.notes,
         datasheet_url=entry.datasheet_url,
         last_updated=entry.last_updated,
+    )
+
+
+def compute_product_to_kpu_entry(
+    cp: ComputeProduct,
+    process_node: ProcessNodeEntry,
+) -> KPUEntry:
+    """Reverse adapter: convert a v1-monolithic-KPU ``ComputeProduct``
+    back to a legacy ``KPUEntry``.
+
+    Bridge for consumers that haven't been migrated to ComputeProduct
+    yet (silicon_floorplan, kpu_power_model, kpu_yaml_loader). Each of
+    those owns a follow-up PR; once they accept ComputeProduct directly
+    this adapter is unused and can be deleted.
+
+    Requires the ``ProcessNodeEntry`` because the legacy ``KPUDieSpec``
+    has redundant copies of foundry / process_name / process_nm that
+    the unified schema offloaded to the process-node catalog. The
+    caller passes the resolved node alongside the ComputeProduct.
+
+    Raises ValueError if the ComputeProduct is not a v1 monolithic-KPU
+    shape (multi-die or non-KPU block kinds aren't representable as
+    KPUEntry).
+    """
+    if len(cp.dies) != 1:
+        raise ValueError(
+            f"compute_product_to_kpu_entry: KPUEntry can only represent "
+            f"one die, got {len(cp.dies)} for {cp.id!r}"
+        )
+    die = cp.dies[0]
+    if len(die.blocks) != 1:
+        raise ValueError(
+            f"compute_product_to_kpu_entry: KPUEntry can only represent "
+            f"one KPUBlock per die, got {len(die.blocks)} for {cp.id!r}"
+        )
+    block = die.blocks[0]
+    if not isinstance(block, KPUBlock):
+        raise ValueError(
+            f"compute_product_to_kpu_entry: only KPUBlock is supported, "
+            f"got {type(block).__name__} for {cp.id!r}"
+        )
+    if process_node.id != die.process_node_id:
+        raise ValueError(
+            f"compute_product_to_kpu_entry: process_node.id "
+            f"{process_node.id!r} does not match die.process_node_id "
+            f"{die.process_node_id!r} for {cp.id!r}; the resulting "
+            f"KPUEntry would be self-inconsistent (foundry / process_name "
+            f"/ process_nm copied from the wrong node)"
+        )
+
+    return KPUEntry(
+        id=cp.id,
+        name=cp.name,
+        vendor=cp.vendor,
+        process_node_id=die.process_node_id,
+        die=KPUDieSpec(
+            architecture="KPU Tile",
+            foundry=process_node.foundry,
+            process_nm=process_node.node_nm,
+            process_name=process_node.node_name,
+            transistors_billion=die.transistors_billion,
+            die_size_mm2=die.die_size_mm2,
+            is_chiplet=cp.packaging.kind != PackagingKind.MONOLITHIC,
+            num_dies=cp.packaging.num_dies,
+        ),
+        kpu_architecture=KPUArchitecture(
+            total_tiles=block.total_tiles,
+            multi_precision_alu=block.multi_precision_alu,
+            tiles=block.tiles,
+            noc=block.noc,
+            memory=block.memory,
+        ),
+        silicon_bin=die.silicon_bin,
+        clocks=die.clocks,
+        performance=cp.performance,
+        power=KPUPowerSpec(
+            tdp_watts=cp.power.tdp_watts,
+            max_power_watts=cp.power.max_power_watts,
+            min_power_watts=cp.power.min_power_watts,
+            idle_power_watts=cp.power.idle_power_watts,
+            default_thermal_profile=cp.power.default_thermal_profile,
+            thermal_profiles=cp.power.thermal_profiles,
+        ),
+        market=KPUMarket(
+            launch_date=cp.market.launch_date,
+            launch_msrp_usd=cp.market.launch_msrp_usd,
+            target_market=cp.market.target_market,
+            product_family=cp.market.product_family,
+            model_tier=cp.market.model_tier,
+            is_available=cp.market.is_available,
+            is_discontinued=(cp.lifecycle == LifecycleStatus.EOL),
+        ),
+        notes=cp.notes,
+        datasheet_url=cp.datasheet_url,
+        last_updated=cp.last_updated,
     )
 
 

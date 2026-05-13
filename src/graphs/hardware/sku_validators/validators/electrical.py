@@ -51,7 +51,7 @@ class PowerProfileMonotonicity:
 
         # Boost clock should be at least as fast as the highest profile clock.
         clock_top = max(p.clock_mhz for p in profiles)
-        if ctx.sku.clocks.boost_clock_mhz < clock_top:
+        if ctx.sku.dies[0].clocks.boost_clock_mhz < clock_top:
             findings.append(
                 Finding(
                     validator=self.name,
@@ -59,7 +59,7 @@ class PowerProfileMonotonicity:
                     severity=Severity.WARNING,
                     message=(
                         f"clocks.boost_clock_mhz = "
-                        f"{ctx.sku.clocks.boost_clock_mhz:.0f} MHz is below "
+                        f"{ctx.sku.dies[0].clocks.boost_clock_mhz:.0f} MHz is below "
                         f"the highest thermal-profile clock "
                         f"{clock_top:.0f} MHz. Boost clock should be the "
                         f"chip's maximum advertised frequency."
@@ -69,7 +69,7 @@ class PowerProfileMonotonicity:
 
         # Base clock should be at least as fast as the lowest profile clock.
         clock_bot = min(p.clock_mhz for p in profiles)
-        if ctx.sku.clocks.base_clock_mhz > clock_bot:
+        if ctx.sku.dies[0].clocks.base_clock_mhz > clock_bot:
             findings.append(
                 Finding(
                     validator=self.name,
@@ -77,7 +77,7 @@ class PowerProfileMonotonicity:
                     severity=Severity.INFO,
                     message=(
                         f"clocks.base_clock_mhz = "
-                        f"{ctx.sku.clocks.base_clock_mhz:.0f} MHz exceeds "
+                        f"{ctx.sku.dies[0].clocks.base_clock_mhz:.0f} MHz exceeds "
                         f"the lowest thermal-profile clock "
                         f"{clock_bot:.0f} MHz. Base clock is normally the "
                         f"sustained guaranteed minimum."

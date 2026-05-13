@@ -44,7 +44,7 @@ class BlockLibraryValidity:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         findings: List[Finding] = []
         node = ctx.process_node
-        for block in ctx.sku.silicon_bin.blocks:
+        for block in ctx.sku.dies[0].silicon_bin.blocks:
             if node.supports(block.circuit_class):
                 continue
             available = ", ".join(sorted(c.value for c in node.densities))
@@ -86,12 +86,13 @@ class AreaSelfConsistency:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         findings: List[Finding] = []
         sku = ctx.sku
+        die = sku.dies[0]
         node = ctx.process_node
 
         total_area = 0.0
         total_mtx = 0.0
         unresolved: List[str] = []
-        for block in sku.silicon_bin.blocks:
+        for block in die.silicon_bin.blocks:
             try:
                 ba = resolve_block_area(block, sku, node)
             except SiliconMathError as exc:
@@ -118,7 +119,7 @@ class AreaSelfConsistency:
             return findings
 
         # 1. Area roll-up vs claimed die_size_mm2.
-        claimed_area = sku.die.die_size_mm2
+        claimed_area = die.die_size_mm2
         rel_area = abs(total_area - claimed_area) / claimed_area
         if rel_area >= _AREA_ERROR_REL:
             sev = Severity.ERROR
@@ -147,7 +148,7 @@ class AreaSelfConsistency:
             )
 
         # 2. Transistor roll-up vs claimed transistors_billion.
-        claimed_mtx = sku.die.transistors_billion * 1000.0  # B -> M
+        claimed_mtx = die.transistors_billion * 1000.0  # B -> M
         rel_mtx = abs(total_mtx - claimed_mtx) / claimed_mtx
         if rel_mtx >= _AREA_ERROR_REL:
             sev = Severity.ERROR
@@ -164,7 +165,7 @@ class AreaSelfConsistency:
                     message=(
                         f"silicon_bin sums to {total_mtx/1000:.2f} B "
                         f"transistors but die.transistors_billion = "
-                        f"{sku.die.transistors_billion:.2f} B "
+                        f"{die.transistors_billion:.2f} B "
                         f"({rel_mtx:+.1%} relative error). Tolerance: "
                         f"WARNING above {_AREA_WARN_REL:.0%}, ERROR "
                         f"above {_AREA_ERROR_REL:.0%}."
@@ -196,12 +197,12 @@ class CompositeDensityEnvelope:
     category = ValidatorCategory.AREA
 
     def check(self, ctx: ValidatorContext) -> List[Finding]:
-        sku = ctx.sku
+        die = ctx.sku.dies[0]
         node = ctx.process_node
-        if sku.die.die_size_mm2 <= 0:
+        if die.die_size_mm2 <= 0:
             return []
         composite = (
-            sku.die.transistors_billion * 1000.0 / sku.die.die_size_mm2
+            die.transistors_billion * 1000.0 / die.die_size_mm2
         )
         lo, hi = node.density_envelope()
         if lo <= 0 or hi <= 0:

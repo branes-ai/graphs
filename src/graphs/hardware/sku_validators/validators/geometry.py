@@ -28,12 +28,20 @@ from __future__ import annotations
 
 from typing import List
 
+from ...compute_product_loader import compute_product_to_kpu_entry
 from ...silicon_floorplan import (
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
+
+
+def _legacy_sku(ctx: ValidatorContext):
+    """Reverse-adapt ctx.sku (ComputeProduct) to KPUEntry for the
+    silicon_floorplan derivation functions. Bridge until silicon_floorplan
+    accepts ComputeProduct directly (next migration PR)."""
+    return compute_product_to_kpu_entry(ctx.sku, ctx.process_node)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +126,7 @@ class FloorplanPitchMatch:
 
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         try:
-            fp = derive_kpu_floorplan(ctx.sku, ctx.process_node)
+            fp = derive_kpu_floorplan(_legacy_sku(ctx), ctx.process_node)
         except Exception as exc:
             return [Finding(
                 validator=self.name,
@@ -188,10 +196,10 @@ class FloorplanWithinDieEnvelope:
 
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         try:
-            fp = derive_kpu_floorplan(ctx.sku, ctx.process_node)
+            fp = derive_kpu_floorplan(_legacy_sku(ctx), ctx.process_node)
         except Exception:
             return []  # Pitch-match validator already reports derivation errors
-        declared = ctx.sku.die.die_size_mm2
+        declared = ctx.sku.dies[0].die_size_mm2
         derived = fp.die_area_mm2
         if declared <= 0 or derived <= 0:
             return []
@@ -237,7 +245,7 @@ class FloorplanAspectRatio:
 
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         try:
-            fp = derive_kpu_floorplan(ctx.sku, ctx.process_node)
+            fp = derive_kpu_floorplan(_legacy_sku(ctx), ctx.process_node)
         except Exception:
             return []
         if fp.die_width_mm <= 0 or fp.die_height_mm <= 0:
@@ -292,7 +300,7 @@ class FloorplanComputeMemoryPitchMatch:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         try:
             fp = derive_kpu_architectural_floorplan(
-                ctx.sku, ctx.process_node
+                _legacy_sku(ctx), ctx.process_node
             )
         except Exception as exc:
             return [Finding(
@@ -366,7 +374,7 @@ class FloorplanWhitespaceFraction:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         try:
             fp = derive_kpu_architectural_floorplan(
-                ctx.sku, ctx.process_node
+                _legacy_sku(ctx), ctx.process_node
             )
         except Exception:
             return []  # The pitch validator already reports derivation errors

@@ -134,7 +134,7 @@ class ThermalHotspot:
 
             # ---- Check 3: per-block power density at peak vs cooling ceiling ----
             ceiling = cooling.max_power_density_w_per_mm2
-            for block in sku.silicon_bin.blocks:
+            for block in sku.dies[0].silicon_bin.blocks:
                 try:
                     ba = resolve_block_area(block, sku, node)
                 except SiliconMathError:
