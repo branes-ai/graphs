@@ -46,9 +46,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from embodied_schemas import load_kpus, load_process_nodes
+from embodied_schemas import load_process_nodes
 from embodied_schemas.process_node import CircuitClass
 
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.silicon_floorplan import (
     ArchitecturalFloorplan,
     ArchTile,
@@ -681,7 +682,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    kpus = load_kpus()
+    kpus = load_compute_products_unified()
     if args.list:
         for kid in sorted(kpus):
             print(kid)
@@ -696,14 +697,15 @@ def main() -> int:
 
     sku = kpus[args.sku_id]
     nodes = load_process_nodes()
-    if sku.process_node_id not in nodes:
+    process_node_id = sku.dies[0].process_node_id
+    if process_node_id not in nodes:
         print(
             f"error: SKU references unknown process_node_id "
-            f"{sku.process_node_id!r}",
+            f"{process_node_id!r}",
             file=sys.stderr,
         )
         return 2
-    node = nodes[sku.process_node_id]
+    node = nodes[process_node_id]
 
     fmt = _detect_format(args.output, args.json)
 
