@@ -1,12 +1,11 @@
 """KPU SKU generator.
 
-Turns a ``KPUSKUInputSpec`` into a fully-populated ``KPUEntry`` by
+Turns a ``KPUSKUInputSpec`` into a fully-populated ``ComputeProduct`` by
 computing the roll-up fields from the architectural / silicon_bin / NoC
 inputs and the referenced ``ProcessNodeEntry``:
 
-* ``die.transistors_billion`` -- Σ silicon_bin block transistors / 1000
-* ``die.die_size_mm2`` -- Σ silicon_bin block area (= transistors / density)
-* ``die.{foundry, process_nm, process_name}`` -- copied from ProcessNode
+* ``dies[0].transistors_billion`` -- Σ silicon_bin block transistors / 1000
+* ``dies[0].die_size_mm2`` -- Σ silicon_bin block area (= transistors / density)
 * ``performance.{int8_tops, bf16_tflops, fp32_tflops, int4_tops}`` --
   Σ(tile.num_tiles × ops_per_tile_per_clock) × default-profile clock
 * ``power.{tdp_watts, max_power_watts, min_power_watts,
@@ -17,6 +16,8 @@ inputs and the referenced ``ProcessNodeEntry``:
   TDP is the consequence.
 * ``power.idle_power_watts`` -- chip-wide leakage from ProcessNode
   ``leakage_w_per_mm2`` × per-block area
+* ``lifecycle`` -- derived from ``KPUMarket.is_discontinued`` (legacy
+  market shape on the input spec): EOL if discontinued else PRODUCTION
 
 The generator never modifies architect-provided fields. If
 ``input_spec.silicon_bin`` is incomplete (missing blocks) or
@@ -35,13 +36,24 @@ from __future__ import annotations
 from typing import Optional
 
 from embodied_schemas import (
-    KPUDieSpec,
-    KPUEntry,
-    KPUPowerSpec,
-    KPUTheoreticalPerformance,
+    ComputeProduct,
+    Die,
+    DieRole,
+    KPUBlock,
+    LifecycleStatus,
+    Market,
+    Packaging,
+    PackagingKind,
+    Power,
+    ProductKind,
     load_process_nodes,
 )
-from embodied_schemas.kpu import KPUThermalProfile
+from embodied_schemas.kpu import (
+    KPUArchitecture,
+    KPUMarket,
+    KPUTheoreticalPerformance,
+    KPUThermalProfile,
+)
 from embodied_schemas.process_node import ProcessNodeEntry
 
 from .kpu_power_model import (
@@ -49,7 +61,6 @@ from .kpu_power_model import (
     WorkloadAssumption,
     compute_thermal_profile_tdp_w,
 )
-from .compute_product_loader import kpu_entry_to_compute_product
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import (
     SiliconMathError,
@@ -66,13 +77,73 @@ class GeneratorError(Exception):
     the failure surface as a cascade of validator findings."""
 
 
+def _placeholder_for_resolution(spec: KPUSKUInputSpec) -> ComputeProduct:
+    """Build a ComputeProduct with placeholder die_size / transistor
+    fields so silicon_math helpers can walk the silicon_bin during
+    transistor-count resolution. Die size and transistor count get
+    filled in with real numbers in the second pass."""
+    return ComputeProduct(
+        id=spec.id,
+        name=spec.name,
+        vendor=spec.vendor,
+        kind=ProductKind.CHIP,
+        packaging=Packaging(
+            kind=PackagingKind.MONOLITHIC,
+            num_dies=1,
+            package_type="monolithic",
+        ),
+        dies=[
+            Die(
+                die_id="kpu_compute",
+                die_role=DieRole.COMPUTE,
+                process_node_id=spec.process_node_id,
+                die_size_mm2=1.0,           # placeholder; recomputed below
+                transistors_billion=1.0,    # placeholder
+                silicon_bin=spec.silicon_bin,
+                clocks=spec.clocks,
+                blocks=[
+                    KPUBlock(
+                        total_tiles=spec.kpu_architecture.total_tiles,
+                        multi_precision_alu=spec.kpu_architecture.multi_precision_alu,
+                        tiles=spec.kpu_architecture.tiles,
+                        noc=spec.kpu_architecture.noc,
+                        memory=spec.kpu_architecture.memory,
+                    )
+                ],
+                interconnects=[],
+            )
+        ],
+        performance=KPUTheoreticalPerformance(
+            int8_tops=0.0, bf16_tflops=0.0, fp32_tflops=0.0,
+        ),
+        power=Power(
+            tdp_watts=1.0,
+            max_power_watts=1.0,
+            min_power_watts=1.0,
+            default_thermal_profile=spec.default_thermal_profile,
+            thermal_profiles=spec.thermal_profiles,
+        ),
+        market=Market(
+            launch_date=spec.market.launch_date,
+            launch_msrp_usd=spec.market.launch_msrp_usd,
+            target_market=spec.market.target_market,
+            product_family=spec.market.product_family,
+            model_tier=spec.market.model_tier,
+            is_available=spec.market.is_available,
+        ),
+        notes=spec.notes,
+        datasheet_url=spec.datasheet_url,
+        last_updated=spec.last_updated,
+    )
+
+
 def generate_kpu_sku(
     spec: KPUSKUInputSpec,
     *,
     process_nodes: Optional[dict[str, ProcessNodeEntry]] = None,
     workload: Optional[WorkloadAssumption] = None,
-) -> KPUEntry:
-    """Produce a fully-populated KPUEntry from an input spec.
+) -> ComputeProduct:
+    """Produce a fully-populated ComputeProduct from an input spec.
 
     Args:
         spec: The architect-authored input.
@@ -115,50 +186,11 @@ def generate_kpu_sku(
         )
 
     # ---- Roll up silicon_bin -> die ----
-    # We pass a *temporary* KPUEntry-shaped object to silicon_math
-    # because resolve_block_area() walks kpu_architecture for
-    # PER_PE / PER_KIB / PER_ROUTER / PER_CONTROLLER expansions. We
-    # build a placeholder die then fill in the real numbers; the spec's
-    # KPUEntry construction at the end re-uses these.
-    placeholder_die = KPUDieSpec(
-        architecture="KPU Tile",
-        foundry=node.foundry,
-        process_nm=node.node_nm,
-        process_name=node.node_name,
-        transistors_billion=1.0,    # placeholder; overwritten below
-        die_size_mm2=1.0,           # placeholder
-        is_chiplet=False,
-        num_dies=1,
-    )
-    placeholder_perf = KPUTheoreticalPerformance(
-        int8_tops=0.0, bf16_tflops=0.0, fp32_tflops=0.0,
-    )
-    placeholder_power = KPUPowerSpec(
-        tdp_watts=default_profile.tdp_watts,
-        max_power_watts=default_profile.tdp_watts,
-        min_power_watts=default_profile.tdp_watts,
-        default_thermal_profile=spec.default_thermal_profile,
-        thermal_profiles=spec.thermal_profiles,
-    )
-    placeholder_sku = KPUEntry(
-        id=spec.id,
-        name=spec.name,
-        vendor=spec.vendor,
-        process_node_id=spec.process_node_id,
-        die=placeholder_die,
-        kpu_architecture=spec.kpu_architecture,
-        silicon_bin=spec.silicon_bin,
-        clocks=spec.clocks,
-        performance=placeholder_perf,
-        power=placeholder_power,
-        market=spec.market,
-        notes=spec.notes,
-        datasheet_url=spec.datasheet_url,
-        last_updated=spec.last_updated,
-    )
-    # Forward-adapt to ComputeProduct: silicon_math has migrated. Bridge
-    # until kpu_sku_generator itself migrates in a follow-up PR.
-    placeholder_cp = kpu_entry_to_compute_product(placeholder_sku)
+    # Build a placeholder ComputeProduct so silicon_math helpers can walk
+    # kpu_architecture for PER_PE / PER_KIB / PER_ROUTER / PER_CONTROLLER
+    # expansions. The placeholder has bogus die_size/transistors, which
+    # we replace with the rolled-up values from the silicon_bin pass.
+    placeholder_cp = _placeholder_for_resolution(spec)
 
     total_area = 0.0
     total_mtx = 0.0
@@ -180,16 +212,8 @@ def generate_kpu_sku(
             else "silicon_bin is empty or every block has 0 area."
         )
 
-    die = KPUDieSpec(
-        architecture="KPU Tile",
-        foundry=node.foundry,
-        process_nm=node.node_nm,
-        process_name=node.node_name,
-        transistors_billion=round(total_mtx / 1000.0, 3),
-        die_size_mm2=round(total_area, 1),
-        is_chiplet=False,
-        num_dies=1,
-    )
+    derived_die_size_mm2 = round(total_area, 1)
+    derived_transistors_billion = round(total_mtx / 1000.0, 3)
 
     # ---- Performance roll-up at default profile clock ----
     clock_hz = default_profile.clock_mhz * 1e6
@@ -233,7 +257,7 @@ def generate_kpu_sku(
     leakage_w = total_chip_leakage_w(placeholder_cp, node)
     idle_w = round(leakage_w, 2) if leakage_w > 0 else None
 
-    power = KPUPowerSpec(
+    power = Power(
         tdp_watts=derived_default.tdp_watts,
         max_power_watts=max_w,
         min_power_watts=min_w,
@@ -242,19 +266,53 @@ def generate_kpu_sku(
         thermal_profiles=derived_profiles,
     )
 
-    # ---- Construct the final KPUEntry ----
-    return KPUEntry(
+    # ---- Construct the final ComputeProduct ----
+    return ComputeProduct(
         id=spec.id,
         name=spec.name,
         vendor=spec.vendor,
-        process_node_id=spec.process_node_id,
-        die=die,
-        kpu_architecture=spec.kpu_architecture,
-        silicon_bin=spec.silicon_bin,
-        clocks=spec.clocks,
+        kind=ProductKind.CHIP,
+        packaging=Packaging(
+            kind=PackagingKind.MONOLITHIC,
+            num_dies=1,
+            package_type="monolithic",
+        ),
+        lifecycle=(
+            LifecycleStatus.EOL
+            if spec.market.is_discontinued
+            else LifecycleStatus.PRODUCTION
+        ),
+        dies=[
+            Die(
+                die_id="kpu_compute",
+                die_role=DieRole.COMPUTE,
+                process_node_id=spec.process_node_id,
+                die_size_mm2=derived_die_size_mm2,
+                transistors_billion=derived_transistors_billion,
+                silicon_bin=spec.silicon_bin,
+                clocks=spec.clocks,
+                blocks=[
+                    KPUBlock(
+                        total_tiles=spec.kpu_architecture.total_tiles,
+                        multi_precision_alu=spec.kpu_architecture.multi_precision_alu,
+                        tiles=spec.kpu_architecture.tiles,
+                        noc=spec.kpu_architecture.noc,
+                        memory=spec.kpu_architecture.memory,
+                    )
+                ],
+                interconnects=[],
+            )
+        ],
         performance=performance,
         power=power,
-        market=spec.market,
+        market=Market(
+            launch_date=spec.market.launch_date,
+            launch_msrp_usd=spec.market.launch_msrp_usd,
+            target_market=spec.market.target_market,
+            product_family=spec.market.product_family,
+            model_tier=spec.market.model_tier,
+            is_available=spec.market.is_available,
+        ),
         notes=spec.notes,
         datasheet_url=spec.datasheet_url,
         last_updated=spec.last_updated,
@@ -316,25 +374,45 @@ def apply_pe_array_override(
     return spec.model_copy(update={"kpu_architecture": new_arch})
 
 
-def input_spec_from_kpu_entry(entry: KPUEntry) -> KPUSKUInputSpec:
-    """Extract a KPUSKUInputSpec from an existing KPUEntry.
+def input_spec_from_compute_product(cp: ComputeProduct) -> KPUSKUInputSpec:
+    """Extract a KPUSKUInputSpec from an existing ComputeProduct.
 
     Used by tests for round-trip verification (load existing YAML ->
     extract spec -> regenerate -> diff against original) and by the CLI
     when an architect wants to start from an existing SKU as a template.
+
+    Translates the ComputeProduct's per-die structure back to the
+    spec's flat shape. v1 KPU monolithic products are assumed (one Die,
+    one KPUBlock); the input spec doesn't model multi-die yet.
     """
+    die = cp.dies[0]
+    block = die.blocks[0]
     return KPUSKUInputSpec(
-        id=entry.id,
-        name=entry.name,
-        vendor=entry.vendor,
-        process_node_id=entry.process_node_id,
-        kpu_architecture=entry.kpu_architecture,
-        silicon_bin=entry.silicon_bin,
-        clocks=entry.clocks,
-        thermal_profiles=entry.power.thermal_profiles,
-        default_thermal_profile=entry.power.default_thermal_profile,
-        market=entry.market,
-        notes=entry.notes,
-        datasheet_url=entry.datasheet_url,
-        last_updated=entry.last_updated,
+        id=cp.id,
+        name=cp.name,
+        vendor=cp.vendor,
+        process_node_id=die.process_node_id,
+        kpu_architecture=KPUArchitecture(
+            total_tiles=block.total_tiles,
+            multi_precision_alu=block.multi_precision_alu,
+            tiles=block.tiles,
+            noc=block.noc,
+            memory=block.memory,
+        ),
+        silicon_bin=die.silicon_bin,
+        clocks=die.clocks,
+        thermal_profiles=cp.power.thermal_profiles,
+        default_thermal_profile=cp.power.default_thermal_profile,
+        market=KPUMarket(
+            launch_date=cp.market.launch_date,
+            launch_msrp_usd=cp.market.launch_msrp_usd,
+            target_market=cp.market.target_market,
+            product_family=cp.market.product_family,
+            model_tier=cp.market.model_tier,
+            is_available=cp.market.is_available,
+            is_discontinued=(cp.lifecycle == LifecycleStatus.EOL),
+        ),
+        notes=cp.notes,
+        datasheet_url=cp.datasheet_url,
+        last_updated=cp.last_updated,
     )
