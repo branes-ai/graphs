@@ -154,16 +154,61 @@ def test_kpu_dram_traffic_handles_zero_weights(kpu_t64_resource_model):
 
 
 # ---------------------------------------------------------------------------
-# Non-KPU hardware is unaffected
+# GPU keeps streaming model (no aggregate weight pool across SMs)
 # ---------------------------------------------------------------------------
 
 
 def test_gpu_dram_traffic_keeps_naive_accounting():
-    """GPU/CPU/etc. retain the conservative input+output+weight accounting.
-    Issue #51 stationarity is a KPU-specific architectural model."""
+    """GPU retains the conservative input+output+weight accounting.
+    Per-SM shared memory doesn't aggregate into a coherent weight pool,
+    and the per-launch L2 set-aside on Hopper+ isn't modeled here yet --
+    streaming is the right default until there's a per-mapper opt-in."""
     from graphs.hardware.mappers.gpu import create_h100_sxm5_80gb_mapper
     rm = create_h100_sxm5_80gb_mapper().resource_model
     analyzer = RooflineAnalyzer(rm, precision=Precision.FP16)
     sg = _make_subgraph(input_b=1_000_000, output_b=1_000_000, weight_b=4 * 1024 * 1024)
     expected_naive = 1_000_000 + 1_000_000 + 4 * 1024 * 1024
     assert analyzer._dram_traffic_bytes(sg) == expected_naive
+
+
+# ---------------------------------------------------------------------------
+# CPU: weight residency in LLC (steady-state inference). Same architectural
+# story as KPU stationarity but via L3 cache instead of explicit dataflow.
+# ---------------------------------------------------------------------------
+
+
+def test_cpu_dram_traffic_excludes_weights_when_they_fit_in_llc():
+    """CPUs with sufficient L3 capture weight reuse in steady state.
+
+    For a workload whose weights fit in LLC, the cold-start DRAM read
+    amortizes away over many inferences and only activation traffic
+    crosses DRAM steady-state. ``l2_cache_total`` carries the LLC value
+    by codebase convention (see CPU mapper comments).
+    """
+    from graphs.hardware.mappers.cpu import create_i7_12700k_mapper
+    rm = create_i7_12700k_mapper().resource_model
+    analyzer = RooflineAnalyzer(rm, precision=Precision.FP16)
+    # i7-12700K has 25 MB L3; an 8 MB matrix fits with room to spare.
+    weight_bytes = 8 * 1024 * 1024
+    sg = _make_subgraph(input_b=4096, output_b=4096, weight_b=weight_bytes)
+    bytes_ = analyzer._dram_traffic_bytes(sg)
+    # input + output only; weights stay resident in LLC.
+    assert bytes_ == 4096 + 4096
+
+
+def test_cpu_dram_traffic_streams_when_weights_exceed_llc():
+    """When weights exceed LLC, the outer-tile model applies the same
+    way as for KPU: ceil(weight/budget) passes, each loading a fresh
+    slab; total weight bytes loaded == nominal weight size."""
+    from graphs.hardware.mappers.cpu import create_i7_12700k_mapper
+    rm = create_i7_12700k_mapper().resource_model
+    analyzer = RooflineAnalyzer(rm, precision=Precision.FP16)
+    # 100 MB weights vs 25 MB L3 -> ceil(100/(25*0.8)) = 5 outer slabs.
+    weight_bytes = 100 * 1024 * 1024
+    activation_bytes = 4096 + 4096
+    sg = _make_subgraph(input_b=4096, output_b=4096, weight_b=weight_bytes)
+    weight_budget = int(rm.l2_cache_total * 0.8)
+    expected_outer = math.ceil(weight_bytes / weight_budget)
+    expected = activation_bytes * expected_outer + weight_bytes
+    assert analyzer._dram_traffic_bytes(sg) == expected
+    assert expected_outer >= 2  # sanity

@@ -1774,53 +1774,100 @@ class RooflineAnalyzer:
         # Other hardware: default to moderate efficiency
         return 0.5
 
+    def _on_chip_weight_budget_bytes(self) -> int:
+        """On-chip storage available to hold weights resident across calls.
+
+        Architecture-specific because the same numeric "cache" plays a
+        different role on each:
+
+        * **KPU**: aggregate scratchpad fabric = ``compute_units x
+          l1_cache_per_unit + l2_cache_total``. The dataflow runtime
+          partitions weights across the tile mesh; the entire fabric is
+          a coherent weight pool by design.
+        * **CPU**: shared LLC (``l2_cache_total`` = L3/LLC by the M1
+          schema convention used in this codebase, see CPU mapper
+          comments). Per-core L1 is excluded -- 32 KiB x N cores doesn't
+          aggregate into a coherent weight pool, and the LLC dominates
+          for any reasonably-sized matrix.
+        * **Other (GPU, DSP, ...)**: 0. GPUs have programmer-managed
+          shared memory per SM that doesn't aggregate into a global
+          weight pool, so the conservative streaming model applies.
+          (Per-launch L2 set-aside is possible on Hopper+ but isn't
+          modeled here yet -- conservative is the right default until
+          we have a per-mapper opt-in.)
+
+        Reserves 20 % of the chosen capacity for the activation working
+        set; the remaining 80 % is the actual weight budget.
+        """
+        rm = self.resource_model
+        hw_type = rm.hardware_type.name
+
+        if hw_type == "KPU":
+            on_chip = rm.compute_units * rm.l1_cache_per_unit + rm.l2_cache_total
+        elif hw_type == "CPU":
+            # l2_cache_total = LLC by codebase convention. Per-core L1 is
+            # too small to aggregate into a coherent weight pool.
+            on_chip = rm.l2_cache_total
+        else:
+            return 0
+
+        return max(0, int(on_chip * 0.8))
+
     def _dram_traffic_bytes(self, sg: SubgraphDescriptor) -> int:
         """Bytes that actually cross the DRAM boundary for a subgraph.
 
-        For most hardware this is just ``input + output + weight`` -- the
-        roofline assumes weights stream through DRAM each call.
+        Default: ``input + output + weight`` -- the roofline's classical
+        cold-start assumption that weights stream through DRAM each call.
 
-        For weight-stationary accelerators (KPU), the architecture
-        double-buffers weight prefetch with compute: while layer N runs on
-        weights already resident in the tile fabric, layer N+1's weights are
-        fetched from DRAM in parallel. As long as a subgraph's weight
-        footprint fits in the aggregate on-chip capacity (sum of per-tile
-        L1 + shared L2), the weight load fully overlaps the previous
-        layer's compute and does NOT contribute to this subgraph's memory
-        floor. Per-subgraph DRAM traffic is then just the activation in/out.
+        For chips with enough on-chip storage to hold the subgraph's
+        weights resident, the steady-state behavior is different:
 
-        When per-subgraph weights exceed the on-chip budget, the prefetch
-        cannot fully hide weight loads -- model that as ``ceil(weight /
-        weight_budget)`` outer passes that each load a weight slab.
+        * **KPU**: the dataflow runtime explicitly double-buffers weight
+          prefetch with compute. While layer N runs on weights resident in
+          the tile fabric, layer N+1's weights are fetched from DRAM in
+          parallel. As long as a subgraph's weight footprint fits in the
+          aggregate on-chip capacity, the weight load fully overlaps the
+          previous layer's compute and does NOT contribute to this
+          subgraph's memory floor.
+        * **CPU**: in steady-state inference the L3 captures weight reuse.
+          For a workload whose weights fit in LLC, the cold-start cost
+          (one DRAM read of the matrix) amortizes away over many
+          inferences and only the activation stream crosses DRAM.
 
-        Without this hook (issue #51), transformer workloads get scored as
-        bandwidth-bound on KPU even though the dataflow is specifically
-        designed to keep weights resident.
+        When per-subgraph weights exceed the on-chip budget, the
+        prefetch / cache cannot fully hide weight loads -- model that as
+        ``ceil(weight / weight_budget)`` outer passes that each load a
+        weight slab. The activation stream cycles through every slab,
+        but each weight byte is still loaded only once total.
+
+        Other hardware (GPU, DSP, ...) keeps the cold-start streaming
+        model. See ``_on_chip_weight_budget_bytes`` for the per-arch
+        rationale.
+
+        Without this hook (issue #51), transformer-class workloads get
+        scored as bandwidth-bound on KPU and CPU even though their
+        dataflow / cache hierarchy is specifically designed to keep
+        weights resident.
         """
         base = sg.total_input_bytes + sg.total_output_bytes
         weight_bytes = sg.total_weight_bytes
-        hw_type = self.resource_model.hardware_type.name
 
-        if hw_type == "KPU" and weight_bytes > 0:
-            # Aggregate on-chip = sum of per-tile L1 + shared L2.
-            on_chip = (
-                self.resource_model.compute_units
-                * self.resource_model.l1_cache_per_unit
-                + self.resource_model.l2_cache_total
-            )
-            # Reserve 20% of on-chip for the activation working set.
-            weight_budget = max(1, int(on_chip * 0.8))
-            if weight_bytes <= weight_budget:
-                # Stationary: weight load overlaps previous layer's compute.
-                return base
-            # Weights exceed on-chip: outer-tiled. Each weight byte is still
-            # loaded *once* total (the slabs are different weight tiles, not
-            # the same tile reloaded); what gets repeated is the activation
-            # stream, which has to cycle through each weight slab.
-            outer_loads = max(1, math.ceil(weight_bytes / weight_budget))
-            return base * outer_loads + weight_bytes
+        if weight_bytes <= 0:
+            return base
 
-        return base + weight_bytes
+        weight_budget = self._on_chip_weight_budget_bytes()
+        if weight_budget <= 0:
+            return base + weight_bytes
+
+        if weight_bytes <= weight_budget:
+            # Stationary: weight load overlaps compute / sits in LLC.
+            return base
+        # Weights exceed on-chip: outer-tiled. Each weight byte is still
+        # loaded *once* total (the slabs are different weight tiles, not
+        # the same tile reloaded); what gets repeated is the activation
+        # stream, which has to cycle through each weight slab.
+        outer_loads = max(1, math.ceil(weight_bytes / weight_budget))
+        return base * outer_loads + weight_bytes
 
     def _get_discrete_resource_correction(self, sg: SubgraphDescriptor) -> float:
         """
