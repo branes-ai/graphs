@@ -28,10 +28,15 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from embodied_schemas import load_cooling_solutions, load_kpus, load_process_nodes
+from embodied_schemas import (
+    ComputeProduct,
+    load_cooling_solutions,
+    load_process_nodes,
+)
 from embodied_schemas.cooling_solution import CoolingSolutionEntry
-from embodied_schemas.kpu import KPUEntry
 from embodied_schemas.process_node import ProcessNodeEntry
+
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 
 # Reuse the layer renderers from sibling inspectors so the composed view
 # stays formatting-identical to the per-layer tools.
@@ -46,14 +51,14 @@ from show_process_node import _render_text as _render_node_text  # noqa: E402
 # --- Cross-checks -------------------------------------------------------
 
 def _thermal_check_rows(
-    e: KPUEntry,
+    cp: ComputeProduct,
     cools: Dict[str, CoolingSolutionEntry],
 ) -> List[Tuple[str, str, str, str, str, str, str]]:
     """One row per thermal profile, ready for any renderer:
     (profile, tdp_w, w_per_mm2, cooling_id, cool_max_w, cool_max_w_per_mm2, status)."""
     rows = []
-    die_mm2 = e.die.die_size_mm2
-    for tp in e.power.thermal_profiles:
+    die_mm2 = cp.dies[0].die_size_mm2
+    for tp in cp.power.thermal_profiles:
         cool = cools.get(tp.cooling_solution_id)
         density = tp.tdp_watts / die_mm2 if die_mm2 > 0 else 0.0
         if cool is None:
@@ -77,7 +82,7 @@ def _thermal_check_rows(
 
 
 def _render_crosscheck_text(
-    e: KPUEntry, cools: Dict[str, CoolingSolutionEntry]
+    cp: ComputeProduct, cools: Dict[str, CoolingSolutionEntry]
 ) -> str:
     out = ["=== ComputeProduct cross-checks ===", ""]
     out.append("--- Thermal headroom (per profile) ---")
@@ -85,7 +90,7 @@ def _render_crosscheck_text(
         f"  {'profile':10s} {'TDP':>5s} {'W/mm^2':>8s}  "
         f"{'cooling_id':28s} {'max W':>6s} {'max W/mm^2':>10s}  status"
     )
-    for r in _thermal_check_rows(e, cools):
+    for r in _thermal_check_rows(cp, cools):
         out.append(
             f"  {r[0]:10s} {r[1]:>5s} {r[2]:>8s}  "
             f"{r[3]:28s} {r[4]:>6s} {r[5]:>10s}  {r[6]}"
@@ -95,7 +100,7 @@ def _render_crosscheck_text(
 
 
 def _render_crosscheck_md(
-    e: KPUEntry, cools: Dict[str, CoolingSolutionEntry]
+    cp: ComputeProduct, cools: Dict[str, CoolingSolutionEntry]
 ) -> str:
     lines = [
         "## ComputeProduct cross-checks", "",
@@ -103,7 +108,7 @@ def _render_crosscheck_md(
         "| profile | TDP (W) | W/mm^2 | cooling_id | max W | max W/mm^2 | status |",
         "|---|---:|---:|---|---:|---:|---|",
     ]
-    for r in _thermal_check_rows(e, cools):
+    for r in _thermal_check_rows(cp, cools):
         lines.append(
             f"| {r[0]} | {r[1]} | {r[2]} | `{r[3]}` | {r[4]} | {r[5]} | {r[6]} |"
         )
@@ -113,13 +118,13 @@ def _render_crosscheck_md(
 
 # --- Composition --------------------------------------------------------
 
-def _banner(sku: KPUEntry, node_resolved: bool, cool_unresolved: List[str]) -> List[str]:
-    cooling_ids = sorted({tp.cooling_solution_id for tp in sku.power.thermal_profiles})
+def _banner(cp: ComputeProduct, node_resolved: bool, cool_unresolved: List[str]) -> List[str]:
+    cooling_ids = sorted({tp.cooling_solution_id for tp in cp.power.thermal_profiles})
     bar = "#" * 60
     lines = [
         bar,
-        f"# ComputeProduct: {sku.id}",
-        f"#   process_node:   {sku.process_node_id} "
+        f"# ComputeProduct: {cp.id}",
+        f"#   process_node:   {cp.dies[0].process_node_id} "
         f"({'resolved' if node_resolved else 'UNRESOLVED'})",
         f"#   cooling refs:   {', '.join(cooling_ids)}",
     ]
@@ -131,20 +136,22 @@ def _banner(sku: KPUEntry, node_resolved: bool, cool_unresolved: List[str]) -> L
 
 
 def _compose_text(
-    sku: KPUEntry, node: Optional[ProcessNodeEntry],
+    cp: ComputeProduct, node: Optional[ProcessNodeEntry],
     cools: Dict[str, CoolingSolutionEntry],
     cool_unresolved: List[str],
 ) -> str:
-    parts = _banner(sku, node is not None, cool_unresolved)
-    parts.append(_render_kpu_text(sku))
+    parts = _banner(cp, node is not None, cool_unresolved)
+    parts.append(_render_kpu_text(cp, node))
     parts.append("")
     if node is not None:
         parts.append(_render_node_text(node))
         parts.append("")
     else:
-        parts.append(f"!! ProcessNode {sku.process_node_id!r} not found in catalog")
+        parts.append(
+            f"!! ProcessNode {cp.dies[0].process_node_id!r} not found in catalog"
+        )
         parts.append("")
-    for cid in sorted({tp.cooling_solution_id for tp in sku.power.thermal_profiles}):
+    for cid in sorted({tp.cooling_solution_id for tp in cp.power.thermal_profiles}):
         cool = cools.get(cid)
         if cool is None:
             parts.append(f"!! CoolingSolution {cid!r} not found in catalog")
@@ -152,19 +159,19 @@ def _compose_text(
         else:
             parts.append(_render_cool_text(cool))
             parts.append("")
-    parts.append(_render_crosscheck_text(sku, cools))
+    parts.append(_render_crosscheck_text(cp, cools))
     return "\n".join(parts)
 
 
 def _compose_md(
-    sku: KPUEntry, node: Optional[ProcessNodeEntry],
+    cp: ComputeProduct, node: Optional[ProcessNodeEntry],
     cools: Dict[str, CoolingSolutionEntry],
     cool_unresolved: List[str],
 ) -> str:
-    cooling_ids = sorted({tp.cooling_solution_id for tp in sku.power.thermal_profiles})
-    parts = [f"# ComputeProduct: `{sku.id}`", ""]
+    cooling_ids = sorted({tp.cooling_solution_id for tp in cp.power.thermal_profiles})
+    parts = [f"# ComputeProduct: `{cp.id}`", ""]
     parts.append(
-        f"- process_node: `{sku.process_node_id}`"
+        f"- process_node: `{cp.dies[0].process_node_id}`"
         f"{'' if node is not None else ' (UNRESOLVED)'}"
     )
     parts.append(f"- cooling refs: {', '.join(f'`{c}`' for c in cooling_ids)}")
@@ -175,14 +182,14 @@ def _compose_md(
     parts.append("## KPU SKU")
     parts.append("")
     parts.append("```")
-    parts.append(_render_kpu_text(sku))
+    parts.append(_render_kpu_text(cp, node))
     parts.append("```")
     parts.append("")
     if node is not None:
         parts.append(_render_node_md(node))
         parts.append("")
     else:
-        parts.append(f"> ProcessNode `{sku.process_node_id}` not found in catalog")
+        parts.append(f"> ProcessNode `{cp.dies[0].process_node_id}` not found in catalog")
         parts.append("")
     for cid in cooling_ids:
         cool = cools.get(cid)
@@ -192,18 +199,18 @@ def _compose_md(
         else:
             parts.append(_render_cool_md(cool))
             parts.append("")
-    parts.append(_render_crosscheck_md(sku, cools))
+    parts.append(_render_crosscheck_md(cp, cools))
     return "\n".join(parts)
 
 
 def _compose_json(
-    sku: KPUEntry, node: Optional[ProcessNodeEntry],
+    cp: ComputeProduct, node: Optional[ProcessNodeEntry],
     cools: Dict[str, CoolingSolutionEntry],
     cool_unresolved: List[str],
 ) -> Dict[str, Any]:
     return {
-        "compute_product_id": sku.id,
-        "sku": sku.model_dump(mode="json"),
+        "compute_product_id": cp.id,
+        "sku": cp.model_dump(mode="json"),
         "process_node": node.model_dump(mode="json") if node is not None else None,
         "cooling_solutions": {
             cid: cool.model_dump(mode="json") for cid, cool in cools.items()
@@ -220,14 +227,14 @@ def _compose_json(
                     "cool_max_w_per_mm2": None if r[5] == "?" else float(r[5]),
                     "status": r[6],
                 }
-                for r in _thermal_check_rows(sku, cools)
+                for r in _thermal_check_rows(cp, cools)
             ],
         },
     }
 
 
 def _compose_csv(
-    sku: KPUEntry,
+    cp: ComputeProduct,
     node: Optional[ProcessNodeEntry],
     cools: Dict[str, CoolingSolutionEntry],
 ) -> str:
@@ -253,10 +260,10 @@ def _compose_csv(
         ],
     )
     writer.writeheader()
-    for r in _thermal_check_rows(sku, cools):
+    for r in _thermal_check_rows(cp, cools):
         writer.writerow({
-            "compute_product_id": sku.id,
-            "process_node_id": sku.process_node_id,
+            "compute_product_id": cp.id,
+            "process_node_id": cp.dies[0].process_node_id,
             "process_node_resolved": node is not None,
             "profile": r[0],
             "tdp_w": None if r[1] == "?" else float(r[1]),
@@ -296,38 +303,38 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        kpus = load_kpus()
+        cps = load_compute_products_unified()
         nodes = load_process_nodes()
         sols = load_cooling_solutions()
     except Exception as exc:
         print(f"error: failed to load catalog: {exc}", file=sys.stderr)
         return 1
 
-    sku = kpus.get(args.kpu_id)
-    if sku is None:
+    cp = cps.get(args.kpu_id)
+    if cp is None:
         print(
             f"error: no KPU SKU with id={args.kpu_id!r}. "
-            f"Available: {', '.join(sorted(kpus))}",
+            f"Available: {', '.join(sorted(cps))}",
             file=sys.stderr,
         )
         return 1
 
-    node = nodes.get(sku.process_node_id)
-    cooling_ids = sorted({tp.cooling_solution_id for tp in sku.power.thermal_profiles})
+    node = nodes.get(cp.dies[0].process_node_id)
+    cooling_ids = sorted({tp.cooling_solution_id for tp in cp.power.thermal_profiles})
     cools = {cid: sols[cid] for cid in cooling_ids if cid in sols}
     cool_unresolved = [cid for cid in cooling_ids if cid not in sols]
 
     fmt = _detect_format(args.output)
     if fmt == "json":
         rendered = json.dumps(
-            _compose_json(sku, node, cools, cool_unresolved), indent=2
+            _compose_json(cp, node, cools, cool_unresolved), indent=2
         ) + "\n"
     elif fmt == "csv":
-        rendered = _compose_csv(sku, node, cools)
+        rendered = _compose_csv(cp, node, cools)
     elif fmt == "md":
-        rendered = _compose_md(sku, node, cools, cool_unresolved) + "\n"
+        rendered = _compose_md(cp, node, cools, cool_unresolved) + "\n"
     else:
-        rendered = _compose_text(sku, node, cools, cool_unresolved) + "\n"
+        rendered = _compose_text(cp, node, cools, cool_unresolved) + "\n"
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
