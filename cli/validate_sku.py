@@ -170,9 +170,9 @@ def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
     a per-SKU table to stdout. Returns non-zero on any ERROR finding
     (or any WARNING if ``--strict``).
     """
-    from embodied_schemas import load_kpus
+    from graphs.hardware.compute_product_loader import load_compute_products_unified
     try:
-        kpus = load_kpus()
+        kpus = load_compute_products_unified()
     except Exception as exc:
         print(f"error: failed to load KPU catalog: {exc}", file=sys.stderr)
         return 2
