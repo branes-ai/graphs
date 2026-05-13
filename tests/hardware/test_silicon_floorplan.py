@@ -28,6 +28,7 @@ from embodied_schemas import (
     load_process_nodes,
 )
 
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.silicon_floorplan import (
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
@@ -55,7 +56,17 @@ ALL_KPU_IDS = sorted(load_kpus().keys())
 
 @pytest.fixture(scope="module")
 def kpus():
+    """Legacy KPUEntry catalog. Used by derive_kpu_floorplan / derive_
+    kpu_architectural_floorplan, which still take KPUEntry until their
+    own migration PR. Validator tests use the ``cps`` fixture below."""
     return load_kpus()
+
+
+@pytest.fixture(scope="module")
+def cps():
+    """ComputeProduct catalog. Used to construct ValidatorContext, which
+    after the sku_validators migration takes ``sku: ComputeProduct``."""
+    return load_compute_products_unified()
 
 
 @pytest.fixture(scope="module")
@@ -228,7 +239,7 @@ def test_geometry_validators_registered():
 
 @pytest.mark.parametrize("sku_id", ALL_KPU_IDS)
 def test_geometry_validators_dont_error_on_real_skus(
-    sku_id, kpus, nodes, cooling
+    sku_id, cps, nodes, cooling
 ):
     """Stage 8 stance: WARN-max during heuristic-v1 development.
 
@@ -236,10 +247,10 @@ def test_geometry_validators_dont_error_on_real_skus(
     geometry validators -- otherwise the Phase 6 catalog gate fails.
     Tighten thresholds to ERROR-level once the heuristic is calibrated.
     """
-    sku = kpus[sku_id]
+    sku = cps[sku_id]
     ctx = ValidatorContext(
         sku=sku,
-        process_node=nodes[sku.process_node_id],
+        process_node=nodes[sku.dies[0].process_node_id],
         cooling_solutions=cooling,
     )
     findings = default_registry.run_category(ctx, ValidatorCategory.GEOMETRY)
@@ -250,7 +261,7 @@ def test_geometry_validators_dont_error_on_real_skus(
     )
 
 
-def test_pitch_match_warns_on_t768(kpus, nodes, cooling):
+def test_pitch_match_warns_on_t768(cps, nodes, cooling):
     """T768 has the most aggressive per-class pitch differences in the
     catalog -- the floorplan_pitch_match validator must fire on it.
 
@@ -258,10 +269,10 @@ def test_pitch_match_warns_on_t768(kpus, nodes, cooling):
     accidentally hides the T768 pitch mismatch (e.g., by inflating
     INT8 per-PE area), this test fails so we notice.
     """
-    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
+    sku = cps["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     ctx = ValidatorContext(
         sku=sku,
-        process_node=nodes[sku.process_node_id],
+        process_node=nodes[sku.dies[0].process_node_id],
         cooling_solutions=cooling,
     )
     findings = default_registry.run_one("floorplan_pitch_match", ctx)
@@ -424,13 +435,13 @@ def test_arch_what_if_all_int8_smaller_than_all_matrix(kpus, nodes):
     )
 
 
-def test_compute_memory_pitch_match_warns_on_t768(kpus, nodes, cooling):
+def test_compute_memory_pitch_match_warns_on_t768(cps, nodes, cooling):
     """T768's compute tiles range from 0.175 mm (INT8) to 0.508 mm
     (Matrix); memory pitch is ~0.142 mm. The C/M pitch validator
     must fire on at least one tile class for T768."""
-    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
+    sku = cps["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     ctx = ValidatorContext(
-        sku=sku, process_node=nodes[sku.process_node_id],
+        sku=sku, process_node=nodes[sku.dies[0].process_node_id],
         cooling_solutions=cooling,
     )
     findings = default_registry.run_one(
@@ -443,12 +454,12 @@ def test_compute_memory_pitch_match_warns_on_t768(kpus, nodes, cooling):
     )
 
 
-def test_whitespace_validator_warns_on_t768(kpus, nodes, cooling):
+def test_whitespace_validator_warns_on_t768(cps, nodes, cooling):
     """T768 has 76% architectural whitespace (Matrix tiles dominate
     the unified pitch). Whitespace validator must fire."""
-    sku = kpus["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
+    sku = cps["kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"]
     ctx = ValidatorContext(
-        sku=sku, process_node=nodes[sku.process_node_id],
+        sku=sku, process_node=nodes[sku.dies[0].process_node_id],
         cooling_solutions=cooling,
     )
     findings = default_registry.run_one("floorplan_whitespace_fraction", ctx)

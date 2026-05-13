@@ -36,8 +36,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Iterable, List, Optional, Protocol, runtime_checkable
 
+from embodied_schemas import ComputeProduct
 from embodied_schemas.cooling_solution import CoolingSolutionEntry
-from embodied_schemas.kpu import KPUEntry
 from embodied_schemas.process_node import ProcessNodeEntry
 
 
@@ -161,9 +161,11 @@ class ValidatorContext:
     'context per profile' iteration on every validator.
     """
 
-    sku: KPUEntry
-    """The SKU being validated. Today only KPUEntry; future GPU/CPU SKUs
-    will be a Union here."""
+    sku: ComputeProduct
+    """The SKU being validated, as a ComputeProduct. v1 KPU products
+    are monolithic (one Die, one KPUBlock); future chiplet products
+    and other architectures (GPU/CPU) populate the same shape with
+    additional dies and block kinds."""
 
     process_node: ProcessNodeEntry
     """The ProcessNodeEntry referenced by ``sku.process_node_id``."""

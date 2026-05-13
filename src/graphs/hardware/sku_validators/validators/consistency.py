@@ -36,7 +36,8 @@ class TileMixConsistency:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         findings: List[Finding] = []
         sku = ctx.sku
-        arch = sku.kpu_architecture
+        # v1 KPU monolithic: one Die with one KPUBlock.
+        arch = sku.dies[0].blocks[0]
 
         # 1. Σ(num_tiles) == total_tiles
         sum_tiles = sum(t.num_tiles for t in arch.tiles)
@@ -184,7 +185,7 @@ class CrossRefConsistency:
         #    we surface it here too because it's a foreign-key issue
         #    that AREA-suppressed runs would miss.)
         node = ctx.process_node
-        for block in sku.silicon_bin.blocks:
+        for block in sku.dies[0].silicon_bin.blocks:
             if not node.supports(block.circuit_class):
                 available = ", ".join(
                     sorted(c.value for c in node.densities)

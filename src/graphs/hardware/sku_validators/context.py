@@ -15,13 +15,14 @@ from __future__ import annotations
 from typing import Optional
 
 from embodied_schemas import (
+    ComputeProduct,
     load_cooling_solutions,
-    load_kpus,
     load_process_nodes,
 )
 from embodied_schemas.cooling_solution import CoolingSolutionEntry
-from embodied_schemas.kpu import KPUEntry
 from embodied_schemas.process_node import ProcessNodeEntry
+
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 
 from .framework import ValidatorContext
 
@@ -33,7 +34,7 @@ class ContextError(Exception):
 def build_context_for_kpu(
     sku_id: str,
     *,
-    kpus: Optional[dict[str, KPUEntry]] = None,
+    kpus: Optional[dict[str, ComputeProduct]] = None,
     process_nodes: Optional[dict[str, ProcessNodeEntry]] = None,
     cooling_solutions: Optional[dict[str, CoolingSolutionEntry]] = None,
 ) -> ValidatorContext:
@@ -43,7 +44,9 @@ def build_context_for_kpu(
         sku_id: The KPU SKU id, e.g., ``"kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"``.
         kpus / process_nodes / cooling_solutions: Optional pre-loaded
             catalogs. Tests pass small in-memory dicts here to avoid
-            disk IO; the CLI lets them default to disk loaders.
+            disk IO; the CLI lets them default to disk loaders. The
+            ``kpus`` dict is keyed by SKU id and contains
+            ``ComputeProduct`` instances (v1 KPU monolithic products).
 
     Raises:
         ContextError: if the SKU id isn't found, or its process_node_id
@@ -53,7 +56,7 @@ def build_context_for_kpu(
             them in the standard finding flow.
     """
     if kpus is None:
-        kpus = load_kpus()
+        kpus = load_compute_products_unified()
     if process_nodes is None:
         process_nodes = load_process_nodes()
     if cooling_solutions is None:
@@ -66,12 +69,13 @@ def build_context_for_kpu(
             f"no KPU SKU with id={sku_id!r}. Available: {available}"
         )
 
-    pn = process_nodes.get(sku.process_node_id)
+    process_node_id = sku.dies[0].process_node_id
+    pn = process_nodes.get(process_node_id)
     if pn is None:
         available = ", ".join(sorted(process_nodes)) or "(none)"
         raise ContextError(
             f"SKU {sku_id!r} references process_node_id="
-            f"{sku.process_node_id!r} but it does not resolve. "
+            f"{process_node_id!r} but it does not resolve. "
             f"Available process nodes: {available}"
         )
 
