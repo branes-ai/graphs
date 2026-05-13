@@ -90,7 +90,26 @@ import torch
 import torch.nn as nn
 
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
-from graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
+from graphs.hardware.mappers.accelerators.kpu import KPUMapper
+from graphs.hardware.models.accelerators.kpu_yaml_loader import (
+    load_kpu_resource_model_from_yaml,
+)
+from graphs.hardware.architectural_energy import KPUTileEnergyAdapter
+
+
+def create_kpu_t64_7nm_mapper() -> KPUMapper:
+    """KPU-T64 on TSMC N7 HPC -- the closest available KPU process node
+    to the Jetsons in this chart (Orin = Samsung 8nm, Thor = TSMC 4NP).
+
+    The standard ``create_kpu_t64_mapper()`` factory loads the 16nm
+    variant which biases the comparison toward older silicon. T64 ships
+    in three process variants in embodied-schemas (16nm / 12nm / 7nm);
+    we load the 7nm SKU directly here for a fairer roadmap-era
+    comparison. A 5nm or 4nm KPU SKU does not yet exist in the catalog.
+    """
+    model = load_kpu_resource_model_from_yaml("kpu_t64_32x32_lp5x4_7nm_tsmc_hpc")
+    model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
+    return KPUMapper(model)
 from graphs.hardware.mappers.cpu import (
     create_ampere_ampereone_1core_reference_mapper,
 )
@@ -233,14 +252,17 @@ PRODUCTS: List[RoadmapProduct] = [
     ),
     # KPU reference SKU. T64 alone is enough to make the comparison
     # legible (it already beats Thor on this workload). T256 deferred
-    # until the avg_power-vs-TDP modeling fix lands.
+    # until the avg_power-vs-TDP modeling fix lands. Process node:
+    # TSMC N7 HPC -- closest available KPU SKU to the chart's Orin
+    # (Samsung 8nm) / Thor (TSMC 4NP) era. A 5nm / 4nm KPU is not yet
+    # in the catalog.
     RoadmapProduct(
         name="Stillwater KPU-T64",
-        factory=create_kpu_t64_mapper,
+        factory=create_kpu_t64_7nm_mapper,
         release_date=date(2027, 1, 1),
         eol_date=date(2037, 1, 1),
         architecture="KPU domain-flow (64 tiles)",
-        process_node="TSMC 16FFP",
+        process_node="TSMC N7 HPC",
         color="#9467bd",   # tab:purple
         marker="P",
     ),
