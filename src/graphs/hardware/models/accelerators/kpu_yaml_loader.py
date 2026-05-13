@@ -46,14 +46,15 @@ from __future__ import annotations
 from typing import Optional
 
 from embodied_schemas import (
-    KPUEntry,
+    ComputeProduct,
     KPUTileScheduleClass as YamlScheduleClass,
-    load_kpus,
     load_process_nodes,
 )
+from embodied_schemas.compute_product import KPUBlock
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
 from ...architectural_energy import KPUTileEnergyModel
+from ...compute_product_loader import load_compute_products_unified
 from ...fabric_model import SoCFabricModel, Topology
 from ...resource_model import (
     ClockDomain,
@@ -69,6 +70,14 @@ from ...resource_model import (
     TileSpecialization,
     get_base_alu_energy,
 )
+
+
+def _kpu_block(cp: ComputeProduct) -> KPUBlock:
+    """Return the KPUBlock from a v1 monolithic-KPU ``ComputeProduct``.
+
+    Mirrors the helper in ``sku_validators.silicon_math``: chiplet KPU
+    products will need iteration when they land."""
+    return cp.dies[0].blocks[0]
 
 
 class KPUYamlLoaderError(Exception):
@@ -264,7 +273,7 @@ def _fabric_energy_scaling(
 # ---------------------------------------------------------------------------
 
 def _build_tile_energy_model(
-    sku: KPUEntry, node: ProcessNodeEntry, *, default_clock_hz: float
+    cp: ComputeProduct, node: ProcessNodeEntry, *, default_clock_hz: float
 ) -> KPUTileEnergyModel:
     """Construct a KPUTileEnergyModel from the YAML SKU + process node.
 
@@ -272,7 +281,7 @@ def _build_tile_energy_model(
 
     * Architectural shape (num_tiles, mesh, L1/L2/L3 sizes,
       DRAM bandwidth, clock) -- direct read from
-      ``sku.kpu_architecture``.
+      ``_kpu_block(cp)``.
     * ``pes_per_tile`` -- the dominant tile class's PE count
       (``num_tiles`` x array). The energy model uses this for routing,
       L1 sizing, and per-tile compute energy; the dominant class's
@@ -287,7 +296,7 @@ def _build_tile_energy_model(
       placeholders matching the existing factory values; PR (later)
       will swap for a per-process-node SRAM table when PDK data lands.
     """
-    arch = sku.kpu_architecture
+    arch = _kpu_block(cp)
     mem = arch.memory
 
     # Dominant tile class -- the one with the highest num_tiles. In all
@@ -352,7 +361,7 @@ def _build_tile_energy_model(
 
 
 def _build_soc_fabric(
-    sku: KPUEntry, node: ProcessNodeEntry
+    cp: ComputeProduct, node: ProcessNodeEntry
 ) -> SoCFabricModel:
     """Construct a SoCFabricModel from the YAML SKU's NoC declaration.
 
@@ -371,7 +380,7 @@ def _build_soc_fabric(
       analyzer treats them as approximations and is robust to
       modest differences.
     """
-    arch = sku.kpu_architecture
+    arch = _kpu_block(cp)
     noc = arch.noc
 
     topology_key = noc.topology.lower()
@@ -395,8 +404,8 @@ def _build_soc_fabric(
         routing_distance_factor=1.2,  # typical XY routing with detours
         low_confidence=low_confidence,
         provenance=(
-            f"{sku.name} NoC from "
-            f"embodied-schemas:kpus/{sku.vendor}/{sku.id}.yaml "
+            f"{cp.name} NoC from "
+            f"embodied-schemas:kpus/{cp.vendor}/{cp.id}.yaml "
             f"(kpu_architecture.noc); on-chip SRAM + per-hop energy "
             f"are node-agnostic v1 placeholders"
         ),
@@ -406,7 +415,7 @@ def _build_soc_fabric(
 def load_kpu_resource_model_from_yaml(
     base_id: str,
     *,
-    kpus: Optional[dict[str, KPUEntry]] = None,
+    kpus: Optional[dict[str, ComputeProduct]] = None,
     process_nodes: Optional[dict[str, ProcessNodeEntry]] = None,
 ) -> HardwareResourceModel:
     """Build a ``HardwareResourceModel`` for ``base_id`` from the YAML catalog.
@@ -422,45 +431,45 @@ def load_kpu_resource_model_from_yaml(
             ``process_node_id`` doesn't resolve.
     """
     if kpus is None:
-        kpus = load_kpus()
+        kpus = load_compute_products_unified()
     if process_nodes is None:
         process_nodes = load_process_nodes()
 
-    sku = kpus.get(base_id)
-    if sku is None:
+    cp = kpus.get(base_id)
+    if cp is None:
         raise KPUYamlLoaderError(
             f"no KPU SKU with id={base_id!r}. Available: "
             f"{', '.join(sorted(kpus))}"
         )
-    node = process_nodes.get(sku.process_node_id)
+    node = process_nodes.get(cp.dies[0].process_node_id)
     if node is None:
         raise KPUYamlLoaderError(
             f"SKU {base_id!r} references process_node_id="
-            f"{sku.process_node_id!r} which does not resolve"
+            f"{cp.dies[0].process_node_id!r} which does not resolve"
         )
 
     # Default profile gives the sustained clock used for fabric core_frequency_hz
     # and for ClockDomain.sustained_clock_hz.
     default_profile = next(
-        (p for p in sku.power.thermal_profiles
-         if p.name == sku.power.default_thermal_profile),
+        (p for p in cp.power.thermal_profiles
+         if p.name == cp.power.default_thermal_profile),
         None,
     )
     if default_profile is None:
         raise KPUYamlLoaderError(
             f"SKU {base_id!r}: default_thermal_profile "
-            f"{sku.power.default_thermal_profile!r} is not in "
+            f"{cp.power.default_thermal_profile!r} is not in "
             f"thermal_profiles"
         )
     default_clock_hz = default_profile.clock_mhz * 1e6
-    boost_clock_hz = sku.clocks.boost_clock_mhz * 1e6
-    base_clock_hz = sku.clocks.base_clock_mhz * 1e6
+    boost_clock_hz = cp.dies[0].clocks.boost_clock_mhz * 1e6
+    base_clock_hz = cp.dies[0].clocks.base_clock_mhz * 1e6
 
     # ------------------------------------------------------------------
     # Build ComputeFabric per tile class (peak throughput vehicle)
     # ------------------------------------------------------------------
     compute_fabrics: list[ComputeFabric] = []
-    for tile in sku.kpu_architecture.tiles:
+    for tile in _kpu_block(cp).tiles:
         ops_dict = _precision_dict_from_yaml(tile.ops_per_tile_per_clock)
         if not ops_dict:
             continue
@@ -499,7 +508,7 @@ def load_kpu_resource_model_from_yaml(
         dvfs_enabled=True,
     )
     tile_specializations: list[TileSpecialization] = []
-    for tile in sku.kpu_architecture.tiles:
+    for tile in _kpu_block(cp).tiles:
         ops_dict = _precision_dict_from_yaml(tile.ops_per_tile_per_clock)
         if not ops_dict:
             continue
@@ -531,13 +540,13 @@ def load_kpu_resource_model_from_yaml(
     # ------------------------------------------------------------------
     # Determine which precisions any tile claims to support.
     supported_precisions: set[Precision] = set()
-    for tile in sku.kpu_architecture.tiles:
+    for tile in _kpu_block(cp).tiles:
         supported_precisions.update(
             _precision_dict_from_yaml(tile.ops_per_tile_per_clock).keys()
         )
 
     thermal_operating_points: dict[str, ThermalOperatingPoint] = {}
-    for profile in sku.power.thermal_profiles:
+    for profile in cp.power.thermal_profiles:
         # Per-profile clock domain so calc_peak / calc_sustained reflect
         # the profile's actual frequency.
         profile_clock_domain = ClockDomain(
@@ -565,7 +574,7 @@ def load_kpu_resource_model_from_yaml(
                 )
             )
         profile_compute = KPUComputeResource(
-            total_tiles=sku.kpu_architecture.total_tiles,
+            total_tiles=_kpu_block(cp).total_tiles,
             tile_specializations=profile_specializations,
         )
 
@@ -631,7 +640,7 @@ def load_kpu_resource_model_from_yaml(
     # ------------------------------------------------------------------
     # Memory + cache fields
     # ------------------------------------------------------------------
-    mem = sku.kpu_architecture.memory
+    mem = _kpu_block(cp).memory
     peak_bandwidth_bps = mem.memory_bandwidth_gbps * 1e9
     main_memory_bytes = int(mem.memory_size_gb * 1024**3)
     l3_per_tile_bytes = mem.l3_kib_per_tile * 1024
@@ -662,7 +671,7 @@ def load_kpu_resource_model_from_yaml(
     # by mappers that compute parallelism budgets.
     threads_per_unit = max(
         (t.pe_array_rows * t.pe_array_cols
-         for t in sku.kpu_architecture.tiles),
+         for t in _kpu_block(cp).tiles),
         default=1,
     )
 
@@ -687,17 +696,17 @@ def load_kpu_resource_model_from_yaml(
     # KPUTileEnergyModel + SoCFabricModel (Phase 4b PR 2)
     # ------------------------------------------------------------------
     tile_energy_model = _build_tile_energy_model(
-        sku, node, default_clock_hz=default_clock_hz
+        cp, node, default_clock_hz=default_clock_hz
     )
-    soc_fabric = _build_soc_fabric(sku, node)
+    soc_fabric = _build_soc_fabric(cp, node)
 
     # ------------------------------------------------------------------
     # Construct the model
     # ------------------------------------------------------------------
     model = HardwareResourceModel(
-        name=sku.name,
+        name=cp.name,
         hardware_type=HardwareType.KPU,
-        compute_units=sku.kpu_architecture.total_tiles,
+        compute_units=_kpu_block(cp).total_tiles,
         threads_per_unit=threads_per_unit,
         warps_per_unit=0,
         peak_bandwidth=peak_bandwidth_bps,
@@ -711,7 +720,7 @@ def load_kpu_resource_model_from_yaml(
         precision_profiles=precision_profiles,
         default_precision=Precision.INT8,
         thermal_operating_points=thermal_operating_points,
-        default_thermal_profile=sku.power.default_thermal_profile,
+        default_thermal_profile=cp.power.default_thermal_profile,
         min_occupancy=0.3,
         max_concurrent_kernels=4,
         wave_quantization=2,
@@ -734,7 +743,7 @@ def load_kpu_resource_model_from_yaml(
     model.l2_topology = "per-unit"
     model.l3_present = True
     model.l3_cache_total = (
-        mem.l3_kib_per_tile * 1024 * sku.kpu_architecture.total_tiles
+        mem.l3_kib_per_tile * 1024 * _kpu_block(cp).total_tiles
     )
     model.coherence_protocol = "none"
 
@@ -753,13 +762,13 @@ def load_kpu_resource_model_from_yaml(
     # tie back to the YAML file path and the M0.5 KPU dataflow-tile
     # abstraction that drives these conventions.
     yaml_source = (
-        f"embodied-schemas:kpus/{sku.vendor}/{sku.id}.yaml"
+        f"embodied-schemas:kpus/{cp.vendor}/{cp.id}.yaml"
     )
     from graphs.core.confidence import EstimationConfidence
     _PROVENANCE = EstimationConfidence.theoretical(
         score=0.85,
         source=(
-            f"{sku.name} M0.5 dataflow-tile abstraction; derived from {yaml_source}"
+            f"{cp.name} M0.5 dataflow-tile abstraction; derived from {yaml_source}"
         ),
     )
     for key in (
