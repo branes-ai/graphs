@@ -33,10 +33,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from embodied_schemas.kpu import KPUEntry, KPUThermalProfile
+from embodied_schemas import (
+    ComputeProduct,
+    Die,
+    DieRole,
+    KPUBlock,
+    Market,
+    Packaging,
+    PackagingKind,
+    Power,
+    ProductKind,
+)
+from embodied_schemas.kpu import (
+    KPUTheoreticalPerformance,
+    KPUThermalProfile,
+)
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
-from .compute_product_loader import kpu_entry_to_compute_product
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import total_chip_leakage_w
 
@@ -161,13 +174,10 @@ def compute_thermal_profile_tdp_breakdown(
     workload = workload or DEFAULT_WORKLOAD
     arch = spec.kpu_architecture
 
-    # Build a placeholder KPUEntry so total_chip_leakage_w can walk the
-    # silicon_bin (it expects a sized chip). The transistor / die fields
-    # don't affect leakage math -- only the per-block area does.
-    placeholder = _placeholder_entry(spec, profile, node)
-    # Forward-adapt to ComputeProduct: silicon_math has migrated. Bridge
-    # until kpu_power_model itself migrates in a follow-up PR.
-    placeholder_cp = kpu_entry_to_compute_product(placeholder)
+    # Build a placeholder ComputeProduct so total_chip_leakage_w can walk
+    # the silicon_bin (it expects a sized chip). The transistor / die
+    # fields don't affect leakage math -- only the per-block area does.
+    placeholder_cp = _placeholder_compute_product(spec, profile, node)
     leakage_w = max(0.0, total_chip_leakage_w(placeholder_cp, node))
 
     # Voltage scaling: dynamic power scales by (V/Vnom)^2. Defaults to
@@ -274,45 +284,64 @@ def compute_thermal_profile_tdp_w(
     )
 
 
-def _placeholder_entry(
+def _placeholder_compute_product(
     spec: KPUSKUInputSpec,
     profile: KPUThermalProfile,
     node: ProcessNodeEntry,
-) -> KPUEntry:
-    """Build a minimum-viable KPUEntry so silicon_math helpers (which
-    walk a SKU rather than a spec) can run during TDP derivation. The
-    die / performance / power roll-ups are placeholders -- only the
+) -> ComputeProduct:
+    """Build a minimum-viable ComputeProduct so silicon_math helpers
+    (which walk a SKU rather than a spec) can run during TDP derivation.
+    The die / performance / power roll-ups are placeholders -- only the
     architecture and silicon_bin matter for the math we use here."""
-    from embodied_schemas import KPUDieSpec, KPUPowerSpec, KPUTheoreticalPerformance
-
-    die = KPUDieSpec(
-        architecture="KPU Tile",
-        foundry=node.foundry,
-        process_nm=node.node_nm,
-        process_name=node.node_name,
-        transistors_billion=1.0,  # placeholder
-        die_size_mm2=1.0,         # placeholder
-    )
     perf = KPUTheoreticalPerformance(int8_tops=0.0, bf16_tflops=0.0, fp32_tflops=0.0)
-    power = KPUPowerSpec(
-        tdp_watts=profile.tdp_watts if profile.tdp_watts > 0 else 1.0,
-        max_power_watts=profile.tdp_watts if profile.tdp_watts > 0 else 1.0,
-        min_power_watts=profile.tdp_watts if profile.tdp_watts > 0 else 1.0,
-        default_thermal_profile=profile.name,
-        thermal_profiles=[profile],
-    )
-    return KPUEntry(
+    placeholder_tdp = profile.tdp_watts if profile.tdp_watts > 0 else 1.0
+    return ComputeProduct(
         id=spec.id,
         name=spec.name,
         vendor=spec.vendor,
-        process_node_id=spec.process_node_id,
-        die=die,
-        kpu_architecture=spec.kpu_architecture,
-        silicon_bin=spec.silicon_bin,
-        clocks=spec.clocks,
+        kind=ProductKind.CHIP,
+        packaging=Packaging(
+            kind=PackagingKind.MONOLITHIC,
+            num_dies=1,
+            package_type="monolithic",
+        ),
+        dies=[
+            Die(
+                die_id="kpu_compute",
+                die_role=DieRole.COMPUTE,
+                process_node_id=spec.process_node_id,
+                die_size_mm2=1.0,           # placeholder
+                transistors_billion=1.0,    # placeholder
+                silicon_bin=spec.silicon_bin,
+                clocks=spec.clocks,
+                blocks=[
+                    KPUBlock(
+                        total_tiles=spec.kpu_architecture.total_tiles,
+                        multi_precision_alu=spec.kpu_architecture.multi_precision_alu,
+                        tiles=spec.kpu_architecture.tiles,
+                        noc=spec.kpu_architecture.noc,
+                        memory=spec.kpu_architecture.memory,
+                    )
+                ],
+                interconnects=[],
+            )
+        ],
         performance=perf,
-        power=power,
-        market=spec.market,
+        power=Power(
+            tdp_watts=placeholder_tdp,
+            max_power_watts=placeholder_tdp,
+            min_power_watts=placeholder_tdp,
+            default_thermal_profile=profile.name,
+            thermal_profiles=[profile],
+        ),
+        market=Market(
+            launch_date=spec.market.launch_date,
+            launch_msrp_usd=spec.market.launch_msrp_usd,
+            target_market=spec.market.target_market,
+            product_family=spec.market.product_family,
+            model_tier=spec.market.model_tier,
+            is_available=spec.market.is_available,
+        ),
         notes=spec.notes,
         datasheet_url=spec.datasheet_url,
         last_updated=spec.last_updated,
