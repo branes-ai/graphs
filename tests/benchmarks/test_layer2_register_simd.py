@@ -14,9 +14,27 @@ All tests run on CPU with small vectors (<1s total).
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from graphs.benchmarks.schema import LayerTag
+
+
+# Detect when we're running under pytest-xdist. The PYTEST_XDIST_WORKER
+# env var is set on each worker (e.g., "gw0", "gw1", ...). Microbenchmarks
+# that compare two timings are unreliable when multiple workers compete
+# for CPU on a small runner -- they get marked skipped, not failed.
+_RUNNING_UNDER_XDIST = "PYTEST_XDIST_WORKER" in os.environ
+_xdist_unsafe = pytest.mark.skipif(
+    _RUNNING_UNDER_XDIST,
+    reason=(
+        "timing-based microbench: requires a quiet machine. "
+        "Other xdist workers contending for CPU make the comparison "
+        "unreliable on small runners (e.g., 4-vCPU GitHub Actions). "
+        "Run serially with `pytest -p no:xdist` to exercise this."
+    ),
+)
 
 
 class TestSIMDWidthSweep:
@@ -89,6 +107,7 @@ class TestRegisterPressure:
         ilp = result.extra["ilp_ratio"]
         assert ilp > 0
 
+    @_xdist_unsafe
     def test_independent_faster_than_dependent(self):
         from graphs.benchmarks.layer2_register_simd.register_pressure import (
             run_register_pressure_benchmark,
