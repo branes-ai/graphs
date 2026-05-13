@@ -144,6 +144,7 @@ class JetsonProduct:
     name: str
     factory: Optional[Callable]
     release_date: date
+    eol_date: date
     architecture: str
     process_node: str
     color: str
@@ -165,6 +166,7 @@ JETSONS: List[JetsonProduct] = [
         name="Jetson TX2i",
         factory=None,  # Pascal resource model not in catalog yet
         release_date=date(2018, 4, 24),
+        eol_date=date(2027, 7, 1),  # LTS Jul 2027 (PCN-accelerated, see docstring)
         architecture="Pascal",
         process_node="TSMC 16FF",
         color="#9467bd",   # tab:purple
@@ -174,6 +176,7 @@ JETSONS: List[JetsonProduct] = [
         name="Jetson AGX Xavier Industrial",
         factory=None,  # Volta resource model not in catalog yet
         release_date=date(2021, 7, 1),
+        eol_date=date(2027, 7, 1),  # LTS Jul 2027 (PCN-accelerated, see docstring)
         architecture="Volta",
         process_node="TSMC 12FFN",
         color="#ff7f0e",   # tab:orange
@@ -183,6 +186,7 @@ JETSONS: List[JetsonProduct] = [
         name="Jetson AGX Orin Industrial",
         factory=create_jetson_orin_agx_64gb_mapper,
         release_date=date(2023, 6, 1),  # COMPUTEX 2023 May 29; mid-2023 GA
+        eol_date=date(2033, 7, 1),  # Lifecycle commitment Jul 2033
         architecture="Ampere",
         process_node="Samsung 8nm",
         color="#1f77b4",   # tab:blue
@@ -193,6 +197,7 @@ JETSONS: List[JetsonProduct] = [
         name="IGX T5000",
         factory=create_jetson_thor_128gb_mapper,
         release_date=date(2025, 12, 1),  # IGX T5000 SoM GA Dec 2025
+        eol_date=date(2035, 8, 1),  # Lifecycle commitment Aug 2035
         architecture="Blackwell",
         process_node="TSMC 4NP",
         color="#2ca02c",   # tab:green
@@ -266,6 +271,7 @@ def _row_dict(r: ProductResult) -> dict:
     return {
         "name": r.product.name,
         "release_date": r.product.release_date.isoformat(),
+        "eol_date": r.product.eol_date.isoformat(),
         "architecture": r.product.architecture,
         "process_node": r.product.process_node,
         "tdp_w": r.tdp_w,
@@ -279,7 +285,7 @@ def _row_dict(r: ProductResult) -> dict:
 
 
 _FIELDS = [
-    "name", "release_date", "architecture", "process_node",
+    "name", "release_date", "eol_date", "architecture", "process_node",
     "tdp_w", "latency_ms", "energy_per_inference_mj",
     "avg_power_w_during_inference",
     "perf_inferences_per_sec",
@@ -353,55 +359,57 @@ def write_plot(
         fontsize=12, y=0.995,
     )
 
-    # Panel 1: throughput
-    for r in results:
+    def _draw_lifecycle_bar(ax, r: ProductResult, y: float, with_label: bool) -> None:
+        """Horizontal bar from release_date to EOL at metric y-value.
+
+        Bars communicate the *application window* of each SKU: the period
+        where it can actually be designed in. Filled marker at the
+        release-date end (start of availability), open marker at EOL."""
         legend_label = (
             f"{r.product.short_name()} -- "
             f"{r.product.architecture} on {r.product.process_node}, "
-            f"{r.tdp_w:.0f}W"
-        )
-        ax1.scatter(
-            [r.product.release_date], [r.perf_inf_per_s],
-            c=r.product.color, marker=r.product.marker, s=220,
-            edgecolors="black", linewidth=1.2, zorder=3,
+            f"{r.tdp_w:.0f}W "
+            f"({r.product.release_date.year}-{r.product.eol_date.year})"
+        ) if with_label else None
+        ax.hlines(
+            y=y,
+            xmin=r.product.release_date,
+            xmax=r.product.eol_date,
+            color=r.product.color, linewidth=8, alpha=0.85, zorder=2,
             label=legend_label,
         )
-        ax1.annotate(
-            r.product.short_name(),
-            xy=(r.product.release_date, r.perf_inf_per_s),
-            xytext=(10, -4), textcoords="offset points", fontsize=9,
+        # Filled marker at release (in-market start)
+        ax.scatter(
+            [r.product.release_date], [y],
+            c=r.product.color, marker=r.product.marker, s=160,
+            edgecolors="black", linewidth=1.0, zorder=3,
         )
-    # Connect points with a thin line so the trajectory reads
-    ax1.plot(
-        [r.product.release_date for r in results],
-        [r.perf_inf_per_s for r in results],
-        color="gray", linestyle=":", linewidth=1, alpha=0.5, zorder=1,
-    )
+        # Open marker at EOL (end-of-availability)
+        ax.scatter(
+            [r.product.eol_date], [y],
+            facecolors="white", edgecolors=r.product.color,
+            marker=r.product.marker, s=120, linewidth=1.5, zorder=3,
+        )
+        ax.annotate(
+            r.product.short_name(),
+            xy=(r.product.release_date, y),
+            xytext=(8, 8), textcoords="offset points", fontsize=9,
+        )
+
+    # Panel 1: throughput
+    for r in results:
+        _draw_lifecycle_bar(ax1, r, r.perf_inf_per_s, with_label=True)
     ax1.set_ylabel("Sustained throughput (inferences / sec)")
-    ax1.set_title("Performance: sustained inferences/sec")
+    ax1.set_title("Performance over availability window: release date -> EOL")
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc="upper left", fontsize=9, framealpha=0.95)
 
-    # Panel 2: intelligence/Watt
+    # Panel 2: energy efficiency
     for r in results:
-        ax2.scatter(
-            [r.product.release_date], [r.intelligence_inf_per_j],
-            c=r.product.color, marker=r.product.marker, s=220,
-            edgecolors="black", linewidth=1.2, zorder=3,
-        )
-        ax2.annotate(
-            r.product.short_name(),
-            xy=(r.product.release_date, r.intelligence_inf_per_j),
-            xytext=(10, -4), textcoords="offset points", fontsize=9,
-        )
-    ax2.plot(
-        [r.product.release_date for r in results],
-        [r.intelligence_inf_per_j for r in results],
-        color="gray", linestyle=":", linewidth=1, alpha=0.5, zorder=1,
-    )
+        _draw_lifecycle_bar(ax2, r, r.intelligence_inf_per_j, with_label=False)
     ax2.set_ylabel("Energy efficiency (inferences / joule)")
-    ax2.set_title("Efficiency: process + architecture impact on energy per inference")
-    ax2.set_xlabel("Release date")
+    ax2.set_title("Efficiency over availability window: process + architecture impact")
+    ax2.set_xlabel("Calendar year (filled = release / GA, open = EOL)")
     ax2.grid(True, alpha=0.3)
 
     # X-axis formatting -- yearly major ticks, quarterly minors
@@ -409,11 +417,11 @@ def write_plot(
     ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     ax2.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
 
-    # Pad the x-axis a bit on each side
+    # Pad the x-axis to cover the full release -> EOL span
     earliest = min(r.product.release_date for r in results)
-    latest = max(r.product.release_date for r in results)
+    latest = max(r.product.eol_date for r in results)
     span_days = (latest - earliest).days
-    pad = max(120, span_days // 10)
+    pad = max(120, span_days // 30)
     from datetime import timedelta
     ax2.set_xlim(earliest - timedelta(days=pad), latest + timedelta(days=pad))
 
