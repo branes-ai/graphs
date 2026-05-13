@@ -90,10 +90,7 @@ import torch
 import torch.nn as nn
 
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
-from graphs.hardware.mappers.accelerators.kpu import (
-    create_kpu_t64_mapper,
-    create_kpu_t256_mapper,
-)
+from graphs.hardware.mappers.accelerators.kpu import create_kpu_t64_mapper
 from graphs.hardware.mappers.cpu import (
     create_ampere_ampereone_1core_reference_mapper,
 )
@@ -234,9 +231,9 @@ PRODUCTS: List[RoadmapProduct] = [
         color="#8c564b",   # tab:brown
         marker="x",
     ),
-    # KPU reference SKUs. KPU release dates are forward-looking per the
-    # spec ("KPU release dates will be 2027, 2028, 2029"); placing T64
-    # at 2027 and T256 at 2029 with overlapping availability windows.
+    # KPU reference SKU. T64 alone is enough to make the comparison
+    # legible (it already beats Thor on this workload). T256 deferred
+    # until the avg_power-vs-TDP modeling fix lands.
     RoadmapProduct(
         name="Stillwater KPU-T64",
         factory=create_kpu_t64_mapper,
@@ -246,16 +243,6 @@ PRODUCTS: List[RoadmapProduct] = [
         process_node="TSMC 16FFP",
         color="#9467bd",   # tab:purple
         marker="P",
-    ),
-    RoadmapProduct(
-        name="Stillwater KPU-T256",
-        factory=create_kpu_t256_mapper,
-        release_date=date(2029, 1, 1),
-        eol_date=date(2039, 1, 1),
-        architecture="KPU domain-flow (256 tiles)",
-        process_node="TSMC 16FFP",
-        color="#17becf",   # tab:cyan
-        marker="*",
     ),
 ]
 
