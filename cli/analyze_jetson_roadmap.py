@@ -90,7 +90,10 @@ import torch
 import torch.nn as nn
 
 from graphs.estimation.unified_analyzer import UnifiedAnalyzer
-from graphs.hardware.mappers.cpu import create_ampere_ampereone_192_mapper
+from graphs.hardware.mappers.cpu import (
+    create_ampere_ampereone_192_mapper,
+    create_ampere_ampereone_1core_reference_mapper,
+)
 from graphs.hardware.mappers.gpu import (
     create_jetson_orin_agx_64gb_mapper,
     create_jetson_thor_128gb_mapper,
@@ -221,6 +224,22 @@ PRODUCTS: List[RoadmapProduct] = [
         process_node="TSMC 5nm",
         color="#d62728",   # tab:red
         marker="v",
+    ),
+    # Synthetic single-core reference paired with the 192-core SKU above.
+    # Same architectural unit, num_cores=1. Surfaces what realistic
+    # single-core throughput looks like for issue #175 (CPU mapper
+    # batch=1 fanout overcount). The gap between this bar and the
+    # 192-core bar above shows how much of the multi-core scaling is
+    # genuine vs an artifact of LLC capacity scaling with num_cores.
+    RoadmapProduct(
+        name="AmpereOne 1-core (synthetic ref)",
+        factory=create_ampere_ampereone_1core_reference_mapper,
+        release_date=date(2024, 5, 1),  # paired with the 192-core SKU
+        eol_date=date(2031, 5, 1),
+        architecture="ARM v8.6+ (1c)",
+        process_node="TSMC 5nm",
+        color="#8c564b",   # tab:brown
+        marker="x",
     ),
 ]
 
