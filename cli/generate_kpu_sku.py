@@ -45,13 +45,14 @@ from typing import Optional
 
 import yaml
 
-from embodied_schemas import load_cooling_solutions, load_kpus, load_process_nodes
+from embodied_schemas import load_cooling_solutions, load_process_nodes
 
+from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
     apply_pe_array_override,
     generate_kpu_sku,
-    input_spec_from_kpu_entry,
+    input_spec_from_compute_product,
 )
 from graphs.hardware.kpu_sku_input import KPUSKUInputSpec
 from graphs.hardware.sku_validators import (
@@ -148,7 +149,7 @@ def main() -> int:
             return 2
     else:
         try:
-            kpus = load_kpus()
+            kpus = load_compute_products_unified()
         except Exception as exc:
             print(f"error: failed to load KPU catalog: {exc}", file=sys.stderr)
             return 2
@@ -160,7 +161,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-        spec = input_spec_from_kpu_entry(existing)
+        spec = input_spec_from_compute_product(existing)
 
     # Apply PE-array override (after spec load, before generation).
     if args.pe_array:
@@ -202,7 +203,7 @@ def main() -> int:
         load_validators()
         ctx = ValidatorContext(
             sku=entry,
-            process_node=process_nodes[entry.process_node_id],
+            process_node=process_nodes[entry.dies[0].process_node_id],
             cooling_solutions=cooling_solutions,
         )
         findings = default_registry.run_all(ctx)
