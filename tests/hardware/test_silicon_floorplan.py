@@ -46,7 +46,27 @@ SHOW_FLOORPLAN_CLI = REPO_ROOT / "cli" / "show_floorplan.py"
 
 # Auto-discovery: test against every KPU SKU in the catalog. New SKUs
 # get covered automatically, matching the Phase 6 catalog gate pattern.
-ALL_KPU_IDS = sorted(load_compute_products_unified().keys())
+# v2 added GPU SKUs to the catalog (e.g. nvidia_jetson_agx_orin_64gb)
+# whose floorplan story is fundamentally different (no checkerboard
+# tile mesh, no per-tile memory neighbors); filter them out so the
+# KPU-shaped invariants below stay scoped to KPU SKUs.
+def _kpu_sku_ids() -> list[str]:
+    products = load_compute_products_unified()
+
+    def _kind_str(block) -> str:
+        # KPUBlock.kind is a BlockKind enum; GPUBlock.kind is Literal["gpu"]
+        # (a plain string). Normalize to the lowercase string value.
+        kind = block.kind
+        return kind.value if hasattr(kind, "value") else str(kind)
+
+    return sorted(
+        sku for sku, cp in products.items()
+        if cp.dies and cp.dies[0].blocks
+        and _kind_str(cp.dies[0].blocks[0]) == "kpu"
+    )
+
+
+ALL_KPU_IDS = _kpu_sku_ids()
 
 
 # ---------------------------------------------------------------------------
