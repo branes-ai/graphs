@@ -55,9 +55,12 @@ def _kpu_sku_ids() -> list[str]:
 
     def _kind_str(block) -> str:
         # KPUBlock.kind is a BlockKind enum; GPUBlock.kind is Literal["gpu"]
-        # (a plain string). Normalize to the lowercase string value.
+        # (a plain string). Normalize to the lowercase string value so an
+        # upstream casing change can't silently drop KPU SKUs from the
+        # auto-discovery list.
         kind = block.kind
-        return kind.value if hasattr(kind, "value") else str(kind)
+        raw = kind.value if hasattr(kind, "value") else kind
+        return str(raw).strip().lower()
 
     return sorted(
         sku for sku, cp in products.items()

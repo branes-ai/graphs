@@ -113,6 +113,46 @@ def test_precision_peak_ops_match(hand_coded, yaml_loaded, precision):
     assert yaml_peak == pytest.approx(hand_peak, rel=0.005)
 
 
+@pytest.mark.parametrize("precision", [
+    Precision.FP64, Precision.FP32, Precision.FP16, Precision.INT8,
+])
+def test_precision_metadata_matches(hand_coded, yaml_loaded, precision):
+    """Beyond peak ops, the per-precision PrecisionProfile carries
+    tensor_core_supported, accumulator_precision, and relative_speedup
+    -- downstream consumers (mappers, energy estimator) read all three.
+    Pin them so a loader regression that mis-classifies tensor support
+    or drops the accumulator hint shows up here, not in some downstream
+    estimator's silent miscount."""
+    if precision not in hand_coded.precision_profiles:
+        pytest.skip(f"hand-coded model doesn't expose {precision.name}")
+    hand = hand_coded.precision_profiles[precision]
+    yaml = yaml_loaded.precision_profiles[precision]
+    assert yaml.tensor_core_supported == hand.tensor_core_supported, (
+        f"{precision.name}: tensor_core_supported mismatch "
+        f"(yaml={yaml.tensor_core_supported}, hand={hand.tensor_core_supported})"
+    )
+    assert yaml.accumulator_precision == hand.accumulator_precision, (
+        f"{precision.name}: accumulator_precision mismatch"
+    )
+    assert yaml.relative_speedup == pytest.approx(hand.relative_speedup, rel=0.05)
+
+
+def test_model_energy_scaling_matches(hand_coded, yaml_loaded):
+    """Model-level energy_scaling dict drives the energy estimator's
+    per-precision joule-per-op math. Loader now derives it from the
+    YAML's per-fabric energy_scaling rather than a hardcoded dict; this
+    test pins agreement with the hand-coded chip-wide values."""
+    for precision, hand_factor in hand_coded.energy_scaling.items():
+        assert precision in yaml_loaded.energy_scaling, (
+            f"YAML-loaded model missing energy_scaling[{precision.name}]"
+        )
+        yaml_factor = yaml_loaded.energy_scaling[precision]
+        assert yaml_factor == pytest.approx(hand_factor, rel=0.05), (
+            f"energy_scaling[{precision.name}] mismatch: "
+            f"yaml={yaml_factor}, hand={hand_factor}"
+        )
+
+
 def test_default_precision_matches(hand_coded, yaml_loaded):
     assert yaml_loaded.default_precision == hand_coded.default_precision
 

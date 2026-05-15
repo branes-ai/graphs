@@ -158,24 +158,51 @@ def _gpu_block(cp: ComputeProduct) -> GPUBlock:
     )
 
 
-def _precisions_from_ops_dict(ops: dict[str, int]) -> dict[Precision, int]:
-    """Convert YAML's str-keyed ops/clock dict to graphs' Precision-keyed dict."""
+def _precisions_from_ops_dict(
+    ops: dict[str, int],
+    *,
+    source: str = "ops_per_unit_per_clock",
+) -> dict[Precision, int]:
+    """Convert YAML's str-keyed ops/clock dict to graphs' Precision-keyed dict.
+
+    Fails fast on unknown precision names rather than silently dropping
+    them -- a typo in the YAML (e.g. ``"fp_16"`` instead of ``"fp16"``)
+    would otherwise undercount the fabric's true ops/clock and produce
+    a model that mysteriously misses a precision."""
     out: dict[Precision, int] = {}
+    unknown: list[str] = []
     for name, count in ops.items():
         prec = _PRECISION_BY_NAME.get(name.lower())
         if prec is None:
+            unknown.append(name)
             continue
         out[prec] = count
+    if unknown:
+        raise GPUYamlLoaderError(
+            f"unknown precision name(s) in {source}: {sorted(unknown)}. "
+            f"Known: {sorted(_PRECISION_BY_NAME)}"
+        )
     return out
 
 
-def _energy_scaling_from_yaml(scaling: dict[str, float]) -> dict[Precision, float]:
+def _energy_scaling_from_yaml(
+    scaling: dict[str, float],
+    *,
+    source: str = "energy_scaling",
+) -> dict[Precision, float]:
     out: dict[Precision, float] = {}
+    unknown: list[str] = []
     for name, factor in scaling.items():
         prec = _PRECISION_BY_NAME.get(name.lower())
         if prec is None:
+            unknown.append(name)
             continue
         out[prec] = factor
+    if unknown:
+        raise GPUYamlLoaderError(
+            f"unknown precision name(s) in {source}: {sorted(unknown)}. "
+            f"Known: {sorted(_PRECISION_BY_NAME)}"
+        )
     return out
 
 
@@ -279,16 +306,22 @@ def load_gpu_resource_model_from_yaml(
     for fabric in compute_fabrics:
         supported_precisions.update(fabric.ops_per_unit_per_clock.keys())
 
+    # Derive tensor-core-supported precisions from the actual tensor_core
+    # fabric(s) instead of a hardcoded set. A SKU that doesn't ship Tensor
+    # cores at all (e.g. a hypothetical CUDA-only entry-level GPU) gets
+    # tensor_core_supported=False uniformly; a future RT_CORE-bearing SKU
+    # would surface its precisions automatically.
+    tensor_fabric_precisions: set[Precision] = set()
+    for fabric in compute_fabrics:
+        if fabric.circuit_type == "tensor_core":
+            tensor_fabric_precisions.update(fabric.ops_per_unit_per_clock.keys())
+
     precision_profiles: dict[Precision, PrecisionProfile] = {}
     for precision in supported_precisions:
         peak = sum(f.get_peak_ops_per_sec(precision) for f in compute_fabrics)
         if peak <= 0:
             continue
-        # Tensor cores cover FP16 / BF16 / INT8; CUDA-only precisions (FP64,
-        # FP32) are not tensor-accelerated.
-        tensor_supported = precision in {
-            Precision.FP16, Precision.BF16, Precision.INT8,
-        }
+        tensor_supported = precision in tensor_fabric_precisions
         # Relative speedup vs FP32 baseline (used by some downstream
         # consumers for quick comparisons).
         fp32_peak = sum(
@@ -427,11 +460,31 @@ def load_gpu_resource_model_from_yaml(
         default_precision = Precision.FP32
 
     # Energy fields: legacy scalar fields used by older code paths.
+    # The CUDA-core fabric is the FP32 baseline; if it's not present
+    # (some future GPU might ship tensor-only) fall back to the first
+    # fabric.
     cuda_fabric = next(
         (f for f in compute_fabrics if f.circuit_type == "standard_cell"),
         compute_fabrics[0],
     )
     energy_per_flop_fp32 = cuda_fabric.energy_per_flop_fp32
+
+    # Model-level energy_scaling rolls up the YAML's per-fabric scaling.
+    # If multiple fabrics report scaling for the same precision (e.g. CUDA
+    # cores AND tensor cores both scale FP16), prefer the tensor-core
+    # entry since it's the lower-energy / higher-throughput path that
+    # downstream estimators use for that precision. CUDA-only precisions
+    # (FP64, FP32) come from the CUDA fabric.
+    energy_scaling: dict[Precision, float] = {}
+    # First populate from CUDA / standard fabrics, then overwrite with
+    # tensor-core values where present (tensor-core-friendly precisions
+    # win the tie).
+    for fabric in compute_fabrics:
+        if fabric.circuit_type != "tensor_core":
+            energy_scaling.update(fabric.energy_scaling)
+    for fabric in compute_fabrics:
+        if fabric.circuit_type == "tensor_core":
+            energy_scaling.update(fabric.energy_scaling)
 
     model = HardwareResourceModel(
         name=name_override or cp.name,
@@ -463,12 +516,7 @@ def load_gpu_resource_model_from_yaml(
 
         energy_per_flop_fp32=energy_per_flop_fp32,
         energy_per_byte=read_pj * 1e-12,
-        energy_scaling={
-            Precision.FP64: 2.0,
-            Precision.FP32: 1.0,
-            Precision.FP16: 0.5,
-            Precision.INT8: 0.125,
-        },
+        energy_scaling=energy_scaling,
 
         min_occupancy=block.min_occupancy,
         max_concurrent_kernels=block.max_concurrent_kernels,
