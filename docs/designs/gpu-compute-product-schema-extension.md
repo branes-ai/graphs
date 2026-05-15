@@ -170,7 +170,7 @@ parameters.
 | `hop_latency_ns=2.0`                    | NEW     | `OnDieFabric.hop_latency_ns: float` |
 | `pj_per_flit_per_hop=8.0`               | NEW     | `OnDieFabric.pj_per_flit_per_hop: float` |
 | `routing_distance_factor=1.0`           | NEW     | `OnDieFabric.routing_distance_factor: float` |
-| `mesh_rows`, `mesh_cols`                | -       | KPU-specific; on `OnDieFabric` should be optional (only populated for mesh topologies) |
+| `mesh_rows`, `mesh_cols`                | EXTEND  | KPU-specific; on `OnDieFabric` should be optional (only populated for mesh topologies) |
 | `router_circuit_class`                  | EXTEND  | Already on `KPUNoCSpec`; keep |
 
 **Recommendation**: rename `KPUNoCSpec` -> `OnDieFabric` and make
@@ -323,7 +323,8 @@ The Schema PR (PR 2 of the sprint) should land roughly the following:
      `peak_ops_per_sec_by_precision: dict[str, float]`.
 
 4. **Process node catalog**:
-   - Add `data/process_nodes/samsung/8nm.yaml` (Samsung 8nm Tegra GA10B).
+   - No new process-node YAML required for AGX Orin i this sprint.
+   - Reuse existing `data/process-nodes/samsung/8lpp.yaml` via `process_node_id: "samsung_8lpp"`.
 
 5. **Cooling solution catalog**:
    - The catalog has `passive_heatsink_large.yaml`, `active_fan.yaml`,
