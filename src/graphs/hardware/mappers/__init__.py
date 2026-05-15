@@ -59,6 +59,7 @@ def _init_registry():
         create_amd_epyc_turin_mapper,
         create_ampere_ampereone_192_mapper,
         create_ampere_ampereone_128_mapper,
+        create_ampere_ampereone_1core_reference_mapper,
         create_i7_12700k_mapper,
         create_jetson_orin_agx_cpu_mapper,
     )
@@ -269,6 +270,14 @@ def _init_registry():
             "description": "Ampere AmpereOne (128 cores)",
             "default_tdp_w": 250.0,
             "memory_gb": 512.0,
+        },
+        "Ampere-AmpereOne-1core-ref": {
+            "factory": create_ampere_ampereone_1core_reference_mapper,
+            "category": "cpu",
+            "vendor": "Ampere",
+            "description": "Ampere AmpereOne single-core reference (synthetic, see issue #175)",
+            "default_tdp_w": 5.0,
+            "memory_gb": 64.0,
         },
 
         # =====================================================================

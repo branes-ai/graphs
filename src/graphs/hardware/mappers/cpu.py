@@ -1247,6 +1247,29 @@ def create_ampere_ampereone_192_mapper() -> CPUMapper:
     return CPUMapper(model)
 
 
+def create_ampere_ampereone_1core_reference_mapper() -> CPUMapper:
+    """Single-core AmpereOne *reference design* (synthetic).
+
+    NOT a shipping product -- Ampere only sells full-die AmpereOne parts.
+    This factory returns a one-core slice of the same architectural unit
+    (ARM v8.6+ Neoverse-class core, TSMC 5nm, same SIMD width) as a
+    reference data point for sanity-checking what multi-core SKUs
+    "should" look like on workloads that can't fan out across all cores
+    (e.g. batch=1 matvec). Filed as part of the validation strategy on
+    issue #175 (CPU mapper batch=1 fanout overcount).
+
+    See ``ampere_ampereone_1core_reference_resource_model`` for the
+    rationale behind the 5W TDP estimate and the 512 KB L2 / 80 GB/s
+    memory bandwidth choices.
+    """
+    from ..models.datacenter.ampere_ampereone_1core_reference import (
+        ampere_ampereone_1core_reference_resource_model,
+    )
+
+    model = ampere_ampereone_1core_reference_resource_model()
+    return CPUMapper(model)
+
+
 def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     """
     Create CPU mapper for Intel Xeon Platinum 8490H (Sapphire Rapids).
