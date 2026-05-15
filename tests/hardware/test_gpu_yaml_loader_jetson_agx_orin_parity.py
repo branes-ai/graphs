@@ -1,14 +1,23 @@
-"""Parity test: YAML-loaded Jetson AGX Orin 64GB matches hand-coded factory.
+"""Contract test: Jetson AGX Orin 64GB factory produces the expected model.
 
-PR 4 of the GPU sprint scoped at #171. The hand-coded factory at
-``src/graphs/hardware/models/edge/jetson_orin_agx_64gb.py`` is the
-ground truth that the YAML-loaded model needs to reproduce. This
-test compares the two field-by-field across every axis the
-downstream consumers (mappers, roofline, energy estimator) read.
+Originally PR 4's parity test, comparing the YAML-loaded model
+against the hand-coded factory. PR 5 retired the hand-coded body
+and made the factory a thin wrapper over
+``load_gpu_resource_model_from_yaml``, so today both ``hand_coded``
+and ``yaml_loaded`` fixtures resolve through the same loader.
 
-Once this test passes, PR 5 (cleanup) can replace the hand-coded
-factory with a thin ``load_gpu_resource_model_from_yaml`` call without
-changing any chip-level numerical output.
+The structural assertions (SM hierarchy, compute fabrics, memory
+hierarchy, SoC fabric, thermal profiles, scheduler attrs) are now
+**contract tests on the YAML loader's output** rather than parity
+checks. They still catch loader regressions and YAML drift; they
+also fail loudly if anyone changes the factory's name override or
+substitutes a different SKU id.
+
+The BOM cost preservation test below is specific to PR 5: the BoM
+overlay is the only piece of data the factory adds on top of the
+loader output (the v2 ComputeProduct schema doesn't carry BoM cost
+yet). Removing the overlay would break validation scripts that read
+``hardware.bom_cost_profile``.
 """
 
 import pytest
@@ -288,3 +297,60 @@ def test_loader_raises_on_kpu_sku():
     """A KPU ComputeProduct has no GPUBlock; loader should reject."""
     with pytest.raises(GPUYamlLoaderError, match="no GPUBlock"):
         load_gpu_resource_model_from_yaml("kpu_t64_32x32_lp5x4_16nm_tsmc_ffp")
+
+
+# ---------------------------------------------------------------------------
+# PR 5 specifics: factory's BoM overlay (the only thing the factory adds
+# on top of the YAML loader's output)
+# ---------------------------------------------------------------------------
+
+def test_factory_attaches_bom_cost_profile(hand_coded):
+    """The thin factory layers a BOMCostProfile onto the YAML-loaded
+    model because the v2 ComputeProduct schema doesn't carry BoM data.
+    Removing this overlay would break validation scripts that read
+    ``hardware.bom_cost_profile``."""
+    bom = hand_coded.bom_cost_profile
+    assert bom is not None, "factory must attach BOMCostProfile (PR 5 overlay)"
+    # Spot-check the headline numbers; full BOMCostProfile content is
+    # AGX Orin specific and cited in the factory module.
+    assert bom.retail_price == pytest.approx(899.0)
+    assert bom.process_node == "8nm"
+
+
+def test_factory_attaches_memory_clock_to_thermal_profiles(hand_coded):
+    """Orin AGX runs LPDDR5-6400 at 3200 MHz internal across all four
+    nvpmodel profiles. The chip-level KPUThermalProfile shape doesn't
+    carry memory_clock_mhz; the factory layers it on after loading.
+    Without this overlay the cli/list_hardware_resources Phase 4
+    tests fail."""
+    for name, profile in hand_coded.thermal_operating_points.items():
+        assert profile.memory_clock_mhz == 3200.0, (
+            f"profile {name!r} missing memory_clock_mhz overlay "
+            f"(got {profile.memory_clock_mhz})"
+        )
+
+
+def test_loader_alone_does_not_attach_memory_clock(yaml_loaded):
+    """Confirms memory_clock_mhz is the FACTORY's contribution. The
+    v3 schema generalization (ThermalProfile w/ optional memory clock)
+    will move it into the YAML; this assertion will fire then and force
+    a deliberate update -- delete the overlay and this guard."""
+    for name, profile in yaml_loaded.thermal_operating_points.items():
+        assert profile.memory_clock_mhz is None, (
+            f"loader populated memory_clock_mhz on profile {name!r} "
+            f"(expected None until v3 schema). The factory's overlay "
+            f"can now be deleted."
+        )
+
+
+def test_loader_alone_does_not_attach_bom_cost(yaml_loaded):
+    """Confirms the BoM is the FACTORY's contribution, not the loader's.
+    If the v3 schema PR adds Market.bom and the loader starts populating
+    it, this test will fail and force a deliberate update -- at which
+    point the factory's overlay can be deleted."""
+    assert yaml_loaded.bom_cost_profile is None, (
+        "loader is not expected to attach BOMCostProfile; the v2 "
+        "ComputeProduct schema doesn't carry BoM data. If this assertion "
+        "fails, the YAML schema gained a Market.bom field; update the "
+        "factory to drop its BoM overlay accordingly."
+    )
