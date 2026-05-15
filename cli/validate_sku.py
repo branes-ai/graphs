@@ -169,17 +169,43 @@ def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
     """Phase 6 catalog gate -- iterate over every KPU SKU and report
     a per-SKU table to stdout. Returns non-zero on any ERROR finding
     (or any WARNING if ``--strict``).
+
+    Scoped to KPU SKUs because every registered validator today is
+    KPU-shaped (assumes ``KPUBlock`` with ``total_tiles`` / ``tiles``).
+    GPU SKUs joined the catalog in v2 (e.g.
+    ``nvidia_jetson_agx_orin_64gb`` from embodied-schemas#20) and would
+    crash these validators. GPU-shaped validators are a separate
+    follow-up; until they exist this gate skips non-KPU products.
     """
     from graphs.hardware.compute_product_loader import load_compute_products_unified
     try:
-        kpus = load_compute_products_unified()
+        all_products = load_compute_products_unified()
     except Exception as exc:
         print(f"error: failed to load KPU catalog: {exc}", file=sys.stderr)
         return 2
 
+    def _kind_str(block) -> str:
+        kind = block.kind
+        raw = kind.value if hasattr(kind, "value") else kind
+        return str(raw).strip().lower()
+
+    kpus = {
+        sku: cp for sku, cp in all_products.items()
+        if cp.dies and cp.dies[0].blocks
+        and _kind_str(cp.dies[0].blocks[0]) == "kpu"
+    }
+    skipped_non_kpu = sorted(set(all_products) - set(kpus))
+
     if not kpus:
         print("error: KPU catalog is empty", file=sys.stderr)
         return 2
+
+    if skipped_non_kpu:
+        print(
+            f"info: skipping {len(skipped_non_kpu)} non-KPU SKU(s) "
+            f"(KPU-shaped validators only): {', '.join(skipped_non_kpu)}",
+            file=sys.stderr,
+        )
 
     print(f"=== SKU catalog gate ({len(kpus)} SKUs, "
           f"{validator_count} validators) ===")
