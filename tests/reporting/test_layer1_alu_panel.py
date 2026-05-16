@@ -65,19 +65,29 @@ class TestNewCPUResourceModels:
     """The two new CPU resource models built for M1."""
 
     def test_i7_12700k_has_p_and_e_core_fabrics(self):
+        """i7-12700K is hybrid: 8 P-cores + 4 E-cores in two clusters.
+        Post-PR-185 the YAML-loaded model labels both fabrics by ISA
+        extension (avx_vnni); the P-vs-E distinction is recoverable
+        from ``num_units`` (8 P-cores vs 4 E-cores). Pre-PR-185 they
+        were labelled by architecture (alder_lake_p_core_avx2 /
+        gracemont_e_core_avx2); the rename was deliberate for cross-
+        vendor consistency."""
         m = resolve_sku_resource_model("intel_core_i7_12700k")
         assert m is not None
-        types = {f.fabric_type for f in m.compute_fabrics}
-        assert "alder_lake_p_core_avx2" in types
-        assert "gracemont_e_core_avx2" in types
+        # Two fabrics, both AVX-VNNI (Alder Lake retail has AVX-VNNI
+        # on both Golden Cove and Gracemont).
+        assert len(m.compute_fabrics) == 2
+        assert all(f.fabric_type == "avx_vnni" for f in m.compute_fabrics)
+        unit_counts = sorted(f.num_units for f in m.compute_fabrics)
+        assert unit_counts == [4, 8]   # E-cluster 4, P-cluster 8
 
     def test_i7_12700k_p_core_count(self):
         m = resolve_sku_resource_model("intel_core_i7_12700k")
-        p = next(f for f in m.compute_fabrics
-                 if f.fabric_type == "alder_lake_p_core_avx2")
+        # P-cluster has 8 cores; E-cluster has 4 cores. Disambiguate
+        # by num_units since both fabrics carry the same ISA name.
+        p = next(f for f in m.compute_fabrics if f.num_units == 8)
+        e = next(f for f in m.compute_fabrics if f.num_units == 4)
         assert p.num_units == 8
-        e = next(f for f in m.compute_fabrics
-                 if f.fabric_type == "gracemont_e_core_avx2")
         assert e.num_units == 4
 
     def test_i7_12700k_int8_higher_than_fp32(self):

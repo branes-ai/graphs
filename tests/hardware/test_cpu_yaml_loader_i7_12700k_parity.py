@@ -1,31 +1,29 @@
-"""Parity test: YAML-loaded i7-12700K matches hand-coded factory.
+"""Contract test: i7-12700K factory produces the expected model.
 
-CPU sprint #182 PR 4. The hand-coded factory at
-``src/graphs/hardware/models/edge/intel_core_i7_12700k.py`` is the
-ground truth that the YAML-loaded model needs to reproduce. This
-test compares the two field-by-field across every axis the
-downstream consumers (CPUMapper, roofline, energy estimator) read.
+Originally PR 4's parity test, comparing YAML-loaded against the
+hand-coded factory. PR 5 retired the hand-coded body of
+``intel_core_i7_12700k_resource_model()`` and made it a thin
+wrapper over ``load_cpu_resource_model_from_yaml``, so today both
+``hand_coded`` and ``yaml_loaded`` fixtures resolve through the same
+loader.
 
-Once this test passes, PR 5 (cleanup) can replace the hand-coded
-factory with a thin ``load_cpu_resource_model_from_yaml`` call
-without changing chip-level numerical output.
+The structural assertions (SM/core hierarchy, compute fabrics,
+precision profiles, memory hierarchy, SoC fabric, SIMD efficiency,
+thermal profiles, scheduler attrs) are now **contract tests on the
+YAML loader's output** rather than parity checks. They still catch
+loader regressions and YAML drift; they also fail loudly if anyone
+changes the factory's name override or substitutes a different SKU
+id.
 
-**Known parity gaps** -- documented here, accepted as v3 trade-offs:
-  - Per-precision peak ops differ by ~5%. The hand-coded model uses
-    cluster-specific clocks (P=4.7 GHz, E=3.6 GHz); the loader uses
-    a single chip-level clock (the default profile's 4.7 GHz) for
-    both clusters because the chip-level Power.thermal_profiles
-    carries only a scalar clock_mhz. Per-cluster fabric frequency
-    is v4 scope (CPUBlock already has CPUThermalProfile.per_cluster_clock_domain
-    but it lives at the block level, not the chip-level Power).
-  - Cooling solution string: loader produces "active_fan" (catalog
-    YAML); hand-coded had "tower-cooler". This is a deliberate
-    improvement (the YAML references the canonical cooling-solution
-    catalog) and not asserted by the parity test.
-  - fabric_type string: loader produces "avx_vnni" (ISA-named);
-    hand-coded had "alder_lake_p_core_avx2" / "gracemont_e_core_avx2"
-    (architecture-named). Both are valid; the loader's choice is
-    consistent across all CPU vendors.
+No factory overlays exist for the i7 model (unlike AGX Orin / Thor
+which overlay BOMCostProfile + memory_clock_mhz). The original
+hand-coded i7 factory had no BoM and CPU DDR5 doesn't gate on
+thermal profile, so PR 5's swap was a pure substitution.
+
+The pre-existing "known gaps" between the loader and the
+pre-substitution hand-coded model are documented in the loader's
+module docstring and PR #185's description; they're no longer
+parity gaps because the hand-coded model is gone.
 """
 
 import pytest
@@ -94,34 +92,18 @@ def test_compute_fabric_num_units_match(hand_coded, yaml_loaded):
     assert yaml_units == hand_units == [4, 8]
 
 
-def test_compute_fabric_energies_documented_gap(hand_coded, yaml_loaded):
-    """The two models source FP32 energy differently:
-      - YAML (loader): Intel 7 process node's hp_logic:fp32 entry
-        (0.85 pJ), authored from Intel 7 process brief.
-      - Hand-coded: get_base_alu_energy(10nm, 'simd_packed') from the
-        Horowitz process-node-energy table (1.89 pJ, ~2x higher).
-    Neither is wrong; they're from different sources. Real Intel 7
-    AVX2 FP32 sits in between (~1.3 pJ per analytical estimate of
-    HP_logic + SIMD packing overhead). v4 cleanup can reconcile.
-
-    This test PINS the gap rather than asserting parity, so a future
-    YAML edit that bridges the gap won't silently change the test
-    (it'll narrow the assertion and fire as a deliberate-update
-    reminder)."""
-    yaml_p = next(f for f in yaml_loaded.compute_fabrics if f.num_units == 8)
-    hand_p = next(f for f in hand_coded.compute_fabrics if f.num_units == 8)
-    # Both must be in the right order of magnitude (~1 pJ FP32 at 10nm
-    # is the floor; 5 pJ would be wrong).
-    assert 0.5e-12 < yaml_p.energy_per_flop_fp32 < 5e-12
-    assert 0.5e-12 < hand_p.energy_per_flop_fp32 < 5e-12
-    # And document the ratio so PR review surfaces the gap.
-    ratio = hand_p.energy_per_flop_fp32 / yaml_p.energy_per_flop_fp32
-    assert 1.5 < ratio < 3.0, (
-        f"FP32 energy ratio hand/yaml = {ratio:.2f}; expected ~2.2 "
-        f"(hand=1.89 pJ Horowitz 10nm simd_packed, yaml=0.85 pJ Intel 7 hp_logic). "
-        f"If this ratio has changed, the YAML or process-node entry was edited; "
-        f"update this assertion deliberately."
-    )
+def test_compute_fabric_energy_in_sane_range(yaml_loaded):
+    """Both clusters' FP32 energy should be in the right order of
+    magnitude for a 10nm-class process (Intel 7). ~1 pJ FP32 is the
+    floor; 5 pJ would be wrong. Pre-PR-5 this test tracked a 2x gap
+    between yaml-loaded and hand-coded values (different energy
+    sources); PR 5 retired the hand-coded model so the gap is gone --
+    this assertion now just polices the absolute range."""
+    for fabric in yaml_loaded.compute_fabrics:
+        assert 0.5e-12 < fabric.energy_per_flop_fp32 < 5e-12, (
+            f"fabric {fabric.fabric_type} energy_per_flop_fp32="
+            f"{fabric.energy_per_flop_fp32} outside [0.5, 5] pJ range"
+        )
 
 
 # ---------------------------------------------------------------------------
