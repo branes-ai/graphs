@@ -1,30 +1,31 @@
-"""Parity test: YAML-loaded Hailo-8 matches hand-coded factory.
+"""Contract test: Hailo-8 factory produces the expected model.
 
-NPU sprint #187 PR 4. The hand-coded factory at
-``src/graphs/hardware/models/edge/hailo8.py`` is the ground truth that
-the YAML-loaded model needs to reproduce. This test compares the two
-field-by-field across every axis the downstream consumers (HailoMapper,
-roofline, energy estimator) read.
+Originally PR 4's parity test, comparing YAML-loaded against the
+hand-coded factory. PR 5 retired the 360-LOC hand-coded body of
+``hailo8_resource_model()`` and made it a thin wrapper over
+``load_npu_resource_model_from_yaml``, so today both ``hand_coded``
+and ``yaml_loaded`` fixtures resolve through the same loader.
 
-Once this test passes, PR 5 (cleanup) can replace the hand-coded
-factory with a thin ``load_npu_resource_model_from_yaml`` call
-without changing chip-level numerical output.
+The structural assertions are now **contract tests on the YAML
+loader's output** rather than parity checks. They still catch loader
+regressions and YAML drift; they also fail loudly if anyone changes
+the factory's name override or substitutes a different SKU id.
 
-**Documented gaps** -- both v5 reconciliation items, not v4 blockers:
+One factory overlay exists for Hailo-8 (the BoM cost; the v4 schema
+doesn't carry BoM data yet). No memory_clock overlay needed -- NPUs
+don't gate memory clock on thermal profile (single fixed clock,
+SRAM-only memory in the common case). The BoM-overlay tests below
+are specific to PR 5 and pin both that the factory adds it AND that
+the loader alone does NOT (so when v5 absorbs Market.bom the
+overlay-presence test fires as a deliberate-cleanup signal).
 
-  1. ``HardwareType.KPU`` (sic!) -- both the hand-coded factory and the
-     loader produce ``HardwareType.KPU`` because the graphs ``HardwareType``
-     enum doesn't have a NPU value yet. Adding ``HardwareType.NPU`` is
-     a separate followup; this test pins the current shared behavior
-     so the v5 enum addition fires it as a deliberate-update reminder.
-
-  2. ``energy_per_flop_fp32`` baseline -- NPUs don't ship FP32; the
-     loader synthesizes it as ``energy_per_op_int8 * 8`` per the
-     standard-cell rule of thumb. The hand-coded model uses
-     ``get_base_alu_energy(16, 'standard_cell')`` (=2.7 pJ). Real
-     Hailo-8 INT8 energy is ~0.34 pJ * 8 = 2.72 pJ FP32-equivalent --
-     close enough that the test passes within tolerance. Future
-     SIMD-packed energy work could narrow the gap further.
+Two documented shape quirks remain (both v5 reconciliation items):
+  - ``HardwareType.KPU`` (sic!) -- the graphs ``HardwareType`` enum
+    has no NPU value; loader preserves the hand-coded choice for
+    parity. Adding ``HardwareType.NPU`` is a separate followup.
+  - ``energy_per_flop_fp32`` synthesis -- NPUs don't ship FP32; the
+    loader synthesizes it as ``energy_per_op_int8 * 8`` per the
+    standard-cell rule of thumb.
 """
 
 import pytest
@@ -282,3 +283,39 @@ def test_loader_raises_on_gpu_sku():
 def test_loader_raises_on_cpu_sku():
     with pytest.raises(NPUYamlLoaderError, match="no NPUBlock"):
         load_npu_resource_model_from_yaml("intel_core_i7_12700k")
+
+
+# ---------------------------------------------------------------------------
+# PR 5 specifics: factory's BoM overlay (the only thing the factory adds
+# on top of the YAML loader's output)
+# ---------------------------------------------------------------------------
+
+def test_factory_attaches_bom_cost_profile(hand_coded):
+    """The thin factory layers a BOMCostProfile onto the YAML-loaded
+    model because the v4 ComputeProduct schema doesn't carry BoM data.
+    Validation scripts that read ``hardware.bom_cost_profile`` would
+    fall through to None without this overlay -- gracefully degrading
+    but losing the cost data.
+
+    Numbers should match the pre-PR-5 hand-coded BoM:
+    $25 die + $8 package + $0 memory + $4 PCB + $1 thermal + $2 other
+    = $40 BOM, $160 retail (Hailo-8 M.2 module market pricing)."""
+    bom = hand_coded.bom_cost_profile
+    assert bom is not None, "factory must attach BOMCostProfile (PR 5 overlay)"
+    assert bom.retail_price == pytest.approx(160.0)
+    assert bom.process_node == "16nm"
+    # Hailo-8 is all on-chip SRAM -- no external memory cost
+    assert bom.memory_cost == 0.0
+
+
+def test_loader_alone_does_not_attach_bom_cost(yaml_loaded):
+    """Confirms BoM is the FACTORY's contribution, not the loader's.
+    When v5 schema adds Market.bom and the loader starts populating
+    it, this test will fail and force a deliberate update -- delete
+    the factory's overlay and this guard."""
+    assert yaml_loaded.bom_cost_profile is None, (
+        "loader is not expected to attach BOMCostProfile; the v4 "
+        "ComputeProduct schema doesn't carry BoM data. If this fails, "
+        "the schema gained a Market.bom field; update the factory to "
+        "drop its BoM overlay accordingly."
+    )
