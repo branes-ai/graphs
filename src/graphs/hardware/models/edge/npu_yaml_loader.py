@@ -30,20 +30,17 @@ unless noted):
                                   -> thermal_operating_points
   Roll-up performance             -> precision_profiles
 
-Two known shape quirks (documented; no parity gap):
+One known shape quirk (documented; no parity gap):
 
-  1. ``HardwareType.NPU`` doesn't exist on the graphs side. The
-     existing hand-coded Hailo-8 model uses ``HardwareType.KPU``
-     because dataflow architectures were lumped with KPU when the
-     enum was first defined. The loader preserves that choice for
-     parity; adding ``HardwareType.NPU`` is a separate followup
-     (graphs-side enum change, no schema impact).
+  NPUs don't ship FP32; the ``energy_per_flop_fp32`` legacy field
+  is synthesized from ``energy_per_op_int8_pj * 8`` (FP32 is roughly
+  8x the energy of INT8 in standard cells -- the rule of thumb the
+  existing models use). Downstream consumers that read
+  ``energy_per_flop_fp32`` get a sensible proxy.
 
-  2. NPUs don't ship FP32; the ``energy_per_flop_fp32`` legacy field
-     is synthesized from ``energy_per_op_int8_pj * 8`` (FP32 is
-     roughly 8x the energy of INT8 in standard cells -- the rule of
-     thumb the existing models use). Downstream consumers that read
-     ``energy_per_flop_fp32`` get a sensible proxy.
+(Previously this section also listed ``HardwareType.NPU`` as a quirk
+because the graphs enum had no NPU value -- issue #191 added it; the
+loader now sets ``hardware_type=HardwareType.NPU`` directly.)
 
 Out of scope for v4 (deferred to v5):
   - BOMCostProfile (YAML doesn't carry; v5 Market.bom)
@@ -456,13 +453,8 @@ def load_npu_resource_model_from_yaml(
         energy_scaling.update(fabric.energy_scaling)
 
     model = HardwareResourceModel(
-        # NOTE: HardwareType.NPU doesn't exist in the graphs enum yet;
-        # use KPU to match the hand-coded Hailo-8 factory's choice
-        # (dataflow architectures got lumped with KPU when the enum
-        # was first defined). Adding HardwareType.NPU is a separate
-        # graphs-side followup.
         name=name_override or cp.name,
-        hardware_type=HardwareType.KPU,
+        hardware_type=HardwareType.NPU,
 
         compute_fabrics=compute_fabrics,
 

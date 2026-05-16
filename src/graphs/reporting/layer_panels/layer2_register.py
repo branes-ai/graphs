@@ -125,7 +125,10 @@ def _kpu_fill_drain_overhead(
 
     Returns (fill_cycles, drain_cycles) for the first tile
     specialization, or None when the model doesn't carry one
-    (non-KPU SKUs).
+    (non-KPU SKUs -- GPU / CPU / NPU / etc.). Hailo dataflow NPUs
+    are architecturally similar to KPUs but don't populate
+    tile_specializations on their thermal_operating_points, so this
+    KPU-gated branch correctly excludes them.
     """
     if model.hardware_type is not HardwareType.KPU:
         return None
