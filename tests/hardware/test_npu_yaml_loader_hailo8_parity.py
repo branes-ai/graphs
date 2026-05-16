@@ -19,13 +19,16 @@ are specific to PR 5 and pin both that the factory adds it AND that
 the loader alone does NOT (so when v5 absorbs Market.bom the
 overlay-presence test fires as a deliberate-cleanup signal).
 
-Two documented shape quirks remain (both v5 reconciliation items):
-  - ``HardwareType.KPU`` (sic!) -- the graphs ``HardwareType`` enum
-    has no NPU value; loader preserves the hand-coded choice for
-    parity. Adding ``HardwareType.NPU`` is a separate followup.
+One documented shape quirk remains (v5 reconciliation item):
   - ``energy_per_flop_fp32`` synthesis -- NPUs don't ship FP32; the
     loader synthesizes it as ``energy_per_op_int8 * 8`` per the
     standard-cell rule of thumb.
+
+(Previously this section also flagged ``HardwareType.KPU`` as a
+quirk because the graphs enum had no NPU value -- issue #191 added
+it; the loader now sets ``HardwareType.NPU`` directly. The hand-
+coded factory at ``hailo8.py`` is a thin wrapper over the loader so
+both sides report ``HardwareType.NPU``.)
 """
 
 import pytest
@@ -63,10 +66,11 @@ def test_name_matches(hand_coded, yaml_loaded):
 
 
 def test_hardware_type_matches(hand_coded, yaml_loaded):
-    """Both produce HardwareType.KPU (the graphs enum has no NPU value).
-    Adding HardwareType.NPU is a separate followup -- this test fires
-    when that lands so the substitution can happen deliberately."""
-    assert yaml_loaded.hardware_type == hand_coded.hardware_type == HardwareType.KPU
+    """Both produce HardwareType.NPU. Issue #191 added the NPU enum
+    value; before that, both produced HardwareType.KPU because
+    dataflow architectures were lumped with KPU when the enum was
+    first defined."""
+    assert yaml_loaded.hardware_type == hand_coded.hardware_type == HardwareType.NPU
 
 
 def test_compute_units_matches(hand_coded, yaml_loaded):
