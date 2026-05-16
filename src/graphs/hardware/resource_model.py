@@ -49,6 +49,7 @@ class HardwareType(Enum):
     DPU = "dpu"  # Xilinx Vitis AI (FPGA-based accelerator)
     CGRA = "cgra"  # Stanford Plasticine (spatial dataflow accelerator)
     DSP = "dsp"  # Digital Signal Processors (Qualcomm Hexagon, TI C7x, etc.)
+    NPU = "npu"  # Neural Processing Units (Hailo, Coral, etc. -- dedicated inference accelerators)
 
 
 class Precision(Enum):

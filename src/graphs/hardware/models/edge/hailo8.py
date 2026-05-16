@@ -24,16 +24,16 @@ NPUs have no external DRAM in the common case (Hailo-8 is SRAM-only)
 and run at a single fixed frequency, so per-profile memory_clock_mhz
 isn't an NPU concern.
 
-Two known shape quirks documented in PR #189's loader docstring,
-both v5 reconciliation items:
-  - ``HardwareType.KPU`` (sic!) -- the graphs ``HardwareType`` enum
-    has no NPU value; loader preserves the hand-coded choice for
-    parity. Adding ``HardwareType.NPU`` is a separate graphs-side
-    followup.
+One known shape quirk documented in PR #189's loader docstring
+(remaining v5 reconciliation item):
   - ``energy_per_flop_fp32`` synthesis -- NPUs don't ship FP32; the
     loader synthesizes it as ``energy_per_op_int8 * 8`` per the
     standard-cell rule of thumb. Within tolerance of the prior
     hand-coded ``get_base_alu_energy(16, 'standard_cell')`` value.
+
+(Issue #191 retired the second quirk: the loader now sets
+``HardwareType.NPU`` directly, no longer falling back to
+``HardwareType.KPU``.)
 
 The legacy resource-model ``name`` ("Hailo-8") is preserved.
 """
