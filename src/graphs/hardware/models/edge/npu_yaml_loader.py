@@ -45,8 +45,15 @@ loader now sets ``hardware_type=HardwareType.NPU`` directly.)
 Out of scope for v4 (deferred to v5):
   - BOMCostProfile (YAML doesn't carry; v5 Market.bom)
   - Per-field provenance copy-through with rich source citations
-  - KVCacheSpec for transformer-capable NPUs (Hailo-10H follow-up)
-  - HardwareType.NPU enum value on the graphs side
+  - default_precision hint on NPUBlock -- the loader picks INT8 by
+    convention, but generative-AI NPUs (Hailo-10H) prefer INT4 as
+    their primary precision. The thin factory does not currently
+    override this; cleanup will land when v5 adds the schema field.
+
+(Resolved in subsequent landings:
+  - KVCacheSpec landed in embodied-schemas#30; populated by Hailo-10H
+    YAML in #31.
+  - HardwareType.NPU added on the graphs side in #193 / issue #191.)
 """
 
 from __future__ import annotations
@@ -364,12 +371,23 @@ def load_npu_resource_model_from_yaml(
     # Memory + cache (SRAM-dominant)
     # ------------------------------------------------------------------
     mem = block.memory
-    # peak_bandwidth = on-chip SRAM bandwidth (the dominant tier).
-    # When has_external_dram=True, downstream consumers can compare
-    # external_dram_bandwidth via the DRAM-specific fields, but the
-    # legacy peak_bandwidth field stays on the on-chip side for
-    # parity with the hand-coded factory.
-    peak_bandwidth_bps = mem.on_chip_bandwidth_gbps * 1e9
+    # peak_bandwidth picks the dominant *externally-visible* memory tier,
+    # since that's what roofline uses as the bandwidth bottleneck.
+    #
+    #  - SRAM-only NPU (Hailo-8, Coral Edge TPU): the on-chip SRAM IS
+    #    the only memory, so peak_bandwidth = on_chip_bandwidth_gbps.
+    #  - NPU with external DRAM (Hailo-10H): weights + KV-cache spill
+    #    live in DRAM, so peak_bandwidth = external_dram_bandwidth_gbps.
+    #    The on-chip SRAM bandwidth remains accessible via the
+    #    memory subsystem itself for downstream consumers that care
+    #    about the higher tier (e.g. attention-resident KV cache hits).
+    #
+    # Mirrors the convention the hand-coded factories used (Hailo-8 ->
+    # SRAM, Hailo-10H -> LPDDR4X).
+    if mem.has_external_dram and mem.external_dram_bandwidth_gbps is not None:
+        peak_bandwidth_bps = mem.external_dram_bandwidth_gbps * 1e9
+    else:
+        peak_bandwidth_bps = mem.on_chip_bandwidth_gbps * 1e9
 
     # External DRAM. Most NPUs have none (Hailo-8 / Coral); Hailo-10H
     # has LPDDR4X. Set main_memory = 0 when has_external_dram=False.

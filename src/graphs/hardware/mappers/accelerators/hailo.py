@@ -55,14 +55,13 @@ class HailoMapper(HardwareMapper):
     def __init__(self, resource_model: HardwareResourceModel):
         super().__init__(resource_model)
 
-        # Validate this is a Hailo dataflow model. Hailo-8 now reports
-        # HardwareType.NPU after issue #191 added the enum value; the
-        # remaining Hailo-10H still reports HardwareType.KPU until its
-        # YAML migration lands (tracked in graphs#192). Accept both
-        # during the transition.
-        if resource_model.hardware_type not in (HardwareType.NPU, HardwareType.KPU):
+        # Validate this is a Hailo dataflow model. Both Hailo SKUs
+        # (Hailo-8 and Hailo-10H) now report HardwareType.NPU after
+        # the YAML migration. The transitional KPU acceptance window
+        # (issue #191 -> graphs#192) is closed.
+        if resource_model.hardware_type != HardwareType.NPU:
             raise ValueError(
-                f"HailoMapper requires NPU or KPU resource model, got "
+                f"HailoMapper requires NPU resource model, got "
                 f"{resource_model.hardware_type}"
             )
 
