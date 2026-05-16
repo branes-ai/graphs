@@ -595,4 +595,39 @@ def load_cpu_resource_model_from_yaml(
     ):
         model.set_provenance(key, yaml_provenance)
 
+    # Per-precision provenance on compute_fabric ops/clock. The Layer 1
+    # ALU reporting panel reads these to color-code SKUs by data
+    # confidence. The hand-coded i7 factory set this for every
+    # precision it modeled; preserve that behavior here so consumers
+    # that switch from the hand-coded factory to the loader see the
+    # same provenance shape.
+    fabric_provenance = EstimationConfidence.theoretical(
+        score=0.55,
+        source=(
+            f"Loaded from compute_products YAML ({base_id}): per-fabric "
+            f"ops_per_core_per_clock at the dominant ISA extension"
+        ),
+    )
+    for precision in supported_precisions:
+        model.set_provenance(
+            f"compute_fabric.ops_per_clock.{precision.value}",
+            fabric_provenance,
+        )
+
+    # Per-op-kind provenance on simd_efficiency. Layer 2 register panel
+    # reads these to flag whether a CPU's vectorization-friendliness
+    # numbers are theoretical defaults or calibrated.
+    simd_provenance = EstimationConfidence.theoretical(
+        score=0.50,
+        source=(
+            f"Loaded from compute_products YAML ({base_id}): "
+            f"simd_efficiency_by_op_kind block-level field"
+        ),
+    )
+    for op_kind in block.simd_efficiency_by_op_kind:
+        model.set_provenance(
+            f"simd_efficiency.{op_kind}",
+            simd_provenance,
+        )
+
     return model
