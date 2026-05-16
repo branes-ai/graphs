@@ -137,15 +137,19 @@ class TestPanelBuilder:
             key = f"Access pattern ({pattern})"
             assert key in panel.metrics
 
-    def test_hailo_panel_calls_out_on_chip_split(self):
-        """Hailo SKUs deploy weights from on-chip SRAM in steady
-        state -- the panel must surface this rather than papering
-        over with phantom DRAM numbers."""
-        for sku in ("hailo8", "hailo10h"):
-            _skip_if_optional_unresolved(sku)
-            panel = build_layer7_external_memory_panel(sku)
-            joined = " ".join(panel.notes).lower()
-            assert "on-chip" in joined or "sram" in joined
+    def test_hailo8_panel_calls_out_on_chip_split(self):
+        """Hailo-8 deploys weights from on-chip SRAM in steady state
+        (no external DRAM) -- the panel must surface this rather than
+        papering over with phantom DRAM numbers.
+
+        Hailo-10H is excluded: it ships with 4-8 GiB LPDDR4X external
+        DRAM holding the model weights + KV cache spill, so the on-
+        chip note correctly does NOT fire there. The split is gated on
+        ``memory_technology`` -- see ``layer7_external_memory.py``."""
+        _skip_if_optional_unresolved("hailo8")
+        panel = build_layer7_external_memory_panel("hailo8")
+        joined = " ".join(panel.notes).lower()
+        assert "on-chip" in joined or "sram" in joined
 
     def test_unknown_sku_returns_unpopulated(self):
         panel = build_layer7_external_memory_panel("definitely_not_a_sku")

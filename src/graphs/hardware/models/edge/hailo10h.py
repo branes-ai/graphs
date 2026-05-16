@@ -1,356 +1,90 @@
+"""Hailo-10H resource model.
+
+Graphs cleanup PR for the Hailo-10H half of issue #192 (the NPU
+sprint follow-up). As of this PR, the chip's architectural and
+thermal-profile data lives in the canonical YAML at
+``embodied-schemas:data/compute_products/hailo/hailo_10h.yaml``
+(landed in embodied-schemas#31) and is loaded via ``npu_yaml_loader``.
+The previous ~360-LOC hand-coded ``HardwareResourceModel``
+constructor was retired here; its parity with the YAML-loaded model
+is pinned in ``tests/hardware/test_npu_yaml_loader_hailo10h_parity.py``.
+
+Schema precursors that had to land first:
+  - embodied-schemas#30 -- ``KVCacheSpec`` extension to ``NPUBlock``
+    (Hailo-10H is the first SKU to populate it: 8K context, K=INT8 /
+    V=INT4 asymmetric quantization, ring-buffer streaming, DRAM
+    offload).
+  - embodied-schemas#31 -- the Hailo-10H YAML itself.
+
+The public function name and signature are preserved so existing
+callers (``create_hailo10h_mapper``, layer1/4/5/7 reporting,
+validation scripts, ``cli/compare_*.py``) continue to work unchanged.
+
+One overlay remains in the factory after loading -- BoM cost --
+which is data the v4 ComputeProduct schema doesn't yet carry:
+
+  - ``BOMCostProfile`` -- die / package / memory / PCB / thermal /
+    margin / retail; v5 ``Market.bom`` will absorb it.
+
+Two documented shape drifts remain (v5 reconciliation items):
+
+  - ``energy_per_flop_fp32`` synthesis -- NPUs don't ship FP32; the
+    loader synthesizes it as ``energy_per_op_int8 * 8`` per the
+    standard-cell rule of thumb. Within ~1% of the prior hand-coded
+    ``get_base_alu_energy(16, 'standard_cell')`` value.
+  - ``default_precision`` -- the loader picks INT8 by convention
+    (the NPU default); the hand-coded Hailo-10H factory used INT4
+    (the primary GenAI use case). The thin factory does NOT override
+    this; downstream consumers that want INT4 must select it
+    explicitly. v5 cleanup: add ``default_precision`` hint to
+    ``NPUBlock`` so per-SKU preference is captured in the YAML.
+
+The legacy resource-model ``name`` ("Hailo-10H") is preserved.
 """
-Hailo-10H Resource Model - Generative AI Edge Accelerator
 
-Dataflow architecture optimized for transformers, LLMs, and vision-language models.
-Target: Edge Gen AI, on-device LLMs, vision-language models, multimodal AI.
-
-Configuration:
-- 40 TOPS INT4, 20 TOPS INT8
-- Enhanced dataflow with KV cache support for transformers
-- 4-8GB LPDDR4X external memory (for model weights + KV cache)
-- 16nm process (same as Hailo-8)
-- 2.5W typical power consumption
-
-Competitor to: Qualcomm QCS6490, Edge TPUs, mobile NPUs
-"""
-
-from ...fabric_model import SoCFabricModel, Topology
-from ...resource_model import (
-    HardwareResourceModel,
-    HardwareType,
-    Precision,
-    PrecisionProfile,
-    ComputeFabric,
-    get_base_alu_energy,
-    ClockDomain,
-    ComputeResource,
-    PerformanceCharacteristics,
-    ThermalOperatingPoint,
-    BOMCostProfile,
-)
+from ...resource_model import BOMCostProfile, HardwareResourceModel
+from .npu_yaml_loader import load_npu_resource_model_from_yaml
 
 
-def _get_hailo10h_fabric() -> SoCFabricModel:
-    """M6 Layer 6 fabric for Hailo-10H (low confidence)."""
-    return SoCFabricModel(
-        topology=Topology.MESH_2D,
-        hop_latency_ns=1.5,
-        pj_per_flit_per_hop=1.5,
-        bisection_bandwidth_gbps=80.0,
-        controller_count=40,
-        flit_size_bytes=16,
-        mesh_dimensions=(8, 5),
-        routing_distance_factor=1.1,
-        low_confidence=True,
-        provenance=("Hailo-10H: no public NoC topology data; assumed "
-                    "8x5 mesh estimated from compute_units=40 layout, "
-                    "transformer-optimized"),
-    )
+_LEGACY_NAME = "Hailo-10H"
+_YAML_BASE_ID = "hailo_hailo_10h"
 
 
 def hailo10h_resource_model() -> HardwareResourceModel:
+    """Hailo-10H Generative AI Edge Accelerator.
+
+    See the YAML for the canonical chip description (40 dataflow
+    units, structure-driven dataflow architecture, INT8/INT4 only,
+    32 MiB total on-chip SRAM with 12 MiB KV-cache-sized shared L2,
+    8 GiB LPDDR4X external DRAM, MESH_2D 8x5 NoC, single 2.5W
+    operating point, transformer KV cache surface).
     """
-    Hailo-10H Generative AI Edge Accelerator.
-
-    ARCHITECTURE:
-    - Enhanced dataflow architecture for transformers
-    - KV cache management (critical for LLM inference)
-    - 4-8GB LPDDR4X for model weights and activations
-    - Optimized for INT4 quantization (2× performance vs INT8)
-    - Supports attention mechanisms, LayerNorm, SwiGLU
-
-    PERFORMANCE:
-    - 40 TOPS INT4 (primary use case for LLMs)
-    - 20 TOPS INT8 (for vision tasks)
-    - Realistic: ~32 TOPS INT4 sustained (80% efficiency)
-    - Realistic: ~17 TOPS INT8 sustained (85% efficiency)
-
-    POWER PROFILE:
-    - 2.5W typical (same excellent thermal as Hailo-8)
-    - 16 TOPS/W INT4 (best in class for edge LLMs)
-
-    USE CASES:
-    - On-device LLMs (2B parameter models: Phi-2, TinyLLaMA)
-    - Vision-Language Models (LLaVA, CLIP)
-    - Stable Diffusion (image generation <5 seconds)
-    - Multimodal AI assistants
-
-    REAL-WORLD PERFORMANCE:
-    - First token: <1 second (2B LLMs)
-    - Token generation: 10 tokens/sec sustained
-    - Stable Diffusion 2.1: <5 seconds per image
-
-    CALIBRATION STATUS: ✅ DOCUMENTED
-    - Hailo published benchmarks (April 2024 launch)
-    - Real-world LLM performance validated
-    - Production scheduled for 2026 (automotive AEC-Q100 Grade 2)
-    """
-    # Physical hardware
-    num_dataflow_units = 40  # More units than Hailo-8 for transformer workloads
-    int4_ops_per_unit_per_clock = 1000  # Optimized for INT4
-    int8_ops_per_unit_per_clock = 500   # Same as Hailo-8 for compatibility
-    sustained_clock_hz = 1.0e9  # 1.0 GHz sustained (no throttling)
-
-    # ========================================================================
-    # Transformer-Optimized Dataflow Fabric (KV cache support)
-    # ========================================================================
-    dataflow_fabric = ComputeFabric(
-        fabric_type="transformer_dataflow",
-        circuit_type="standard_cell",   # Custom ASIC with standard cells
-        num_units=num_dataflow_units,   # 40 dataflow processing elements
-        ops_per_unit_per_clock={
-            Precision.INT4: 1000,        # 1000 INT4 ops/cycle per unit
-            Precision.INT8: 500,         # 500 INT8 ops/cycle per unit
-        },
-        core_frequency_hz=sustained_clock_hz,  # 1.0 GHz sustained
-        process_node_nm=16,              # 16nm TSMC (same as Hailo-8)
-        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ
-        energy_scaling={
-            Precision.INT4: 0.0625,      # INT4 is very efficient
-            Precision.INT8: 0.125,       # INT8 efficient
-        }
+    model = load_npu_resource_model_from_yaml(
+        _YAML_BASE_ID,
+        name_override=_LEGACY_NAME,
     )
 
-    # Total INT4: 40 units × 1000 ops/cycle × 1.0 GHz = 40 TOPS ✓
-    # Total INT8: 40 units × 500 ops/cycle × 1.0 GHz = 20 TOPS ✓
-
-    # ========================================================================
-    # 2.5W MODE: Single operating point (no DVFS, optimized thermal)
-    # ========================================================================
-    clock_2_5w = ClockDomain(
-        base_clock_hz=1.0e9,        # 1.0 GHz (lower than Hailo-8, more units)
-        max_boost_clock_hz=1.0e9,   # No boost, constant frequency
-        sustained_clock_hz=1.0e9,   # No throttling
-        dvfs_enabled=False,          # Fixed frequency
-    )
-
-    compute_resource_2_5w = ComputeResource(
-        resource_type="Hailo-10H-Transformer-Dataflow",
-        num_units=num_dataflow_units,
-        ops_per_unit_per_clock={
-            Precision.INT4: 1000,  # 40 units × 1000 ops/clock × 1.0 GHz = 40 TOPS INT4 ✓
-            Precision.INT8: 500,   # 40 units × 500 ops/clock × 1.0 GHz = 20 TOPS INT8 ✓
-        },
-        clock_domain=clock_2_5w,
-    )
-
-    thermal_2_5w = ThermalOperatingPoint(
-        name="2.5W-passive",
-        tdp_watts=2.5,
-        cooling_solution="passive-heatsink-small",
-        performance_specs={
-            Precision.INT4: PerformanceCharacteristics(
-                precision=Precision.INT4,
-                compute_resource=compute_resource_2_5w,
-                instruction_efficiency=0.92,  # Transformer-optimized dataflow
-                memory_bottleneck_factor=0.85,  # External DRAM (vs all-on-chip)
-                efficiency_factor=0.80,  # 80% → ~32 TOPS INT4 effective
-                native_acceleration=True,
-            ),
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=compute_resource_2_5w,
-                instruction_efficiency=0.95,
-                memory_bottleneck_factor=0.88,
-                efficiency_factor=0.85,  # 85% → ~17 TOPS INT8 effective
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    # ========================================================================
-    # BOM COST PROFILE (Estimated @ 10K units, 2025)
-    # ========================================================================
-    bom_cost = BOMCostProfile(
-        silicon_die_cost=30.0,       # 16nm die (slightly larger than Hailo-8)
-        package_cost=10.0,            # Package with LPDDR4X interface
-        memory_cost=20.0,             # 4GB LPDDR4X on-module (for KV cache + weights)
-        pcb_assembly_cost=5.0,        # More complex than Hailo-8
-        thermal_solution_cost=1.0,    # Tiny heatsink (2.5W)
-        other_costs=4.0,              # Testing, connectors, certification
-        total_bom_cost=0,             # Auto-calculated: $70
-        margin_multiplier=3.5,        # High margin for cutting-edge edge Gen AI
-        retail_price=240.0,           # Estimated retail (Hailo-8 is $160, this adds GenAI)
+    # BoM cost overlay -- not yet carried by the v4 ComputeProduct schema.
+    # Numbers from teardowns + Hailo public pricing (M.2 module estimated
+    # retail $240 with $70 BOM, vs $40 for Hailo-8 due to LPDDR4X).
+    model.bom_cost_profile = BOMCostProfile(
+        silicon_die_cost=30.0,         # 16nm die (slightly larger than Hailo-8)
+        package_cost=10.0,             # package with LPDDR4X interface
+        memory_cost=20.0,              # 4 GB LPDDR4X on-module (KV cache + weights)
+        pcb_assembly_cost=5.0,         # more complex than Hailo-8
+        thermal_solution_cost=1.0,     # passive heatsink (2.5W envelope)
+        other_costs=4.0,               # testing, connectors, certification
+        total_bom_cost=0,              # auto-calculated: $70
+        margin_multiplier=3.5,         # high margin for cutting-edge edge GenAI
+        retail_price=240.0,            # estimated retail (Hailo-8 is $160, this adds GenAI)
         volume_tier="10K+",
         process_node="16nm",
         year=2025,
-        notes="First edge Gen AI accelerator. KV cache support for LLMs. Higher BOM than Hailo-8 "
-              "due to external LPDDR4X. Production 2026 for automotive (AEC-Q100 Grade 2)."
-    )
-
-    # BOM: $30 + $10 + $20 + $5 + $1 + $4 = $70
-    # Retail: $240 (estimated, not yet available)
-    # Cost per INT4 TOPS: $70/40 = $1.75 BOM, $6.00 retail
-
-    # ========================================================================
-    # Hardware Resource Model
-    # ========================================================================
-    model = HardwareResourceModel(
-        name="Hailo-10H",
-        hardware_type=HardwareType.KPU,  # Enhanced dataflow for transformers
-
-        # NEW: Compute fabric (single transformer-optimized dataflow fabric)
-        compute_fabrics=[dataflow_fabric],
-
-        compute_units=num_dataflow_units,
-        threads_per_unit=128,
-        warps_per_unit=1,
-        warp_size=1,
-
-        # Thermal operating points
-        thermal_operating_points={
-            "2.5W": thermal_2_5w,
-        },
-        default_thermal_profile="2.5W",
-
-        # Legacy precision profiles
-        precision_profiles={
-            Precision.INT4: PrecisionProfile(
-                precision=Precision.INT4,
-                peak_ops_per_sec=40e12,  # 40 TOPS INT4 (primary use case)
-                tensor_core_supported=True,
-                relative_speedup=2.0,  # 2× INT8
-                bytes_per_element=0.5,
-            ),
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=20e12,  # 20 TOPS INT8 (secondary)
-                tensor_core_supported=True,
-                relative_speedup=1.0,
-                bytes_per_element=1,
-            ),
-        },
-        default_precision=Precision.INT4,  # Primary use case is INT4 LLMs
-
-        # Memory hierarchy (hybrid: on-chip + external DRAM)
-        peak_bandwidth=40e9,  # ~40 GB/s LPDDR4X bandwidth
-        l1_cache_per_unit=512 * 1024,  # 512 KB per unit (on-chip SRAM)
-        l2_cache_total=12 * 1024 * 1024,  # 12 MB on-chip (larger for KV cache)
-        main_memory=8 * 1024**3,  # 8 GB LPDDR4X (for model weights + KV cache)
-
-        # Energy (use dataflow fabric energy)
-        energy_per_flop_fp32=dataflow_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
-        energy_per_byte=15e-12,          # 15 pJ/byte (LPDDR4X, not on-chip)
-
-        # Scheduling
-        min_occupancy=0.75,  # Transformers have varying occupancy
-        max_concurrent_kernels=1,  # Single model execution
-        wave_quantization=1,
-
-        # BOM cost
-        bom_cost_profile=bom_cost,
-
-        # M3 Layer 3: software-managed on-chip SRAM. Hailo-10H is
-        # transformer-optimized; the larger L2 (12 MB) holds the KV
-        # cache. L1 still scratchpad-managed by the compiler.
-        l1_storage_kind="scratchpad",
-
-        # M4 Layer 4: Hailo-10H expands L2 to 12 MB to hold the
-        # transformer KV cache. 12 MB / 40 dataflow units ~= 307 KiB
-        # per-unit share. LLC by design.
-        l2_cache_per_unit=(12 * 1024 * 1024) // 40,  # ~307 KiB per unit
-        l2_topology="shared-llc",
-
-        # M5 Layer 5: Hailo dataflow has no inter-cluster cache.
-        l3_present=False,
-        l3_cache_total=0,
-        coherence_protocol="none",
-
-        # M7 Layer 7: Hailo-10H is transformer-optimized; host-side
-        # DRAM holds the model weights (LPDDR5 to keep BW up for KV
-        # cache spills). Steady-state still serves attention from
-        # on-chip 12 MB L2 SRAM.
-        memory_technology="LPDDR5 (host) + on-chip SRAM (KV cache)",
-        memory_read_energy_per_byte_pj=15.0,
-        memory_write_energy_per_byte_pj=18.0,
-
-        # M6 Layer 6: dataflow mesh between 40 PE units (low confidence).
-        soc_fabric=_get_hailo10h_fabric(),
-    )
-
-    # M3 Layer 3 provenance
-    from graphs.core.confidence import EstimationConfidence
-    model.set_provenance(
-        "l1_cache_per_unit",
-        EstimationConfidence.theoretical(
-            score=0.75,
-            source=("Hailo-10H Architecture Brief: ~20 MB total on-chip "
-                    "SRAM across 40 dataflow units (~512 KB/unit), "
-                    "transformer-optimized with KV-cache-sized L2"),
+        notes=(
+            "First edge Gen AI accelerator. KV cache support for LLMs. "
+            "Higher BOM than Hailo-8 due to external LPDDR4X. Production "
+            "2026 for automotive (AEC-Q100 Grade 2)."
         ),
     )
-    model.set_provenance(
-        "l1_storage_kind",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="Hailo dataflow architecture: software-managed, no L1 cache",
-        ),
-    )
-
-    # M4 Layer 4 provenance for the transformer-sized L2 SRAM layer
-    model.set_provenance(
-        "l2_cache_per_unit",
-        EstimationConfidence.theoretical(
-            score=0.70,
-            source=("Hailo-10H architecture brief: ~12 MB inter-unit "
-                    "shared SRAM (~307 KiB per-unit share), sized to "
-                    "hold the KV cache for transformer inference"),
-        ),
-    )
-    model.set_provenance(
-        "l2_topology",
-        EstimationConfidence.theoretical(
-            score=0.90,
-            source="Hailo dataflow architecture: shared LLC over per-unit L1",
-        ),
-    )
-
-    # M5 Layer 5 provenance
-    model.set_provenance(
-        "l3_present",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="Hailo dataflow: no inter-cluster cache layer",
-        ),
-    )
-    model.set_provenance(
-        "l3_cache_total",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source=("Hailo dataflow: Layer 5 cache absent by design, "
-                    "capacity fixed at 0 bytes"),
-        ),
-    )
-    model.set_provenance(
-        "coherence_protocol",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="Hailo dataflow: no inter-unit coherence (compiler-routed)",
-        ),
-    )
-
-    # M6 Layer 6 provenance (low confidence - thin datasheet)
-    model.set_provenance(
-        "soc_fabric",
-        EstimationConfidence.theoretical(
-            score=0.40,
-            source=("Hailo-10H NoC topology not publicly documented; "
-                    "panel ships with low_confidence=True flag"),
-        ),
-    )
-
-    # M7 Layer 7 provenance
-    for key in ("memory_technology",
-                "memory_read_energy_per_byte_pj",
-                "memory_write_energy_per_byte_pj"):
-        model.set_provenance(
-            key,
-            EstimationConfidence.theoretical(
-                score=0.55,
-                source=("Hailo-10H host-side LPDDR5 for transformer "
-                        "weights + KV cache; steady-state attention "
-                        "from on-chip 12 MB L2"),
-            ),
-        )
 
     return model
