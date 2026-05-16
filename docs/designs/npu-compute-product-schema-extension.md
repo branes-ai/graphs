@@ -261,7 +261,7 @@ in embodied-schemas:
 
 1. **`compute_product.py`**:
    - Add `BlockKind.NPU = "npu"` to the discriminator enum.
-   - Update `AnyBlock = Union[KPUBlock, GPUBlock, CPUBlock, NPUBlock]`.
+   - Update `AnyBlock = Annotated[Union[KPUBlock, GPUBlock, CPUBlock, NPUBlock], Field(discriminator="kind")]` (preserves the v2/v3 discriminator metadata; a bare ``Union[...]`` would drop Pydantic's discriminator dispatch).
 
 2. **New file `embodied_schemas/npu_block.py`** (~350 LOC, similar size
    to gpu_block / cpu_block):
@@ -346,10 +346,22 @@ in embodied-schemas:
 
 ## Next step
 
-Land this doc as PR 1 of the sprint (graphs-side). The Schema PR
-(PR 2, embodied-schemas-side) implements the "Recommended schema diff"
-above. Schema PR can be reviewed and merged independently of PR 3
-(data PR for Hailo-8 YAML) since the new types are additive.
+Sprint sequencing:
+
+- **PR 1 (this document)** -- docs/design, graphs-side. Lands the
+  field-by-field audit + recommended schema diff. Pure docs PR; no
+  code changes.
+- **PR 2 -- schema, embodied-schemas-side.** Implements the
+  "Recommended schema diff" above (NPUBlock + supporting types +
+  enums). Additive; reviewable and mergeable independently of PR 3.
+- **PR 3 -- data, embodied-schemas-side.** Authors the first Hailo-8
+  YAML. Adds GF 28nm process-node YAML as a precursor only if Coral
+  Edge TPU YAML follows in the same sprint.
+- **PR 4 -- adapter / loader, graphs-side.** ``npu_yaml_loader.py``
+  consumes the Hailo-8 YAML; parity tests vs the existing 360-LOC
+  hand-coded factory.
+- **PR 5 -- cleanup, graphs-side.** Retire the hand-coded Hailo-8
+  factory; thin wrapper over ``load_npu_resource_model_from_yaml``.
 
 Estimated total sprint cost: ~2.5 days (slightly less than GPU/CPU
 sprints because NPU types are smaller and Hailo publishes more area
