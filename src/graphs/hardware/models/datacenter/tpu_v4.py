@@ -1,176 +1,85 @@
-"""
-Tpu V4 Resource Model hardware resource model.
+"""Google TPU v4 resource model.
 
-Extracted from resource_model.py during refactoring.
+Final cleanup PR for issue #204 (TPU mini-sprint). As of this PR,
+the chip's architectural and thermal-profile data lives in the
+canonical YAML at
+``embodied-schemas:data/compute_products/google/tpu_v4.yaml``
+(landed in embodied-schemas#39) and is loaded via ``tpu_yaml_loader``.
+The previous ~176-LOC hand-coded ``HardwareResourceModel``
+constructor was retired here; its parity with the YAML-loaded model
+is pinned in ``tests/hardware/test_tpu_yaml_loader_v4_parity.py``.
+
+Schema precursors that had to land first:
+  - embodied-schemas#38 -- TPUBlock added to the discriminated union
+  - embodied-schemas#39 -- the TPU v4 YAML itself
+
+The public function name and signature are preserved so existing
+callers (``create_tpu_v4_mapper``, validation scripts, energy / BERT
+benchmarks, ``cli/compare_*.py``) continue to work unchanged.
+
+**Zero overlays remain.** Like Plasticine (#199) and Vitis AI (#203),
+this is a clean-cut migration because:
+
+  - ``HardwareType.TPU`` was already in the graphs enum (no
+    transitional period like NPU's #191).
+  - Loader's ``peak_bandwidth`` convention (external DRAM = HBM2e at
+    1.2 TB/s) matches the legacy hand-coded value exactly.
+  - Loader reconstructs the ``TPUTileEnergyModel`` from the schema's
+    ``TPUTileEnergyCoefficients`` sub-type with the same 9 canonical
+    coefficients the hand-coded factory used.
+  - No BOMCostProfile overlay needed (TPU v4 is Google Cloud rental
+    only; no commercial BoM).
+
+Four documented drifts where the YAML loader follows v7 schema
+conventions that differ from the legacy:
+
+  - ``energy_per_flop_fp32``: ~4x drift (0.45 pJ vs 1.8 pJ). YAML
+    computes from BF16 baseline * FP32 scaling = 0.225 * 2.0 = 0.45.
+    Hand-coded used ``get_base_alu_energy(7, 'standard_cell')`` =
+    1.8 pJ static 7nm baseline. Both valid 7nm estimates; v8 may add
+    a direct ``energy_per_flop_fp32_override`` field on
+    ``TPUComputeFabric``.
+  - ``memory_technology``: "HBM2E" (correct) vs None (legacy didn't set).
+  - ``soc_fabric``: populated 2-endpoint crossbar (vs legacy None).
+    Unblocks downstream Layer 6 reporting for TPU.
+  - **MXU count modeling**: both YAML and legacy model TPU v4 as
+    2 MXUs * 128x128 = 32,768 MACs (= 68.8 TOPS BF16). Google's actual
+    TPU v4 has 2 TensorCores * 4 MXUs each = 8 MXUs (= 275 TFLOPS
+    marketed). The schema's ``chip.performance.bf16_tflops = 275.0``
+    captures the marketed number, but the precision_profiles[BF16]
+    derived from the compute_fabric uses the 2-MXU model. v8
+    reconciliation: model 2 TC * 4 MXUs properly (might require
+    multi-block-per-die support).
+
+Two v8 reconciliation items:
+  - ``is_statically_reconfigurable=False`` (TPUs are fixed-function)
+    -- not in TPUBlock schema yet.
+  - ``ici_port_count`` / ``ici_bandwidth_per_port_gbps`` /
+    ``ici_topology_hint`` -- live on TPUBlock in the v7 schema but
+    have no equivalent fields on ``HardwareResourceModel``.
+    Downstream consumers read from ComputeProduct directly meanwhile.
+
+The legacy resource-model ``name`` ("TPU-v4") is preserved.
 """
 
-from ...resource_model import (
-    HardwareResourceModel,
-    HardwareType,
-    Precision,
-    PrecisionProfile,
-    ClockDomain,
-    ComputeResource,
-    TileSpecialization,
-    KPUComputeResource,
-    PerformanceCharacteristics,
-    ThermalOperatingPoint,
-    ComputeFabric,
-    get_base_alu_energy,
-)
-from ...architectural_energy import TPUTileEnergyModel
+from ...resource_model import HardwareResourceModel
+from .tpu_yaml_loader import load_tpu_resource_model_from_yaml
+
+
+_LEGACY_NAME = "TPU-v4"
+_YAML_BASE_ID = "google_tpu_v4"
 
 
 def tpu_v4_resource_model() -> HardwareResourceModel:
+    """Google TPU v4 -- 4th-generation datacenter training TPU.
+
+    See the YAML for the canonical chip description (2 MXUs * 128x128
+    at 1.05 GHz on TSMC N7, 32 MiB on-chip Unified Buffer, 32 GiB
+    chip-attached HBM2e at 1.2 TB/s, 350W active liquid cooling,
+    6-port ICI for 3D-torus pod, multi-precision BF16 + INT8 + emulated
+    FP32, full 9-coefficient tile energy model).
     """
-    Google TPU v4 resource model.
-
-    Architecture:
-    - 2 Matrix Multiplier Units (MXUs)
-    - Each MXU: 128×128 systolic array (16,384 MACs)
-    - Per MXU: 137.5 TFLOPS BF16, 275 TOPS INT8
-
-    Key characteristics:
-    - Optimized for BF16 and INT8
-    - 2× INT8 performance vs BF16
-    - Very energy efficient
-    """
-    # Thermal operating point (datacenter TPU pod)
-    thermal_default = ThermalOperatingPoint(
-        name="default",
-        tdp_watts=350.0,  # TPU v4 TDP
-        cooling_solution="active-liquid",
-        performance_specs={}  # Uses precision_profiles for performance
+    return load_tpu_resource_model_from_yaml(
+        _YAML_BASE_ID,
+        name_override=_LEGACY_NAME,
     )
-
-    # ========================================================================
-    # Systolic Array Fabric (7nm Standard Cell)
-    # ========================================================================
-    # TPU v4 has 2 MXUs with 128×128 systolic arrays each
-    # Process: 7nm (4th-gen TPU)
-    # Clock: 1050 MHz
-    # Peak BF16: 275 TFLOPS (2 MXUs × 128×128 × 2 ops × 1050 MHz)
-    # Peak INT8: 550 TOPS (2× BF16)
-    systolic_fabric = ComputeFabric(
-        fabric_type="systolic_array",
-        circuit_type="standard_cell",
-        num_units=2 * 128 * 128,  # 2 MXUs × 16,384 MACs = 32,768 total MACs
-        ops_per_unit_per_clock={
-            Precision.BF16: 2,  # MAC = 2 ops
-            Precision.INT8: 2,  # MAC = 2 ops
-        },
-        core_frequency_hz=1050e6,  # 1.05 GHz
-        process_node_nm=7,  # 7nm process
-        energy_per_flop_fp32=get_base_alu_energy(7, 'standard_cell'),  # 1.8 pJ
-        energy_scaling={
-            Precision.FP32: 1.0,
-            Precision.BF16: 0.5,  # BF16 is 2× more efficient
-            Precision.INT8: 0.125,  # INT8 is 8× more efficient
-        }
-    )
-
-    # TPU v4 tile energy model (for architectural analysis)
-    tile_energy_model = TPUTileEnergyModel(
-        # Array configuration (v4 uses 128×128 arrays × 2 MXUs)
-        array_width=128,
-        array_height=128,
-        num_arrays=2,  # 2 MXUs per chip
-
-        # Tile configuration (smaller than v1's 64 KiB)
-        weight_tile_size=32 * 1024,  # 32 KiB per tile
-        weight_fifo_depth=2,  # 2 tiles buffered (estimated)
-
-        # Pipeline (shorter than v1's 256 cycles)
-        pipeline_fill_cycles=128,  # 128 cycles to fill pipeline
-        clock_frequency_hz=1050e6,  # 1.05 GHz (estimated from 275 TFLOPS)
-
-        # Accumulator (2 MiB per MXU, sized for roofline knee)
-        accumulator_size=2 * 1024 * 1024,  # 2 MiB per MXU
-        accumulator_width=128,  # 128 elements wide
-
-        # Unified Buffer (estimated 32 MiB for v4)
-        unified_buffer_size=32 * 1024 * 1024,  # 32 MiB
-
-        # Energy coefficients (HBM2e, advanced process node)
-        weight_memory_energy_per_byte=10.0e-12,  # 10 pJ/byte (HBM2e)
-        weight_fifo_energy_per_byte=0.5e-12,  # 0.5 pJ/byte (on-chip SRAM)
-        unified_buffer_read_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
-        unified_buffer_write_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
-        accumulator_write_energy_per_element=0.4e-12,  # 0.4 pJ (32-bit write)
-        accumulator_read_energy_per_element=0.3e-12,  # 0.3 pJ (32-bit read)
-        weight_shift_in_energy_per_element=0.3e-12,  # 0.3 pJ (shift register)
-        activation_stream_energy_per_element=0.2e-12,  # 0.2 pJ (stream)
-        mac_energy=0.25e-12,  # 0.25 pJ per BF16 MAC (slightly higher than INT8)
-    )
-
-    # Calculate peak performance
-    bf16_peak = systolic_fabric.get_peak_ops_per_sec(Precision.BF16)
-    int8_peak = systolic_fabric.get_peak_ops_per_sec(Precision.INT8)
-
-    model = HardwareResourceModel(
-        name="TPU-v4",
-        hardware_type=HardwareType.TPU,
-
-        # NEW: Compute fabrics
-        compute_fabrics=[systolic_fabric],
-
-        # Legacy fields
-        compute_units=2,  # 2 MXUs (Matrix Multiplier Units)
-        threads_per_unit=128 * 128,  # 128×128 systolic array per MXU
-        warps_per_unit=128,  # rows in systolic array
-        warp_size=128,  # columns in systolic array
-
-        precision_profiles={
-            Precision.FP32: PrecisionProfile(
-                precision=Precision.FP32,
-                peak_ops_per_sec=bf16_peak / 2,  # Half of BF16 (not native)
-                tensor_core_supported=True,
-                relative_speedup=0.5,
-                bytes_per_element=4,
-            ),
-            Precision.BF16: PrecisionProfile(
-                precision=Precision.BF16,
-                peak_ops_per_sec=bf16_peak,  # 275 TFLOPS
-                tensor_core_supported=True,
-                relative_speedup=1.0,
-                bytes_per_element=2,
-            ),
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=int8_peak,  # 550 TOPS (2× BF16)
-                tensor_core_supported=True,
-                relative_speedup=2.0,
-                bytes_per_element=1,
-                accumulator_precision=Precision.INT32,
-            ),
-        },
-        default_precision=Precision.BF16,
-
-        peak_bandwidth=1.2e12,  # 1.2 TB/s HBM2e
-        l1_cache_per_unit=16 * 1024 * 1024,  # 16 MB per MXU
-        l2_cache_total=32 * 1024 * 1024,  # 32 MB shared
-        main_memory=32 * 1024**3,  # 32 GB HBM2e
-        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 1.8 pJ (7nm standard_cell)
-        energy_per_byte=10e-12,
-        energy_scaling={
-            Precision.FP32: 1.0,
-            Precision.BF16: 0.5,
-            Precision.INT8: 0.125,
-        },
-        min_occupancy=0.5,  # Systolic arrays need high utilization
-        max_concurrent_kernels=1,  # Typically runs one large batch
-        wave_quantization=1,
-
-        # Thermal profile
-        thermal_operating_points={
-            "default": thermal_default,
-        },
-        default_thermal_profile="default",
-    )
-
-    # Attach tile energy model to the resource model
-    model.tile_energy_model = tile_energy_model
-
-    return model
-
-
