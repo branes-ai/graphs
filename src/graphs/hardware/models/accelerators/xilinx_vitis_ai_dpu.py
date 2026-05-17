@@ -1,157 +1,81 @@
-"""
-Xilinx Vitis Ai Dpu Resource Model hardware resource model.
+"""Xilinx Vitis AI DPU (Versal VE2302, B4096 config) resource model.
 
-Extracted from resource_model.py during refactoring.
+Final cleanup PR for issue #200 (DPU mini-sprint). As of this PR,
+the chip's architectural and thermal-profile data lives in the
+canonical YAML at
+``embodied-schemas:data/compute_products/xilinx/vitis_ai_b4096.yaml``
+(landed in embodied-schemas#37) and is loaded via ``dpu_yaml_loader``.
+The previous ~160-LOC hand-coded ``HardwareResourceModel``
+constructor was retired here; its parity with the YAML-loaded model
+is pinned in ``tests/hardware/test_dpu_yaml_loader_vitis_ai_parity.py``.
+
+Schema precursors that had to land first:
+  - embodied-schemas#36 -- DPUBlock added to the discriminated union
+  - embodied-schemas#37 -- the Vitis AI B4096 YAML itself
+
+The public function name and signature are preserved so existing
+callers (``create_xilinx_vitis_ai_dpu_mapper``, validation scripts,
+``cli/compare_*.py``) continue to work unchanged.
+
+**Zero overlays remain.** Like Plasticine (issue #196 cleanup), this
+is a clean-cut migration because:
+
+  - ``HardwareType.DPU`` was already in the graphs enum (no
+    transitional period like NPU's #191).
+  - ``peak_bandwidth`` convention (external DRAM tier when present;
+    50 GB/s DDR4 for Vitis AI) matches the legacy hand-coded value
+    exactly.
+  - ``memory_technology`` was None in the legacy; the YAML loader
+    populates it correctly ("DDR4").
+  - No BOMCostProfile overlay needed (the legacy factory didn't
+    include one either; Versal SoM/SoC pricing not yet modeled).
+
+Six documented drifts captured by the parity test where the YAML
+follows schema conventions that differ from the legacy:
+
+  - INT8 peak: 10.24 TOPS (theoretical chip-level, schema convention)
+    vs 7.68 TOPS (legacy realistic at 75% efficiency, pre-multiplied).
+    Downstream consumers that want realistic peak should multiply by
+    ``thermal_operating_points[default].efficiency_factor_by_precision[int8]``.
+  - FP16 peak: 2.56 TFLOPS vs 1.92 TFLOPS (same 75% efficiency factor).
+  - FP32 peak: not in YAML precision_profiles vs 0.96 TFLOPS legacy.
+    YAML's compute_fabrics declare INT8 + FP16; FP32 is captured only
+    as energy_scaling since it's emulated.
+  - ``memory_technology``: "DDR4" (correct) vs None (legacy didn't set).
+  - ``soc_fabric``: 8x8 AIE mesh populated vs None (legacy didn't
+    model -- now unblocks downstream Layer 6 reporting for DPU).
+  - ``energy_per_flop_fp32``: ~8% drift (2.5 pJ vs 2.7 pJ); both valid.
+
+One v7 reconciliation item:
+  - ``is_statically_reconfigurable`` / ``bitstream_load_time_ms`` /
+    ``fpga_fabric_overhead_factor`` (the defining DPU characteristics)
+    live on ``DPUBlock`` in the v6 schema but have no equivalent
+    fields on ``HardwareResourceModel``. Downstream consumers that
+    need them read from the underlying ComputeProduct directly. v7
+    will add the fields properly.
+
+The legacy resource-model ``name`` ("DPU-Vitis-AI-B4096") is preserved.
 """
 
-from ...resource_model import (
-    HardwareResourceModel,
-    HardwareType,
-    Precision,
-    PrecisionProfile,
-    ComputeFabric,
-    get_base_alu_energy,
-    ClockDomain,
-    ComputeResource,
-    TileSpecialization,
-    KPUComputeResource,
-    PerformanceCharacteristics,
-    ThermalOperatingPoint,
-)
+from ...resource_model import HardwareResourceModel
+from .dpu_yaml_loader import load_dpu_resource_model_from_yaml
+
+
+_LEGACY_NAME = "DPU-Vitis-AI-B4096"
+_YAML_BASE_ID = "xilinx_vitis_ai_b4096"
 
 
 def xilinx_vitis_ai_dpu_resource_model() -> HardwareResourceModel:
+    """Xilinx Vitis AI B4096 DPU on Versal VE2302 -- FPGA-based AI
+    accelerator with AIE-ML v1 tile array.
+
+    See the YAML for the canonical chip description (64 AIE-ML tiles *
+    64 MACs at 1.25 GHz, 64 KiB scratchpad per tile, 4 MiB shared L2,
+    8 GiB chip-attached DDR4, 8x8 AIE_MESH NoC, 20W active-fan,
+    TSMC N16 process, multi-precision INT8 + native FP16 + emulated
+    FP32, static FPGA reconfiguration with ~2 second bitstream load).
     """
-    Xilinx Vitis AI DPU (Deep Processing Unit) resource model.
-
-    Configuration: B4096 (4096 MACs) on Versal VE2302 (embodied AI target)
-    Architecture: AIE-ML v1 with 2D array of INT8 ALUs
-
-    Key characteristics:
-    - FPGA-based, reconfigurable
-    - Native INT8 support (best performance)
-    - Power efficient: 15-20W (embodied AI sweet spot)
-    - Scratchpad-based memory hierarchy (similar to KPU)
-    - 75% realistic efficiency (per specification)
-
-    References:
-    - Versal VE2302: 15-20W, edge-optimized
-    - AIE-ML v1: 512 INT8 ops/clock @ 1.25 GHz
-    - B4096: 4096 MACs
-    - Realistic peak: 10.24 TOPS × 0.75 = 7.68 TOPS INT8
-    """
-    sustained_clock_hz = 1.25e9  # 1.25 GHz
-
-    # ========================================================================
-    # Multi-Fabric Architecture (Xilinx Vitis AI DPU - FPGA-based)
-    # ========================================================================
-    # AIE-ML Tile Fabric (INT8 MAC array)
-    # ========================================================================
-    aie_ml_fabric = ComputeFabric(
-        fabric_type="aie_ml_tile",
-        circuit_type="standard_cell",   # FPGA fabric (has overhead vs ASIC)
-        num_units=64,                    # 64 AIE tiles (B4096 config)
-        ops_per_unit_per_clock={
-            Precision.INT8: 128,         # 128 INT8 ops/tile/cycle (4096 MACs / 64 tiles = 64 MACs/tile × 2 ops)
-            Precision.FP16: 32,          # 32 FP16 ops/tile/cycle (not native)
-        },
-        core_frequency_hz=sustained_clock_hz,  # 1.25 GHz
-        process_node_nm=16,              # 16nm Versal FPGA
-        energy_per_flop_fp32=get_base_alu_energy(16, 'standard_cell'),  # 2.7 pJ (FPGA has additional overhead)
-        energy_scaling={
-            Precision.INT8: 0.15,        # INT8 is very efficient
-            Precision.FP16: 0.50,        # FP16 less efficient
-            Precision.FP32: 1.0,         # FP32 emulated
-        }
+    return load_dpu_resource_model_from_yaml(
+        _YAML_BASE_ID,
+        name_override=_LEGACY_NAME,
     )
-
-    # AIE-ML INT8: 64 tiles × 128 ops/cycle × 1.25 GHz = 10.24 TOPS ✓
-    # Realistic (75% efficiency): 10.24 × 0.75 = 7.68 TOPS ✓
-
-    # ========================================================================
-    # Calculate theoretical and realistic peak performance
-    # ========================================================================
-    # Calculate theoretical and realistic peak performance
-    mac_units = 4096
-    clock_freq = 1.25e9  # 1.25 GHz (confirmed from Versal docs)
-    ops_per_mac = 2  # Multiply + Accumulate
-    efficiency = 0.75  # User-specified efficiency
-
-    theoretical_tops = mac_units * ops_per_mac * clock_freq  # 10.24 TOPS
-    realistic_tops = theoretical_tops * efficiency  # 7.68 TOPS
-
-    # Power profile (VE2302: 15-20W)
-    power_avg = 17.5  # Watts
-    idle_power = 3.0  # Estimated idle
-    dynamic_power = power_avg - idle_power  # 14.5W
-
-    # Energy per operation
-    energy_per_int8_op = dynamic_power / realistic_tops  # 1.89e-12 J/op
-    # Convert to FP32 equivalent (INT8 is ~4× more efficient)
-    energy_per_flop_fp32 = energy_per_int8_op * 4  # 7.56e-12 J/FLOP
-
-    # Thermal operating point (Versal VE2302: edge-optimized)
-    thermal_default = ThermalOperatingPoint(
-        name="default",
-        tdp_watts=20.0,  # VE2302 max TDP (15-20W range)
-        cooling_solution="active-fan",
-        performance_specs={}  # Uses precision_profiles for performance
-    )
-
-    return HardwareResourceModel(
-        name="DPU-Vitis-AI-B4096",
-        hardware_type=HardwareType.DPU,
-
-        # NEW: Multi-fabric architecture (AIE-ML tiles)
-        compute_fabrics=[aie_ml_fabric],
-
-        compute_units=64,  # Tiles (estimate for B4096)
-        threads_per_unit=64,  # Operations per tile
-        warps_per_unit=8,  # Vector lanes per tile
-        warp_size=8,
-
-        # Thermal operating points
-        thermal_operating_points={
-            "default": thermal_default,
-        },
-        default_thermal_profile="default",
-
-        precision_profiles={
-            Precision.FP32: PrecisionProfile(
-                precision=Precision.FP32,
-                peak_ops_per_sec=realistic_tops / 8,  # 0.96 TFLOPS (not native)
-                tensor_core_supported=False,
-                relative_speedup=0.125,
-                bytes_per_element=4,
-            ),
-            Precision.FP16: PrecisionProfile(
-                precision=Precision.FP16,
-                peak_ops_per_sec=realistic_tops / 4,  # 1.92 TFLOPS
-                tensor_core_supported=True,  # AIE support
-                relative_speedup=0.25,
-                bytes_per_element=2,
-            ),
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=realistic_tops,  # 7.68 TOPS (native, best)
-                tensor_core_supported=True,  # Native INT8 MACs
-                relative_speedup=1.0,
-                bytes_per_element=1,
-                accumulator_precision=Precision.INT32,
-            ),
-        },
-        default_precision=Precision.INT8,
-
-        peak_bandwidth=50e9,  # 50 GB/s DDR4 (edge device)
-        l1_cache_per_unit=64 * 1024,  # 64 KB scratchpad per tile
-        l2_cache_total=4 * 1024 * 1024,  # 4 MB (estimate)
-        main_memory=8 * 1024**3,  # 8 GB DDR4 (edge deployment)
-        # Energy (use AIE-ML fabric, note: FPGA has overhead vs ASIC)
-        energy_per_flop_fp32=aie_ml_fabric.energy_per_flop_fp32,  # 2.7 pJ (16nm, standard cell)
-        energy_per_byte=15e-12,  # Similar to GPU (FPGA I/O)
-        min_occupancy=0.3,
-        max_concurrent_kernels=4,
-        wave_quantization=2,  # Tiles allocated in pairs
-    )
-
-
