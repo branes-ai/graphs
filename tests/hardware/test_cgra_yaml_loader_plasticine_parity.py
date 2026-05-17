@@ -1,45 +1,32 @@
-"""Contract test: Plasticine v2 YAML loader produces the expected model.
+"""Contract test: Plasticine v2 factory produces the expected model.
 
-PR 4 of the CGRA mini-sprint scoped at issue #196. Mirror of
-``tests/hardware/test_npu_yaml_loader_hailo8_parity.py``. Compares the
-YAML-loaded model against the hand-coded factory at
-``src/graphs/hardware/models/accelerators/stanford_plasticine_cgra.py``.
+Originally PR 4's parity test, comparing YAML-loaded against the
+hand-coded factory. PR 5 retired the 170-LOC hand-coded body of
+``stanford_plasticine_cgra_resource_model()`` and made it a thin
+wrapper over ``load_cgra_resource_model_from_yaml``, so today both
+``hand_coded`` and ``yaml_loaded`` fixtures resolve through the same
+loader.
 
-PR 5 will retire the hand-coded body and make ``stanford_plasticine_cgra_resource_model()``
-a thin wrapper over the loader; at that point both ``hand_coded`` and
-``yaml_loaded`` fixtures will resolve through the same code path and
-these structural assertions become contract tests on the loader.
+The structural assertions are now **contract tests on the YAML
+loader's output** rather than parity checks. They still catch loader
+regressions and YAML drift; they also fail loudly if anyone changes
+the factory's name override or substitutes a different SKU id.
 
-Documented drifts (the loader CORRECTS legacy bugs; parity test pins
-the YAML values as the new contract):
+Zero factory overlays exist for Plasticine v2 (the simplest cleanup
+of any v2-v5 sprint -- research SKU, no BoM, no taxonomy mismatch,
+on-chip bandwidth convention matches).
 
-  - ``INT8 peak: 10.24 TOPS`` (yaml) vs ``0.307 TOPS`` (hand-coded).
-    The legacy factory's ``theoretical_tops`` formula uses
-    ``num_pcus * macs_per_pcu * ops_per_mac * clock`` = 32*8*2*1e9 =
-    0.512 TOPS, then * 0.60 efficiency = 0.307 TOPS. This ignores the
-    PCU's dual-issue / pipeline multiplier. The YAML's ComputeFabric
-    correctly reports 320 ops/PCU/clock = 10.24 TOPS chip-level
-    (which matches the Plasticine paper's marketed number).
-  - ``FP16 peak: 2.56 TOPS`` (yaml) vs ``0.077 TOPS`` (hand-coded).
-    Same root cause.
-  - ``memory_technology``: ``"DDR4"`` (yaml) vs ``None`` (hand-coded).
-    The legacy doesn't populate this field; the YAML loader does.
-  - ``soc_fabric``: populated (yaml) vs ``None`` (hand-coded). Same.
-  - ``energy_per_flop_fp32``: ~0.5% drift (4.02 pJ vs 4.0 pJ). The
-    YAML loader uses the CGRA fabric's FP32 scaling (6.7x INT8 =
-    4.02 pJ); the hand-coded uses ``get_base_alu_energy(28,
-    'standard_cell')`` = 4.0 pJ. Both are correct interpretations.
+One v6 reconciliation item:
+  - ``reconfig_overhead_cycles`` (the defining CGRA Achilles heel,
+    Plasticine = 1000) lives on ``CGRABlock`` in the v5 schema but
+    has no equivalent field on ``HardwareResourceModel``. Tested via
+    direct ComputeProduct read below.
 
-Where the hand-coded and YAML-loaded agree (these are the actual
-parity assertions):
-
-  - compute_units, threads_per_unit
-  - peak_bandwidth (40 GB/s -- PCU mesh, on-chip)
-  - l1_cache_per_unit, l2_cache_total, main_memory
-  - default_precision (INT8)
-  - hardware_type (CGRA)
-  - thermal profile shape (single profile, 15W)
-  - scheduler attrs (min_occupancy, max_concurrent_kernels)
+(Before PR 5 / cleanup, the legacy hand-coded had FOUR documented
+drifts -- buggy INT8/FP16 TOPS formula, missing memory_technology,
+missing soc_fabric. Those are all resolved now because the hand-coded
+body is gone; both sides resolve through the loader. The drift tests
+have been retired with this PR.)
 """
 
 import pytest
@@ -148,26 +135,16 @@ def test_compute_fabric_energy_documented_drift(hand_coded, yaml_loaded):
 # Precision profiles -- the YAML CORRECTS a legacy bug
 # ---------------------------------------------------------------------------
 
-def test_int8_peak_is_yaml_corrected_chip_level(yaml_loaded):
-    """YAML-loaded INT8 peak = 10.24 TOPS (= 32 PCUs * 320 ops/clk *
-    1 GHz). This is the actual Plasticine v2 marketed number. The
-    legacy hand-coded reports 0.307 TOPS (a buggy formula that
-    ignores the per-PCU ops/clock multiplier); the YAML loader
-    CORRECTS this. Parity test pins the YAML value as the new contract."""
+def test_int8_peak_is_chip_level(hand_coded, yaml_loaded):
+    """INT8 peak = 10.24 TOPS (= 32 PCUs * 320 ops/clk * 1 GHz).
+    The actual Plasticine v2 marketed number. PR 5 cleanup retired
+    the hand-coded path (whose legacy formula reported a buggy 0.307
+    TOPS); both sides now resolve through the loader."""
     assert yaml_loaded.precision_profiles[Precision.INT8].peak_ops_per_sec == pytest.approx(
         10.24e12, rel=0.01
     )
-
-
-def test_legacy_int8_peak_undershoots_chip_level(hand_coded):
-    """Pinned for visibility: legacy hand-coded reports 0.307 TOPS
-    (about 33x smaller than the actual chip-level peak). PR 5 cleanup
-    will retire the hand-coded path and this test becomes redundant
-    (loader becomes the only source). Until then, document the bug."""
-    legacy_peak = hand_coded.precision_profiles[Precision.INT8].peak_ops_per_sec
-    assert legacy_peak == pytest.approx(0.307e12, rel=0.05), (
-        f"unexpected legacy peak {legacy_peak/1e12:.3f} TOPS; if this "
-        f"changed the legacy was fixed -- update this drift annotation."
+    assert hand_coded.precision_profiles[Precision.INT8].peak_ops_per_sec == pytest.approx(
+        10.24e12, rel=0.01
     )
 
 
@@ -233,35 +210,30 @@ def test_coherence_protocol_is_none(yaml_loaded):
     assert yaml_loaded.coherence_protocol == "none"
 
 
-def test_yaml_populates_memory_technology(yaml_loaded):
-    """DOCUMENTED DRIFT: hand-coded does NOT set memory_technology
-    (returns None); YAML loader populates it from host_dram_type.
-    The YAML's "DDR4" is structurally correct."""
-    assert yaml_loaded.memory_technology == "DDR4"
+def test_memory_technology_populated(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which populates
+    ``memory_technology`` from the YAML's ``host_dram_type=ddr4``.
+    Before PR 5 cleanup the hand-coded path returned None here."""
+    assert yaml_loaded.memory_technology == hand_coded.memory_technology == "DDR4"
 
 
 # ---------------------------------------------------------------------------
 # SoC fabric (4x8 mesh -- DRIFT: hand-coded doesn't populate)
 # ---------------------------------------------------------------------------
 
-def test_yaml_populates_soc_fabric(yaml_loaded):
-    """DOCUMENTED DRIFT: hand-coded does NOT set soc_fabric (returns
-    None); YAML loader populates it from NoC schema. The YAML's
-    4x8 mesh structure is correct and unblocks downstream Layer 6
-    reporting that the hand-coded couldn't support."""
+def test_soc_fabric_populated(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which populates
+    ``soc_fabric`` from the YAML's ``noc`` block (4x8 mesh of 32 PCUs).
+    Before PR 5 cleanup the hand-coded path returned None here, which
+    blocked downstream Layer 6 reporting for CGRA."""
     from graphs.hardware.fabric_model import Topology
-    assert yaml_loaded.soc_fabric is not None
-    assert yaml_loaded.soc_fabric.topology == Topology.MESH_2D
-    assert yaml_loaded.soc_fabric.mesh_dimensions == (4, 8)
-    assert yaml_loaded.soc_fabric.controller_count == 32
-    assert yaml_loaded.soc_fabric.bisection_bandwidth_gbps == pytest.approx(40.0)
-    assert yaml_loaded.soc_fabric.low_confidence is True
-
-
-def test_hand_coded_soc_fabric_is_none(hand_coded):
-    """Pinned for visibility: hand-coded didn't model the SoC fabric.
-    PR 5 cleanup makes the YAML loader the only source."""
-    assert hand_coded.soc_fabric is None
+    for label, m in (("yaml_loaded", yaml_loaded), ("hand_coded", hand_coded)):
+        assert m.soc_fabric is not None, f"{label}.soc_fabric is None"
+        assert m.soc_fabric.topology == Topology.MESH_2D
+        assert m.soc_fabric.mesh_dimensions == (4, 8)
+        assert m.soc_fabric.controller_count == 32
+        assert m.soc_fabric.bisection_bandwidth_gbps == pytest.approx(40.0)
+        assert m.soc_fabric.low_confidence is True
 
 
 # ---------------------------------------------------------------------------
