@@ -1,268 +1,118 @@
-"""
-Coral Edge Tpu Resource Model hardware resource model.
+"""Coral Edge TPU resource model.
 
-Extracted from resource_model.py during refactoring.
+Final cleanup PR for issue #192. As of this PR, the chip's
+architectural and thermal-profile data lives in the canonical YAML
+at ``embodied-schemas:data/compute_products/google/coral_edge_tpu.yaml``
+(landed in embodied-schemas#33) and is loaded via ``npu_yaml_loader``.
+The previous ~360-LOC hand-coded ``HardwareResourceModel``
+constructor was retired here; its parity with the YAML-loaded model
+is pinned in ``tests/hardware/test_npu_yaml_loader_coral_parity.py``.
+
+Schema precursors that had to land first:
+  - embodied-schemas#32 -- GF 28nm SLP process node YAML
+  - embodied-schemas#33 -- the Coral Edge TPU YAML itself
+
+The public function name and signature are preserved so existing
+callers (``create_coral_edge_tpu_mapper``, layer 1-7 reporting,
+validation scripts, ``cli/compare_*.py``) continue to work unchanged.
+
+SIX overlays remain in the factory after loading -- the v4 ComputeProduct
+schema doesn't carry these yet, and one is a taxonomy mismatch:
+
+  1. ``hardware_type=TPU`` -- the v4 schema classifies Coral as an
+     NPU (it has an NPUBlock); the graphs ``HardwareType`` taxonomy
+     uses TPU as a separate value for systolic accelerators with
+     TPU-specific mapping logic in ``TPUMapper``. Hand-coded keeps
+     ``HardwareType.TPU`` so the existing TPUMapper guard
+     (``hardware_type.value == "tpu"``) accepts Coral unchanged.
+     v5 reconciliation: unify the schema NPU + graphs TPU/NPU split
+     under a vendor-neutral common module, or add a per-SKU
+     ``mapper_class`` hint to NPUBlock.
+
+  2. ``peak_bandwidth=4 GB/s`` -- the YAML loader picks
+     on_chip_bandwidth_gbps (128 GB/s for the UB-to-systolic direct
+     connect) because Coral has has_external_dram=False. But Coral's
+     real roofline bottleneck is the host bus (USB 3.0 / PCIe Gen2
+     at ~4 GB/s), since the chip has no external DRAM and weights
+     must stream from host memory. v5 reconciliation: add a
+     ``host_memory_bandwidth`` concept to NPUMemorySubsystem.
+
+  3. ``memory_technology="LPDDR4 (host)"`` -- consistent with the
+     peak_bandwidth overlay; the YAML loader sets "on-chip SRAM (no
+     external DRAM)" by default, which doesn't reflect Coral's
+     host-memory-via-bus architecture.
+
+  4. ``pipeline_fill_overhead=0.15`` -- TPU-systolic-specific field
+     derived from ``TPUMapper._analyze_systolic_utilization`` averaged
+     over typical edge-AI matrix shapes. Not carried by NPUBlock;
+     v5 reconciliation: add to schema or move to NPU-side default.
+
+  5. ``tile_energy_model=TPUTileEnergyModel(...)`` -- the
+     architectural tile-energy decomposition (weight FIFO,
+     accumulator, UB read/write, MAC) is TPU-specific. v5 reconciliation:
+     a generalized ``TileEnergyModel`` field on NPUBlock.
+
+  6. ``BOMCostProfile`` -- die / package / memory / PCB / thermal /
+     margin / retail; v5 ``Market.bom`` will absorb this (same pattern
+     as Hailo-8 / Hailo-10H factories).
+
+Two documented shape drifts captured by the parity test:
+
+  - ``energy_per_flop_fp32`` synthesis -- NPUs don't ship FP32; the
+    loader synthesizes it as ``energy_per_op_int8 * 8`` per the
+    standard-cell rule of thumb. ~38% drift for Coral (3.6 pJ vs
+    2.6 pJ hand-coded) because Coral's fabric int8 energy
+    (0.45 pJ) reflects systolic reuse already. v5 reconciliation item.
+  - ``threads_per_unit`` -- the YAML reports 4096 (= lanes_per_unit
+    for the 64x64 systolic array); the hand-coded value was 256
+    (an estimate). The YAML value is structurally correct; the
+    parity test pins the YAML value as the new contract.
+
+The legacy resource-model ``name`` ("Coral-Edge-TPU") is preserved.
 """
 
-from ...resource_model import (
-    HardwareResourceModel,
-    HardwareType,
-    Precision,
-    PrecisionProfile,
-    ComputeFabric,
-    get_base_alu_energy,
-    ClockDomain,
-    ComputeResource,
-    TileSpecialization,
-    KPUComputeResource,
-    PerformanceCharacteristics,
-    ThermalOperatingPoint,
-    BOMCostProfile,
-)
+from graphs.core.confidence import EstimationConfidence
+
 from ...architectural_energy import TPUTileEnergyModel
-from ...fabric_model import SoCFabricModel, Topology
+from ...resource_model import BOMCostProfile, HardwareResourceModel, HardwareType
+from .npu_yaml_loader import load_npu_resource_model_from_yaml
+
+
+_LEGACY_NAME = "Coral-Edge-TPU"
+_YAML_BASE_ID = "google_coral_edge_tpu"
 
 
 def coral_edge_tpu_resource_model() -> HardwareResourceModel:
+    """Google Coral Edge TPU (single-tile systolic NPU; INT8-only).
+
+    See the YAML for the canonical chip description (64x64 INT8
+    systolic array as 1 dataflow unit with 4096 lanes, 512 KiB
+    on-chip unified buffer, no external DRAM, crossbar NoC, single
+    2W operating point on GF 28nm SLP).
     """
-    Google Coral Edge TPU resource model.
-
-    Configuration: Single Edge TPU chip (USB/M.2/PCIe variants)
-    Architecture: Scaled-down systolic array from Google TPU
-
-    Key characteristics:
-    - Ultra-low power edge AI accelerator (0.5-2W)
-    - 4 TOPS INT8 (much smaller than datacenter TPU v4)
-    - INT8 quantization required (no FP16/FP32 support)
-    - Perfect for IoT, embedded systems, battery-powered devices
-    - Cost-effective: ~$25-75 depending on form factor
-
-    References:
-    - Coral Edge TPU: 4 TOPS @ INT8 only
-    - Power: 0.5W idle, 2W peak (USB variant)
-    - Target: Ultra-low-power edge inference (IoT, cameras, drones)
-    - Limitation: Requires TensorFlow Lite models with full INT8 quantization
-
-    Note: This is NOT the datacenter TPU v4 - it's designed for
-    battery-powered edge devices where power is more critical than performance.
-    """
-    # Performance specs
-    int8_tops = 4e12  # 4 TOPS INT8 (only mode supported)
-    efficiency = 0.85  # 85% efficiency (well-optimized systolic array)
-    effective_tops = int8_tops * efficiency  # 3.4 TOPS effective
-
-    # Power profile (very low power)
-    power_avg = 2.0  # Watts (peak during inference)
-
-    # Energy per operation (ultra-efficient due to low power)
-    # 2W / 3.4 TOPS = 0.59 pJ/op
-    energy_per_flop_fp32 = 0.6e-12  # ~0.6 pJ/FLOP (most efficient!)
-    energy_per_byte = 20e-12  # USB bandwidth limited
-
-    sustained_clock_hz = 500e6  # 500 MHz sustained
-
-    # ========================================================================
-    # Systolic Array Fabric (Edge TPU architecture)
-    # ========================================================================
-    systolic_fabric = ComputeFabric(
-        fabric_type="systolic_array",
-        circuit_type="standard_cell",   # Systolic arrays use standard cells
-        num_units=64 * 64,              # 64×64 systolic array (estimated)
-        ops_per_unit_per_clock={
-            Precision.INT8: 2,           # MAC = 2 ops (multiply + accumulate)
-        },
-        core_frequency_hz=sustained_clock_hz,  # 500 MHz
-        process_node_nm=14,              # 14nm process
-        energy_per_flop_fp32=get_base_alu_energy(14, 'standard_cell'),  # 2.6 pJ
-        energy_scaling={
-            Precision.INT8: 0.125,       # INT8 is very efficient
-        }
+    model = load_npu_resource_model_from_yaml(
+        _YAML_BASE_ID,
+        name_override=_LEGACY_NAME,
     )
 
-    # Systolic array INT8: 4096 units × 2 ops/cycle × 500 MHz = 4.096 TOPS ≈ 4 TOPS ✓
+    # Overlay 1: hardware_type. The v4 schema's NPUBlock + the graphs
+    # HardwareType taxonomy split is a v5 reconciliation item; until
+    # then, Coral keeps TPU so TPUMapper's guard accepts it unchanged.
+    model.hardware_type = HardwareType.TPU
 
-    # Clock domain (single operating point - no DVFS on Edge TPU)
-    clock_domain = ClockDomain(
-        base_clock_hz=500e6,  # 500 MHz (estimated)
-        max_boost_clock_hz=500e6,
-        sustained_clock_hz=500e6,  # No throttling on this low-power device
-        dvfs_enabled=False,  # No DVFS on this fixed-frequency device
-    )
+    # Overlay 2-3: memory bandwidth + technology. Coral's real
+    # bottleneck is the host bus (USB 3.0 / PCIe Gen2), not the
+    # UB-to-systolic direct connect that the YAML's on-chip
+    # bandwidth captures.
+    model.peak_bandwidth = 4e9                # ~4 GB/s host bus
+    model.memory_technology = "LPDDR4 (host)"
+    model.memory_read_energy_per_byte_pj = 20.0
+    model.memory_write_energy_per_byte_pj = 24.0
 
-    # Compute resource
-    compute_resource = ComputeResource(
-        resource_type="Systolic-Array",
-        num_units=1,
-        ops_per_unit_per_clock={
-            Precision.INT8: 8,  # 4 TOPS / 500 MHz = 8 ops/clock
-        },
-        clock_domain=clock_domain,
-    )
-
-    # Thermal operating point (single profile)
-    thermal_operating_points = {
-        "2W": ThermalOperatingPoint(
-            name="2W",
-            tdp_watts=2.0,
-            cooling_solution="Passive (heatsink)",
-            performance_specs={
-                Precision.INT8: PerformanceCharacteristics(
-                    precision=Precision.INT8,
-                    compute_resource=compute_resource,
-                    efficiency_factor=efficiency,  # 0.85 - very efficient systolic array
-                    native_acceleration=True,
-                    tile_utilization=1.0,
-                ),
-            },
-        ),
-    }
-
-    # Coral Edge TPU tile energy model (scaled down from v1)
-    tile_energy_model = TPUTileEnergyModel(
-        # Array configuration (estimated smaller array)
-        array_width=64,  # Estimated (not published)
-        array_height=64,
-        num_arrays=1,  # Single small systolic array
-
-        # Tile configuration (very small tiles for edge)
-        weight_tile_size=4 * 1024,  # 4 KiB (tiny tiles)
-        weight_fifo_depth=1,  # Minimal buffering
-
-        # Pipeline (short pipeline)
-        pipeline_fill_cycles=64,  # 64 cycles (estimated)
-        clock_frequency_hz=500e6,  # 500 MHz
-
-        # Accumulator (minimal for edge)
-        accumulator_size=512 * 1024,  # 512 KB (estimated)
-        accumulator_width=64,  # 64 elements wide
-
-        # Unified Buffer (uses host memory, minimal on-chip)
-        unified_buffer_size=512 * 1024,  # 512 KB on-chip
-
-        # Energy coefficients (ultra-low power for edge)
-        weight_memory_energy_per_byte=20.0e-12,  # 20 pJ/byte (USB 3.0, off-chip)
-        weight_fifo_energy_per_byte=0.5e-12,  # 0.5 pJ/byte (on-chip SRAM)
-        unified_buffer_read_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
-        unified_buffer_write_energy_per_byte=0.5e-12,  # 0.5 pJ/byte
-        accumulator_write_energy_per_element=0.4e-12,  # 0.4 pJ (32-bit write)
-        accumulator_read_energy_per_element=0.3e-12,  # 0.3 pJ (32-bit read)
-        weight_shift_in_energy_per_element=0.3e-12,  # 0.3 pJ (shift register)
-        activation_stream_energy_per_element=0.2e-12,  # 0.2 pJ (stream)
-        mac_energy=0.15e-12,  # 0.15 pJ per INT8 MAC (very efficient)
-    )
-
-    # BOM Cost Profile
-    bom_cost = BOMCostProfile(
-        silicon_die_cost=12.0,
-        package_cost=5.0,
-        memory_cost=0.0,  # Uses host memory
-        pcb_assembly_cost=3.0,
-        thermal_solution_cost=1.0,
-        other_costs=4.0,
-        total_bom_cost=25.0,
-        margin_multiplier=3.0,
-        retail_price=75.0,
-        volume_tier="10K+",
-        process_node="14nm",
-        year=2025,
-        notes="Ultra-low-cost edge TPU. Minimal on-chip memory, uses host CPU memory. USB/M.2/PCIe variants. Target: IoT cameras, embedded vision, battery devices.",
-    )
-
-    model = HardwareResourceModel(
-        name="Coral-Edge-TPU",
-        hardware_type=HardwareType.TPU,
-
-        # NEW: Compute fabric (single systolic array)
-        compute_fabrics=[systolic_fabric],
-
-        compute_units=1,  # Single systolic array
-        threads_per_unit=256,  # Systolic array dimension (estimated)
-        warps_per_unit=1,
-        warp_size=1,
-
-        precision_profiles={
-            # Edge TPU ONLY supports INT8 - no FP32/FP16
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=int8_tops,  # 4 TOPS INT8
-                tensor_core_supported=True,  # Systolic array acts like tensor cores
-                relative_speedup=1.0,  # Only mode available
-                bytes_per_element=1,
-                accumulator_precision=Precision.INT32,
-            ),
-        },
-        default_precision=Precision.INT8,
-
-        peak_bandwidth=4e9,  # ~4 GB/s (USB 3.0 or PCIe limited)
-        l1_cache_per_unit=512 * 1024,  # ~512 KB on-chip memory (estimated)
-        l2_cache_total=0,  # No L2, uses host memory
-        main_memory=0,  # Uses host CPU memory
-        energy_per_flop_fp32=systolic_fabric.energy_per_flop_fp32,  # 2.6 pJ (14nm, standard cell)
-        energy_per_byte=energy_per_byte,
-        energy_scaling={
-            Precision.INT8: 0.125,  # INT8 is very efficient (updated)
-        },
-        min_occupancy=1.0,  # Always fully utilized
-        max_concurrent_kernels=1,  # Single model at a time
-        wave_quantization=1,
-        thermal_operating_points=thermal_operating_points,
-        default_thermal_profile="2W",
-        bom_cost_profile=bom_cost,
-
-        # M2 Layer 2: per-SKU systolic pipeline-fill overhead.
-        # Coral Edge TPU is a 64x64 INT8 systolic array. Reference
-        # formula in TPUMapper._analyze_systolic_utilization computes
-        # this as pipeline_depth / (matrix_depth + pipeline_depth) and
-        # tops out near 0.5 for tiny matrices. Average across realistic
-        # edge-AI workloads (mobile-net / detection backbones) lands
-        # near 0.15 -- one-shot fill amortized over many output rows.
-        pipeline_fill_overhead=0.15,
-
-        # M3 Layer 3: software-managed unified buffer.
-        # The Coral Edge TPU has a single systolic tile (compute_units=1)
-        # exposing 512 KB of L1-equivalent SRAM in this abstraction.
-        l1_storage_kind="scratchpad",
-
-        # M4 Layer 4: TPU architectures collapse the conventional L2
-        # into the unified buffer (UB). Modeled as 0 to signal "no
-        # distinct L2 layer"; the ``shared-llc`` topology + the panel
-        # note explain the architectural choice.
-        l2_cache_per_unit=0,
-        l2_topology="shared-llc",
-
-        # M5 Layer 5: TPU has no distinct L3; UB is the only on-chip
-        # SRAM layer above the systolic array.
-        l3_present=False,
-        l3_cache_total=0,
-        coherence_protocol="none",
-
-        # M7 Layer 7: USB / LPDDR4 narrow path (4 GB/s). Higher per-byte
-        # cost reflects narrow bus + USB packetization on USB variants.
-        memory_technology="LPDDR4",
-        memory_read_energy_per_byte_pj=20.0,
-        memory_write_energy_per_byte_pj=24.0,
-
-        # M6 Layer 6: single systolic tile + unified buffer; the
-        # "fabric" is a trivial direct-connect between the systolic
-        # array and the UB, modeled as a 1-port crossbar.
-        soc_fabric=SoCFabricModel(
-            topology=Topology.CROSSBAR,
-            hop_latency_ns=1.0,
-            pj_per_flit_per_hop=3.0,
-            bisection_bandwidth_gbps=128.0,
-            controller_count=1,
-            flit_size_bytes=16,
-            routing_distance_factor=1.0,
-            provenance=("Coral Edge TPU: single systolic tile + UB; "
-                        "trivial direct-connect fabric"),
-        ),
-    )
-
-    # Attach tile energy model
-    model.tile_energy_model = tile_energy_model
-
-    # M2 Layer 2 provenance for the systolic fill overhead
-    from graphs.core.confidence import EstimationConfidence
+    # Overlay 4: TPU-systolic-specific pipeline-fill overhead. Derived
+    # from TPUMapper._analyze_systolic_utilization averaged over
+    # typical edge-AI matrix shapes (~mobilenet / detection backbones).
+    model.pipeline_fill_overhead = 0.15
     model.set_provenance(
         "pipeline_fill_overhead",
         EstimationConfidence.theoretical(
@@ -273,87 +123,52 @@ def coral_edge_tpu_resource_model() -> HardwareResourceModel:
         ),
     )
 
-    # M3 Layer 3 provenance: software-managed unified buffer
-    model.set_provenance(
-        "l1_cache_per_unit",
-        EstimationConfidence.theoretical(
-            score=0.80,
-            source=("Coral Edge TPU on-chip unified buffer "
-                    "(modeled as 512 KB per systolic tile)"),
-        ),
-    )
-    model.set_provenance(
-        "l1_storage_kind",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="Edge TPU architectural fact: software-managed UB",
-        ),
-    )
-
-    # M4 Layer 4 provenance: TPU collapses L2 into the unified buffer
-    model.set_provenance(
-        "l2_cache_per_unit",
-        EstimationConfidence.theoretical(
-            score=0.85,
-            source=("Coral Edge TPU has no distinct L2 layer; the "
-                    "unified buffer covers L1 + L2 staging by design"),
-        ),
-    )
-    model.set_provenance(
-        "l2_topology",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="TPU architectural fact: UB is the LLC",
-        ),
+    # Overlay 5: TPU-systolic-specific tile energy model. Scaled-down
+    # from the datacenter TPU equivalents; ultra-low-power coefficients.
+    model.tile_energy_model = TPUTileEnergyModel(
+        array_width=64,
+        array_height=64,
+        num_arrays=1,
+        weight_tile_size=4 * 1024,         # 4 KiB tiny tiles (edge)
+        weight_fifo_depth=1,                # minimal buffering
+        pipeline_fill_cycles=64,
+        clock_frequency_hz=500e6,
+        accumulator_size=512 * 1024,
+        accumulator_width=64,
+        unified_buffer_size=512 * 1024,
+        weight_memory_energy_per_byte=20.0e-12,        # host bus
+        weight_fifo_energy_per_byte=0.5e-12,           # on-chip SRAM
+        unified_buffer_read_energy_per_byte=0.5e-12,
+        unified_buffer_write_energy_per_byte=0.5e-12,
+        accumulator_write_energy_per_element=0.4e-12,
+        accumulator_read_energy_per_element=0.3e-12,
+        weight_shift_in_energy_per_element=0.3e-12,
+        activation_stream_energy_per_element=0.2e-12,
+        mac_energy=0.15e-12,                # 0.15 pJ per INT8 MAC (efficient)
     )
 
-    # M5 Layer 5 provenance: TPU has no L3
-    model.set_provenance(
-        "l3_present",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="TPU architectural fact: no inter-tile cache layer",
+    # Overlay 6: BoM cost -- not yet carried by the v4 ComputeProduct
+    # schema. Numbers from Coral teardowns + Google retail pricing
+    # ($75 M.2 module; $59 USB Type-A; $34 PCIe).
+    model.bom_cost_profile = BOMCostProfile(
+        silicon_die_cost=12.0,             # 28nm small die (~25 mm^2)
+        package_cost=5.0,
+        memory_cost=0.0,                   # uses host memory
+        pcb_assembly_cost=3.0,
+        thermal_solution_cost=1.0,
+        other_costs=4.0,
+        total_bom_cost=25.0,                # auto-calculated: $25
+        margin_multiplier=3.0,
+        retail_price=75.0,                  # M.2 module retail
+        volume_tier="10K+",
+        process_node="28nm",
+        year=2025,
+        notes=(
+            "Ultra-low-cost edge TPU. Minimal on-chip memory, uses "
+            "host CPU memory via USB / PCIe. USB Type-A, M.2, and "
+            "PCIe form factors. Target: IoT cameras, embedded vision, "
+            "battery devices."
         ),
     )
-    model.set_provenance(
-        "l3_cache_total",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source=("TPU architectural fact: Layer 5 cache absent by "
-                    "design, capacity fixed at 0 bytes"),
-        ),
-    )
-    model.set_provenance(
-        "coherence_protocol",
-        EstimationConfidence.theoretical(
-            score=0.95,
-            source="Systolic array: no inter-core coherence by design",
-        ),
-    )
-
-    # M6 Layer 6 provenance
-    model.set_provenance(
-        "soc_fabric",
-        EstimationConfidence.theoretical(
-            score=0.85,
-            source="Coral Edge TPU: trivial single-tile direct-connect fabric",
-        ),
-    )
-
-    # M7 Layer 7 provenance
-    for key in ("memory_technology",
-                "memory_read_energy_per_byte_pj",
-                "memory_write_energy_per_byte_pj"):
-        model.set_provenance(
-            key,
-            EstimationConfidence.theoretical(
-                score=0.70,
-                source=("Coral Edge TPU: narrow LPDDR4 / USB-bound; "
-                        "energy reflects packetization overhead on "
-                        "USB variants"),
-            ),
-        )
 
     return model
-
-
