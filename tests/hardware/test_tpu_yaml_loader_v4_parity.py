@@ -1,50 +1,41 @@
-"""Contract test: TPU v4 YAML loader produces the expected model.
+"""Contract test: TPU v4 factory produces the expected model.
 
-PR 4 of the TPU mini-sprint scoped at issue #204. Mirror of
-``tests/hardware/test_dpu_yaml_loader_vitis_ai_parity.py``. Compares
-the YAML-loaded model against the hand-coded factory at
-``src/graphs/hardware/models/datacenter/tpu_v4.py``.
+Originally PR 4's parity test, comparing YAML-loaded against the
+hand-coded factory. PR 5 retired the 176-LOC hand-coded body of
+``tpu_v4_resource_model()`` and made it a thin wrapper over
+``load_tpu_resource_model_from_yaml``, so today both ``hand_coded``
+and ``yaml_loaded`` fixtures resolve through the same loader.
 
-PR 5 will retire the hand-coded body and make ``tpu_v4_resource_model()``
-a thin wrapper over the loader; at that point both ``hand_coded`` and
-``yaml_loaded`` fixtures will resolve through the same loader and
-these structural assertions become contract tests.
+The structural assertions are now **contract tests on the YAML
+loader's output** rather than parity checks. They still catch loader
+regressions and YAML drift; they also fail loudly if anyone changes
+the factory's name override or substitutes a different SKU id.
 
-Documented drifts:
+Zero factory overlays exist for TPU v4 (the same clean-cut migration
+as Plasticine #199 and Vitis AI #203 -- the YAML conventions match
+the chip's natural representation).
 
-  - ``energy_per_flop_fp32``: ~4x drift (0.45 pJ YAML vs 1.8 pJ
-    hand-coded). YAML computes from BF16 baseline (0.225 pJ) *
-    FP32 scaling (2.0) = 0.45 pJ. Hand-coded uses
-    ``get_base_alu_energy(7, 'standard_cell')`` = 1.8 pJ static
-    7nm baseline. The schema's BF16-relative FP32 scaling of 2.0
-    is optimistic for emulated FP32; v8 reconciliation may add a
-    direct ``energy_per_flop_fp32_override`` field.
-  - ``memory_technology``: "HBM2E" (yaml) vs None (hand-coded).
-    Legacy doesn't populate this field; YAML loader does.
-  - **TPU v4 modeled as 2 MXUs (not 8)** -- both YAML and legacy
-    model TPU v4 as 2 MXUs * 128x128 = 32,768 MACs. Google's actual
-    TPU v4 has 2 TensorCores * 4 MXUs each = 8 MXUs * 128x128 =
-    131,072 MACs (= 275 TFLOPS BF16 chip-level peak). The schema's
-    `chip.performance.bf16_tflops = 275.0` matches the marketed
-    number, but the `compute_fabric`-derived precision_profiles[BF16]
-    gives 68.8 TOPS (= 1/4 of marketed). This is a documented
-    legacy modeling choice that the parity test honors; v8
-    reconciliation can model 2 TC * 4 MXUs properly.
+One pre-cleanup drift retained -- the **2-MXU modeling gap**:
+  - Both legacy and YAML model TPU v4 as 2 MXUs * 128x128 = 32,768
+    MACs (= 68.8 TOPS BF16 from compute_fabric). Google's actual
+    TPU v4 has 2 TensorCores * 4 MXUs each = 8 MXUs (= 275 TFLOPS
+    marketed; matches the schema's chip-level performance roll-up).
+    Documented legacy modeling choice; v8 reconciliation can model
+    2 TC * 4 MXUs properly (might require multi-block-per-die support).
 
-Where the hand-coded and YAML-loaded agree (actual parity assertions):
+Two v8 reconciliation items:
+  - ``is_statically_reconfigurable=False`` (TPUs are fixed-function)
+    -- not in TPUBlock schema yet.
+  - ``ici_port_count`` / ``ici_bandwidth_per_port_gbps`` /
+    ``ici_topology_hint`` -- live on TPUBlock in the v7 schema but
+    have no equivalent fields on ``HardwareResourceModel``. Tested
+    via direct ComputeProduct read below.
 
-  - compute_units, threads_per_unit, warps_per_unit, warp_size
-  - peak_bandwidth (1.2 TB/s -- HBM2e)
-  - l1_cache_per_unit (16 MiB per MXU = UB / 2)
-  - l2_cache_total (32 MiB = full UB)
-  - main_memory (32 GiB HBM2e)
-  - default_precision (BF16 -- training-first)
-  - hardware_type (TPU)
-  - thermal profile shape (single profile, 350W liquid)
-  - scheduler attrs (min_occupancy=0.5, max_concurrent_kernels=1,
-    wave_quantization=1)
-  - precision_profiles[BF16/INT8] peak ops (68.8 TOPS for 2-MXU model)
-  - tile_energy_model (TPUTileEnergyModel attached on both sides)
+(Before PR 5 / cleanup, the legacy hand-coded had THREE additional
+documented drifts -- ``energy_per_flop_fp32`` 4x difference,
+``memory_technology=None``, ``soc_fabric=None``. Those are all
+resolved now because the hand-coded body is gone and both sides
+resolve through the loader.)
 """
 
 import pytest
@@ -143,17 +134,13 @@ def test_compute_fabric_int8_ops_per_clock(hand_coded, yaml_loaded):
     assert yaml_int8 == hand_int8 == 2
 
 
-def test_compute_fabric_energy_documented_drift(hand_coded, yaml_loaded):
-    """DOCUMENTED DRIFT: ~4x drift in FP32 fabric energy.
-
-    YAML: 0.225 pJ BF16 baseline * 2.0 FP32 scaling = 0.45 pJ
-    Hand-coded: get_base_alu_energy(7, 'standard_cell') = 1.8 pJ
-
-    Both are valid 7nm estimates with different methodologies. The
-    schema's 2.0x BF16-relative FP32 scaling is optimistic for
-    emulated FP32; v8 reconciliation may add a direct
-    energy_per_flop_fp32_override field on TPUComputeFabric."""
-    # Range sanity: 7nm FP32 should be ~0.2-3 pJ
+def test_compute_fabric_energy_in_sane_range(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which computes
+    energy_per_flop_fp32 from the fabric's BF16 baseline * FP32
+    scaling (0.225 * 2.0 = 0.45 pJ for TPU v4 7nm). Before PR 5
+    cleanup the legacy used ``get_base_alu_energy(7, 'standard_cell')``
+    = 1.8 pJ; both are valid 7nm estimates, the schema convention
+    won."""
     for fab in (hand_coded.compute_fabrics[0], yaml_loaded.compute_fabrics[0]):
         assert 1e-13 < fab.energy_per_flop_fp32 < 5e-12, (
             f"fabric energy_per_flop_fp32={fab.energy_per_flop_fp32} "
@@ -238,37 +225,28 @@ def test_coherence_protocol_is_none(yaml_loaded):
     assert yaml_loaded.coherence_protocol == "none"
 
 
-def test_yaml_populates_memory_technology(yaml_loaded):
-    """DOCUMENTED DRIFT: hand-coded does NOT set memory_technology
-    (returns None); YAML loader populates from external_dram_type.
-    YAML's "HBM2E" is structurally correct."""
-    assert yaml_loaded.memory_technology == "HBM2E"
-
-
-def test_hand_coded_memory_technology_is_none(hand_coded):
-    """Pinned for visibility: PR 5 cleanup makes both sides populate."""
-    assert hand_coded.memory_technology is None
+def test_memory_technology_populated(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which populates
+    ``memory_technology`` from the YAML's ``external_dram_type=hbm2e``.
+    Before PR 5 cleanup the legacy returned None here."""
+    assert yaml_loaded.memory_technology == hand_coded.memory_technology == "HBM2E"
 
 
 # ---------------------------------------------------------------------------
 # SoC fabric (UB-to-MXU crossbar)
 # ---------------------------------------------------------------------------
 
-def test_yaml_populates_soc_fabric(yaml_loaded):
-    """YAML loader populates soc_fabric from the noc block. Hand-coded
-    didn't model the SoC fabric (returns None); PR 5 cleanup makes both
-    sides match."""
+def test_soc_fabric_populated(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which populates
+    ``soc_fabric`` from the YAML's ``noc`` block (2-endpoint UB-to-MXU
+    crossbar). Before PR 5 cleanup the legacy returned None, which
+    blocked downstream Layer 6 reporting for TPU."""
     from graphs.hardware.fabric_model import Topology
-    assert yaml_loaded.soc_fabric is not None
-    assert yaml_loaded.soc_fabric.topology == Topology.CROSSBAR
-    assert yaml_loaded.soc_fabric.controller_count == 2
-    assert yaml_loaded.soc_fabric.bisection_bandwidth_gbps == pytest.approx(2000.0)
-
-
-def test_hand_coded_soc_fabric_is_none(hand_coded):
-    """Pinned for visibility: PR 5 cleanup makes the YAML loader the
-    only source."""
-    assert hand_coded.soc_fabric is None
+    for label, m in (("yaml_loaded", yaml_loaded), ("hand_coded", hand_coded)):
+        assert m.soc_fabric is not None, f"{label}.soc_fabric is None"
+        assert m.soc_fabric.topology == Topology.CROSSBAR
+        assert m.soc_fabric.controller_count == 2
+        assert m.soc_fabric.bisection_bandwidth_gbps == pytest.approx(2000.0)
 
 
 # ---------------------------------------------------------------------------
