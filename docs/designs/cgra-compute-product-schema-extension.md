@@ -16,8 +16,8 @@ Predecessors:
 
 Issue #196 ("CGRA mini-sprint: add CGRABlock to ComputeProduct +
 migrate Plasticine") proposes a 5-PR sprint to add `CGRABlock` to the
-`ComputeProduct` discriminated union, mirroring sprints #171 (GPU),
-#182 (CPU), and #187 (NPU). This document is **PR 1 of that sprint**
+`ComputeProduct` discriminated union, mirroring sprints `#171` (GPU),
+`#182` (CPU), and `#187` (NPU). This document is **PR 1 of that sprint**
 -- the paper exercise: enumerate Stanford Plasticine v2's full feature
 set against the v4 (KPU + GPU + CPU + NPU) ComputeProduct schema and
 classify every field as **covered**, **extends an existing field**,
@@ -308,8 +308,7 @@ Plasticine v2 needs new `count_ref` strings:
 Same approach all prior sprints took.
 
 Plasticine v2 die estimates (for the YAML):
-- ~32 PCUs * 5 Mtx + 32 PMUs * 3 Mtx + shared SRAM ~80 Mtx + NoC ~100 Mtx +
-  config_fabric ~40 Mtx + host PHY ~100 Mtx + control ~40 Mtx
+- `~32 PCUs * 5 Mtx + 32 PMUs * 3 Mtx + shared SRAM ~80 Mtx + NoC ~100 Mtx + config_fabric ~40 Mtx + host PHY ~100 Mtx + control ~40 Mtx`
   = ~520 Mtx
 - At 28nm balanced_logic density (12 Mtx/mm^2 from the GF 28nm YAML),
   die area ~45 mm^2 (mostly PCU + NoC + host PHY area).
@@ -406,13 +405,13 @@ in embodied-schemas:
    - `_validate_noc_unit_count_matches`: `noc.unit_count == num_pcus`
      (mirrors NPU).
    - `_validate_host_dram_consistency`: if `has_host_dram=True`, all
-     host_dram_* fields must be populated (mirrors NPU's external_dram
+     `host_dram_*` fields must be populated (mirrors NPU's `external_dram_*`
      validator).
    - `_validate_macs_per_pcu_consistent_with_fabric`: optional sanity
      check that `compute_fabrics[0].ops_per_unit_per_clock[INT8]` is
      a plausible multiple of `macs_per_pcu` (Plasticine: 320 ops/clk /
-     8 MACs = 40 ops per MAC per clock -- reflects 2 MACs/cycle *
-     dual-issue * etc.; the validator should just warn-not-error).
+     8 MACs = 40 ops per MAC per clock -- reflects `2 MACs/cycle *
+     dual-issue * etc.`; the validator should just warn-not-error).
 
 4. **Process node**: no new YAML for Plasticine (GF 28nm SLP already
    in catalog from embodied-schemas#32 / Coral Edge TPU precursor).
@@ -429,9 +428,9 @@ in embodied-schemas:
    `hardware_type=HardwareType.CGRA` directly with no transitional
    period. No mapper-guard changes needed.
 
-2. **No-host-DRAM SKUs need optional host_dram_* fields.** Future
+2. **No-host-DRAM SKUs need optional `host_dram_*` fields.** Future
    CGRAs may bundle external DRAM directly on-chip (Cerebras WSE).
-   Make every host_dram_* field on `CGRAMemorySubsystem` Optional
+   Make every `host_dram_*` field on `CGRAMemorySubsystem` Optional
    with `has_host_dram` as the boolean gate. Mirrors the NPU
    `has_external_dram` pattern.
 
