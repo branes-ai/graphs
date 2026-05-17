@@ -452,7 +452,18 @@ def load_dpu_resource_model_from_yaml(
     # ------------------------------------------------------------------
     # Assemble HardwareResourceModel
     # ------------------------------------------------------------------
-    # Default precision: INT8 (the DPU default).
+    # Default precision: INT8 (the DPU default). Guard against the
+    # all-fabrics-yielded-zero-peak case so callers see a clear
+    # DPUYamlLoaderError instead of an unhandled StopIteration. The
+    # DPUComputeFabric validator on the schema side rejects non-positive
+    # ops, so this branch is defensive against future refactors.
+    if not precision_profiles:
+        raise DPUYamlLoaderError(
+            f"SKU {base_id!r}: no precision_profiles produced. All "
+            f"compute_fabrics returned zero peak ops/sec for every "
+            f"supported precision; check ops_per_unit_per_clock + "
+            f"thermal profile clock values."
+        )
     if Precision.INT8 in precision_profiles:
         default_precision = Precision.INT8
     elif Precision.INT4 in precision_profiles:
