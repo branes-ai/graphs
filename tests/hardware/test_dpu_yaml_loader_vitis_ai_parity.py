@@ -1,52 +1,33 @@
-"""Contract test: Vitis AI B4096 YAML loader produces the expected model.
+"""Contract test: Vitis AI B4096 factory produces the expected model.
 
-PR 4 of the DPU mini-sprint scoped at issue #200. Mirror of
-``tests/hardware/test_cgra_yaml_loader_plasticine_parity.py``.
-Compares the YAML-loaded model against the hand-coded factory at
-``src/graphs/hardware/models/accelerators/xilinx_vitis_ai_dpu.py``.
+Originally PR 4's parity test, comparing YAML-loaded against the
+hand-coded factory. PR 5 retired the 160-LOC hand-coded body of
+``xilinx_vitis_ai_dpu_resource_model()`` and made it a thin wrapper
+over ``load_dpu_resource_model_from_yaml``, so today both
+``hand_coded`` and ``yaml_loaded`` fixtures resolve through the same
+loader.
 
-PR 5 will retire the hand-coded body and make ``xilinx_vitis_ai_dpu_resource_model()``
-a thin wrapper over the loader; at that point both ``hand_coded`` and
-``yaml_loaded`` fixtures will resolve through the same loader and
-these structural assertions become contract tests.
+The structural assertions are now **contract tests on the YAML
+loader's output** rather than parity checks. They still catch loader
+regressions and YAML drift; they also fail loudly if anyone changes
+the factory's name override or substitutes a different SKU id.
 
-Documented drifts (the loader follows a different convention; parity
-test pins the YAML values as the new contract):
+Zero factory overlays exist for Vitis AI (like Plasticine; the
+simplest cleanups of any sprint -- the YAML conventions match the
+chip's natural representation).
 
-  - ``INT8 peak: 10.24 TOPS`` (yaml THEORETICAL) vs ``7.68 TOPS``
-    (hand-coded REALISTIC at 75% efficiency). The YAML reports
-    theoretical chip-level peak in precision_profiles; efficiency
-    is captured separately in thermal_operating_points'
-    efficiency_factor_by_precision. The Vitis AI marketed number
-    is 7.68 TOPS (realistic) but the schema convention is theoretical
-    peak; downstream consumers apply efficiency from the thermal
-    profile.
-  - ``FP16 peak: 2.56 TOPS`` (yaml THEORETICAL) vs ``1.92 TOPS``
-    (hand-coded REALISTIC). Same root cause -- 75% efficiency factor.
-  - ``FP32 peak``: not in YAML precision_profiles vs 0.96 TFLOPS
-    (hand-coded). YAML's compute_fabrics declare INT8 + FP16 in
-    ops_per_unit_per_clock; FP32 is captured only as energy_scaling
-    (for cost modeling) since it's emulated. Downstream consumers
-    can synthesize FP32 ops as INT8 / fp32_scaling if needed.
-  - ``memory_technology``: ``"DDR4"`` (yaml) vs ``None`` (hand-coded).
-    The legacy doesn't populate this field; the YAML loader does.
-  - ``soc_fabric``: populated (yaml) vs ``None`` (hand-coded). Same.
-  - ``energy_per_flop_fp32``: ~8% drift (2.5 pJ yaml vs 2.7 pJ hand-coded).
-    YAML uses INT8 * FPGA-overhead * FP32-scaling = 0.4 * 1.25 * 5.0
-    = 2.5 pJ. Hand-coded uses ``get_base_alu_energy(16, 'standard_cell')``
-    = 2.7 pJ. Both are valid 16nm estimates.
+One v7 reconciliation item:
+  - ``is_statically_reconfigurable`` / ``bitstream_load_time_ms`` /
+    ``fpga_fabric_overhead_factor`` (the defining DPU characteristics)
+    live on ``DPUBlock`` in the v6 schema but have no equivalent
+    fields on ``HardwareResourceModel``. Tested via direct
+    ComputeProduct read below.
 
-Where the hand-coded and YAML-loaded agree (the actual parity
-assertions):
-
-  - compute_units, threads_per_unit, warps_per_unit
-  - peak_bandwidth (50 GB/s -- DDR4, chip-attached)
-  - l1_cache_per_unit, l2_cache_total, main_memory
-  - default_precision (INT8)
-  - hardware_type (DPU)
-  - thermal profile shape (single profile, 20W)
-  - scheduler attrs (min_occupancy, max_concurrent_kernels=4,
-    wave_quantization=2)
+(Before PR 5 / cleanup, the legacy hand-coded had SIX documented
+drifts -- buggy INT8/FP16/FP32 realistic-at-efficiency formulas,
+missing memory_technology, missing soc_fabric, slightly different
+FP32 energy. Those are all resolved now because the hand-coded
+body is gone; both sides resolve through the loader.)
 """
 
 import pytest
@@ -158,46 +139,41 @@ def test_compute_fabric_energy_documented_drift(hand_coded, yaml_loaded):
 # Precision profiles -- different conventions (theoretical vs realistic)
 # ---------------------------------------------------------------------------
 
-def test_int8_peak_yaml_is_theoretical_chip_level(yaml_loaded):
-    """YAML-loaded INT8 peak = 10.24 TOPS = 64 tiles * 128 ops/clk *
-    1.25 GHz. Theoretical chip-level peak (schema convention).
-    Efficiency factor (75%) lives in thermal_operating_points'
-    efficiency_factor_by_precision, applied by downstream consumers."""
+def test_int8_peak_is_theoretical_chip_level(hand_coded, yaml_loaded):
+    """INT8 peak = 10.24 TOPS = 64 tiles * 128 ops/clk * 1.25 GHz.
+    Theoretical chip-level peak (schema convention). Both factories
+    now resolve through the loader; before PR 5 cleanup the legacy
+    reported 7.68 TOPS (= 10.24 * 0.75 pre-applied efficiency).
+    Downstream consumers that want realistic peak multiply by
+    ``thermal_operating_points[default].efficiency_factor_by_precision[int8]``."""
     assert yaml_loaded.precision_profiles[Precision.INT8].peak_ops_per_sec == pytest.approx(
+        10.24e12, rel=0.01
+    )
+    assert hand_coded.precision_profiles[Precision.INT8].peak_ops_per_sec == pytest.approx(
         10.24e12, rel=0.01
     )
 
 
-def test_int8_peak_hand_coded_is_realistic(hand_coded):
-    """Pinned for visibility: legacy hand-coded reports 7.68 TOPS
-    (= 10.24 * 0.75 efficiency). Pre-multiplied efficiency factor.
-    PR 5 cleanup will retire the hand-coded path; downstream consumers
-    will read theoretical from precision_profiles and apply efficiency
-    from the thermal profile."""
-    legacy_peak = hand_coded.precision_profiles[Precision.INT8].peak_ops_per_sec
-    assert legacy_peak == pytest.approx(7.68e12, rel=0.01), (
-        f"unexpected legacy peak {legacy_peak/1e12:.3f} TOPS; if this "
-        f"changed the legacy was updated -- review this drift annotation."
-    )
-
-
-def test_fp16_peak_yaml_is_theoretical(yaml_loaded):
-    """YAML FP16 peak = 2.56 TFLOPS theoretical. Native AIE-ML FP16."""
+def test_fp16_peak_is_theoretical(hand_coded, yaml_loaded):
+    """FP16 peak = 2.56 TFLOPS theoretical. Native AIE-ML FP16."""
     assert yaml_loaded.precision_profiles[Precision.FP16].peak_ops_per_sec == pytest.approx(
+        2.56e12, rel=0.01
+    )
+    assert hand_coded.precision_profiles[Precision.FP16].peak_ops_per_sec == pytest.approx(
         2.56e12, rel=0.01
     )
 
 
-def test_yaml_omits_emulated_fp32_from_precision_profiles(yaml_loaded, hand_coded):
-    """DOCUMENTED DRIFT: YAML's compute_fabrics declare INT8 + FP16 in
-    ops_per_unit_per_clock; FP32 is captured only as energy_scaling
-    (for cost modeling) since it's emulated. Hand-coded includes FP32
-    in precision_profiles at 0.96 TFLOPS (emulated, 1/8 INT8 realistic).
-    Downstream consumers needing FP32 ops/sec can compute as
-    INT8_realistic / 8."""
+def test_fp32_not_in_precision_profiles(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which declares
+    INT8 + FP16 in compute_fabrics; FP32 is captured only as
+    ``energy_scaling`` (for cost modeling) since it's emulated.
+    Downstream consumers needing FP32 ops/sec compute as
+    INT8 / fp32_scaling. Before PR 5 cleanup the legacy included
+    FP32 at 0.96 TFLOPS in precision_profiles (emulated, 1/8 INT8
+    realistic)."""
     assert Precision.FP32 not in yaml_loaded.precision_profiles
-    # Hand-coded does include it (for reference)
-    assert Precision.FP32 in hand_coded.precision_profiles
+    assert Precision.FP32 not in hand_coded.precision_profiles
 
 
 def test_default_precision_matches(hand_coded, yaml_loaded):
@@ -262,41 +238,30 @@ def test_coherence_protocol_is_none(yaml_loaded):
     assert yaml_loaded.coherence_protocol == "none"
 
 
-def test_yaml_populates_memory_technology(yaml_loaded):
-    """DOCUMENTED DRIFT: hand-coded does NOT set memory_technology
-    (returns None); YAML loader populates it from external_dram_type.
-    The YAML's "DDR4" is structurally correct."""
-    assert yaml_loaded.memory_technology == "DDR4"
-
-
-def test_hand_coded_memory_technology_is_none(hand_coded):
-    """Pinned for visibility: PR 5 cleanup makes the YAML loader the
-    only source; both sides will then report "DDR4"."""
-    assert hand_coded.memory_technology is None
+def test_memory_technology_populated(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which populates
+    ``memory_technology`` from the YAML's ``external_dram_type=ddr4``.
+    Before PR 5 cleanup the legacy returned None here."""
+    assert yaml_loaded.memory_technology == hand_coded.memory_technology == "DDR4"
 
 
 # ---------------------------------------------------------------------------
 # SoC fabric (8x8 AIE mesh -- DRIFT: hand-coded doesn't populate)
 # ---------------------------------------------------------------------------
 
-def test_yaml_populates_soc_fabric(yaml_loaded):
-    """DOCUMENTED DRIFT: hand-coded does NOT set soc_fabric (returns
-    None); YAML loader populates it from NoC schema. The YAML's
-    8x8 mesh structure is correct and unblocks downstream Layer 6
-    reporting that the hand-coded couldn't support."""
+def test_soc_fabric_populated(hand_coded, yaml_loaded):
+    """Both factories now resolve through the loader, which populates
+    ``soc_fabric`` from the YAML's ``noc`` block (8x8 AIE mesh of 64
+    tiles). Before PR 5 cleanup the legacy returned None, which
+    blocked downstream Layer 6 reporting for DPU."""
     from graphs.hardware.fabric_model import Topology
-    assert yaml_loaded.soc_fabric is not None
-    assert yaml_loaded.soc_fabric.topology == Topology.MESH_2D
-    assert yaml_loaded.soc_fabric.mesh_dimensions == (8, 8)
-    assert yaml_loaded.soc_fabric.controller_count == 64
-    assert yaml_loaded.soc_fabric.bisection_bandwidth_gbps == pytest.approx(80.0)
-    assert yaml_loaded.soc_fabric.low_confidence is True
-
-
-def test_hand_coded_soc_fabric_is_none(hand_coded):
-    """Pinned for visibility: PR 5 cleanup makes the YAML loader the
-    only source."""
-    assert hand_coded.soc_fabric is None
+    for label, m in (("yaml_loaded", yaml_loaded), ("hand_coded", hand_coded)):
+        assert m.soc_fabric is not None, f"{label}.soc_fabric is None"
+        assert m.soc_fabric.topology == Topology.MESH_2D
+        assert m.soc_fabric.mesh_dimensions == (8, 8)
+        assert m.soc_fabric.controller_count == 64
+        assert m.soc_fabric.bisection_bandwidth_gbps == pytest.approx(80.0)
+        assert m.soc_fabric.low_confidence is True
 
 
 # ---------------------------------------------------------------------------
