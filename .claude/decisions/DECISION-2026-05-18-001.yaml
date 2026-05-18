@@ -1,0 +1,277 @@
+# Decision Record
+#
+# Establishes two cross-cutting conventions that emerged from the
+# DSP follow-up sprint (#223) and the v10 OnDieFabric unification (#217):
+#   1. Tensor-first fabric ordering for multi-fabric DSP YAMLs
+#   2. BOM overlay pattern in cleanup wrappers (when YAMLs don't carry BOM)
+#   3. Inheritance-based unification (vs alias) when per-kind enums must stay typed
+
+decision_id: "DECISION-2026-05-18-001"
+timestamp: "2026-05-18T22:00:00Z"
+ai_model: "claude-opus-4-7"
+session_id: "631ac2a4-4093-45a6-9ab4-6464f6d49a64"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "Three cross-cutting conventions established in the DSP follow-up sprint: tensor-first fabric ordering (multi-fabric SKUs); BOM overlay in cleanup wrappers (when YAMLs don't carry BOM); inheritance-based unification (v10 OnDieFabric) when per-kind enums must stay typed."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "refactor"
+  content: "Authoring 9 DSP SKU YAMLs + 9 cleanup wrappers; v10 OnDieFabric unification (#217)."
+  context: |
+    9 of 10 catalog DSP SKUs needed YAML migration. The dsp_yaml_loader
+    convention picks fabric[0] for chip-level surfaces (compute_units,
+    energy_per_flop_fp32, threads_per_unit-via-wave_quantization).
+    Multi-fabric SKUs ship a "primary" path (tensor for ML inference,
+    MMA for ADAS, HMX for matrix) plus a "secondary" path (vector for
+    activations / pre+post). The YAML author has to decide the
+    ordering. Inconsistent ordering produces documented drifts that
+    collapse post-cleanup but add review friction.
+
+    Separately, 3 of 9 DSP SKUs (SA8775P, QRB5165, QCS6490) carry
+    BOMCostProfile in their hand-coded factories. The DSPBlock schema
+    doesn't include a BOM field (no *Block YAML in the catalog does).
+    Either: extend the schema, attach BOM via wrapper overlay, or drop
+    BOM during migration.
+
+    Third: v10 OnDieFabric -- 6 *OnDieFabric classes share 7 fields
+    but each carries an architecture-specific topology enum (CPU's
+    infinity_fabric vs DPU's aie_mesh vs NPU's systolic). Alias-based
+    unification (v8/v9 pattern) requires collapsing all 6 topology
+    enums into one shared enum, which loses architectural information.
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+
+  # --------------------------------------------------------------------------
+  # Decision 1: Multi-fabric YAML ordering
+  # --------------------------------------------------------------------------
+  - option: "Mirror hand-coded fabric ordering in YAML (whatever the legacy factory had)"
+    pros:
+      - "Mechanical migration; no judgment calls per SKU"
+      - "Pre-cleanup parity tests can compare fabric[i] one-to-one"
+    cons:
+      - "Hand-coded ordering is often accidental (e.g., TI TDA4 family puts C7x first because the docstring lists it first)"
+      - "Loader's pick-first convention surfaces a non-primary fabric on chip-level compute_units / energy"
+      - "Produces 3-5 documented drifts per multi-fabric SKU that collapse post-cleanup but add review friction"
+    selected: false
+    rejected_reason: |
+      Saw this on Synopsys EV7x (3 drifts) and TI TDA4 family (5 drifts
+      each). The drifts collapse to identity post-cleanup (both fixtures
+      resolve through the loader), but the parity tests need a "documented
+      drift" section that reviewers must understand. Avoidable.
+
+  - option: "Tensor-first fabric ordering: primary INT8 path = fabric[0]"
+    pros:
+      - "Loader's pick-first convention maps the primary fabric to chip-level surfaces (compute_units = primary num_units; energy_per_flop_fp32 = primary tensor_core baseline)"
+      - "Zero structural drift on the most reviewer-visible fields"
+      - "Matches architectural reality: the marketed TOPS number comes from the tensor path"
+      - "Simple rule: 'put the fabric that owns the marketed peak first'"
+    cons:
+      - "Author must make a per-SKU judgment call"
+      - "Doesn't help SKUs where the hand-coded factory already had vector-first ordering (TI TDA4 family had to accept 5 drifts each)"
+    selected: true
+    selected_reason: |
+      Validated end-to-end on CEVA NPM11 (zero structural drift), then
+      applied consistently across Qualcomm trio (SA8775P, QRB5165,
+      QCS6490). The convention is simple: primary = fabric[0]. Per-SKU
+      judgment is straightforward (which fabric ships the marketed
+      TOPS number?). Pattern is documented in CEVA NPM11's parity test
+      docstring and in DECISION-2026-05-18-001 (this record).
+
+  # --------------------------------------------------------------------------
+  # Decision 2: BOM overlay pattern in wrappers
+  # --------------------------------------------------------------------------
+  - option: "Extend DSPBlock schema to carry BOMCostProfile"
+    pros:
+      - "Single source of truth; YAMLs become self-contained"
+      - "No graphs-side enrichment needed in the wrapper"
+      - "Future SKUs in any vendor get BOM in YAML for free"
+    cons:
+      - "Schema change touches all 8 *Block kinds (or only DSPBlock; either way: design surface bloat)"
+      - "Most YAMLs don't carry BOM (KPU / NPU / GPU / TPU SKUs all omit; only Qualcomm DSPs publish)"
+      - "Requires a Market vs Block decision: does BOM live on the chip-level Market or on a specific Block kind?"
+      - "Locked schema design choice during an in-progress sprint"
+    selected: false
+    rejected_reason: |
+      Punted to v11+ when more vendors have published BOM and the right
+      home (Market vs per-Block) is clearer. Schema changes during a
+      sprint slow down the data-PR velocity.
+
+  - option: "Drop BOM during YAML migration (don't preserve)"
+    pros:
+      - "Simplest cleanup wrappers (pure thin loaders)"
+      - "Forces the issue: if BOM matters, fix the schema"
+    cons:
+      - "Breaks parity with hand-coded factories (model.bom_cost_profile becomes None)"
+      - "Loses commercially-published cost data that mappers / cost-aware analyses depend on"
+      - "Drift not collapsible post-cleanup"
+    selected: false
+    rejected_reason: |
+      Lost data quality unacceptable. SA8775P / QRB5165 / QCS6490 have
+      well-published BOM that downstream consumers use.
+
+  - option: "BOM overlay in the cleanup wrapper: load model, attach BOM, return"
+    pros:
+      - "Preserves parity (post-cleanup hand-coded and YAML-loaded both have BOM)"
+      - "Cleanup wrapper is still tiny (~10 LOC for the BOM constant + 1 line for assignment)"
+      - "Schema decision deferred to a future sprint when more data exists"
+      - "BOM stays in graphs (where commercial enrichment belongs), not embodied-schemas (where physical descriptions live)"
+    cons:
+      - "Two sources of truth for the SKU (YAML + wrapper)"
+      - "Future loaders that read from the YAML directly miss BOM"
+    selected: true
+    selected_reason: |
+      Three SKUs validated the pattern (SA8775P, QRB5165, QCS6490).
+      Cleanup wrappers stay ~75 LOC each. Schema decision properly
+      deferred. Future v11+ sprint can promote BOM into the YAML if
+      adoption justifies it.
+
+  # --------------------------------------------------------------------------
+  # Decision 3: Inheritance vs alias for v10 OnDieFabric
+  # --------------------------------------------------------------------------
+  - option: "Alias-based (v8/v9 pattern): collapse all 6 *OnDieFabric to a single OnDieFabric class with topology: str field"
+    pros:
+      - "Maximum LOC reduction"
+      - "Consistent with v8 (TheoreticalPerformance) and v9 (ThermalProfile) patterns"
+      - "Pydantic class identity preserved across aliases"
+    cons:
+      - "Loses per-kind topology enum validation (CPU's 'infinity_fabric' could appear on a TPUBlock)"
+      - "Requires collapsing 6 architecture-specific enums into one shared enum (or relaxing to str)"
+      - "Architectural information lost in the type system"
+    selected: false
+    rejected_reason: |
+      Each block kind's topology enum encodes meaningful architectural
+      distinctions (CPU ring topologies vs DPU AIE mesh vs NPU systolic
+      dataflow). Losing this in the type system is unacceptable.
+
+  - option: "Inheritance-based: shared base class in compute_block_common; per-kind subclasses add typed topology field"
+    pros:
+      - "Preserves per-kind topology enum validation"
+      - "Shared fields defined once (in base); subclasses shrink from ~30 LOC to ~5 LOC each"
+      - "isinstance(x, NPUOnDieFabric) AND isinstance(x, OnDieFabric) both work (proper subclass relationship)"
+      - "Pydantic handles model inheritance natively"
+    cons:
+      - "First inheritance pattern in the catalog (one more design surface vs uniform alias-only)"
+      - "Slight cost: one extra level of inheritance"
+    selected: true
+    selected_reason: |
+      The shared-base+per-kind-topology pattern preserves the
+      architectural information the topology enums encode while
+      collapsing 92 LOC of duplicated field declarations. Documented
+      in the v10 paper exercise (graphs#218) and the OnDieFabric
+      module docstring as a deliberate design choice.
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 75
+  files_created: 30
+  files_deleted: 0
+  lines_added: 5557
+  lines_removed: 2753
+  breaking_changes: true   # v11 CGRA host_dram_* rename (atomic YAML migration)
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 250  # 10 new DSP parity tests + 9 new SKU YAML tests + v9/v10/v11/v12 schema tests
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "Tensor-first ordering: zero structural drift on CEVA NPM11 (graphs#225)"
+    result: "compute_units, energy_per_flop_fp32 MATCH hand-coded pre-cleanup; only INT4 differs (YAML completer). Validated on all subsequent Qualcomm SKUs (SA8775P, QRB5165, QCS6490)."
+  - action: "BOM overlay: parity test for SA8775P verifies bom_cost_profile is None pre-cleanup-wrapper and populated post-wrapper (graphs#230)"
+    result: "Pattern works end-to-end; 3 Qualcomm SKUs migrated with consistent ~75-LOC wrappers."
+  - action: "Inheritance-based OnDieFabric: 6 subclasses migrated atomically; CPU + GPU YAMLs renamed; v10 PR 3 (embodied-schemas#48)"
+    result: "541/541 schema tests pass; 1147/1147 hardware tests pass after graphs#221 catches the v10 stragglers."
+  - action: "Full sprint regression: 1215/1215 hardware tests + 705/705 schema tests after final QCS6490 cleanup (graphs#232)"
+    result: "All green."
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "Tensor-first ordering breaks down on SKUs where the 'primary' fabric is ambiguous"
+    mitigation: "Per-SKU judgment call documented in YAML notes. Multi-fabric SKUs without a clear primary (e.g., heterogeneous-precision designs where vector and tensor each own different precisions) may need a per-SKU drift-acceptance call. The convention is a default, not a mandate."
+    severity: "low"
+    likelihood: "low"
+  - risk: "BOM overlay creates two sources of truth (YAML + wrapper)"
+    mitigation: "Convention is to attach BOM only when the hand-coded factory had it. Future v11+ sprint can promote BOM into the YAML schema once more vendors publish BOM data. Documented as v11+ candidate in compute_block_common docstring."
+    severity: "low"
+    likelihood: "medium"
+  - risk: "Inheritance-based unification adds a second pattern alongside alias-based (cognitive load)"
+    mitigation: "Decision criteria documented: use inheritance when per-kind enums must stay typed; use alias when target classes are byte-identical. Both v10 paper exercise and OnDieFabric module docstring explain the choice."
+    severity: "low"
+    likelihood: "low"
+  - risk: "v11 CGRA rename was the first hard schema break -- future renames now have a precedent that could be applied carelessly"
+    mitigation: "v11 paper exercise documented the specific conditions: only when the rename eliminates a 5-vs-1 inconsistency AND a discriminator preserves the lost semantic. Future renames should follow the same paper-exercise template."
+    severity: "medium"
+    likelihood: "low"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "documentation"
+    path: "docs/designs/dsp-compute-product-schema-extension.md"
+    section: "Fabric ordering (paper-exercise section establishing the tensor-first rule)"
+  - type: "documentation"
+    path: "docs/designs/v9-thermal-profile-unification.md"
+    section: "Alias-based unification template (predecessor to v10)"
+  - type: "documentation"
+    path: "docs/designs/v10-on-die-fabric-unification.md"
+    section: "Inheritance vs alias justification"
+  - type: "documentation"
+    path: "docs/designs/v11-dram-attachment-discriminator.md"
+    section: "Hard-schema-break + discriminator pattern"
+  - type: "issue"
+    path: ""
+    section: "DSP follow-up umbrella"
+    url: "https://github.com/branes-ai/graphs/issues/223"
+  - type: "pr"
+    path: ""
+    section: "CEVA NPM11 cleanup -- first zero-drift multi-fabric DSP (validates tensor-first ordering)"
+    url: "https://github.com/branes-ai/graphs/pull/225"
+  - type: "pr"
+    path: ""
+    section: "SA8775P cleanup -- first BOM-overlay wrapper"
+    url: "https://github.com/branes-ai/graphs/pull/230"
+  - type: "pr"
+    path: ""
+    section: "v10 OnDieFabric inheritance migrations"
+    url: "https://github.com/branes-ai/embodied-schemas/pull/48"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "pending"
+  reviewer: ""
+  reviewed_at: ""
+  comments: ""
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "When the next multi-fabric DSP SKU is authored (none currently planned), confirm tensor-first ordering still applies."
+    owner: "next-sprint author"
+    due_date: ""
+    status: "pending"
+  - action: "v11+ candidate: evaluate promoting BOM into the YAML schema if more vendors publish BOM. Likely DSP-first since 3/10 SKUs already carry it."
+    owner: "v11+ sprint owner"
+    due_date: ""
+    status: "pending"
+  - action: "When the next *NoC class needs unification (e.g., a 9th block kind), apply the inheritance-based pattern from v10 as the default."
+    owner: "next-sprint author"
+    due_date: ""
+    status: "pending"
