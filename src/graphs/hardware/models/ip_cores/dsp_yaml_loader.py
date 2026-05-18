@@ -132,8 +132,9 @@ _PRECISION_BY_NAME: dict[str, Precision] = {
     "bf16": Precision.BF16,
     "fp8_e4m3": Precision.FP8_E4M3,
     "fp8_e5m2": Precision.FP8_E5M2,
-    "int8": Precision.INT8,
+    "int32": Precision.INT32,
     "int16": Precision.INT16,
+    "int8": Precision.INT8,
     "int4": Precision.INT4,
 }
 
@@ -141,7 +142,8 @@ _BYTES_PER_PRECISION: dict[Precision, float] = {
     Precision.FP64: 8, Precision.FP32: 4, Precision.TF32: 4,
     Precision.FP16: 2, Precision.BF16: 2,
     Precision.FP8_E4M3: 1, Precision.FP8_E5M2: 1,
-    Precision.INT8: 1, Precision.INT16: 2, Precision.INT4: 0.5,
+    Precision.INT32: 4, Precision.INT16: 2,
+    Precision.INT8: 1, Precision.INT4: 0.5,
 }
 
 # DSPFabricKind -> ComputeFabric.fabric_type. Matches the hand-coded
