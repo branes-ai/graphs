@@ -1,0 +1,292 @@
+Session log -- 2026-05-17 → 2026-05-18
+
+Closes 5 sprints across the 2-day arc:
+  - DSP schema-extension sprint (#211; eighth/final category block kind)
+  - v9 ThermalProfile unification (#215)
+  - v10 OnDieFabric unification (#217; first inheritance-based)
+  - v11 DRAM-attachment naming reconciliation (#219)
+  - v12 dram_attachment lockdown (#222)
+  - DSP follow-up YAMLs sprint (#223; 9 SKUs + tsmc_n6 process node)
+
+Total: 21 merged PRs (10 graphs, 11 embodied-schemas, +1 follow-up
+loader-rename graphs PR). All branches squash-merged + branches
+deleted via gh pr merge --delete-branch.
+
+
+WHAT WAS DONE
+
+Day 1 (2026-05-17): DSP schema sprint + three NEAR_UNIFIABLE follow-ups
+
+1. DSP sprint (#211 PR 1-5, plus the precursors that landed earlier)
+   - PR 1 (graphs#212): 657-LOC paper exercise mapping all 10 DSP
+     SKUs onto the v8 schema. Reference SKU = Cadence Vision Q8
+     (pure IP, single fabric, smallest factory).
+   - PR 2 (embodied-schemas#43): DSPBlock + 4 sub-types + 2 enums.
+     First block kind to use compute_block_common from day 1.
+     Critical design choices documented:
+       * compute_fabrics: list (always plural; min_length=1)
+       * deployment_kind discriminator (STANDALONE_IP | SOC_INTEGRATED)
+       * external_dram_bandwidth_kind: 'typical' | 'measured'
+         (load-bearing for IP-core vs SoC distinction)
+       * thermal_profiles: list with default_thermal_profile_name
+       * vliw_issue_width: optional informational field
+   - PR 3 (embodied-schemas#44): Cadence Vision Q8 YAML; new
+     cadence/ vendor dir; new ip_core model_tier.
+   - PR 4 (graphs#213): dsp_yaml_loader (~440 LOC).
+   - PR 5 (graphs#214): cleanup of cadence_vision_q8.py from
+     222 LOC to a thin loader wrapper. Closes #211. The catalog
+     reaches schema-complete state for all 8 block kinds.
+
+2. v9 ThermalProfile unification (#215)
+   - 5 byte-identical *ThermalProfile classes (NPU/CGRA/DPU/TPU/DSP)
+     collapse to a single aliased type in compute_block_common.
+   - CPU + GPU stay separate (legitimate architectural divergence:
+     per-cluster ClockDomain on CPU; ClockDomain + memory_clock +
+     native_acceleration on GPU).
+   - KPU deferred to v11+ (doubly-purposed as chip-level Power).
+   - Net -179 LOC.
+
+3. v10 OnDieFabric unification (#217)
+   - First INHERITANCE-based unification (vs v8/v9 alias-based).
+     Reason: topology enum is architecture-specific (CPU's
+     infinity_fabric, DPU's aie_mesh, NPU's systolic). Shared base
+     in compute_block_common carries the 7 shared fields + optional
+     mesh dims + optional confidence; per-kind subclasses add only
+     topology.
+   - CPU 'stop_count' and GPU 'controller_count' renamed to
+     unit_count, matching the 4-of-6 convention. 3 YAMLs updated
+     atomically (intel_core_i7_12700k + 2 Jetson AGX).
+   - Schema-only -92 LOC; subclass bodies shrink from ~25-30 LOC
+     to ~5 LOC.
+
+4. v11 DRAM-attachment naming reconciliation (#219)
+   - CGRA's has_host_dram/host_dram_* renamed to has_external_dram/
+     external_dram_* (matching the 5-of-6 convention).
+   - DramAttachment enum (CHIP_ATTACHED | HOST_BUS) added as a
+     cross-kind discriminator. Optional in v11 (None default).
+   - Plasticine v2 YAML migrated with dram_attachment: host_bus to
+     preserve the "via PCIe" semantic the original naming captured.
+   - FIRST HARD SCHEMA BREAK in the unification series. Required
+     atomic YAML migration (no backward compat).
+   - graphs follow-up (graphs#221) bundled the CGRA loader update
+     with 2 v10 stragglers (GPU + CPU loaders that hardcoded
+     controller_count / stop_count). Single CI pin bump catches
+     all three.
+
+Day 2 (2026-05-18): v12 lockdown + DSP follow-up batch (9 SKUs)
+
+5. v12 dram_attachment lockdown (#222)
+   - PR 1: backfill dram_attachment: chip_attached on the 4
+     chip-attached YAMLs (hailo_10h, vitis_ai_b4096, tpu_v4,
+     cadence_vision_q8). Adds a regression test walking the
+     catalog to assert every external-DRAM SKU populates the
+     discriminator.
+   - PR 2: tighten _validate_external_dram_consistency across
+     all 5 *MemorySubsystem classes to require dram_attachment
+     when has_external_dram=True. Closes the v11 -> v12 transition.
+
+6. DSP follow-up YAMLs sprint (#223; 9 SKUs)
+   3 vendor-grouped batches:
+
+   Batch 1: IP cores (2 SKUs)
+   - Synopsys ARC EV7x (embodied-schemas#53, graphs#224):
+     First multi-fabric DSP SKU (VPU + DNN tensor). 35 TOPS INT8
+     / 8.8 GFLOPS FP32 at 5W on TSMC N16. Loader-side fix
+     bundled: INT32 added to dsp_yaml_loader's precision table
+     (the EV7x VPU fabric uses INT32). Unblocks the TI TDA4
+     family (C7x also uses INT32).
+   - CEVA NeuPro NPM11 (embodied-schemas#54, graphs#225):
+     Second multi-fabric DSP. Tensor-FIRST fabric ordering -- no
+     structural drift on chip-level surfaces (compute_units,
+     energy_per_flop_fp32). Established the "primary fabric =
+     fabric[0]" convention.
+
+   Batch 2: TI TDA4 family (4 SKUs)
+   - TDA4VM (embodied-schemas#55, graphs#226):
+     First SoC-integrated DSP, first multi-profile DVFS (10W /
+     20W), first vliw_issue_width set (=8; C7x VLIW), first
+     DSPFabricKind.VLIW_SCALAR use, first measured external DRAM
+     bandwidth. C7x DSP (8 cores) + MMAv1 tensor (1 unit). 8 TOPS
+     INT8 / 80 GFLOPS FP32 on TSMC N16. Process node correction:
+     hand-coded 28nm -> 16nm (TI's official Jacinto 7 docs).
+   - TDA4AL (embodied-schemas#56, graphs#227):
+     Same architecture as TDA4VM but MMAv2 + 18W upper profile
+     (vs 20W). 5 hand-coded bugs collapse post-cleanup
+     (threads_per_unit=250, warp_size=1, sparse precision_profiles,
+     28nm energy, abstracted compute_units).
+   - TDA4VH (embodied-schemas#57, graphs#228):
+     4x TDA4VM scale: 32 TOPS INT8, 32 C7x cores + 4 MMAv2 units,
+     20W/35W thermals. First LPDDR5 on DSP (100 GB/s).
+   - TDA4VL (embodied-schemas#58, graphs#229):
+     Entry-level: 4 TOPS, 4 C7x cores, 7W+12W passive profiles.
+     Closes TI TDA4 family (4/4 YAML-backed).
+
+   Batch 3: Qualcomm (3 SKUs)
+   - Qualcomm SA8775P (embodied-schemas#59, graphs#230):
+     Automotive ADAS. First 3-profile DVFS DSP (20W/30W/45W),
+     first TSMC N5 DSP, first Hexagon DSP (4-issue VLIW).
+     HMX tensor (2 units) + HVX vector (4 units). 32 TOPS INT8 /
+     64 TOPS INT4. ASIL-D safety. BOM OVERLAY PATTERN
+     established here: SA8775P is first DSP SKU with commercial
+     BOMCostProfile. YAMLs don't carry BOM today; the cleanup
+     wrapper attaches BOM post-load:
+
+       def qualcomm_sa8775p_resource_model():
+           model = load_dsp_resource_model_from_yaml(...)
+           model.bom_cost_profile = _SA8775P_BOM_COST_PROFILE
+           return model
+
+   - Qualcomm QRB5165 (embodied-schemas#60, graphs#231):
+     Robotics platform, 7nm Hexagon 698, 15 TOPS INT8 at 7W
+     single profile. BOM overlay applied.
+   - Qualcomm QCS6490 (embodied-schemas#61, graphs#232):
+     Entry-level edge AI on 6nm (FIRST 6nm SKU in the catalog).
+     Required adding the tsmc_n6 process node entry. 3-profile
+     DVFS (5W/10W/15W). 12 TOPS INT8 / 24 TOPS INT4. BOM
+     overlay applied. CLOSES DSP follow-up sprint #223.
+
+   Merge conflict on #232: 3 workflow files conflicted because
+   #231 landed with an older CI pin SHA while #232 carried the
+   newer QCS6490 SHA. Resolved by taking HEAD (the newer SHA
+   includes all prior YAMLs); merged main into the branch
+   atomically.
+
+
+KEY DECISIONS
+
+- Tensor-first fabric ordering convention: when a multi-fabric DSP
+  has a clear "primary" path (tensor for ML inference, MMA for
+  ADAS, HMX for matrix), put it as fabric[0] in the YAML. Loader
+  picks fabric[0] for chip-level compute_units / energy_per_flop_fp32
+  surfaces. CEVA NPM11 demonstrated zero drift; SA8775P/QRB5165/
+  QCS6490 followed the same pattern. Synopsys EV7x and TI TDA4
+  family mirrored hand-coded ordering (VPU/C7x first), accepting
+  3-5 documented drifts that collapse post-cleanup.
+
+- BOM overlay pattern: BOMCostProfile is NOT in *Block YAMLs today
+  (none of the existing v9 SKU YAMLs carry it). For SKUs with
+  commercial cost data (SA8775P, QRB5165, QCS6490), the cleanup
+  wrapper attaches BOM post-load. Establishes precedent for any
+  future SKU with cost data not captured in the schema. v11+
+  candidate: add bom_cost_profile to Market block in the YAML
+  schema and move overlays inside the YAMLs.
+
+- Inheritance vs alias for v10 OnDieFabric: each block kind has
+  its own topology enum (CPU's infinity_fabric, DPU's aie_mesh,
+  NPU's systolic). Inheritance preserves per-kind enum validation
+  while collapsing shared fields. Alias would have forced
+  unifying all 6 topology enums (data loss).
+
+- Endpoint-count naming reconciliation: CPU's stop_count and GPU's
+  controller_count renamed to unit_count (matching 4-of-6).
+  Per-arch field description on the base class documents what
+  "unit" means in each context ("ring stop" for CPU, "memory
+  controller" for GPU).
+
+- Catalog count test loosening: per-SKU PR's `== N` assertions
+  loosened to `>= N` (subset semantics) following the established
+  pattern. Avoids regression when future SKUs land.
+
+
+FILES MODIFIED (summary)
+
+graphs (18 merged commits since 2026-05-17):
+  src/graphs/hardware/models/ip_cores/cadence_vision_q8.py            -147 LOC
+  src/graphs/hardware/models/ip_cores/synopsys_arc_ev7x.py            -170 LOC
+  src/graphs/hardware/models/ip_cores/ceva_neupro_npm11.py            -189 LOC
+  src/graphs/hardware/models/automotive/ti_tda4vm.py                  -300 LOC
+  src/graphs/hardware/models/automotive/ti_tda4al.py                  -135 LOC
+  src/graphs/hardware/models/automotive/ti_tda4vh.py                  -141 LOC
+  src/graphs/hardware/models/automotive/ti_tda4vl.py                  -171 LOC
+  src/graphs/hardware/models/automotive/qualcomm_sa8775p.py           -284 LOC
+  src/graphs/hardware/models/edge/qrb5165.py                          -247 LOC
+  src/graphs/hardware/models/edge/qualcomm_qcs6490.py                 -280 LOC
+  src/graphs/hardware/models/ip_cores/dsp_yaml_loader.py              new file (440 LOC)
+  src/graphs/hardware/models/accelerators/cgra_yaml_loader.py         renames
+  src/graphs/hardware/models/edge/gpu_yaml_loader.py                  renames
+  src/graphs/hardware/models/datacenter/cpu_yaml_loader.py            renames
+  tests/hardware/test_dsp_yaml_loader_*.py                            10 new parity tests
+  docs/designs/dsp-compute-product-schema-extension.md                new (657 LOC)
+  docs/designs/v9-thermal-profile-unification.md                      new (290 LOC)
+  docs/designs/v10-on-die-fabric-unification.md                       new (305 LOC)
+  docs/designs/v11-dram-attachment-discriminator.md                   new (223 LOC)
+  .github/workflows/{ci,coverage,v4-validation}.yml                   9 CI pin bumps
+
+embodied-schemas (19 merged commits since 2026-05-17):
+  src/embodied_schemas/dsp_block.py                                   new file (~600 LOC)
+  src/embodied_schemas/compute_block_common.py                        +DramAttachment +ThermalProfile +OnDieFabric
+  src/embodied_schemas/{npu,cgra,dpu,tpu,dsp}_block.py                ThermalProfile alias migrations
+  src/embodied_schemas/{npu,cgra,dpu,tpu,cpu,gpu}_block.py            OnDieFabric inheritance migrations
+  src/embodied_schemas/cgra_block.py                                  host_dram_* -> external_dram_* rename
+  src/embodied_schemas/data/compute_products/cadence/*.yaml           new vendor dir + Cadence Q8 SKU
+  src/embodied_schemas/data/compute_products/synopsys/*.yaml          new vendor dir + EV7x SKU
+  src/embodied_schemas/data/compute_products/ceva/*.yaml              new vendor dir + NPM11 SKU
+  src/embodied_schemas/data/compute_products/ti/*.yaml                new vendor dir + 4 TDA4 SKUs
+  src/embodied_schemas/data/compute_products/qualcomm/*.yaml          new vendor dir + 3 SKUs (SA8775P/QRB5165/QCS6490)
+  src/embodied_schemas/data/process-nodes/tsmc/n6.yaml                new (DUV-only enhanced FinFET)
+  src/embodied_schemas/data/compute_products/stanford/plasticine_v2.yaml  CGRA rename + dram_attachment overlay
+  src/embodied_schemas/data/compute_products/intel/intel_core_i7_12700k.yaml   stop_count -> unit_count
+  src/embodied_schemas/data/compute_products/nvidia/{jetson_agx_*}.yaml controller_count -> unit_count
+  src/embodied_schemas/data/compute_products/hailo/hailo_10h.yaml     dram_attachment: chip_attached
+  src/embodied_schemas/data/compute_products/xilinx/vitis_ai_b4096.yaml dram_attachment: chip_attached
+  src/embodied_schemas/data/compute_products/google/tpu_v4.yaml       dram_attachment: chip_attached
+  tests/test_compute_product_v9_*_yaml.py                             9 new SKU YAML tests
+  tests/test_compute_block_common.py                                  + v9/v10/v11/v12 unification tests
+  src/embodied_schemas/__init__.py                                    export additions
+
+
+TESTS RUN
+
+Per cleanup PR: full graphs hardware suite (1023 → 1215 tests as
+the batch progressed). Per embodied-schemas PR: full embodied-
+schemas test suite (497 → 705 tests as the batch progressed).
+
+Every commit validated:
+  - Parity test for the cleanup SKU passes
+  - Full hardware/schema suite passes
+  - Smoke test of the loader's side-by-side comparison against
+    the hand-coded factory before authoring the parity test
+
+CI: green across all 16 checks on every merged PR (CodeRabbit
+review included). Total CI runs: ~50 across the session.
+
+
+SPRINT METRICS
+
+Schema-only LOC removed via unification: ~270 (v9 + v10)
+Factory LOC removed via DSP cleanup: ~3,000 across 10 SKUs
+Net catalog growth: 22 ComputeProducts -> 31 (+9 DSP follow-ups)
+Vendor directories added: 5 (cadence, synopsys, ceva, ti, qualcomm)
+Process nodes added: 1 (tsmc_n6)
+New shared types in compute_block_common: 3 (ThermalProfile,
+  OnDieFabric, DramAttachment)
+Hard schema breaks: 1 (v11 CGRA rename; atomic YAML migration)
+Documented drift patterns: 6 distinct patterns across the
+  10 DSP cleanups, all collapsing to identity post-cleanup
+Paper exercises: 4 (DSP + v9 + v10 + v11)
+Total merged PRs: 21 (10 graphs + 11 embodied-schemas)
+
+
+WRAP-UP STATE
+
+All 8 category block kinds are schema-complete + YAML-backed:
+  KPU (12 SKUs) + GPU (2) + CPU (1) + NPU (3) + CGRA (1) + DPU (1)
+  + TPU (1) + DSP (10) = 31 ComputeProducts
+
+Every DSP SKU YAML-backed via dsp_yaml_loader. The catalog
+reaches schema-complete state at every layer:
+  - 4 re-exported primitives in compute_block_common
+  - 3 unified types (TheoreticalPerformance alias v8 +
+    ThermalProfile alias v9 + OnDieFabric inheritance v10)
+  - 1 cross-kind discriminator (DramAttachment v11; required v12)
+
+Next candidate sprints documented in compute_block_common.py
+docstring + the v11 paper exercise:
+  - v12+ candidate: KPU schema unification (oldest module; 12 SKUs;
+    KPUThermalProfile doubly-purposed; KPUNoCSpec doesn't fit pattern)
+  - v12+ candidate: GPU/CPU remaining hand-coded factories (8 GPU
+    + 7 CPU) -- pure data PRs once volumes settle
+  - v12+ candidate: TPU follow-up YAMLs (v1, v3, v5p, edge_pro) --
+    4 SKUs left from the original TPU sprint
+  - Defect: graphs#177 (KPU energy violates avg_power <= TDP) --
+    smaller-scope alignment with the KPU derived-power direction
