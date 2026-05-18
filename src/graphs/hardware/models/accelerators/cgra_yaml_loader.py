@@ -19,7 +19,7 @@ unless noted):
   CGRABlock.compute_fabrics[*]    -> compute_fabrics[] (num_units =
                                      num_pcus per fabric)
   CGRABlock.memory.{pmu, shared,  -> peak_bandwidth, l1/l2_cache_*,
-    host_dram}                       main_memory, memory_technology,
+    external_dram}                   main_memory, memory_technology,
                                      memory_*_energy_per_byte_pj
   CGRABlock.noc                   -> soc_fabric (SoCFabricModel)
   CGRABlock.{min_occupancy,       -> matching HardwareResourceModel fields
@@ -32,9 +32,9 @@ unless noted):
 CGRA-specific design decisions:
 
 1. **peak_bandwidth picks on_chip_bandwidth_gbps** (PCU mesh
-   bisection), NOT host_dram_bandwidth_gbps. CGRA workloads are
-   compiled to fit in on-chip SRAM (PMU + shared L2); host DRAM is
-   only used for bitstream load + spills. Plasticine's hand-coded
+   bisection), NOT external_dram_bandwidth_gbps. CGRA workloads are
+   compiled to fit in on-chip SRAM (PMU + shared L2); external DRAM
+   is only used for bitstream load + spills. Plasticine's hand-coded
    factory uses 40 GB/s (the PCU mesh), not the host DDR4 bandwidth.
    This contrasts with NPU's "DRAM tier when present" convention --
    CGRA's reconfig + dataflow pattern means on-chip is the
@@ -377,10 +377,17 @@ def load_cgra_resource_model_from_yaml(
     # docstring for the design decision.
     peak_bandwidth_bps = mem.on_chip_bandwidth_gbps * 1e9
 
-    # Host DRAM -> main_memory (legacy field). When has_host_dram=False
+    # External DRAM -> main_memory (legacy field). When has_external_dram=False
     # the chip uses no main memory (Cerebras-style).
-    if mem.has_host_dram and mem.host_dram_size_gb is not None:
-        main_memory_bytes = int(mem.host_dram_size_gb * 1024**3)
+    #
+    # v11 rename (embodied-schemas#50): host_dram_* -> external_dram_*.
+    # The Plasticine v2 YAML sets dram_attachment=host_bus to preserve
+    # the PCIe-DRAM semantic that the old naming captured implicitly.
+    # The loader treats both attachment kinds identically here (main_memory
+    # is the same regardless of bus); downstream consumers that need
+    # the distinction can read it from the ComputeProduct directly.
+    if mem.has_external_dram and mem.external_dram_size_gb is not None:
+        main_memory_bytes = int(mem.external_dram_size_gb * 1024**3)
     else:
         main_memory_bytes = 0
 
@@ -394,20 +401,20 @@ def load_cgra_resource_model_from_yaml(
         if block.num_pcus > 0 else 0
     )
 
-    # Memory technology label. When has_host_dram=False, name the
+    # Memory technology label. When has_external_dram=False, name the
     # primary memory (SRAM) so downstream consumers don't claim DRAM.
-    if mem.has_host_dram and mem.host_dram_type is not None:
-        memory_technology = mem.host_dram_type.value.upper()
-        dram_tech = mem.host_dram_type.value.lower()
+    if mem.has_external_dram and mem.external_dram_type is not None:
+        memory_technology = mem.external_dram_type.value.upper()
+        dram_tech = mem.external_dram_type.value.lower()
         read_pj = _DRAM_READ_PJ_PER_BYTE.get(dram_tech, 25.0)
         write_pj = read_pj * _DRAM_WRITE_RATIO
-        # Honor the YAML's host_dram_access_energy_pj_per_byte when
+        # Honor the YAML's external_dram_access_energy_pj_per_byte when
         # populated (more accurate than the lookup table)
-        if mem.host_dram_access_energy_pj_per_byte > 0:
-            read_pj = mem.host_dram_access_energy_pj_per_byte
+        if mem.external_dram_access_energy_pj_per_byte > 0:
+            read_pj = mem.external_dram_access_energy_pj_per_byte
             write_pj = read_pj * _DRAM_WRITE_RATIO
     else:
-        memory_technology = "on-chip SRAM (no host DRAM)"
+        memory_technology = "on-chip SRAM (no external DRAM)"
         read_pj = mem.pmu_access_energy_pj_per_byte
         write_pj = read_pj
 

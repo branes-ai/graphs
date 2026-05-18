@@ -439,7 +439,7 @@ def load_gpu_resource_model_from_yaml(
         hop_latency_ns=block.noc.hop_latency_ns,
         pj_per_flit_per_hop=block.noc.pj_per_flit_per_hop,
         bisection_bandwidth_gbps=block.noc.bisection_bandwidth_gbps,
-        controller_count=block.noc.controller_count,
+        controller_count=block.noc.unit_count,   # v10 rename: was controller_count
         flit_size_bytes=block.noc.flit_size_bytes,
         routing_distance_factor=block.noc.routing_distance_factor,
         provenance=(
