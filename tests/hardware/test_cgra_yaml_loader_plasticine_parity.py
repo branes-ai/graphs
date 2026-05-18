@@ -165,7 +165,7 @@ def test_int4_not_in_precision_profiles(hand_coded, yaml_loaded):
 
 def test_peak_bandwidth_matches_on_chip_mesh(hand_coded, yaml_loaded):
     """40 GB/s -- PCU mesh bisection. The loader picks on_chip not
-    host_dram (CGRA workloads stay on-chip; host bus is only for
+    external_dram (CGRA workloads stay on-chip; host bus is only for
     bitstream load + spills). Matches Plasticine's hand-coded 40 GB/s."""
     assert yaml_loaded.peak_bandwidth == pytest.approx(40e9, rel=0.01)
     assert hand_coded.peak_bandwidth == pytest.approx(40e9, rel=0.01)
@@ -212,8 +212,9 @@ def test_coherence_protocol_is_none(yaml_loaded):
 
 def test_memory_technology_populated(hand_coded, yaml_loaded):
     """Both factories now resolve through the loader, which populates
-    ``memory_technology`` from the YAML's ``host_dram_type=ddr4``.
-    Before PR 5 cleanup the hand-coded path returned None here."""
+    ``memory_technology`` from the YAML's ``external_dram_type=ddr4``
+    (v11 rename: was ``host_dram_type``). Before PR 5 cleanup the
+    hand-coded path returned None here."""
     assert yaml_loaded.memory_technology == hand_coded.memory_technology == "DDR4"
 
 
