@@ -1,368 +1,68 @@
-"""
-Ti Tda4Vm Resource Model hardware resource model.
+"""Texas Instruments TDA4VM (Jacinto 7) resource model.
 
-Extracted from resource_model.py during refactoring.
+Cleanup PR of DSP batch #223 SKU 3 (graphs#223). **First SoC-integrated
+DSP** retirement: the chip's architectural and thermal-profile data
+lives in the canonical YAML at
+``embodied-schemas:data/compute_products/ti/ti_tda4vm.yaml`` (landed
+in embodied-schemas#55) and is loaded via ``dsp_yaml_loader``. The
+previous ~368-LOC hand-coded ``HardwareResourceModel`` constructor
+was retired here; its parity with the YAML-loaded model is pinned in
+``tests/hardware/test_dsp_yaml_loader_ti_tda4vm_parity.py``.
+
+Schema precursors that had to land first:
+  - DSP sprint #211 (closed): DSPBlock + dsp_yaml_loader
+  - embodied-schemas#55: the TI TDA4VM YAML
+
+The public function name + signature are preserved so all callers
+continue to work unchanged.
+
+**3 documented drifts collapse to identity post-cleanup**:
+
+  - ``compute_units``: pre-cleanup hand=32 (abstracted via
+    num_dsp_units = MMA's 8000 ops/cycle / 250 ops/cycle/unit);
+    post-cleanup both fixtures = 8 (C7x's real num_units; loader
+    picks fabric[0]).
+  - ``energy_per_flop_fp32``: pre-cleanup hand=3.6 pJ (28nm
+    simd_packed, factory bug); post-cleanup both = 2.43 pJ (16nm
+    simd_packed, per TI's official "16nm FinFET" docs).
+  - ``precision_profiles``: pre-cleanup hand omits FP16 from chip-
+    level profiles despite the C7x fabric supporting it; post-cleanup
+    both include FP16 (YAML completer).
+
+**First multi-profile DVFS DSP**: 2 thermal profiles (10W front-camera,
+20W full-ADAS-system) preserved through the loader; the
+DSPBlock.thermal_profiles list with len > 1 works end-to-end on DSP.
+
+The ``fabric_type_overrides`` argument preserves the legacy fabric
+strings ``"c7x_dsp"`` / ``"mma_v1"``.
+
+The legacy resource-model ``name`` ("TI-TDA4VM-C7x-DSP") is preserved.
 """
 
-from ...resource_model import (
-    HardwareResourceModel,
-    HardwareType,
-    Precision,
-    PrecisionProfile,
-    ComputeFabric,
-    get_base_alu_energy,
-    ClockDomain,
-    ComputeResource,
-    TileSpecialization,
-    KPUComputeResource,
-    PerformanceCharacteristics,
-    ThermalOperatingPoint,
-)
+from embodied_schemas.dsp_block import DSPFabricKind
+
+from ...resource_model import HardwareResourceModel
+from ..ip_cores.dsp_yaml_loader import load_dsp_resource_model_from_yaml
+
+
+_LEGACY_NAME = "TI-TDA4VM-C7x-DSP"
+_YAML_BASE_ID = "ti_tda4vm"
+_LEGACY_FABRIC_TYPE_OVERRIDES = {
+    DSPFabricKind.VLIW_SCALAR: "c7x_dsp",
+    DSPFabricKind.TENSOR_MATRIX: "mma_v1",
+}
 
 
 def ti_tda4vm_resource_model() -> HardwareResourceModel:
+    """Texas Instruments TDA4VM (Jacinto 7) -- automotive ADAS SoC.
+
+    See the YAML for the canonical chip description (8x C7x VLIW DSP
+    cores + MMAv1 tensor accelerator on 16nm FinFET, 8 TOPS INT8 +
+    80 GFLOPS FP32, ASIL-D safety certified, 10W front-camera +
+    20W full-ADAS-system thermal profiles, LPDDR4x measured 60 GB/s).
     """
-    Texas Instruments TDA4VM (Jacinto 7) Automotive ADAS Processor.
-
-    Based on TI's Jacinto 7 family for automotive advanced driver assistance systems.
-
-    ARCHITECTURE:
-    - Heterogeneous compute: Cortex-A72 CPU + C7x DSP + MMA
-    - Primary AI accelerator: C7x DSP with Matrix Multiply Accelerator (MMA)
-    - Automotive-grade: ASIL-D/SIL-3 safety certification
-    - Process: 16nm FinFET (automotive qualified)
-    - Temperature: -40°C to 125°C (automotive grade AEC-Q100)
-
-    CRITICAL REALITY CHECK - Performance Specifications:
-    - C7x DSP: 80 GFLOPS FP32, 256 GOPS INT16 @ 1.0 GHz
-    - MMA (Matrix Multiply Accelerator): 8 TOPS INT8 @ 1.0 GHz
-    - Expected effective: ~4-5 TOPS INT8 under sustained 10W operation
-    - Root cause: Automotive thermal constraints + memory bandwidth
-
-    CPU CONFIGURATION:
-    - 2× Cortex-A72 @ 2.0 GHz (application processing)
-    - R5F safety cores for ASIL-D compliance
-
-    DSP (C7x):
-    - 1.0 GHz peak clock
-    - 80 GFLOPS FP32
-    - 256 GOPS INT16
-    - Vector processing: 512-bit SIMD
-    - L1D: 48 KB (32 KB cache + 16 KB SRAM)
-
-    MMA (Matrix Multiply Accelerator):
-    - 8 TOPS INT8 @ 1.0 GHz
-    - Integrated with C7x DSP
-    - INT8/INT16 native support
-    - Optimized for CNNs
-
-    Power Profiles:
-    ==============
-
-    10W Mode (Typical Front Camera ADAS):
-    - Sustained DSP clock: ~850 MHz (85% of 1.0 GHz)
-    - Effective INT8: ~5 TOPS (62% of 8 TOPS peak)
-    - Use case: Front camera, lane detection, object detection
-    - Thermal: Automotive passive cooling
-
-    20W Mode (Full ADAS System):
-    - Sustained DSP clock: ~950 MHz (95% of 1.0 GHz)
-    - Effective INT8: ~6.5 TOPS (81% of 8 TOPS peak)
-    - Use case: Multi-camera (4-6 cameras), radar fusion, parking assist
-    - Thermal: Active cooling in vehicle
-
-    Memory:
-    - LPDDR4x @ 3733 MT/s (dual-channel)
-    - Bandwidth: ~60 GB/s
-    - Capacity: Up to 8GB
-    - MSMC: 8 MB on-chip SRAM for DSP
-
-    References:
-    - TI TDA4VM Product Brief
-    - Jacinto 7 Architecture Overview
-    - C7x DSP Core Manual
-    - Automotive ADAS specifications
-    """
-    # ========================================================================
-    # Multi-Fabric Architecture (TI C7x DSP + MMAv1)
-    # ========================================================================
-    # C7x DSP Fabric (General VLIW/SIMD compute: FP32, control flow)
-    # ========================================================================
-    c7x_fabric = ComputeFabric(
-        fabric_type="c7x_dsp",
-        circuit_type="simd_packed",    # VLIW/SIMD DSP
-        num_units=8,                   # 8 C7x DSP cores (estimated)
-        ops_per_unit_per_clock={
-            Precision.FP32: 10,         # 80 GFLOPS / 8 cores / 1.0 GHz = 10 ops/cycle
-            Precision.FP16: 20,         # 2× FP32
-        },
-        core_frequency_hz=1.0e9,       # 1.0 GHz base
-        process_node_nm=28,             # 28nm TSMC
-        energy_per_flop_fp32=get_base_alu_energy(28, 'simd_packed'),  # 3.6 pJ
-        energy_scaling={
-            Precision.FP32: 1.0,        # Baseline
-            Precision.FP16: 0.50,       # Half precision
-            Precision.INT8: 0.15,       # INT8 (used by MMA)
-        }
+    return load_dsp_resource_model_from_yaml(
+        _YAML_BASE_ID,
+        name_override=_LEGACY_NAME,
+        fabric_type_overrides=_LEGACY_FABRIC_TYPE_OVERRIDES,
     )
-
-    # ========================================================================
-    # MMAv1 Tensor Fabric (Matrix operations: INT8 convolution, matmul)
-    # ========================================================================
-    mma_fabric = ComputeFabric(
-        fabric_type="mma_v1",
-        circuit_type="tensor_core",     # Matrix multiply accelerator
-        num_units=1,                    # Single MMA unit (original generation)
-        ops_per_unit_per_clock={
-            Precision.INT8: 8000,       # 8 TOPS / 1.0 GHz = 8000 ops/cycle
-            Precision.INT16: 4000,      # Half of INT8
-        },
-        core_frequency_hz=1.0e9,        # 1.0 GHz
-        process_node_nm=28,
-        energy_per_flop_fp32=get_base_alu_energy(28, 'tensor_core'),  # 3.4 pJ (15% better)
-        energy_scaling={
-            Precision.INT8: 0.15,       # INT8 is very efficient
-            Precision.INT16: 0.25,
-        }
-    )
-
-    # C7x DSP FP32: 8 cores × 10 ops/cycle × 1.0 GHz = 80 GFLOPS ✓
-    # MMAv1 INT8: 1 unit × 8000 ops/cycle × 1.0 GHz = 8 TOPS ✓
-
-    # ========================================================================
-    # C7x DSP + MMA ARCHITECTURE MODELING
-    # ========================================================================
-    # C7x has:
-    # - Vector DSP core: 512-bit SIMD, 1.0 GHz
-    # - Matrix Multiply Accelerator (MMA): Dedicated for matrix ops
-    # - We model as equivalent "DSP processing elements"
-
-    # 8 TOPS INT8 @ 1.0 GHz
-    # → 8e12 ops/sec / 1.0e9 Hz = 8,000 ops/cycle
-    # If we model as 32 "DSP processing elements":
-    # → 8,000 / 32 = 250 ops/cycle/unit
-
-    num_dsp_units = 32  # Equivalent processing elements (C7x + MMA combined)
-
-    # ========================================================================
-    # CLOCK DOMAIN - 10W Automotive Thermal Envelope
-    # ========================================================================
-    clock_10w = ClockDomain(
-        base_clock_hz=600e6,        # 600 MHz minimum
-        max_boost_clock_hz=1.0e9,   # 1.0 GHz peak
-        sustained_clock_hz=850e6,   # 850 MHz sustained @ 10W (85% of peak)
-        dvfs_enabled=True,
-    )
-
-    # ========================================================================
-    # COMPUTE RESOURCE - 10W Profile
-    # ========================================================================
-    compute_resource_10w = ComputeResource(
-        resource_type="TI-C7x-DSP-MMA",
-        num_units=num_dsp_units,
-        ops_per_unit_per_clock={
-            Precision.INT8: 250,    # 250 INT8 ops/cycle/unit (MMA optimized)
-            Precision.INT16: 125,   # 125 INT16 ops/cycle/unit (0.5× INT8)
-            Precision.FP16: 62,     # 62 FP16 ops/cycle/unit (slower)
-            Precision.FP32: 31,     # 31 FP32 ops/cycle/unit (C7x baseline)
-        },
-        clock_domain=clock_10w,
-    )
-
-    # Peak INT8: 32 units × 250 ops/cycle × 1.0 GHz = 8.0 TOPS ✓
-    # Sustained @ 10W: 32 × 250 × 850 MHz = 6.8 TOPS
-    # Effective: 6.8 × 0.70 = 4.76 TOPS (60% of 8 TOPS peak)
-
-    # ========================================================================
-    # THERMAL PROFILE (10W Front Camera ADAS)
-    # ========================================================================
-    thermal_10w = ThermalOperatingPoint(
-        name="10W-front-camera-ADAS",
-        tdp_watts=10.0,
-        cooling_solution="automotive-passive",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=compute_resource_10w,
-                instruction_efficiency=0.90,  # Automotive optimized
-                memory_bottleneck_factor=0.75,  # 60 GB/s for 8 TOPS
-                efficiency_factor=0.70,  # 70% effective (conservative for automotive)
-                tile_utilization=0.85,  # Good MMA utilization
-                native_acceleration=True,
-            ),
-            Precision.INT16: PerformanceCharacteristics(
-                precision=Precision.INT16,
-                compute_resource=compute_resource_10w,
-                instruction_efficiency=0.88,
-                memory_bottleneck_factor=0.70,
-                efficiency_factor=0.65,
-                tile_utilization=0.80,
-                native_acceleration=True,
-            ),
-            Precision.FP16: PerformanceCharacteristics(
-                precision=Precision.FP16,
-                compute_resource=compute_resource_10w,
-                instruction_efficiency=0.75,
-                memory_bottleneck_factor=0.65,
-                efficiency_factor=0.55,
-                tile_utilization=0.75,
-                native_acceleration=False,  # Emulated via C7x
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=compute_resource_10w,
-                instruction_efficiency=0.85,
-                memory_bottleneck_factor=0.60,
-                efficiency_factor=0.50,
-                tile_utilization=0.70,
-                native_acceleration=True,  # C7x native FP32
-            ),
-        }
-    )
-
-    # ========================================================================
-    # CLOCK DOMAIN - 20W Full ADAS System
-    # ========================================================================
-    clock_20w = ClockDomain(
-        base_clock_hz=700e6,        # 700 MHz minimum
-        max_boost_clock_hz=1.0e9,   # 1.0 GHz peak
-        sustained_clock_hz=950e6,   # 950 MHz sustained @ 20W (95% of peak)
-        dvfs_enabled=True,
-    )
-
-    compute_resource_20w = ComputeResource(
-        resource_type="TI-C7x-DSP-MMA",
-        num_units=num_dsp_units,
-        ops_per_unit_per_clock={
-            Precision.INT8: 250,
-            Precision.INT16: 125,
-            Precision.FP16: 62,
-            Precision.FP32: 31,
-        },
-        clock_domain=clock_20w,
-    )
-
-    # Sustained @ 20W: 32 × 250 × 950 MHz = 7.6 TOPS
-    # Effective: 7.6 × 0.80 = 6.08 TOPS (76% of 8 TOPS peak)
-
-    thermal_20w = ThermalOperatingPoint(
-        name="20W-full-ADAS-system",
-        tdp_watts=20.0,
-        cooling_solution="automotive-active",
-        performance_specs={
-            Precision.INT8: PerformanceCharacteristics(
-                precision=Precision.INT8,
-                compute_resource=compute_resource_20w,
-                instruction_efficiency=0.92,
-                memory_bottleneck_factor=0.80,
-                efficiency_factor=0.80,  # Better at higher power
-                tile_utilization=0.90,
-                native_acceleration=True,
-            ),
-            Precision.INT16: PerformanceCharacteristics(
-                precision=Precision.INT16,
-                compute_resource=compute_resource_20w,
-                instruction_efficiency=0.90,
-                memory_bottleneck_factor=0.75,
-                efficiency_factor=0.75,
-                tile_utilization=0.85,
-                native_acceleration=True,
-            ),
-            Precision.FP16: PerformanceCharacteristics(
-                precision=Precision.FP16,
-                compute_resource=compute_resource_20w,
-                instruction_efficiency=0.80,
-                memory_bottleneck_factor=0.70,
-                efficiency_factor=0.65,
-                tile_utilization=0.80,
-                native_acceleration=False,
-            ),
-            Precision.FP32: PerformanceCharacteristics(
-                precision=Precision.FP32,
-                compute_resource=compute_resource_20w,
-                instruction_efficiency=0.88,
-                memory_bottleneck_factor=0.65,
-                efficiency_factor=0.60,
-                tile_utilization=0.75,
-                native_acceleration=True,
-            ),
-        }
-    )
-
-    # ========================================================================
-    # HARDWARE RESOURCE MODEL
-    # ========================================================================
-    return HardwareResourceModel(
-        name="TI-TDA4VM-C7x-DSP",
-        hardware_type=HardwareType.DSP,
-
-        # NEW: Multi-fabric architecture (C7x DSP + MMAv1)
-        compute_fabrics=[c7x_fabric, mma_fabric],
-
-        compute_units=num_dsp_units,
-        threads_per_unit=4,  # Vector lanes per processing element
-        warps_per_unit=1,
-        warp_size=16,  # SIMD width approximation
-
-        # Thermal operating points
-        thermal_operating_points={
-            "10W": thermal_10w,   # Front camera ADAS
-            "20W": thermal_20w,   # Full multi-camera system
-        },
-        default_thermal_profile="10W",  # Most common automotive deployment
-
-        # Legacy precision profiles (backward compatibility)
-        precision_profiles={
-            Precision.INT8: PrecisionProfile(
-                precision=Precision.INT8,
-                peak_ops_per_sec=8e12,  # 8 TOPS INT8
-                tensor_core_supported=True,  # MMA acts like tensor cores
-                relative_speedup=1.0,
-                bytes_per_element=1,
-            ),
-            Precision.INT16: PrecisionProfile(
-                precision=Precision.INT16,
-                peak_ops_per_sec=4e12,  # 4 TOPS INT16 (0.5× INT8)
-                tensor_core_supported=True,
-                relative_speedup=0.5,
-                bytes_per_element=2,
-            ),
-            Precision.FP32: PrecisionProfile(
-                precision=Precision.FP32,
-                peak_ops_per_sec=80e9,  # 80 GFLOPS FP32
-                tensor_core_supported=False,  # C7x vector, not MMA
-                relative_speedup=0.01,
-                bytes_per_element=4,
-            ),
-        },
-        default_precision=Precision.INT8,
-
-        # ====================================================================
-        # MEMORY HIERARCHY - LPDDR4x External Memory
-        # ====================================================================
-        # TDA4VM uses LPDDR4x (automotive grade)
-        # - Dual channel × 32-bit × 3733 MT/s = ~60 GB/s
-        # - MSMC: 8 MB on-chip SRAM dedicated to C7x DSP
-        # ====================================================================
-        peak_bandwidth=60e9,  # 60 GB/s LPDDR4x @ 3733 MT/s
-        l1_cache_per_unit=48 * 1024,  # 48 KB L1D per C7x (32 KB cache + 16 KB SRAM)
-        l2_cache_total=8 * 1024 * 1024,  # 8 MB MSMC SRAM
-        main_memory=8 * 1024**3,  # Up to 8 GB LPDDR4x
-
-        # Energy (use C7x DSP fabric as baseline for general-purpose operations)
-        energy_per_flop_fp32=c7x_fabric.energy_per_flop_fp32,  # 3.6 pJ (28nm, SIMD packed)
-        energy_per_byte=20e-12,  # 20 pJ/byte (LPDDR4x automotive)
-        energy_scaling={
-            Precision.INT8: 0.15,   # 15% of FP32 energy
-            Precision.INT16: 0.25,  # 25% of FP32 energy
-            Precision.FP16: 0.50,   # 50% of FP32 energy
-            Precision.FP32: 1.0,    # Baseline
-        },
-
-        # Scheduling (automotive deterministic scheduling)
-        min_occupancy=0.70,  # Automotive requires high utilization
-        max_concurrent_kernels=4,  # Limited for determinism
-        wave_quantization=4,
-    )
-
-
