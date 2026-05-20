@@ -888,7 +888,13 @@ def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
             tech_profile=DATACENTER_7NM_DDR5
         )
 
-    return TPUMapper(model, thermal_profile=thermal_profile)
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = TPUMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "google_tpu_v4", vendor="google"
+    )
+    return mapper
 
 
 def create_tpu_v5p_mapper(thermal_profile: str = None) -> TPUMapper:
@@ -927,9 +933,14 @@ def create_coral_edge_tpu_mapper(thermal_profile: str = None) -> TPUMapper:
         TPUMapper configured for Coral Edge TPU (ultra-low-power edge AI)
     """
     from ...models.edge.coral_edge_tpu import coral_edge_tpu_resource_model
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = coral_edge_tpu_resource_model()
-    return TPUMapper(model, thermal_profile=thermal_profile)
+    mapper = TPUMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "google_coral_edge_tpu", vendor="google"
+    )
+    return mapper
 
 
 def create_tpu_edge_pro_mapper(thermal_profile: str = None) -> TPUMapper:

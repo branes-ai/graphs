@@ -975,7 +975,13 @@ def create_i7_12700k_mapper() -> CPUMapper:
         },
     )
 
-    return CPUMapper(model)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "intel_core_i7_12700k", vendor="intel"
+    )
+    return mapper
 
 
 def create_i7_12700k_large_mapper() -> CPUMapper:
