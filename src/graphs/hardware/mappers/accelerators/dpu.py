@@ -503,4 +503,10 @@ def create_dpu_vitis_ai_mapper() -> DPUMapper:
         DPUMapper instance
     """
     from ...models.accelerators.xilinx_vitis_ai_dpu import xilinx_vitis_ai_dpu_resource_model
-    return DPUMapper(xilinx_vitis_ai_dpu_resource_model())
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = DPUMapper(xilinx_vitis_ai_dpu_resource_model())
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "xilinx_vitis_ai_b4096", vendor="xilinx"
+    )
+    return mapper

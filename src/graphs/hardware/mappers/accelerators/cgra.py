@@ -414,4 +414,10 @@ def create_plasticine_v2_mapper() -> CGRAMapper:
         CGRAMapper instance
     """
     from ...models.accelerators.stanford_plasticine_cgra import stanford_plasticine_cgra_resource_model
-    return CGRAMapper(stanford_plasticine_cgra_resource_model())
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = CGRAMapper(stanford_plasticine_cgra_resource_model())
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "stanford_plasticine_v2", vendor="stanford"
+    )
+    return mapper
