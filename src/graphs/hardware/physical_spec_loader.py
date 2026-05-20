@@ -102,6 +102,10 @@ def _format_process_node_name(foundry: Optional[str], process_name: Optional[str
         return foundry_display or None
     if not foundry_display:
         return str(process_name)
+    # Avoid "Intel Intel 7" when the foundry's own node_name already
+    # starts with the foundry brand (Intel's process nodes do this).
+    if str(process_name).lower().startswith(foundry_display.lower()):
+        return str(process_name)
     return f"{foundry_display} {process_name}"
 
 
@@ -372,6 +376,206 @@ def validate_physical_spec(
             )
 
     return warnings
+
+
+# ---------------------------------------------------------------------------
+# ComputeProduct YAML reader (issue #234)
+# ---------------------------------------------------------------------------
+#
+# The newer ``data/compute_products/<vendor>/<id>.yaml`` shape (CPU,
+# NPU, DSP, TPU, DPU, CGRA) is different from the v1 ``data/{gpus,cpus,
+# kpus,npus,chips}/<vendor>/<id>.yaml`` shape that ``_yaml_path_for`` /
+# ``_physical_spec_from_yaml_dict`` above handle. The compute_products
+# YAML hoists die data onto a ``dies[]`` list, packaging onto a
+# ``packaging`` block, and offloads foundry / node-nm to a separate
+# ``ProcessNodeEntry`` referenced by ``die.process_node_id``. The
+# helpers below project that shape onto the same PhysicalSpec.
+
+# Cache process-node YAML lookups: each ComputeProduct points at the
+# same ``process_node_id`` as its peers within a category, and we'd
+# otherwise re-parse the same node YAML on every factory init.
+_process_node_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def _find_process_node_yaml(data_dir: Path, process_node_id: str) -> Optional[Path]:
+    """Locate ``data/process-nodes/<foundry>/<file>.yaml`` whose ``id`` matches."""
+    nodes_dir = data_dir / "process-nodes"
+    if not nodes_dir.is_dir():
+        return None
+    for yaml_path in nodes_dir.rglob("*.yaml"):
+        doc = yaml.safe_load(yaml_path.read_text())
+        if doc and doc.get("id") == process_node_id:
+            return yaml_path
+    return None
+
+
+def _load_process_node(data_dir: Path, process_node_id: str) -> Optional[Dict[str, Any]]:
+    """Return the parsed ProcessNode YAML for ``process_node_id``, or None."""
+    cache_key = f"{data_dir}::{process_node_id}"
+    if cache_key in _process_node_cache:
+        return _process_node_cache[cache_key]
+    yaml_path = _find_process_node_yaml(data_dir, process_node_id)
+    if yaml_path is None:
+        _process_node_cache[cache_key] = None  # type: ignore[assignment]
+        return None
+    doc = yaml.safe_load(yaml_path.read_text())
+    _process_node_cache[cache_key] = doc
+    return doc
+
+
+def _compute_product_yaml_path_for(
+    data_dir: Path, base_id: str, *, vendor: Optional[str] = None
+) -> Path:
+    """Locate ``data/compute_products/<vendor>/<file>.yaml`` whose ``id`` matches."""
+    cp_dir = data_dir / "compute_products"
+    if not cp_dir.is_dir():
+        raise FileNotFoundError(
+            f"No compute_products/ directory under {data_dir}; install a "
+            f"version of embodied-schemas that ships ComputeProduct data."
+        )
+    if vendor:
+        candidate_dir = cp_dir / vendor.lower()
+        if candidate_dir.is_dir():
+            for yaml_path in candidate_dir.glob("*.yaml"):
+                doc = yaml.safe_load(yaml_path.read_text())
+                if doc and doc.get("id") == base_id:
+                    return yaml_path
+    for yaml_path in cp_dir.rglob("*.yaml"):
+        doc = yaml.safe_load(yaml_path.read_text())
+        if doc and doc.get("id") == base_id:
+            return yaml_path
+    raise FileNotFoundError(
+        f"No ComputeProduct YAML found for base_id={base_id!r} under "
+        f"{cp_dir}."
+    )
+
+
+def _physical_spec_from_compute_product_dict(
+    doc: Dict[str, Any], *, data_dir: Path, source: str
+) -> PhysicalSpec:
+    """Project a parsed ComputeProduct YAML dict onto a PhysicalSpec.
+
+    For multi-die packages, ``die_size_mm2`` and ``transistors_billion``
+    are summed across all dies (PhysicalSpec contract). The process
+    node, foundry, and architecture are taken from the first die --
+    multi-process chiplet products would need a richer representation
+    than today's PhysicalSpec offers, but no SKU in the current catalog
+    has that.
+    """
+    packaging = doc.get("packaging") or {}
+    dies = doc.get("dies") or []
+    market = doc.get("market") or {}
+
+    total_area: Optional[float] = None
+    total_transistors: Optional[float] = None
+    for die in dies:
+        die_area = die.get("die_size_mm2")
+        if die_area is not None:
+            total_area = (total_area or 0.0) + float(die_area)
+        die_tx = die.get("transistors_billion")
+        if die_tx is not None:
+            total_transistors = (total_transistors or 0.0) + float(die_tx)
+
+    first_die = dies[0] if dies else {}
+    process_node_id = first_die.get("process_node_id")
+    architecture = first_die.get("architecture")
+
+    foundry: Optional[str] = None
+    process_node_nm: Optional[int] = None
+    process_node_name: Optional[str] = None
+    if process_node_id:
+        node_doc = _load_process_node(data_dir, process_node_id)
+        if node_doc is not None:
+            foundry = node_doc.get("foundry")
+            process_node_nm = node_doc.get("node_nm")
+            process_node_name = _format_process_node_name(
+                foundry, node_doc.get("node_name")
+            )
+
+    num_dies = int(packaging.get("num_dies", 1) or 1)
+    packaging_kind = (packaging.get("kind") or "").lower()
+    is_chiplet = packaging_kind not in ("", "monolithic")
+    package_type = packaging.get("package_type") or (
+        "chiplet" if is_chiplet else "monolithic"
+    )
+
+    return PhysicalSpec(
+        die_size_mm2=total_area,
+        transistors_billion=total_transistors,
+        process_node_nm=process_node_nm,
+        process_node_name=process_node_name,
+        foundry=foundry,
+        architecture=architecture,
+        num_dies=num_dies,
+        is_chiplet=is_chiplet,
+        package_type=package_type,
+        launch_date=market.get("launch_date"),
+        launch_msrp_usd=market.get("launch_msrp_usd"),
+        source=source,
+    )
+
+
+def load_physical_spec_from_compute_product(
+    base_id: str, *, vendor: Optional[str] = None
+) -> PhysicalSpec:
+    """Load a PhysicalSpec from a ComputeProduct YAML.
+
+    Counterpart to :func:`load_physical_spec` for the newer
+    ``data/compute_products/<vendor>/<id>.yaml`` layout used by CPU,
+    NPU, DSP, TPU, DPU, and CGRA SKUs. The base_id is the YAML's
+    ``id:`` field (e.g., ``"intel_core_i7_12700k"``,
+    ``"hailo_hailo_8"``, ``"google_tpu_v4"``).
+
+    The process-node fields (foundry, process_node_nm, process_node_name)
+    are filled in by resolving ``dies[0].process_node_id`` against
+    ``data/process-nodes/<foundry>/*.yaml``. Multi-die products sum
+    die_size_mm2 and transistors_billion across dies.
+
+    Raises:
+        FileNotFoundError: if the data dir or the requested
+            ComputeProduct YAML cannot be located.
+    """
+    data_dir = _resolve_data_dir()
+    yaml_path = _compute_product_yaml_path_for(data_dir, base_id, vendor=vendor)
+    doc = yaml.safe_load(yaml_path.read_text())
+    try:
+        rel = yaml_path.relative_to(data_dir)
+        source = f"embodied-schemas:{rel.as_posix()}"
+    except ValueError:
+        source = f"embodied-schemas:{yaml_path.name}"
+    return _physical_spec_from_compute_product_dict(
+        doc, data_dir=data_dir, source=source
+    )
+
+
+def load_physical_spec_from_compute_product_or_none(
+    base_id: str, *, vendor: Optional[str] = None
+) -> Optional[PhysicalSpec]:
+    """Graceful wrapper around :func:`load_physical_spec_from_compute_product`.
+
+    Returns ``None`` when the embodied-schemas data directory or the
+    requested compute_products YAML can't be located. Shares the
+    process-wide warn-once flag with :func:`load_physical_spec_or_none`
+    so factories built in the same process get at most one missing-
+    data warning between them, not one per mapper.
+    """
+    global _warned_about_missing_data
+    try:
+        return load_physical_spec_from_compute_product(base_id, vendor=vendor)
+    except FileNotFoundError as exc:
+        if not _warned_about_missing_data:
+            print(
+                f"warning: physical_spec_loader could not locate "
+                f"embodied-schemas compute_products data ({exc}). "
+                f"Mappers will be constructed without physical_spec. "
+                f"Install the 'schemas' extra (pip install -e .[schemas]), "
+                f"set EMBODIED_SCHEMAS_DATA_DIR, or check out the "
+                f"embodied-schemas repo as a sibling. Subsequent misses "
+                f"will be silent.",
+                file=sys.stderr,
+            )
+            _warned_about_missing_data = True
+        return None
 
 
 # ---------------------------------------------------------------------------

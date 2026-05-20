@@ -408,7 +408,13 @@ def create_qrb5165_mapper() -> DSPMapper:
     - Hexagon 698 DSP architecture documentation
     """
     model = qrb5165_resource_model()
-    return DSPMapper(model)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "qualcomm_qrb5165", vendor="qualcomm"
+    )
+    return mapper
 
 
 # ============================================================================
@@ -483,7 +489,12 @@ def create_ti_tda4vm_mapper(thermal_profile: str = "10W") -> DSPMapper:
         DSPMapper configured for TI TDA4VM
     """
     model = ti_tda4vm_resource_model()
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
     mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ti_tda4vm", vendor="ti"
+    )
 
     # Set the thermal profile if specified
     if thermal_profile in model.thermal_operating_points:
@@ -536,7 +547,12 @@ def create_ti_tda4vl_mapper(thermal_profile: str = "7W") -> DSPMapper:
         DSPMapper configured for TI TDA4VL
     """
     model = ti_tda4vl_resource_model()
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
     mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ti_tda4vl", vendor="ti"
+    )
 
     if thermal_profile in model.thermal_operating_points:
         model._active_thermal_profile = thermal_profile
@@ -589,7 +605,12 @@ def create_ti_tda4al_mapper(thermal_profile: str = "10W") -> DSPMapper:
         DSPMapper configured for TI TDA4AL
     """
     model = ti_tda4al_resource_model()
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
     mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ti_tda4al", vendor="ti"
+    )
 
     if thermal_profile in model.thermal_operating_points:
         model._active_thermal_profile = thermal_profile
@@ -643,7 +664,12 @@ def create_ti_tda4vh_mapper(thermal_profile: str = "20W") -> DSPMapper:
         DSPMapper configured for TI TDA4VH
     """
     model = ti_tda4vh_resource_model()
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
     mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ti_tda4vh", vendor="ti"
+    )
 
     if thermal_profile in model.thermal_operating_points:
         model._active_thermal_profile = thermal_profile
@@ -704,7 +730,13 @@ def create_ceva_neupro_npm11_mapper() -> DSPMapper:
     - CEVA press releases (2021-2024)
     """
     model = ceva_neupro_npm11_resource_model()
-    return DSPMapper(model)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ceva_neupro_m_npm11", vendor="ceva"
+    )
+    return mapper
 
 
 # ============================================================================
@@ -759,7 +791,13 @@ def create_cadence_vision_q8_mapper() -> DSPMapper:
     - Cadence DesignWare IP catalog
     """
     model = cadence_vision_q8_resource_model()
-    return DSPMapper(model)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "cadence_tensilica_vision_q8", vendor="cadence"
+    )
+    return mapper
 
 
 # ============================================================================
@@ -818,7 +856,13 @@ def create_synopsys_arc_ev7x_mapper() -> DSPMapper:
     - ARC EV7xFS (functional safety variant) documentation
     """
     model = synopsys_arc_ev7x_resource_model()
-    return DSPMapper(model)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = DSPMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "synopsys_arc_ev7x", vendor="synopsys"
+    )
+    return mapper
 
 
 def create_qualcomm_sa8775p_mapper(thermal_profile: str = "30W") -> DSPMapper:
@@ -860,7 +904,13 @@ def create_qualcomm_sa8775p_mapper(thermal_profile: str = "30W") -> DSPMapper:
     """
     from ..models.automotive.qualcomm_sa8775p import qualcomm_sa8775p_resource_model
     model = qualcomm_sa8775p_resource_model()
-    return DSPMapper(model, thermal_profile=thermal_profile)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = DSPMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "qualcomm_sa8775p", vendor="qualcomm"
+    )
+    return mapper
 
 
 def create_qualcomm_snapdragon_ride_mapper(thermal_profile: str = "100W") -> DSPMapper:

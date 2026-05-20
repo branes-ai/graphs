@@ -349,7 +349,13 @@ def create_hailo8_mapper() -> HailoMapper:
     - Drone/robot vision at 2.5W
     """
     from ...models.edge.hailo8 import hailo8_resource_model
-    return HailoMapper(hailo8_resource_model())
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = HailoMapper(hailo8_resource_model())
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "hailo_hailo_8", vendor="hailo"
+    )
+    return mapper
 
 
 def create_hailo10h_mapper() -> HailoMapper:
@@ -370,4 +376,10 @@ def create_hailo10h_mapper() -> HailoMapper:
     - Edge generative AI
     """
     from ...models.edge.hailo10h import hailo10h_resource_model
-    return HailoMapper(hailo10h_resource_model())
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = HailoMapper(hailo10h_resource_model())
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "hailo_hailo_10h", vendor="hailo"
+    )
+    return mapper
