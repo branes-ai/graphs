@@ -530,7 +530,7 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
     """
     from ...models.accelerators.kpu_t64 import kpu_t64_resource_model
     from ...architectural_energy import KPUTileEnergyAdapter
-    from ...physical_spec_loader import load_physical_spec_or_none
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = kpu_t64_resource_model()
 
@@ -538,8 +538,8 @@ def create_kpu_t64_mapper(thermal_profile: str = None) -> KPUMapper:
     model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
-    mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp", vendor="stillwater"
     )
     return mapper
 
@@ -560,14 +560,14 @@ def create_kpu_t128_mapper(thermal_profile: str = None) -> KPUMapper:
     """
     from ...models.accelerators.kpu_t128 import kpu_t128_resource_model
     from ...architectural_energy import KPUTileEnergyAdapter
-    from ...physical_spec_loader import load_physical_spec_or_none
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = kpu_t128_resource_model()
     model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
-    mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="kpu_t128_32x32_lp5x8_16nm_tsmc_ffp"
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp", vendor="stillwater"
     )
     return mapper
 
@@ -585,7 +585,7 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     """
     from ...models.accelerators.kpu_t256 import kpu_t256_resource_model
     from ...architectural_energy import KPUTileEnergyAdapter
-    from ...physical_spec_loader import load_physical_spec_or_none
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = kpu_t256_resource_model()
 
@@ -593,8 +593,8 @@ def create_kpu_t256_mapper(thermal_profile: str = None) -> KPUMapper:
     model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
-    mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "kpu_t256_32x32_lp5x16_16nm_tsmc_ffp", vendor="stillwater"
     )
     return mapper
 
@@ -612,7 +612,7 @@ def create_kpu_t768_mapper(thermal_profile: str = None) -> KPUMapper:
     """
     from ...models.accelerators.kpu_t768 import kpu_t768_resource_model
     from ...architectural_energy import KPUTileEnergyAdapter
-    from ...physical_spec_loader import load_physical_spec_or_none
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = kpu_t768_resource_model()
 
@@ -620,7 +620,7 @@ def create_kpu_t768_mapper(thermal_profile: str = None) -> KPUMapper:
     model.architecture_energy_model = KPUTileEnergyAdapter(model.tile_energy_model)
 
     mapper = KPUMapper(model, thermal_profile=thermal_profile)
-    mapper.physical_spec = load_physical_spec_or_none(
-        vendor="stillwater", base_id="kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc"
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc", vendor="stillwater"
     )
     return mapper
