@@ -1823,4 +1823,13 @@ def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
         tech_profile=EDGE_8NM_LPDDR5
     )
 
-    return CPUMapper(model, thermal_profile=thermal_profile)
+    from ..physical_spec_loader import load_physical_spec_or_none
+
+    mapper = CPUMapper(model, thermal_profile=thermal_profile)
+    # Orin AGX 64GB is a single-die SoC -- the Cortex-A78AE CPU complex
+    # and the Ampere GPU share the same physical die. Use the same
+    # PhysicalSpec entry the GPU mapper already loads.
+    mapper.physical_spec = load_physical_spec_or_none(
+        vendor="nvidia", base_id="nvidia_orin_gpu_64gb_lpddr5"
+    )
+    return mapper
