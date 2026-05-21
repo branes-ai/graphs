@@ -43,9 +43,9 @@ def intel_xeon_platinum_8592plus_resource_model() -> HardwareResourceModel:
     - L3 (LLC): 120 MB shared
 
     MEMORY:
-    - 8-channel DDR5-4800
+    - 8-channel DDR5-5600 (Intel-published spec; faster than 8490H's DDR5-4800)
     - Up to 4TB capacity
-    - Peak bandwidth: 307.2 GB/s (8 × 38.4 GB/s)
+    - Peak bandwidth: 358.4 GB/s (8 x 44.8 GB/s)
 
     POWER:
     - TDP: 350W (same as 8490H)
@@ -96,11 +96,12 @@ def intel_xeon_platinum_8592plus_resource_model() -> HardwareResourceModel:
     peak_fp16 = num_cores * fp16_ops_per_core * all_core_boost_hz  # 6.14 TFLOPS
     peak_int8_amx = num_cores * amx_tiles_per_core * amx_ops_per_tile * all_core_boost_hz  # 98.3 TOPS
 
-    # Memory bandwidth (8-channel DDR5-4800, same as 8490H)
+    # Memory bandwidth (8-channel DDR5-5600 -- Intel-published spec
+    # for 8592+; +17% over 8490H's DDR5-4800).
     channels = 8
-    ddr5_rate = 4800e6  # 4800 MT/s
+    ddr5_rate = 5600e6  # 5600 MT/s
     bytes_per_transfer = 8  # 64-bit per channel
-    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 307.2 GB/s
+    peak_bandwidth = channels * ddr5_rate * bytes_per_transfer  # 358.4 GB/s
 
     # Power and energy
     tdp = 350.0  # Watts (same as 8490H)
@@ -241,7 +242,7 @@ def intel_xeon_platinum_8592plus_resource_model() -> HardwareResourceModel:
         },
         default_precision=Precision.FP32,
 
-        peak_bandwidth=peak_bandwidth,  # 307.2 GB/s (8-channel DDR5-4800)
+        peak_bandwidth=peak_bandwidth,  # 358.4 GB/s (8-channel DDR5-5600)
         l1_cache_per_unit=48 * 1024,  # 48 KB L1D per core
         l2_cache_total=128 * 1024 * 1024,  # 128 MB total L2 (2 MB × 64 cores)
         main_memory=512 * 1024**3,  # 512 GB (typical server config, up to 4TB)

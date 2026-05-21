@@ -1345,7 +1345,13 @@ def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
         tech_profile=DATACENTER_7NM_DDR5
     )
 
-    return CPUMapper(model)
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
+
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "intel_xeon_platinum_8490h", vendor="intel"
+    )
+    return mapper
 
 
 def create_amd_epyc_9654_mapper() -> CPUMapper:
@@ -1537,9 +1543,14 @@ def create_intel_xeon_platinum_8592plus_mapper() -> CPUMapper:
     from ..models.datacenter.intel_xeon_platinum_8592plus import (
         intel_xeon_platinum_8592plus_resource_model,
     )
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = intel_xeon_platinum_8592plus_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "intel_xeon_platinum_8592plus", vendor="intel"
+    )
+    return mapper
 
 
 def create_ampere_ampereone_128_mapper() -> CPUMapper:
@@ -1676,9 +1687,17 @@ def create_intel_granite_rapids_mapper() -> CPUMapper:
     from ..models.datacenter.intel_granite_rapids import (
         intel_granite_rapids_resource_model,
     )
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = intel_granite_rapids_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    # graphs factory's generic "Granite Rapids" name resolves to the
+    # 128-core Xeon 6 6980P flagship per the 128c / 500W shape it
+    # models. See embodied-schemas#71.
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "intel_xeon_6980p", vendor="intel"
+    )
+    return mapper
 
 
 def create_amd_epyc_turin_mapper() -> CPUMapper:
