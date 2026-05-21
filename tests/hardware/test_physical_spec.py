@@ -4,6 +4,7 @@ from graphs.hardware.physical_spec import PhysicalSpec
 from graphs.hardware.mappers.gpu import (
     create_h100_sxm5_80gb_mapper,
     create_a100_sxm4_80gb_mapper,
+    create_t4_pcie_16gb_mapper,
     create_jetson_orin_agx_64gb_mapper,
     create_jetson_orin_nano_8gb_mapper,
     create_jetson_orin_nx_16gb_mapper,
@@ -87,10 +88,13 @@ class TestMapperPhysicalSpecIntegration:
         assert mapper.physical_spec.source.startswith("embodied-schemas:")
 
     def test_unpopulated_factory_returns_none_physical_spec(self):
-        # A100 factory hasn't been backfilled yet -- physical_spec should be
-        # None, not raise. This guards graceful degradation for the long tail
-        # of mappers that haven't had die specs populated.
-        mapper = create_a100_sxm4_80gb_mapper()
+        # T4 has no upstream YAML in embodied-schemas (no data/gpus/nvidia/t4_*
+        # file) -- physical_spec should be None, not raise. This guards
+        # graceful degradation for the long-tail mappers without backfilled
+        # die specs. (A100 was the original canonical example here; backfilled
+        # via load_physical_spec_or_none on data/gpus/nvidia/a100_sxm4_80gb_hbm2e
+        # in the GPU batch wiring -- so we now use T4 as the unpopulated control.)
+        mapper = create_t4_pcie_16gb_mapper()
         assert mapper.physical_spec is None
 
     def test_physical_spec_does_not_affect_mapping_path(self):
@@ -98,11 +102,12 @@ class TestMapperPhysicalSpecIntegration:
         # both populated and unpopulated mappers expose the same operational
         # surface area.
         h100 = create_h100_sxm5_80gb_mapper()
-        a100 = create_a100_sxm4_80gb_mapper()
+        t4 = create_t4_pcie_16gb_mapper()
         assert h100.resource_model is not None
-        assert a100.resource_model is not None
+        assert t4.resource_model is not None
         assert h100.resource_model.compute_units == 132
-        assert a100.resource_model.compute_units == 108
+        # T4 has 40 SMs (Turing) -- much smaller than the H100 datacenter parts
+        assert t4.resource_model.compute_units == 40
 
 
 class TestJetsonPhysicalSpecs:
