@@ -1248,9 +1248,14 @@ def create_ampere_ampereone_192_mapper() -> CPUMapper:
     from ..models.datacenter.ampere_ampereone_192 import (
         ampere_ampereone_192_resource_model,
     )
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = ampere_ampereone_192_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ampere_ampereone_a192_32x", vendor="ampere"
+    )
+    return mapper
 
 
 def create_ampere_ampereone_1core_reference_mapper() -> CPUMapper:
@@ -1397,9 +1402,14 @@ def create_amd_epyc_9654_mapper() -> CPUMapper:
         CPUMapper configured for AMD EPYC 9654
     """
     from ..models.datacenter.amd_epyc_9654 import amd_epyc_9654_resource_model
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = amd_epyc_9654_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "amd_epyc_9654_sp5", vendor="amd"
+    )
+    return mapper
 
 
 def create_amd_epyc_9754_mapper() -> CPUMapper:
@@ -1456,9 +1466,14 @@ def create_amd_epyc_9754_mapper() -> CPUMapper:
         CPUMapper configured for AMD EPYC 9754
     """
     from ..models.datacenter.amd_epyc_9754 import amd_epyc_9754_resource_model
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = amd_epyc_9754_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "amd_epyc_9754_sp5", vendor="amd"
+    )
+    return mapper
 
 
 def create_intel_xeon_platinum_8592plus_mapper() -> CPUMapper:
@@ -1587,9 +1602,14 @@ def create_ampere_ampereone_128_mapper() -> CPUMapper:
     from ..models.datacenter.ampere_ampereone_128 import (
         ampere_ampereone_128_resource_model,
     )
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = ampere_ampereone_128_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "ampere_ampereone_a128_30", vendor="ampere"
+    )
+    return mapper
 
 
 def create_intel_granite_rapids_mapper() -> CPUMapper:
@@ -1724,9 +1744,16 @@ def create_amd_epyc_turin_mapper() -> CPUMapper:
         CPUMapper configured for AMD EPYC Turin
     """
     from ..models.datacenter.amd_epyc_turin import amd_epyc_turin_resource_model
+    from ..physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = amd_epyc_turin_resource_model()
-    return CPUMapper(model)
+    mapper = CPUMapper(model)
+    # graphs factory's "Turin" name refers to the Turin Dense flagship
+    # SKU (EPYC 9965, 192 cores, 500W). See embodied-schemas#65.
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "amd_epyc_9965_sp5", vendor="amd"
+    )
+    return mapper
 
 
 def create_jetson_orin_agx_cpu_mapper(thermal_profile: str = None) -> CPUMapper:
