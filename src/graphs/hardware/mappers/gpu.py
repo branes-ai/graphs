@@ -973,7 +973,15 @@ def create_b100_sxm6_192gb_mapper(thermal_profile: str = None) -> GPUMapper:
         tech_profile=DATACENTER_4NM_HBM3E
     )
 
-    return GPUMapper(resource_model, thermal_profile=thermal_profile)
+    from ..physical_spec_loader import load_physical_spec_or_none
+
+    mapper = GPUMapper(resource_model, thermal_profile=thermal_profile)
+    # B100 ships in SXM5 form factor; this factory's "SXM6" name is a
+    # forward-looking placeholder. Same Blackwell B100 die regardless.
+    mapper.physical_spec = load_physical_spec_or_none(
+        vendor="nvidia", base_id="nvidia_b100_sxm5_192gb_hbm3e"
+    )
+    return mapper
 
 
 def create_a100_sxm4_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
@@ -1011,8 +1019,13 @@ def create_a100_sxm4_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for A100 SXM4 80GB
     """
     from ..models.datacenter.a100_sxm4_80gb import a100_sxm4_80gb_resource_model
+    from ..physical_spec_loader import load_physical_spec_or_none
 
-    return GPUMapper(a100_sxm4_80gb_resource_model(), thermal_profile=thermal_profile)
+    mapper = GPUMapper(a100_sxm4_80gb_resource_model(), thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_or_none(
+        vendor="nvidia", base_id="nvidia_a100_sxm4_80gb_hbm2e"
+    )
+    return mapper
 
 
 def create_v100_sxm3_32gb_mapper(thermal_profile: str = None) -> GPUMapper:
@@ -1050,8 +1063,16 @@ def create_v100_sxm3_32gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for V100 SXM2 32GB
     """
     from ..models.datacenter.v100_sxm3_32gb import v100_sxm3_32gb_resource_model
+    from ..physical_spec_loader import load_physical_spec_or_none
 
-    return GPUMapper(v100_sxm3_32gb_resource_model(), thermal_profile=thermal_profile)
+    mapper = GPUMapper(v100_sxm3_32gb_resource_model(), thermal_profile=thermal_profile)
+    # V100 SXM2 and SXM3 share the same Volta GV100 die; package /
+    # power envelope differs (SXM3 was DGX-2's 32 GB variant). The
+    # PhysicalSpec values are die-level and identical.
+    mapper.physical_spec = load_physical_spec_or_none(
+        vendor="nvidia", base_id="nvidia_v100_sxm2_32gb_hbm2"
+    )
+    return mapper
 
 
 def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
