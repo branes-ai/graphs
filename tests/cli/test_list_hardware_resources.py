@@ -104,12 +104,17 @@ class TestJsonFormat:
         out = tmp_path / "spec.json"
         _, _, _ = _run(output_path=out)
         data = json.loads(out.read_text())
-        a100 = next(p for p in data["products"] if p["name"] == "A100-SXM4-80GB")
-        assert a100["die_size_mm2"] is None
-        assert a100["transistors_billion"] is None
+        # T4 has no upstream YAML in embodied-schemas; A100 was the
+        # original unpopulated control here but got backfilled in the
+        # GPU batch wiring (load_physical_spec_or_none against
+        # data/gpus/nvidia/a100_sxm4_80gb_hbm2e). T4 is now the
+        # canonical N/A GPU.
+        t4 = next(p for p in data["products"] if p["name"] == "T4-PCIe-16GB")
+        assert t4["die_size_mm2"] is None
+        assert t4["transistors_billion"] is None
         # But operational fields are still populated
-        assert a100["compute_units"] > 0
-        assert a100["power_tdp"] > 0
+        assert t4["compute_units"] > 0
+        assert t4["power_tdp"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -139,9 +144,11 @@ class TestCsvFormat:
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         rows = list(csv.DictReader(out.open()))
-        a100_row = next(r for r in rows if r["name"] == "A100-SXM4-80GB")
-        assert a100_row["die_size_mm2"] == ""
-        assert a100_row["transistors_billion"] == ""
+        # T4 is the new canonical unpopulated GPU (A100 was backfilled
+        # in the GPU batch wiring).
+        t4_row = next(r for r in rows if r["name"] == "T4-PCIe-16GB")
+        assert t4_row["die_size_mm2"] == ""
+        assert t4_row["transistors_billion"] == ""
 
     def test_csv_h100_row_is_fully_populated(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
@@ -268,8 +275,10 @@ class TestSorting:
         # Populated rows are sorted descending.
         populated = die_sizes[:last_populated]
         assert populated == sorted(populated, reverse=True)
-        # And H100 (largest die at 814 mm^2) should come first among GPUs.
-        assert records[0]["name"] == "H100-SXM5-80GB"
+        # A100 (826 mm^2 Ampere) is the largest GPU die in the catalog
+        # after the GPU batch backfill. (H100-SXM5 is 814 mm^2, second.
+        # Larger dies like A100 SXM4 outrank H100 once both are wired.)
+        assert records[0]["name"] == "A100-SXM4-80GB"
 
     def test_sort_die_size_ascending_populated_rows_precede_missing(self, tmp_path, _run):
         # Same contract as above for ascending order: populated rows first,
@@ -602,15 +611,18 @@ class TestPhase3MemoryColumn:
         assert nano["memory_type"] == "lpddr5"
 
     def test_unpopulated_chips_render_na_for_memory(self, tmp_path, _run):
-        # A100 / B100 / V100 / T4 / etc. don't have populated PhysicalSpec
-        # yet, so memory_type renders None in JSON / empty in CSV / N/A
-        # in text+markdown. No crash, just graceful absence.
+        # T4 doesn't have a populated PhysicalSpec (no upstream YAML),
+        # so memory_type renders None in JSON / empty in CSV / N/A in
+        # text+markdown. No crash, just graceful absence.
+        # (A100/B100/V100 were the original unpopulated examples here
+        # but got backfilled in the GPU batch wiring; T4 is now the
+        # canonical control.)
         out = tmp_path / "spec.json"
         _run(output_path=out)
         data = json.loads(out.read_text())
-        a100 = next(p for p in data["products"] if p["name"] == "A100-SXM4-80GB")
-        assert a100["memory_type"] is None
-        assert a100["memory_bus_width_bits"] is None
+        t4 = next(p for p in data["products"] if p["name"] == "T4-PCIe-16GB")
+        assert t4["memory_type"] is None
+        assert t4["memory_bus_width_bits"] is None
 
 
 class TestPhase4MemoryClock:
@@ -653,8 +665,10 @@ class TestPhase4MemoryClock:
 
     def test_unpopulated_chips_render_none_for_mem_clock(self, tmp_path, _run):
         # H100 / A100 / B100 / etc. don't have memory_clock_mhz set on
-        # their thermal_operating_points yet -- they render None
-        # gracefully (-> "N/A" in text/markdown, "" in CSV).
+        # their thermal_operating_points yet (memory_clock_mhz is a
+        # per-profile field, separate from the chip-level PhysicalSpec
+        # memory_type/bus_width that the GPU batch wiring populated).
+        # They render None gracefully (-> "N/A" in text/markdown, "" in CSV).
         out = tmp_path / "spec.json"
         _run(output_path=out)
         data = json.loads(out.read_text())
