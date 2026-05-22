@@ -1,0 +1,262 @@
+Session log -- 2026-05-20 → 2026-05-21
+
+Closes the PhysicalSpec backfill campaign opened by #130 in early
+May. Three cross-repo data sprints landed (#62 AMD/Ampere CPU, #68
+Intel Xeon, #72 Bucket A long-tail) and three umbrella issues closed
+(#130 at 79%, #234 by #235, #241 at 91%). Catalog ceiling reached:
+every SKU with public die data is now populated. Only 4 N/A entries
+remain, all bounded by data availability (Mali / Snapdragon Ride no
+public data; AmpereOne 1-core / DFM-128 synthetic).
+
+Cumulative trajectory: 9/47 (19%) → 43/47 (91%) across the full
+campaign. 7 graphs PRs + 14 embodied-schemas PRs merged across the
+2-day arc.
+
+
+WHAT WAS DONE
+
+Day 1 (2026-05-20): close #130 + open #234 + open #241 + start sprint #72
+
+1. Resolve PhysicalSpec wiring sub-issue (#234 / #235)
+   - Identified the gap: the post-#185 ComputeProduct YAML-loader
+     migration left mapper.physical_spec untouched. 16 mappers were
+     loading their HardwareResourceModel from compute_products/
+     YAMLs but never reading the die data already present in those
+     same YAMLs.
+   - Added load_physical_spec_from_compute_product_or_none() in
+     physical_spec_loader.py. Reads data/compute_products/<vendor>/
+     YAMLs and resolves dies[0].process_node_id against
+     data/process-nodes/. Counterpart to load_physical_spec_or_none
+     which reads the older data/{gpus,cpus,kpus,npus,chips}/ layout.
+   - Wired into 16 mapper factories across CPU/NPU/DSP/TPU/DPU/CGRA
+     categories. Coverage: 9/47 → 21/47 (19% → 45%).
+
+2. KPU PhysicalSpec regression fix (#236)
+   - Discovered while verifying #235's coverage: the existing 4 KPU
+     factories called load_physical_spec_or_none against the legacy
+     data/kpus/ path, but the KPU SKU YAMLs had relocated to
+     data/compute_products/stillwater/ during the ComputeProduct
+     unification (around embodied-schemas#156/#168). Silent fallback
+     to physical_spec=None for all 4 KPUs.
+   - Switched the factories to the new compute_product loader.
+     Coverage 21/47 → 25/47 (45% → 53%).
+   - Disclosed in the PR description that #235's "21/47" claim had
+     double-counted the broken KPUs.
+
+3. Sprint #62 (AMD/Ampere CPU) -- 5 SKUs across 5 PRs
+   - Opened embodied-schemas#62 as sub-issue under #4 (Phase 3 bulk
+     CPU/NPU/SoC migration). 5 SKUs identified: EPYC 9654 (Genoa,
+     Zen 4, 96c), EPYC 9754 (Bergamo, Zen 4c, 128c), EPYC 9965
+     (Turin Dense, Zen 5c, 192c), AmpereOne A192-32X (192c), and
+     AmpereOne A128-30 (128c binned from A192's die).
+   - Each SKU = 1 PR with new YAML + parity test (15-18 tests each)
+     + catalog-count pin bumps. Pattern mirrors the DSP batch
+     (embodied-schemas#52-#61).
+   - PRs #63-#67 (5/5). All merged.
+   - Downstream graphs PR (#237) wired 5 factories. Coverage
+     25/47 → 30/47 (53% → 64%).
+
+4. GPU batch wiring (#238)
+   - Wired A100-SXM4 / V100-SXM3 / B100-SXM6 against existing
+     legacy v1 GPU YAMLs at data/gpus/nvidia/. Resolved naming
+     mismatches: V100 SXM3 vs SXM2 (same Volta GV100 die,
+     different package); B100 SXM6 vs SXM5 (same Blackwell B100;
+     SXM6 is forward-looking graphs naming). Documented inline.
+   - Coverage 30/47 → 33/47 (64% → 70%).
+
+5. Jetson Orin AGX CPU one-liner (#239)
+   - Orin AGX is a single-die SoC -- CPU and GPU live on the same
+     Samsung 8LPP silicon. GPU mapper had its YAML wired since
+     #135 (455 mm^2, 17 B tx). CPU mapper was left N/A.
+   - Single-line edit: pointed create_jetson_orin_agx_cpu_mapper
+     at the same nvidia_orin_gpu_64gb_lpddr5 YAML. Coverage
+     33/47 → 34/47 (70% → 72%).
+
+6. Sprint #68 (Intel Xeon) -- 3 SKUs across 3 PRs
+   - Opened embodied-schemas#68 for the Intel Xeon datacenter
+     batch: Xeon Platinum 8490H (Sapphire Rapids XCC, 60c on
+     Intel 7), Xeon Platinum 8592+ (Emerald Rapids XCC, 64c on
+     Intel 7), Xeon 6 6980P (Granite Rapids-AP, 128c on Intel 3).
+   - PRs #69-#71. First AMX SKUs in the catalog (declared in v3
+     schema but unused until the 8490H YAML). First multi-fabric
+     cluster (AVX-512 + AMX fabrics simultaneously). First
+     AMX_FP16 use (Granite Rapids).
+   - Granite Rapids required adding data/process-nodes/intel/
+     intel_3.yaml -- second Intel process node in the catalog
+     after intel_7 (#24). Mirrors the intel_7 addition pattern.
+   - All merged. Catalog count: 9 CPU SKUs total
+     (1 Intel desktop, 3 Intel datacenter, 3 AMD chiplet, 2 Ampere
+     monolithic).
+   - Downstream graphs PR (#240) wired 3 factories + corrected the
+     8592+ memory bandwidth (DDR5-4800 → DDR5-5600 per Intel's
+     published spec; the factory had inherited the 4800 figure
+     from the 8490H model). Coverage 34/47 → 37/47 (72% → 79%).
+   - Closed #130 at this point with a wrap-up comment classifying
+     the 13 remaining N/A entries. Opened #241 as long-tail
+     follow-up tracker.
+
+Day 2 (2026-05-21): sprint #72 (Bucket A) + close #241
+
+7. Sprint #72 (Bucket A long-tail) -- 6 SKUs across 6 PRs
+   - Opened embodied-schemas#72 for the 6 SKUs with public die data
+     but no upstream catalog entry: H100-PCIe-80GB, T4-PCIe-16GB,
+     TPU v1/v3/v5p/Edge Pro. GPU PCIe variants use legacy v1 GPU
+     path (same as H100-SXM5/A100/V100/B100); TPUs use compute_
+     products/ path.
+   - PRs #73-#78 (6/6).
+   - Notable: TPU v1 needed tsmc_n28hpm process node added
+     (sibling to existing gf_28nm; TSMC and GF 28nm have
+     materially different process characteristics). First use of
+     TPUFabricKind.TPU_V1_STYLE -- the enum had been declared in
+     v7 schema but unused until the v1 YAML. TPU v5p added first
+     FP8 / INT4 paths. TPU Edge Pro is explicitly hypothetical
+     (lifecycle=engineering_sample; second non-shipping SKU
+     alongside Plasticine v2; clearly flagged).
+   - Catalog: 6 google/ SKUs (up from 2: Coral + v4).
+
+8. Downstream graphs wiring (#243)
+   - Wired all 6 Bucket A SKUs. 4 test-control updates: T4 was the
+     canonical unpopulated GPU but is now wired, so swapped to
+     ARM Mali-G78-MP20 (ARM IP, no public die data). Inline
+     comments document the rotation: A100 → T4 → Mali.
+   - Coverage 37/47 → 43/47 (79% → 91%).
+
+9. Close #241
+   - Coverage at the ceiling. Remaining 4 N/A: Mali-G78 / Snapdragon
+     Ride (no public die data), AmpereOne 1-core ref / DFM-128
+     (synthetic / research). Reopening criteria documented:
+     upstream disclosure, third-party die-shot analysis, or a
+     `physical_spec_status` enum landing.
+
+
+KEY DECISIONS
+
+- **Single virtual die approximation for chiplets**. All multi-die
+  CPU/Xeon SKUs (EPYC 9654/9754/9965, Xeon 8490H/8592+/6980P) use
+  a single virtual die with silicon_bin decomposing across
+  chiplets, because the schema's AnyBlock discriminated union has
+  no IOBlock kind for the IOD. packaging.num_dies and
+  packaging.kind=chiplet remain accurate (4-13 dies depending on
+  SKU); the dies[] list is the approximation. Documented in each
+  YAML's header + flagged for re-author once an IOBlock kind
+  lands. See DECISION-2026-05-21-001.
+
+- **Per-die vs chip-level performance modeling for TPUs**. The
+  existing TPU v4 YAML uses a 2-MXU per-die model (matching one
+  TensorCore's datapath); chip-level performance roll-up reflects
+  Google's marketed per-chip numbers (which include both TCs
+  sharing the die). Continued this convention for v3 and v5p;
+  TPU Edge Pro is the catalog's only single-MXU TPU model
+  (architecturally a scaled-up v1). The modeling gap is
+  documented in every TPU YAML's notes; deferred to v8
+  multi-block-per-die schema work.
+
+- **Control-mapper rotation**. The
+  test_unpopulated_factory_returns_none_physical_spec test (+ 4
+  CLI tests) pin a specific SKU as the "unpopulated control" to
+  verify graceful degradation. As sprints consumed prior controls,
+  the rotation went A100 (original) → T4 → ARM Mali-G78. Each
+  rotation preserved the history as inline comments documenting
+  why the previous control was retired. This pattern likely
+  continues for any future N/A-consuming sprint.
+
+- **Hypothetical SKU treatment**. TPU Edge Pro has no real silicon
+  (graphs' research-only model for fair-comparison studies vs
+  KPU T256 at 30W). Matched Plasticine v2's convention:
+  lifecycle=engineering_sample, model_tier=research,
+  is_available=false. Both YAMLs are the catalog's only non-
+  shipping entries.
+
+- **Closing #241 at 91% (not 100%)**. The remaining 4 N/A break
+  into "no public data exists" (Mali, Snapdragon Ride) and
+  "synthetic / no silicon" (AmpereOne 1-core ref, DFM-128).
+  Pushing further requires either die-shot reverse-engineering or
+  proprietary disclosure -- outside the scope of this work line.
+  91% is "everything for which public data exists." Reopening
+  criteria documented in the closing comment.
+
+
+CROSS-REPO WORK PATTERN
+
+Established and now well-exercised: data sprints in embodied-schemas
+land one SKU per PR (with parity tests + catalog-count pin bumps),
+followed by a consolidated wiring PR in graphs (one per sprint).
+Each sprint takes ~6 PRs across the two repos for 5-6 SKUs. CI runs
+on both sides catch the catalog drift issues immediately.
+
+This session ran 3 sprints back-to-back: #62 (5 SKUs), #68 (3 SKUs),
+#72 (6 SKUs). 14 data PRs + 7 wiring PRs = 21 merged PRs total.
+
+
+FILES MODIFIED (CUMULATIVE)
+
+graphs (+486 / -90 LOC):
+- src/graphs/hardware/physical_spec_loader.py
+  (new compute_product loader + Intel-7 duplicate-prefix fix)
+- src/graphs/hardware/mappers/cpu.py
+  (CPU factories + bandwidth fix)
+- src/graphs/hardware/mappers/gpu.py
+  (GPU factories)
+- src/graphs/hardware/mappers/accelerators/{tpu,kpu}.py
+  (KPU regression fix + TPU factories)
+- src/graphs/hardware/models/datacenter/intel_xeon_platinum_8592plus.py
+  (DDR5-5600 correction)
+- tests/hardware/test_physical_spec.py (control rotation)
+- tests/cli/test_list_hardware_resources.py (control rotation)
+
+embodied-schemas (+6,637 / -100 LOC):
+- 14 new SKU YAMLs under data/compute_products/ and data/gpus/nvidia/
+- 2 new process node YAMLs (intel_3, tsmc_n28hpm)
+- 14 new parity test files
+- Catalog-count pin bumps in v3/v3-i7/v4/v5/v6/v7/v9 sprint test files
+  (cpu_count, tpu_count, intel/google/ampere vendor counts)
+
+
+TESTS RUN
+
+- graphs:
+  - tests/hardware/ -- 1236/1236 after every wiring PR
+  - tests/hardware/test_physical_spec.py + tests/cli/
+    test_list_hardware_resources.py -- 72/72 after each
+    control-rotation update
+- embodied-schemas:
+  - tests/ -- 718 → 732 → 747 → 763 → 779 → 796 → 814 → 832 → 847 →
+    864 → 881 → 899 tests as YAMLs landed sprint by sprint (every
+    new SKU adds ~15-18 parity tests)
+
+All CI runs clean. One CodeRabbit review intervention (#74 / T4
+YAML: int8_tops inconsistency between dense / tensor figures, and
+nvenc/nvdec false flag) -- both fixed in a follow-up commit before
+merge.
+
+
+ISSUES CLOSED
+
+- graphs#130 -- PhysicalSpec foundation + initial backfill (closed
+  at 79% with sprint #62 + #68 work)
+- graphs#234 -- ComputeProduct YAML-loader wiring sub-task (closed
+  by graphs#235)
+- graphs#241 -- Long-tail backfill (closed by graphs#243 at 91%)
+
+embodied-schemas issues:
+- #62 (AMD/Ampere CPU sprint) -- closed by #67
+- #68 (Intel Xeon sprint) -- closed by #71
+- #72 (Bucket A long-tail) -- closed by #78
+
+
+PRs MERGED (TOTAL: 21)
+
+graphs (7):
+- #235 -- ComputeProduct YAML-loader + 16-mapper wiring
+- #236 -- KPU loader regression fix
+- #237 -- AMD/Ampere 5-mapper wiring (post sprint #62)
+- #238 -- GPU 3-mapper wiring (A100/V100/B100)
+- #239 -- Jetson Orin AGX CPU one-liner
+- #240 -- Intel Xeon 3-mapper wiring + 8592+ BW fix (post sprint #68)
+- #243 -- Bucket A 6-mapper wiring (post sprint #72)
+
+embodied-schemas (14):
+- #63 #64 #65 #66 #67 -- sprint #62 SKUs
+- #69 #70 #71 -- sprint #68 SKUs (#71 adds intel_3 process node)
+- #73 #74 #75 #76 #77 #78 -- sprint #72 SKUs (#75 adds tsmc_n28hpm
+  process node)
