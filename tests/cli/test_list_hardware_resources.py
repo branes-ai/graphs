@@ -104,17 +104,16 @@ class TestJsonFormat:
         out = tmp_path / "spec.json"
         _, _, _ = _run(output_path=out)
         data = json.loads(out.read_text())
-        # T4 has no upstream YAML in embodied-schemas; A100 was the
-        # original unpopulated control here but got backfilled in the
-        # GPU batch wiring (load_physical_spec_or_none against
-        # data/gpus/nvidia/a100_sxm4_80gb_hbm2e). T4 is now the
-        # canonical N/A GPU.
-        t4 = next(p for p in data["products"] if p["name"] == "T4-PCIe-16GB")
-        assert t4["die_size_mm2"] is None
-        assert t4["transistors_billion"] is None
+        # ARM Mali-G78 has no upstream YAML in embodied-schemas (ARM
+        # is licensable IP -- no public die data). Control-mapper
+        # history: A100 -> T4 -> Mali. A100 was wired in #238; T4
+        # was wired in the Bucket A sprint (this PR's predecessor).
+        mali = next(p for p in data["products"] if p["name"] == "ARM-Mali-G78-MP20")
+        assert mali["die_size_mm2"] is None
+        assert mali["transistors_billion"] is None
         # But operational fields are still populated
-        assert t4["compute_units"] > 0
-        assert t4["power_tdp"] > 0
+        assert mali["compute_units"] > 0
+        assert mali["power_tdp"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -144,11 +143,11 @@ class TestCsvFormat:
         out = tmp_path / "spec.csv"
         _run(output_path=out)
         rows = list(csv.DictReader(out.open()))
-        # T4 is the new canonical unpopulated GPU (A100 was backfilled
-        # in the GPU batch wiring).
-        t4_row = next(r for r in rows if r["name"] == "T4-PCIe-16GB")
-        assert t4_row["die_size_mm2"] == ""
-        assert t4_row["transistors_billion"] == ""
+        # ARM Mali-G78 is the canonical unpopulated GPU. Earlier
+        # controls (A100, T4) have both been wired.
+        mali_row = next(r for r in rows if r["name"] == "ARM-Mali-G78-MP20")
+        assert mali_row["die_size_mm2"] == ""
+        assert mali_row["transistors_billion"] == ""
 
     def test_csv_h100_row_is_fully_populated(self, tmp_path, _run):
         out = tmp_path / "spec.csv"
@@ -611,18 +610,19 @@ class TestPhase3MemoryColumn:
         assert nano["memory_type"] == "lpddr5"
 
     def test_unpopulated_chips_render_na_for_memory(self, tmp_path, _run):
-        # T4 doesn't have a populated PhysicalSpec (no upstream YAML),
-        # so memory_type renders None in JSON / empty in CSV / N/A in
-        # text+markdown. No crash, just graceful absence.
-        # (A100/B100/V100 were the original unpopulated examples here
-        # but got backfilled in the GPU batch wiring; T4 is now the
-        # canonical control.)
+        # ARM Mali-G78 doesn't have a populated PhysicalSpec (ARM is
+        # licensable IP -- no public die data), so memory_type renders
+        # None in JSON / empty in CSV / N/A in text+markdown. No
+        # crash, just graceful absence.
+        # Control-mapper history: A100 -> T4 -> Mali. A100 wired in
+        # #238 GPU batch; T4 wired in the Bucket A sprint (this
+        # PR's predecessor).
         out = tmp_path / "spec.json"
         _run(output_path=out)
         data = json.loads(out.read_text())
-        t4 = next(p for p in data["products"] if p["name"] == "T4-PCIe-16GB")
-        assert t4["memory_type"] is None
-        assert t4["memory_bus_width_bits"] is None
+        mali = next(p for p in data["products"] if p["name"] == "ARM-Mali-G78-MP20")
+        assert mali["memory_type"] is None
+        assert mali["memory_bus_width_bits"] is None
 
 
 class TestPhase4MemoryClock:

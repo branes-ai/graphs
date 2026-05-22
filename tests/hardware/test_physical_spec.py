@@ -5,6 +5,7 @@ from graphs.hardware.mappers.gpu import (
     create_h100_sxm5_80gb_mapper,
     create_a100_sxm4_80gb_mapper,
     create_t4_pcie_16gb_mapper,
+    create_arm_mali_g78_mp20_mapper,
     create_jetson_orin_agx_64gb_mapper,
     create_jetson_orin_nano_8gb_mapper,
     create_jetson_orin_nx_16gb_mapper,
@@ -88,13 +89,18 @@ class TestMapperPhysicalSpecIntegration:
         assert mapper.physical_spec.source.startswith("embodied-schemas:")
 
     def test_unpopulated_factory_returns_none_physical_spec(self):
-        # T4 has no upstream YAML in embodied-schemas (no data/gpus/nvidia/t4_*
-        # file) -- physical_spec should be None, not raise. This guards
-        # graceful degradation for the long-tail mappers without backfilled
-        # die specs. (A100 was the original canonical example here; backfilled
-        # via load_physical_spec_or_none on data/gpus/nvidia/a100_sxm4_80gb_hbm2e
-        # in the GPU batch wiring -- so we now use T4 as the unpopulated control.)
-        mapper = create_t4_pcie_16gb_mapper()
+        # ARM Mali-G78 has no upstream YAML in embodied-schemas (ARM is
+        # licensable GPU IP -- ARM does not publish die data; per-
+        # implementation area lives with the SoC integrator). This
+        # guards graceful degradation for the long-tail mappers without
+        # backfilled die specs.
+        # Control-mapper history:
+        #   - A100 was original; wired via load_physical_spec_or_none
+        #     in the GPU batch wiring (PR #238).
+        #   - T4 took over after A100; wired via the Bucket A sprint
+        #     wiring (data/gpus/nvidia/t4_pcie_16gb_gddr6.yaml + this PR).
+        #   - Mali-G78 is the current canonical N/A GPU.
+        mapper = create_arm_mali_g78_mp20_mapper()
         assert mapper.physical_spec is None
 
     def test_physical_spec_does_not_affect_mapping_path(self):
@@ -102,12 +108,13 @@ class TestMapperPhysicalSpecIntegration:
         # both populated and unpopulated mappers expose the same operational
         # surface area.
         h100 = create_h100_sxm5_80gb_mapper()
-        t4 = create_t4_pcie_16gb_mapper()
+        mali = create_arm_mali_g78_mp20_mapper()
         assert h100.resource_model is not None
-        assert t4.resource_model is not None
+        assert mali.resource_model is not None
         assert h100.resource_model.compute_units == 132
-        # T4 has 40 SMs (Turing) -- much smaller than the H100 datacenter parts
-        assert t4.resource_model.compute_units == 40
+        # Mali G78-MP20: 20 shader cores ("MP20"). Three orders of
+        # magnitude smaller than H100's 132 SMs -- mobile-class GPU.
+        assert mali.resource_model.compute_units == 20
 
 
 class TestJetsonPhysicalSpecs:

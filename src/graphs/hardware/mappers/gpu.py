@@ -880,7 +880,16 @@ def create_h100_pcie_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
         tech_profile=DATACENTER_4NM_HBM3
     )
 
-    return GPUMapper(resource_model, thermal_profile=thermal_profile)
+    from ..physical_spec_loader import load_physical_spec_or_none
+
+    mapper = GPUMapper(resource_model, thermal_profile=thermal_profile)
+    # H100-PCIe is distinct silicon from SXM5: same GH100 die but
+    # binned-down (114 vs 132 SMs) with HBM2e vs HBM3. Has its own
+    # YAML at embodied-schemas:data/gpus/nvidia/h100_pcie_80gb_hbm2e.
+    mapper.physical_spec = load_physical_spec_or_none(
+        vendor="nvidia", base_id="nvidia_h100_pcie_80gb_hbm2e"
+    )
+    return mapper
 
 
 def create_h100_sxm5_80gb_mapper(thermal_profile: str = None) -> GPUMapper:
@@ -1113,8 +1122,13 @@ def create_t4_pcie_16gb_mapper(thermal_profile: str = None) -> GPUMapper:
         GPUMapper configured for T4 PCIe 16GB
     """
     from ..models.datacenter.t4_pcie_16gb import t4_pcie_16gb_resource_model
+    from ..physical_spec_loader import load_physical_spec_or_none
 
-    return GPUMapper(t4_pcie_16gb_resource_model(), thermal_profile=thermal_profile)
+    mapper = GPUMapper(t4_pcie_16gb_resource_model(), thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_or_none(
+        vendor="nvidia", base_id="nvidia_t4_pcie_16gb_gddr6"
+    )
+    return mapper
 
 
 # ---------------------------------------------------------------------------
