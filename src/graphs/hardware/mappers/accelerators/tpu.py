@@ -829,9 +829,14 @@ def create_tpu_v1_mapper(thermal_profile: str = None) -> TPUMapper:
         TPUMapper configured for TPU v1
     """
     from ...models.datacenter.tpu_v1 import tpu_v1_resource_model
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = tpu_v1_resource_model()
-    return TPUMapper(model, thermal_profile=thermal_profile)
+    mapper = TPUMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "google_tpu_v1", vendor="google"
+    )
+    return mapper
 
 
 def create_tpu_v3_mapper(thermal_profile: str = None) -> TPUMapper:
@@ -853,9 +858,14 @@ def create_tpu_v3_mapper(thermal_profile: str = None) -> TPUMapper:
         TPUMapper configured for TPU v3
     """
     from ...models.datacenter.tpu_v3 import tpu_v3_resource_model
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = tpu_v3_resource_model()
-    return TPUMapper(model, thermal_profile=thermal_profile)
+    mapper = TPUMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "google_tpu_v3", vendor="google"
+    )
+    return mapper
 
 
 def create_tpu_v4_mapper(thermal_profile: str = None) -> TPUMapper:
@@ -917,9 +927,14 @@ def create_tpu_v5p_mapper(thermal_profile: str = None) -> TPUMapper:
         TPUMapper configured for TPU v5p
     """
     from ...models.datacenter.tpu_v5p import tpu_v5p_resource_model
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = tpu_v5p_resource_model()
-    return TPUMapper(model, thermal_profile=thermal_profile)
+    mapper = TPUMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "google_tpu_v5p", vendor="google"
+    )
+    return mapper
 
 
 def create_coral_edge_tpu_mapper(thermal_profile: str = None) -> TPUMapper:
@@ -965,6 +980,11 @@ def create_tpu_edge_pro_mapper(thermal_profile: str = None) -> TPUMapper:
         TPUMapper configured for TPU Edge Pro @ 30W
     """
     from ...models.edge.tpu_edge_pro import tpu_edge_pro_resource_model
+    from ...physical_spec_loader import load_physical_spec_from_compute_product_or_none
 
     model = tpu_edge_pro_resource_model()
-    return TPUMapper(model, thermal_profile=thermal_profile)
+    mapper = TPUMapper(model, thermal_profile=thermal_profile)
+    mapper.physical_spec = load_physical_spec_from_compute_product_or_none(
+        "google_tpu_edge_pro", vendor="google"
+    )
+    return mapper
