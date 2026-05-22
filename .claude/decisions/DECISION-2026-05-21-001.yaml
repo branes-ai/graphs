@@ -1,0 +1,194 @@
+# Decision Record
+#
+# Two campaign-level architectural calls established during the
+# PhysicalSpec backfill arc (sprints #62, #68, #72):
+#   1. Single-virtual-die approximation for chiplet products (no IOBlock kind)
+#   2. Closing #241 at 91% coverage as "data-availability ceiling reached"
+
+decision_id: "DECISION-2026-05-21-001"
+timestamp: "2026-05-21T22:00:00Z"
+ai_model: "claude-opus-4-7"
+session_id: "7b27e8ec-56d6-4dea-a977-6157ede5a7aa"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: "Single-virtual-die approximation for chiplet ComputeProduct YAMLs (until an IOBlock schema kind lands); and: close the PhysicalSpec backfill campaign at 91% coverage because the remaining 4 N/A are bounded by data availability, not engineering effort."
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "refactor"
+  content: "Authoring 14 new SKU YAMLs (8 chiplet CPUs across AMD/Intel + 4 TPUs + 2 PCIe GPUs) and wiring 28 graphs mapper factories to mapper.physical_spec. Two pattern-level questions arose."
+  context: |
+    Two questions came up repeatedly across the campaign and warranted a
+    single documented call.
+
+    QUESTION A: How to model chiplet products in the ComputeProduct schema?
+
+    The schema's AnyBlock discriminated union (KPU/GPU/CPU/NPU/CGRA/DPU/
+    TPU/DSP) lacks an IOBlock kind for AMD EPYC-style I/O dies, Intel
+    Xeon-style IODs, etc. Die.blocks[] has min_length=1 (every die needs
+    at least one Block), but an IOD has no compute cores -- it's all
+    memory controllers, PCIe controllers, infinity-fabric routers, etc.
+    None of those fit any current Block kind.
+
+    8 SKUs across the campaign hit this gap: EPYC 9654 (12 CCDs + IOD),
+    EPYC 9754 (8 CCDs + IOD), EPYC 9965 Turin Dense (12 CCDs + IOD),
+    Xeon 8490H Sapphire Rapids XCC (4 tiles), Xeon 8592+ Emerald
+    Rapids XCC (2 tiles), Xeon 6 6980P Granite Rapids-AP (4 tiles),
+    plus precedents from prior sprints.
+
+    QUESTION B: When does the backfill campaign close?
+
+    After sprints #62 + #68 + #72, coverage reached 43/47 (91%). The
+    remaining 4 N/A are: ARM Mali-G78 (licensable IP, no published
+    die data), Qualcomm Snapdragon Ride (Qualcomm undisclosed),
+    AmpereOne 1-core reference (synthetic; Ampere only ships full-die
+    parts), Stillwater DFM-128 (research prototype).
+
+    Three of the four CAN never have public die data; the fourth would
+    require either upstream disclosure or third-party die-shot
+    research, both outside this work line's scope. Pushing for 100%
+    means waiting on data that may never arrive.
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+
+alternatives:
+  # QUESTION A: chiplet modeling
+  - option: "(A1) Use a single virtual die per ComputeProduct, with silicon_bin decomposing across chiplets"
+    pros:
+      - "Schema-valid today; no schema change required"
+      - "Headline PhysicalSpec values (die_size_mm2 summed, transistors_billion summed, packaging.num_dies, is_chiplet) all remain accurate"
+      - "Consistent with the existing TPU v4 YAML which already uses this convention (precedent set)"
+      - "Easy to re-author once an IOBlock kind lands; only the dies[] shape changes"
+    cons:
+      - "Loses per-chiplet process-node distinction (e.g., AMD CCDs on N5 vs IOD on N6 collapses to N5 as primary)"
+      - "dies[] list shows only 1 entry; downstream consumers reading per-die data see less granularity than packaging.num_dies suggests"
+      - "Misleading at the schema level: an architecturally chiplet product is structurally indistinguishable from a monolithic one in the dies[] list"
+    selected: true
+    rejected_reason: "(selected)"
+
+  - option: "(A2) Multi-die layout with placeholder CPUBlock(num_cores=1) on the IOD die"
+    pros:
+      - "Preserves chiplet structure in dies[]"
+      - "Per-die process_node_id distinction works (CCD on N5, IOD on N6)"
+    cons:
+      - "CPUBlock.core_clusters[0].num_cores has gt=0 constraint; placeholder cores are architecturally false"
+      - "Downstream consumers iterating dies[].blocks see fake cores on the IOD"
+      - "More boilerplate per YAML (~5x more lines) for limited fidelity gain at the schema level"
+    selected: false
+    rejected_reason: "Architecturally wrong; the IOD's CPUBlock would be a lie. Choose the clearly-documented approximation (A1) over the data fabrication path."
+
+  - option: "(A3) Block schema extension: add IOBlock kind first, then author chiplet YAMLs"
+    pros:
+      - "Architecturally correct"
+      - "Sets up future products cleanly"
+    cons:
+      - "Schema-design work (new block kind + sub-types + validator semantics) is multi-day on its own"
+      - "Blocks 14 SKU YAMLs that are otherwise ready to land"
+      - "IOBlock design has open questions (memory controllers? PHY? both? per-channel? aggregate? CXL ports?) that don't surface until at least 2-3 distinct chiplet families are modeled -- premature design now risks rework later"
+    selected: false
+    rejected_reason: "Reasonable next step but blocks the campaign deliverable. Defer the IOBlock work; document every chiplet YAML's approximation in its header for easy re-author later."
+
+  # QUESTION B: closing #241 at 91%
+  - option: "(B1) Close #241 at 91% with reopening criteria; remaining 4 N/A documented as data-availability tail"
+    pros:
+      - "Reflects reality: 91% is everything for which public data exists"
+      - "Avoids open-ended work with unclear termination"
+      - "Documented reopening criteria (data disclosures, third-party die-shot research, or status-enum schema work) preserves the option to continue later"
+      - "Mirrors the #130 closure pattern (closed at 79% with similar classification)"
+    selected: true
+    rejected_reason: "(selected)"
+
+  - option: "(B2) Open a third sprint (Bucket B) for die-shot reverse-engineering work"
+    pros:
+      - "Would push toward 100%"
+      - "Mali and Snapdragon Ride may have published third-party die-shot analyses worth searching"
+    cons:
+      - "Die-shot research is multi-day per SKU and probabilistic (may yield no usable figures)"
+      - "Stretches the work line into 'research' rather than 'data plumbing'"
+      - "Synthetic SKUs (AmpereOne 1-core ref, DFM-128) can't be resolved by any amount of research"
+    selected: false
+    rejected_reason: "Out of scope for the data-plumbing work line. Reopening criteria already document this as a possible follow-up."
+
+  - option: "(B3) Add a physical_spec_status enum (POPULATED / NO_PUBLIC_DATA / SYNTHETIC / RESEARCH_PROPRIETARY) to render category-aware N/A messages"
+    pros:
+      - "Makes the long-tail tail visible without requiring data"
+      - "Better UX for downstream consumers (categorical N/A)"
+    cons:
+      - "Schema change + downstream rendering updates"
+      - "Doesn't change coverage numbers; just labels the existing N/A"
+      - "More appropriate as a separate follow-up once needed by a consumer"
+    selected: false
+    rejected_reason: "Not needed for the current consumer (the spec-sheet CLI). Documented as the most-likely reopen trigger if a consumer ever wants categorical N/A handling."
+
+# ============================================================================
+# DECISION
+# ============================================================================
+decision:
+  what: |
+    A. Chiplet products are modeled as a single virtual die in the dies[]
+       list, with silicon_bin entries decomposing across the chiplets.
+       packaging.num_dies and packaging.kind=chiplet remain accurate;
+       the per-die process_node distinction (e.g., AMD CCDs N5 vs IOD N6)
+       is documented in YAML notes only, not visible at the dies[] level.
+       Every chiplet YAML header carries an explicit "KNOWN SCHEMA
+       LIMITATION" callout explaining this and pointing at the future
+       IOBlock kind that will enable re-authoring.
+
+    B. PhysicalSpec backfill campaign closes at 91% coverage (43/47).
+       The 4 remaining N/A entries are documented in graphs#241's closing
+       comment as the data-availability tail. Reopening criteria: ARM /
+       Qualcomm disclosure (unlikely), third-party die-shot analysis
+       landing, or a physical_spec_status enum surfacing categorical N/A
+       to consumers.
+
+  why: |
+    Both calls converge on the same underlying principle: stop when
+    further work requires data that doesn't exist (or schema work that
+    doesn't fit the current work line). 91% is the catalog's ceiling for
+    "public-data-derived PhysicalSpec." The chiplet approximation is the
+    schema's ceiling for "no-IOBlock-kind data plumbing." Both are
+    documented for re-author / reopen so the work isn't lost.
+
+# ============================================================================
+# IMPACT
+# ============================================================================
+impact:
+  positive:
+    - "Catalog reached 91% PhysicalSpec coverage -- usable for downstream consumers (spec-sheet CLI, agentic system hardware selection)"
+    - "All chiplet products land with the same documented approximation; consistent treatment across vendors (AMD EPYCs + Intel Xeons)"
+    - "Documented re-author criteria mean future IOBlock work doesn't lose context"
+    - "Closing #241 frees up work-line attention for new directions (e.g., v8 multi-block-per-die, IOBlock schema, validation work)"
+  negative:
+    - "8 chiplet YAMLs need re-authoring when IOBlock lands (mechanical work; no design loss)"
+    - "Per-die process_node distinctions invisible at the dies[] level today (AMD CCDs N5 / IOD N6 collapses)"
+    - "4 SKUs permanently N/A in the current schema (Mali / Snapdragon Ride / AmpereOne 1-core / DFM-128)"
+  files_affected:
+    - "All 8 chiplet ComputeProduct YAMLs from sprints #62 and #68 (carry the schema-limitation note)"
+    - "graphs#241 closing comment documents the data-availability tail"
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  how_verified: |
+    A. Every chiplet YAML's header section was reviewed before merge; the
+       "KNOWN SCHEMA LIMITATION" callout follows a consistent template
+       (problem + workaround + re-author criteria). Cross-SKU sanity
+       tests in each parity test file confirm the chiplet packaging
+       remains accurate (packaging.num_dies, packaging.kind=chiplet)
+       even though the dies[] count is 1.
+
+    B. graphs#241's closing comment classifies all 4 remaining N/A
+       entries by data-availability bucket. Reopening criteria are
+       explicit. CLI spec sheet rendering confirms coverage at 43/47
+       (91%) with the expected 4 N/A rows.
+  tests_run:
+    - "graphs: 1236/1236 tests/hardware/ pass after every wiring PR"
+    - "graphs: 72/72 tests/hardware/test_physical_spec.py + tests/cli/test_list_hardware_resources.py pass after each control rotation"
+    - "embodied-schemas: 899/899 tests/ pass at the end of sprint #72 (up from 718 at the start of the arc)"
