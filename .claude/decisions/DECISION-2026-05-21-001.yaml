@@ -192,3 +192,68 @@ verification:
     - "graphs: 1236/1236 tests/hardware/ pass after every wiring PR"
     - "graphs: 72/72 tests/hardware/test_physical_spec.py + tests/cli/test_list_hardware_resources.py pass after each control rotation"
     - "embodied-schemas: 899/899 tests/ pass at the end of sprint #72 (up from 718 at the start of the arc)"
+
+# ============================================================================
+# RESOLUTION (added retroactively at sprint #245 closure)
+# ============================================================================
+resolution:
+  question_a:
+    status: "resolved"
+    resolved_by: "Sprint #245 (IOBlock kind landed; 3 AMD chiplet SKUs re-authored)"
+    resolved_at: "2026-05-23"
+    summary: |
+      Question A's (A3) alternative (Block schema extension) was
+      executed retroactively as sprint #245 after the campaign closed:
+
+        - PR 1 (graphs#246): paper exercise mapping AMD Genoa IOD's
+          feature set against v12 schema. Established IOBlock field
+          set (~17 NEW fields; no `performance` field per the design
+          discussion in section 6).
+
+        - PR 2 (embodied-schemas#79): v13 IOBlock schema -- BlockKind.IO,
+          IOBlock class, IOMemorySubsystem, IOOnDieFabric, InterSocketLink,
+          IOFabricTopology enum. PCIeGen re-exported from gpu.py via
+          compute_block_common.py. AnyBlock union grew to 9 members.
+
+        - PR 3 (embodied-schemas#80): EPYC 9654 re-authored to 2-die
+          layout. Compute die (792 mm^2 / 78.84 B tx) on TSMC N5;
+          Genoa IOD (397 mm^2 / 12 B tx) on TSMC N6. 12 IFOP
+          interconnects on the compute die.
+
+        - PR 4 (embodied-schemas#81): EPYC 9754 (Bergamo) re-authored.
+          Shared-IOD invariant: reuses the SAME genoa_iod die from PR
+          3 byte-for-byte. 8 IFOP links.
+
+        - PR 5 (embodied-schemas#82): EPYC 9965 (Turin Dense) re-authored
+          with NEW turin_iod silicon (distinct from genoa_iod):
+          DDR5-6000 vs DDR5-4800, CXL 2.0 vs CXL 1.1, ~13 B vs ~12 B tx.
+          Validates the IOBlock schema against a second IOD silicon
+          family.
+
+        - PR 6 (graphs, this commit): PhysicalSpec regression pins
+          confirming byte-identical sums across all 3 EPYC SKUs.
+          Per-die process_node distinction now visible at the schema
+          level (CCDs on N5/N4P, IODs on N6) -- was previously hidden
+          in YAML comments only per the original (A1) decision.
+
+      The "single virtual die approximation" trade-off documented
+      above (per-die node distinction lost, dies[] count misleading)
+      no longer applies to AMD chiplet SKUs in the catalog. Intel
+      Xeon tile architectures stay single-die per the original design
+      call (tile-internal IO; no separate IOD silicon).
+
+      Headline PhysicalSpec values preserved across all 3 rewrites:
+        | SKU          | die_size_mm^2 | transistors_B | num_dies |
+        |--------------|---------------|---------------|----------|
+        | EPYC 9654    | 1189.0        | 90.84         | 13       |
+        | EPYC 9754    | 978.6         | 89.6          | 9        |
+        | EPYC 9965    | 1276.0        | 145.0         | 13       |
+
+  question_b:
+    status: "unchanged"
+    note: |
+      The 91% closure call stands. Sprint #245 was a schema-extension
+      sprint, not a coverage-increase sprint -- it didn't change the
+      catalog's PhysicalSpec coverage numbers. The 4 remaining N/A
+      SKUs (Mali / Snapdragon Ride / AmpereOne 1-core ref / DFM-128)
+      are still bounded by data availability, not schema work.
