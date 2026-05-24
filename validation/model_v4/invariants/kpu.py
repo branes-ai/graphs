@@ -314,14 +314,16 @@ def check_avg_power_below_tdp(
     shapes: Tuple[_MatmulShape, ...] = DEFAULT_SHAPE_GRID,
     tdp_slack: float = 1.10,
 ) -> List[str]:
-    """Predicted total energy / latency must not exceed TDP * slack.
+    """Predicted per-inference average power must not exceed TDP * slack.
 
-    NOTE: this invariant is currently *known to fail* on every KPU
-    mapper because the energy model uses the GPU IDLE_POWER_FRACTION
-    (0.3) plus dynamic energy_per_flop coefficients that were not
-    calibrated against KPU silicon. Tracked in #81; the pytest wrapper
-    marks this test as xfail. Once #81 lands the xfail can be removed
-    and this becomes a hard test (same pattern as the #71 CPU fix).
+    Average power is read from ``EnergyReport.average_power_w``, which the
+    EnergyAnalyzer computes against the *thermally-bound* latency
+    (``max(burst_latency, energy / TDP)``). TDP is a sustained thermal limit,
+    so a thermally limited package cannot sustain an average power above it;
+    energy stays physical and the effective latency floors at energy / TDP.
+    The clamp landed for #177 / #121; before it, this invariant was a known
+    xfail on every KPU mapper (uncalibrated energy_per_flop over a sub-TDP
+    burst latency yielded 18x-37x overshoots).
 
     Returning the violation list (rather than just a bool) lets the
     diagnostic surface which shapes are most over-prediction-prone."""
@@ -336,13 +338,13 @@ def check_avg_power_below_tdp(
         if lat.actual_latency <= 0:
             continue
         report = energy.analyze(subgraphs=[sg], latencies=[lat.actual_latency])
-        avg_power = report.total_energy_j / lat.actual_latency
+        avg_power = report.average_power_w
         if avg_power > tdp * tdp_slack:
             failures.append(
                 f"shape=({s.M},{s.K},{s.N}): avg power {avg_power:.1f}W "
                 f"exceeds TDP {tdp:.1f}W (slack {tdp_slack:.0%}); "
                 f"energy={report.total_energy_j*1e3:.2f}mJ over "
-                f"latency={lat.actual_latency*1e6:.1f}us")
+                f"thermally-bound latency={report.thermally_bound_latency_s*1e6:.1f}us")
     return failures
 
 
@@ -362,10 +364,11 @@ class InvariantReport:
         return sum(len(v) for v in self.failures_per_check.values())
 
     def hard_failures(self) -> dict[str, List[str]]:
-        """Return only the failures for *hard* invariants (excluding the
-        known-violated power-below-TDP diagnostic)."""
-        return {k: v for k, v in self.failures_per_check.items()
-                if k != "avg_power_below_tdp" and v}
+        """Return only the failures for *hard* invariants.
+
+        avg_power_below_tdp became a hard invariant once the thermal-envelope
+        clamp landed (#177 / #121); it is no longer excluded as a diagnostic."""
+        return {k: v for k, v in self.failures_per_check.items() if v}
 
 
 def run_kpu_invariants(
