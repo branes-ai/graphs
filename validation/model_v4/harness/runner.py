@@ -356,6 +356,28 @@ def _predict_energy_j(
         return None
 
 
+def _predict_avg_power_w(
+    sg: SubgraphDescriptor,
+    hw: HardwareResourceModel,
+    precision: Precision,
+    latency_s: float,
+) -> Optional[Tuple[float, float]]:
+    """Predict (sustained avg power W, thermally-bound latency s) via the
+    EnergyAnalyzer's thermal-envelope clamp.
+
+    Average power is read from the clamped EnergyReport rather than computed as
+    energy / burst_latency: TDP is a sustained thermal limit, so for short
+    bursts the naive quotient blows past TDP (the #121 / #177 artifact -- e.g.
+    KPU-T64 vector_add at N=1M reported ~983 W on a 6 W TDP). Returns None if
+    the analyzer raises."""
+    try:
+        analyzer = EnergyAnalyzer(hw, precision=precision)
+        report = analyzer.analyze(subgraphs=[sg], latencies=[latency_s])
+        return float(report.average_power_w), float(report.thermally_bound_latency_s)
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Internals: workload construction (only when refreshing measurements)
 # ---------------------------------------------------------------------------
