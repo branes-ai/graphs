@@ -187,6 +187,15 @@ def compute_thermal_profile_tdp_breakdown(
     vdd = profile.vdd_v if profile.vdd_v is not None else node.nominal_vdd_v
     voltage_scale = (vdd / node.nominal_vdd_v) ** 2
 
+    # Leakage Vdd-scaling (#154): leakage_w_per_mm2 is characterized AT nominal
+    # Vdd, so total_chip_leakage_w returns the nominal-Vdd figure. Sub-threshold
+    # and gate leakage both fall steeply with Vdd -- holding leakage flat
+    # overstates it by 2-3x on low-power profiles (e.g. 0.60 V vs 0.80 V
+    # nominal). Scale by (V/Vnom)^leakage_vdd_exponent when the node carries the
+    # exponent; otherwise leave flat (legacy behavior on older ProcessNode YAMLs).
+    if node.leakage_vdd_exponent is not None and vdd != node.nominal_vdd_v:
+        leakage_w *= (vdd / node.nominal_vdd_v) ** node.leakage_vdd_exponent
+
     # Per-tile L2 + L3 use sram_hd by convention (matches catalog silicon_bin).
     sram_pj = _sram_pj_per_byte(node, CircuitClass.SRAM_HD, default=0.5)
     dram_pj = node.dram_io_pj_per_byte if node.dram_io_pj_per_byte is not None else 7.0
@@ -232,8 +241,8 @@ def compute_thermal_profile_tdp_breakdown(
         dram_byte_rate = l3_byte_rate * (1.0 - workload.l3_hit_rate)
 
         # All dynamic terms scale with V^2 (charging/discharging C*V^2*f).
-        # Leakage doesn't scale here (model limitation: should also drop
-        # with Vdd, but our leakage_w_per_mm2 is single-Vdd in the schema).
+        # Leakage scales separately by (V/Vnom)^leakage_vdd_exponent and was
+        # already applied to leakage_w above (#154).
         sustained_compute_w *= voltage_scale
         l2_w = l2_byte_rate * sram_pj * 1e-12 * voltage_scale
         l3_w = l3_byte_rate * sram_pj * 1e-12 * voltage_scale
