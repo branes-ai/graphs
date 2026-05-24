@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **YAML propagation contract test** (`tests/hardware/test_physical_spec_loader.py::TestYamlPropagationContract`) — synthesizes a YAML in tmp_path, points `EMBODIED_SCHEMAS_DATA_DIR` at it, verifies the loader returns the values written; mutates the YAML on disk, verifies the second call returns the new values. Pins the live-propagation contract between graphs and embodied-schemas (no stale-cache path) (closes #132, PR #249).
+- **PhysicalSpec coverage pin** (`tests/hardware/test_physical_spec_loader.py::TestPhysicalSpecCoveragePin`) — pins the registry state at 43 populated / 4 unpopulated. The 4 unpopulated SKUs (ARM Mali-G78, AmpereOne-1core-ref, Snapdragon Ride, DFM-128) are named explicitly. Regression test against future factory refactors that accidentally drop `physical_spec` wiring (PR #249).
+- **EPYC chiplet PhysicalSpec regression pins** (`tests/hardware/test_amd_epyc_chiplet_physical_spec.py`) — 11 tests pinning byte-identical PhysicalSpec sums across the v13 IOBlock multi-die rewrites (EPYC 9654 / 9754 / 9965). Includes per-die `process_node_id` distinction tests (CCDs on TSMC N5/N4P, IODs on TSMC N6) and cross-SKU shared-IOD / distinct-IOD invariants (PR #247).
 - SEMVER versioning strategy and governance framework (PROPOSAL-001)
 - Decision record template for AI governance
 - Task specification template for delegation
@@ -19,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `diagnose_dip.py`: Diagnostic tool for tile boundary energy discontinuities
   - `kpu_energy_advantage.html`: Web-native D3.js chart for marketing site (clean, no legend, log-scale x-axis with superscript notation)
   - Energy model: 5nm FP16 weight-stationary dataflow; GPU 1.262 pJ/MAC dynamic vs KPU 0.215 pJ/MAC core; power-gated leakage with 5% residual for inactive PEs
+
+### Changed
+- **`DECISION-2026-05-21-001.yaml`** — Question A (single-virtual-die approximation) marked **resolved** by sprint #245. The (A3) "Block schema extension" alternative, originally rejected at campaign closure to avoid blocking the deliverable, was executed retroactively across 5 PRs (paper exercise + v13 schema + 3 EPYC re-authors + downstream verification). Question B (campaign closure at 91%) unchanged (PR #247).
+- **CI embodied-schemas pin** bumped twice: first from `6778f13` (sprint #223 era) to `61158ff` (sprint #245 PR 5 merge) to unstall the CI environment that predated the AMD EPYC / Intel Xeon / TPU / IOBlock catalog entries (PR #247); then to `7cc12c4` (ES#83 merge) once Thor/Orin Nano memory_bus_bits were corrected upstream (PR #248). All 8 ref sites across `ci.yml`, `coverage.yml`, `v4-validation.yml` updated. History comment blocks extended.
+- **`physical_spec_loader.py`** — `KNOWN_OVERRIDES` dict is now empty. The two original entries for Jetson Thor (memory_bus_width_bits=256) and Orin Nano (memory_bus_width_bits=128) were the temporary downstream shim for branes-ai/embodied-schemas#8; both became unnecessary once ES#83 corrected the YAMLs upstream (PR #248).
+- **`test_physical_spec_loader.py::TestKnownOverridesApplied`** — three tests updated: value pins kept (now sourcing from the corrected YAMLs directly), `in KNOWN_OVERRIDES` assertions dropped, count assertion flipped to `len == 0`. New entries to `KNOWN_OVERRIDES` MUST cite an upstream issue per the docstring (PR #248).
+
+### Removed
+- Inline `PhysicalSpec(...)` constructors in mapper factories — 0 remaining outside the loader itself. The migration began with sprint #130 (PhysicalSpec foundation) and completed across sprints #234, #241, and #245. All 43 populated mappers now source PhysicalSpec via `load_physical_spec_or_none()` / `load_physical_spec_from_compute_product_or_none()` from embodied-schemas YAMLs (closes #132).
+
+### Issues closed
+- **#245** — IOBlock mini-sprint umbrella. 6 PRs: paper exercise (#246), v13 schema (embodied-schemas#79), 3 EPYC multi-die rewrites (embodied-schemas#80/#81/#82), graphs verification (#247). All 3 AMD chiplet datacenter SKUs (EPYC 9654 Genoa / 9754 Bergamo / 9965 Turin Dense) re-authored from single-virtual-die approximation to proper 2-die layouts (compute + IO die) joined by IFOP interconnects. First non-Genoa-class IOD silicon (Turin IOD) introduced with DDR5-6000 + CXL 2.0.
+- **branes-ai/embodied-schemas#8** — Jetson Thor and Orin Nano memory_bus_bits corrected upstream (ES#83). Thor 512→256, Orin Nano 64→128; bandwidths unchanged.
+- **#132** — PhysicalSpec source switch. Migration was functionally complete across sprints #234/#241/#245; this issue's closer (PR #249) added the missing propagation contract test as exit criterion 4.
 
 ---
 
