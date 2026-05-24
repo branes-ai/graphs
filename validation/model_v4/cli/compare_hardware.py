@@ -54,6 +54,7 @@ from validation.model_v4.cli.visualize_baseline import (
 from validation.model_v4.harness.runner import (
     SWEEP_HW_TO_MAPPER,
     _build_subgraph,
+    _predict_avg_power_w,
     _predict_energy_j,
     _predict_latency_s,
 )
@@ -108,6 +109,7 @@ def _enrich_predictions(
             sg, hw, precision, use_tier_aware_memory=True,
         )
         pred_egy = _predict_energy_j(sg, hw, precision, pred_lat)
+        pred_power = _predict_avg_power_w(sg, hw, precision, pred_lat)
     except (ValueError, KeyError, AttributeError, ZeroDivisionError) as e:
         print(
             f"  warning: prediction failed for {op}{tuple(shape)} {dtype} "
@@ -123,14 +125,20 @@ def _enrich_predictions(
         "dtype": dtype,
         "operational_intensity": fp.operational_intensity,
         "working_set_bytes": fp.working_set_bytes,
+        # predicted_latency_ms / predicted_gflops are the burst (roofline-
+        # attainable) latency -- the instantaneously achievable rate for one op.
         "predicted_latency_ms": pred_lat * 1e3,
         "predicted_gflops": fp.flops / pred_lat / 1e9,
         "predicted_energy_j": pred_egy if pred_egy is not None else None,
-        # ``pred_lat > 0`` is already guaranteed by the early-return
-        # guard at the top of this function; only ``pred_egy`` may be
-        # None / zero.
-        "predicted_avg_power_w": (
-            pred_egy / pred_lat if pred_egy else None
+        # predicted_avg_power_w is the *sustained* average power from the
+        # thermal-envelope clamp (energy / thermally-bound latency), so it never
+        # exceeds TDP. Dividing energy by the burst latency above would
+        # reproduce the #121 / #177 artifact (>900 W on a 6 W TDP for tiny ops).
+        # thermally_bound_latency_ms exposes the sustained latency the avg-power
+        # figure is computed against (>= predicted_latency_ms when throttled).
+        "predicted_avg_power_w": (pred_power[0] if pred_power else None),
+        "thermally_bound_latency_ms": (
+            pred_power[1] * 1e3 if pred_power else None
         ),
     }
 

@@ -15,14 +15,15 @@ Test coverage matrix:
   memory_time_scales_with_bytes          PASS PASS  PASS  PASS
   achieved_compute_below_peak            PASS PASS  PASS  PASS
   achieved_bw_below_peak                 PASS PASS  PASS  PASS
-  avg_power_below_tdp                    XFAIL XFAIL XFAIL XFAIL  (#81)
+  avg_power_below_tdp                    PASS PASS  PASS  PASS
   family_latency_non_increasing                 (cross-mapper test)
 
-The avg_power_below_tdp invariant is marked xfail because the KPU
-energy model uses the GPU IDLE_POWER_FRACTION (0.3) and uncalibrated
-dynamic energy_per_flop coefficients -- the same pre-#71 problem that
-afflicted CPU. Issue #81 tracks the KPU energy calibration; once that
-lands the xfail comes off and this becomes a regular pass.
+avg_power_below_tdp was xfail (#81) until the thermal-envelope clamp landed
+for #177 / #121: the EnergyAnalyzer now derives average_power_w from the
+thermally-bound latency (max(burst_latency, energy / TDP)), so sustained
+average power can never exceed TDP. Energy stays physical (truthful joules);
+only the effective latency floors. The deeper energy_per_flop recalibration
+-- so the unclamped burst power is also physical -- is the #81 follow-up.
 """
 
 from __future__ import annotations
@@ -131,24 +132,19 @@ def test_achieved_bw_below_peak(kpu_mapper):
 
 
 # ---------------------------------------------------------------------------
-# Diagnostic: power-below-TDP is currently violated (xfail with reason)
+# Invariant: per-inference average power must not exceed TDP
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "KPU energy model uses the GPU IDLE_POWER_FRACTION (0.3) and "
-    "uncalibrated dynamic energy_per_flop coefficients. Predicted "
-    "average power exceeds TDP by ~1.5x-3x for typical matmul shapes. "
-    "Tracked in #81; mirrors the pre-#71 CPU situation. xfail "
-    "strict=True so if the energy model gets fixed, the test flips "
-    "to a regular pass and CI flags the xfail for removal."
-))
-def test_avg_power_below_tdp_known_violated(kpu_mapper):
-    """Diagnostic: predicted avg power (energy/latency) <= TDP * 1.10.
+def test_avg_power_below_tdp(kpu_mapper):
+    """Predicted per-inference avg power <= TDP * 1.10 on every KPU mapper.
 
-    Currently KNOWN VIOLATED on every KPU mapper -- see xfail reason.
-    The check itself is implemented and ready to flip to a hard test
-    once the energy model is calibrated."""
+    Was xfail (#81) until the thermal-envelope clamp landed for #177 / #121:
+    the EnergyAnalyzer now computes average_power_w against the thermally-bound
+    latency (max(burst_latency, energy / TDP)), so sustained avg power can never
+    exceed TDP. Energy stays physical -- only the effective latency floors. The
+    deeper energy_per_flop recalibration (so the *unclamped* burst power is also
+    physical) is the #81 follow-up; this invariant guards the hard ceiling."""
     name, hw = kpu_mapper
     failures = check_avg_power_below_tdp(hw, PRECISION)
     assert not failures, (

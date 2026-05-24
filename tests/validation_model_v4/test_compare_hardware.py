@@ -89,6 +89,23 @@ def test_enrich_predictions_returns_expected_fields_for_vector_add():
     assert e["operational_intensity"] == pytest.approx(1.0 / (3 * 2))
 
 
+def test_enrich_predictions_kpu_vector_add_avg_power_below_tdp():
+    """Regression for #121: KPU-T64 vector_add at N=1M reported ~983 W avg
+    power on a 6 W TDP because the harness divided energy by the sub-us burst
+    latency. The thermal-envelope clamp makes predicted_avg_power_w the
+    sustained value, which must respect TDP, while the burst latency stays
+    available (and shorter) for the latency/throughput panels."""
+    hw = get_mapper_by_name("Stillwater-KPU-T64").resource_model
+    e = _enrich_predictions("vector_add", (1048576,), "fp16", hw)
+    assert e is not None
+    # KPU-T64 default thermal profile is 6 W; allow the invariant's 10% slack.
+    assert e["predicted_avg_power_w"] <= 6.0 * 1.10, (
+        f"avg power {e['predicted_avg_power_w']:.1f}W exceeds 6W TDP -- #121 regression"
+    )
+    # Sustained (thermally-bound) latency >= burst latency; throttle raised it.
+    assert e["thermally_bound_latency_ms"] >= e["predicted_latency_ms"]
+
+
 def test_enrich_predictions_kpu_matmul_faster_than_orin_nano():
     """KPU T64 fp16 has 25x the matmul TFLOPS of Orin Nano fp16. For a
     compute-heavy shape, predicted latency on KPU should be markedly

@@ -129,9 +129,19 @@ class EnergyReport:
     wasted_energy_percent: float = 0.0
 
     # Power analysis (Watts)
-    average_power_w: float = 0.0
-    peak_power_w: float = 0.0
-    total_latency_s: float = 0.0
+    average_power_w: float = 0.0  # energy / thermally-bound latency; <= TDP
+    peak_power_w: float = 0.0  # max per-subgraph instantaneous (burst) power
+    total_latency_s: float = 0.0  # truthful burst latency (sum of roofline latencies)
+
+    # Thermal-envelope clamp (see EnergyAnalyzer.analyze):
+    # A thermally limited package cannot sustain a per-inference average power
+    # above TDP. Energy is physical and stays truthful; when the burst latency
+    # would imply avg power > TDP, the workload is thermally bound and the
+    # effective (sustained) latency floors at energy / TDP. average_power_w is
+    # always computed against thermally_bound_latency_s, so it never exceeds TDP.
+    thermally_bound_latency_s: float = 0.0  # max(total_latency_s, energy / TDP)
+    thermal_throttle_active: bool = False  # True when the TDP floor raised latency
+    tdp_watts: float = 0.0  # TDP used for the clamp (for downstream reporting)
 
     # Per-subgraph energy
     energy_descriptors: List[EnergyDescriptor] = field(default_factory=list)
@@ -424,7 +434,26 @@ class EnergyAnalyzer:
 
         # Power analysis
         total_latency = sum(latencies)
-        average_power = total_energy / total_latency if total_latency > 0 else 0.0
+
+        # Thermal-envelope clamp.
+        # TDP is a *sustained* thermal limit, not an instantaneous power cap. A
+        # short burst can momentarily draw more than TDP, but the per-inference
+        # AVERAGE power cannot -- the package would overheat if the workload ran
+        # back-to-back. So sustained throughput is thermally bound: the effective
+        # latency floors at energy / TDP. Energy stays physical (truthful joules);
+        # we never fake it down. This is the standard thermal-bound roofline
+        # treatment and applies to every mapper (it only bites when the burst
+        # latency implies avg power above TDP -- typically tiny ALU-dominated ops
+        # on small-TDP ASICs; see issues #177, #121).
+        min_latency_for_tdp = (
+            total_energy / self.tdp_watts if self.tdp_watts > 0 else 0.0
+        )
+        thermally_bound_latency = max(total_latency, min_latency_for_tdp)
+        thermal_throttle_active = min_latency_for_tdp > total_latency
+        average_power = (
+            total_energy / thermally_bound_latency
+            if thermally_bound_latency > 0 else 0.0
+        )
 
         # Peak power (max instantaneous power)
         peak_power = max(
@@ -456,6 +485,9 @@ class EnergyAnalyzer:
             average_power_w=average_power,
             peak_power_w=peak_power,
             total_latency_s=total_latency,
+            thermally_bound_latency_s=thermally_bound_latency,
+            thermal_throttle_active=thermal_throttle_active,
+            tdp_watts=self.tdp_watts,
             energy_descriptors=energy_descriptors,
             top_energy_consumers=top_consumers,
             optimization_opportunities=optimizations,
