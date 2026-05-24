@@ -63,32 +63,40 @@ class TestLoaderRoundTrip:
 
 class TestKnownOverridesApplied:
     """KNOWN_OVERRIDES captures field-level corrections for documented
-    embodied-schemas YAML bugs (#8). The loader must apply them before
-    returning so consumers see the correct values."""
+    embodied-schemas YAML bugs. The loader applies them before returning
+    so consumers see the correct values.
 
-    def test_thor_bus_width_corrected_from_yaml_bug(self):
-        # Raw YAML lists 512-bit, but bandwidth math (273 GB/s /
-        # 8.533 GT/s LPDDR5X) confirms 256-bit. The KNOWN_OVERRIDES
-        # entry corrects this at load time.
+    The two original entries (Jetson Thor + Orin Nano memory_bus_bits
+    from embodied-schemas#8) were removed once the upstream YAML fix
+    landed in embodied-schemas#83. KNOWN_OVERRIDES is now empty, and
+    the loader returns the correct values directly from the YAML.
+
+    The tests below double-check that the values still resolve correctly
+    -- they would fail if the upstream YAML regresses to the buggy
+    values, or if the loader stops surfacing the field at all.
+    """
+
+    def test_thor_bus_width_is_256(self):
+        # embodied-schemas#8 (closed by #83): Jetson Thor YAML correctly
+        # lists 256-bit LPDDR5X. Bandwidth math (273 GB/s / 8.533 GT/s)
+        # and NVIDIA's announcement blog both confirm 256.
         spec = load_physical_spec("nvidia_thor_gpu_128gb_lpddr5x")
         assert spec.memory_bus_width_bits == 256
-        # Sanity: the override key is documented for this base_id.
-        assert "nvidia_thor_gpu_128gb_lpddr5x" in KNOWN_OVERRIDES
 
-    def test_orin_nano_bus_width_corrected_from_yaml_bug(self):
-        # Raw YAML lists 64-bit, but bandwidth math (68 GB/s /
-        # 4.267 GT/s LPDDR5-4267) confirms 128-bit.
+    def test_orin_nano_bus_width_is_128(self):
+        # embodied-schemas#8 (closed by #83): Orin Nano YAML correctly
+        # lists 128-bit LPDDR5-4267. Bandwidth math (68 GB/s / 4.267
+        # GT/s) and NVIDIA's datasheet both confirm 128.
         spec = load_physical_spec("nvidia_orin_nano_gpu_8gb_lpddr5")
         assert spec.memory_bus_width_bits == 128
-        assert "nvidia_orin_nano_gpu_8gb_lpddr5" in KNOWN_OVERRIDES
 
-    def test_known_overrides_list_is_minimal(self):
+    def test_known_overrides_list_is_empty(self):
         # Documents the principle that overrides should be REMOVED when
-        # the upstream YAML is fixed. If this assertion grows beyond a
-        # handful of entries, that's a signal to escalate the upstream
-        # bug fix rather than accumulate corrections downstream.
-        # As of #139, only the two bugs from embodied-schemas#8.
-        assert len(KNOWN_OVERRIDES) == 2
+        # the upstream YAML is fixed. embodied-schemas#83 closed the
+        # original #8 entries; the dict is now empty. If this assertion
+        # grows back beyond zero, the new entry MUST cite the upstream
+        # issue (see the docstring on KNOWN_OVERRIDES).
+        assert len(KNOWN_OVERRIDES) == 0
 
 
 class TestProcessNodeNameComposition:
