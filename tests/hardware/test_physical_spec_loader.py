@@ -337,3 +337,160 @@ class TestGracefulLoader:
                 del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
             else:
                 os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+
+
+# ---------------------------------------------------------------------------
+# YAML propagation contract -- closes issue #132 exit criterion 4
+# ---------------------------------------------------------------------------
+
+class TestYamlPropagationContract:
+    """End-to-end propagation: when an embodied-schemas YAML field
+    changes on disk, the change must be observable through
+    ``load_physical_spec``.
+
+    This is issue #132's exit criterion 4: "test that updates an
+    embodied-schemas YAML field and confirms the change propagates to
+    graphs/ via the loader." The other exit criteria are satisfied by
+    the loader-backed factory wiring that landed across sprints #234,
+    #241, and #245 (43 of 47 registered mappers now source PhysicalSpec
+    from embodied-schemas via this loader; the 4 unpopulated SKUs are
+    bounded by data availability per
+    ``DECISION-2026-05-21-001.yaml`` Question B).
+
+    The tests build a synthetic YAML in ``tmp_path`` and point
+    ``EMBODIED_SCHEMAS_DATA_DIR`` at it -- so the contract is verified
+    against a controlled file, not the live catalog (whose values are
+    pinned separately by ``TestLoaderRoundTrip``).
+    """
+
+    @staticmethod
+    def _write_yaml(yaml_path, die_size_mm2, transistors_billion, bus_bits=256):
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        yaml_path.write_text(
+            "id: test_synthetic_propagation_sku\n"
+            "name: Test Synthetic Propagation SKU\n"
+            "vendor: test\n"
+            "die:\n"
+            f"  die_size_mm2: {die_size_mm2}\n"
+            f"  transistors_billion: {transistors_billion}\n"
+            "  foundry: tsmc\n"
+            "  process_nm: 7\n"
+            "  process_name: N7\n"
+            "  is_chiplet: false\n"
+            "  num_dies: 1\n"
+            "memory:\n"
+            "  memory_size_gb: 8.0\n"
+            "  memory_type: hbm3\n"
+            f"  memory_bus_bits: {bus_bits}\n"
+        )
+
+    def test_yaml_value_propagates_to_loader_output(self, tmp_path):
+        """Loader returns the value written to the YAML on disk."""
+        yaml_path = (
+            tmp_path / "gpus" / "test" / "test_synthetic_propagation_sku.yaml"
+        )
+        self._write_yaml(yaml_path, die_size_mm2=123.4, transistors_billion=5.6)
+
+        old = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
+        os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = str(tmp_path)
+        try:
+            spec = load_physical_spec("test_synthetic_propagation_sku")
+            assert spec.die_size_mm2 == 123.4
+            assert spec.transistors_billion == 5.6
+            assert spec.memory_bus_width_bits == 256
+            assert spec.process_node_nm == 7
+        finally:
+            if old is None:
+                del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
+            else:
+                os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+
+    def test_yaml_edit_propagates_to_loader_output(self, tmp_path):
+        """When the YAML is mutated, a second loader call returns the
+        new value -- there's no stale-cache path between graphs and
+        embodied-schemas."""
+        yaml_path = (
+            tmp_path / "gpus" / "test" / "test_synthetic_propagation_sku.yaml"
+        )
+        self._write_yaml(yaml_path, die_size_mm2=100.0, transistors_billion=1.0)
+
+        old = os.environ.get("EMBODIED_SCHEMAS_DATA_DIR")
+        os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = str(tmp_path)
+        try:
+            first = load_physical_spec("test_synthetic_propagation_sku")
+            assert first.die_size_mm2 == 100.0
+            assert first.transistors_billion == 1.0
+
+            # Mutate the YAML on disk
+            self._write_yaml(
+                yaml_path, die_size_mm2=200.0, transistors_billion=2.0
+            )
+
+            second = load_physical_spec("test_synthetic_propagation_sku")
+            assert second.die_size_mm2 == 200.0
+            assert second.transistors_billion == 2.0
+        finally:
+            if old is None:
+                del os.environ["EMBODIED_SCHEMAS_DATA_DIR"]
+            else:
+                os.environ["EMBODIED_SCHEMAS_DATA_DIR"] = old
+
+
+# ---------------------------------------------------------------------------
+# Coverage pin -- closes issue #132 exit criteria 1+2
+# ---------------------------------------------------------------------------
+
+class TestPhysicalSpecCoveragePin:
+    """Pins the current registry's physical_spec coverage state so a
+    future refactor that accidentally drops physical_spec wiring on a
+    previously-populated mapper is caught loudly.
+
+    Coverage state is the closure of campaigns #130 + #234 + #241:
+    43 of 47 registered mappers source PhysicalSpec from embodied-
+    schemas; the 4 N/A SKUs are the data-availability tail documented
+    in ``DECISION-2026-05-21-001.yaml`` Question B.
+
+    Reopening criteria for any of the 4 N/A SKUs:
+      - ARM disclosure (Mali) -- ARM is licensable IP; unlikely
+      - Qualcomm disclosure (Snapdragon Ride) -- proprietary; unlikely
+      - Third-party die-shot research landing for either of the above
+      - The 1-core AmpereOne reference is synthetic (Ampere only ships
+        full-die parts) -- can't have public die data
+      - DFM-128 is a Stillwater research prototype
+    """
+
+    EXPECTED_UNPOPULATED = {
+        "ARM-Mali-G78-MP20",
+        "Ampere-AmpereOne-1core-ref",
+        "Qualcomm-Snapdragon-Ride",
+        "Stillwater-DFM-128",
+    }
+
+    def test_registry_physical_spec_coverage_state(self):
+        """43 populated, 4 unpopulated -- post-#241 closure state."""
+        from graphs.hardware.mappers import list_all_mappers, get_mapper_by_name
+
+        unpopulated = set()
+        populated_count = 0
+        for name in list_all_mappers():
+            mapper = get_mapper_by_name(name)
+            if mapper is None or not hasattr(mapper, "physical_spec"):
+                continue
+            if mapper.physical_spec is None:
+                unpopulated.add(name)
+            else:
+                populated_count += 1
+
+        assert unpopulated == self.EXPECTED_UNPOPULATED, (
+            f"physical_spec coverage drift detected.\n"
+            f"  Expected unpopulated: {sorted(self.EXPECTED_UNPOPULATED)}\n"
+            f"  Actual unpopulated:   {sorted(unpopulated)}\n"
+            f"  If a new mapper is N/A by data availability, add it to "
+            f"EXPECTED_UNPOPULATED. If a previously-populated mapper "
+            f"regressed, fix the factory wiring."
+        )
+        assert populated_count == 43, (
+            f"populated mapper count drift: expected 43, got "
+            f"{populated_count}. Cross-check against "
+            f"DECISION-2026-05-21-001 Question B coverage closure."
+        )
