@@ -1270,9 +1270,9 @@ def create_jetson_thor_128gb_mapper(thermal_profile: str = None) -> GPUMapper:
         jetson_thor_128gb_resource_model(), thermal_profile=thermal_profile
     )
     # Thor's PhysicalSpec sources from embodied-schemas/data/gpus/nvidia/
-    # thor_gpu_128gb_lpddr5x.yaml. The YAML's 512-bit memory_bus_bits
-    # value is incorrect (see branes-ai/embodied-schemas#8); the loader
-    # applies a KNOWN_OVERRIDES correction to 256-bit at load time.
+    # thor_gpu_128gb_lpddr5x.yaml. The YAML's memory_bus_bits is 256
+    # (was originally 512 in error; corrected upstream in
+    # branes-ai/embodied-schemas#83 closing #8).
     mapper.physical_spec = load_physical_spec_or_none(vendor="nvidia", base_id="nvidia_thor_gpu_128gb_lpddr5x")
     return mapper
 
