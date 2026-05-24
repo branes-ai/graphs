@@ -1,0 +1,244 @@
+# Session: 2026-05-23 — IOBlock sprint closure + ES#8 cleanup + PhysicalSpec source switch closure
+
+## Summary
+
+Three issues closed cleanly across 7 PRs in 2 repos: graphs#245 (IOBlock
+mini-sprint umbrella), branes-ai/embodied-schemas#8 (Jetson Thor + Orin
+Nano memory_bus_bits), and graphs#132 (PhysicalSpec source switch).
+
+The session opened with sprint #245 PRs 4 + 5 (Bergamo + Turin Dense
+multi-die rewrites) and the downstream graphs verification PR (PR 6),
+which together closed the IOBlock mini-sprint started in the previous
+session. After that, a 2-PR cross-repo cleanup chain (ES#83 then
+graphs#248) retired the last `KNOWN_OVERRIDES` shim from
+`physical_spec_loader.py`. Session closed with a tightly-scoped
+certification PR (#249) that delivered the one remaining exit criterion
+of #132 (propagation contract test) and pinned the registry's coverage
+state.
+
+Headline: 1250/1250 tests pass on tests/hardware/ (+14 net new from
+the session); embodied-schemas runs 962/962. No regressions in
+PhysicalSpec headline values for any of the 47 registered mappers.
+
+## What happened (in order)
+
+### 1. embodied-schemas#81 -- EPYC 9754 (Bergamo) multi-die rewrite
+
+Sprint #245 PR 4. Re-authored Bergamo from a single virtual die to a
+proper 2-die layout. **First exercise of the shared-IOD reuse pattern**:
+Bergamo's `genoa_iod` die is byte-identical to EPYC 9654's
+(same `die_id`, area, transistor count, silicon_bin decomposition,
+IOBlock field values). The only delta from 9654 at the silicon level
+is the compute die: 8 Zen 4c CCDs (vs 9654's 12 Zen 4 CCDs).
+
+- Compute die: `epyc_9754_compute_aggregate`, TSMC N5, 581.6 mm² / 77.6 B tx
+- IO die: reused `genoa_iod`, TSMC N6, 397 mm² / 12 B tx
+- 8 IFOP point-to-point coherent links on the compute die
+
+Two new cross-SKU shared-IOD invariant tests pin that the IOD silicon
+is byte-identical between 9654 and 9754.
+
+Headline PhysicalSpec sums preserved: 978.6 mm² / 89.6 B tx.
+
+29 new tests; 947/947 full repo pass (+15 net).
+
+### 2. embodied-schemas#82 -- EPYC 9965 (Turin Dense) multi-die rewrite
+
+Sprint #245 PR 5. **First NEW IOD silicon under the v13 schema** --
+distinct from the Genoa IOD shared by 9654/9754. Turin IOD introduces:
+
+- DDR5-6000 IMC (vs Genoa's DDR5-4800) -- 576 GB/s peak
+- CXL 2.0 (vs CXL 1.1) -- adds memory pooling
+- ~13 B transistors (vs ~12 B) -- larger IMC PHY + IF routers
+
+Compute die: `epyc_9965_compute_aggregate`, TSMC N4P placeholder
+(N3E pending), 876 mm² / 132 B tx; 12 Zen 5c CCDs.
+
+Two new cross-SKU distinct-IOD invariant tests pin that Turin IOD is
+silicon-level distinct from Genoa IOD (different die_id, different
+memory BW, different CXL version, different transistor count) while
+sharing the family (Infinity Fabric, ARM PSP, 12-channel DDR5, 128
+PCIe Gen5, 4x G-link, TSMC N6).
+
+The v13 IOBlock schema now has coverage against two distinct IOD
+silicon families. Schema generalized cleanly: no field-level changes
+needed for Turin; only data deltas.
+
+30 new tests; 962/962 full repo pass (+15 net). IOBlock catalog pin
+bumped from 2 SKUs to 3 -- closes the IOBlock data-side sprint.
+
+### 3. graphs#247 -- Sprint #245 closer (PhysicalSpec verification + decision record update)
+
+Sprint #245 PR 6. Final PR of the IOBlock mini-sprint.
+
+11 regression tests in a new file
+`tests/hardware/test_amd_epyc_chiplet_physical_spec.py`:
+
+- 3 SKUs × 2 metric tests (parametrized): byte-identical
+  `die_size_mm2` / `transistors_billion` post-rewrite
+- 3 SKUs × per-die `process_node_id` distinction (CCDs N5/N4P, IODs
+  N6) -- the per-die distinction is **now visible at the schema level**
+  vs hidden in YAML comments only
+- 1 shared-IOD invariant (Bergamo IOD == Genoa IOD)
+- 1 distinct-IOD invariant (Turin IOD != Genoa IOD; same family)
+- 3 density-in-envelope sanity checks
+
+`DECISION-2026-05-21-001.yaml` Question A marked **resolved**. The
+(A3) "Block schema extension" alternative that was rejected at
+campaign closure (to avoid blocking the 14-SKU deliverable) was
+executed retroactively across 5 PRs. Question B unchanged
+(schema-extension sprint, not coverage-increase).
+
+#### CI failure + recovery
+
+First CI run failed: 11 tests reported `physical_spec is None` for
+the EPYCs and `ImportError: cannot import name 'IOBlock'`. Root cause
+was the CI's pinned embodied-schemas commit `6778f13` (sprint #223
+era, ~5 sprints stale -- predated not only the IOBlock schema but
+also the original EPYC catalog entries from sprint #62).
+
+Bumped the pin to `61158ff` (sprint #245 PR 5 merge) across all 8
+ref sites in `.github/workflows/{ci,coverage,v4-validation}.yml`.
+Comment history blocks extended. CI passed 16/16 on rerun.
+
+1247/1247 tests/hardware/ pass (+11 net).
+
+### 4. embodied-schemas#83 -- Fix Jetson Thor + Orin Nano memory_bus_bits (closes ES#8)
+
+Two-line YAML fix. Both Jetsons had `memory_bus_bits` inconsistent
+with `memory_bandwidth_gbps`:
+
+| File | Before | After | Math check |
+|---|---|---|---|
+| `thor_gpu_128gb_lpddr5x.yaml` | 512 | **256** | 273 / 8.533 = 256 |
+| `orin_nano_gpu_8gb_lpddr5.yaml` | 64 | **128** | 68 / 4.267 = 128 |
+
+NVIDIA's published specs both confirm the corrected values. A 512-bit
+Thor at LPDDR5X-8533 would deliver 545 GB/s (2× spec); a 64-bit Orin
+Nano at LPDDR5-4267 would deliver 34 GB/s (½ spec). Bandwidth values
+themselves were correct and unchanged.
+
+This bug was originally discovered while backfilling the consumer-side
+PhysicalSpec in graphs#139; the fix was carried as `KNOWN_OVERRIDES`
+entries in `physical_spec_loader.py` pending this upstream fix.
+
+962/962 full repo pass.
+
+### 5. graphs#248 -- Retire ES#8 KNOWN_OVERRIDES + bump CI pin
+
+Downstream cleanup for ES#83. Three coupled changes:
+
+- **`physical_spec_loader.py`**: `KNOWN_OVERRIDES` dict is now empty
+  (was 2 entries from ES#8). History comment points at ES#83 so
+  future overrides have precedent for citing their motivating issue.
+- **`test_physical_spec_loader.py::TestKnownOverridesApplied`** updated:
+  value pins kept (Thor=256, Orin Nano=128) but now source from
+  corrected YAMLs directly; `in KNOWN_OVERRIDES` assertions dropped;
+  count assertion flipped to `len == 0`.
+- **CI pin** bumped from `61158ff` to `7cc12c4` (ES#83 merge) across
+  all 8 ref sites.
+
+The bundling was necessary: the test changes assert the YAMLs themselves
+carry the corrected values, which is only true once CI runs against
+embodied-schemas >= ES#83.
+
+1247/1247 tests/hardware/ pass (no net change).
+
+### 6. graphs#249 -- #132 closer (propagation contract + coverage pin)
+
+Audit revealed that issue #132 ("Switch PhysicalSpec source from
+inline factories to embodied-schemas ComputeProduct loader") was
+**functionally complete**. The broader campaign across #130/#234/
+#241/#245 had already eliminated every inline `PhysicalSpec(...)`
+constructor (0 left outside the loader). 43 of 47 registered mappers
+source PhysicalSpec from the loader; the 4 unpopulated SKUs are the
+data-availability tail per DECISION-2026-05-21-001 Question B.
+
+The one remaining exit criterion was an explicit propagation regression
+test. PR #249 delivered it.
+
+New tests in `tests/hardware/test_physical_spec_loader.py`:
+
+**`TestYamlPropagationContract`** -- synthesizes a YAML in tmp_path,
+points `EMBODIED_SCHEMAS_DATA_DIR` at it, asserts the loader returns
+the values written. Then mutates the YAML on disk, asserts a second
+call returns the new values. Pins the live-propagation contract with
+no stale-cache path.
+
+**`TestPhysicalSpecCoveragePin`** -- pins 43 populated / 4 unpopulated
+(ARM Mali-G78, AmpereOne-1core-ref, Snapdragon Ride, DFM-128 named
+explicitly). Regression test against future factory refactors that
+accidentally drop `physical_spec` wiring.
+
+1250/1250 tests/hardware/ pass (+3 net).
+
+## Key decisions
+
+- **Single-virtual-die approximation retired** (closing the long-pending
+  Question A in DECISION-2026-05-21-001). All 3 AMD chiplet datacenter
+  SKUs now use the v13 multi-die representation. Intel Xeon tile
+  architectures stay single-die per the original design call (tile-
+  internal IO; no separate IOD silicon).
+
+- **Shared-IOD pattern established**: when a SKU reuses an existing
+  IOD die unchanged (Bergamo + Genoa share `genoa_iod`), the YAML
+  copies the IO die block verbatim with the same canonical
+  `die_id`. Pinned by cross-SKU shared-IOD invariant tests.
+
+- **Distinct-IOD pattern established**: when a SKU introduces new
+  IOD silicon (Turin Dense), it uses a new `die_id` (`turin_iod`)
+  with distinct field values where the silicon actually differs
+  (memory BW, CXL version, transistor count, idle power). Same
+  family (coherence topology, security processor, PCIe gen)
+  validated. Pinned by cross-SKU distinct-IOD invariant tests.
+
+- **CI pin bump pattern rehearsed**: now done twice in this session
+  (PR #247 and PR #248). Standard recipe: bump SHA, extend history
+  comment block, update all 8 ref sites across 3 workflow files.
+
+## Files modified
+
+### graphs
+- `tests/hardware/test_amd_epyc_chiplet_physical_spec.py` (new, 11 tests, PR #247)
+- `tests/hardware/test_physical_spec_loader.py` (+3 tests + override-removal restructure, PRs #248 + #249)
+- `src/graphs/hardware/physical_spec_loader.py` (KNOWN_OVERRIDES emptied, PR #248)
+- `src/graphs/hardware/mappers/gpu.py` (Thor factory comment updated, PR #248)
+- `.github/workflows/{ci,coverage,v4-validation}.yml` (pin bumped twice across 8 ref sites, PRs #247 + #248)
+- `.claude/decisions/DECISION-2026-05-21-001.yaml` (resolution section added, PR #247)
+
+### embodied-schemas
+- `data/compute_products/amd/amd_epyc_9754_sp5.yaml` (single-virtual-die -> multi-die, PR #81)
+- `data/compute_products/amd/amd_epyc_9965_sp5.yaml` (single-virtual-die -> multi-die, PR #82)
+- `data/gpus/nvidia/thor_gpu_128gb_lpddr5x.yaml` (memory_bus_bits 512 -> 256, PR #83)
+- `data/gpus/nvidia/orin_nano_gpu_8gb_lpddr5.yaml` (memory_bus_bits 64 -> 128, PR #83)
+- `tests/test_compute_product_amd_epyc_9754_yaml.py` (29 tests for multi-die, PR #81)
+- `tests/test_compute_product_amd_epyc_9965_yaml.py` (30 tests for multi-die, PR #82)
+- `tests/test_compute_product_v13_io_block.py` (IOBlock catalog pin bumped to 3 SKUs, PRs #81 + #82)
+
+## Tests run
+
+- embodied-schemas: 947 -> 962 (+15 across PRs #81 + #82)
+- graphs tests/hardware/: 1236 -> 1247 -> 1247 -> 1250 (+14 across PRs #247 + #248 + #249)
+- CI Tests (Python 3.12): pass after pin bump in PR #247
+
+## Issues closed this session
+
+- **graphs#245** -- IOBlock mini-sprint umbrella (6 PRs total, all merged)
+- **branes-ai/embodied-schemas#8** -- Jetson memory_bus_bits (closed by ES#83)
+- **graphs#132** -- PhysicalSpec source switch (closed by PR #249)
+
+## What's next
+
+Pending directions surveyed but not started:
+
+- **Bug #177**: KPU energy > TDP (T64 reports 110 W avg on a 6 W TDP).
+  Aligns with project memory direction "KPU power should be derived
+  from config." Substantive single-bug work.
+- **Bug #154**: KPU leakage doesn't scale with Vdd² — related to #177
+  but smaller scope. May or may not also fix #177 depending on
+  leakage error magnitude.
+- **ES#215**: v9 schema unification — collapse byte-identical
+  `*ThermalProfile` across 5 block kinds (NPU/CGRA/DPU/TPU/DSP). Mirrors
+  v8 unification pattern.
+- **#176**: Add ARM Neoverse N2 as a real single-core ARM reference.
+  One-PR job, mirrors recent sprint #62 CPU cadence.
