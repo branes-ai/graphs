@@ -53,20 +53,12 @@ _warned_about_missing_data: bool = False
 # Field-level corrections applied AFTER the YAML load. Each entry MUST
 # cite the upstream issue and the verification source. Remove the entry
 # when the upstream fix lands.
-KNOWN_OVERRIDES: Dict[str, Dict[str, Any]] = {
-    # branes-ai/embodied-schemas#8: YAML lists 512-bit, but bandwidth math
-    # (273 GB/s / 8.533 GT/s LPDDR5X = 256 bits) and NVIDIA's Jetson Thor
-    # announcement blog ("256-bit LPDDR5X, 273 GB/s") both confirm 256.
-    "nvidia_thor_gpu_128gb_lpddr5x": {
-        "memory_bus_width_bits": 256,
-    },
-    # branes-ai/embodied-schemas#8: YAML lists 64-bit, but bandwidth math
-    # (68 GB/s / 4.267 GT/s LPDDR5-4267 = 128 bits) and NVIDIA's Orin
-    # Nano datasheet both confirm 128.
-    "nvidia_orin_nano_gpu_8gb_lpddr5": {
-        "memory_bus_width_bits": 128,
-    },
-}
+#
+# History:
+#   - branes-ai/embodied-schemas#8 (closed by ES#83): Jetson Thor + Orin
+#     Nano memory_bus_bits corrected upstream; the two override entries
+#     they motivated are gone.
+KNOWN_OVERRIDES: Dict[str, Dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------
