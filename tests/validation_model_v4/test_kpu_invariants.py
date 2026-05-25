@@ -22,8 +22,11 @@ avg_power_below_tdp was xfail (#81) until the thermal-envelope clamp landed
 for #177 / #121: the EnergyAnalyzer now derives average_power_w from the
 thermally-bound latency (max(burst_latency, energy / TDP)), so sustained
 average power can never exceed TDP. Energy stays physical (truthful joules);
-only the effective latency floors. The deeper energy_per_flop recalibration
--- so the unclamped burst power is also physical -- is the #81 follow-up.
+only the effective latency floors. The deeper recalibration landed in #81:
+energy_per_flop is now single-sourced from the process node's per-MAC
+energy_per_op_pj (halved to per-FLOP), so the *unclamped* burst power is
+physical too -- FP32 and small GEMMs now fit under TDP unaided, and the clamp
+fires only for genuinely power-bound dense low-precision GEMM.
 """
 
 from __future__ import annotations
@@ -143,8 +146,9 @@ def test_avg_power_below_tdp(kpu_mapper):
     the EnergyAnalyzer now computes average_power_w against the thermally-bound
     latency (max(burst_latency, energy / TDP)), so sustained avg power can never
     exceed TDP. Energy stays physical -- only the effective latency floors. The
-    deeper energy_per_flop recalibration (so the *unclamped* burst power is also
-    physical) is the #81 follow-up; this invariant guards the hard ceiling."""
+    deeper energy_per_flop recalibration landed in #81 (single-sourced from the
+    process node's per-MAC energy_per_op_pj), so the *unclamped* burst power is
+    physical too; this invariant guards the hard ceiling regardless."""
     name, hw = kpu_mapper
     failures = check_avg_power_below_tdp(hw, PRECISION)
     assert not failures, (
