@@ -68,6 +68,9 @@ def test_summarize_crossovers_returns_findings(rows):
 
 
 def test_render_produces_nonempty_png(tmp_path, rows):
+    # Visualization-only; CI test jobs don't install matplotlib. Skip there
+    # (the local dev path / viz CI job has it). Mirrors test_compare_hardware.
+    pytest.importorskip("matplotlib")
     out = tmp_path / "kpu_scaling.png"
     render_kpu_scaling(rows, out, dtype="bf16")
     assert out.exists()
