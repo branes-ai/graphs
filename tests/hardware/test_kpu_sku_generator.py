@@ -318,20 +318,43 @@ from graphs.hardware.kpu_power_model import compute_thermal_profile_tdp_breakdow
 
 
 def test_tdp_scales_quadratically_with_vdd(catalogs):
-    """Dropping Vdd by sqrt(2) should halve the dynamic power; total
-    TDP drops by half the dynamic share."""
+    """Dropping Vdd by sqrt(2) halves the dynamic power (C*V^2*f) and drops
+    leakage by (1/sqrt(2))^leakage_vdd_exponent (#154). At nominal Vdd the
+    leakage scaling is a no-op (the YAML leakage is characterized at Vnom)."""
     sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
     spec = input_spec_from_compute_product(sku)
     node = catalogs["process_nodes"][sku.dies[0].process_node_id]
+    assert node.nominal_vdd_v == pytest.approx(0.80)
+    assert node.leakage_vdd_exponent is not None  # n16 carries the exponent
     # Take the default profile and run with two Vdds: nominal and nominal/sqrt(2).
     base = sku.power.thermal_profiles[1]  # 30W profile
-    high_v = base.model_copy(update={"vdd_v": 0.80})  # ~ Vnom
+    high_v = base.model_copy(update={"vdd_v": 0.80})  # ~ Vnom -> leakage unscaled
     low_v = base.model_copy(update={"vdd_v": 0.80 / (2 ** 0.5)})  # halved V^2
     bd_high = compute_thermal_profile_tdp_breakdown(spec, high_v, node)
     bd_low = compute_thermal_profile_tdp_breakdown(spec, low_v, node)
-    # Dynamic should halve; leakage unchanged.
+    # Dynamic halves; leakage drops by the exponent factor.
     assert bd_low.dynamic_w == pytest.approx(bd_high.dynamic_w / 2.0, rel=0.01)
-    assert bd_low.leakage_w == pytest.approx(bd_high.leakage_w)
+    leak_factor = (1.0 / (2 ** 0.5)) ** node.leakage_vdd_exponent
+    assert bd_low.leakage_w == pytest.approx(bd_high.leakage_w * leak_factor, rel=0.01)
+
+
+def test_low_vdd_drops_total_tdp_more_than_half(catalogs):
+    """#154 acceptance criterion: at fixed (clock, workload), dropping Vdd by
+    sqrt(2) drops TOTAL TDP by more than half, because both the dynamic term
+    (V^2) AND leakage (V^exp, exp>2) now scale -- previously leakage was held
+    flat, so total dropped by less than half."""
+    sku = catalogs["kpus"]["kpu_t256_32x32_lp5x16_16nm_tsmc_ffp"]
+    spec = input_spec_from_compute_product(sku)
+    node = catalogs["process_nodes"][sku.dies[0].process_node_id]
+    base = sku.power.thermal_profiles[1]
+    high_v = base.model_copy(update={"vdd_v": 0.80})
+    low_v = base.model_copy(update={"vdd_v": 0.80 / (2 ** 0.5)})
+    bd_high = compute_thermal_profile_tdp_breakdown(spec, high_v, node)
+    bd_low = compute_thermal_profile_tdp_breakdown(spec, low_v, node)
+    assert bd_low.total_tdp_w < bd_high.total_tdp_w / 2.0, (
+        f"total TDP {bd_low.total_tdp_w:.2f}W should be < half of "
+        f"{bd_high.total_tdp_w:.2f}W; leakage must scale with Vdd"
+    )
 
 
 def test_tdp_scales_linearly_with_clock(catalogs):
