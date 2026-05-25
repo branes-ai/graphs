@@ -323,7 +323,10 @@ def check_avg_power_below_tdp(
     energy stays physical and the effective latency floors at energy / TDP.
     The clamp landed for #177 / #121; before it, this invariant was a known
     xfail on every KPU mapper (uncalibrated energy_per_flop over a sub-TDP
-    burst latency yielded 18x-37x overshoots).
+    burst latency yielded 18x-37x overshoots). #81 then single-sourced
+    energy_per_flop from the process node's per-MAC energy_per_op_pj (halving
+    the prior 2x FLOP double-count), so the clamp now fires only for genuinely
+    power-bound dense low-precision GEMM rather than masking miscalibration.
 
     Returning the violation list (rather than just a bool) lets the
     diagnostic surface which shapes are most over-prediction-prone."""
