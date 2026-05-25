@@ -243,6 +243,29 @@ def _fabric_energy_per_fp32_j(
     return get_base_alu_energy(node.node_nm, "standard_cell")
 
 
+def _node_energy_per_flop_fp32_j(
+    node: ProcessNodeEntry, circuit_class: CircuitClass
+) -> float:
+    """Energy per FP32 *FLOP* in joules, single-sourced from the process node.
+
+    ``process_node.energy_per_op_pj`` is keyed per **MAC** -- the YAML rollup is
+    "MAC + register + clock", and ``_build_tile_energy_model`` consumes the very
+    same figures as per-MAC ``mac_energy_*``. The EnergyAnalyzer, however,
+    multiplies by ``sg.flops`` which counts **2 FLOPs per MAC**, so the per-FLOP
+    base is the per-MAC node energy divided by 2. Feeding the per-MAC value in
+    un-halved double-counts dynamic compute energy by 2x (issue #81).
+
+    Falls back to the legacy ``get_base_alu_energy`` table (already FP32-FLOP
+    keyed) when the node lacks the entry -- preserves behavior for nodes whose
+    ``energy_per_op_pj`` table is sparse.
+    """
+    key = f"{circuit_class.value}:fp32"
+    pj = node.energy_per_op_pj.get(key)
+    if pj and pj > 0:
+        return pj * 1e-12 / 2.0  # per-MAC -> per-FLOP
+    return get_base_alu_energy(node.node_nm, "standard_cell")
+
+
 def _fabric_energy_scaling(
     node: ProcessNodeEntry,
     circuit_class: CircuitClass,
@@ -678,9 +701,10 @@ def load_kpu_resource_model_from_yaml(
     # ------------------------------------------------------------------
     # Energy roll-ups
     # ------------------------------------------------------------------
-    # Use the BALANCED_LOGIC FP32 figure as the FP32 baseline; falls
-    # back to the legacy table.
-    energy_per_flop_fp32 = _fabric_energy_per_fp32_j(
+    # FP32 per-FLOP baseline, single-sourced from the process node's per-MAC
+    # energy_per_op_pj (halved to per-FLOP; see _node_energy_per_flop_fp32_j).
+    # The model-level energy_scaling ratios are applied after construction.
+    energy_per_flop_fp32 = _node_energy_per_flop_fp32_j(
         node, CircuitClass.BALANCED_LOGIC
     )
     # Energy per byte from the off-chip memory PHY. v1 placeholder; the
@@ -732,6 +756,17 @@ def load_kpu_resource_model_from_yaml(
     # consumers (analyzers, the KPUMapper energy path) see the same shape.
     model.tile_energy_model = tile_energy_model
     model.soc_fabric = soc_fabric
+
+    # Single-source the per-precision energy_scaling from the process node's
+    # energy_per_op_pj ratios (issue #81), overriding the hardcoded dataclass
+    # defaults. Ratios are unit-independent (prec_pj / fp32_pj), so they apply
+    # cleanly to the per-FLOP base above. Precisions the node doesn't list keep
+    # their default ratio. The EnergyAnalyzer reads model.energy_scaling.
+    model.energy_scaling.update(
+        _fabric_energy_scaling(
+            node, CircuitClass.BALANCED_LOGIC, list(precision_profiles.keys())
+        )
+    )
 
     # M3-M7 layer attributes -- KPU-architecture constants (not in YAML)
     # plus values derivable from kpu_architecture.memory. Matches what

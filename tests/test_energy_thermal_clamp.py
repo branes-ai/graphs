@@ -37,10 +37,13 @@ def _analyze(hw, shape: _MatmulShape):
 
 
 def test_compute_bound_matmul_clamps_avg_power_to_tdp():
-    """A compute-bound matmul whose uncalibrated burst power exceeds TDP (the
-    #81 regime) must report avg power <= TDP after the clamp."""
+    """A large compute-bound INT8 GEMM whose burst power exceeds TDP must report
+    avg power <= TDP after the clamp. With energy single-sourced from the node
+    (#81), dense INT8 GEMM at ~0.30 pJ/MAC still draws >6 W on the T64 envelope;
+    smaller GEMMs and FP32 now fit under TDP, so the clamp fires only for the
+    genuinely power-bound regime (PRECISION is INT8; see module constant)."""
     hw = create_kpu_t64_mapper().resource_model
-    energy, report, burst_latency = _analyze(hw, _MatmulShape(1024, 1024, 1024))
+    energy, report, burst_latency = _analyze(hw, _MatmulShape(4096, 4096, 4096))
 
     # Burst latency alone would imply avg power above TDP -> throttle fires.
     assert report.thermal_throttle_active is True
