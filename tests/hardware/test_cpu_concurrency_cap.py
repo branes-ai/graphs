@@ -67,10 +67,15 @@ def test_cap_raises_effective_compute_time():
     r = RooflineAnalyzer(mapper.resource_model, precision=P)
     sg = _MatmulShape(1, 2048, 2048).to_subgraph(_bpe(P))
     lat = r._analyze_subgraph(sg)
-    # compute_time should equal flops / (peak * efficiency * 64/192).
+    # compute_time should equal flops / (peak * efficiency * concurrency * l1_fit).
     scale = r._cpu_concurrency_scale(sg)
     assert scale < 1.0
-    eff = r.peak_flops * r._get_compute_efficiency_scale(sg) * scale
+    eff = (
+        r.peak_flops
+        * r._get_compute_efficiency_scale(sg)
+        * scale
+        * r._cpu_l1_fit_scale(sg)  # #178: L1-spill haircut also factors in
+    )
     assert lat.compute_time == pytest.approx(sg.flops / eff, rel=1e-6)
 
 

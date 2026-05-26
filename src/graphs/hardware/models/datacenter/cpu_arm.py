@@ -31,6 +31,7 @@ def cpu_arm_resource_model(
     name_suffix: str = "Cortex-A78AE",
     tdp_watts: float = None,
     peak_bandwidth_gbps: float = 80.0,
+    cpu_l1_spill_haircut: bool = False,
 ) -> HardwareResourceModel:
     """
     Generic ARM CPU resource model with scalar + NEON fabrics.
@@ -203,6 +204,7 @@ def cpu_arm_resource_model(
             "default": thermal_default,
         } if thermal_default is not None else {},
         default_thermal_profile="default" if thermal_default is not None else None,
+        cpu_l1_spill_haircut=cpu_l1_spill_haircut,
     )
 
 

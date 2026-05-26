@@ -1133,6 +1133,15 @@ class HardwareResourceModel:
     # None means "use the analyzer's hardware-type-default".
     kernel_launch_overhead_ns: Optional[float] = None
 
+    # Issue #178 fix #2 opt-in: model the L1-spill compute-utilization haircut
+    # (RooflineAnalyzer._cpu_l1_fit_scale) for this CPU. Enabled only on
+    # UNcalibrated theoretical references (ARM server SKUs without measured
+    # ground truth), where ~90% matvec utilization is unrealistic. Left False
+    # for calibrated / measured-baseline CPUs (e.g. i7-12700K) whose tuned
+    # efficiency already reflects real L1 behavior -- applying the haircut there
+    # would double-count. Default False preserves prior behavior everywhere.
+    cpu_l1_spill_haircut: bool = False
+
     # V5-5: per-tier achievable_fraction overrides for the V5-3b
     # tier-aware roofline path. Maps tier name ("L1", "L2", "L3", "DRAM")
     # to the calibrated achievable BW fraction (peak * fraction =
