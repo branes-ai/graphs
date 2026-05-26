@@ -125,11 +125,35 @@ Coverage pin updated (N2 is reference IP with no ComputeProduct YAML).
 
 ## Issues closed this session
 
-- graphs#177, #121, #154, #81, #122, #176
+- graphs#177, #121, #154, #81, #122, #176, #175
 - embodied-schemas: leakage_vdd_exponent (#84), KPU Vdd re-tune (#85)
+
+### 6. PR #257 -- CPU batch=1 fanout cap + per-SKU bandwidth (closes #175)
+
+Landed 2026-05-26 as a same-session continuation. Two compounding issues let a
+many-core CPU overstate batch=1 throughput.
+
+- Fix #1 (concurrency cap): a single operator only fans out across
+  `min(num_cores, total_macs / MIN_MACS_PER_CORE)` cores (64K MACs/core floor).
+  `RooflineAnalyzer._cpu_concurrency_scale` (CPU-gated) scales the compute
+  ceiling by effective_cores/num_cores; the CPUMapper allocation caps
+  cores_allocated the same way. Verified: batch=1 Linear(2048,2048) -> 64/192 on
+  AmpereOne (matvec compute_time 0.84us -> 2.5us).
+- Fix #2 (bandwidth): peak_bandwidth_gbps threaded through
+  cpu_arm_resource_model; AmpereOne 192/128 -> 332.8 GB/s datasheet (was 80).
+
+Diagnostic finding: in the current code (post-#172 LLC stationarity + per-op
+overhead) the catalog batch=1 matvec on AmpereOne-192 is OVERHEAD-bound, not
+compute-bound -- weights are LLC-resident (~0.08us) and a ~6.5us/op launch
+overhead dominates. So the headline 71K inf/s barely moves; the issue's "192x
+compute fanout" premise predated those models. Per maintainer decision, shipped
+the correct cap + bandwidth fix + a cap-level regression test (not an overhead/
+LLC-bandwidth rework). 1781 tests green; AmpereOne validations unchanged (no
+regression, confirmed identical pre/post).
 
 ## What's next
 
-- **#175** -- CPU mapper batch=1 fanout overcount (parent of #176; the N2
-  reference is now available as a second single-core ARM anchor for it).
-- KPU cluster is otherwise closed.
+- KPU + CPU-mapper issue thread fully closed. No immediate follow-ups; the
+  ~6.5us/op CPU launch overhead and per-operator LLC-bandwidth scaling are the
+  remaining levers if a future workload needs the batch=1 headline number to
+  move further (deferred, out of #175 scope).
