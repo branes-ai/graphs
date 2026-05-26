@@ -17,4 +17,5 @@ def ampere_ampereone_192_resource_model() -> HardwareResourceModel:
         name_suffix="AmpereOne-192",
         tdp_watts=350.0,  # Datacenter class TDP
         peak_bandwidth_gbps=332.8,  # 8-channel DDR5-5200 (datasheet); #175 fix #2
+        cpu_l1_spill_haircut=True,  # uncalibrated reference; model L1-spill (#178)
     )
