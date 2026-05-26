@@ -82,8 +82,12 @@ SWEEP_HW_TO_MAPPER: dict[str, str] = {
     "jetson_orin_nx_16gb": "Jetson-Orin-NX-16GB",
     # Predictions-only targets (no V4 baseline -- the visualizer's
     # --predictions-only flag is what enables these in the
-    # visualize_baseline plot path).
+    # visualize_baseline plot path). The full KPU family backs the
+    # T64->T128->T256->T768 scaling study (compare_kpu_scaling.py, #122).
     "kpu_t64": "Stillwater-KPU-T64",
+    "kpu_t128": "Stillwater-KPU-T128",
+    "kpu_t256": "Stillwater-KPU-T256",
+    "kpu_t768": "Stillwater-KPU-T768",
 }
 
 
