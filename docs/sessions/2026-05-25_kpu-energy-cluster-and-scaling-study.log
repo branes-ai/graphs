@@ -1,0 +1,135 @@
+# Session: 2026-05-25 -- KPU energy-model calibration cluster + scaling study + ARM N2
+
+## Summary
+
+Opened from "what is next" and resolved the entire KPU energy-bug cluster
+(#177, #121, #154, #81) plus two adjacent enhancements (#122 scaling study,
+#176 ARM Neoverse N2). Shipped 5 graphs PRs (#251-#255) and 2 embodied-schemas
+PRs (#84, #85), each CI-green and merged.
+
+Headline arc: the KPU energy model went from physically-impossible (1175 W
+predicted on a 6 W part) to calibrated and single-sourced -- thermal clamp as a
+true backstop, leakage Vdd-aware, dynamic energy sourced from the process node,
+with a family scaling study and a real ARM reference mapper on top.
+
+graphs diff: 21 files, +1100/-64. embodied-schemas: 8 files, +93/-12.
+
+## What happened (in order)
+
+### 1. PR #251 -- thermal-envelope clamp (closes #177, #121)
+
+Investigation showed the avg_power>TDP violation is real: for a dense GEMM the
+EnergyAnalyzer assumes ~100% duty while the derived TDP assumes ~15% duty, so
+peak compute power (~19.7 W on T64 INT8) legitimately exceeds the 6 W envelope.
+The physically-correct treatment is thermal-bound roofline: energy is truthful,
+the effective (sustained) latency floors at energy/TDP, so
+`average_power_w = energy / thermally_bound_latency <= TDP`.
+
+- EnergyReport gains `thermally_bound_latency_s`, `thermal_throttle_active`,
+  `tdp_watts`. total_energy_j and burst total_latency_s stay truthful.
+- The #121 reporting path (compare_hardware/runner) reads the clamped sustained
+  power (983 W -> 6 W) and surfaces thermally_bound_latency_ms.
+- `avg_power_below_tdp` flipped from xfail (#81 diagnostic) to a hard invariant.
+- New tests/test_energy_thermal_clamp.py.
+
+### 2. embodied-schemas #84 + #85, graphs #252 -- leakage Vdd scaling (closes #154)
+
+Cross-repo. ES#84 added optional `leakage_vdd_exponent` to ProcessNodeEntry
+(n16: 4.0, n7: 4.5, cited FinFET sub-threshold + DIBL). graphs#252 consumes it:
+`leakage_w *= (V/Vnom)^exponent`.
+
+Consequence: derived TDP shifts off the round envelope labels. The user chose to
+PRESERVE the round catalog TDPs by re-tuning each profile's Vdd (ES#85) rather
+than store the new off-round derived values (which was reverted). Vdds solved by
+bisection so derivation lands on target within 0.5 W; clock/TOPS untouched. CI
+pin bumped 7cc12c4 -> b0e3920 across 8 sites.
+
+### 3. PR #253 -- single-source dynamic energy from ProcessNode (closes #81)
+
+Investigation found #81's stated exit criterion (avg_power invariant) was
+already met by #251's clamp, and energy_per_flop was already ~node-consistent.
+The real defects: (a) a 2x MAC/FLOP double-count -- node energy_per_op_pj is
+per-MAC (the loader feeds the same figure to tile_energy_model as mac_energy)
+but sg.flops is 2 FLOPs/MAC; (b) model.energy_scaling used hardcoded dataclass
+defaults, not node ratios.
+
+Fix: `energy_per_flop_fp32 = node_fp32_per_MAC / 2`;
+`model.energy_scaling.update(node ratios)`. Effective T64 = node values (FP32
+2.7, INT8 0.30, BF16 1.4 pJ/MAC). FP32/small GEMMs now fit under TDP unaided;
+the clamp fires only for genuinely power-bound dense low-precision GEMM.
+
+### 4. PR #254 -- KPU family scaling study (closes #122)
+
+compare_kpu_scaling.py: 5-panel figure + data table + crossover findings across
+the four SKUs in BF16. Registered T128/T256/T768 in SWEEP_HW_TO_MAPPER. Findings
+answer the issue: T128 first beats T64 at matmul 2048^3 (tied below = wave-quant
+saturation); utilization 53%->70% across the family at 4096^3.
+
+CI caught a matplotlib ModuleNotFoundError in the V4/Tests jobs (no matplotlib
+installed); fixed with pytest.importorskip on the render test, mirroring
+test_compare_hardware.
+
+### 5. PR #255 -- ARM Neoverse N2 reference mapper (closes #176)
+
+arm_neoverse_n2.py models N2's real per-core datapath (2x 128-bit SVE2, BF16,
+INT8 SDOT, 64 KiB L1D, 1 MiB L2). Distinct from the synthetic AmpereOne slice.
+Validation: resource-model shape, ResNet-50 batch=1 (68 ms / 14.7 inf/s on one
+4 W core), and a cross-check that N2's 2x SVE2 gives ~1.5x the generic helper's
+FP32 (scalar unchanged, vector doubled) -- the calibration anchor #176 asked for.
+Coverage pin updated (N2 is reference IP with no ComputeProduct YAML).
+
+## Key decisions
+
+- **Thermal-bound latency, not energy-down** (#251): energy is physical; clamp
+  the latency. Keeps inf/J honest and total_energy_j truthful.
+- **Preserve round catalog TDPs via Vdd re-tune** (#154): the user reverted the
+  "store new derived TDP" approach; round envelope labels are the product spec,
+  so re-tune (clock, Vdd) to hit them. See DECISION-2026-05-25-001.
+- **node energy_per_op_pj is per-MAC** (#81): resolved from the loader's own
+  usage (same figure -> tile_energy_model.mac_energy) -> per-FLOP base = /2.
+- **Single-source from ProcessNode, not tile_energy_model** (#81): user chose
+  the conservative node-physics source over the aggressive domain-flow MAC
+  energies; documented both numerically before deciding.
+
+## Files modified (graphs)
+
+- src/graphs/estimation/energy.py (clamp)
+- src/graphs/hardware/kpu_power_model.py (leakage Vdd scaling)
+- src/graphs/hardware/models/accelerators/kpu_yaml_loader.py (energy single-source)
+- src/graphs/hardware/models/datacenter/arm_neoverse_n2.py (new)
+- src/graphs/hardware/mappers/cpu.py + __init__.py (N2 factory + registry)
+- validation/model_v4/cli/{compare_hardware,compare_kpu_scaling}.py
+- validation/model_v4/harness/runner.py (clamped power helper + SWEEP map)
+- validation/model_v4/invariants/kpu.py (hard invariant + docstrings)
+- validation/hardware/test_arm_neoverse_n2.py (new)
+- tests/{test_energy_thermal_clamp, hardware/test_kpu_energy_single_source,
+  validation_model_v4/test_compare_kpu_scaling}.py (new)
+- tests/hardware/{test_kpu_sku_generator, test_physical_spec_loader}.py
+- tests/validation_model_v4/{test_kpu_invariants, test_compare_hardware}.py
+- .github/workflows/{ci,coverage,v4-validation}.yml (pin bump)
+
+## Files modified (embodied-schemas)
+
+- src/embodied_schemas/process_node.py (leakage_vdd_exponent field)
+- src/embodied_schemas/data/process-nodes/tsmc/{n16,n7}.yaml (exponents)
+- src/embodied_schemas/data/compute_products/stillwater/kpu_t*.yaml (Vdd re-tune)
+- tests/test_process_node_leakage_vdd_exponent.py (new)
+
+## Tests run
+
+- graphs full suites green throughout (energy/clamp, kpu invariants, hardware,
+  v4 validation, integration gate test_all_hardware.py). 1569-1598 passing in
+  the affected-suite sweeps.
+- embodied-schemas: 962 -> 966 (+4, leakage exponent tests).
+- All 5 graphs PRs + 2 ES PRs CI-green and merged.
+
+## Issues closed this session
+
+- graphs#177, #121, #154, #81, #122, #176
+- embodied-schemas: leakage_vdd_exponent (#84), KPU Vdd re-tune (#85)
+
+## What's next
+
+- **#175** -- CPU mapper batch=1 fanout overcount (parent of #176; the N2
+  reference is now available as a second single-core ARM anchor for it).
+- KPU cluster is otherwise closed.
