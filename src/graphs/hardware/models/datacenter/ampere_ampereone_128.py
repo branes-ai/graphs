@@ -15,5 +15,6 @@ def ampere_ampereone_128_resource_model() -> HardwareResourceModel:
         process_node_nm=5,  # TSMC 5nm
         scalar_freq_ghz=3.6,  # Up to 3.6 GHz all-core
         name_suffix="AmpereOne-128",
-        tdp_watts=250.0  # Datacenter class TDP
+        tdp_watts=250.0,  # Datacenter class TDP
+        peak_bandwidth_gbps=332.8,  # 8-channel DDR5-5200 (datasheet); #175 fix #2
     )
