@@ -462,12 +462,14 @@ class TestPhysicalSpecCoveragePin:
     EXPECTED_UNPOPULATED = {
         "ARM-Mali-G78-MP20",
         "Ampere-AmpereOne-1core-ref",
+        # Reference-IP resource model, no ComputeProduct YAML / die data (#176).
+        "ARM-Neoverse-N2-1core",
         "Qualcomm-Snapdragon-Ride",
         "Stillwater-DFM-128",
     }
 
     def test_registry_physical_spec_coverage_state(self):
-        """43 populated, 4 unpopulated -- post-#241 closure state."""
+        """43 populated, 5 unpopulated -- post-#241 closure + N2 reference (#176)."""
         from graphs.hardware.mappers import list_all_mappers, get_mapper_by_name
 
         unpopulated = set()
