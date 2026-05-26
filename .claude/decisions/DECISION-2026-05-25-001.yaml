@@ -1,0 +1,199 @@
+decision_id: "DECISION-2026-05-25-001"
+timestamp: "2026-05-25T18:00:00Z"
+ai_model: "claude-opus-4-7"
+session_id: "-home-stillwater-dev-branes-clones-graphs"
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary: >
+  Make KPU predicted average power physical via a three-layer approach:
+  (1) a thermal-bound latency clamp as a hard backstop, (2) leakage that
+  scales with Vdd, (3) dynamic energy single-sourced from the ProcessNode
+  with the 2x MAC/FLOP double-count fixed -- preserving the round catalog
+  TDPs by re-tuning profile Vdd rather than overwriting derived values.
+
+# ============================================================================
+# TRIGGER
+# ============================================================================
+trigger:
+  type: "error_encountered"
+  content: >
+    KPU energy estimates violated the avg_power <= TDP invariant by 18-37x
+    (T64 reported 110-1175 W on a 6 W TDP). Cluster: #177, #121, #154, #81.
+  context: >
+    The KPU has no silicon to measure against; the energy model is analytical.
+    TDP is derived assuming ~15% compute duty cycle (well-tiled inference),
+    but dense GEMM runs ~100% duty, so peak compute power genuinely exceeds
+    the duty-cycle-derived envelope. Three parallel energy representations
+    existed (energy_per_flop_fp32, tile_energy_model.mac_energy, ProcessNode
+    energy_per_op_pj) plus a hardcoded energy_scaling table.
+
+# ============================================================================
+# ALTERNATIVES CONSIDERED
+# ============================================================================
+alternatives:
+  - option: "Clamp energy down (cap avg_power by scaling reported joules)"
+    pros:
+      - "Keeps reported burst latency truthful"
+    cons:
+      - "Fakes the physical energy of the work; FLOPs cost what they cost"
+      - "Corrupts inf/J efficiency, the KPU's headline metric"
+    selected: false
+    rejected_reason: >
+      Energy is a physical quantity. Lowering it to satisfy a power ceiling
+      is dishonest; the right free variable is sustained latency.
+
+  - option: "Thermal-bound latency clamp (latency = max(burst, energy/TDP))"
+    pros:
+      - "Energy stays physical; only sustained throughput is thermally bound"
+      - "Standard thermal-bound roofline; universal across all mappers"
+      - "Inert unless avg power would breach TDP (low blast radius)"
+    cons:
+      - "Reported sustained latency > burst latency for power-bound ops"
+    selected: true
+    selected_reason: >
+      Physically correct: a 6 W-envelope chip cannot sustain ~20 W of dense
+      GEMM; it throttles. Implemented in #251 as the hard backstop.
+
+  - option: "#81: single-source from tile_energy_model (aggressive domain-flow)"
+    pros:
+      - "Unambiguously per-MAC (clean unit conversion)"
+      - "Reflects the KPU's claimed domain-flow efficiency advantage"
+    cons:
+      - "~9x FP32 efficiency swing; large, optimistic headline change"
+      - "Diverges from the user's stated 'derive from ProcessNode' direction"
+    selected: false
+    rejected_reason: "User chose the conservative node-physics source."
+
+  - option: "#81: single-source from ProcessNode energy_per_op_pj (+ fix 2x)"
+    pros:
+      - "Conservative, node-physics-based, single source of truth"
+      - "Eliminates the parallel PROCESS_NODE_ENERGY table drift for KPU"
+    cons:
+      - "Small numeric change vs the aggressive tile model"
+    selected: true
+    selected_reason: >
+      Matches the user's pick. node energy_per_op_pj is per-MAC (proven by the
+      loader feeding the same figure to tile_energy_model.mac_energy), and
+      sg.flops is 2 FLOPs/MAC, so per-FLOP base = node_fp32/2.
+
+  - option: "#154: overwrite catalog TDPs with new (off-round) derived values"
+    pros:
+      - "Generator stays the single source; no re-tuning"
+    cons:
+      - "Loses the round product-envelope labels (3/6/10 W ...)"
+    selected: false
+    rejected_reason: "User reverted this approach; round TDPs are the spec."
+
+  - option: "#154: re-tune profile Vdd so the model derives the round TDPs"
+    pros:
+      - "Preserves round envelope labels AND the roundtrip invariant"
+      - "Vdd-only; clock and advertised TOPS unchanged"
+    cons:
+      - "Per-profile Vdd values become non-round (e.g. 0.636)"
+    selected: true
+    selected_reason: >
+      The architect tunes (clock, Vdd) to hit a thermal envelope; re-tuning Vdd
+      is exactly that design act. Solved by bisection (embodied-schemas #85).
+
+# ============================================================================
+# IMPACT ASSESSMENT
+# ============================================================================
+impact:
+  files_modified: 17
+  files_created: 4
+  files_deleted: 0
+  lines_added: 1100
+  lines_removed: 64
+  breaking_changes: false
+  deprecations_added: false
+  new_dependencies: []
+  tests_affected: 8
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+verification:
+  - action: "Ran graphs hardware + v4 + energy suites after each PR"
+    result: "Green (1569-1598 passing in affected-suite sweeps)"
+  - action: "Integration gate validation/hardware/test_all_hardware.py"
+    result: "SUCCESS: complete hardware comparison finished"
+  - action: "embodied-schemas full suite after schema + Vdd re-tune"
+    result: "966 passed (+4 new leakage_vdd_exponent tests)"
+  - action: "Reproduced #121 vector_add artifact pre/post clamp"
+    result: "983 W -> 6 W on KPU-T64 N=1M"
+  - action: "CI on all 5 graphs PRs + 2 embodied-schemas PRs"
+    result: "All green; merged"
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+risks:
+  - risk: "Re-tuned Vdd values are non-round and could read as over-fitted"
+    mitigation: >
+      They are within the node DVFS range; the roundtrip invariant (stored ==
+      derived within 0.5 W) keeps them honest against the power model.
+    severity: "low"
+    likelihood: "low"
+  - risk: "leakage_vdd_exponent values (n16: 4.0, n7: 4.5) are THEORETICAL"
+    mitigation: >
+      Cited from FinFET sub-threshold + DIBL scaling; backward-compatible
+      (default None = flat). Replace with PDK characterization when available.
+    severity: "low"
+    likelihood: "medium"
+  - risk: "Halving energy_per_flop changes KPU inf/J vs prior reports"
+    mitigation: >
+      It removes a genuine 2x double-count; new effective per-MAC energies
+      equal the published node values and are pinned by a regression test.
+    severity: "medium"
+    likelihood: "low"
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+references:
+  - type: "issue"
+    path: ""
+    section: "graphs #177, #121, #154, #81"
+    url: "https://github.com/branes-ai/graphs/issues/81"
+  - type: "pr"
+    path: ""
+    section: "graphs #251, #252, #253"
+    url: "https://github.com/branes-ai/graphs/pull/253"
+  - type: "pr"
+    path: ""
+    section: "embodied-schemas #84 (leakage_vdd_exponent), #85 (Vdd re-tune)"
+    url: "https://github.com/branes-ai/embodied-schemas/pull/85"
+  - type: "code"
+    path: "src/graphs/estimation/energy.py"
+    section: "EnergyAnalyzer.analyze (thermal clamp)"
+  - type: "code"
+    path: "src/graphs/hardware/models/accelerators/kpu_yaml_loader.py"
+    section: "_node_energy_per_flop_fp32_j + energy_scaling single-source"
+
+# ============================================================================
+# REVIEW
+# ============================================================================
+review:
+  status: "approved"
+  reviewer: "stillwater"
+  reviewed_at: "2026-05-25"
+  comments: >
+    Approved via PR review + merge of #251-#255 and embodied-schemas #84/#85.
+    Source-of-truth choice (ProcessNode generic) and round-TDP preservation
+    were explicit user decisions during the session.
+  modifications_required: []
+
+# ============================================================================
+# FOLLOW-UP
+# ============================================================================
+follow_up:
+  - action: "Replace THEORETICAL leakage_vdd_exponent with PDK-characterized values"
+    owner: "unassigned"
+    due_date: ""
+    status: "pending"
+  - action: "#175 -- CPU mapper batch=1 fanout overcount (N2 now a 2nd ARM anchor)"
+    owner: "unassigned"
+    due_date: ""
+    status: "pending"
