@@ -1281,6 +1281,28 @@ def create_ampere_ampereone_1core_reference_mapper() -> CPUMapper:
     return CPUMapper(model)
 
 
+def create_arm_neoverse_n2_mapper(num_cores: int = 1) -> CPUMapper:
+    """ARM Neoverse N2 reference design (real published IP).
+
+    Defaults to a single core -- a *real* single-core ARM reference (issue
+    #176), as opposed to the synthetic AmpereOne 1-core slice. N2's published
+    per-core datapath (2x 128-bit SVE2, BF16, INT8 dot-product, 64 KiB L1D,
+    1 MiB private L2) is modeled directly, so it doubles as a cross-check
+    anchor for the generic ``cpu_arm_resource_model`` helper.
+
+    ``num_cores`` scales the model for multi-core N2 SKUs (e.g. Microsoft
+    Cobalt 100, NXP S32, Marvell OCTEON). See
+    ``arm_neoverse_n2_resource_model`` for spec sources and the per-core
+    power estimate.
+    """
+    from ..models.datacenter.arm_neoverse_n2 import (
+        arm_neoverse_n2_resource_model,
+    )
+
+    model = arm_neoverse_n2_resource_model(num_cores=num_cores)
+    return CPUMapper(model)
+
+
 def create_intel_xeon_platinum_8490h_mapper() -> CPUMapper:
     """
     Create CPU mapper for Intel Xeon Platinum 8490H (Sapphire Rapids).

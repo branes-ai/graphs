@@ -60,6 +60,7 @@ def _init_registry():
         create_ampere_ampereone_192_mapper,
         create_ampere_ampereone_128_mapper,
         create_ampere_ampereone_1core_reference_mapper,
+        create_arm_neoverse_n2_mapper,
         create_i7_12700k_mapper,
         create_jetson_orin_agx_cpu_mapper,
     )
@@ -277,6 +278,14 @@ def _init_registry():
             "vendor": "Ampere",
             "description": "Ampere AmpereOne single-core reference (synthetic, see issue #175)",
             "default_tdp_w": 5.0,
+            "memory_gb": 64.0,
+        },
+        "ARM-Neoverse-N2-1core": {
+            "factory": create_arm_neoverse_n2_mapper,
+            "category": "cpu",
+            "vendor": "ARM",
+            "description": "ARM Neoverse N2 single-core reference (real IP: 2x 128-bit SVE2, see issue #176)",
+            "default_tdp_w": 4.0,
             "memory_gb": 64.0,
         },
 
