@@ -29,7 +29,8 @@ def cpu_arm_resource_model(
     process_node_nm: int = 8,
     scalar_freq_ghz: float = 2.2,
     name_suffix: str = "Cortex-A78AE",
-    tdp_watts: float = None
+    tdp_watts: float = None,
+    peak_bandwidth_gbps: float = 80.0,
 ) -> HardwareResourceModel:
     """
     Generic ARM CPU resource model with scalar + NEON fabrics.
@@ -40,6 +41,10 @@ def cpu_arm_resource_model(
         scalar_freq_ghz: CPU frequency (GHz)
         name_suffix: CPU core type name
         tdp_watts: Thermal Design Power in Watts (optional)
+        peak_bandwidth_gbps: Peak DRAM bandwidth in GB/s. Default 80 (edge/
+            embedded LPDDR/DDR5). Server-class SKUs MUST pass their datasheet
+            figure -- e.g. AmpereOne is 332.8 (8-ch DDR5-5200); leaving the
+            80 GB/s default understated it ~4x (issue #175 fix #2).
 
     Returns:
         HardwareResourceModel with dual compute fabrics
@@ -171,7 +176,7 @@ def cpu_arm_resource_model(
         default_precision=Precision.FP32,
 
         # Memory hierarchy
-        peak_bandwidth=80e9,  # 80 GB/s DDR5 (typical for edge/embedded)
+        peak_bandwidth=peak_bandwidth_gbps * 1e9,  # per-SKU (default 80 GB/s)
         l1_cache_per_unit=64 * 1024,  # 64 KB per core (32 KB I + 32 KB D)
         l2_cache_total=num_cores * 512 * 1024,  # 512 KB per core
         main_memory=64 * 1024**3,  # 64 GB DDR5

@@ -606,7 +606,10 @@ class RooflineAnalyzer:
         # here; compute efficiency and memory bandwidth have different
         # physics, and the V5 plan only retires the bandwidth side).
         compute_efficiency_scale = self._get_compute_efficiency_scale(sg)
-        effective_peak_flops = self.peak_flops * compute_efficiency_scale
+        concurrency_scale = self._cpu_concurrency_scale(sg)
+        effective_peak_flops = (
+            self.peak_flops * compute_efficiency_scale * concurrency_scale
+        )
         compute_time = (
             sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
         )
@@ -791,6 +794,33 @@ class RooflineAnalyzer:
         else:
             return None
         return prec_overrides.get(op_kind)
+
+    def _cpu_concurrency_scale(self, sg: SubgraphDescriptor) -> float:
+        """Geometric intra-operator concurrency cap for multi-core CPUs (#175).
+
+        ``self.peak_flops`` is the full aggregate ceiling (num_cores x
+        per-core). But a single operator can only fan out across as many cores
+        as it has independent work, floored at ``CPUMapper.MIN_MACS_PER_CORE``
+        per core. A batch=1 Linear(2048,2048) has ~4.2M MACs -> ~64 useful
+        cores, so on a 192-core SKU the realistic compute ceiling is 64/192 of
+        peak -- otherwise the analyzer claims ~192x the single-core throughput
+        on a matvec that geometrically can't parallelise that wide.
+
+        Returns 1.0 for non-CPU hardware, single-core CPUs, and operators large
+        enough (batch-parallel or big GEMM) to use every core.
+        """
+        if self.resource_model.hardware_type.name != "CPU":
+            return 1.0
+        cores = self.resource_model.compute_units
+        if cores <= 1:
+            return 1.0
+        macs = sg.total_macs if getattr(sg, "total_macs", 0) > 0 else sg.flops // 2
+        if macs <= 0:
+            return 1.0
+        # Deferred import: avoids any module-load cycle, single source of truth.
+        from graphs.hardware.mappers.cpu import CPUMapper
+        max_useful_cores = max(1, macs // CPUMapper.MIN_MACS_PER_CORE)
+        return min(1.0, max_useful_cores / cores)
 
     def _get_compute_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """

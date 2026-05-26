@@ -72,6 +72,15 @@ class CPUMapper(HardwareMapper):
     # Modern datacenter CPUs consume ~50% TDP at idle
     IDLE_POWER_FRACTION = 0.5
 
+    # Minimum useful work (MACs) per core for intra-operator parallelism.
+    # A single operator can only fan out across as many cores as it has
+    # independent work to spread, floored at this much work each -- below
+    # which thread-launch + reduction overhead dominates. Caps the realistic
+    # core count at total_macs / MIN_MACS_PER_CORE so a 192-core SKU can't
+    # claim 192x throughput on a batch=1 matvec that geometrically can't fan
+    # out that wide (issue #175). 64K MACs/core ~= a 256x256 tile of work.
+    MIN_MACS_PER_CORE = 65536
+
     def __init__(
         self,
         resource_model: HardwareResourceModel,
@@ -382,6 +391,20 @@ class CPUMapper(HardwareMapper):
                 cores_allocated = min(cores_allocated + extra_parallelism, self.cores)
 
         cores_allocated = max(1, cores_allocated)  # At least 1 core
+
+        # Geometric concurrency cap (issue #175). The allocation above can hand
+        # a single operator all cores via the channel-parallelism heuristic, but
+        # an operator only has total_macs / MIN_MACS_PER_CORE worth of useful
+        # fan-out. For a batch=1 Linear(2048,2048) that is ~64 cores, not 192 --
+        # so a 192-core SKU no longer reports ~192x the single-core throughput
+        # on a matvec that can't parallelise that wide. Batch-parallel and large
+        # ops are unaffected: their MAC count keeps max_useful_cores >= cores.
+        macs = subgraph.total_macs
+        if macs <= 0:
+            macs = subgraph.total_flops // 2
+        max_useful_cores = max(1, macs // self.MIN_MACS_PER_CORE)
+        cores_allocated = min(cores_allocated, max_useful_cores)
+
         threads_required = (
             cores_allocated  # 1 thread per core (SMT doesn't help compute)
         )
