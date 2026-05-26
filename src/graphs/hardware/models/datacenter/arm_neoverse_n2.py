@@ -186,4 +186,5 @@ def arm_neoverse_n2_resource_model(
         wave_quantization=1,
         thermal_operating_points={"default": thermal_default},
         default_thermal_profile="default",
+        cpu_l1_spill_haircut=True,  # uncalibrated reference; model L1-spill (#178)
     )

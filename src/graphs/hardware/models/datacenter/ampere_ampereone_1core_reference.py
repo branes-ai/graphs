@@ -37,4 +37,5 @@ def ampere_ampereone_1core_reference_resource_model() -> HardwareResourceModel:
         scalar_freq_ghz=3.6,
         name_suffix="AmpereOne-1core-ref",
         tdp_watts=5.0,
+        cpu_l1_spill_haircut=True,  # uncalibrated reference; model L1-spill (#178)
     )

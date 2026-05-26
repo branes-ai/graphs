@@ -320,6 +320,17 @@ class RooflineReport:
         return "\n".join(lines)
 
 
+# CPU L1-spill compute-utilization haircut exponent (issue #178 fix #2).
+# Real ARM Neoverse / x86 cores sustain only ~30-50% of peak vector throughput
+# on an un-blocked matvec whose working set far exceeds per-core L1 (L1-miss
+# stalls, K-reduction serial deps, horizontal-add overhead); ~90% is reserved
+# for hand-tuned BLAS. util_scale = (l1_per_core / working_set_per_core)^E with
+# E here lands ~0.44 for a 64x-L1 spill (-> ~39% util after the base curve),
+# inside the 30-50% target band, while staying 1.0 for L1-resident tiles.
+# THEORETICAL -- pending ground-truth calibration (Orin Nano / AGX), #178 fix #3.
+CPU_L1_SPILL_EXPONENT = 0.2
+
+
 class RooflineAnalyzer:
     """
     Analyzes computational graphs using the roofline model.
@@ -607,8 +618,12 @@ class RooflineAnalyzer:
         # physics, and the V5 plan only retires the bandwidth side).
         compute_efficiency_scale = self._get_compute_efficiency_scale(sg)
         concurrency_scale = self._cpu_concurrency_scale(sg)
+        l1_fit_scale = self._cpu_l1_fit_scale(sg)
         effective_peak_flops = (
-            self.peak_flops * compute_efficiency_scale * concurrency_scale
+            self.peak_flops
+            * compute_efficiency_scale
+            * concurrency_scale
+            * l1_fit_scale
         )
         compute_time = (
             sg.flops / effective_peak_flops if effective_peak_flops > 0 else 0.0
@@ -821,6 +836,48 @@ class RooflineAnalyzer:
         from graphs.hardware.mappers.cpu import CPUMapper
         max_useful_cores = max(1, macs // CPUMapper.MIN_MACS_PER_CORE)
         return min(1.0, max_useful_cores / cores)
+
+    def _cpu_l1_fit_scale(self, sg: SubgraphDescriptor) -> float:
+        """CPU compute-utilization haircut for L1-spilling operators (#178 #2).
+
+        Scales attainable FLOP utilization by
+        ``(l1_per_core / working_set_per_core) ** CPU_L1_SPILL_EXPONENT`` so an
+        un-blocked matvec/GEMM whose per-core tile overflows L1 can't sustain
+        peak vector throughput. Working set is spread across the cores the
+        operator actually uses (the #175 concurrency cap), so on a many-core
+        SKU the per-core tile shrinks toward L1 and util recovers, while a
+        single core thrashing the whole 4 MB matrix is correctly penalized.
+
+        Returns 1.0 for non-CPU hardware, L1-resident tiles, and -- crucially --
+        when the mapper carries a calibrated per-op efficiency override (that
+        measured value already reflects real L1 behavior; don't double-count).
+        """
+        if self.resource_model.hardware_type.name != "CPU":
+            return 1.0
+        # Opt-in: only uncalibrated theoretical CPU references model the haircut.
+        # Calibrated / measured-baseline CPUs (i7) already reflect real L1
+        # behavior in their tuned efficiency -- applying it there double-counts.
+        if not getattr(self.resource_model, "cpu_l1_spill_haircut", False):
+            return 1.0
+        # Belt-and-suspenders: also skip when calibration is active or a per-op
+        # efficiency override is supplied for this subgraph.
+        if self.is_calibrated or self._get_compute_efficiency_override(sg) is not None:
+            return 1.0
+        l1 = self.resource_model.l1_cache_per_unit
+        if l1 <= 0:
+            return 1.0
+        bytes_total = (
+            sg.total_input_bytes + sg.total_output_bytes + sg.total_weight_bytes
+        )
+        if bytes_total <= 0:
+            return 1.0
+        cores = max(1, self.resource_model.compute_units)
+        eff_cores = max(1, round(cores * self._cpu_concurrency_scale(sg)))
+        working_set_per_core = bytes_total / eff_cores
+        ratio = l1 / working_set_per_core
+        if ratio >= 1.0:
+            return 1.0
+        return ratio ** CPU_L1_SPILL_EXPONENT
 
     def _get_compute_efficiency_scale(self, sg: SubgraphDescriptor) -> float:
         """
