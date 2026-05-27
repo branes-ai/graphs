@@ -125,7 +125,7 @@ Coverage pin updated (N2 is reference IP with no ComputeProduct YAML).
 
 ## Issues closed this session
 
-- graphs#177, #121, #154, #81, #122, #176, #175
+- graphs#177, #121, #154, #81, #122, #176, #175, #178, #78
 - embodied-schemas: leakage_vdd_exponent (#84), KPU Vdd re-tune (#85)
 
 ### 6. PR #257 -- CPU batch=1 fanout cap + per-SKU bandwidth (closes #175)
@@ -151,9 +151,44 @@ the correct cap + bandwidth fix + a cap-level regression test (not an overhead/
 LLC-bandwidth rework). 1781 tests green; AmpereOne validations unchanged (no
 regression, confirmed identical pre/post).
 
+### 7. PR #259 -- CPU L1-spill utilization haircut (closes #178)
+
+Landed 2026-05-26. #178 flagged two CPU-over-GPU biases at batch=1. Fix #1 (GPU
+per-kernel overhead) was ALREADY addressed: kernel_launch_overhead_ns is
+per-mapper (edge 80us / datacenter 10us), cited to arXiv:2508.08430 -- the 80us
+is deliberate. Fix #3 (calibration) needs Orin Nano / AGX hardware. Shipped fix
+#2: the CPU matvec ran at ~90% util even with the 4MB weights 64x the L1.
+`RooflineAnalyzer._cpu_l1_fit_scale` scales util by
+`(l1_per_core / working_set_per_core)^0.2` (working set over the #175-capped
+effective cores) -> 90% -> 39%; AmpereOne-1core 5997 -> 2655 inf/s, so AGX Orin
+(7602) and Orin Nano (5939) now out-rank it.
+
+Key gating lesson: the first cut applied the haircut universally and broke i7's
+measured-baseline floor tests (i7's tuned efficiency already reflects real L1).
+Gated to OPT-IN via HardwareResourceModel.cpu_l1_spill_haircut, enabled only on
+uncalibrated references (AmpereOne 192/128/1core, N2); i7 opted out. 1787 green.
+
+### 8. PR #260 -- CPU package-level static power (closes #78)
+
+Landed 2026-05-26. EnergyAnalyzer's per-unit allocation branch divided CPU
+package power across allocated cores and gated the rest, but uncore/IMC/ring/L3
+are package-level -- i7 4-of-12 cores charged ~29W not ~87.5W (worse after the
+#175 cap). For CPU, charge full #71-calibrated idle_power_watts regardless of
+allocation (matches the no-allocation fallback); non-CPU keeps per-unit gating.
+1794 green.
+
+CodeRabbit on #260 flagged the EnergyDescriptor UNKNOWN-confidence default;
+deferred to #79 (pre-existing, pinned by test_confidence.py:183, needs the
+confidence-blending design) -- CodeRabbit concurred. A CI miss (the new
+tests/analysis test imported the non-installable `validation` package) was fixed
+inline, then #261 removed the same fragile import from the two #257/#259 tests.
+
 ## What's next
 
-- KPU + CPU-mapper issue thread fully closed. No immediate follow-ups; the
-  ~6.5us/op CPU launch overhead and per-operator LLC-bandwidth scaling are the
-  remaining levers if a future workload needs the batch=1 headline number to
-  move further (deferred, out of #175 scope).
+- KPU + CPU-mapper accuracy thread fully closed (#177/#121/#154/#81/#175/#178/#78).
+- **#79** -- EnergyDescriptor/energy estimates default to UNKNOWN confidence even
+  when calibrated; surfaced by the #260 review. Needs a confidence-blending design
+  (static can be CALIBRATED while compute/memory coefficients are THEORETICAL ->
+  honest aggregate is the weakest link) and an update to the test that pins UNKNOWN.
+- Remaining levers if a future workload needs the batch=1 CPU headline to move:
+  the ~6.5us/op launch overhead and per-operator LLC-bandwidth scaling (deferred).
