@@ -532,7 +532,18 @@ class EnergyAnalyzer:
             allocated_units = allocation.compute_units_allocated
             unallocated_units = self.total_compute_units - allocated_units
 
-            if self.power_gating_enabled:
+            if self.resource_model.hardware_type.name == "CPU":
+                # #78: CPU static power is package-level. Uncore, IMC, ring bus,
+                # and shared L3 draw power regardless of how many cores are
+                # active -- they can't be divided across cores or power-gated.
+                # idle_power_watts is the #71-calibrated average package power
+                # during an active kernel; charge it whole rather than a
+                # per-core fraction (which underestimated package power, more so
+                # now that the #175 concurrency cap allocates fewer cores).
+                static_energy_allocated = self.idle_power_watts * latency
+                static_energy_unallocated = 0.0
+                power_gating_savings = 0.0
+            elif self.power_gating_enabled:
                 # Power gating: Only allocated units consume idle power
                 static_energy_allocated = self.idle_power_per_unit * allocated_units * latency
                 static_energy_unallocated = 0.0  # Power gated
