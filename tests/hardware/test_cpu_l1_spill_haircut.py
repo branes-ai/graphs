@@ -29,15 +29,31 @@ from graphs.hardware.mappers.gpu import (
     create_jetson_orin_agx_64gb_mapper,
     create_jetson_orin_nano_8gb_mapper,
 )
+from graphs.core.structures import OperationType, SubgraphDescriptor
 from graphs.hardware.resource_model import Precision
-from validation.model_v4.invariants.kpu import _MatmulShape, _bpe
 
 P = Precision.INT8
 
 
-def _scale(mapper, shape: _MatmulShape) -> float:
+def _matmul_sg(M: int, K: int, N: int, bpe: int = 1) -> SubgraphDescriptor:
+    """Inline matmul subgraph -- avoids importing the `validation` package,
+    which isn't reliably on sys.path in the xdist unit-test CI job."""
+    return SubgraphDescriptor(
+        subgraph_id=0,
+        node_ids=["mm"], node_names=["mm"],
+        operation_types=[OperationType.MATMUL],
+        fusion_pattern="matmul",
+        total_flops=2 * M * K * N,
+        total_macs=M * K * N,
+        total_input_bytes=(M * K + K * N) * bpe,
+        total_output_bytes=M * N * bpe,
+        total_weight_bytes=0,
+    )
+
+
+def _scale(mapper, M: int, K: int, N: int) -> float:
     r = RooflineAnalyzer(mapper.resource_model, precision=P)
-    return r._cpu_l1_fit_scale(shape.to_subgraph(_bpe(P)))
+    return r._cpu_l1_fit_scale(_matmul_sg(M, K, N))
 
 
 def test_opt_in_flag_set_on_references_not_on_i7():
@@ -51,28 +67,28 @@ def test_opt_in_flag_set_on_references_not_on_i7():
 def test_l1_spilling_matvec_haircut_lands_in_band():
     """1-core ARM matvec (4 MB weights, 64x L1) -> ~30-50% utilization."""
     mapper = create_ampere_ampereone_1core_reference_mapper()
-    scale = _scale(mapper, _MatmulShape(1, 2048, 2048))
+    scale = _scale(mapper, 1, 2048, 2048)
     assert scale < 1.0
     r = RooflineAnalyzer(mapper.resource_model, precision=P)
-    lat = r._analyze_subgraph(_MatmulShape(1, 2048, 2048).to_subgraph(_bpe(P)))
+    lat = r._analyze_subgraph(_matmul_sg(1, 2048, 2048))
     assert 0.30 <= lat.flops_utilization <= 0.50
 
 
 def test_l1_resident_op_not_haircut():
     """A tiny matmul whose working set fits in L1 keeps full utilization."""
     mapper = create_ampere_ampereone_1core_reference_mapper()
-    assert _scale(mapper, _MatmulShape(1, 64, 64)) == pytest.approx(1.0)
+    assert _scale(mapper, 1, 64, 64) == pytest.approx(1.0)
 
 
 def test_i7_opt_out_never_haircut():
     """i7 (calibrated/measured baseline) is not haircut even on a big L1-spill."""
     mapper = create_i7_12700k_mapper()
-    assert _scale(mapper, _MatmulShape(1, 2048, 2048)) == pytest.approx(1.0)
+    assert _scale(mapper, 1, 2048, 2048) == pytest.approx(1.0)
 
 
 def test_non_cpu_not_haircut():
     mapper = create_jetson_orin_nano_8gb_mapper()
-    assert _scale(mapper, _MatmulShape(1, 2048, 2048)) == pytest.approx(1.0)
+    assert _scale(mapper, 1, 2048, 2048) == pytest.approx(1.0)
 
 
 def test_jetson_beats_single_arm_core_on_batch1_linear():
