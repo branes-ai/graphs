@@ -15,15 +15,33 @@ from types import SimpleNamespace
 
 import pytest
 
+from graphs.core.structures import OperationType, SubgraphDescriptor
 from graphs.estimation.energy import EnergyAnalyzer
 from graphs.hardware.mappers.cpu import create_i7_12700k_mapper
 from graphs.hardware.mappers.gpu import create_h100_pcie_80gb_mapper
 from graphs.hardware.resource_model import Precision
-from validation.model_v4.invariants.kpu import _MatmulShape, _bpe
 
 P = Precision.INT8
 LAT = 0.001
-SG = _MatmulShape(1, 2048, 2048).to_subgraph(_bpe(P))
+
+
+def _matmul_sg(M: int, K: int, N: int, bpe: int = 1) -> SubgraphDescriptor:
+    """Build a matmul subgraph inline (no dependency on the `validation`
+    package, which isn't importable in the unit-test CI job)."""
+    return SubgraphDescriptor(
+        subgraph_id=0,
+        node_ids=["mm"], node_names=["mm"],
+        operation_types=[OperationType.MATMUL],
+        fusion_pattern="matmul",
+        total_flops=2 * M * K * N,
+        total_macs=M * K * N,
+        total_input_bytes=(M * K + K * N) * bpe,
+        total_output_bytes=M * N * bpe,
+        total_weight_bytes=0,
+    )
+
+
+SG = _matmul_sg(1, 2048, 2048)
 
 
 def _alloc(units, total):
