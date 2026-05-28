@@ -143,6 +143,11 @@ class EnergyReport:
     thermal_throttle_active: bool = False  # True when the TDP floor raised latency
     tdp_watts: float = 0.0  # TDP used for the clamp (for downstream reporting)
 
+    # Confidence (#79): worst-case across per-subgraph descriptors.
+    confidence: EstimationConfidence = field(
+        default_factory=EstimationConfidence.unknown
+    )
+
     # Per-subgraph energy
     energy_descriptors: List[EnergyDescriptor] = field(default_factory=list)
 
@@ -295,7 +300,8 @@ class EnergyAnalyzer:
         precision: Precision = Precision.FP32,
         latency_s: Optional[float] = None,
         power_gating_enabled: bool = False,  # Phase 1 integration
-        thermal_profile: Optional[str] = None  # Thermal-aware analysis
+        thermal_profile: Optional[str] = None,  # Thermal-aware analysis
+        confidence: Optional[EstimationConfidence] = None,  # #79
     ):
         """
         Initialize energy analyzer.
@@ -307,12 +313,19 @@ class EnergyAnalyzer:
             power_gating_enabled: If True, unallocated units consume 0 idle power
             thermal_profile: Thermal/power profile (e.g., '15W', '30W').
                            Uses thermal_operating_points for realistic TDP and performance.
+            confidence: Optional caller-supplied confidence for the energy
+                        estimate (#79). Pass CALIBRATED only when the SKU has a
+                        measured calibration profile (the V4 RAPL/NVML baseline
+                        validates its energy end-to-end). When None, the analyzer
+                        reports THEORETICAL -- the energy model is analytical
+                        (process-node energy_per_flop/byte + datasheet TDP).
         """
         self.resource_model = resource_model
         self.precision = precision
         self.latency_s = latency_s
         self.power_gating_enabled = power_gating_enabled
         self.thermal_profile = thermal_profile
+        self._supplied_confidence = confidence
 
         # Get energy coefficients
         self.energy_per_flop = resource_model.energy_per_flop_fp32
@@ -354,6 +367,8 @@ class EnergyAnalyzer:
                 # Use first available profile
                 first_profile = next(iter(self.resource_model.thermal_operating_points.values()))
                 self.tdp_watts = first_profile.tdp_watts
+            # TDP basis for confidence reporting (#79): datasheet thermal profile.
+            self._tdp_basis = "datasheet thermal profile"
         else:
             # Legacy fallback: Estimate from peak power
             # For GPUs: Peak power ~= 2× average, TDP ~= 1.5× average
@@ -361,6 +376,7 @@ class EnergyAnalyzer:
             peak_flops = self.resource_model.precision_profiles[self.precision].peak_ops_per_sec
             peak_dynamic_power = peak_flops * self.energy_per_flop
             self.tdp_watts = peak_dynamic_power * 2.0
+            self._tdp_basis = "rough peak*2 estimate (no thermal profile)"
 
         # "Idle" power -- but see CPU_IDLE_POWER_FRACTION docstring above:
         # on CPU this is the *average package power during an active kernel*
@@ -373,6 +389,32 @@ class EnergyAnalyzer:
             self.idle_power_watts = self.tdp_watts * self.CPU_IDLE_POWER_FRACTION
         else:
             self.idle_power_watts = self.tdp_watts * self.IDLE_POWER_FRACTION
+
+    def _resolve_confidence(self) -> EstimationConfidence:
+        """Confidence for the energy estimate (#79).
+
+        Honors a caller-supplied confidence (CALIBRATED only when a measured
+        calibration profile backs the SKU -- the V4 RAPL/NVML baseline validates
+        its energy end-to-end). Otherwise THEORETICAL: the energy model is
+        analytical (process-node energy_per_flop/byte + an idle-power fraction
+        over the {datasheet TDP | rough estimate}). Never UNKNOWN -- an analytical
+        estimate is always at least THEORETICAL.
+        """
+        # Treat a caller-supplied UNKNOWN as "no override" -- never let it
+        # re-open the #79 contract gap; fall through to the THEORETICAL default.
+        if (
+            self._supplied_confidence is not None
+            and self._supplied_confidence.level != ConfidenceLevel.UNKNOWN
+        ):
+            return self._supplied_confidence
+        tdp_basis = getattr(self, "_tdp_basis", "datasheet thermal profile")
+        return EstimationConfidence.theoretical(
+            source=(
+                f"analytical energy model: process-node energy_per_flop/byte + "
+                f"{self.CPU_IDLE_POWER_FRACTION if self.resource_model.hardware_type.name == 'CPU' else self.IDLE_POWER_FRACTION:.2g}"
+                f"x idle fraction over {tdp_basis}"
+            )
+        )
 
     def analyze(
         self,
@@ -425,6 +467,17 @@ class EnergyAnalyzer:
         avg_efficiency = sum(d.efficiency for d in energy_descriptors) / len(energy_descriptors) if energy_descriptors else 0.0
         avg_utilization = sum(d.utilization for d in energy_descriptors) / len(energy_descriptors) if energy_descriptors else 0.0
         wasted_percent = wasted_energy / total_energy * 100 if total_energy > 0 else 0.0
+
+        # Confidence (#79): the report is only as trustworthy as its least
+        # confident subgraph -> worst-case (lowest score) across descriptors.
+        report_confidence = (
+            min(
+                (d.confidence for d in energy_descriptors),
+                key=lambda c: c.score,
+            )
+            if energy_descriptors
+            else self._resolve_confidence()
+        )
 
         # NEW: Aggregate power management metrics
         total_allocated_units_energy = sum(d.static_energy_allocated_j for d in energy_descriptors)
@@ -482,6 +535,7 @@ class EnergyAnalyzer:
             average_utilization=avg_utilization,
             wasted_energy_j=wasted_energy,
             wasted_energy_percent=wasted_percent,
+            confidence=report_confidence,
             average_power_w=average_power,
             peak_power_w=peak_power,
             total_latency_s=total_latency,
@@ -609,6 +663,7 @@ class EnergyAnalyzer:
             power_gating_savings_j=power_gating_savings,
             power_gating_enabled=self.power_gating_enabled,
             explanation=explanation,
+            confidence=self._resolve_confidence(),
         )
 
     def _estimate_latencies(self, subgraphs: List[SubgraphDescriptor]) -> List[float]:
