@@ -80,11 +80,15 @@ def test_output_format_autodetected_by_extension(tmp_path):
     assert all(len(a["rows"]) == 3 for a in data)
     assert {a["label"] for a in data} == {"CPU", "GPU", "KPU"}
 
-    # CSV: header + one row per (arch, operator) = 9 data rows.
+    # CSV: header + one row per (arch, operator) = 9 data rows. Assert key
+    # columns by name (decoupled from the module's _FLAT_COLS internals).
     cp = tmp_path / "r.csv"
     mod.main(["--output", str(cp)])
     rows = list(_csv.reader(cp.read_text().splitlines()))
-    assert rows[0] == mod._FLAT_COLS
+    header = rows[0]
+    for col in ("arch", "process_node", "operator", "bottleneck",
+                "latency_s", "compute_eff", "mem_eff", "energy_j"):
+        assert col in header, f"CSV header missing '{col}'"
     assert len(rows) == 1 + 9
 
     # Markdown: per-arch tables.
@@ -93,7 +97,8 @@ def test_output_format_autodetected_by_extension(tmp_path):
     md = mp.read_text()
     assert "| operator | bottleneck |" in md and "### CPU" in md
 
-    # Text fallback: the plain ASCII tables.
-    tp = tmp_path / "r.txt"
-    mod.main(["--output", str(tp)])
-    assert "speed of light" in tp.read_text()
+    # Text fallback: .txt AND an unknown extension both yield the plain tables.
+    for ext in (".txt", ".dat"):
+        fp = tmp_path / f"r{ext}"
+        mod.main(["--output", str(fp)])
+        assert "speed of light" in fp.read_text()
