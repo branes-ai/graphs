@@ -125,7 +125,7 @@ Coverage pin updated (N2 is reference IP with no ComputeProduct YAML).
 
 ## Issues closed this session
 
-- graphs#177, #121, #154, #81, #122, #176, #175, #178, #78
+- graphs#177, #121, #154, #81, #122, #176, #175, #178, #78, #79
 - embodied-schemas: leakage_vdd_exponent (#84), KPU Vdd re-tune (#85)
 
 ### 6. PR #257 -- CPU batch=1 fanout cap + per-SKU bandwidth (closes #175)
@@ -183,12 +183,29 @@ confidence-blending design) -- CodeRabbit concurred. A CI miss (the new
 tests/analysis test imported the non-installable `validation` package) was fixed
 inline, then #261 removed the same fragile import from the two #257/#259 tests.
 
+### 9. PR #263 -- EstimationConfidence on energy estimates (closes #79)
+
+Landed 2026-05-28. EnergyDescriptor/EnergyReport defaulted to UNKNOWN, violating
+the estimation rule (surfaced by the #260 CodeRabbit review). Resolution of the
+design question raised in #260: the EnergyAnalyzer has no measured-energy input,
+so the honest aggregate is the weakest link -- THEORETICAL (compute/memory
+coefficients are analytical). User chose to PLUMB calibration (over a name
+registry or conservative-THEORETICAL): EnergyAnalyzer gains a `confidence` param;
+UnifiedAnalyzer derives it from the mapper's `.calibration`, gated on non-zero
+measured metrics, and reports CALIBRATED only then (the V4 RAPL/NVML baseline
+validates a measured SKU's energy end-to-end). EnergyReport aggregates worst-case.
+
+Dataclass defaults stay UNKNOWN (test_confidence.py:165/183/200 pin direct
+construction -- not broken, since only the analyzer output changed). 3 CodeRabbit
+findings fixed + acknowledged: block UNKNOWN caller override, gate CALIBRATED on
+measured metrics, strengthen the worst-case test with mixed confidences.
+
 ## What's next
 
-- KPU + CPU-mapper accuracy thread fully closed (#177/#121/#154/#81/#175/#178/#78).
-- **#79** -- EnergyDescriptor/energy estimates default to UNKNOWN confidence even
-  when calibrated; surfaced by the #260 review. Needs a confidence-blending design
-  (static can be CALIBRATED while compute/memory coefficients are THEORETICAL ->
-  honest aggregate is the weakest link) and an update to the test that pins UNKNOWN.
+- KPU + CPU-mapper + energy-confidence thread fully closed
+  (#177/#121/#154/#81/#175/#178/#78/#79).
+- **Latency/Memory confidence audit**: LatencyDescriptor / MemoryDescriptor have
+  the same UNKNOWN-default gap #79 fixed for energy; do the parallel plumbing
+  (deferred from #79 as out of scope).
 - Remaining levers if a future workload needs the batch=1 CPU headline to move:
   the ~6.5us/op launch overhead and per-operator LLC-bandwidth scaling (deferred).
