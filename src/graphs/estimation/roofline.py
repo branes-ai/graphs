@@ -196,6 +196,11 @@ class RooflineReport:
     # Per-subgraph latency
     latencies: List[LatencyDescriptor] = field(default_factory=list)
 
+    # Confidence (#79 follow-up): worst-case across per-subgraph descriptors.
+    confidence: EstimationConfidence = field(
+        default_factory=EstimationConfidence.unknown
+    )
+
     # Aggregate statistics
     total_latency: float = 0.0  # seconds
     total_compute_time: float = 0.0
@@ -579,6 +584,13 @@ class RooflineAnalyzer:
             else 0.0
         )
 
+        # Confidence (#79 follow-up): worst-case (lowest score) across latencies.
+        report_confidence = (
+            min((l.confidence for l in latencies), key=lambda c: c.score)
+            if latencies
+            else self._resolve_confidence()
+        )
+
         # Critical path
         critical_path_latency = 0.0
         critical_path_subgraphs = []
@@ -596,6 +608,7 @@ class RooflineAnalyzer:
             peak_bandwidth=self.peak_bandwidth,
             arithmetic_intensity_breakpoint=self.ai_breakpoint,
             latencies=latencies,
+            confidence=report_confidence,
             total_latency=total_latency,
             total_compute_time=total_compute_time,
             total_memory_time=total_memory_time,
@@ -608,6 +621,22 @@ class RooflineAnalyzer:
             roofline_points=roofline_points,
             critical_path_latency=critical_path_latency,
             critical_path_subgraphs=critical_path_subgraphs,
+        )
+
+    def _resolve_confidence(self) -> EstimationConfidence:
+        """Confidence for the latency estimate (#79 follow-up).
+
+        CALIBRATED when the analyzer was constructed with measured calibration
+        (calibrated_peak_flops / efficiency_factor / calibrated_bandwidth ->
+        self.is_calibrated); otherwise THEORETICAL -- the roofline derives
+        latency from peak FLOPS/bandwidth specs. Never UNKNOWN.
+        """
+        if self.is_calibrated:
+            return EstimationConfidence.calibrated(
+                source="roofline with measured calibration (peak/efficiency/bandwidth)"
+            )
+        return EstimationConfidence.theoretical(
+            source="roofline from peak FLOPS/bandwidth specs"
         )
 
     def _analyze_subgraph(self, sg: SubgraphDescriptor) -> LatencyDescriptor:
@@ -757,6 +786,7 @@ class RooflineAnalyzer:
             bandwidth_utilization=bw_util,
             explanation=explanation,
             memory_explanation=self._last_memory_explanation,
+            confidence=self._resolve_confidence(),
         )
 
     def _get_compute_efficiency_override(
