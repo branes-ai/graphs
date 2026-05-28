@@ -66,15 +66,23 @@ def test_supplied_calibrated_confidence_is_honored():
 
 
 def test_report_confidence_is_worst_case_across_descriptors():
-    """The report is only as confident as its least-confident subgraph."""
+    """With genuinely mixed per-subgraph confidences, the report resolves to the
+    worst (lowest-score) one. Force a CALIBRATED then THEORETICAL descriptor via
+    a per-call _resolve_confidence override to exercise the wired aggregation."""
     hw = create_i7_12700k_mapper().resource_model
-    e = EnergyAnalyzer(hw, precision=P)  # all descriptors THEORETICAL
+    e = EnergyAnalyzer(hw, precision=P)
+    mixed = iter([
+        EstimationConfidence.calibrated(source="measured"),
+        EstimationConfidence.theoretical(source="model"),
+    ])
+    e._resolve_confidence = lambda: next(mixed)  # 1st sg CALIBRATED, 2nd THEORETICAL
     report = e.analyze(
         subgraphs=[_matmul_sg(1, 512, 512), _matmul_sg(1, 1024, 1024)],
         latencies=[0.001, 0.002],
     )
-    worst = min((d.confidence.score for d in report.energy_descriptors))
-    assert report.confidence.score == worst
+    levels = {d.confidence.level for d in report.energy_descriptors}
+    assert levels == {ConfidenceLevel.CALIBRATED, ConfidenceLevel.THEORETICAL}
+    assert report.confidence.level == ConfidenceLevel.THEORETICAL  # worst-case wins
 
 
 def test_unified_analyzer_end_to_end_is_theoretical():

@@ -738,7 +738,13 @@ class UnifiedAnalyzer:
         # the energy estimate is the analyzer's analytical THEORETICAL default.
         energy_confidence = None
         calibration = getattr(hardware_mapper, "calibration", None)
-        if calibration is not None:
+        # Require actual measured metrics, not just a calibration object -- an
+        # empty/zero profile must not claim CALIBRATED (mirrors the
+        # best_measured_gflops/measured_bandwidth_gbps > 0 guards elsewhere).
+        if calibration is not None and (
+            getattr(calibration, "best_measured_gflops", 0) > 0
+            or getattr(calibration, "measured_bandwidth_gbps", 0) > 0
+        ):
             src = getattr(getattr(calibration, "metadata", None), "hardware_name", None)
             energy_confidence = EstimationConfidence.calibrated(
                 source=f"measured calibration profile ({src or hardware.name})"

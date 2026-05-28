@@ -400,7 +400,12 @@ class EnergyAnalyzer:
         over the {datasheet TDP | rough estimate}). Never UNKNOWN -- an analytical
         estimate is always at least THEORETICAL.
         """
-        if self._supplied_confidence is not None:
+        # Treat a caller-supplied UNKNOWN as "no override" -- never let it
+        # re-open the #79 contract gap; fall through to the THEORETICAL default.
+        if (
+            self._supplied_confidence is not None
+            and self._supplied_confidence.level != ConfidenceLevel.UNKNOWN
+        ):
             return self._supplied_confidence
         tdp_basis = getattr(self, "_tdp_basis", "datasheet thermal profile")
         return EstimationConfidence.theoretical(
