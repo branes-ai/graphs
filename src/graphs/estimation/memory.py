@@ -186,6 +186,12 @@ class MemoryReport:
     # Per-subgraph details
     subgraph_descriptors: List[MemoryDescriptor] = field(default_factory=list)
 
+    # Confidence (#79 follow-up): memory footprint is analytical (computed from
+    # tensor shapes + dtype), so THEORETICAL -- worst-case across descriptors.
+    confidence: EstimationConfidence = field(
+        default_factory=EstimationConfidence.unknown
+    )
+
     def format_report(self, show_timeline: bool = False, timeline_steps: int = 10) -> str:
         """
         Generate human-readable memory report.
@@ -418,6 +424,16 @@ class MemoryEstimator:
             total_quantization_savings_bytes=optimizations['quantization_savings'],
             optimization_suggestions=optimizations['suggestions'],
             subgraph_descriptors=subgraph_descriptors,
+            confidence=(
+                min(
+                    (d.confidence for d in subgraph_descriptors),
+                    key=lambda c: c.score,
+                )
+                if subgraph_descriptors
+                else EstimationConfidence.theoretical(
+                    source="memory footprint computed from tensor shapes + dtype"
+                )
+            ),
         )
 
     def _get_execution_order(self, partition_report: PartitionReport) -> List[str]:
@@ -821,4 +837,8 @@ class MemoryEstimator:
             can_quantize=can_quantize,
             quantization_savings_bytes=quantization_savings,
             explanation=f"{sg.node_name} ({sg.operation_type.value})",
+            confidence=EstimationConfidence.theoretical(
+                source="memory footprint computed from tensor shapes + dtype "
+                       "(excludes allocator overhead / fragmentation)"
+            ),
         )
