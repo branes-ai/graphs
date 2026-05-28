@@ -54,11 +54,29 @@ OPERATOR_SHAPES = {
 }
 
 
-def _bpe(precision: Precision) -> int:
-    return {
-        Precision.FP64: 8, Precision.FP32: 4, Precision.TF32: 4,
-        Precision.FP16: 2, Precision.BF16: 2, Precision.INT8: 1, Precision.FP8: 1,
-    }.get(precision, 4)
+# Complete bytes-per-element map over every Precision member (no silent
+# default that could misclassify a bottleneck). Sub-byte types round up to 1
+# for the byte-traffic estimate; evaluate_arch prefers the hardware's own
+# PrecisionProfile.bytes_per_element (canonical per-SKU source) when present.
+_PRECISION_BYTES = {
+    Precision.FP64: 8, Precision.INT64: 8,
+    Precision.FP32: 4, Precision.TF32: 4, Precision.INT32: 4,
+    Precision.FP16: 2, Precision.BF16: 2, Precision.INT16: 2,
+    Precision.FP8: 1, Precision.FP8_E4M3: 1, Precision.FP8_E5M2: 1, Precision.INT8: 1,
+    Precision.FP4: 1, Precision.INT4: 1,  # packed sub-byte; 1 B upper bound here
+}
+
+
+def _bytes_per_element(rm, precision: Precision) -> int:
+    """Canonical bytes/element: prefer the SKU's PrecisionProfile, else the
+    complete fallback map. Raises on a precision with no known width."""
+    prof = rm.precision_profiles.get(precision) if rm.precision_profiles else None
+    bpe = getattr(prof, "bytes_per_element", None)
+    if bpe:
+        return int(bpe)
+    if precision in _PRECISION_BYTES:
+        return _PRECISION_BYTES[precision]
+    raise ValueError(f"no bytes-per-element known for precision {precision!r}")
 
 
 def _matmul_sg(M: int, K: int, N: int, bpe: int) -> SubgraphDescriptor:
@@ -118,7 +136,7 @@ def evaluate_arch(label: str, mapper_name: str, precision: Precision) -> dict:
     rm = mapper.resource_model
     roof = RooflineAnalyzer(rm, precision=precision)
     energy = EnergyAnalyzer(rm, precision=precision)
-    bpe = _bpe(precision)
+    bpe = _bytes_per_element(rm, precision)
 
     rows = []
     for op, (M, K, N) in OPERATOR_SHAPES.items():
@@ -172,11 +190,83 @@ def format_table(a: dict) -> str:
     return "\n".join(lines)
 
 
+# Flattened columns for tabular (csv/md) output: one row per (arch, operator).
+_FLAT_COLS = [
+    "arch", "chip", "process_node", "precision",
+    "peak_compute_tops", "peak_bw_gbps",
+    "operator", "bottleneck", "latency_s",
+    "compute_eff", "mem_eff", "energy_j",
+]
+
+
+def _flat_rows(results: List[dict]) -> List[list]:
+    rows = []
+    for a in results:
+        for r in a["rows"]:
+            rows.append([
+                a["label"], a["chip"], a["node"], a["precision"],
+                f"{a['peak_compute_tops']:.4f}", f"{a['peak_bw_gbps']:.2f}",
+                r["op"], r["bottleneck"], f"{r['latency_s']:.6e}",
+                f"{r['compute_eff']:.4f}", f"{r['mem_eff']:.4f}",
+                f"{r['energy_j']:.6e}",
+            ])
+    return rows
+
+
+def _markdown(results: List[dict]) -> str:
+    """One markdown table per architecture (mirrors the stdout tables)."""
+    out = []
+    for a in results:
+        unit = "TFLOPS" if a["precision"].startswith(("fp", "bf", "tf")) else "TOPS"
+        out.append(
+            f"### {a['label']}: {a['chip']}\n\n"
+            f"- process node: **{a['node']}** | precision: **{a['precision']}** | "
+            f"peak compute: **{a['peak_compute_tops']:.2f} {unit}** | "
+            f"peak memory: **{a['peak_bw_gbps']:.1f} GB/s**\n"
+        )
+        out.append("| operator | bottleneck | latency | compute eff | mem eff | energy |")
+        out.append("|---|---|--:|--:|--:|--:|")
+        for r in a["rows"]:
+            out.append(
+                f"| {r['op']} | {r['bottleneck']} | {_fmt_time(r['latency_s'])} | "
+                f"{r['compute_eff'] * 100:.1f}% | {r['mem_eff'] * 100:.1f}% | "
+                f"{_fmt_energy(r['energy_j'])} |"
+            )
+        out.append("")
+    return "\n".join(out)
+
+
+def write_output(results: List[dict], path: Path, text: str) -> None:
+    """Write results to ``path``, auto-detecting format from the extension:
+    .json (structured), .csv (flattened rows), .md/.markdown (per-arch tables),
+    anything else (.txt/text) -> the plain stdout tables."""
+    ext = path.suffix.lower()
+    if ext == ".json":
+        import json
+        path.write_text(json.dumps(results, indent=2))
+    elif ext == ".csv":
+        import csv
+        import io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(_FLAT_COLS)
+        w.writerows(_flat_rows(results))
+        path.write_text(buf.getvalue())
+    elif ext in (".md", ".markdown"):
+        path.write_text(_markdown(results))
+    else:
+        path.write_text(text + "\n")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--output", "-o", help="Optional .md/.txt file for the tables.")
+    p.add_argument(
+        "--output", "-o",
+        help="Output file; format auto-detected by extension "
+             "(.json / .csv / .md / .txt).",
+    )
     args = p.parse_args(argv)
 
     results = [evaluate_arch(*spec) for spec in DEFAULT_ARCHES]
@@ -196,7 +286,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(note)
 
     if args.output:
-        Path(args.output).write_text(text + note + "\n")
+        write_output(results, Path(args.output), text + note)
         print(f"\ninfo: wrote {args.output}")
     return 0
 
