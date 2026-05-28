@@ -61,6 +61,7 @@ from graphs.hardware.resource_model import (
     GraphHardwareAllocation,
     HardwareAllocation,
 )
+from graphs.core.confidence import EstimationConfidence
 
 # Hardware mapper imports
 from graphs.hardware.mappers.gpu import (
@@ -501,7 +502,8 @@ class UnifiedAnalyzer:
                 print(f"Running energy analysis{profile_str}...")
             result.energy_report = self._run_energy_analysis(
                 partition_report, hardware, result.roofline_report,
-                result.hardware_allocation, precision, config, thermal_profile
+                result.hardware_allocation, precision, config, thermal_profile,
+                hardware_mapper=hardware_mapper,
             )
 
         # Step 4: Run memory analysis
@@ -727,14 +729,33 @@ class UnifiedAnalyzer:
         hardware_allocation: Optional[GraphHardwareAllocation],
         precision: Precision,
         config: AnalysisConfig,
-        thermal_profile: Optional[str] = None
+        thermal_profile: Optional[str] = None,
+        hardware_mapper: Optional[Any] = None,
     ) -> EnergyReport:
         """Run energy analysis using roofline latencies and hardware allocation (NEW)"""
+        # #79: a SKU with a measured calibration profile has its energy validated
+        # end-to-end (V4 RAPL / NVML baseline), so report CALIBRATED; otherwise
+        # the energy estimate is the analyzer's analytical THEORETICAL default.
+        energy_confidence = None
+        calibration = getattr(hardware_mapper, "calibration", None)
+        # Require actual measured metrics, not just a calibration object -- an
+        # empty/zero profile must not claim CALIBRATED (mirrors the
+        # best_measured_gflops/measured_bandwidth_gbps > 0 guards elsewhere).
+        if calibration is not None and (
+            getattr(calibration, "best_measured_gflops", 0) > 0
+            or getattr(calibration, "measured_bandwidth_gbps", 0) > 0
+        ):
+            src = getattr(getattr(calibration, "metadata", None), "hardware_name", None)
+            energy_confidence = EstimationConfidence.calibrated(
+                source=f"measured calibration profile ({src or hardware.name})"
+            )
+
         analyzer = EnergyAnalyzer(
             hardware,
             precision=precision,
             power_gating_enabled=config.power_gating_enabled,
-            thermal_profile=thermal_profile
+            thermal_profile=thermal_profile,
+            confidence=energy_confidence,
         )
 
         # Extract latencies from roofline if available
