@@ -130,6 +130,47 @@ def test_compare_float_tolerance():
     assert kg.compare_snapshots({"x": 0.0}, {"x": 1e-15}) == []
 
 
+def test_compare_integers_exactly():
+    """Large counts (bytes, transistors) must not hide behind rel_tol."""
+    assert kg.compare_snapshots({"n": 2_000_000_000}, {"n": 2_000_000_001}) == [
+        ".n: 2000000000 -> 2000000001"
+    ]
+    assert kg.compare_snapshots({"n": 8589934592}, {"n": 8589934592}) == []
+
+
+# ---------------------------------------------------------------------------
+# Snapshot coverage (regressions for gaps found in review of #267)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sku_id", _catalog_ids())
+def test_sub_byte_precisions_carry_memory_traffic(sku_id):
+    """INT4 is 0.5 bytes/element; truncating it to 0 made every INT4 mapping
+    memory-free and blinded the gate to INT4 memory/tiling changes."""
+    mappings = kg.load_snapshot(sku_id)["mapper"]["map_subgraph"]
+    for precision, per_sg in mappings.items():
+        for sg_name, alloc in per_sg.items():
+            assert alloc["memory_time"] > 0, (sku_id, precision, sg_name)
+    if "int4" in mappings and "int8" in mappings:
+        ratio = (
+            mappings["int4"]["gemm_1024"]["memory_time"]
+            / mappings["int8"]["gemm_1024"]["memory_time"]
+        )
+        assert ratio == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("sku_id", _catalog_ids())
+def test_dynamic_power_covers_every_supported_precision(sku_id):
+    snap = kg.load_snapshot(sku_id)
+    tiles = snap["input"]["dies"][0]["blocks"][0]["tiles"]
+    supported = {p for t in tiles for p in t["ops_per_tile_per_clock"]}
+    profiles = {p["name"] for p in snap["input"]["power"]["thermal_profiles"]}
+    for block in snap["silicon"]["blocks"]:
+        by_profile = block["peak_dynamic_w_by_profile"]
+        assert set(by_profile) == profiles, block["name"]
+        for profile, by_prec in by_profile.items():
+            assert set(by_prec) == supported, (block["name"], profile)
+
+
 def test_compare_structure():
     assert kg.compare_snapshots({"a": 1}, {"a": 1, "b": 2}) == [".b: unexpected in actual"]
     assert kg.compare_snapshots({"a": 1, "b": 2}, {"a": 1}) == [".b: missing in actual"]

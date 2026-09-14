@@ -326,12 +326,13 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
 **Phase A: baseline and de-duplication** (no behavior change)
 - A0 (G): **DONE (2026-09-14).**
   - Pieces: `src/graphs/hardware/kpu_golden.py`, `cli/kpu_golden_snapshot.py`,
-    and `tests/hardware/test_kpu_golden.py` (34 tests). The 12 goldens are in
-    `tests/hardware/golden/kpu/`.
+    `tests/hardware/test_kpu_golden.py` (59 tests) and
+    `tests/cli/test_kpu_golden_snapshot.py` (8 tests). The 12 goldens are in
+    `tests/hardware/golden/kpu/` (golden schema v2).
   - Per SKU, it snapshots:
     - the catalog input;
     - the generator round-trip, including the TDP breakdown per profile;
-    - transistors, area, leakage and dynamic power per silicon_bin block;
+    - transistors, area, leakage, and dynamic power at every supported precision, per silicon_bin block;
     - both floorplans, including every placed block;
     - the PhysicalSpec;
     - the full resource model;

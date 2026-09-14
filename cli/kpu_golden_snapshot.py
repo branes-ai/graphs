@@ -24,6 +24,7 @@ Usage:
     python cli/kpu_golden_snapshot.py --sku kpu_t64_32x32_lp5x4_16nm_tsmc_ffp
     python cli/kpu_golden_snapshot.py --max-diffs 50       # show more diff lines per SKU
     python cli/kpu_golden_snapshot.py --output diff.json   # machine-readable report
+    python cli/kpu_golden_snapshot.py --output diff.csv    # one row per difference
     python cli/kpu_golden_snapshot.py --update             # regenerate every golden
     python cli/kpu_golden_snapshot.py --update --sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
 
@@ -36,6 +37,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
@@ -49,7 +52,25 @@ def _detect_format(output: Optional[str]) -> str:
     if not output:
         return "text"
     ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "md": "md", "markdown": "md", "txt": "text"}.get(ext, "text")
+    return {
+        "json": "json", "csv": "csv", "md": "md", "markdown": "md", "txt": "text",
+    }.get(ext, "text")
+
+
+def _render_csv(results: dict[str, list[str]], stale: list[str]) -> str:
+    """One row per difference (all of them, untruncated); one row per clean
+    or stale SKU with an empty ``difference`` column."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(["sku_id", "status", "difference"])
+    for sku_id, diffs in results.items():
+        if not diffs:
+            writer.writerow([sku_id, "OK", ""])
+        for d in diffs:
+            writer.writerow([sku_id, "DIFF", d])
+    for sku_id in stale:
+        writer.writerow([sku_id, "STALE", ""])
+    return buf.getvalue()
 
 
 def _render_text(results: dict[str, list[str]], stale: list[str], max_diffs: int) -> str:
@@ -112,7 +133,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--output", "-o",
         help="Write the check report to a file; format from extension "
-        "(.json, .md, .txt).",
+        "(.json, .csv, .md, .txt).",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print progress.")
     args = parser.parse_args(argv)
@@ -158,6 +179,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     fmt = _detect_format(args.output)
     if fmt == "json":
         payload = json.dumps({"results": results, "stale": stale}, indent=2) + "\n"
+    elif fmt == "csv":
+        payload = _render_csv(results, stale)
     elif fmt == "md":
         payload = _render_md(results, stale, args.max_diffs)
     else:

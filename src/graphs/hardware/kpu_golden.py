@@ -42,7 +42,9 @@ import math
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-GOLDEN_SCHEMA_VERSION = 1
+# v2: per-block dynamic power at every supported precision; fractional
+# bytes-per-element (INT4) in the synthetic mapper subgraphs.
+GOLDEN_SCHEMA_VERSION = 2
 
 DEFAULT_REL_TOL = 1e-9
 DEFAULT_ABS_TOL = 1e-12
@@ -189,6 +191,16 @@ def _silicon_section(cp, node) -> dict:
     from graphs.hardware.sku_validators import silicon_math as sm
 
     profiles = cp.power.thermal_profiles
+    # Every precision any tile class supports, so a dynamic-power change at
+    # a non-worst-case precision (BF16 / FP32 / INT4) is still visible.
+    precisions = sorted({
+        prec
+        for die in cp.dies
+        for kpu in die.blocks
+        if hasattr(kpu, "tiles")
+        for tile in kpu.tiles
+        for prec in tile.ops_per_tile_per_clock
+    })
     blocks = []
     for block in cp.dies[0].silicon_bin.blocks:
         entry: dict[str, Any] = {
@@ -205,10 +217,13 @@ def _silicon_section(cp, node) -> dict:
         except sm.SiliconMathError as exc:
             entry["error"] = str(exc)
         entry["leakage_w"] = sm.estimate_block_leakage_w(block, cp, node)
-        entry["peak_dynamic_w_int8_by_profile"] = {
-            p.name: sm.estimate_block_peak_dynamic_w(
-                block, cp, node, clock_mhz=p.clock_mhz, precision="int8"
-            )
+        entry["peak_dynamic_w_by_profile"] = {
+            p.name: {
+                prec: sm.estimate_block_peak_dynamic_w(
+                    block, cp, node, clock_mhz=p.clock_mhz, precision=prec
+                )
+                for prec in precisions
+            }
             for p in profiles
         }
         blocks.append(entry)
@@ -254,13 +269,21 @@ def _floorplan_section(cp, node) -> dict:
     }
 
 
-def _synthetic_subgraphs(bpe: int) -> list:
-    """Fixed, representative subgraphs used to pin mapper behavior."""
+def _synthetic_subgraphs(bpe: float) -> list:
+    """Fixed, representative subgraphs used to pin mapper behavior.
+
+    ``bpe`` may be fractional (INT4 packs two elements per byte); byte counts
+    are rounded up after multiplying by the element count, so sub-byte
+    precisions still carry real memory traffic.
+    """
     from graphs.core.structures import (
         OperationType,
         ParallelismDescriptor,
         SubgraphDescriptor,
     )
+
+    def nbytes(elements: int) -> int:
+        return math.ceil(elements * bpe)
 
     def matmul(sid: int, name: str, M: int, K: int, N: int) -> SubgraphDescriptor:
         return SubgraphDescriptor(
@@ -271,9 +294,9 @@ def _synthetic_subgraphs(bpe: int) -> list:
             fusion_pattern="matmul",
             total_flops=2 * M * K * N,
             total_macs=M * K * N,
-            total_input_bytes=M * K * bpe,
-            total_output_bytes=M * N * bpe,
-            total_weight_bytes=K * N * bpe,
+            total_input_bytes=nbytes(M * K),
+            total_output_bytes=nbytes(M * N),
+            total_weight_bytes=nbytes(K * N),
             parallelism=ParallelismDescriptor(
                 batch=1, channels=N, spatial=M, total_threads=M * N
             ),
@@ -298,7 +321,7 @@ def _mapper_section(rm) -> dict:
     }
     mappings: dict[str, dict] = {}
     for precision in sorted(rm.precision_profiles, key=lambda p: p.value):
-        bpe = int(rm.precision_profiles[precision].bytes_per_element or 1)
+        bpe = float(rm.precision_profiles[precision].bytes_per_element or 1)
         per_sg = {}
         for sg in _synthetic_subgraphs(bpe):
             alloc = mapper.map_subgraph(
@@ -345,7 +368,14 @@ def _meta() -> dict:
 
 
 def build_snapshot(sku_id: str, catalogs: Optional[dict] = None) -> dict:
-    """Build the golden snapshot for one catalog KPU SKU."""
+    """Build the golden snapshot for one catalog KPU SKU.
+
+    Every section is derived from ``catalogs`` except ``physical_spec``: the
+    PhysicalSpec loader has no injected-catalog entry point and always reads
+    the installed embodied-schemas YAML. With the default (installed)
+    catalogs the two sources are identical; a caller that injects a modified
+    ComputeProduct sees the modification everywhere but ``physical_spec``.
+    """
     from graphs.hardware.models.accelerators.kpu_yaml_loader import (
         load_kpu_resource_model_from_yaml,
     )
@@ -356,7 +386,9 @@ def build_snapshot(sku_id: str, catalogs: Optional[dict] = None) -> dict:
     catalogs = catalogs or load_catalogs()
     cp = catalogs["kpus"][sku_id]
     node = catalogs["process_nodes"][cp.dies[0].process_node_id]
-    rm = load_kpu_resource_model_from_yaml(sku_id)
+    rm = load_kpu_resource_model_from_yaml(
+        sku_id, kpus=catalogs["kpus"], process_nodes=catalogs["process_nodes"]
+    )
 
     return {
         _META_KEY: _meta(),
@@ -447,9 +479,11 @@ def compare_snapshots(
 ) -> list[str]:
     """Return a list of human-readable differences (empty = identical).
 
-    ``_meta`` keys are ignored at every level. An int and a float that are
-    numerically equal compare equal (JSON round-trips ``2.0`` as ``2.0`` but
-    a refactor may legitimately change int-vs-float typing of a count).
+    ``_meta`` keys are ignored at every level. Two ints must be exactly
+    equal (a relative tolerance would let ``2_000_000_000`` match
+    ``2_000_000_001``). The tolerance applies only when at least one side is
+    a float; an int and a float that are numerically equal compare equal,
+    since a refactor may legitimately change int-vs-float typing of a count.
     """
     diffs: list[str] = []
     here = path or "<root>"
@@ -484,7 +518,10 @@ def compare_snapshots(
         return diffs
 
     if _is_number(expected) and _is_number(actual):
-        if not math.isclose(expected, actual, rel_tol=rel_tol, abs_tol=abs_tol):
+        if isinstance(expected, int) and isinstance(actual, int):
+            if expected != actual:
+                diffs.append(f"{here}: {expected!r} -> {actual!r}")
+        elif not math.isclose(expected, actual, rel_tol=rel_tol, abs_tol=abs_tol):
             diffs.append(f"{here}: {expected!r} -> {actual!r}")
         return diffs
 
