@@ -28,7 +28,7 @@ This guide is organized into **5 progressive levels**, from complete beginner to
 - What the output means
 
 ### Prerequisites
-- Python 3.8+ installed
+- Python 3.10+ installed
 - PyTorch and torchvision installed
 - Cloned this repository
 
@@ -859,7 +859,7 @@ python validation/hardware/test_all_hardware.py
 
 ### "The tools aren't working"
 ```bash
-# Check Python version (need 3.8+)
+# Check Python version (need 3.10+)
 python --version
 
 # Check dependencies
