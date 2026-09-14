@@ -55,6 +55,7 @@ from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
 from ...architectural_energy import KPUTileEnergyModel
 from ...compute_product_loader import load_compute_products_unified
+from ...kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
 from ...fabric_model import SoCFabricModel, Topology
 from ...resource_model import (
     ClockDomain,
@@ -73,11 +74,13 @@ from ...resource_model import (
 
 
 def _kpu_block(cp: ComputeProduct) -> KPUBlock:
-    """Return the KPUBlock from a v1 monolithic-KPU ``ComputeProduct``.
-
-    Mirrors the helper in ``sku_validators.silicon_math``: chiplet KPU
-    products will need iteration when they land."""
-    return cp.dies[0].blocks[0]
+    """The product's single KPUBlock, located by kind (see
+    ``graphs.hardware.kpu_access``). Raises ``KPUYamlLoaderError`` if the
+    product has no KPU block or more than one."""
+    try:
+        return kpu_block_of(cp)
+    except KPUBlockLookupError as exc:
+        raise KPUYamlLoaderError(str(exc)) from exc
 
 
 class KPUYamlLoaderError(Exception):
@@ -464,11 +467,15 @@ def load_kpu_resource_model_from_yaml(
             f"no KPU SKU with id={base_id!r}. Available: "
             f"{', '.join(sorted(kpus))}"
         )
-    node = process_nodes.get(cp.dies[0].process_node_id)
+    try:
+        kpu_die = kpu_die_of(cp)
+    except KPUBlockLookupError as exc:
+        raise KPUYamlLoaderError(f"SKU {base_id!r}: {exc}") from exc
+    node = process_nodes.get(kpu_die.process_node_id)
     if node is None:
         raise KPUYamlLoaderError(
             f"SKU {base_id!r} references process_node_id="
-            f"{cp.dies[0].process_node_id!r} which does not resolve"
+            f"{kpu_die.process_node_id!r} which does not resolve"
         )
 
     # Default profile gives the sustained clock used for fabric core_frequency_hz
@@ -485,8 +492,8 @@ def load_kpu_resource_model_from_yaml(
             f"thermal_profiles"
         )
     default_clock_hz = default_profile.clock_mhz * 1e6
-    boost_clock_hz = cp.dies[0].clocks.boost_clock_mhz * 1e6
-    base_clock_hz = cp.dies[0].clocks.base_clock_mhz * 1e6
+    boost_clock_hz = kpu_die.clocks.boost_clock_mhz * 1e6
+    base_clock_hz = kpu_die.clocks.base_clock_mhz * 1e6
 
     # ------------------------------------------------------------------
     # Build ComputeFabric per tile class (peak throughput vehicle)

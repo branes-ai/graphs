@@ -184,16 +184,9 @@ def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
         print(f"error: failed to load KPU catalog: {exc}", file=sys.stderr)
         return 2
 
-    def _kind_str(block) -> str:
-        kind = block.kind
-        raw = kind.value if hasattr(kind, "value") else kind
-        return str(raw).strip().lower()
+    from graphs.hardware.kpu_access import has_kpu_block
 
-    kpus = {
-        sku: cp for sku, cp in all_products.items()
-        if cp.dies and cp.dies[0].blocks
-        and _kind_str(cp.dies[0].blocks[0]) == "kpu"
-    }
+    kpus = {sku: cp for sku, cp in all_products.items() if has_kpu_block(cp)}
     skipped_non_kpu = sorted(set(all_products) - set(kpus))
 
     if not kpus:

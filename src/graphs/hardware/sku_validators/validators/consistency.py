@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import List
 
+from ...kpu_access import kpu_block_of, kpu_die_of
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 
@@ -36,8 +37,7 @@ class TileMixConsistency:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         findings: List[Finding] = []
         sku = ctx.sku
-        # v1 KPU monolithic: one Die with one KPUBlock.
-        arch = sku.dies[0].blocks[0]
+        arch = kpu_block_of(sku)
 
         # 1. Σ(num_tiles) == total_tiles
         sum_tiles = sum(t.num_tiles for t in arch.tiles)
@@ -185,7 +185,7 @@ class CrossRefConsistency:
         #    we surface it here too because it's a foreign-key issue
         #    that AREA-suppressed runs would miss.)
         node = ctx.process_node
-        for block in sku.dies[0].silicon_bin.blocks:
+        for block in kpu_die_of(sku).silicon_bin.blocks:
             if not node.supports(block.circuit_class):
                 available = ", ".join(
                     sorted(c.value for c in node.densities)

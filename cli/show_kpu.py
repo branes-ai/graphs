@@ -33,15 +33,18 @@ from embodied_schemas import ComputeProduct, PackagingKind, load_process_nodes
 from embodied_schemas.process_node import ProcessNodeEntry
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware.kpu_access import (
+    KPUBlockLookupError,
+    has_kpu_block,
+    kpu_block_of,
+    kpu_die_of,
+)
 
 
 def _kpu_block(cp: ComputeProduct):
-    """Return the KPUBlock from a monolithic-KPU ComputeProduct.
-
-    v1 KPU products always have one Die with one KPUBlock; this helper
-    pulls it out so callers don't have to walk ``cp.dies[0].blocks[0]``
-    each time. Future chiplet KPU products will need an iteration."""
-    return cp.dies[0].blocks[0]
+    """The product's single KPUBlock, located by kind (see
+    ``graphs.hardware.kpu_access``)."""
+    return kpu_block_of(cp)
 
 
 def _render_csv(cp: ComputeProduct) -> str:
@@ -52,7 +55,7 @@ def _render_csv(cp: ComputeProduct) -> str:
     right format for the full nested view; CSV is here for spreadsheet
     interop on the headline metrics."""
     block = _kpu_block(cp)
-    die = cp.dies[0]
+    die = kpu_die_of(cp)
     total_pes = sum(t.total_pes for t in block.tiles)
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -88,7 +91,7 @@ def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
     out.append(f"=== KPU SKU: {cp.id} ===")
     out.append(f"  Name:            {cp.name}")
     out.append(f"  Vendor:          {cp.vendor}")
-    die = cp.dies[0]
+    die = kpu_die_of(cp)
     out.append(f"  Process node:    {die.process_node_id}")
     out.append(f"  Last updated:    {cp.last_updated}")
     out.append("")
@@ -246,15 +249,21 @@ def main() -> int:
         return 1
 
     cp = cps.get(args.kpu_id)
-    if cp is None:
+    if cp is None or not has_kpu_block(cp):
+        kpu_ids = sorted(k for k, v in cps.items() if has_kpu_block(v))
         print(
             f"error: no KPU SKU with id={args.kpu_id!r}. "
-            f"Available: {', '.join(sorted(cps))}",
+            f"Available: {', '.join(kpu_ids)}",
             file=sys.stderr,
         )
         return 1
 
-    node = nodes.get(cp.dies[0].process_node_id)
+    try:
+        die = kpu_die_of(cp)
+    except KPUBlockLookupError as exc:
+        print(f"error: invalid KPU SKU {args.kpu_id!r}: {exc}", file=sys.stderr)
+        return 1
+    node = nodes.get(die.process_node_id)
 
     fmt = _detect_format(args.output)
     if fmt == "json":

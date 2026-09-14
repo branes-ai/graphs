@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import List
 
+from ...kpu_access import kpu_die_of
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 from ..silicon_math import (
@@ -134,7 +135,7 @@ class ThermalHotspot:
 
             # ---- Check 3: per-block power density at peak vs cooling ceiling ----
             ceiling = cooling.max_power_density_w_per_mm2
-            for block in sku.dies[0].silicon_bin.blocks:
+            for block in kpu_die_of(sku).silicon_bin.blocks:
                 try:
                     ba = resolve_block_area(block, sku, node)
                 except SiliconMathError:

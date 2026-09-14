@@ -35,6 +35,7 @@ from typing import List
 
 from embodied_schemas.process_node import ProcessNodeEntry
 
+from ...kpu_access import kpu_die_of
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 from ..silicon_math import (
@@ -172,7 +173,7 @@ class Electromigration:
         # Compute total area of resolvable blocks for the proportional
         # current-distribution model.
         total_area_mm2 = 0.0
-        for block in sku.dies[0].silicon_bin.blocks:
+        for block in kpu_die_of(sku).silicon_bin.blocks:
             try:
                 total_area_mm2 += resolve_block_area(block, sku, node).area_mm2
             except SiliconMathError:
@@ -180,7 +181,7 @@ class Electromigration:
         if total_area_mm2 <= 0:
             return findings
 
-        for block in sku.dies[0].silicon_bin.blocks:
+        for block in kpu_die_of(sku).silicon_bin.blocks:
             try:
                 ba = resolve_block_area(block, sku, node)
             except SiliconMathError:

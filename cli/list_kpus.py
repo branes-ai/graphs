@@ -44,6 +44,12 @@ from embodied_schemas import (
 )
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware.kpu_access import (
+    KPUBlockLookupError,
+    has_kpu_block,
+    kpu_block_of,
+    kpu_die_of,
+)
 
 
 @dataclass
@@ -69,15 +75,37 @@ class KPURow:
     cooling_unresolved: List[str]
 
 
+def _build_rows(
+    cps: Dict[str, ComputeProduct],
+    nodes: Dict[str, Any],
+    sols: Dict[str, Any],
+) -> tuple[List[KPURow], List[tuple[str, KPUBlockLookupError]]]:
+    """Rows for every product that carries a KPU block.
+
+    The unified catalog also holds CPU / GPU / NPU / ... products; those are
+    skipped. A product with more than one KPU block has no well-defined
+    KPU to list, so it is returned in ``invalid`` instead of crashing the
+    whole listing."""
+    rows: List[KPURow] = []
+    invalid: List[tuple[str, KPUBlockLookupError]] = []
+    for sku_id, cp in cps.items():
+        if not has_kpu_block(cp):
+            continue
+        try:
+            rows.append(_build_row(cp, nodes, sols))
+        except KPUBlockLookupError as exc:
+            invalid.append((sku_id, exc))
+    return rows, invalid
+
+
 def _build_row(
     cp: ComputeProduct,
     nodes: Dict[str, Any],
     sols: Dict[str, Any],
 ) -> KPURow:
-    # v1 KPU monolithic: one Die, one KPUBlock. Future chiplet KPUs will
-    # need to walk dies/blocks; bridge accordingly when that lands.
-    die = cp.dies[0]
-    block = die.blocks[0]
+    # The KPU block and the die carrying it, located by kind.
+    die = kpu_die_of(cp)
+    block = kpu_block_of(cp)
     total_pes = sum(t.total_pes for t in block.tiles)
     cooling_unresolved = [
         tp.cooling_solution_id
@@ -306,7 +334,9 @@ def main() -> int:
         print(f"error: failed to load catalog: {exc}", file=sys.stderr)
         return 1
 
-    rows = [_build_row(cp, nodes, sols) for cp in cps.values()]
+    rows, invalid = _build_rows(cps, nodes, sols)
+    for sku_id, exc in invalid:
+        print(f"error: invalid KPU SKU {sku_id!r}: {exc}", file=sys.stderr)
     rows = _filter_rows(
         rows, args.vendor, args.target_market,
         args.foundry, args.node_nm, args.library,
@@ -321,7 +351,9 @@ def main() -> int:
             fh.write(rendered)
     else:
         sys.stdout.write(rendered)
-    return 0
+    # A malformed KPU entry (e.g. two KPU blocks) is reported above and makes
+    # the listing exit nonzero; the valid SKUs are still listed.
+    return 1 if invalid else 0
 
 
 if __name__ == "__main__":

@@ -18,12 +18,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from embodied_schemas import ComputeProduct
-from embodied_schemas.compute_product import KPUBlock
+from embodied_schemas.compute_product import Die, KPUBlock
 from embodied_schemas.kpu import (
     SiliconBinBlock,
     TransistorSourceKind,
 )
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
+
+from graphs.hardware.kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
 
 
 class SiliconMathError(Exception):
@@ -33,34 +35,26 @@ class SiliconMathError(Exception):
 
 
 def _kpu_block(cp: ComputeProduct) -> KPUBlock:
-    """Return the KPUBlock from a v1 monolithic-KPU ``ComputeProduct``.
+    """The product's single KPUBlock, located by kind (``kpu_block_of``).
 
-    Today every KPU ComputeProduct has exactly one Die with one
-    KPUBlock; chiplet KPU products will need iteration when they land.
-
-    Raises ``SiliconMathError`` (not IndexError / TypeError) for
-    malformed shape so the validator framework converts the failure
-    into a Finding instead of crashing the validator. ComputeProduct
-    schema enforces dies/blocks min_length=1 at construction, but
-    instances built via ``model_construct()`` can bypass validation.
+    Raises ``SiliconMathError`` (not KPUBlockLookupError / IndexError) for
+    a product with no KPU block or more than one, so the validator
+    framework converts the failure into a Finding instead of crashing the
+    validator.
     """
-    if not cp.dies:
-        raise SiliconMathError(
-            f"compute product {cp.id!r} has no dies; expected one KPU die"
-        )
-    die = cp.dies[0]
-    if not die.blocks:
-        raise SiliconMathError(
-            f"compute product {cp.id!r} die {die.die_id!r} has no blocks; "
-            f"expected one KPUBlock"
-        )
-    block = die.blocks[0]
-    if not isinstance(block, KPUBlock):
-        raise SiliconMathError(
-            f"compute product {cp.id!r} die {die.die_id!r} first block is "
-            f"{type(block).__name__}, expected KPUBlock"
-        )
-    return block
+    try:
+        return kpu_block_of(cp)
+    except KPUBlockLookupError as exc:
+        raise SiliconMathError(str(exc)) from exc
+
+
+def _kpu_die(cp: ComputeProduct) -> Die:
+    """The die carrying the product's KPUBlock (its silicon_bin, clocks,
+    process node). Raises ``SiliconMathError`` like ``_kpu_block``."""
+    try:
+        return kpu_die_of(cp)
+    except KPUBlockLookupError as exc:
+        raise SiliconMathError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +239,7 @@ def resolve_all_block_areas(
     coverage.
     """
     out: list[BlockArea] = []
-    for block in cp.dies[0].silicon_bin.blocks:
+    for block in _kpu_die(cp).silicon_bin.blocks:
         try:
             out.append(resolve_block_area(block, cp, node))
         except SiliconMathError:
@@ -391,5 +385,5 @@ def total_chip_leakage_w(cp: ComputeProduct, node: ProcessNodeEntry) -> float:
     """Sum of every block's leakage."""
     return sum(
         estimate_block_leakage_w(b, cp, node)
-        for b in cp.dies[0].silicon_bin.blocks
+        for b in _kpu_die(cp).silicon_bin.blocks
     )
