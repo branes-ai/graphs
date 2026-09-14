@@ -2,7 +2,7 @@
 
 Status: DRAFT for review
 Date: 2026-09-14
-Tracking issue: TBD (proposed sprint name: v14 "KPU heterogeneous tiles")
+Tracking issue: graphs#268 (sprint: v14 "KPU heterogeneous tiles")
 Related:
   - `docs/plans/soc-microarchitecture-study-plan.md` (the SoC studies consume these tile classes as engines)
   - `docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md` (cluster/quadrant DVFS; unimplemented, folded in here)
