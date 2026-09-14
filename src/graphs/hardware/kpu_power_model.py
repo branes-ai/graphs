@@ -323,15 +323,7 @@ def _placeholder_compute_product(
                 transistors_billion=1.0,    # placeholder
                 silicon_bin=spec.silicon_bin,
                 clocks=spec.clocks,
-                blocks=[
-                    KPUBlock(
-                        total_tiles=spec.kpu_architecture.total_tiles,
-                        multi_precision_alu=spec.kpu_architecture.multi_precision_alu,
-                        tiles=spec.kpu_architecture.tiles,
-                        noc=spec.kpu_architecture.noc,
-                        memory=spec.kpu_architecture.memory,
-                    )
-                ],
+                blocks=[KPUBlock.from_architecture(spec.kpu_architecture)],
                 interconnects=[],
             )
         ],
