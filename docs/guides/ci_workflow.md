@@ -16,7 +16,7 @@ The CI workflow runs automatically on:
 It consists of **7 parallel jobs** that validate different aspects of the codebase:
 
 1. **Package Installation** - Verifies clean installation
-2. **Unit Tests** - Runs test suite across Python 3.8-3.11
+2. **Unit Tests** - Runs test suite across Python 3.10-3.12 (pushes to main; PRs run 3.12 only)
 3. **CLI Tools** - Validates all command-line tools
 4. **Examples** - Ensures example scripts work
 5. **Code Quality** - Linting and formatting checks
@@ -55,7 +55,7 @@ from graphs.hardware.mappers.gpu import GPUMapper
 
 **What it does**:
 - Runs entire test suite with `pytest`
-- Tests across Python 3.8, 3.9, 3.10, 3.11 in parallel
+- Tests across Python 3.10, 3.11, 3.12 in parallel on pushes to main; pull requests run 3.12 only
 - Generates code coverage reports
 - Runs smoke tests from validation suite
 
@@ -70,7 +70,7 @@ from graphs.hardware.mappers.gpu import GPUMapper
 - `validation/hardware/` - Hardware mapper tests (smoke tests only)
 - `validation/estimators/` - Estimator accuracy tests (smoke tests only)
 
-**Matrix strategy**: Tests run in parallel across 4 Python versions using GitHub's matrix feature.
+**Matrix strategy**: On pushes to main, tests run in parallel across Python 3.10, 3.11 and 3.12 using GitHub's matrix feature. Pull requests run Python 3.12 only.
 
 ### 3. CLI Tools Smoke Tests
 
@@ -177,7 +177,7 @@ python cli/analyze_graph_mapping.py --model resnet18 --hardware H100
 
 Green checkmark on your commit/PR means:
 - Package installs cleanly
-- All tests pass across Python 3.8-3.11
+- All tests pass on the Python versions that run: 3.10-3.12 for a push to main; 3.12 only for a pull request (the full matrix runs after merge)
 - All CLI tools work correctly
 - All examples run successfully
 - Code quality checks completed
@@ -236,7 +236,7 @@ isort --check-only src/ tests/ cli/
 
 ```bash
 # Use pyenv or conda to switch Python version
-pyenv local 3.8  # or 3.9, 3.10, 3.11
+pyenv local 3.10  # or 3.11, 3.12
 
 # Run tests
 pytest tests/ -v
@@ -303,11 +303,11 @@ When adding a new CLI tool:
 
 ### Updating Python Versions
 
-To test a new Python version (e.g., 3.12):
+To test a new Python version (e.g., 3.13):
 
 ```yaml
 matrix:
-  python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+  python-version: ['3.10', '3.11', '3.12', '3.13']
 ```
 
 ### Making Linting Blocking
