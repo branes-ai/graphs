@@ -70,7 +70,7 @@ from graphs.hardware.mappers.gpu import GPUMapper
 - `validation/hardware/` - Hardware mapper tests (smoke tests only)
 - `validation/estimators/` - Estimator accuracy tests (smoke tests only)
 
-**Matrix strategy**: Tests run in parallel across 4 Python versions using GitHub's matrix feature.
+**Matrix strategy**: On pushes to main, tests run in parallel across Python 3.10, 3.11 and 3.12 using GitHub's matrix feature. Pull requests run Python 3.12 only.
 
 ### 3. CLI Tools Smoke Tests
 
@@ -177,7 +177,7 @@ python cli/analyze_graph_mapping.py --model resnet18 --hardware H100
 
 Green checkmark on your commit/PR means:
 - Package installs cleanly
-- All tests pass across Python 3.10-3.12
+- All tests pass on the Python versions that run: 3.10-3.12 for a push to main; 3.12 only for a pull request (the full matrix runs after merge)
 - All CLI tools work correctly
 - All examples run successfully
 - Code quality checks completed
