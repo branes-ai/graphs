@@ -50,7 +50,7 @@ from embodied_schemas import load_process_nodes
 from embodied_schemas.process_node import CircuitClass
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
-from graphs.hardware.kpu_access import has_kpu_block, kpu_die_of
+from graphs.hardware.kpu_access import KPUBlockLookupError, has_kpu_block, kpu_die_of
 from graphs.hardware.silicon_floorplan import (
     ArchitecturalFloorplan,
     ArchTile,
@@ -700,7 +700,11 @@ def main() -> int:
 
     sku = kpus[args.sku_id]
     nodes = load_process_nodes()
-    process_node_id = kpu_die_of(sku).process_node_id
+    try:
+        process_node_id = kpu_die_of(sku).process_node_id
+    except KPUBlockLookupError as exc:
+        print(f"error: invalid KPU SKU {args.sku_id!r}: {exc}", file=sys.stderr)
+        return 2
     if process_node_id not in nodes:
         print(
             f"error: SKU references unknown process_node_id "

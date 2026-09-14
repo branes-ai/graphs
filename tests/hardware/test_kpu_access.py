@@ -87,8 +87,11 @@ def test_multiple_kpu_blocks_are_ambiguous(kpu_cp):
     die = kpu_cp.dies[0]
     twice = kpu_cp.model_copy(update={"dies": [die, die.model_copy(update={"die_id": "second"})]})
     assert has_kpu_block(twice)
-    with pytest.raises(KPUBlockLookupError, match="2 KPUBlocks"):
+    with pytest.raises(KPUBlockLookupError, match="2 KPUBlocks") as exc:
         kpu_block_of(twice)
+    # Like the no-KPU error, the message names each die's block kinds.
+    assert f"{die.die_id}: [kpu]" in str(exc.value)
+    assert "second: [kpu]" in str(exc.value)
 
 
 def test_model_construct_without_dies_raises_lookup_error(kpu_cp):

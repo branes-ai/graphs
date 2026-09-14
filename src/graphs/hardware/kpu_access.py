@@ -65,8 +65,8 @@ def _locate(cp: ComputeProduct) -> tuple[Die, KPUBlock]:
             f"compute product {cp.id!r} has no KPUBlock ({_describe(cp)})"
         )
     raise KPUBlockLookupError(
-        f"compute product {cp.id!r} has {len(found)} KPUBlocks "
-        f"(on dies {[d.die_id for d, _ in found]}); expected exactly one"
+        f"compute product {cp.id!r} has {len(found)} KPUBlocks, expected "
+        f"exactly one ({_describe(cp)})"
     )
 
 

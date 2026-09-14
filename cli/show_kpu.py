@@ -33,7 +33,12 @@ from embodied_schemas import ComputeProduct, PackagingKind, load_process_nodes
 from embodied_schemas.process_node import ProcessNodeEntry
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
-from graphs.hardware.kpu_access import has_kpu_block, kpu_block_of, kpu_die_of
+from graphs.hardware.kpu_access import (
+    KPUBlockLookupError,
+    has_kpu_block,
+    kpu_block_of,
+    kpu_die_of,
+)
 
 
 def _kpu_block(cp: ComputeProduct):
@@ -253,7 +258,12 @@ def main() -> int:
         )
         return 1
 
-    node = nodes.get(kpu_die_of(cp).process_node_id)
+    try:
+        die = kpu_die_of(cp)
+    except KPUBlockLookupError as exc:
+        print(f"error: invalid KPU SKU {args.kpu_id!r}: {exc}", file=sys.stderr)
+        return 1
+    node = nodes.get(die.process_node_id)
 
     fmt = _detect_format(args.output)
     if fmt == "json":
