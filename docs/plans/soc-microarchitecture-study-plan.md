@@ -2,7 +2,7 @@
 
 Status: DRAFT for review
 Date: 2026-09-13
-Tracking issue: TBD (open after review)
+Tracking issue: graphs#269
 Inputs:
   - `docs/BranesAI-Autonomy-Compute-Requirements.pdf` (7 tiers, 17 stages, 5 regimes)
   - `docs/designs/kpu-sku-and-process-node-plan.md` (ProcessNode, silicon_bin, validators, floorplan)
