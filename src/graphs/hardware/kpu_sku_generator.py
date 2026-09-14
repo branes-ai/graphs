@@ -49,7 +49,6 @@ from embodied_schemas import (
     load_process_nodes,
 )
 from embodied_schemas.kpu import (
-    KPUArchitecture,
     KPUMarket,
     KPUTheoreticalPerformance,
     KPUThermalProfile,
@@ -101,15 +100,7 @@ def _placeholder_for_resolution(spec: KPUSKUInputSpec) -> ComputeProduct:
                 transistors_billion=1.0,    # placeholder
                 silicon_bin=spec.silicon_bin,
                 clocks=spec.clocks,
-                blocks=[
-                    KPUBlock(
-                        total_tiles=spec.kpu_architecture.total_tiles,
-                        multi_precision_alu=spec.kpu_architecture.multi_precision_alu,
-                        tiles=spec.kpu_architecture.tiles,
-                        noc=spec.kpu_architecture.noc,
-                        memory=spec.kpu_architecture.memory,
-                    )
-                ],
+                blocks=[KPUBlock.from_architecture(spec.kpu_architecture)],
                 interconnects=[],
             )
         ],
@@ -291,15 +282,7 @@ def generate_kpu_sku(
                 transistors_billion=derived_transistors_billion,
                 silicon_bin=spec.silicon_bin,
                 clocks=spec.clocks,
-                blocks=[
-                    KPUBlock(
-                        total_tiles=spec.kpu_architecture.total_tiles,
-                        multi_precision_alu=spec.kpu_architecture.multi_precision_alu,
-                        tiles=spec.kpu_architecture.tiles,
-                        noc=spec.kpu_architecture.noc,
-                        memory=spec.kpu_architecture.memory,
-                    )
-                ],
+                blocks=[KPUBlock.from_architecture(spec.kpu_architecture)],
                 interconnects=[],
             )
         ],
@@ -415,13 +398,7 @@ def input_spec_from_compute_product(cp: ComputeProduct) -> KPUSKUInputSpec:
         name=cp.name,
         vendor=cp.vendor,
         process_node_id=die.process_node_id,
-        kpu_architecture=KPUArchitecture(
-            total_tiles=block.total_tiles,
-            multi_precision_alu=block.multi_precision_alu,
-            tiles=block.tiles,
-            noc=block.noc,
-            memory=block.memory,
-        ),
+        kpu_architecture=block.to_architecture(),
         silicon_bin=die.silicon_bin,
         clocks=die.clocks,
         thermal_profiles=cp.power.thermal_profiles,
