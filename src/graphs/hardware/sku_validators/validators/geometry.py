@@ -32,6 +32,7 @@ from ...silicon_floorplan import (
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
+from ...kpu_access import kpu_die_of
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 
@@ -191,7 +192,7 @@ class FloorplanWithinDieEnvelope:
             fp = derive_kpu_floorplan(ctx.sku, ctx.process_node)
         except Exception:
             return []  # Pitch-match validator already reports derivation errors
-        declared = ctx.sku.dies[0].die_size_mm2
+        declared = kpu_die_of(ctx.sku).die_size_mm2
         derived = fp.die_area_mm2
         if declared <= 0 or derived <= 0:
             return []

@@ -50,6 +50,7 @@ from embodied_schemas import load_process_nodes
 from embodied_schemas.process_node import CircuitClass
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware.kpu_access import has_kpu_block, kpu_die_of
 from graphs.hardware.silicon_floorplan import (
     ArchitecturalFloorplan,
     ArchTile,
@@ -682,7 +683,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    kpus = load_compute_products_unified()
+    # The unified catalog also holds CPU / GPU / NPU / ... products; the
+    # floorplanner is KPU-only.
+    kpus = {k: v for k, v in load_compute_products_unified().items() if has_kpu_block(v)}
     if args.list:
         for kid in sorted(kpus):
             print(kid)
@@ -697,7 +700,7 @@ def main() -> int:
 
     sku = kpus[args.sku_id]
     nodes = load_process_nodes()
-    process_node_id = sku.dies[0].process_node_id
+    process_node_id = kpu_die_of(sku).process_node_id
     if process_node_id not in nodes:
         print(
             f"error: SKU references unknown process_node_id "

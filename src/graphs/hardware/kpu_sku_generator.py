@@ -60,6 +60,7 @@ from .kpu_power_model import (
     WorkloadAssumption,
     compute_thermal_profile_tdp_w,
 )
+from .kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import (
     SiliconMathError,
@@ -365,34 +366,20 @@ def input_spec_from_compute_product(cp: ComputeProduct) -> KPUSKUInputSpec:
     when an architect wants to start from an existing SKU as a template.
 
     Translates the ComputeProduct's per-die structure back to the
-    spec's flat shape. v1 KPU monolithic products are assumed (one Die,
-    one KPUBlock); the input spec doesn't model multi-die yet.
+    spec's flat shape. The KPU block and the die carrying it are located
+    by kind (``kpu_die_of`` / ``kpu_block_of``), so the KPU need not be
+    the first block of the first die; the spec captures that one KPU die
+    (the input spec doesn't model multi-die packages).
 
-    Raises ``GeneratorError`` for shape mismatches (empty dies, empty
-    blocks, non-KPUBlock first block). The Pydantic schema enforces
-    dies/blocks min_length=1 at construction, but instances built via
-    ``model_construct()`` bypass validation -- the explicit checks
-    surface the failure with a clear message rather than IndexError /
-    AttributeError.
+    Raises ``GeneratorError`` if the product has no KPU block or more than
+    one (including instances built via ``model_construct()`` that bypass
+    the schema's min_length checks).
     """
-    if not cp.dies:
-        raise GeneratorError(
-            f"input_spec_from_compute_product: ComputeProduct {cp.id!r} "
-            f"has no dies; expected one Die for v1 KPU monolithic"
-        )
-    die = cp.dies[0]
-    if not die.blocks:
-        raise GeneratorError(
-            f"input_spec_from_compute_product: ComputeProduct {cp.id!r} "
-            f"die {die.die_id!r} has no blocks; expected one KPUBlock"
-        )
-    block = die.blocks[0]
-    if not isinstance(block, KPUBlock):
-        raise GeneratorError(
-            f"input_spec_from_compute_product: ComputeProduct {cp.id!r} "
-            f"die {die.die_id!r} first block is "
-            f"{type(block).__name__}, expected KPUBlock"
-        )
+    try:
+        die = kpu_die_of(cp)
+        block = kpu_block_of(cp)
+    except KPUBlockLookupError as exc:
+        raise GeneratorError(f"input_spec_from_compute_product: {exc}") from exc
     return KPUSKUInputSpec(
         id=cp.id,
         name=cp.name,

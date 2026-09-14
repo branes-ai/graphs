@@ -44,6 +44,7 @@ from embodied_schemas import (
 )
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware.kpu_access import has_kpu_block, kpu_block_of, kpu_die_of
 
 
 @dataclass
@@ -74,10 +75,9 @@ def _build_row(
     nodes: Dict[str, Any],
     sols: Dict[str, Any],
 ) -> KPURow:
-    # v1 KPU monolithic: one Die, one KPUBlock. Future chiplet KPUs will
-    # need to walk dies/blocks; bridge accordingly when that lands.
-    die = cp.dies[0]
-    block = die.blocks[0]
+    # The KPU block and the die carrying it, located by kind.
+    die = kpu_die_of(cp)
+    block = kpu_block_of(cp)
     total_pes = sum(t.total_pes for t in block.tiles)
     cooling_unresolved = [
         tp.cooling_solution_id
@@ -306,7 +306,9 @@ def main() -> int:
         print(f"error: failed to load catalog: {exc}", file=sys.stderr)
         return 1
 
-    rows = [_build_row(cp, nodes, sols) for cp in cps.values()]
+    # The unified catalog also holds CPU / GPU / NPU / ... products; list only
+    # the ones that carry a KPU block.
+    rows = [_build_row(cp, nodes, sols) for cp in cps.values() if has_kpu_block(cp)]
     rows = _filter_rows(
         rows, args.vendor, args.target_market,
         args.foundry, args.node_nm, args.library,
