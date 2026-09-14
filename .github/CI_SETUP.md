@@ -60,7 +60,7 @@ To get notified of CI failures:
 The CI workflow consists of 7 jobs:
 
 1. **Package Installation Check** - Verifies clean installation
-2. **Unit Tests** - Python 3.8, 3.9, 3.10, 3.11 matrix
+2. **Unit Tests** - Python 3.10, 3.11, 3.12 matrix on pushes to main; Python 3.12 only on pull requests
 3. **CLI Tools** - Smoke tests for all CLI scripts
 4. **Examples** - Validates example scripts
 5. **Code Quality** - Linting (currently non-blocking)
