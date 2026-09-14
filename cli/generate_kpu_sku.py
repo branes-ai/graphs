@@ -48,6 +48,7 @@ import yaml
 from embodied_schemas import load_cooling_solutions, load_process_nodes
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware.kpu_access import kpu_die_of
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
     apply_pe_array_override,
@@ -203,7 +204,7 @@ def main() -> int:
         load_validators()
         ctx = ValidatorContext(
             sku=entry,
-            process_node=process_nodes[entry.dies[0].process_node_id],
+            process_node=process_nodes[kpu_die_of(entry).process_node_id],
             cooling_solutions=cooling_solutions,
         )
         findings = default_registry.run_all(ctx)

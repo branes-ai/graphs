@@ -47,6 +47,7 @@ from embodied_schemas.compute_product import KPUBlock
 from embodied_schemas.kpu import KPUTileSpec
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
+from .kpu_access import kpu_block_of, kpu_die_of
 from .sku_validators.silicon_math import (
     SiliconMathError,
     resolve_block_area,
@@ -54,12 +55,10 @@ from .sku_validators.silicon_math import (
 
 
 def _kpu_block(cp: ComputeProduct) -> KPUBlock:
-    """Return the KPUBlock from a v1 monolithic-KPU ``ComputeProduct``.
-
-    v1 KPU products are monolithic (one Die, one KPUBlock); chiplet KPU
-    products will need iteration when they land. Mirrored from
-    ``sku_validators.silicon_math._kpu_block``."""
-    return cp.dies[0].blocks[0]
+    """The product's single KPUBlock, located by kind (see
+    ``graphs.hardware.kpu_access``). Raises ``KPUBlockLookupError`` if the
+    product has no KPU block or more than one."""
+    return kpu_block_of(cp)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +221,7 @@ def _classify_silicon_bin_blocks(
     chip_l3_area = 0.0
     other_blocks: list[tuple[str, float, CircuitClass]] = []
 
-    for block in cp.dies[0].silicon_bin.blocks:
+    for block in kpu_die_of(cp).silicon_bin.blocks:
         try:
             ba = resolve_block_area(block, cp, node)
         except SiliconMathError as exc:

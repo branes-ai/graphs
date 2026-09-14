@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
+from ...kpu_access import kpu_die_of
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 from ..silicon_math import (
@@ -44,7 +45,7 @@ class BlockLibraryValidity:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         findings: List[Finding] = []
         node = ctx.process_node
-        for block in ctx.sku.dies[0].silicon_bin.blocks:
+        for block in kpu_die_of(ctx.sku).silicon_bin.blocks:
             if node.supports(block.circuit_class):
                 continue
             available = ", ".join(sorted(c.value for c in node.densities))
@@ -86,7 +87,7 @@ class AreaSelfConsistency:
     def check(self, ctx: ValidatorContext) -> List[Finding]:
         findings: List[Finding] = []
         sku = ctx.sku
-        die = sku.dies[0]
+        die = kpu_die_of(sku)
         node = ctx.process_node
 
         total_area = 0.0
@@ -197,7 +198,7 @@ class CompositeDensityEnvelope:
     category = ValidatorCategory.AREA
 
     def check(self, ctx: ValidatorContext) -> List[Finding]:
-        die = ctx.sku.dies[0]
+        die = kpu_die_of(ctx.sku)
         node = ctx.process_node
         if die.die_size_mm2 <= 0:
             return []

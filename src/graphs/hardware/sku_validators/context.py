@@ -24,6 +24,8 @@ from embodied_schemas.process_node import ProcessNodeEntry
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
 
+from graphs.hardware.kpu_access import KPUBlockLookupError, kpu_die_of
+
 from .framework import ValidatorContext
 
 
@@ -69,15 +71,14 @@ def build_context_for_kpu(
             f"no KPU SKU with id={sku_id!r}. Available: {available}"
         )
 
-    # ComputeProduct enforces dies min_length=1 at construction time, but
-    # an instance built with model_construct() (skipping validation) could
-    # still have empty dies. Surface as ContextError so the CLI emits one
-    # clear message instead of an opaque IndexError.
-    if not sku.dies:
-        raise ContextError(
-            f"SKU {sku_id!r} has no dies; expected at least one die"
-        )
-    process_node_id = sku.dies[0].process_node_id
+    # The process node is the KPU die's (located by kind, not dies[0]). A
+    # product with no KPU block or more than one -- including instances built
+    # with model_construct() that bypass the schema's min_length checks --
+    # surfaces as one clear ContextError instead of an opaque IndexError.
+    try:
+        process_node_id = kpu_die_of(sku).process_node_id
+    except KPUBlockLookupError as exc:
+        raise ContextError(f"SKU {sku_id!r}: {exc}") from exc
     pn = process_nodes.get(process_node_id)
     if pn is None:
         available = ", ".join(sorted(process_nodes)) or "(none)"
