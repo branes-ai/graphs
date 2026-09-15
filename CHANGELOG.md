@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KPU power model for heterogeneous tiles** (#268 Phase C2, `kpu_power_model.py`). Legacy-shaped profiles (pe_fabric tiles only, no `tdp_scenario`, no domain operating points) keep the original TDP formula exactly; the KPU golden gate passes. `compute_heterogeneous_tdp_breakdown` reproduces that formula for every catalog SKU (rel 1e-12) and adds:
+  - **Per-kind compute energy.**
+    - pe_fabric / systolic: from the datapath `EnergyRef` when declared, else the node anchor. A relative anchor invocation counts as 2 ops (`ANCHOR_OPS_PER_INVOCATION`).
+    - Fixed-function: units/s x `pj_per_unit`, scaled from the reference node by the logic / SRAM energy ratios. Their IO bytes ride the NoC.
+  - **Per power domain clock / Vdd / activity and gating.** A gated class draws no dynamic power or leakage. Leakage is attributed per tile class (PER_PE blocks and carried silicon) and to the uncore; memory / NoC terms use the uncore domain's Vdd.
+  - **`tdp_scenario`.** Each tile class runs at its declared activity in its own worst-power mode (`worst_precision="scenario"`).
+  - It returns `HeterogeneousTDPBreakdown` (`fixed_function_w`, `compute_w_by_tile_class`, `gated_tile_classes`, `notes`). The synthetic heterogeneous fixture now flows through the power model.
+  - PE-fabric overlay-traffic energy is deferred (no workload overlay-traffic model yet).
+  - Tests: `tests/hardware/test_kpu_power_model_c2.py`.
 - **KPU silicon math for heterogeneous tiles** (#268 Phase C1, `sku_validators/silicon_math.py`). Every legacy value is unchanged; the KPU golden gate passes.
   - **Kind-aware rollups:** PE counts cover pe_fabric PEs and systolic cells. Chip-level L1 / L2 count only tile classes that inherit the chip memory figures (pe_fabric tiles without `local_memory`). L3 counts checkerboard memory cells minus absorbed ones (`l3_memory_cells`).
   - **Tile refs:** `count_ref` `tile.<ref>` resolves by `tile_class_id` or `tile_type` label (`resolve_tile_ref`). A PER_PE block on a fixed-function class is an error.
