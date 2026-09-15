@@ -486,7 +486,7 @@ def _place_compute_mesh(
         col = idx % mesh_cols
         tile = assignment[idx]
         # Pick a representative circuit class for the tile (PE class)
-        cc = tile.pe_circuit_class
+        cc = _tile_circuit_class(tile)
         blocks.append(FloorplanBlock(
             name=f"tile[{row},{col}]",
             circuit_class=cc,
@@ -498,6 +498,21 @@ def _place_compute_mesh(
             tile_class=tile.tile_type,
         ))
     return blocks
+
+
+def _tile_circuit_class(tile) -> CircuitClass:
+    """A tile class's representative library, whatever its kind
+    (graphs#268 C4): the PE library of a pe_fabric tile, the array library
+    of a systolic tile, the first core block's library of a fixed-function
+    tile (balanced logic when the core declares none). Heterogeneous tile
+    sizing and placement are Phase D; this only keeps the legacy floorplan
+    from failing on the new kinds."""
+    for attr in ("pe_circuit_class", "circuit_class"):
+        cc = getattr(tile, attr, None)
+        if cc is not None:
+            return cc
+    silicon = getattr(getattr(tile, "core", None), "silicon", None) or []
+    return silicon[0].circuit_class if silicon else CircuitClass.BALANCED_LOGIC
 
 
 def _place_memory_phys(

@@ -23,6 +23,15 @@ Stage 8a additions (circuit-class floorplan; advisory until calibrated):
 - geometry:    floorplan_pitch_match, floorplan_within_die_envelope,
                floorplan_aspect_ratio (GEOMETRY)
 
+graphs#268 Phase C4 additions (heterogeneous KPUs; silent on uniform SKUs):
+
+- heterogeneous: fixed_function_energy_plausibility, datapath_energy_resolution
+               (ENERGY); silicon_no_double_count, tile_footprint_pitch_fit (AREA);
+               checkerboard_site_accounting, stream_link_adjacency,
+               cluster_geometry_consistent (GEOMETRY); overlay_consistency
+               (INTERNAL); stream_link_bandwidth, power_domain_coverage,
+               cluster_rail_and_clock (ELECTRICAL)
+
 Stage 8b additions (architectural-role floorplan; advisory):
 
 - geometry:    floorplan_compute_memory_pitch_match (the primary KPU
@@ -37,5 +46,6 @@ from . import consistency  # noqa: F401
 from . import electrical  # noqa: F401
 from . import energy  # noqa: F401
 from . import geometry  # noqa: F401
+from . import heterogeneous  # noqa: F401
 from . import reliability  # noqa: F401
 from . import thermal  # noqa: F401

@@ -10,6 +10,8 @@ from ..framework import Finding, Severity
 from ..silicon_math import (
     SiliconMathError,
     resolve_block_area,
+    resolve_carried_areas,
+    unsupported_carried_silicon,
 )
 
 
@@ -65,6 +67,30 @@ class BlockLibraryValidity:
                     citation=f"process_node:{node.id} densities catalog",
                 )
             )
+        # Tile-carried silicon (graphs#268 C4): the same rule for silicon a
+        # tile declares on itself (tile-local SRAM, datapaths, cores).
+        try:
+            unsupported = unsupported_carried_silicon(ctx.sku, node, ctx.extras.get("process_nodes"))
+        except SiliconMathError:
+            unsupported = []  # reported by the area / consistency validators
+        for cs in unsupported:
+            available = ", ".join(sorted(c.value for c in node.densities))
+            findings.append(
+                Finding(
+                    validator=self.name,
+                    category=self.category,
+                    severity=Severity.ERROR,
+                    block=cs.name,
+                    message=(
+                        f"tile-carried silicon {cs.name!r} ({cs.source}) declares "
+                        f"circuit_class={cs.circuit_class.value!r} but node "
+                        f"{node.id!r} does not offer that library, so it is left out "
+                        f"of the die roll-up. Available libraries on this node: "
+                        f"{available}."
+                    ),
+                    citation=f"process_node:{node.id} densities catalog",
+                )
+            )
         return findings
 
 
@@ -75,7 +101,8 @@ class AreaSelfConsistency:
     ``die.transistors_billion``.
 
     Block area = transistors_block / density(circuit_class). The validator
-    rolls the silicon_bin up and compares to the SKU's claimed totals.
+    rolls the silicon_bin up, plus any tile-carried silicon (graphs#268:
+    the generator counts both), and compares to the SKU's claimed totals.
     Catches missing silicon_bin entries (chip claims to be larger than
     its decomposition explains) and over-aggressive entries (decomposition
     sums above the claimed die).
@@ -101,6 +128,16 @@ class AreaSelfConsistency:
                 continue
             total_area += ba.area_mm2
             total_mtx += ba.transistors_mtx
+        try:
+            carried = resolve_carried_areas(sku, node, ctx.extras.get("process_nodes"))
+        except SiliconMathError as exc:
+            carried = []
+            unresolved.append(f"tile-carried silicon: {exc}")
+        for ba in carried:
+            total_area += ba.area_mm2
+            total_mtx += ba.transistors_mtx
+        # Legacy SKUs carry no silicon on their tiles; keep their wording.
+        source = "silicon_bin + tile-carried silicon" if carried else "silicon_bin"
 
         if not total_area:
             findings.append(
@@ -135,7 +172,7 @@ class AreaSelfConsistency:
                     category=self.category,
                     severity=sev,
                     message=(
-                        f"silicon_bin sums to {total_area:.1f} mm^2 but "
+                        f"{source} sums to {total_area:.1f} mm^2 but "
                         f"die.die_size_mm2 = {claimed_area:.1f} mm^2 "
                         f"({rel_area:+.1%} relative error). The "
                         f"decomposition is missing blocks (computed < "
@@ -164,7 +201,7 @@ class AreaSelfConsistency:
                     category=self.category,
                     severity=sev,
                     message=(
-                        f"silicon_bin sums to {total_mtx/1000:.2f} B "
+                        f"{source} sums to {total_mtx/1000:.2f} B "
                         f"transistors but die.transistors_billion = "
                         f"{die.transistors_billion:.2f} B "
                         f"({rel_mtx:+.1%} relative error). Tolerance: "

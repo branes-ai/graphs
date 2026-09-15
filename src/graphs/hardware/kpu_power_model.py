@@ -482,6 +482,22 @@ def _sram_ratio(node: ProcessNodeEntry, ref: ProcessNodeEntry) -> Optional[float
     return a / b if a and b else None
 
 
+def fixed_function_pj_per_unit(
+    core, node: ProcessNodeEntry, nodes: Optional[Mapping[str, ProcessNodeEntry]] = None
+) -> Optional[float]:
+    """A function core's energy per work unit retargeted to ``node`` (pJ, at
+    the node's nominal Vdd): ``pj_per_unit x ((1 - sram_fraction) x
+    logic_ratio + sram_fraction x sram_ratio)``, the ratios being target /
+    reference energies. None when the reference node is not in ``nodes``."""
+    ref = _node_lookup(core.energy.ref_node_id, nodes)
+    if ref is None:
+        return None
+    r_logic = _logic_ratio(node, ref, CircuitClass.BALANCED_LOGIC)
+    r_sram = _sram_ratio(node, ref) or r_logic
+    sf = core.energy.sram_fraction
+    return core.energy.pj_per_unit * ((1.0 - sf) * r_logic + sf * r_sram)
+
+
 def _invocation_pj(
     unit: FunctionalUnit, mode, cc: CircuitClass, node: ProcessNodeEntry, nodes, notes: list
 ) -> Optional[float]:
@@ -595,20 +611,15 @@ def _class_models(spec, profile, node, nodes, notes) -> list[_ClassModel]:
             )
         elif isinstance(t, FixedFunctionTile):
             core = t.core
-            ref = _node_lookup(core.energy.ref_node_id, nodes)
-            if ref is None:
+            pj_per_unit = fixed_function_pj_per_unit(core, node, nodes)
+            if pj_per_unit is None:
                 notes.append(
                     f"{t.tile_class_id}: reference node {core.energy.ref_node_id!r} not in "
                     f"catalog; energy not scaled"
                 )
-                scale = 1.0
-            else:
-                r_logic = _logic_ratio(node, ref, CircuitClass.BALANCED_LOGIC)
-                r_sram = _sram_ratio(node, ref) or r_logic
-                sf = core.energy.sram_fraction
-                scale = (1.0 - sf) * r_logic + sf * r_sram
+                pj_per_unit = core.energy.pj_per_unit
             units = core.units_per_clock * t.num_tiles
-            m.ff_pj_per_clock = units * core.energy.pj_per_unit * scale
+            m.ff_pj_per_clock = units * pj_per_unit
             if core.io is not None:
                 io = core.io.input_bytes_per_unit + core.io.output_bytes_per_unit
                 m.ff_io_bytes_per_clock = units * io

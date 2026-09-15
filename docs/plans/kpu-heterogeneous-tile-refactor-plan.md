@@ -407,6 +407,17 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
   - A `use:` entry takes its tile fields under `overrides`.
   - `--tile-mix` refuses an explicit placement map.
 - C4: validators: the envelope split and the new validators (section 6).
+  *As built:*
+  - The envelope split compares programmable TOPS with TDP minus the
+    fixed-function power.
+  - `fixed_function_energy_plausibility` anchors on the tile-class library
+    entry for the same function, with a 4x band.
+  - `datapath_ops_consistency` became `datapath_energy_resolution`: ops
+    consistency is already enforced by the schema.
+  - Of the DVFS design's 5 cluster validators, `cluster_rail_and_clock` and
+    `cluster_geometry_consistent` are implemented. Harvesting,
+    variation-bin and the rail-registry reference need schema fields and
+    are deferred.
 - C5: resource-model loader, per-class energy model, the
   `fixed_function_units` attribute, capability-aware mapper pools, and the
   reporting `[0]`-representative fixes.
