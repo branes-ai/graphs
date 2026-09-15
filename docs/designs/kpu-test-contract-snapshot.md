@@ -1,8 +1,42 @@
 # KPU Test Contract Snapshot — Phase 4b PR 1
 
-Status: snapshot complete (2026-05-10)
+Status: snapshot complete (2026-05-10). **Historical record, superseded.**
 Owner: Theo Omtzigt + Claude Code
 Driver for: Phase 4b PRs 2–5 in `kpu-sku-and-process-node-plan.md`
+
+> **Read this first (refreshed 2026-09-14, graphs#268 A3).**
+>
+> **Why this is historical.** Phase 4b is complete. The four
+> `kpu_t{64,128,256,768}_resource_model()` factories are thin wrappers over
+> `load_kpu_resource_model_from_yaml`, and the numbers below record the
+> factory-vs-loader state of **2026-05-10**. Several have since changed:
+> - T256 moved from 20x20 to 32x32 PE arrays.
+> - Clocks and Vdd were re-tuned (#153, embodied-schemas#85).
+> - T768 is catalogued on TSMC N7.
+>
+> Do not use these tables as current values.
+>
+> **The live contract is the KPU golden snapshot** (#267): per-SKU JSON in
+> `tests/hardware/golden/kpu/`, checked by `tests/hardware/test_kpu_golden.py`
+> and `cli/kpu_golden_snapshot.py`. It pins every modeled output of the 12
+> catalog SKUs, and any drift fails CI.
+>
+> **Current values (default thermal profile, embodied-schemas 0.7.0).**
+> Read from the registered mappers:
+>
+> | SKU | Default profile | compute_units | PE arrays | l1/unit | l2_cache_total | l3_cache_total | main_mem | INT8 | BF16 | FP32 |
+> |---|---|--:|---|--:|--:|--:|--:|--:|--:|--:|
+> | T64 | 6W | 64 | 32x32 | 256 KiB | 4 MiB | 16 MiB | 8 GiB | 62.3 TOPS | 31.1 TFLOPS | 3.2 TFLOPS |
+> | T128 | 12W | 128 | 32x32 | 256 KiB | 8 MiB | 32 MiB | 16 GiB | 124.5 | 62.3 | 6.3 |
+> | T256 | 30W | 256 | 32x32 | 256 KiB | 16 MiB | 64 MiB | 32 GiB | 314.6 | 157.3 | 15.7 |
+> | T768 | 60W | 768 | 16x8 (+ 8x8 WS Matrix) | 256 KiB | 32 MiB | 192 MiB | 64 GiB | 1353.8 | 676.9 | 27.1 |
+>
+> **How §6 was resolved.**
+> - *Decision 1 and Decision 3:* loader/catalog values were adopted
+>   (peak TOPS now come from the catalog SKU).
+> - *Decision 2:* resolved with the "alternative considered". `l2_cache_total`
+>   keeps the legacy shared-L2 figure, and the chip-wide L3 pool moved to a
+>   separate `l3_cache_total` field.
 
 ## Purpose
 

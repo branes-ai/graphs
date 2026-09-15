@@ -756,12 +756,10 @@ def default_soc_compositions() -> List[SocComposition]:
     """Illustrative SoC compositions at two clock domains.
 
     All KPU entries below use the CANONICAL 32x32 compute tile as
-    the replication unit. This maps directly to the T64 and T128
-    product SKUs (both 32x32 per doc). It does NOT model the T256
-    product, which deliberately uses a smaller 20x20 tile for
-    per-tile utilization reasons - that SKU has its own separate
-    resource model (kpu_t256.py) and is out of scope for this
-    per-clock view.
+    the replication unit, which is the tile of the T64, T128 and T256
+    product SKUs. (T256 once used a smaller 20x20 tile; that design was
+    retired for family consistency.) T768's 16x8 / 8x8 tiles are not
+    modeled in this per-clock view.
 
     Silicon-capability clocks (1.5 GHz SM, 1.5 GHz tile) show what
     the raw silicon can deliver; deployed-product clocks (0.65 GHz

@@ -266,14 +266,11 @@ class TestEnergyAdvantage:
         """Commercial sanity: T256 at the bigger TDP must deliver more
         peak INT8 throughput than T128.
 
-        With the 32x32 canonical tile applied to T64/T128 and T256
-        keeping its smaller 20x20 tiles, T128 now has MORE total PEs
-        (128 x 1024 = 131,072) than T256 (256 x 400 = 102,400). T256
-        still out-performs T128 on peak throughput because of its
-        higher clock (1.4 GHz vs 1.0 GHz), but by a smaller margin
-        than before. This is a design decision that may need
-        revisiting if the tile-size inversion is commercially
-        unacceptable."""
+        All three of T64 / T128 / T256 use the canonical 32x32 tile, so
+        T256 has twice T128's PEs (256 x 1024 vs 128 x 1024) and a
+        higher default clock (600 vs 475 MHz). (This test was written
+        when T256 still used 20x20 tiles and T128 had more PEs; the
+        20x20 design was retired for family consistency.)"""
         t128 = kpu_t128_resource_model()
         t256 = kpu_t256_resource_model()
         def peak_mac_per_sec(m):

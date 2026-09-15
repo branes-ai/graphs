@@ -446,21 +446,23 @@ def _init_registry():
         },
 
         # =====================================================================
-        # KPU Accelerators (1-20W)
+        # KPU Accelerators (3-100W thermal profiles; default TDP / memory per the
+        # embodied-schemas catalog SKU each factory loads -- pinned by
+        # tests/hardware/test_kpu_registry_metadata.py)
         # =====================================================================
         "Stillwater-KPU-T64": {
             "factory": create_kpu_t64_mapper,
             "category": "kpu",
             "vendor": "Stillwater",
-            "description": "Stillwater KPU T64 (64 tiles, 32x32 PE array, domain-flow output-stationary)",
-            "default_tdp_w": 5.0,
-            "memory_gb": 4.0,
+            "description": "Stillwater KPU T64 (64 tiles, 32x32 PE arrays, domain-flow output-stationary, TSMC N16, LPDDR5)",
+            "default_tdp_w": 6.0,
+            "memory_gb": 8.0,
         },
         "Stillwater-KPU-T128": {
             "factory": create_kpu_t128_mapper,
             "category": "kpu",
             "vendor": "Stillwater",
-            "description": "Stillwater KPU T128 (128 tiles, 24x24 PE array, domain-flow output-stationary)",
+            "description": "Stillwater KPU T128 (128 tiles, 32x32 PE arrays, domain-flow output-stationary, TSMC N16, LPDDR5)",
             "default_tdp_w": 12.0,
             "memory_gb": 16.0,
         },
@@ -468,17 +470,17 @@ def _init_registry():
             "factory": create_kpu_t256_mapper,
             "category": "kpu",
             "vendor": "Stillwater",
-            "description": "Stillwater KPU T256 (256 tiles, 16x16 PE array, domain-flow output-stationary)",
-            "default_tdp_w": 10.0,
-            "memory_gb": 8.0,
+            "description": "Stillwater KPU T256 (256 tiles, 32x32 PE arrays, domain-flow output-stationary, TSMC N16, LPDDR5)",
+            "default_tdp_w": 30.0,
+            "memory_gb": 32.0,
         },
         "Stillwater-KPU-T768": {
             "factory": create_kpu_t768_mapper,
             "category": "kpu",
             "vendor": "Stillwater",
-            "description": "Stillwater KPU T768 (768 tiles)",
-            "default_tdp_w": 20.0,
-            "memory_gb": 16.0,
+            "description": "Stillwater KPU T768 (768 tiles, 16x8 PE arrays + 8x8 weight-stationary Matrix tiles, domain-flow, TSMC N7, HBM3)",
+            "default_tdp_w": 60.0,
+            "memory_gb": 64.0,
         },
 
         # =====================================================================
