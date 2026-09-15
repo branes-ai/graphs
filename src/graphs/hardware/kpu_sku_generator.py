@@ -4,10 +4,14 @@ Turns a ``KPUSKUInputSpec`` into a fully-populated ``ComputeProduct`` by
 computing the roll-up fields from the architectural / silicon_bin / NoC
 inputs and the referenced ``ProcessNodeEntry``:
 
-* ``dies[0].transistors_billion`` -- Σ silicon_bin block transistors / 1000
-* ``dies[0].die_size_mm2`` -- Σ silicon_bin block area (= transistors / density)
+* ``dies[0].transistors_billion`` -- sum of silicon_bin block transistors / 1000,
+  plus the tile-carried silicon (``silicon_math.carried_silicon``)
+* ``dies[0].die_size_mm2`` -- sum of silicon_bin block area (= transistors / density),
+  plus the tile-carried silicon's area
 * ``performance.{int8_tops, bf16_tflops, fp32_tflops, int4_tops}`` --
-  Σ(tile.num_tiles × ops_per_tile_per_clock) × default-profile clock
+  sum(tile.num_tiles * ops_per_tile_per_clock) * default-profile clock. A
+  heterogeneous architecture also gets the roll-up by tile kind and the
+  fixed-function throughput (``derive_kpu_performance``, graphs#268 C3)
 * ``power.{tdp_watts, max_power_watts, min_power_watts,
   thermal_profiles[].tdp_watts}`` -- DERIVED via the kpu_power_model
   from clock + architecture + ProcessNode energies under a
@@ -15,7 +19,7 @@ inputs and the referenced ``ProcessNodeEntry``:
   the input spec is ignored. The architect chooses clocks and cooling;
   TDP is the consequence.
 * ``power.idle_power_watts`` -- chip-wide leakage from ProcessNode
-  ``leakage_w_per_mm2`` × per-block area
+  ``leakage_w_per_mm2`` * per-block area
 * ``lifecycle`` -- derived from ``KPUMarket.is_discontinued`` (legacy
   market shape on the input spec): EOL if discontinued else PRODUCTION
 
@@ -38,6 +42,7 @@ from typing import Optional
 from embodied_schemas import (
     ComputeProduct,
     Die,
+    derive_kpu_performance,
     DieRole,
     KPUBlock,
     LifecycleStatus,
@@ -52,6 +57,7 @@ from embodied_schemas.kpu import (
     KPUMarket,
     KPUTheoreticalPerformance,
     KPUThermalProfile,
+    KPUTileSpec,
 )
 from embodied_schemas.process_node import ProcessNodeEntry
 
@@ -64,7 +70,9 @@ from .kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import (
     SiliconMathError,
+    double_counted_tile_classes,
     resolve_block_area,
+    resolve_carried_areas,
     total_chip_leakage_w,
 )
 
@@ -134,6 +142,7 @@ def generate_kpu_sku(
     *,
     process_nodes: Optional[dict[str, ProcessNodeEntry]] = None,
     workload: Optional[WorkloadAssumption] = None,
+    performance_rollup: Optional[bool] = None,
 ) -> ComputeProduct:
     """Produce a fully-populated ComputeProduct from an input spec.
 
@@ -141,11 +150,17 @@ def generate_kpu_sku(
         spec: The architect-authored input.
         process_nodes: Optional pre-loaded process-node catalog. Falls
             back to ``embodied_schemas.load_process_nodes()`` if absent.
+        performance_rollup: Emit the performance roll-up by tile kind
+            (``peak_ops_per_sec_by_precision``, ``by_tile_kind``,
+            ``fixed_function_throughput``). None (default) = only for a
+            heterogeneous architecture (any tile that is not pe_fabric),
+            so uniform legacy SKUs regenerate byte-identically.
 
     Raises:
         GeneratorError: if the spec's process_node_id doesn't resolve,
         if the default thermal profile name isn't in the profile list,
-        or if no silicon_bin block resolves cleanly.
+        if no silicon_bin block resolves cleanly, or if a tile class's
+        logic is counted both on the tile and by a PER_PE silicon_bin block.
 
     Note:
         Cooling-solution refs on ``spec.thermal_profiles`` are NOT
@@ -196,6 +211,25 @@ def generate_kpu_sku(
         total_area += ba.area_mm2
         total_mtx += ba.transistors_mtx
 
+    # Tile-carried silicon (datapaths, tile-local SRAM, overlays, fixed-
+    # function cores). Empty for uniform legacy SKUs. Pieces in a library
+    # the node lacks are skipped, like unresolved silicon_bin blocks. A tile
+    # class counted both on the tile and by a chip-level PER_PE block would
+    # inflate the roll-up: the silicon_bin contradicts the tiles.
+    try:
+        doubled = double_counted_tile_classes(placeholder_cp, process_nodes)
+        carried = resolve_carried_areas(placeholder_cp, node, process_nodes)
+    except SiliconMathError as exc:
+        raise GeneratorError(f"tile-carried silicon: {exc}") from exc
+    if doubled:
+        raise GeneratorError(
+            f"tile classes {doubled} carry their own logic silicon and are also "
+            f"counted by a chip-level PER_PE silicon_bin block; keep one of the two"
+        )
+    for ba in carried:
+        total_area += ba.area_mm2
+        total_mtx += ba.transistors_mtx
+
     if total_area <= 0 or total_mtx <= 0:
         raise GeneratorError(
             "no silicon_bin block could be resolved against the process "
@@ -229,6 +263,18 @@ def generate_kpu_sku(
         fp32_tflops=fp32_tflops,
         int4_tops=int4_tops,
     )
+    if performance_rollup is None:
+        performance_rollup = not all(
+            isinstance(t, KPUTileSpec) for t in spec.kpu_architecture.tiles
+        )
+    if performance_rollup:
+        rollup = derive_kpu_performance(spec.kpu_architecture.tiles, default_profile.clock_mhz)
+        performance = performance.model_copy(update={
+            "peak_ops_per_sec_by_precision": rollup.peak_ops_per_sec_by_precision,
+            "by_tile_kind": rollup.by_tile_kind,
+            "fixed_function_throughput": rollup.fixed_function_throughput,
+        })
+        performance = KPUTheoreticalPerformance.model_validate(performance.model_dump())
 
     # ---- Power roll-up ----
     # TDP per profile is DERIVED from the chip configuration (clock,
@@ -239,14 +285,14 @@ def generate_kpu_sku(
     workload = workload or DEFAULT_WORKLOAD
     derived_profiles: list[KPUThermalProfile] = []
     for p in spec.thermal_profiles:
-        derived_tdp = compute_thermal_profile_tdp_w(spec, p, node, workload)
+        derived_tdp = compute_thermal_profile_tdp_w(spec, p, node, workload, process_nodes)
         derived_profiles.append(p.model_copy(update={"tdp_watts": derived_tdp}))
     derived_default = next(
         dp for dp in derived_profiles if dp.name == spec.default_thermal_profile
     )
     max_w = max(p.tdp_watts for p in derived_profiles)
     min_w = min(p.tdp_watts for p in derived_profiles)
-    leakage_w = total_chip_leakage_w(placeholder_cp, node)
+    leakage_w = total_chip_leakage_w(placeholder_cp, node, process_nodes)
     idle_w = round(leakage_w, 2) if leakage_w > 0 else None
 
     power = Power(
@@ -303,26 +349,52 @@ def generate_kpu_sku(
     )
 
 
+def _find_tile(spec: KPUSKUInputSpec, ref: str):
+    tiles = spec.kpu_architecture.tiles
+    match = [t for t in tiles if t.tile_class_id == ref] or [t for t in tiles if t.tile_type == ref]
+    if len(match) != 1:
+        raise ValueError(
+            f"tile class {ref!r} {'is ambiguous' if match else 'is unknown'} "
+            f"(tile_class_id: {sorted(t.tile_class_id for t in tiles)})"
+        )
+    return match[0]
+
+
+def _revalidated(spec: KPUSKUInputSpec, tiles: list, **arch_update) -> KPUSKUInputSpec:
+    """A copy of ``spec`` with new tiles, re-validated so the schema checks
+    (datapath / overlay consistency, site accounting, ...) run."""
+    data = spec.model_dump(mode="json")
+    data["kpu_architecture"].update(tiles=[t.model_dump(mode="json") for t in tiles], **arch_update)
+    return KPUSKUInputSpec.model_validate(data)
+
+
 def apply_pe_array_override(
     spec: KPUSKUInputSpec,
     pe_array_rows: int,
     pe_array_cols: int,
+    tile_class: Optional[str] = None,
 ) -> KPUSKUInputSpec:
-    """Resize the PE array on every tile class in a spec.
+    """Resize the PE array of pe_fabric tile classes in a spec.
 
     Returns a new ``KPUSKUInputSpec`` with ``pe_array_rows`` /
-    ``pe_array_cols`` set to the given dimensions on every tile class,
-    and ``ops_per_tile_per_clock`` rescaled by ``new_pes / old_pes`` so
-    the per-PE op throughput (e.g., int8=2 ops/PE/clock) is preserved.
+    ``pe_array_cols`` set to the given dimensions and
+    ``ops_per_tile_per_clock`` rescaled by ``new_pes / old_pes`` so the
+    per-PE op throughput (e.g., int8=2 ops/PE/clock) is preserved.
     Pipeline fill / drain cycles are also rescaled to track the longer
     PE-array dimension, matching the family convention (T64/T128 use 32
     fill/drain at 32x32; T768 uses 16 at 16x8).
 
+    * ``tile_class`` None: every pe_fabric tile class (every class of a
+      uniform legacy SKU, so the result is unchanged from before C3).
+      Systolic and fixed-function classes are left alone.
+    * ``tile_class`` a ``tile_class_id`` or ``tile_type``: only that class,
+      which must be pe_fabric (graphs#268 C3, ``--pe-array CLASS=RxC``).
+
+    The result is re-validated, so a datapath or overlay that no longer
+    fits raises ``ValueError``.
+
     Designed for roadmap sweeps -- run the generator across PE-array
-    sizes without hand-editing each tile class. Caller is responsible
-    for choosing dimensions that make architectural sense (e.g., a
-    32x32 array is dense in NoC routers per PE; a 16x16 leaves more
-    NoC headroom).
+    sizes without hand-editing each tile class.
 
     Note: silicon_bin coefficients are *not* touched -- per-PE blocks
     use ``kind=per_pe`` so total area auto-scales with the new PE
@@ -333,10 +405,23 @@ def apply_pe_array_override(
             f"pe_array dimensions must be positive; got "
             f"rows={pe_array_rows}, cols={pe_array_cols}"
         )
+    if tile_class is not None:
+        target = _find_tile(spec, tile_class)
+        if not isinstance(target, KPUTileSpec):
+            raise ValueError(
+                f"tile class {tile_class!r} is {target.tile_kind.value}; --pe-array "
+                f"resizes pe_fabric classes only"
+            )
+        targets = {target.tile_class_id}
+    else:
+        targets = {t.tile_class_id for t in spec.kpu_architecture.tiles if isinstance(t, KPUTileSpec)}
     new_pes = pe_array_rows * pe_array_cols
     new_pipeline_depth = max(pe_array_rows, pe_array_cols)
     new_tiles = []
     for t in spec.kpu_architecture.tiles:
+        if t.tile_class_id not in targets:
+            new_tiles.append(t)
+            continue
         old_pes = t.pe_array_rows * t.pe_array_cols
         scale = new_pes / old_pes
         new_ops = {
@@ -354,8 +439,45 @@ def apply_pe_array_override(
                 }
             )
         )
-    new_arch = spec.kpu_architecture.model_copy(update={"tiles": new_tiles})
-    return spec.model_copy(update={"kpu_architecture": new_arch})
+    return _revalidated(spec, new_tiles)
+
+
+def apply_tile_mix(spec: KPUSKUInputSpec, mix: dict[str, int]) -> KPUSKUInputSpec:
+    """Set ``num_tiles`` for the named tile classes (graphs#268 C3,
+    ``--tile-mix CLASS=N,...``). Classes are named by ``tile_class_id`` or
+    ``tile_type``; counts must be positive.
+
+    ``total_tiles`` is recomputed. With a checkerboard in ``auto``
+    placement, ``spare_sites`` is recomputed; a mix that needs more sites
+    than the grid has is an error, as is a checkerboard with an explicit
+    ``placement_map`` (edit the map instead).
+    """
+    counts: dict[str, int] = {}
+    for ref, n in mix.items():
+        if n <= 0:
+            raise ValueError(f"tile mix: {ref}={n}; counts must be positive")
+        counts[_find_tile(spec, ref).tile_class_id] = n
+    new_tiles = [
+        t.model_copy(update={"num_tiles": counts[t.tile_class_id]}) if t.tile_class_id in counts else t
+        for t in spec.kpu_architecture.tiles
+    ]
+    update: dict = {"total_tiles": sum(t.num_tiles for t in new_tiles)}
+    cb = spec.kpu_architecture.checkerboard
+    if cb is not None:
+        if cb.placement_map is not None:
+            raise ValueError(
+                "tile mix: the checkerboard has an explicit placement_map; edit the map "
+                "(and spare_sites) instead"
+            )
+        used = sum(t.total_sites for t in new_tiles)
+        spare = cb.compute_sites.sites - used
+        if spare < 0:
+            raise ValueError(
+                f"tile mix needs {used} compute sites but the checkerboard has "
+                f"{cb.compute_sites.rows}x{cb.compute_sites.cols} = {cb.compute_sites.sites}"
+            )
+        update["checkerboard"] = {**cb.model_dump(mode="json"), "spare_sites": spare}
+    return _revalidated(spec, new_tiles, **update)
 
 
 def input_spec_from_compute_product(cp: ComputeProduct) -> KPUSKUInputSpec:

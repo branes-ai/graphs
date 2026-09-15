@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KPU generator and input spec for heterogeneous tiles** (#268 Phase C3). Uniform legacy SKUs regenerate unchanged; the KPU golden gate passes.
+  - **Input spec (`kpu_sku_input.py`):** a tile may reference the tile-class library as `{use: <id>, num_tiles: N, overrides: {...}}`. `resolve_tile_uses` expands it; the resolved tile carries `tile_class_ref`, and the `KPU_TILE_DATA_DIR` overlay applies. `total_tiles` is filled in when omitted.
+  - **Generator:**
+    - Die area and transistors include the tile-carried silicon.
+    - Performance gains the by-tile-kind roll-up for heterogeneous architectures (`performance_rollup`: auto / True / False).
+    - TDP and idle power go through the heterogeneous power model, with reference-node lookup.
+    - The synthetic heterogeneous fixture generates, validates and round-trips.
+  - **`apply_pe_array_override(..., tile_class=None)`:** the bare form resizes pe_fabric classes only (every legacy class); `tile_class` resizes one class. The result is re-validated, so a datapath or overlay that no longer fits is rejected.
+  - **`apply_tile_mix`:** sets tile counts, recomputes `total_tiles` and an auto checkerboard's spare sites, and rejects over-subscription and explicit placement maps.
+  - **`cli/generate_kpu_sku.py`:** `--pe-array [CLASS=]RxC` (repeatable) and a new `--tile-mix CLASS=N,...` (repeatable).
+  - Tests: `tests/hardware/test_kpu_generator_c3.py`.
 - **KPU power model for heterogeneous tiles** (#268 Phase C2, `kpu_power_model.py`). Legacy-shaped profiles (pe_fabric tiles only, no `tdp_scenario`, no domain operating points) keep the original TDP formula exactly; the KPU golden gate passes. `compute_heterogeneous_tdp_breakdown` reproduces that formula for every catalog SKU (rel 1e-12) and adds:
   - **Per-kind compute energy.**
     - pe_fabric / systolic: from the datapath `EnergyRef` when declared, else the node anchor. A relative anchor invocation counts as 2 ops (`ANCHOR_OPS_PER_INVOCATION`).

@@ -31,6 +31,14 @@ Two modes:
           --pe-array $pe --output t256_$pe.yaml
     done
 
+4. Heterogeneous KPUs (graphs#268 C3): tiles in an input spec may reference
+   the tile-class library ({use: <id>, num_tiles: N, overrides: {...}});
+   --pe-array CLASS=RxC resizes one pe_fabric class (a bare RxC resizes every
+   pe_fabric class); --tile-mix CLASS=N,... sets tile counts:
+
+    python cli/generate_kpu_sku.py --input hetero_spec.yaml \\
+        --pe-array pe_int8_mac_i32=16x16 --tile-mix pe_int8_mac_i32=32,systolic_int8_ws=2
+
 Exit codes:
     0 = generation succeeded (and --validate, if used, found no ERROR)
     1 = validator produced ERROR finding(s) on the generated SKU
@@ -52,6 +60,7 @@ from graphs.hardware.kpu_access import kpu_die_of
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
     apply_pe_array_override,
+    apply_tile_mix,
     generate_kpu_sku,
     input_spec_from_compute_product,
 )
@@ -88,6 +97,29 @@ def _serialize(entry, fmt: str) -> str:
     )
 
 
+def _parse_pe_array(arg: str) -> tuple[Optional[str], int, int]:
+    """'32x32' -> (None, 32, 32); 'cls=16x8' -> ('cls', 16, 8). ValueError if malformed."""
+    tile_class, sep, dims = arg.rpartition("=")
+    if sep and not tile_class.strip():
+        raise ValueError(f"empty tile class before '=' in {arg!r}")
+    rows_str, cols_str = dims.lower().split("x", 1)
+    return (tile_class.strip() or None), int(rows_str), int(cols_str)
+
+
+def _parse_tile_mix(arg: str) -> dict[str, int]:
+    """'a=24,b=4' -> {'a': 24, 'b': 4}. ValueError if malformed."""
+    mix: dict[str, int] = {}
+    for part in arg.split(","):
+        ref, sep, n = part.strip().partition("=")
+        if not sep or not ref:
+            raise ValueError(f"expected CLASS=N, got {part!r}")
+        try:
+            mix[ref] = int(n)
+        except ValueError:
+            raise ValueError(f"expected an integer count, got {part!r}") from None
+    return mix
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate a KPU SKU YAML from an input spec.",
@@ -110,12 +142,21 @@ def main() -> int:
     )
     parser.add_argument(
         "--pe-array",
-        metavar="ROWSxCOLS",
-        help="Override PE-array dimensions across every tile class "
-        "(e.g., '32x32', '16x16'). ops_per_tile_per_clock and pipeline "
-        "fill/drain cycles are scaled to match. Use for roadmap sweeps: "
-        "`--from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --pe-array 16x16` regenerates "
-        "T256 with smaller PEs to compare cost / capability.",
+        metavar="[CLASS=]ROWSxCOLS",
+        action="append",
+        help="Override PE-array dimensions. A bare ROWSxCOLS (e.g., '16x16') "
+        "resizes every pe_fabric tile class; CLASS=ROWSxCOLS resizes one "
+        "(CLASS = tile_class_id or tile_type). Repeatable. ops_per_tile_per_clock "
+        "and pipeline fill/drain cycles are scaled to match. Use for roadmap "
+        "sweeps: `--from-sku kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --pe-array 16x16` "
+        "regenerates T256 with smaller PEs to compare cost / capability.",
+    )
+    parser.add_argument(
+        "--tile-mix",
+        metavar="CLASS=N[,CLASS=N...]",
+        action="append",
+        help="Set num_tiles per tile class (CLASS = tile_class_id or tile_type). "
+        "Repeatable. total_tiles and an auto checkerboard's spare sites follow.",
     )
     parser.add_argument(
         "--validate",
@@ -164,20 +205,26 @@ def main() -> int:
             return 2
         spec = input_spec_from_compute_product(existing)
 
-    # Apply PE-array override (after spec load, before generation).
-    if args.pe_array:
+    # Apply the tile mix, then PE-array overrides (after spec load, before
+    # generation).
+    for mix_arg in args.tile_mix or []:
         try:
-            rows_str, cols_str = args.pe_array.lower().split("x", 1)
-            rows, cols = int(rows_str), int(cols_str)
-        except (ValueError, AttributeError):
+            spec = apply_tile_mix(spec, _parse_tile_mix(mix_arg))
+        except ValueError as exc:
+            print(f"error: --tile-mix: {exc}", file=sys.stderr)
+            return 2
+    for pe_arg in args.pe_array or []:
+        try:
+            tile_class, rows, cols = _parse_pe_array(pe_arg)
+        except ValueError:
             print(
-                f"error: --pe-array must be ROWSxCOLS (e.g., '32x32'); "
-                f"got {args.pe_array!r}",
+                f"error: --pe-array must be ROWSxCOLS or CLASS=ROWSxCOLS "
+                f"(e.g., '32x32', 'pe_int8_mac_i32=16x16'); got {pe_arg!r}",
                 file=sys.stderr,
             )
             return 2
         try:
-            spec = apply_pe_array_override(spec, rows, cols)
+            spec = apply_pe_array_override(spec, rows, cols, tile_class=tile_class)
         except ValueError as exc:
             print(f"error: --pe-array: {exc}", file=sys.stderr)
             return 2
