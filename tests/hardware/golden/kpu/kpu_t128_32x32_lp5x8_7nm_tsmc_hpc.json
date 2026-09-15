@@ -1,5 +1,5 @@
 {
- "_meta": {"embodied_schemas_version": "0.8.0", "golden_schema_version": 2},
+ "_meta": {"embodied_schemas_version": "0.9.0", "golden_schema_version": 2},
  "floorplan": {
   "architectural": {
    "blocks": [
@@ -459,7 +459,7 @@
  },
  "generator": {
   "die_size_mm2": 31.5,
-  "performance": {"bf16_tflops": 78.6, "fp32_tflops": 7.99, "int4_tops": 218.7, "int8_tops": 157.3},
+  "performance": {"bf16_tflops": 78.6, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 7.99, "int4_tops": 218.7, "int8_tops": 157.3, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "default",
    "idle_power_watts": 0.42,
@@ -471,8 +471,10 @@
      "activity_factor": null,
      "clock_mhz": 450.0,
      "cooling_solution_id": "passive_heatsink_large",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "lp",
+     "tdp_scenario": null,
      "tdp_watts": 2.2,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.5
@@ -481,8 +483,10 @@
      "activity_factor": null,
      "clock_mhz": 600.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "default",
+     "tdp_scenario": null,
      "tdp_watts": 5.1,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.65
@@ -491,8 +495,10 @@
      "activity_factor": null,
      "clock_mhz": 700.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "boost",
+     "tdp_scenario": null,
      "tdp_watts": 8.0,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.75
@@ -513,14 +519,17 @@
    {
     "blocks": [
      {
+      "checkerboard": null,
       "kind": "kpu",
       "memory": {"l1_kib_per_pe": 4, "l2_kib_per_tile": 32, "l3_kib_per_tile": 256, "memory_bandwidth_gbps": 136.0, "memory_bus_bits": 128, "memory_controllers": 8, "memory_size_gb": 16.0, "memory_type": "lpddr5x"},
       "multi_precision_alu": ["int4", "int8", "bf16", "fp32"],
-      "noc": {"bisection_bandwidth_gbps": 128.0, "flit_bytes": 16, "mesh_cols": 8, "mesh_rows": 16, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
+      "noc": {"bisection_bandwidth_gbps": 128.0, "flit_bytes": 16, "mesh_cols": 8, "mesh_rows": 16, "overlays": null, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
+      "power_domains": null,
       "tiles": [
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 89,
@@ -534,12 +543,14 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "int8_primary",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "INT8-primary"
        },
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 26,
@@ -553,12 +564,14 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "bf16_primary",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "BF16-primary"
        },
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 13,
@@ -572,6 +585,7 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "matrix",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "Matrix"
        }
@@ -654,7 +668,7 @@
   "name": "KPU T128 (32x32 PE, lpddr5x x8, TSMC N7 HPC)",
   "notes": "Tile-count sweep at TSMC N7 HPC, lpddr5x x8, 32x32 PE arrays. Identical architecture and (clock, Vdd) operating points to the 12nm_gf_fdx sweep -- only the process node varies between the two.",
   "packaging": {"kind": "monolithic", "num_dies": 1, "package_type": "monolithic"},
-  "performance": {"bf16_tflops": 78.6, "fp32_tflops": 7.99, "int4_tops": 218.7, "int8_tops": 157.3},
+  "performance": {"bf16_tflops": 78.6, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 7.99, "int4_tops": 218.7, "int8_tops": 157.3, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "default",
    "idle_power_watts": 0.42,
@@ -666,8 +680,10 @@
      "activity_factor": null,
      "clock_mhz": 450.0,
      "cooling_solution_id": "passive_heatsink_large",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "lp",
+     "tdp_scenario": null,
      "tdp_watts": 2.6,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.5
@@ -676,8 +692,10 @@
      "activity_factor": null,
      "clock_mhz": 600.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "default",
+     "tdp_scenario": null,
      "tdp_watts": 5.3,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.65
@@ -686,8 +704,10 @@
      "activity_factor": null,
      "clock_mhz": 700.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "boost",
+     "tdp_scenario": null,
      "tdp_watts": 8.0,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.75

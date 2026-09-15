@@ -1,5 +1,5 @@
 {
- "_meta": {"embodied_schemas_version": "0.8.0", "golden_schema_version": 2},
+ "_meta": {"embodied_schemas_version": "0.9.0", "golden_schema_version": 2},
  "floorplan": {
   "architectural": {
    "blocks": [
@@ -2379,7 +2379,7 @@
  },
  "generator": {
   "die_size_mm2": 330.8,
-  "performance": {"bf16_tflops": 676.9, "fp32_tflops": 27.1, "int4_tops": 756.1, "int8_tops": 1353.8},
+  "performance": {"bf16_tflops": 676.9, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 27.1, "int4_tops": 756.1, "int8_tops": 1353.8, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "60W",
    "idle_power_watts": 3.35,
@@ -2391,8 +2391,10 @@
      "activity_factor": null,
      "clock_mhz": 1075.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.7, "int4": 0.78, "int8": 0.75},
      "name": "30W",
+     "tdp_scenario": null,
      "tdp_watts": 30.0,
      "tile_utilization_by_precision": {"bf16": 0.92, "int4": 0.96, "int8": 0.95},
      "vdd_v": 0.572
@@ -2401,8 +2403,10 @@
      "activity_factor": null,
      "clock_mhz": 1375.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.75, "int4": 0.82, "int8": 0.8},
      "name": "60W",
+     "tdp_scenario": null,
      "tdp_watts": 59.9,
      "tile_utilization_by_precision": {"bf16": 0.94, "int4": 0.97, "int8": 0.96},
      "vdd_v": 0.704
@@ -2411,8 +2415,10 @@
      "activity_factor": null,
      "clock_mhz": 1550.0,
      "cooling_solution_id": "liquid_cooled",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.8, "int4": 0.87, "int8": 0.85},
      "name": "100W",
+     "tdp_scenario": null,
      "tdp_watts": 100.0,
      "tile_utilization_by_precision": {"bf16": 0.96, "int4": 0.99, "int8": 0.98},
      "vdd_v": 0.841
@@ -2433,14 +2439,17 @@
    {
     "blocks": [
      {
+      "checkerboard": null,
       "kind": "kpu",
       "memory": {"l1_kib_per_pe": 4, "l2_kib_per_tile": 32, "l3_kib_per_tile": 256, "memory_bandwidth_gbps": 1638.0, "memory_bus_bits": 4096, "memory_controllers": 8, "memory_size_gb": 64.0, "memory_type": "hbm3"},
       "multi_precision_alu": ["int4", "int8", "bf16", "fp32"],
-      "noc": {"bisection_bandwidth_gbps": 1024.0, "flit_bytes": 32, "mesh_cols": 24, "mesh_rows": 32, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
+      "noc": {"bisection_bandwidth_gbps": 1024.0, "flit_bytes": 32, "mesh_cols": 24, "mesh_rows": 32, "overlays": null, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
+      "power_domains": null,
       "tiles": [
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 537,
@@ -2454,12 +2463,14 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "int8_primary",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "INT8-primary"
        },
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 154,
@@ -2473,12 +2484,14 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "bf16_primary",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "BF16-primary"
        },
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "Tensor-core-style tile: 8x8 PE array runs as systolic matmul with\nweight-stationary accumulation, yielding 128 INT8 ops/PE/cycle\n(vs 8 ops/PE/cycle for the simple rows*cols*2 model). Used for\nlarge-matrix LLM inference workloads.\n",
         "num_tiles": 77,
@@ -2492,6 +2505,7 @@
         "power_domain_id": null,
         "schedule_class": "weight_stationary",
         "tile_class_id": "matrix",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "Matrix"
        }
@@ -2574,7 +2588,7 @@
   "name": "Stillwater KPU-T768",
   "notes": "Datacenter-class KPU SKU for AI inference at scale. 768 heterogeneous\ntiles in a 32x24 grid; INT8/BF16 tiles use 16x8 PE arrays while Matrix\ntiles use 8x8 systolic blocks (tensor-core-style) for LLM inference.\n192 MiB distributed L3 scratchpad. HBM3 64 GB / 1.6 TB/s. TSMC N7\nprocess. 60W default TDP with 30W and 100W profiles; 100W requires\nliquid cooling.\n\nValidates the schema's tensor-core-style tile path: Matrix tiles have\n8192 INT8 ops/clock at 64 PEs (128 ops/PE/cycle) via systolic\naccumulation, which the simple rows*cols*ops_per_pe model would\nunderestimate by 16x.\n",
   "packaging": {"kind": "monolithic", "num_dies": 1, "package_type": "monolithic"},
-  "performance": {"bf16_tflops": 676.9, "fp32_tflops": 27.1, "int4_tops": 756.1, "int8_tops": 1353.8},
+  "performance": {"bf16_tflops": 676.9, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 27.1, "int4_tops": 756.1, "int8_tops": 1353.8, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "60W",
    "idle_power_watts": 3.35,
@@ -2586,8 +2600,10 @@
      "activity_factor": null,
      "clock_mhz": 1075.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.7, "int4": 0.78, "int8": 0.75},
      "name": "30W",
+     "tdp_scenario": null,
      "tdp_watts": 30.0,
      "tile_utilization_by_precision": {"bf16": 0.92, "int4": 0.96, "int8": 0.95},
      "vdd_v": 0.572
@@ -2596,8 +2612,10 @@
      "activity_factor": null,
      "clock_mhz": 1375.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.75, "int4": 0.82, "int8": 0.8},
      "name": "60W",
+     "tdp_scenario": null,
      "tdp_watts": 60.0,
      "tile_utilization_by_precision": {"bf16": 0.94, "int4": 0.97, "int8": 0.96},
      "vdd_v": 0.704
@@ -2606,8 +2624,10 @@
      "activity_factor": null,
      "clock_mhz": 1550.0,
      "cooling_solution_id": "liquid_cooled",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.8, "int4": 0.87, "int8": 0.85},
      "name": "100W",
+     "tdp_scenario": null,
      "tdp_watts": 100.0,
      "tile_utilization_by_precision": {"bf16": 0.96, "int4": 0.99, "int8": 0.98},
      "vdd_v": 0.841
