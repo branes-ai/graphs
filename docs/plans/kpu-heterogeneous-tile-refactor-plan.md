@@ -236,6 +236,11 @@ silent pad/truncate (C11).
 - **New `TransistorSource` kinds:** `PER_TILE` (count_ref `tile_class:<id>`) and
   `PER_OVERLAY`. The legacy `tile.<label>` form resolves through the label
   alias.
+  *As built (C1):* not added. Tile-carried silicon (`silicon_math.carried_silicon`)
+  counts per-tile and per-overlay transistors directly from the tile, overlay
+  and core specs, with no schema release. `count_ref` `tile.<ref>` accepts a
+  `tile_class_id` as well as the legacy label. Both kinds can still be added
+  if a chip-level block ever needs to scale per tile or per overlay.
 - **No double counting.** A tile class may be counted either in its own
   `silicon` or in chip-level `per_pe` blocks, never both. A validator enforces
   this.
@@ -376,7 +381,9 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
 
 **Phase C: graphs consumers** (legacy zero-diff on every PR)
 - C1: `silicon_math`: per-tile silicon, new transistor sources, per-class
-  memory, kind dispatch, no-double-count.
+  memory, kind dispatch, no-double-count. *As built:* tile-carried silicon
+  in place of the new transistor sources (see 5.5), plus the shared
+  synthetic fixture `graphs.hardware.kpu_hetero_fixture`.
 - C2: `kpu_power_model`: per-kind energy, per-domain V/f, gating, `tdp_scenario`.
 - C3: generator and input spec: library `use:`, `--tile-mix`, scoped
   `--pe-array`, roll-ups.
