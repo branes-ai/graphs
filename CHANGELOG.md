@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`cli/list_compute_products.py`** lists every ComputeProduct in the embodied-schemas catalog, of every block kind (43 today: KPU 12, DSP 10, CPU 6 + 3 with IO dies, TPU 5, NPU 3, GPU 2, CGRA 1, DPU 1).
+  - Columns: vendor, block kinds, die count and process node(s), total die area and transistors, INT8 / BF16 / FP32 peak, default TDP, INT8 TOPS/W, market, confidence, and whether every die's process node resolves.
+  - Filters `--kind` / `--vendor` / `--market`; `--sort`; output via `--format` or the `--output` extension (json / csv / md / txt).
+  - Tests: `tests/cli/test_list_compute_products.py`.
 - **KPU golden snapshot gate** for the heterogeneous-tile refactor (#268, Phase A0; PR #267).
   - `src/graphs/hardware/kpu_golden.py` and `cli/kpu_golden_snapshot.py`. The CLI checks by default and also takes `--update`, `--sku`, `--golden-dir`, `--max-diffs` and `-o` json/csv/md/txt.
   - It pins 12 per-SKU goldens in `tests/hardware/golden/kpu/`, golden schema v2. Each covers the catalog input, the generator round-trip with the TDP breakdown per profile, silicon per block at every precision, both floorplans, the PhysicalSpec, the resource model, KPUMapper results on 4 synthetic subgraphs, and all validator findings.
