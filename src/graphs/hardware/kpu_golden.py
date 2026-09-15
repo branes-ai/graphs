@@ -357,11 +357,18 @@ def _validators_section(sku_id, catalogs) -> list[dict]:
 
 
 def _meta() -> dict:
+    """Provenance only (excluded from comparison).
+
+    Records the ``__version__`` of the embodied_schemas module actually
+    imported. ``importlib.metadata.version()`` is not used: for an editable
+    install it reports the dist-info frozen at install time (e.g. 0.6.0 for a
+    checkout that has since moved to 0.8.0).
+    """
     meta: dict[str, Any] = {"golden_schema_version": GOLDEN_SCHEMA_VERSION}
     try:
-        from importlib.metadata import version
+        import embodied_schemas
 
-        meta["embodied_schemas_version"] = version("embodied-schemas")
+        meta["embodied_schemas_version"] = embodied_schemas.__version__
     except Exception:  # pragma: no cover - provenance only
         meta["embodied_schemas_version"] = "unknown"
     return meta
