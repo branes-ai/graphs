@@ -400,6 +400,12 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     overlay-traffic model, and no library overlay declares energy yet.
 - C3: generator and input spec: library `use:`, `--tile-mix`, scoped
   `--pe-array`, roll-ups.
+  *As built:*
+  - The by-kind performance roll-up is emitted only for heterogeneous
+    architectures (or on request), so uniform legacy SKUs regenerate
+    byte-identically.
+  - A `use:` entry takes its tile fields under `overrides`.
+  - `--tile-mix` refuses an explicit placement map.
 - C4: validators: the envelope split and the new validators (section 6).
 - C5: resource-model loader, per-class energy model, the
   `fixed_function_units` attribute, capability-aware mapper pools, and the

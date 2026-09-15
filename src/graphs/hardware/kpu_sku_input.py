@@ -18,7 +18,9 @@ catalog entries.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any, Mapping, Optional
+
+from pydantic import BaseModel, Field, model_validator
 
 from embodied_schemas.kpu import (
     KPUArchitecture,
@@ -27,6 +29,53 @@ from embodied_schemas.kpu import (
     KPUSiliconBin,
     KPUThermalProfile,
 )
+
+
+_USE_KEYS = {"use", "num_tiles", "overrides"}
+
+
+def resolve_tile_uses(tiles: list, library: Optional[Mapping[str, Any]] = None) -> list:
+    """Expand tile-class library references in a tile list (graphs#268 C3).
+
+    A tile written as ``{use: <library id>, num_tiles: N, overrides: {...}}``
+    becomes the library entry instantiated with ``N`` tiles and the
+    overrides applied (``KPUTileClassEntry.instantiate``), so the resolved
+    tile carries ``tile_class_ref``. Other tiles pass through unchanged.
+
+    ``library`` defaults to ``embodied_schemas.load_kpu_tile_classes()``
+    (which honors the ``KPU_TILE_DATA_DIR`` private overlay).
+    """
+    if not any(isinstance(t, dict) and "use" in t for t in tiles):
+        return tiles
+    if library is None:
+        from embodied_schemas import load_kpu_tile_classes
+
+        library = load_kpu_tile_classes()
+    out = []
+    for t in tiles:
+        if not (isinstance(t, dict) and "use" in t):
+            out.append(t)
+            continue
+        extra = sorted(set(t) - _USE_KEYS)
+        if extra:
+            raise ValueError(
+                f"tile 'use: {t['use']}' has unknown keys {extra}; put tile fields "
+                f"under 'overrides'"
+            )
+        entry = library.get(t["use"])
+        if entry is None:
+            raise ValueError(
+                f"tile 'use: {t['use']}' is not in the tile-class library "
+                f"(available: {sorted(library)})"
+            )
+        if "num_tiles" not in t:
+            raise ValueError(f"tile 'use: {t['use']}' needs num_tiles")
+        out.append(
+            entry.instantiate(t["num_tiles"], **(t.get("overrides") or {})).model_dump(
+                mode="json"
+            )
+        )
+    return out
 
 
 class KPUSKUInputSpec(BaseModel):
@@ -82,3 +131,19 @@ class KPUSKUInputSpec(BaseModel):
     last_updated: str = Field(..., description="Last update date (YYYY-MM-DD)")
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _expand_library_tiles(cls, data: Any) -> Any:
+        """Resolve ``use:`` tile references (``resolve_tile_uses``) and,
+        when omitted, fill in ``total_tiles`` from the tile counts."""
+        if not isinstance(data, dict) or not isinstance(data.get("kpu_architecture"), dict):
+            return data
+        arch = dict(data["kpu_architecture"])
+        tiles = arch.get("tiles")
+        if isinstance(tiles, list):
+            tiles = resolve_tile_uses(tiles)
+            arch["tiles"] = tiles
+            if "total_tiles" not in arch and all(isinstance(t, dict) for t in tiles):
+                arch["total_tiles"] = sum(t.get("num_tiles", 0) for t in tiles)
+        return {**data, "kpu_architecture": arch}
