@@ -385,6 +385,19 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
   in place of the new transistor sources (see 5.5), plus the shared
   synthetic fixture `graphs.hardware.kpu_hetero_fixture`.
 - C2: `kpu_power_model`: per-kind energy, per-domain V/f, gating, `tdp_scenario`.
+  *As built:*
+  - Legacy-shaped profiles keep the original formula. The new
+    `compute_heterogeneous_tdp_breakdown` reproduces it exactly for all
+    12 SKUs, within 1e-12.
+  - It returns a `HeterogeneousTDPBreakdown`: `fixed_function_w`, compute by
+    tile class, and gated classes.
+  - A RelativeEnergy anchor invocation counts as 2 ops, which keeps
+    `pe_int8_mac_i32` legacy-equivalent in this per-op model.
+  - Fixed-function energy scales by its logic / SRAM fractions, using the
+    logic and SRAM energy ratios between the reference node and the target
+    node.
+  - PE-fabric overlay-traffic energy is deferred: it needs a workload
+    overlay-traffic model, and no library overlay declares energy yet.
 - C3: generator and input spec: library `use:`, `--tile-mix`, scoped
   `--pe-array`, roll-ups.
 - C4: validators: the envelope split and the new validators (section 6).
