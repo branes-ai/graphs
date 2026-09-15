@@ -244,5 +244,6 @@ def test_cli_generates_from_a_library_spec(cli_runner, tmp_path):
 
     rc, _, err = cli_runner(_CLI, ["--input", str(spec_path), "--tile-mix", "pe_bf16_fma=0"])
     assert rc == 2 and "--tile-mix: tile mix: pe_bf16_fma=0; counts must be positive" in err
-    rc, _, err = cli_runner(_CLI, ["--input", str(spec_path), "--pe-array", "16by16"])
-    assert rc == 2 and "--pe-array must be ROWSxCOLS or CLASS=ROWSxCOLS" in err
+    for bad in ("16by16", "=16x16"):  # an empty class must not mean "every class"
+        rc, _, err = cli_runner(_CLI, ["--input", str(spec_path), "--pe-array", bad])
+        assert rc == 2 and "--pe-array must be ROWSxCOLS or CLASS=ROWSxCOLS" in err, bad

@@ -4,12 +4,12 @@ Turns a ``KPUSKUInputSpec`` into a fully-populated ``ComputeProduct`` by
 computing the roll-up fields from the architectural / silicon_bin / NoC
 inputs and the referenced ``ProcessNodeEntry``:
 
-* ``dies[0].transistors_billion`` -- Σ silicon_bin block transistors / 1000,
+* ``dies[0].transistors_billion`` -- sum of silicon_bin block transistors / 1000,
   plus the tile-carried silicon (``silicon_math.carried_silicon``)
-* ``dies[0].die_size_mm2`` -- Σ silicon_bin block area (= transistors / density),
+* ``dies[0].die_size_mm2`` -- sum of silicon_bin block area (= transistors / density),
   plus the tile-carried silicon's area
 * ``performance.{int8_tops, bf16_tflops, fp32_tflops, int4_tops}`` --
-  Σ(tile.num_tiles × ops_per_tile_per_clock) × default-profile clock. A
+  sum(tile.num_tiles * ops_per_tile_per_clock) * default-profile clock. A
   heterogeneous architecture also gets the roll-up by tile kind and the
   fixed-function throughput (``derive_kpu_performance``, graphs#268 C3)
 * ``power.{tdp_watts, max_power_watts, min_power_watts,
@@ -19,7 +19,7 @@ inputs and the referenced ``ProcessNodeEntry``:
   the input spec is ignored. The architect chooses clocks and cooling;
   TDP is the consequence.
 * ``power.idle_power_watts`` -- chip-wide leakage from ProcessNode
-  ``leakage_w_per_mm2`` × per-block area
+  ``leakage_w_per_mm2`` * per-block area
 * ``lifecycle`` -- derived from ``KPUMarket.is_discontinued`` (legacy
   market shape on the input spec): EOL if discontinued else PRODUCTION
 

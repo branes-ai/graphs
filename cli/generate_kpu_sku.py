@@ -99,9 +99,11 @@ def _serialize(entry, fmt: str) -> str:
 
 def _parse_pe_array(arg: str) -> tuple[Optional[str], int, int]:
     """'32x32' -> (None, 32, 32); 'cls=16x8' -> ('cls', 16, 8). ValueError if malformed."""
-    tile_class, _, dims = arg.rpartition("=")
+    tile_class, sep, dims = arg.rpartition("=")
+    if sep and not tile_class.strip():
+        raise ValueError(f"empty tile class before '=' in {arg!r}")
     rows_str, cols_str = dims.lower().split("x", 1)
-    return (tile_class or None), int(rows_str), int(cols_str)
+    return (tile_class.strip() or None), int(rows_str), int(cols_str)
 
 
 def _parse_tile_mix(arg: str) -> dict[str, int]:
