@@ -11,9 +11,9 @@ from .kpu_yaml_loader import load_kpu_resource_model_from_yaml
 def kpu_t256_resource_model() -> HardwareResourceModel:
     """Stillwater KPU-T256 -- high-performance edge / embodied AI.
 
-    256 heterogeneous tiles (179 INT8, 51 BF16, 26 Matrix), 20x20 PE
-    arrays, TSMC N16. The M0.5 sweet spot: big enough for serious
-    peak compute, dense enough that per-tile utilization stays high.
+    256 heterogeneous tiles (179 INT8, 51 BF16, 26 Matrix), 32x32 PE
+    arrays, TSMC N16. (An earlier 20x20 design was retired for family
+    consistency; T64 / T128 / T256 now share the canonical 32x32 tile.)
     Targets edge servers, autonomous vehicles, advanced drones.
     Power profiles: 15W, 30W (default), 50W.
     """

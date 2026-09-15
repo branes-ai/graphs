@@ -10,10 +10,24 @@ covers KPU-specific mechanisms.
 
 The KPU implementation lives in:
 
+- **SKU data (source of truth):** `embodied-schemas`
+  `data/compute_products/stillwater/*.yaml`. There are 12 KPU
+  ComputeProducts: T64 / T128 / T256 on TSMC N16, GF 12FDX and TSMC N7;
+  T512 on 12FDX and N7; and T768 on N7. Each references a `ProcessNodeEntry`
+  for density, leakage and energy per op.
+- `src/graphs/hardware/models/accelerators/kpu_yaml_loader.py` —
+  `load_kpu_resource_model_from_yaml(base_id)` builds the
+  `HardwareResourceModel` from a catalog SKU.
+- `src/graphs/hardware/models/accelerators/kpu_t64.py`, `kpu_t128.py`,
+  `kpu_t256.py`, `kpu_t768.py` — thin wrappers over the loader. They add
+  only a BOM cost profile and a few documented per-SKU overrides (see
+  §4.2).
 - `src/graphs/hardware/mappers/accelerators/kpu.py` — `KPUMapper`,
-  `TileConfiguration`, factory functions
-- `src/graphs/hardware/models/accelerators/kpu_t64.py`,
-  `kpu_t256.py`, `kpu_t768.py` — per-device resource models
+  `TileConfiguration`, and the `create_kpu_t{64,128,256,768}_mapper`
+  factories.
+- `src/graphs/hardware/kpu_access.py` — `kpu_block_of` / `kpu_die_of`,
+  which locate the KPU block and its die by kind. Never assume
+  `dies[0].blocks[0]`.
 - `src/graphs/hardware/architectural_energy.py` —
   `DomainFlowEnergyModel`, `KPUTileEnergyModel`, `KPUTileEnergyAdapter`
 
@@ -53,29 +67,46 @@ grain than the baseline roofline.
 
 ## 2. Device Variants
 
-Three SKUs share the same 70/20/10 tile-specialization ratio and differ
-in scale / memory technology / thermal envelope:
+The four registered SKUs share a roughly 70/20/10 tile-specialization mix.
+They differ in scale, memory technology and thermal envelope. Values are
+from the embodied-schemas 0.7.0 catalog: clocks and Vdd per thermal profile
+(default profile in **bold**), and peak INT8 at the default clock.
 
-| Device | Tiles | Mesh | Clock (sustained) | Memory | Thermal envelope | Target |
-|--------|-------|------|--------------------|--------|-------------------|--------|
-| KPU-T64 | 64 (44/13/7) | 8×8 | 850–950 MHz | DDR4-equiv 25.6 GB/s | 3 W / 6 W / 10 W | Battery-powered edge, drones |
-| KPU-T256 | 256 (179/51/26) | 16×16 | 1.0–1.2 GHz | LPDDR5 204.8 GB/s | 15 W / 30 W / 50 W | Edge / small datacenter |
-| KPU-T768 | 768 (537/154/77) | 24×32 | 1.3–1.5 GHz | HBM2 1638.4 GB/s | 30 W / 60 W / 100 W | Datacenter inference |
+| Device (catalog id) | Node | Tiles (INT8/BF16/Matrix) | Mesh | Profiles: clock @ Vdd | Memory | Peak INT8 | Die |
+|---|---|---|---|---|---|---|---|
+| KPU-T64 (`kpu_t64_32x32_lp5x4_16nm_tsmc_ffp`) | TSMC N16 | 64 (44/13/7) | 8x8 | 3 W: 350 MHz @ 0.636 V; **6 W: 475 @ 0.759**; 10 W: 550 @ 0.896 | LPDDR5, 64 GB/s, 8 GB | 62.3 TOPS | 50 mm^2 |
+| KPU-T128 (`kpu_t128_32x32_lp5x8_16nm_tsmc_ffp`) | TSMC N16 | 128 (89/26/13) | 16x8 | 6 W: 350 @ 0.634; **12 W: 475 @ 0.756**; 18 W: 500 @ 0.886 | LPDDR5, 96 GB/s, 16 GB | 124.5 TOPS | 96 mm^2 |
+| KPU-T256 (`kpu_t256_32x32_lp5x16_16nm_tsmc_ffp`) | TSMC N16 | 256 (179/51/26) | 16x16 | 15 W: 450 @ 0.623; **30 W: 600 @ 0.753**; 50 W: 700 @ 0.887 | LPDDR5, 256 GB/s, 32 GB | 314.6 TOPS | 188 mm^2 |
+| KPU-T768 (`kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc`) | TSMC N7 | 768 (537/154/77) | 32x24 | 30 W: 1075 @ 0.572; **60 W: 1375 @ 0.704**; 100 W: 1550 @ 0.841 | HBM3, 1638 GB/s, 64 GB | 1353.8 TOPS | 330 mm^2 |
 
-Tile specializations (same for every device, scaled by count):
+Profile TDPs are derived by the power model from clock x Vdd x ProcessNode
+energies. Vdd is tuned so the model lands on the round catalog envelopes
+(embodied-schemas#85). The catalog also carries 12FDX and N7 variants of
+T64 / T128 / T256, plus T512.
 
-- **INT8-primary** (69%): 16×16 PE array, 512 INT8 / 1024 INT4 / 256
-  BF16 ops per tile per clock. Target: computer vision, detection.
-- **BF16-primary** (20%): 16×16 PE array, 256–512 BF16 / 128 FP32 /
-  512 INT8 ops per tile per clock. Target: sensor fusion, attention,
-  normalization.
-- **Matrix** (11%): 8×8 tensor-core PE array, 8192 INT8 / 4096 BF16
-  ops per tile per clock. Target: classification heads, embeddings,
-  large matmuls. Uses `circuit_type=tensor_core` (0.85× energy).
+Tile specializations on T64 / T128 / T256 (ops per tile per clock):
 
-The factory functions `create_kpu_t64_mapper`, `create_kpu_t256_mapper`,
-`create_kpu_t768_mapper` each return a `KPUMapper` with its resource
-model and an attached `KPUTileEnergyAdapter`.
+- **INT8-primary** (~70%): 32x32 PE array, balanced-logic library;
+  2048 INT8 / 4096 INT4 / 1024 BF16 / 1024 FP16. Target: computer vision,
+  detection.
+- **BF16-primary** (~20%): 32x32 PE array, balanced-logic library;
+  1024 BF16 / 1024 FP16 / 512 FP32 / 2048 INT8. Target: sensor fusion,
+  attention, normalization.
+- **Matrix** (~10%): 32x32 PE array on the **HP-logic** library;
+  2048 INT8 / 1024 BF16 / 1024 FP16. The HP library costs more energy per
+  op than balanced logic (at N16: 3.5 vs 2.7 pJ per FP32 op in the
+  ProcessNode table). The loader labels its fabric `circuit_type =
+  standard_cell`, like every logic library; there is no `tensor_core`
+  label any more.
+
+T768 uses smaller 16x8 arrays for the INT8- and BF16-primary tiles (512
+INT8 / 256 BF16 per tile per clock). Its Matrix tiles are 8x8
+**weight-stationary** arrays at 128 ops/PE/clock (8192 INT8 / 4096
+BF16 / 4096 FP16 per tile).
+
+Each `create_kpu_t{64,128,256,768}_mapper` factory returns a `KPUMapper`
+with its resource model, the catalog `PhysicalSpec`, and an attached
+`KPUTileEnergyAdapter`.
 
 ---
 
@@ -220,13 +251,20 @@ device. Representative T64 values:
 
 | Coefficient | Value | Coefficient | Value |
 |-------------|-------|-------------|-------|
-| DRAM read | 10 pJ/byte | MAC INT8 | ~0.3 pJ |
-| L3 read | 2.0 pJ/byte | MAC BF16 | ~0.45 pJ |
-| L2 read | 0.8 pJ/byte | MAC FP32 | ~0.9 pJ |
+| DRAM read | 10 pJ/byte | MAC INT8 | 0.10 pJ |
+| L3 read | 2.0 pJ/byte | MAC BF16 | 0.16 pJ |
+| L2 read | 0.8 pJ/byte | MAC FP32 | 0.30 pJ |
 | L1 read | 0.3 pJ/byte | Token sig match | 0.6 pJ |
 | DMA | 1.5 pJ/byte | Token routing/hop | 0.15 pJ |
 | BlockMover | 0.8 pJ/byte | SURE program load | 50 pJ (broadcast) |
 | Streamer | 0.3 pJ/byte | SURE cache hit | 1 pJ |
+
+The three MAC energies are deliberate per-SKU overrides in `kpu_t64.py`.
+They are more aggressive domain-flow figures than the generic N16
+balanced-logic values the loader derives from the ProcessNode (0.30 /
+1.4 / 2.7 pJ); a per-SKU MAC-energy schema field would move them into
+embodied-schemas. The memory, engine and token coefficients come from the
+loader.
 
 The adapter aggregates these into:
 
@@ -265,13 +303,23 @@ Typical modeled pJ/MAC:
 
 ## 5. Resource Model Specification (how a KPU SKU is declared)
 
-A `kpu_t<N>_resource_model()` factory builds, in order:
+A KPU SKU is declared as data: a `ComputeProduct` YAML in embodied-schemas,
+generated or checked by `cli/generate_kpu_sku.py` from a `KPUSKUInputSpec`.
+`load_kpu_resource_model_from_yaml(base_id)` turns it into a
+`HardwareResourceModel`, in order:
 
-1. **Compute fabrics** — one `ComputeFabric` per tile specialization,
-   each with its `num_units`, per-precision `ops_per_unit_per_clock`,
-   `circuit_type` (`standard_cell` for INT8/BF16 tiles, `tensor_core`
-   for Matrix tiles), `process_node_nm` (16 nm for T64, scaled for
-   T256/T768), and per-precision `energy_scaling`.
+1. **Compute fabrics** — one `ComputeFabric` per catalog tile class,
+   `fabric_type = kpu_<tile_type>` (`kpu_int8_primary`,
+   `kpu_bf16_primary`, `kpu_matrix`).
+   - `num_units` and per-precision `ops_per_unit_per_clock` come from the
+     tile class.
+   - `circuit_type` comes from the tile's `pe_circuit_class`; every logic
+     library maps to `standard_cell`.
+   - `process_node_nm` comes from the KPU die's ProcessNode.
+   - FP32 energy per op is the ProcessNode `energy_per_op_pj` for that
+     library, and `energy_scaling` holds the per-precision ratios.
+   - The model-level `energy_per_flop_fp32` is the balanced-logic per-MAC
+     figure halved, i.e. per FLOP (#81).
 2. **Clock domains** — one `ClockDomain` per thermal profile with
    `base_clock_hz`, `max_boost_clock_hz`, `sustained_clock_hz`, and a
    `dvfs_enabled` flag.
@@ -306,7 +354,9 @@ vs. vendor datasheets:
 1. **Homogeneous tile pool in `map_subgraph`** — ignores the 70/20/10
    specialization when routing a subgraph. Expand the mapper to
    consult `KPUComputeResource.get_tiles_for_precision()` and select
-   the tile pool whose `optimization_level` is highest.
+   the tile pool whose `optimization_level` is highest. Planned as #268
+   C5 (capability-aware tile pools), part of the heterogeneous-tile
+   refactor (`docs/plans/kpu-heterogeneous-tile-refactor-plan.md`).
 2. **Tiling heuristic constants** — the 80% efficiency and 10% per-
    iteration overhead are placeholders. Replace with an EDDO-level
    model that costs DMA descriptors, double-buffer depth, and
@@ -333,6 +383,18 @@ vs. vendor datasheets:
 ---
 
 ## 7. Validation Hooks
+
+- `tests/hardware/test_kpu_golden.py` + `cli/kpu_golden_snapshot.py` — the
+  zero-diff gate. It pins every modeled output (generator, TDP breakdown,
+  silicon, floorplans, resource model, mapper, validator findings) of the
+  12 catalog SKUs. Regenerate with `--update` only for a declared model
+  change.
+- `tests/hardware/test_kpu_yaml_loader.py`, `test_kpu_access.py`,
+  `test_kpu_registry_metadata.py` — loader contract, positional-independence
+  of KPU lookup, and registry metadata vs. the built models.
+- `validation/hardware/test_phase4_accelerator_energy.py` — fabric process
+  nodes, KPU fabric energies and the energy-vs-node ordering, all derived
+  from the catalog and ProcessNode data.
 
 - `validation/hardware/test_all_hardware.py` — cross-platform
   consistency (KPU must be within expected ranges vs. GPU/CPU).

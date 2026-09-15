@@ -12,9 +12,8 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     """Stillwater KPU-T128 -- mid-range embodied AI.
 
     128 heterogeneous tiles (89 INT8, 26 BF16, 13 Matrix), 32x32 PE
-    arrays, TSMC N16. Per the M0.5 inverse-scaling story, T128 keeps
-    32x32 arrays for more total PEs (131K) than T256's 20x20 layout
-    (102K). Targets autonomous robots, advanced edge AI. Power
+    arrays (131K PEs), TSMC N16 -- the same canonical tile as T64 and
+    T256. Targets autonomous robots, advanced edge AI. Power
     profiles: 6W, 12W (default), 18W.
     """
     model = load_kpu_resource_model_from_yaml("kpu_t128_32x32_lp5x8_16nm_tsmc_ffp")
