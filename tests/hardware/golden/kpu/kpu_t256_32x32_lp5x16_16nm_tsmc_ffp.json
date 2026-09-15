@@ -1,5 +1,5 @@
 {
- "_meta": {"embodied_schemas_version": "0.8.0", "golden_schema_version": 2},
+ "_meta": {"embodied_schemas_version": "0.9.0", "golden_schema_version": 2},
  "floorplan": {
   "architectural": {
    "blocks": [
@@ -859,7 +859,7 @@
  },
  "generator": {
   "die_size_mm2": 188.0,
-  "performance": {"bf16_tflops": 157.3, "fp32_tflops": 15.67, "int4_tops": 439.9, "int8_tops": 314.6},
+  "performance": {"bf16_tflops": 157.3, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 15.67, "int4_tops": 439.9, "int8_tops": 314.6, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "30W",
    "idle_power_watts": 1.79,
@@ -871,8 +871,10 @@
      "activity_factor": null,
      "clock_mhz": 450.0,
      "cooling_solution_id": "passive_heatsink_large",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.63, "int4": 0.73, "int8": 0.68},
      "name": "15W",
+     "tdp_scenario": null,
      "tdp_watts": 15.0,
      "tile_utilization_by_precision": {"bf16": 0.88, "int4": 0.95, "int8": 0.93},
      "vdd_v": 0.623
@@ -881,8 +883,10 @@
      "activity_factor": null,
      "clock_mhz": 600.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "30W",
+     "tdp_scenario": null,
      "tdp_watts": 30.0,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.753
@@ -891,8 +895,10 @@
      "activity_factor": null,
      "clock_mhz": 700.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.73, "int4": 0.83, "int8": 0.78},
      "name": "50W",
+     "tdp_scenario": null,
      "tdp_watts": 50.0,
      "tile_utilization_by_precision": {"bf16": 0.92, "int4": 0.98, "int8": 0.97},
      "vdd_v": 0.887
@@ -913,14 +919,17 @@
    {
     "blocks": [
      {
+      "checkerboard": null,
       "kind": "kpu",
       "memory": {"l1_kib_per_pe": 4, "l2_kib_per_tile": 32, "l3_kib_per_tile": 256, "memory_bandwidth_gbps": 256.0, "memory_bus_bits": 256, "memory_controllers": 16, "memory_size_gb": 32.0, "memory_type": "lpddr5"},
       "multi_precision_alu": ["int4", "int8", "bf16", "fp32"],
-      "noc": {"bisection_bandwidth_gbps": 256.0, "flit_bytes": 16, "mesh_cols": 16, "mesh_rows": 16, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
+      "noc": {"bisection_bandwidth_gbps": 256.0, "flit_bytes": 16, "mesh_cols": 16, "mesh_rows": 16, "overlays": null, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
+      "power_domains": null,
       "tiles": [
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 179,
@@ -934,12 +943,14 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "int8_primary",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "INT8-primary"
        },
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 51,
@@ -953,12 +964,14 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "bf16_primary",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "BF16-primary"
        },
        {
         "datapath": null,
         "footprint": null,
+        "interconnect": null,
         "local_memory": null,
         "notes": "",
         "num_tiles": 26,
@@ -972,6 +985,7 @@
         "power_domain_id": null,
         "schedule_class": "output_stationary",
         "tile_class_id": "matrix",
+        "tile_class_ref": null,
         "tile_kind": "pe_fabric",
         "tile_type": "Matrix"
        }
@@ -1054,7 +1068,7 @@
   "name": "Stillwater KPU-T256",
   "notes": "High-performance KPU SKU for edge servers, autonomous vehicles, advanced\ndrones. 256 tiles in a 16x16 grid, 32x32 PE arrays (262,144 PEs total).\nTile microarchitecture is uniform with T64 / T128 so cost / perf curves\nacross the entry / mid / high tier are continuous. 30W default with 15W\nand 50W profiles. TSMC N16, ~315 INT8 TOPS at the default profile (600 MHz @ 0.75V; the earlier ~734 figure was from a 1400 MHz operating point retired in PR #153 when Vdd-aware DVFS replaced fixed-Vdd clocks).\n",
   "packaging": {"kind": "monolithic", "num_dies": 1, "package_type": "monolithic"},
-  "performance": {"bf16_tflops": 157.3, "fp32_tflops": 15.67, "int4_tops": 439.9, "int8_tops": 314.6},
+  "performance": {"bf16_tflops": 157.3, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 15.67, "int4_tops": 439.9, "int8_tops": 314.6, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "30W",
    "idle_power_watts": 1.79,
@@ -1066,8 +1080,10 @@
      "activity_factor": null,
      "clock_mhz": 450.0,
      "cooling_solution_id": "passive_heatsink_large",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.63, "int4": 0.73, "int8": 0.68},
      "name": "15W",
+     "tdp_scenario": null,
      "tdp_watts": 15.0,
      "tile_utilization_by_precision": {"bf16": 0.88, "int4": 0.95, "int8": 0.93},
      "vdd_v": 0.623
@@ -1076,8 +1092,10 @@
      "activity_factor": null,
      "clock_mhz": 600.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "30W",
+     "tdp_scenario": null,
      "tdp_watts": 30.0,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.753
@@ -1086,8 +1104,10 @@
      "activity_factor": null,
      "clock_mhz": 700.0,
      "cooling_solution_id": "active_fan",
+     "domain_operating_points": null,
      "efficiency_factor_by_precision": {"bf16": 0.73, "int4": 0.83, "int8": 0.78},
      "name": "50W",
+     "tdp_scenario": null,
      "tdp_watts": 50.0,
      "tile_utilization_by_precision": {"bf16": 0.92, "int4": 0.98, "int8": 0.97},
      "vdd_v": 0.887
