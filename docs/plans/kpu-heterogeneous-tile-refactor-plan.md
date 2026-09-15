@@ -299,7 +299,7 @@ compute sites.
 | `kpu_sku_input.py` / generator | Tiles may be `{use: <library id>, num_tiles, overrides}`. Performance roll-up by kind. `--pe-array CLASS=RxC` (scoped to `pe_fabric`; the bare form stays as today for legacy). New `--tile-mix CLASS=N,...`. Emits the resolved tiles. |
 | `silicon_math.py` | Per-tile silicon, `PER_TILE` / `PER_OVERLAY`, per-class local memory, dispatch on `tile_kind`, `kpu_block_of(cp)` lookup instead of `blocks[0]` |
 | `kpu_power_model.py` | Per-kind energy. **pe_fabric**: datapath ops x EnergyRef, plus the existing per-PE structures (token match, regs, forward, clock), plus overlay traffic (*deferred in C2*: no workload overlay-traffic model yet). **systolic**: MAC plus buffers. **fixed_function**: units/s x pj_per_unit scaled to the node. Per-domain V/f, gating, `tdp_scenario`. The legacy path is unchanged. |
-| Validators | Split `tops_per_watt_envelope`: programmable kinds keep the node ceiling; a new `fixed_function_energy_plausibility` checks energy per unit against a cited anchor band. New: `checkerboard_site_accounting`, `tile_footprint_pitch_fit`, `datapath_ops_consistency`, `overlay_consistency`, `stream_link_adjacency`, `stream_link_bandwidth`, `power_domain_coverage`, `silicon_no_double_count`, and the 5 cluster validators from the DVFS doc |
+| Validators | Split `tops_per_watt_envelope`: programmable kinds keep the node ceiling; a new `fixed_function_energy_plausibility` checks energy per unit against a cited anchor band. New: `checkerboard_site_accounting`, `tile_footprint_pitch_fit`, `datapath_energy_resolution` (ops consistency is enforced by the schema), `overlay_consistency`, `stream_link_adjacency`, `stream_link_bandwidth`, `power_domain_coverage`, `silicon_no_double_count`, and the DVFS doc's cluster validators `cluster_rail_and_clock` and `cluster_geometry_consistent`. *Deferred:* harvesting, process-variation-bin and rail-registry reference validators, which need schema fields (per-cluster disable, variation bins, `Die.voltage_rails`) |
 | `silicon_floorplan.py` | `TileRole` gains FIXED_FUNCTION and SYSTOLIC. The placer is explicit map, or greedy: multi-site footprints first, then affinities, then stream-link adjacency, then fill. Absorbed memory cells; per-class whitespace; what-if views per class; power-domain overlay rendering. |
 | `kpu_yaml_loader.py` / resource model | One `ComputeFabric` per tile class keyed by `tile_class_id`. Precision profiles come only from programmable kinds. Per-class `TileSpecialization.clock_domain` comes from power domains (the runtime field already exists). A new optional `HardwareResourceModel.fixed_function_units`. Per-class `KPUTileEnergyModel`, keeping the dominant-class accessor for legacy tests. |
 | KPU mapper | Precision- and capability-aware tile pools, as `kpu-modeling.md:160-173` already proposes. GEMM/conv prefer `systolic`. |
@@ -407,6 +407,17 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
   - A `use:` entry takes its tile fields under `overrides`.
   - `--tile-mix` refuses an explicit placement map.
 - C4: validators: the envelope split and the new validators (section 6).
+  *As built:*
+  - The envelope split compares programmable TOPS with TDP minus the
+    fixed-function power.
+  - `fixed_function_energy_plausibility` anchors on the tile-class library
+    entry for the same function, with a 4x band.
+  - `datapath_ops_consistency` became `datapath_energy_resolution`: ops
+    consistency is already enforced by the schema.
+  - Of the DVFS design's 5 cluster validators, `cluster_rail_and_clock` and
+    `cluster_geometry_consistent` are implemented. Harvesting,
+    variation-bin and the rail-registry reference need schema fields and
+    are deferred.
 - C5: resource-model loader, per-class energy model, the
   `fixed_function_units` attribute, capability-aware mapper pools, and the
   reporting `[0]`-representative fixes.

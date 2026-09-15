@@ -80,10 +80,38 @@ def _ceiling_for_node(node_nm: int) -> float | None:
     return _TOPS_W_INT8_CEILING_BY_NODE_NM[closest]
 
 
+def _fixed_function_w(ctx: ValidatorContext) -> float:
+    """Fixed-function power at the default thermal profile (0 when the KPU
+    has no fixed-function tiles, i.e. every catalog SKU)."""
+    from embodied_schemas.kpu import FixedFunctionTile
+
+    from ...kpu_access import kpu_block_of
+
+    try:
+        block = kpu_block_of(ctx.sku)
+    except Exception:  # noqa: BLE001 - not a KPU product: nothing to split
+        return 0.0
+    if not any(isinstance(t, FixedFunctionTile) for t in block.tiles):
+        return 0.0
+    from ...kpu_power_model import compute_thermal_profile_tdp_breakdown
+    from ...kpu_sku_generator import input_spec_from_compute_product
+
+    spec = input_spec_from_compute_product(ctx.sku)
+    profile = next(
+        p for p in spec.thermal_profiles if p.name == spec.default_thermal_profile
+    )
+    bd = compute_thermal_profile_tdp_breakdown(
+        spec, profile, ctx.process_node, nodes=ctx.extras.get("process_nodes")
+    )
+    return getattr(bd, "fixed_function_w", 0.0)
+
+
 @default_registry.register_class
 class TopsPerWattEnvelope:
     """Enforce an upper bound on int8_tops / tdp_watts keyed on
-    process_node_nm.
+    process_node_nm. For a KPU with fixed-function tiles the denominator is
+    the programmable power (TDP minus the fixed-function power), since
+    int8_tops never includes fixed-function work.
 
     Concretely catches the user's "1 PetaOP @ 25 W" example: 1,000,000
     INT8 TOPS / 25 W = 40,000 TOPS/W -- way above any node's ceiling at
@@ -100,7 +128,22 @@ class TopsPerWattEnvelope:
         tops = sku.performance.int8_tops
         if tdp <= 0 or tops <= 0:
             return []
+        # Heterogeneous KPUs (graphs#268 C4): int8_tops covers only the
+        # programmable tile kinds, so compare it against the power those
+        # kinds draw -- the TDP minus the fixed-function tiles' power. The
+        # fixed-function tiles get their own check
+        # (fixed_function_energy_plausibility).
+        ff_w = _fixed_function_w(ctx)
+        tdp = tdp - ff_w
+        if tdp <= 0:
+            return []
         ratio = tops / tdp
+        # Legacy SKUs (no fixed-function power) keep their exact wording.
+        expr = (
+            "int8_tops / tdp_watts"
+            if ff_w == 0
+            else f"int8_tops / programmable_watts (tdp_watts - {ff_w:.2f} W fixed-function)"
+        )
 
         ceiling = _ceiling_for_node(ctx.process_node.node_nm)
         if ceiling is None:
@@ -110,7 +153,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.INFO,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W. "
+                        f"{expr} = {ratio:.2f} TOPS/W. "
                         f"No reference ceiling for node "
                         f"{ctx.process_node.node_nm} nm; envelope check "
                         f"skipped."
@@ -126,7 +169,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.WARNING,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W is "
+                        f"{expr} = {ratio:.2f} TOPS/W is "
                         f"below the {_TOPS_W_INT8_FLOOR} TOPS/W "
                         f"plausibility floor for INT8 inference at any "
                         f"modern node. Likely cause: wrong TDP rollup, "
@@ -143,7 +186,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.ERROR,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W "
+                        f"{expr} = {ratio:.2f} TOPS/W "
                         f"exceeds the {ceiling:.0f} TOPS/W plausibility "
                         f"ceiling for {ctx.process_node.node_nm} nm "
                         f"({ctx.process_node.transistor_topology.value}). "
@@ -163,7 +206,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.WARNING,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W is "
+                        f"{expr} = {ratio:.2f} TOPS/W is "
                         f"in the upper {(1 - _TOPS_W_WARN_FRAC):.0%} of "
                         f"the {ceiling:.0f} TOPS/W ceiling for "
                         f"{ctx.process_node.node_nm} nm. Aggressive but "

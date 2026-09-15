@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SKU validators for heterogeneous KPUs** (#268 Phase C4). All 12 legacy SKUs produce the same findings as before (the KPU golden gate passes), and `validate_sku --all` stays clean.
+  - **Existing validators:**
+    - `area_self_consistency` and `block_library_validity` cover tile-carried silicon; legacy wording is unchanged.
+    - The floorplan no longer fails on systolic / fixed-function tiles (`_tile_circuit_class`); heterogeneous sizing is Phase D.
+    - `tops_per_watt_envelope` compares programmable INT8 TOPS with the TDP minus the fixed-function power.
+  - **New `validators/heterogeneous.py`,** 11 validators, silent on uniform SKUs:
+    - `fixed_function_energy_plausibility`: energy per unit vs the tile-class library anchor, both retargeted to the SKU node, 4x band.
+    - `datapath_energy_resolution`: energy anchors resolve on the node.
+    - `silicon_no_double_count`.
+    - `tile_footprint_pitch_fit`: a tile's silicon vs its footprint's sites plus absorbed memory cells.
+    - `checkerboard_site_accounting`: mesh vs occupied sites; replaces the silent pad / truncate.
+    - `stream_link_adjacency` and `stream_link_bandwidth`.
+    - `power_domain_coverage`.
+    - `overlay_consistency`.
+    - DVFS cluster checks `cluster_rail_and_clock` and `cluster_geometry_consistent`.
+  - **Deferred:** the DVFS design's harvesting and process-variation-bin validators. They need schema fields that do not exist yet.
+  - `kpu_power_model.fixed_function_pj_per_unit` is now public, shared by the power model and the energy validator.
+  - Tests: `tests/hardware/test_sku_validators_c4.py`. The validator-count pin is 25.
 - **KPU generator and input spec for heterogeneous tiles** (#268 Phase C3). Uniform legacy SKUs regenerate unchanged; the KPU golden gate passes.
   - **Input spec (`kpu_sku_input.py`):** a tile may reference the tile-class library as `{use: <id>, num_tiles: N, overrides: {...}}`. `resolve_tile_uses` expands it; the resolved tile carries `tile_class_ref`, and the `KPU_TILE_DATA_DIR` overlay applies. `total_tiles` is filled in when omitted.
   - **Generator:**
