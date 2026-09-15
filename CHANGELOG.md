@@ -10,6 +10,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KPU golden snapshot gate** for the heterogeneous-tile refactor (#268, Phase A0; PR #267).
+  - `src/graphs/hardware/kpu_golden.py` and `cli/kpu_golden_snapshot.py`. The CLI checks by default and also takes `--update`, `--sku`, `--golden-dir`, `--max-diffs` and `-o` json/csv/md/txt.
+  - It pins 12 per-SKU goldens in `tests/hardware/golden/kpu/`, golden schema v2. Each covers the catalog input, the generator round-trip with the TDP breakdown per profile, silicon per block at every precision, both floorplans, the PhysicalSpec, the resource model, KPUMapper results on 4 synthetic subgraphs, and all validator findings.
+  - Comparison is structural: exact for ints, relative tolerance 1e-9 for floats, with `_meta` excluded.
+  - Every later refactor PR must leave the goldens unchanged unless it declares a model change.
+- **`src/graphs/hardware/kpu_access.py`** (#268 A2; PR #272): `kpu_block_of`, `kpu_die_of`, `has_kpu_block` and `KPUBlockLookupError` find the KPU block by kind. They raise an error when the block is missing or ambiguous.
+- **Plan documents:**
+  - `docs/plans/kpu-heterogeneous-tile-refactor-plan.md` (tracking #268): pe_fabric, systolic and fixed_function tiles in the KPU checkerboard, with Phases A to F.
+  - `docs/plans/soc-microarchitecture-study-plan.md` (tracking #269): an SoC allocation study across process nodes on the 7-tier autonomy workload, housed in `soc_designs/`.
+
+### Changed
+- **KPU block/architecture de-duplication** (#268 A1; PR #270, with embodied-schemas#86): six hand-copy sites now use `KPUBlock.from_architecture` / `to_architecture`.
+- **KPU block lookup by kind** (#268 A2; PR #272): every `dies[0].blocks[0]` / `_kpu_block` assumption now goes through `kpu_block_of`. This covers `silicon_math`, `silicon_floorplan`, `kpu_yaml_loader`, `kpu_sku_generator`, the validators, `context.py` and the CLIs.
+- **Stale KPU artifacts refreshed against the catalog** (#268 A3; PR #273): the contract snapshot doc, `kpu-modeling.md`, `test_phase4_accelerator_energy.py` (now catalog-derived), and the mapper registry description strings.
+- **Build:**
+  - `requires-python = ">=3.10"`.
+  - `schemas = ["embodied-schemas>=0.8.0"]`: first 0.7.0 in #271, then 0.8.0 in #275. The old unbounded extra resolved to 0.6.0 on PyPI, which predates `compute_product`.
+- **CI embodied-schemas pin**, across all 8 ref sites: `755405a` -> `b2baa38` (v0.7.0, #271) -> `77ca00a` (the B1 merge, #274) -> `6d50e4f` (v0.8.0, #275).
+- **KPU goldens regenerated** (#274): only the `input` section changed. B1 added null tile fields; no modeled value changed.
+- **Golden `_meta` provenance** now reads `embodied_schemas.__version__` (#275). A stale editable-install dist-info had been reporting 0.6.0.
+
+### Upstream (embodied-schemas, for #268 Phase B)
+- **Released:**
+  - 0.7.0 (#87), the first release with `ComputeProduct` and the silicon catalogs.
+  - 0.8.0 (#89), B1 datapath schemas (#88).
+- **Merged, unreleased:**
+  - B2 interconnect overlays (#90).
+  - B3 systolic and fixed-function tile kinds plus `FunctionCore` (#91).
+  - B4 checkerboard, generic `PowerDomain`, and per-domain operating points plus `tdp_scenario` (#92).
+- **Next step for graphs:** pick these up in one pin bump plus a golden regeneration. The expected impact is 216 added keys, all `null`, with no value changes.
+
 - **YAML propagation contract test** (`tests/hardware/test_physical_spec_loader.py::TestYamlPropagationContract`) — synthesizes a YAML in tmp_path, points `EMBODIED_SCHEMAS_DATA_DIR` at it, verifies the loader returns the values written; mutates the YAML on disk, verifies the second call returns the new values. Pins the live-propagation contract between graphs and embodied-schemas (no stale-cache path) (closes #132, PR #249).
 - **PhysicalSpec coverage pin** (`tests/hardware/test_physical_spec_loader.py::TestPhysicalSpecCoveragePin`) — pins the registry state at 43 populated / 4 unpopulated. The 4 unpopulated SKUs (ARM Mali-G78, AmpereOne-1core-ref, Snapdragon Ride, DFM-128) are named explicitly. Regression test against future factory refactors that accidentally drop `physical_spec` wiring (PR #249).
 - **EPYC chiplet PhysicalSpec regression pins** (`tests/hardware/test_amd_epyc_chiplet_physical_spec.py`) — 11 tests pinning byte-identical PhysicalSpec sums across the v13 IOBlock multi-die rewrites (EPYC 9654 / 9754 / 9965). Includes per-die `process_node_id` distinction tests (CCDs on TSMC N5/N4P, IODs on TSMC N6) and cross-SKU shared-IOD / distinct-IOD invariants (PR #247).
