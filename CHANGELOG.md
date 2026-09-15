@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KPU silicon math for heterogeneous tiles** (#268 Phase C1, `sku_validators/silicon_math.py`). Every legacy value is unchanged; the KPU golden gate passes.
+  - **Kind-aware rollups:** PE counts cover pe_fabric PEs and systolic cells. Chip-level L1 / L2 count only tile classes that inherit the chip memory figures (pe_fabric tiles without `local_memory`). L3 counts checkerboard memory cells minus absorbed ones (`l3_memory_cells`).
+  - **Tile refs:** `count_ref` `tile.<ref>` resolves by `tile_class_id` or `tile_type` label (`resolve_tile_ref`). A PER_PE block on a fixed-function class is an error.
+  - **Dynamic power:** it dispatches on the tile a PER_PE block resolves to, not on the `pe_` name prefix.
+  - **Tile-carried silicon:** `carried_silicon` covers datapath and systolic-cell transistors, tile-local SRAM, PE-fabric and NoC overlays, and fixed-function core silicon (area at a reference node converted by that node's density). Its companions are `resolve_carried_areas` and `unsupported_carried_silicon`, and `total_chip_leakage_w` includes the carried silicon. `double_counted_tile_classes` detects a tile class counted both ways.
+  - **Deviation from the plan:** tile-carried silicon replaces the planned `PER_TILE` / `PER_OVERLAY` TransistorSource kinds, so no schema release is needed.
+- **`graphs.hardware.kpu_hetero_fixture`:** a synthetic heterogeneous KPU (one tile class of every kind, from the embodied-schemas tile-class library, including a 2x2 absorbing VIO) for the Phase C acceptance tests.
+- Tests: `tests/hardware/test_silicon_math_c1.py`. Filed branes-ai/embodied-schemas#96: `systolic_int8_ws` uses `sram_hp`, which `tsmc_n16` / `gf_12fdx` lack.
 - **`cli/list_compute_products.py`** lists every ComputeProduct in the embodied-schemas catalog, of every block kind (43 today: KPU 12, DSP 10, CPU 6 + 3 with IO dies, TPU 5, NPU 3, GPU 2, CGRA 1, DPU 1).
   - Columns: vendor, block kinds, die count and process node(s), total die area and transistors, INT8 / BF16 / FP32 peak, default TDP, INT8 TOPS/W, market, confidence, and whether every die's process node resolves.
   - Filters `--kind` / `--vendor` / `--market`; `--sort`; output via `--format` or the `--output` extension (json / csv / md / txt).
@@ -30,20 +38,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stale KPU artifacts refreshed against the catalog** (#268 A3; PR #273): the contract snapshot doc, `kpu-modeling.md`, `test_phase4_accelerator_energy.py` (now catalog-derived), and the mapper registry description strings.
 - **Build:**
   - `requires-python = ">=3.10"`.
-  - `schemas = ["embodied-schemas>=0.8.0"]`: first 0.7.0 in #271, then 0.8.0 in #275. The old unbounded extra resolved to 0.6.0 on PyPI, which predates `compute_product`.
-- **CI embodied-schemas pin**, across all 8 ref sites: `755405a` -> `b2baa38` (v0.7.0, #271) -> `77ca00a` (the B1 merge, #274) -> `6d50e4f` (v0.8.0, #275).
-- **KPU goldens regenerated** (#274): only the `input` section changed. B1 added null tile fields; no modeled value changed.
+  - `schemas = ["embodied-schemas>=0.9.0"]`: first 0.7.0 in #271, then 0.8.0 in #275, then 0.9.0 in #277. The old unbounded extra resolved to 0.6.0 on PyPI, which predates `compute_product`.
+- **CI embodied-schemas pin**, across all 8 ref sites: `755405a` -> `b2baa38` (v0.7.0, #271) -> `77ca00a` (the B1 merge, #274) -> `6d50e4f` (v0.8.0, #275) -> `c00a88a` (v0.9.0, #277).
+- **KPU goldens regenerated:**
+  - #274: only the `input` section changed. B1 added null tile fields; no modeled value changed.
+  - #277: 324 keys added, all `null` (B2-B6), with 0 values changed and 0 keys removed.
 - **Golden `_meta` provenance** now reads `embodied_schemas.__version__` (#275). A stale editable-install dist-info had been reporting 0.6.0.
 
 ### Upstream (embodied-schemas, for #268 Phase B)
 - **Released:**
   - 0.7.0 (#87), the first release with `ComputeProduct` and the silicon catalogs.
   - 0.8.0 (#89), B1 datapath schemas (#88).
-- **Merged, unreleased:**
-  - B2 interconnect overlays (#90).
-  - B3 systolic and fixed-function tile kinds plus `FunctionCore` (#91).
-  - B4 checkerboard, generic `PowerDomain`, and per-domain operating points plus `tdp_scenario` (#92).
-- **Next step for graphs:** pick these up in one pin bump plus a golden regeneration. The expected impact is 216 added keys, all `null`, with no value changes.
+  - 0.9.0 (#95), Phases B2-B6:
+    - B2 interconnect overlays (#90);
+    - B3 systolic and fixed-function tile kinds plus `FunctionCore` (#91);
+    - B4 checkerboard, generic `PowerDomain`, and per-domain operating points plus `tdp_scenario` (#92);
+    - B5 performance roll-up by tile kind (#93);
+    - B6 tile-class library and the `tsmc_n40` / `tsmc_n65` anchor nodes (#94).
+- **graphs picked up 0.9.0 in #277:** one pin bump plus one golden regeneration, which added only null keys.
 
 - **YAML propagation contract test** (`tests/hardware/test_physical_spec_loader.py::TestYamlPropagationContract`) — synthesizes a YAML in tmp_path, points `EMBODIED_SCHEMAS_DATA_DIR` at it, verifies the loader returns the values written; mutates the YAML on disk, verifies the second call returns the new values. Pins the live-propagation contract between graphs and embodied-schemas (no stale-cache path) (closes #132, PR #249).
 - **PhysicalSpec coverage pin** (`tests/hardware/test_physical_spec_loader.py::TestPhysicalSpecCoveragePin`) — pins the registry state at 43 populated / 4 unpopulated. The 4 unpopulated SKUs (ARM Mali-G78, AmpereOne-1core-ref, Snapdragon Ride, DFM-128) are named explicitly. Regression test against future factory refactors that accidentally drop `physical_spec` wiring (PR #249).
