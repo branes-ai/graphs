@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KPU silicon math for heterogeneous tiles** (#268 Phase C1, `sku_validators/silicon_math.py`). Every legacy value is unchanged; the KPU golden gate passes.
+  - **Kind-aware rollups:** PE counts cover pe_fabric PEs and systolic cells. Chip-level L1 / L2 count only tile classes that inherit the chip memory figures (pe_fabric tiles without `local_memory`). L3 counts checkerboard memory cells minus absorbed ones (`l3_memory_cells`).
+  - **Tile refs:** `count_ref` `tile.<ref>` resolves by `tile_class_id` or `tile_type` label (`resolve_tile_ref`). A PER_PE block on a fixed-function class is an error.
+  - **Dynamic power:** it dispatches on the tile a PER_PE block resolves to, not on the `pe_` name prefix.
+  - **Tile-carried silicon:** `carried_silicon` covers datapath and systolic-cell transistors, tile-local SRAM, PE-fabric and NoC overlays, and fixed-function core silicon (area at a reference node converted by that node's density). Its companions are `resolve_carried_areas` and `unsupported_carried_silicon`, and `total_chip_leakage_w` includes the carried silicon. `double_counted_tile_classes` detects a tile class counted both ways.
+  - **Deviation from the plan:** tile-carried silicon replaces the planned `PER_TILE` / `PER_OVERLAY` TransistorSource kinds, so no schema release is needed.
+- **`graphs.hardware.kpu_hetero_fixture`:** a synthetic heterogeneous KPU (one tile class of every kind, from the embodied-schemas tile-class library, including a 2x2 absorbing VIO) for the Phase C acceptance tests.
+- Tests: `tests/hardware/test_silicon_math_c1.py`. Filed branes-ai/embodied-schemas#96: `systolic_int8_ws` uses `sram_hp`, which `tsmc_n16` / `gf_12fdx` lack.
 - **`cli/list_compute_products.py`** lists every ComputeProduct in the embodied-schemas catalog, of every block kind (43 today: KPU 12, DSP 10, CPU 6 + 3 with IO dies, TPU 5, NPU 3, GPU 2, CGRA 1, DPU 1).
   - Columns: vendor, block kinds, die count and process node(s), total die area and transistors, INT8 / BF16 / FP32 peak, default TDP, INT8 TOPS/W, market, confidence, and whether every die's process node resolves.
   - Filters `--kind` / `--vendor` / `--market`; `--sort`; output via `--format` or the `--output` extension (json / csv / md / txt).
