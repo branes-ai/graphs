@@ -216,8 +216,10 @@ def _kpu_entry_from_mapper(
     tp = rm.thermal_operating_points[rm.default_thermal_profile]
     perf = tp.performance_specs[precision]
     cr = perf.compute_resource
-    # Use the first tile specialization as the representative tile shape
-    spec0 = cr.tile_specializations[0]
+    # The representative tile shape: the class with the most tiles among
+    # those that run this precision (graphs#268 C5; the first
+    # specialization may not run it on a heterogeneous KPU).
+    spec0 = cr.representative_specialization(precision)
     rows, cols = spec0.array_dimensions
 
     # Headline metrics at the default thermal profile

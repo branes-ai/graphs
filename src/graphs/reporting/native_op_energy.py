@@ -203,7 +203,7 @@ def build_kpu_native_op(
     rm = mapper.resource_model
     tp = rm.thermal_operating_points[rm.default_thermal_profile]
     cr = tp.performance_specs[precision].compute_resource
-    spec = cr.tile_specializations[0]
+    spec = cr.representative_specialization(precision)  # graphs#268 C5
     tem = rm.tile_energy_model
     fabrics = getattr(rm, "compute_fabrics", []) or []
     process_nm = fabrics[0].process_node_nm if fabrics else 16
