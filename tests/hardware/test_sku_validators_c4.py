@@ -103,6 +103,18 @@ def test_every_validator_runs_on_the_fixture():
     assert _run("area_self_consistency", HETERO) == []  # carried silicon counted
 
 
+def test_area_self_consistency_reports_a_carried_silicon_failure():
+    """If the tile-carried silicon cannot be resolved (here: a reference
+    node missing from the catalog), say so instead of silently comparing
+    the silicon_bin alone (CodeRabbit on #282)."""
+    ctx = ValidatorContext(sku=HETERO, process_node=N16, cooling_solutions=COOLING,
+                           extras={"process_nodes": {"tsmc_n16": N16}})
+    findings = default_registry._validators["area_self_consistency"].check(ctx)
+    warned = [f for f in findings if "tile-carried silicon could not be resolved" in f.message]
+    assert warned and warned[0].severity == Severity.WARNING
+    assert "tsmc_n40" in warned[0].message
+
+
 def test_block_library_validity_covers_carried_silicon():
     findings = _run("block_library_validity", HETERO)
     assert [f.block for f in findings] == ["systolic_int8_ws.memory.accumulator"]
@@ -123,6 +135,10 @@ def test_tops_envelope_uses_programmable_power(monkeypatch):
     findings = _run("tops_per_watt_envelope", sku)
     assert [f.severity for f in findings] == [Severity.ERROR]
     assert tops / sku.power.tdp_watts < 30  # the unsplit ratio passes
+    # The message names the denominator it used (CodeRabbit on #282).
+    assert findings[0].message.startswith(
+        "int8_tops / programmable_watts (tdp_watts - 1.00 W fixed-function) = "
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -327,5 +343,12 @@ def test_cluster_validators():
     assert {f.message.split("'")[1] for f in rails} == {"big", "small"}
     geometry = _run("cluster_geometry_consistent", sku)
     assert [f.severity for f in geometry] == [Severity.WARNING, Severity.INFO]
-    assert "different site counts [4, 32]" in geometry[0].message
+    assert "different shapes ['2x2', '4x8']" in geometry[0].message
     assert "2 cluster power domain(s)" in geometry[1].message
+
+    # Same site count, different shape (CodeRabbit on #282): 2x8 vs 4x4.
+    same_count = [_cluster("wide", 0, 1, 0, 7, rail_id="v0", clock_domain_id="k0"),
+                  _cluster("square", 2, 5, 0, 3, rail_id="v1", clock_domain_id="k1")]
+    geometry = _run("cluster_geometry_consistent", _with_domains(same_count))
+    assert _sev(geometry, Severity.WARNING)
+    assert "different shapes ['2x8', '4x4']" in _sev(geometry, Severity.WARNING)[0].message

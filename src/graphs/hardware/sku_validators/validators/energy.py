@@ -133,10 +133,17 @@ class TopsPerWattEnvelope:
         # kinds draw -- the TDP minus the fixed-function tiles' power. The
         # fixed-function tiles get their own check
         # (fixed_function_energy_plausibility).
-        tdp = tdp - _fixed_function_w(ctx)
+        ff_w = _fixed_function_w(ctx)
+        tdp = tdp - ff_w
         if tdp <= 0:
             return []
         ratio = tops / tdp
+        # Legacy SKUs (no fixed-function power) keep their exact wording.
+        expr = (
+            "int8_tops / tdp_watts"
+            if ff_w == 0
+            else f"int8_tops / programmable_watts (tdp_watts - {ff_w:.2f} W fixed-function)"
+        )
 
         ceiling = _ceiling_for_node(ctx.process_node.node_nm)
         if ceiling is None:
@@ -146,7 +153,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.INFO,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W. "
+                        f"{expr} = {ratio:.2f} TOPS/W. "
                         f"No reference ceiling for node "
                         f"{ctx.process_node.node_nm} nm; envelope check "
                         f"skipped."
@@ -162,7 +169,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.WARNING,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W is "
+                        f"{expr} = {ratio:.2f} TOPS/W is "
                         f"below the {_TOPS_W_INT8_FLOOR} TOPS/W "
                         f"plausibility floor for INT8 inference at any "
                         f"modern node. Likely cause: wrong TDP rollup, "
@@ -179,7 +186,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.ERROR,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W "
+                        f"{expr} = {ratio:.2f} TOPS/W "
                         f"exceeds the {ceiling:.0f} TOPS/W plausibility "
                         f"ceiling for {ctx.process_node.node_nm} nm "
                         f"({ctx.process_node.transistor_topology.value}). "
@@ -199,7 +206,7 @@ class TopsPerWattEnvelope:
                     category=self.category,
                     severity=Severity.WARNING,
                     message=(
-                        f"int8_tops / tdp_watts = {ratio:.2f} TOPS/W is "
+                        f"{expr} = {ratio:.2f} TOPS/W is "
                         f"in the upper {(1 - _TOPS_W_WARN_FRAC):.0%} of "
                         f"the {ceiling:.0f} TOPS/W ceiling for "
                         f"{ctx.process_node.node_nm} nm. Aggressive but "

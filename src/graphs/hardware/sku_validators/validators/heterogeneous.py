@@ -459,12 +459,16 @@ class ClusterGeometryConsistent:
         if not clusters:
             return []
         findings: List[Finding] = []
-        shapes = {(sum(r.sites for r in d.site_ranges)) for d in clusters}
+        # A cluster's shape: the (rows, cols) of each of its site ranges.
+        shapes = {
+            tuple(sorted((r.rows, r.cols) for r in d.site_ranges)) for d in clusters
+        }
         if len(shapes) > 1:
+            shown = sorted(" + ".join(f"{r}x{c}" for r, c in shape) for shape in shapes)
             findings.append(_finding(
                 self, Severity.WARNING,
-                f"cluster power domains cover different site counts {sorted(shapes)}; "
-                f"the DVFS design uses one repeated k x k cluster shape.",
+                f"cluster power domains have different shapes {shown}; the DVFS design "
+                f"uses one repeated k x k cluster shape.",
                 citation="docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md",
             ))
         lo, hi = _CLUSTER_COUNT_RANGE

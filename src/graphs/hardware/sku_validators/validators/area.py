@@ -133,6 +133,17 @@ class AreaSelfConsistency:
         except SiliconMathError as exc:
             carried = []
             unresolved.append(f"tile-carried silicon: {exc}")
+            findings.append(
+                Finding(
+                    validator=self.name,
+                    category=self.category,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"tile-carried silicon could not be resolved ({exc}); the "
+                        f"roll-up below compares silicon_bin alone against the die."
+                    ),
+                )
+            )
         for ba in carried:
             total_area += ba.area_mm2
             total_mtx += ba.transistors_mtx
