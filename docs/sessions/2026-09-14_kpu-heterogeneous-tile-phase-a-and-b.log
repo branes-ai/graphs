@@ -1,0 +1,266 @@
+# Session: 2026-09-14 -- SoC study plan + KPU heterogeneous-tile sprint, Phases A0-A3 and B1-B4
+
+## Summary
+
+Started with two planning requests:
+
+- An SoC micro-architecture study framework: CPU / GPU / NPU / ISP / KPU
+  silicon allocations across process nodes, on the 7-tier embodied-AI workload
+  in docs/BranesAI-Autonomy-Compute-Requirements.pdf.
+- A refactor of the KPU from uniform tiles to heterogeneous tiles. The
+  checkerboard now hosts pe_fabric tiles (custom datapaths: INT8/INT32 MAC,
+  LNS MAC, lerp, plus a network overlay), pure systolic tiles, and
+  fixed-function tiles (ISP, Navion-class VIO).
+
+Both plans landed. The refactor then ran phase by phase: all of Phase A
+(baseline and de-duplication) and Phase B1-B4 (additive schema in
+embodied-schemas).
+
+- **graphs:** 7 PRs (#267, #270-#275), all CI-green and merged.
+- **embodied-schemas:** 7 PRs (#86-#92), all merged, including 2 releases
+  (v0.7.0, v0.8.0).
+- **Tracking issues:** #268 (refactor), #269 (SoC study).
+
+Headline arc:
+
+- A golden snapshot of all 12 catalog KPU SKUs now gates every refactor PR.
+- The KPUArchitecture / KPUBlock duplication is collapsed, and blocks[0] is
+  gone.
+- graphs can finally install embodied-schemas from PyPI (0.6.0 was unusable).
+- The schema can now express the full heterogeneous KPU: datapaths, overlays,
+  the three tile kinds, function cores, the checkerboard, power domains and
+  the TDP scenario. All 12 legacy SKUs load unchanged.
+
+## What happened (in order)
+
+### 1. Plans (landed with #267)
+
+- docs/plans/soc-microarchitecture-study-plan.md (#269). It recommends
+  `soc_designs/` over `hardware_registry/soc`: SoC allocations are study
+  artifacts, not registry entries.
+- docs/plans/kpu-heterogeneous-tile-refactor-plan.md (#268).
+  - Contents: requirements, a tile set mapped to the autonomy pipeline, the
+    schema (5.1-5.8), graphs-side changes, decisions D1-D10 and Phases A-F.
+  - It builds on the dormant cluster DVFS design
+    (docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md).
+
+### 2. A0 -- golden snapshot gate (#267)
+
+- kpu_golden.py builds one snapshot per SKU with these sections: input,
+  generator (TDP breakdown per profile), silicon, floorplan, physical_spec,
+  resource_model, mapper (4 synthetic subgraphs x every precision) and
+  validators.
+- Compare is structural: exact ints, float rel tol 1e-9, `_meta` excluded.
+- CLI: cli/kpu_golden_snapshot.py.
+- Bug found while building it: `to_jsonable` let str-mixin enums pass through
+  as plain strings. Fix: test for Enum before str.
+- CodeRabbit round: fixed zero-byte INT4 subgraphs, an integer tolerance
+  (ints must compare exactly), INT8-only dynamic power (now every precision)
+  and the missing CSV output. The user chose "fix the gate, then merge".
+
+### 3. A1 -- KPUArchitecture / KPUBlock de-dup (ES#86, graphs #270)
+
+- `KPUArchitectureBase` holds the field set; both types subclass it.
+- `KPUBlock.from_architecture` / `to_architecture` replace 6 hand-copy
+  sites.
+- A wrap `model_serializer` keeps `kind` first in the dump.
+  - It is deliberately unannotated: a return annotation replaces the
+    serialization JSON schema.
+  - A later CodeRabbit suggestion to add `-> Any` was declined for this
+    reason.
+
+### 4. Release 0.7.0 + Python floor (ES#87, graphs #271)
+
+- CodeRabbit found that the unbounded `embodied-schemas` extra resolved to
+  0.6.0 on PyPI. 0.6.0 predates compute_product, process_node, kpu and
+  cooling_solution.
+- Cut embodied-schemas 0.7.0: release PR, then the annotated tag v0.7.0 on
+  the merge commit, which triggers the trusted-publishing publish.yml.
+- The user chose to raise graphs to Python >=3.10 (ES needs it).
+- The CI pin moved to the release commit b2baa38 at all 8 sites.
+
+### 5. A2 -- lookup by kind (#272)
+
+- kpu_access.py: `kpu_block_of`, `kpu_die_of`, `has_kpu_block`,
+  `KPUBlockLookupError(LookupError)`.
+- All blocks[0] sites now use it. The SoC plan's multi-block dies need the
+  same change.
+
+### 6. A3 -- stale artifacts (#273)
+
+- Refreshed the contract snapshot doc and kpu-modeling.md.
+- test_phase4_accelerator_energy.py is now catalog-derived.
+- Fixed the stale mapper registry description strings.
+- Regression caught during self-review: the rewrite had dropped two passing
+  DPU/CGRA tests. Both are restored.
+
+### 7. B1 -- datapath schemas (ES#88), pin + golden regen (#274), 0.8.0 (ES#89, #275)
+
+- Added datapath.py:
+  - number formats: int / uint / named floats / lns / posit / fixed;
+  - `OpKind` with the ops-counting convention (MAC/FMA 2, lerp 3, min-plus 2);
+  - `FunctionalUnit` with alternative `UnitMode`s;
+  - `PEDatapath`, including the legacy precision projection (max across
+    MAC/FMA);
+  - `EnergyRef`.
+- `KPUTileSpec` gained `tile_kind`, `tile_class_id`, `datapath`, `footprint`,
+  `local_memory`, `power_domain_id` and `placement`.
+- #274 regenerated the goldens. Only the input section changed (new null
+  keys).
+- After merge the user chose to release 0.8.0; #275 raised the floor to
+  >=0.8.0.
+- Along the way:
+  - The golden `_meta` version came from stale editable-install dist-info
+    (0.6.0). It now uses the module's `__version__`.
+  - PyPI's CDN lagged briefly after publish; a retry succeeded.
+
+### 8. B2 -- interconnect overlays (ES#90)
+
+- Added overlay.py:
+  - PE-level `FabricInterconnect` / `FabricOverlay`: row/col broadcast,
+    express, reduction tree, transpose, butterfly, segmented bus;
+  - NoC-level `NoCOverlay`: express channel, stream link, multicast tree.
+- Every overlay is `static_per_schedule`: no routers or routing tables inside
+  the tile.
+- Review fix: the span limit of a tile-scoped overlay is `min(axes)`, not
+  `max`.
+- Declined: `| None = None` restyling, for consistency with the repo's
+  `Field(None, ...)` pattern.
+
+### 9. B3 -- tile kinds + FunctionCore (ES#91)
+
+- `KPUTileBase` holds the shared fields.
+- Tile kinds:
+  - `KPUTileSpec` (= `PEFabricTile`);
+  - `SystolicTile`: ops/clock derived; fill / drain = max(R, C);
+  - `FixedFunctionTile`: empty `ops_per_tile_per_clock`, memory declared in
+    the core.
+- `AnyKPUTile` is a callable-Discriminator union; a missing `tile_kind`
+  means pe_fabric.
+- New function_core.py and local_memory.py.
+- CodeRabbit round:
+  - `ops_equivalent_per_unit` now rejects NaN / inf.
+  - Outside the diff: `total_tiles == sum(num_tiles)` is now enforced. All
+    12 SKUs satisfy it. The one graphs test that builds a mismatch uses
+    `model_copy`, which skips validation.
+  - Declined the `| None` restyle again.
+
+### 10. B4 -- checkerboard, power domains, operating points (ES#92)
+
+- `CheckerboardSpec` checks:
+  - site accounting: sum(num_tiles * footprint sites) + spare_sites ==
+    rows x cols;
+  - NoC mesh == grid, and footprints fit the grid;
+  - an explicit `placement_map` tiles into exactly `num_tiles` footprint
+    rectangles (greedy row-major claim, fixed orientation).
+- Generic `PowerDomain` (cluster / tile_class / uncore), `SiteRange` and
+  `DomainOperatingPoint`.
+  - They live in the new power_domain.py and are re-exported from
+    compute_block_common. Importing compute_block_common from kpu.py would
+    create a cycle through gpu_block.
+- `KPUThermalProfile` gained `domain_operating_points` and `tdp_scenario`.
+  `KPUEntry` and `ComputeProduct` check them against the architecture.
+- Worked in parallel: B4 was written on a branch stacked on B3 while #91
+  waited for review, then rebased onto main after the squash merge.
+- Golden impact, measured locally against the v0.8.0 goldens: 216 added keys,
+  all null, no value changes. B2 accounts for 48; B4 for 168, across input and
+  generator.
+- Merged at the user's request WITHOUT a CodeRabbit review. The CodeRabbit
+  quota (5 reviews/hour) was exhausted. Noted in #268.
+
+## Key decisions
+
+- **`soc_designs/`, not `hardware_registry/soc`:** SoC allocations are study
+  outputs.
+- **Golden gate before any refactor:** zero-diff unless a PR declares a
+  model change, and every model change ships with an ES Vdd re-tune.
+- **Raise the graphs floor to Python >=3.10 and release ES 0.7.0 / 0.8.0**
+  instead of pinning git SHAs for users.
+- **graphs picks up B2-B4 in one step:** one ES release (0.9.0), one pin bump
+  and one golden regeneration, done when Phase C needs them. B2+ adds null
+  keys only.
+- **B4 semantics (flag if you disagree):**
+  - `tdp_scenario` must list every tile class; there is no implicit
+    "unlisted means idle".
+  - With a checkerboard, the NoC mesh must equal the site grid (one router
+    per site).
+  - Power-domain ids are product-wide in `ComputeProduct`.
+- **Declined review suggestions:**
+  - `-> Any` on the wrap serializers (it erases the schema);
+  - `Annotated | None = None` restyling (repo consistency; if adopted, do
+    one sweep).
+
+## Lessons / tooling notes
+
+- `gh pr edit` fails because of the Projects-classic deprecation. Use the
+  REST API: `gh api -X PATCH .../issues/N`.
+- `gh pr checks --json` is unsupported in this gh version, and a background
+  loop that relied on it spun forever. Parse the tab-separated output with
+  awk instead.
+- Squash merges pin the head SHA: `gh api -X PUT .../pulls/N/merge -f sha=`.
+- CodeRabbit's included allowance is 5 reviews/hour. Many small stacked PRs
+  in one evening exhaust it; plan the review cadence, or accept an unreviewed
+  merge explicitly.
+
+## Files modified (graphs)
+
+- src/graphs/hardware/kpu_golden.py (new), kpu_access.py (new)
+- cli/kpu_golden_snapshot.py (new)
+- tests/hardware/golden/kpu/*.json (12 goldens, new; input regen in #274)
+- tests/hardware/test_kpu_golden.py, tests/cli/test_kpu_golden_snapshot.py,
+  tests/hardware/test_kpu_access.py, tests/cli/test_kpu_catalog_clis.py (new)
+- src/graphs/hardware/{silicon_math, silicon_floorplan, kpu_sku_generator}.py,
+  models/accelerators/kpu_yaml_loader.py, the sku_validators, context.py, CLIs
+  (lookup by kind)
+- docs/designs/{kpu-modeling, kpu-test-contract-snapshot}.md, mapper registry
+  strings, validation/hardware/test_phase4_accelerator_energy.py (A3)
+- docs/plans/{kpu-heterogeneous-tile-refactor-plan,
+  soc-microarchitecture-study-plan}.md (new)
+- pyproject.toml; .github/workflows/{ci,coverage,v4-validation}.yml (pins)
+
+## Files modified (embodied-schemas)
+
+- src/embodied_schemas/kpu.py (KPUArchitectureBase, tile kinds, checkerboard,
+  domain checks, thermal-profile fields)
+- src/embodied_schemas/compute_product.py (KPUBlock converters + serializer,
+  profile reference checks)
+- New: datapath.py, overlay.py, function_core.py, local_memory.py,
+  power_domain.py
+- compute_block_common.py (power-domain re-exports), __init__.py (exports)
+- Tests: test_kpu_architecture_block_dedup.py, test_kpu_tile_b1_datapath.py,
+  test_kpu_overlays_b2.py, test_kpu_tile_kinds_b3.py,
+  test_kpu_checkerboard_domains_b4.py
+- CHANGELOG.md, pyproject.toml / __version__ (0.7.0, 0.8.0)
+
+## Tests run
+
+- graphs: the golden gate PASSED at every Phase A PR and after each pin bump.
+  Golden, catalog-validation and generator suites were green, and all 7 PRs
+  were CI-green.
+- embodied-schemas: 1148 passed at the B4 merge. The B-phase test files hold
+  65 (B1), 30 (B2), 22+ (B3) and 33 (B4) tests.
+- Clean-venv PyPI installs verified for 0.7.0 and 0.8.0.
+
+## State at end of session
+
+- #268:
+  - A0-A3 and B1-B4 are ticked.
+  - B5 (performance roll-up by tile kind) and B6 (tile-class library + loader
+    + `tsmc_n65`) are next, then Phases C-F.
+- B2-B4 are merged in embodied-schemas but unreleased. graphs is still pinned
+  to v0.8.0 (6d50e4f).
+- The local ../embodied-schemas checkout is on main (e8fa698), ahead of the
+  pin. Local graphs golden tests therefore show the 216 null-key additions
+  until the pickup PR.
+- #92 had no CodeRabbit review. A post-merge review, or a manual pass, before
+  0.9.0 is advisable.
+- #269 (SoC study) is open. Nothing is implemented yet beyond the plan.
+
+## What's next
+
+1. B5 and B6 in embodied-schemas.
+2. Release embodied-schemas 0.9.0. graphs then bumps the pin, raises the floor
+   and regenerates the goldens (input and generator null keys only).
+3. Phase C (graphs consumers): per-tile silicon, per-kind energy, per-domain
+   V/f and `tdp_scenario`, the split envelope validator, capability-aware
+   mapper pools, and kind-aware CLIs.
