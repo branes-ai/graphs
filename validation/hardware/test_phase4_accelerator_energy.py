@@ -104,6 +104,11 @@ def test_kpu_fabrics_mirror_catalog_tile_classes(name, model_fn, product_id, _ar
     tiles = kpu_block_of(_PRODUCTS[product_id]).tiles
     fabrics = {f.fabric_type: f for f in model.compute_fabrics}
 
+    # Exactly one fabric per tile class: the count check catches duplicate
+    # fabric types, which the dict above would silently collapse.
+    assert len(model.compute_fabrics) == len(tiles), (
+        f"{name}: {len(model.compute_fabrics)} fabrics for {len(tiles)} tile classes"
+    )
     assert set(fabrics) == {_kpu_fabric_type(t.tile_type) for t in tiles}, name
     for tile in tiles:
         fabric = fabrics[_kpu_fabric_type(tile.tile_type)]
