@@ -17,6 +17,7 @@ Comprehensive how-to guides for each tool:
 - **[graph_explorer.py](docs/graph_explorer.md)** - Explore FX graphs interactively (discovery → summary → visualization)
 - **[partition_analyzer.py](docs/partition_analyzer.md)** - Analyze and compare partitioning strategies
 - **[list_hardware_mappers.py](docs/list_hardware_mappers.md)** - Discover available hardware (35+ models)
+- **list_compute_products.py** - List every ComputeProduct in the embodied-schemas catalog (all block kinds; `--kind`, `--vendor`, `--market`, `--sort`, `--format` / `--output` json/csv/md/txt)
 
 ### Calibration & Benchmarking Tools
 - **[benchmark.py](docs/benchmark.md)** - Run microbenchmarks (GEMM, Conv2d, memory) on hardware

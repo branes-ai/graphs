@@ -101,3 +101,11 @@ def test_show_clis_reject_duplicate_cleanly(monkeypatch, capsys, catalog_with_du
     _, err = capsys.readouterr()
     assert rc == expected_rc
     assert f"invalid KPU SKU {_DUP!r}" in err and "2 KPUBlocks" in err
+
+
+def test_show_compute_product_rejects_non_kpu_products(cli_runner):
+    rc, out, err = cli_runner(_CLI / "show_compute_product.py", [_NON_KPU])
+    assert rc == 1
+    assert "without a KPU block" in err and "Traceback" not in err
+    rc, _, err = cli_runner(_CLI / "show_compute_product.py", ["no_such_sku"])
+    assert rc == 1 and "no KPU SKU" in err and _NON_KPU not in err

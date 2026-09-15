@@ -23,10 +23,11 @@ from embodied_schemas import (
 
 
 def load_compute_products_unified() -> dict[str, ComputeProduct]:
-    """Return every KPU SKU as a ``ComputeProduct``.
+    """Return every catalog ``ComputeProduct`` (all block kinds: KPU, GPU,
+    CPU, NPU, ...). Filter with ``kpu_access.has_kpu_block`` for KPU SKUs.
 
     Reads ``data/compute_products/<vendor>/<id>.yaml`` from the
-    embodied-schemas catalog. Returns a dict keyed by SKU id.
+    embodied-schemas catalog. Returns a dict keyed by product id.
 
     Returns an empty dict if the catalog directory is missing
     (graceful behavior matching the underlying loader).
