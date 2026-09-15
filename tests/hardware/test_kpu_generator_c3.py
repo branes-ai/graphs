@@ -27,6 +27,7 @@ from graphs.hardware.kpu_access import has_kpu_block, kpu_die_of
 from graphs.hardware.kpu_hetero_fixture import build_heterogeneous_kpu
 from graphs.hardware.kpu_power_model import compute_thermal_profile_tdp_w
 from graphs.hardware.kpu_sku_generator import (
+    GeneratorError,
     apply_pe_array_override,
     apply_tile_mix,
     generate_kpu_sku,
@@ -133,6 +134,20 @@ def test_heterogeneous_generation():
     assert {t.tile_class_ref for t in cp.dies[0].blocks[0].tiles} == set(LIBRARY) - {
         "pe_bf16_fma", "pe_fp16_lerp",
     }
+
+
+def test_double_counted_tile_logic_is_a_generator_error():
+    """A chip-level PER_PE block for a class that carries its own datapath
+    silicon would inflate the die roll-up (CodeRabbit on #281)."""
+    data = HETERO_SPEC.model_dump(mode="json")
+    data["silicon_bin"]["blocks"].append({
+        "name": "pe_lns",
+        "circuit_class": "balanced_logic",
+        "transistor_source": {"kind": "per_pe", "per_unit_mtx": 0.01, "count_ref": "tile.LNS16-MAC"},
+    })
+    spec = KPUSKUInputSpec.model_validate(data)
+    with pytest.raises(GeneratorError, match=r"\['pe_lns16_mac'\] carry their own logic silicon"):
+        generate_kpu_sku(spec, process_nodes=NODES)
 
 
 def test_heterogeneous_generation_round_trips():

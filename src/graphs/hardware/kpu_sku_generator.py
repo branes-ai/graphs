@@ -70,6 +70,7 @@ from .kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
 from .kpu_sku_input import KPUSKUInputSpec
 from .sku_validators.silicon_math import (
     SiliconMathError,
+    double_counted_tile_classes,
     resolve_block_area,
     resolve_carried_areas,
     total_chip_leakage_w,
@@ -158,7 +159,8 @@ def generate_kpu_sku(
     Raises:
         GeneratorError: if the spec's process_node_id doesn't resolve,
         if the default thermal profile name isn't in the profile list,
-        or if no silicon_bin block resolves cleanly.
+        if no silicon_bin block resolves cleanly, or if a tile class's
+        logic is counted both on the tile and by a PER_PE silicon_bin block.
 
     Note:
         Cooling-solution refs on ``spec.thermal_profiles`` are NOT
@@ -211,11 +213,19 @@ def generate_kpu_sku(
 
     # Tile-carried silicon (datapaths, tile-local SRAM, overlays, fixed-
     # function cores). Empty for uniform legacy SKUs. Pieces in a library
-    # the node lacks are skipped, like unresolved silicon_bin blocks.
+    # the node lacks are skipped, like unresolved silicon_bin blocks. A tile
+    # class counted both on the tile and by a chip-level PER_PE block would
+    # inflate the roll-up: the silicon_bin contradicts the tiles.
     try:
+        doubled = double_counted_tile_classes(placeholder_cp, process_nodes)
         carried = resolve_carried_areas(placeholder_cp, node, process_nodes)
     except SiliconMathError as exc:
         raise GeneratorError(f"tile-carried silicon: {exc}") from exc
+    if doubled:
+        raise GeneratorError(
+            f"tile classes {doubled} carry their own logic silicon and are also "
+            f"counted by a chip-level PER_PE silicon_bin block; keep one of the two"
+        )
     for ba in carried:
         total_area += ba.area_mm2
         total_mtx += ba.transistors_mtx
