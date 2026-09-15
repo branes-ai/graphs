@@ -763,8 +763,13 @@ def load_kpu_resource_model_from_yaml(
         eff_by_prec = profile.efficiency_factor_by_precision or {}
         util_by_prec = profile.tile_utilization_by_precision or {}
 
+        # Only the precisions this profile can actually run: a gated class
+        # takes its precisions with it (graphs#268 C5).
+        profile_precisions = {
+            p for spec in profile_specializations for p in spec.ops_per_tile_per_clock
+        }
         performance_specs: dict[Precision, PerformanceCharacteristics] = {}
-        for precision in supported_precisions:
+        for precision in profile_precisions:
             performance_specs[precision] = PerformanceCharacteristics(
                 precision=precision,
                 compute_resource=profile_compute,
@@ -919,6 +924,11 @@ def load_kpu_resource_model_from_yaml(
         )
         for t in _kpu_block(cp).tiles
         if _programmable(t)
+    }
+    # TileSpecialization carries the human label; reports resolve it to the
+    # class id to pick that class's energy model.
+    model.tile_class_by_tile_type = {
+        t.tile_type: t.tile_class_id for t in _kpu_block(cp).tiles if _programmable(t)
     }
     model.fixed_function_units = _fixed_function_units(cp, node, default_profile, process_nodes)
 

@@ -121,6 +121,12 @@ def test_fixture_fixed_function_units():
 
 def test_per_class_energy_models():
     models = HETERO_RM.tile_energy_models
+    # Every programmable class has a model, including the ones with no
+    # Precision-enum ops and so no ComputeFabric (CodeRabbit on #283).
+    assert set(models) == {
+        "pe_int8_mac_i32", "pe_lns16_mac", "pe_minplus_i16", "systolic_int8_ws",
+    }
+    assert models["pe_minplus_i16"].pes_per_tile == 32 * 32
     anchor = N16.energy_per_op_pj["balanced_logic:int8"] * 1e-12
     assert models["pe_int8_mac_i32"].mac_energy_int8 == pytest.approx(anchor)  # ratio 1.0
     assert models["systolic_int8_ws"].mac_energy_int8 == pytest.approx(0.65 * anchor)
@@ -190,3 +196,47 @@ def test_legacy_fp32_representative_is_a_class_that_runs_fp32():
     rm = load_kpu_resource_model_from_yaml("kpu_t64_32x32_lp5x4_16nm_tsmc_ffp")
     rep = _compute(rm, precision=Precision.FP32).representative_specialization(Precision.FP32)
     assert rep.tile_type == "BF16-primary"  # the only T64 class with fp32 ops
+
+
+def test_mac_energy_override_reaches_every_class_model():
+    """A SKU factory's measured MAC energies apply to the chip-level model
+    and to each class model, so a report that selects a class model sees
+    them too (CodeRabbit on #283)."""
+    from graphs.hardware.models.accelerators.kpu_t64 import kpu_t64_resource_model
+
+    rm = kpu_t64_resource_model()
+    assert rm.tile_energy_model.mac_energy_fp32 == 0.30e-12
+    assert rm.tile_energy_models
+    for tem in rm.tile_energy_models.values():
+        assert (tem.mac_energy_int8, tem.mac_energy_bf16, tem.mac_energy_fp32) == (
+            0.10e-12, 0.16e-12, 0.30e-12
+        )
+    # The FP32 representative class is BF16-primary, and its model carries
+    # the override.
+    cr = _compute(rm, precision=Precision.FP32)
+    spec = cr.representative_specialization(Precision.FP32)
+    assert spec.tile_type == "BF16-primary"
+    assert rm.energy_model_for_tile_type(spec.tile_type).mac_energy_fp32 == 0.30e-12
+
+
+def test_native_op_energy_uses_the_selected_class_model():
+    from graphs.reporting.native_op_energy import build_kpu_native_op
+
+    op = build_kpu_native_op("Stillwater-KPU-T64", Precision.FP32)
+    alu = next(layer for layer in op.layers if layer.name.startswith("ALU"))
+    # ALU energy is the selected class's FP32 MAC energy (the T64 override),
+    # and the source names the class it came from.
+    assert alu.energy_pj_per_mac == pytest.approx(0.30)
+    assert alu.source.startswith("tile_energy_model[BF16-primary].mac_energy_fp32")
+
+
+def test_gated_profile_drops_its_precisions():
+    """A profile whose only fp16 / int4 class is gated must not advertise
+    those precisions (CodeRabbit on #283)."""
+    rm = _load(_with_domain({"gated": True}))
+    for name in rm.thermal_operating_points:
+        tp = rm.thermal_operating_points[name]
+        precisions = set(tp.performance_specs)
+        assert precisions == {Precision.INT8}  # only the systolic class remains
+        for precision, perf in tp.performance_specs.items():
+            assert perf.compute_resource.calc_peak_ops(precision) > 0

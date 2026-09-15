@@ -22,9 +22,9 @@ def kpu_t768_resource_model() -> HardwareResourceModel:
     # M0.5 domain-flow MAC energies, datacenter-tuned. See kpu_t64.py
     # for the override rationale; T768 uses lower per-MAC numbers
     # than the T64-T256 family (more aggressive datacenter binning).
-    model.tile_energy_model.mac_energy_int8 = 0.08e-12
-    model.tile_energy_model.mac_energy_bf16 = 0.13e-12
-    model.tile_energy_model.mac_energy_fp32 = 0.24e-12
+    # Applied to the chip-level model and every per-class model, so a
+    # report that selects one class still sees this SKU's numbers.
+    model.apply_mac_energy_override(int8=0.08e-12, bf16=0.13e-12, fp32=0.24e-12)
     model.bom_cost_profile = BOMCostProfile(
         silicon_die_cost=680.0,
         package_cost=120.0,

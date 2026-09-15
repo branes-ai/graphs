@@ -962,6 +962,37 @@ class HardwareResourceModel:
     #   tile_energy_models:   {tile_class_id: KPUTileEnergyModel} or None
     fixed_function_units = ()
     tile_energy_models = None
+    tile_class_by_tile_type = None
+
+    def energy_model_for_tile_type(self, tile_type: Optional[str]):
+        """The per-class ``KPUTileEnergyModel`` behind a ``TileSpecialization``
+        label, falling back to the chip-level ``tile_energy_model``
+        (graphs#268 C5)."""
+        models = self.tile_energy_models or {}
+        cid = (self.tile_class_by_tile_type or {}).get(tile_type)
+        return models.get(cid) or getattr(self, "tile_energy_model", None)
+
+    def apply_mac_energy_override(
+        self,
+        *,
+        int8: Optional[float] = None,
+        bf16: Optional[float] = None,
+        fp32: Optional[float] = None,
+    ) -> None:
+        """Apply a SKU's measured per-MAC energies to the chip-level energy
+        model and to every per-class model, so a report that selects a
+        class model sees the SKU's numbers too (graphs#268 C5)."""
+        targets = [getattr(self, "tile_energy_model", None)]
+        targets += list((self.tile_energy_models or {}).values())
+        for tem in targets:
+            if tem is None:
+                continue
+            if int8 is not None:
+                tem.mac_energy_int8 = int8
+            if bf16 is not None:
+                tem.mac_energy_bf16 = bf16
+            if fp32 is not None:
+                tem.mac_energy_fp32 = fp32
 
     # Required fields (no defaults)
     name: str
