@@ -130,7 +130,8 @@ def _render_text(rows: List[ProductRow]) -> str:
     header = (
         f"{'id':40s} {'vendor':10s} {'blocks':8s} {'dies':>4s} {'process node(s)':22s} "
         f"{'mm^2':>7s} {'Btx':>7s} {'INT8 TOPS':>9s} {'BF16 TF':>8s} {'FP32 TF':>8s} "
-        f"{'TDP W':>7s} {'TOPS/W':>7s} {'market':12s} {'conf':>11s} {'refs':>4s}"
+        f"{'TDP W':>7s} {'TOPS/W':>7s} {'market':12s} {'lifecycle':11s} {'conf':>11s} "
+        f"{'refs':>4s}"
     )
     lines = [header, "-" * len(header)]
     for r in rows:
@@ -139,7 +140,7 @@ def _render_text(rows: List[ProductRow]) -> str:
             f"{r.process_nodes:22s} {r.die_area_mm2:>7.1f} "
             f"{r.transistors_billion:>7.2f} {r.int8_tops:>9.1f} {r.bf16_tflops:>8.1f} "
             f"{r.fp32_tflops:>8.2f} {r.tdp_watts:>7.1f} {r.int8_tops_per_watt:>7.2f} "
-            f"{r.target_market:12s} {r.confidence:>11s} "
+            f"{r.target_market:12s} {r.lifecycle:11s} {r.confidence:>11s} "
             f"{('ok' if r.nodes_resolve else 'MISS'):>4s}"
         )
     lines.append("")
@@ -169,17 +170,22 @@ def _render_csv(rows: List[ProductRow]) -> str:
 def _render_md(rows: List[ProductRow]) -> str:
     if not rows:
         return "_no products match_\n"
-    lines = [
+    header = (
         "| id | vendor | blocks | dies | process node(s) | die mm^2 | B transistors | "
-        "INT8 TOPS | BF16 TFLOPS | FP32 TFLOPS | TDP W | INT8 TOPS/W | market | confidence |",
-        "|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "INT8 TOPS | BF16 TFLOPS | FP32 TFLOPS | TDP W | INT8 TOPS/W | market | "
+        "lifecycle | confidence | nodes resolve |"
+    )
+    lines = [
+        header,
+        "|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|:---:|",
     ]
     for r in rows:
         lines.append(
             f"| `{r.id}` | {r.vendor} | {r.block_kinds} | {r.dies} | {r.process_nodes} | "
             f"{r.die_area_mm2:.1f} | {r.transistors_billion:.2f} | {r.int8_tops:.1f} | "
             f"{r.bf16_tflops:.1f} | {r.fp32_tflops:.2f} | {r.tdp_watts:.1f} | "
-            f"{r.int8_tops_per_watt:.2f} | {r.target_market} | {r.confidence} |"
+            f"{r.int8_tops_per_watt:.2f} | {r.target_market} | {r.lifecycle} | "
+            f"{r.confidence} | {'yes' if r.nodes_resolve else 'NO'} |"
         )
     lines.append("")
     lines.append(f"_{len(rows)} compute product(s)_")
@@ -245,8 +251,12 @@ def main() -> int:
     rendered = _RENDERERS[fmt](rows)
 
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as fh:
-            fh.write(rendered)
+        try:
+            with open(args.output, "w", encoding="utf-8") as fh:
+                fh.write(rendered)
+        except OSError as exc:
+            print(f"error: cannot write {args.output!r}: {exc}", file=sys.stderr)
+            return 1
         if args.verbose:
             print(f"info: wrote {fmt} output to {args.output}", file=sys.stderr)
     else:

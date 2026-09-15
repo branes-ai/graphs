@@ -83,3 +83,24 @@ def test_output_formats_by_extension(cli_runner, tmp_path):
         _CLI, ["--kind", "kpu", "--format", "json", "--output", str(tmp_path / "x.md")]
     )
     assert rc == 0 and json.loads((tmp_path / "x.md").read_text())
+
+
+def test_text_and_markdown_show_lifecycle_and_node_check(cli_runner, tmp_path):
+    rc, out, err = cli_runner(_CLI, ["--kind", "kpu"])
+    assert rc == 0, err
+    header, _, first = out.splitlines()[:3]
+    assert "lifecycle" in header and "refs" in header
+    assert " production " in first and first.rstrip().endswith("ok")
+
+    md = tmp_path / "p.md"
+    rc, _, err = cli_runner(_CLI, ["--kind", "kpu", "--output", str(md)])
+    assert rc == 0, err
+    lines = md.read_text().splitlines()
+    assert lines[0].endswith("| market | lifecycle | confidence | nodes resolve |")
+    assert lines[2].endswith("| production | theoretical | yes |")
+
+
+def test_unwritable_output_is_a_clean_error(cli_runner, tmp_path):
+    rc, out, err = cli_runner(_CLI, ["--output", str(tmp_path)])  # a directory
+    assert rc == 1
+    assert "error: cannot write" in err and "Traceback" not in err

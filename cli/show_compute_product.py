@@ -37,6 +37,7 @@ from embodied_schemas.cooling_solution import CoolingSolutionEntry
 from embodied_schemas.process_node import ProcessNodeEntry
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware.kpu_access import has_kpu_block
 
 # Reuse the layer renderers from sibling inspectors so the composed view
 # stays formatting-identical to the per-layer tools.
@@ -310,13 +311,21 @@ def main() -> int:
         print(f"error: failed to load catalog: {exc}", file=sys.stderr)
         return 1
 
-    cp = cps.get(args.kpu_id)
+    kpus = {k: v for k, v in cps.items() if has_kpu_block(v)}
+    cp = kpus.get(args.kpu_id)
     if cp is None:
-        print(
-            f"error: no KPU SKU with id={args.kpu_id!r}. "
-            f"Available: {', '.join(sorted(cps))}",
-            file=sys.stderr,
-        )
+        if args.kpu_id in cps:
+            print(
+                f"error: {args.kpu_id!r} is a catalog product without a KPU block; "
+                f"this inspector shows KPU SKUs only (see list_compute_products.py)",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"error: no KPU SKU with id={args.kpu_id!r}. "
+                f"Available: {', '.join(sorted(kpus))}",
+                file=sys.stderr,
+            )
         return 1
 
     node = nodes.get(cp.dies[0].process_node_id)
