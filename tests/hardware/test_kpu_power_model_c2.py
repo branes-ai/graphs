@@ -252,3 +252,22 @@ def test_workload_duty_applies_without_a_scenario():
     )
     assert doubled.fixed_function_w == pytest.approx(2 * bd.fixed_function_w)
     assert doubled.pe_compute_w == pytest.approx(2 * bd.pe_compute_w)
+
+
+@pytest.mark.parametrize("missing", ["hp_logic:bf16", "balanced_logic:bf16"])
+def test_missing_energy_key_keeps_traffic_like_the_legacy_formula(missing):
+    """A precision the node has no energy for still drives memory / NoC /
+    DRAM traffic (CodeRabbit on #280). The engine must match the legacy
+    formula term by term on a node without that key. Without
+    ``hp_logic:bf16`` the Matrix class's bf16 ops are the case that used to
+    lose their traffic."""
+    spec = input_spec_from_compute_product(CATALOG["kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"])
+    energies = {k: v for k, v in N16.energy_per_op_pj.items() if k != missing}
+    node = N16.model_copy(update={"energy_per_op_pj": energies})
+    for profile in spec.thermal_profiles:
+        legacy = compute_thermal_profile_tdp_breakdown(spec, profile, node)
+        het = compute_heterogeneous_tdp_breakdown(spec, profile, node)
+        assert het.worst_precision == legacy.worst_precision
+        for term in TERMS:
+            assert getattr(het, term) == pytest.approx(getattr(legacy, term), rel=1e-12), term
+        assert any(missing in n for n in het.notes)

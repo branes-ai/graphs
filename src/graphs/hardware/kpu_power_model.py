@@ -519,7 +519,13 @@ def _datapath_options(units, pes: int, cc: CircuitClass, node, nodes, notes):
             rate = mode.lanes / mode.issue_interval_cycles  # invocations per clock
             e_inv = _invocation_pj(unit, mode, cc, node, nodes, notes)
             if e_inv is None:
-                e_inv = opi * node.energy_per_op_pj.get(f"{cc.value}:{mode.operand_format}", 0.0)
+                anchor = node.energy_per_op_pj.get(f"{cc.value}:{mode.operand_format}")
+                if anchor is None:
+                    notes.append(
+                        f"{unit.unit_id}:{mode.operand_format}: node lacks energy key "
+                        f"{cc.value}:{mode.operand_format}; compute energy counted as 0"
+                    )
+                e_inv = opi * (anchor or 0.0)
             ops, pj = by_key.get(key, (0.0, 0.0))
             by_key[key] = (ops + rate * opi * pes, pj + rate * e_inv * pes)
     legacy: dict[str, _Option] = {}
@@ -574,8 +580,15 @@ def _class_models(spec, profile, node, nodes, notes) -> list[_ClassModel]:
             else:
                 for prec, ops in t.ops_per_tile_per_clock.items():
                     e = node.energy_per_op_pj.get(f"{cc.value}:{prec}")
-                    if e is not None:
-                        m.legacy[prec] = _Option(prec, ops * t.num_tiles, ops * t.num_tiles * e)
+                    if e is None:
+                        # As the legacy formula: no compute energy, but the
+                        # ops still drive memory / NoC / DRAM traffic.
+                        notes.append(
+                            f"{t.tile_class_id}: node lacks energy key "
+                            f"{cc.value}:{prec}; compute energy counted as 0"
+                        )
+                        e = 0.0
+                    m.legacy[prec] = _Option(prec, ops * t.num_tiles, ops * t.num_tiles * e)
         elif isinstance(t, SystolicTile):
             m.legacy, m.custom = _datapath_options(
                 [t.mac], t.total_pes, t.circuit_class, node, nodes, notes
@@ -750,6 +763,9 @@ def compute_heterogeneous_tdp_breakdown(
         return evaluate(None)
     precisions = sorted({p for m in live for p in m.legacy})
     candidates = [evaluate(p) for p in precisions] or [evaluate(None)]
-    # Legacy semantics: a precision no tile can run is not a candidate.
-    candidates = [c for c in candidates if c.dynamic_w > 0] or candidates[:1]
+    # Legacy semantics: a precision with no compute power is not a candidate
+    # (its ops may still carry traffic when another precision is chosen).
+    candidates = [
+        c for c in candidates if c.pe_compute_w + c.fixed_function_w > 0
+    ] or candidates[:1]
     return max(candidates, key=lambda c: c.total_tdp_w)
