@@ -52,11 +52,8 @@ class TestFullAdderReference:
 
 class TestKPUFeasibility:
     def test_t256_feasible(self):
-        """T256 (20x20 tile, 30 W) is still feasible. T64 and T128 now
-        use the canonical 32x32 tile, which exceeds their original 6 W
-        / 12 W envelopes - those targets need to be re-set before the
-        feasibility assertion can apply to them. See the separate
-        TODO test below."""
+        """T256 (32x32 tile, 30 W default profile) is TDP-feasible. T64 and
+        T128 are covered by the next test."""
         tool = _load_tool()
         row = tool.check_sku("Stillwater-KPU-T256")
         assert row is not None, "T256 not found"
