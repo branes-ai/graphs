@@ -762,10 +762,13 @@ def compute_heterogeneous_tdp_breakdown(
     if scenario is not None:
         return evaluate(None)
     precisions = sorted({p for m in live for p in m.legacy})
-    candidates = [evaluate(p) for p in precisions] or [evaluate(None)]
-    # Legacy semantics: a precision with no compute power is not a candidate
-    # (its ops may still carry traffic when another precision is chosen).
-    candidates = [
-        c for c in candidates if c.pe_compute_w + c.fixed_function_w > 0
-    ] or candidates[:1]
+    # Legacy semantics: a precision with no programmable compute power is not
+    # a candidate. Fixed-function power is added to every precision, so it
+    # must not make one eligible: a zero-compute precision would otherwise
+    # win on its retained traffic alone. With no eligible precision, the
+    # baseline is the precision-free evaluation (fixed-function tiles and
+    # custom-op classes only).
+    candidates = [c for c in (evaluate(p) for p in precisions) if c.pe_compute_w > 0]
+    if not candidates:
+        candidates = [evaluate(None)]
     return max(candidates, key=lambda c: c.total_tdp_w)

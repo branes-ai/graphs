@@ -271,3 +271,30 @@ def test_missing_energy_key_keeps_traffic_like_the_legacy_formula(missing):
         for term in TERMS:
             assert getattr(het, term) == pytest.approx(getattr(legacy, term), rel=1e-12), term
         assert any(missing in n for n in het.notes)
+
+
+def test_fixed_function_power_does_not_make_a_zero_compute_precision_eligible():
+    """With only an INT8 PE class whose energies the node lacks, plus an ISP,
+    no precision has programmable compute: the TDP is the precision-free
+    evaluation (ISP power and its NoC IO), not a precision whose zero-energy
+    ops would add cache / DRAM traffic (CodeRabbit on #280)."""
+    def int8_and_isp(data):
+        arch = data["kpu_architecture"]
+        keep = {"pe_int8_mac_i32", "ff_isp_raw2yuv"}
+        arch["tiles"] = [t for t in arch["tiles"] if t["tile_class_id"] in keep]
+        arch["total_tiles"] = sum(t["num_tiles"] for t in arch["tiles"])
+        arch["checkerboard"]["spare_sites"] = 64 - arch["total_tiles"]
+        arch["noc"]["overlays"] = None
+        data["silicon_bin"]["blocks"] = [
+            b for b in data["silicon_bin"]["blocks"] if b["name"] != "pe_minplus"
+        ]
+    spec = _spec_with(HETERO_SPEC, int8_and_isp)
+    missing = {"balanced_logic:int8", "balanced_logic:int4", "balanced_logic:bf16"}
+    node = N16.model_copy(update={
+        "energy_per_op_pj": {k: v for k, v in N16.energy_per_op_pj.items() if k not in missing}
+    })
+    bd = compute_heterogeneous_tdp_breakdown(spec, spec.thermal_profiles[0], node)
+    assert bd.worst_precision == "(none)"
+    assert bd.pe_compute_w == 0.0 and bd.fixed_function_w > 0
+    assert bd.l2_sram_w == bd.l3_sram_w == bd.dram_phy_w == 0.0
+    assert bd.noc_w > 0  # the ISP's IO
