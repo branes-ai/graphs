@@ -567,6 +567,35 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
   - Reports pJ/op, pJ per function unit, area, and the data movement avoided by
     segment encapsulation.
   - Every rung shows its provenance and confidence.
+  *As built:* `graphs.hardware.kpu_tile_ladder` + the CLI. Four functions:
+  `stereo.sgm`, `isp.raw_to_yuv`, `vio.stereo_inertial`, `gemm.int8`.
+  - **The ops model is explicit and cited.** Comparing a core published in
+    pJ/pixel with a tile published in pJ/op needs a figure for the
+    arithmetic in a pixel, and that is a workload claim, not a silicon
+    one. SGM's comes from the paper's own two figures (2.3 TOPS/W x 13440
+    pJ/px, so INTERPOLATED); the others are structural op counts
+    (THEORETICAL) with the arithmetic shown.
+  - **A class is only priced on work it can run**: it must declare one of
+    the required ops *and* an accepted operand format, and a systolic
+    class must list the kernel in `supported_kernels`. Without that the
+    ladder priced stereo path aggregation on a MAC array and an ISP on a
+    weight-stationary array.
+  - **A back-check guards the ops model.** A core's published energy
+    divided by the ops model gives its implied pJ/op; when that is far
+    above the node's arithmetic op the core is not arithmetic-bound, and
+    the report says the programmable rungs are a lower bound rather than a
+    like-for-like comparison. It fires for the ISP (4x) and VIO (15x).
+  - **The monotonicity check is a finding, not an invariant.** Rungs are
+    sorted by energy, so asking whether that sort ascends proves nothing;
+    the check compares the resulting *kind* order against the expected
+    one, over the KPU's own kinds. On `kpu_h64_auto1` it holds for GEMM
+    and the ISP and fails for SGM and VIO -- and the SGM result is the
+    interesting one: a purpose-built min-plus fabric at n16 (4173 pJ/px)
+    beats the n40 stereo ASIC retargeted to n16 (6720 pJ/px), which is the
+    argument for having the min-plus class at all.
+  - Acceptance note: the plan expected a monotonic ladder. It is not
+    monotonic, for the reasons above, and the tooling reports that rather
+    than being tuned until it agrees.
 - E3: register the tile classes as engines in the SoC study analyzer. Add
   workload `segments` and precision-floor findings. Compare against the uniform
   T64 on the 5 regimes.

@@ -14,6 +14,7 @@ is still being iterated on.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -393,3 +394,56 @@ def test_show_floorplan_rejects_an_overlay_it_cannot_render(
     )
     assert rc != 0
     assert expected in err
+
+
+# ---------------------------------------------------------------------------
+# analyze_kpu_tile_ladder (graphs#268 E2)
+# ---------------------------------------------------------------------------
+
+
+def test_tile_ladder_lists_its_functions(cli_runner):
+    rc, out, err = cli_runner(_CLI / "analyze_kpu_tile_ladder.py", ["--list-functions"])
+    assert rc == 0, err
+    assert "stereo.sgm" in out and "gemm.int8" in out
+    assert "INTERPOLATED" in out  # the SGM ops model is derived, not assumed
+
+
+def test_tile_ladder_reports_every_rung_with_provenance(cli_runner, hetero_yaml):
+    rc, out, err = cli_runner(
+        _CLI / "analyze_kpu_tile_ladder.py",
+        ["--from-file", str(hetero_yaml), "--function", "gemm.int8", "--show-ops"],
+    )
+    assert rc == 0, err
+    assert "Traceback" not in err
+    assert "systolic" in out and "pe_fabric" in out
+    assert "gpu" in out and "cpu" in out
+    assert "from:" in out          # per-rung provenance
+    assert "derivation:" in out    # the ops model shows its arithmetic
+    assert "Specialization order" in out
+
+
+def test_tile_ladder_refuses_a_function_it_cannot_price(cli_runner, hetero_yaml):
+    rc, _, err = cli_runner(
+        _CLI / "analyze_kpu_tile_ladder.py",
+        ["--from-file", str(hetero_yaml), "--function", "not.a.function"],
+    )
+    assert rc == 2
+    assert "no ops model" in err and "Traceback" not in err
+
+
+def test_tile_ladder_json_carries_the_model_and_the_caveats(cli_runner, hetero_yaml, tmp_path):
+    out_path = tmp_path / "ladder.json"
+    rc, _, err = cli_runner(
+        _CLI / "analyze_kpu_tile_ladder.py",
+        ["--from-file", str(hetero_yaml), "--output", str(out_path)],
+    )
+    assert rc == 0, err
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    by_function = {entry["function_id"]: entry for entry in payload}
+    assert "stereo.sgm" in by_function
+    vio = by_function["vio.stereo_inertial"]
+    # The caveats travel with the numbers, not only in the text view.
+    assert vio["arithmetic_bound"] is False
+    assert vio["back_check"]
+    assert by_function["stereo.sgm"]["ops_model"]["confidence"] == "INTERPOLATED"
+    assert all(r["provenance"] for r in by_function["gemm.int8"]["rungs"])
