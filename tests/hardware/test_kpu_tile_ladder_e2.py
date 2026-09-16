@@ -35,8 +35,36 @@ SKU = generate_kpu_sku(
 )
 
 
-def _ladder(function_id: str):
-    return build_ladder(SKU, N16, function_id, nodes=NODES)
+def _ladder(function_id: str, sku=None):
+    return build_ladder(sku or SKU, N16, function_id, nodes=NODES)
+
+
+def _two_core_sku():
+    """The SKU with a second, lower-power SGM core.
+
+    The twin is deliberately *not* added to the stream-link overlay, which
+    still names only ``ff_stereo_sgm`` -- so one core is encapsulated and
+    the other is not, which is the case the per-rung DRAM accounting
+    exists for. ``model_copy`` skips validation, which is what lets a test
+    build a block the site accounting would otherwise reject.
+    """
+    from graphs.hardware.kpu_access import kpu_block_of
+
+    block = kpu_block_of(SKU)
+    sgm = next(t for t in block.tiles if t.tile_class_id == "ff_stereo_sgm")
+    twin = sgm.model_copy(update={
+        "tile_class_id": "ff_stereo_sgm_lp",
+        "tile_type": "SGM-LP",
+        "core": sgm.core.model_copy(update={
+            "energy": sgm.core.energy.model_copy(
+                update={"pj_per_unit": sgm.core.energy.pj_per_unit / 2}
+            ),
+        }),
+    })
+    two_core_block = block.model_copy(update={"tiles": [*block.tiles, twin]})
+    return SKU.model_copy(update={
+        "dies": [SKU.dies[0].model_copy(update={"blocks": [two_core_block]})]
+    }), two_core_block
 
 
 # ---------------------------------------------------------------------------
@@ -286,36 +314,19 @@ def test_every_core_implementing_a_function_gets_a_rung():
     """A die may carry two cores for one function -- a low-power one and a
     high-throughput one -- and the ladder promises to price every
     implementation. A one-core fixture cannot catch a regression that
-    returns only the first, so this builds a two-core block
-    (CodeRabbit on #289)."""
+    returns only the first (CodeRabbit on #289)."""
     from graphs.hardware.kpu_access import kpu_block_of
     from graphs.hardware.kpu_tile_ladder import _cores_for
 
-    block = kpu_block_of(SKU)
-    sgm = next(t for t in block.tiles if t.tile_class_id == "ff_stereo_sgm")
-    # A second, slower core for the same function: half the throughput at
-    # half the energy. model_copy skips validation, which is what lets a
-    # test build a block the site accounting would otherwise reject.
-    twin = sgm.model_copy(update={
-        "tile_class_id": "ff_stereo_sgm_lp",
-        "tile_type": "SGM-LP",
-        "core": sgm.core.model_copy(update={
-            "energy": sgm.core.energy.model_copy(
-                update={"pj_per_unit": sgm.core.energy.pj_per_unit / 2}
-            ),
-        }),
-    })
-    two_core_block = block.model_copy(update={"tiles": [*block.tiles, twin]})
-    two_core_sku = SKU.model_copy(update={
-        "dies": [SKU.dies[0].model_copy(update={"blocks": [two_core_block]})]
-    })
-
-    assert len(_cores_for(block, "stereo.sgm")) == 1
-    assert _cores_for(block, "not.a.function") == []
+    two_core_sku, two_core_block = _two_core_sku()
+    assert len(_cores_for(kpu_block_of(SKU), "stereo.sgm")) == 1
+    assert _cores_for(kpu_block_of(SKU), "not.a.function") == []
     assert len(_cores_for(two_core_block, "stereo.sgm")) == 2
 
-    ladder = build_ladder(two_core_sku, N16, "stereo.sgm", nodes=NODES)
-    ff_rungs = [r for r in ladder.rungs if r.kind == "fixed_function"]
+    ff_rungs = [
+        r for r in _ladder("stereo.sgm", two_core_sku).rungs
+        if r.kind == "fixed_function"
+    ]
     assert len(ff_rungs) == 2
     assert {r.label.split()[0] for r in ff_rungs} == {
         "ff_stereo_sgm", "ff_stereo_sgm_lp"
@@ -325,16 +336,25 @@ def test_every_core_implementing_a_function_gets_a_rung():
 
 
 def test_dram_accounting_belongs_to_the_core_that_earns_it():
-    """Two cores for one function can differ in output size and in whether
-    they are stream-linked at all, so the saving is per rung. Attributing
-    the first core's figure to both would be wrong
-    (CodeRabbit on #289)."""
-    ladder = _ladder("stereo.sgm")
-    ff = next(r for r in ladder.rungs if r.kind == "fixed_function")
-    assert ff.dram_bytes_per_unit and ff.dram_pj_per_unit
-    assert ladder.encapsulating_rungs == (ff,)
-    # A programmable rung claims no encapsulation.
+    """Two cores for one function can differ in whether they are
+    stream-linked, so the saving is per rung. The twin here is not in the
+    overlay, so it must claim nothing while the linked core does -- which
+    a single-core fixture could not show (CodeRabbit on #289)."""
+    two_core_sku, _ = _two_core_sku()
+    ladder = _ladder("stereo.sgm", two_core_sku)
+    by_class = {
+        r.label.split()[0]: r for r in ladder.rungs if r.kind == "fixed_function"
+    }
+    linked, unlinked = by_class["ff_stereo_sgm"], by_class["ff_stereo_sgm_lp"]
+
+    assert linked.dram_bytes_per_unit and linked.dram_pj_per_unit
+    assert "not written and not read back" in linked.dram_note
+    assert unlinked.dram_bytes_per_unit is None
+    assert unlinked.dram_pj_per_unit is None
+    assert "not stream-linked" in unlinked.dram_note
+
+    assert ladder.encapsulating_rungs == (linked,)
+    # A programmable rung claims no encapsulation either.
     for rung in ladder.rungs:
         if rung.kind != "fixed_function":
             assert rung.dram_bytes_per_unit is None
-            assert rung.dram_note == ""
