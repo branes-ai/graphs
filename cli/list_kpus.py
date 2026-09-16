@@ -278,14 +278,23 @@ def _render_csv(rows: List[KPURow]) -> str:
 def _render_md(rows: List[KPURow]) -> str:
     if not rows:
         return "_no entries match_\n"
+    # Same rule as the text renderer: the census column earns its place
+    # only when some SKU is heterogeneous, so a uniform-only listing keeps
+    # its former shape (graphs#268 C6).
+    show_census = any(r.heterogeneous for r in rows)
+    census_h = " tile kinds |" if show_census else ""
+    census_sep = "---|" if show_census else ""
     lines = [
-        "| id | tiles | tile kinds | PEs | TDP (W) | INT8 TOPS | BF16 TFLOPS | die mm^2 | B trans | mem GB | GB/s | node | tier |",
-        "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        f"| id | tiles |{census_h} PEs | TDP (W) | INT8 TOPS | BF16 TFLOPS | "
+        "die mm^2 | B trans | mem GB | GB/s | node | tier |",
+        f"|---|---:|{census_sep}---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for r in rows:
         node_str = r.process_node_id if r.process_node_resolved else f"{r.process_node_id} (!)"
         lines.append(
-            f"| `{r.id}` | {r.total_tiles} | {r.tile_census} | {r.total_pes} | "
+            f"| `{r.id}` | {r.total_tiles} |"
+            f"{f' {r.tile_census} |' if show_census else ''}"
+            f" {r.total_pes} | "
             f"{r.default_tdp_w:.0f} | {r.int8_tops:.0f} | "
             f"{r.bf16_tflops:.0f} | {r.die_size_mm2:.0f} | "
             f"{r.transistors_billion:.1f} | {r.memory_gb:.0f} | "

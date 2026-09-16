@@ -309,12 +309,6 @@ def main() -> int:
     if args.kpu_id and args.from_file:
         parser.error("give a KPU SKU id or --from-file, not both")
 
-    try:
-        nodes = load_process_nodes()
-    except Exception as exc:
-        print(f"error: failed to load catalog: {exc}", file=sys.stderr)
-        return 1
-
     if args.from_file:
         try:
             cp = load_compute_product_file(args.from_file)
@@ -351,7 +345,23 @@ def main() -> int:
     except KPUBlockLookupError as exc:
         print(f"error: invalid KPU SKU {label!r}: {exc}", file=sys.stderr)
         return 1
-    node = nodes.get(die.process_node_id)
+
+    # Process nodes are looked up after the source is settled: a --from-file
+    # product is readable on its own, and every renderer handles an
+    # unresolved node, so a catalog problem must not block inspecting a
+    # local file. A catalog SKU still needs the catalog.
+    try:
+        node = load_process_nodes().get(die.process_node_id)
+    except Exception as exc:
+        if not args.from_file:
+            print(f"error: failed to load catalog: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"warning: process-node catalog unavailable ({exc}); "
+            f"showing {die.process_node_id} unresolved",
+            file=sys.stderr,
+        )
+        node = None
 
     fmt = _detect_format(args.output)
     if fmt == "json":

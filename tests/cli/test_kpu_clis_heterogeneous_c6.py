@@ -217,6 +217,32 @@ def test_show_kpu_from_file_rejects_a_non_kpu_product(cli_runner, tmp_path):
     assert "has no KPU block" in err and "Traceback" not in err
 
 
+def test_show_kpu_from_file_survives_an_unavailable_process_node_catalog(
+    cli_runner, hetero_yaml, monkeypatch
+):
+    """A local file is readable on its own; a process-node catalog problem
+    must not block inspecting it, only leave the node unresolved."""
+    import sys
+
+    # cli_runner imports each script under a synthesized module name and
+    # caches it; run once to populate the cache, then break the loader the
+    # script bound at import time.
+    cli_runner(_CLI / "show_kpu.py", ["--from-file", str(hetero_yaml)])
+    module = next(
+        m for name, m in sys.modules.items() if name.startswith("_clitest_show_kpu_")
+    )
+
+    def _offline(*args, **kwargs):
+        raise RuntimeError("catalog offline")
+
+    monkeypatch.setattr(module, "load_process_nodes", _offline)
+    rc, out, err = cli_runner(_CLI / "show_kpu.py", ["--from-file", str(hetero_yaml)])
+    assert rc == 0, err
+    assert "process node not in catalog" in out
+    assert "warning: process-node catalog unavailable" in err
+    assert "Tile census:     pe:38 systolic:4 fixed-fn:3" in out
+
+
 def test_show_kpu_needs_exactly_one_source(cli_runner, hetero_yaml):
     rc, _, err = cli_runner(_CLI / "show_kpu.py", [])
     assert rc != 0 and "--from-file" in err
@@ -237,6 +263,18 @@ def test_list_kpus_census_column_is_absent_for_a_uniform_catalog(cli_runner):
     rc, out, err = cli_runner(_CLI / "list_kpus.py", [])
     assert rc == 0, err
     assert "tile kinds" not in out
+
+
+def test_list_kpus_markdown_matches_the_text_rule(cli_runner, tmp_path):
+    """The census column earns its place in every format on the same
+    condition, so a uniform-only Markdown listing keeps its old shape."""
+    out_path = tmp_path / "kpus.md"
+    rc, _, err = cli_runner(_CLI / "list_kpus.py", ["--output", str(out_path)])
+    assert rc == 0, err
+    header, separator = out_path.read_text(encoding="utf-8").splitlines()[:2]
+    assert "tile kinds" not in header
+    # One separator cell per header cell, or the table renders broken.
+    assert header.count("|") == separator.count("|")
 
 
 def test_list_kpus_kind_filter(cli_runner):
