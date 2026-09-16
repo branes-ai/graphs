@@ -490,19 +490,36 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
   golden floorplans are byte-identical.
 - D2: GEOMETRY validators (site accounting, footprint pitch fit, whitespace per
   class), `show_floorplan` glyphs, and the power-domain overlay.
-  - **Carried over from D1:** the per-class *area* model. A class whose
-    silicon is tile-carried rather than a silicon_bin `per_pe` block
-    resolves to zero compute area, collapsing its pitch to the L2 term;
-    on the fixture that is 6 of 7 classes. Part of it is a key mismatch --
-    the generator writes some `count_ref`s as `tile.<tile_class_id>` and
-    others as `tile.<tile_type>`, while the floorplan keys on `tile_type`.
-    D1 makes this loud (a log warning and a floorplan note) instead of
-    silently under-sizing; D2 sources the area from
-    `silicon_math.carried_silicon`. Until then the heterogeneous die size,
-    whitespace and what-if estimates are not trustworthy.
-  - Also carried over: `MemoryClassSummary` still assumes one memory cell
-    per tile, and `_arch_what_if_estimates` still assumes
-    `physical_cols = 2 * mesh_cols` with no covered cells.
+  *As built:*
+  - The **per-class area model** (carried from D1) is fixed. A `count_ref`
+    naming a class by `tile_class_id` now resolves through
+    `silicon_math.resolve_tile_ref` instead of being matched against
+    `tile_type`, and tile-carried silicon feeds the per-class area
+    alongside the silicon_bin `per_pe` blocks, split into compute
+    (datapath, systolic cells, fabric overlays, function core) and memory
+    (`local_memory`). A class carrying its own SRAM uses that in place of a
+    share of the chip-wide L2 pool it does not draw on. All 7 fixture
+    classes now resolve to real area; before, 6 of them were zero.
+  - The memory roll-up counts the cells that survive placement, not one per
+    tile, and the what-if estimates fill the grid rather than assuming the
+    SKU's tile count. Both are zero-diff for legacy, where
+    `mesh_rows * mesh_cols == total_tiles` on every catalog SKU.
+  - `show_floorplan` gains `S` / `F` glyphs (the legend is built from the
+    roles actually placed, so it picked them up for free), `--from-file`
+    like the C6 CLIs, and `--overlay {tile-class,power-domain}`: a
+    compute-site grid in site coordinates, which is what a placement
+    question is actually about. A `tile_class` power domain covers whichever
+    sites its classes landed on -- knowable only after placement -- while a
+    `cluster` domain covers its declared site ranges.
+  - **No new validators were needed.** C4's `checkerboard_site_accounting`
+    and `tile_footprint_pitch_fit` cover site accounting and footprint fit,
+    and `floorplan_whitespace_fraction` already names the worst per-class
+    contributor.
+  - Still open: the fixture does not validate cleanly. Its SGM class needs
+    about 6 sites but declares a 1x1 footprint, so the unified pitch is set
+    by one tile and the die reads 81% whitespace. The validators say so
+    correctly; re-tuning the fixture's footprints belongs with the
+    reference SKU in E1.
 - **Accept:** legacy floorplans are byte-identical. For the fixture, the
   placement is deterministic and every validator is clean.
 

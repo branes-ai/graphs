@@ -329,3 +329,67 @@ def test_validate_sku_from_file_reports_a_bad_path(cli_runner, tmp_path):
 def test_validate_sku_catalog_mode_still_works(cli_runner):
     rc, _, err = cli_runner(_CLI / "validate_sku.py", [_LEGACY])
     assert rc == 0, err
+
+
+# ---------------------------------------------------------------------------
+# show_floorplan (graphs#268 D2)
+# ---------------------------------------------------------------------------
+
+
+def test_show_floorplan_renders_the_heterogeneous_fixture(cli_runner, hetero_yaml):
+    rc, out, err = cli_runner(
+        _CLI / "show_floorplan.py", ["--from-file", str(hetero_yaml), "--width", "64"]
+    )
+    assert rc == 0, err
+    assert "Traceback" not in err
+    # The new roles get their own glyphs, and the legend names them.
+    assert "S=systolic" in out and "F=fixed_function" in out
+    assert "S" in out and "F" in out
+    # 64 sites less the 4 the 2x2 VIO core sits on.
+    assert "N=  60" in out
+
+
+def test_show_floorplan_site_overlay_by_tile_class(cli_runner, hetero_yaml):
+    rc, out, err = cli_runner(
+        _CLI / "show_floorplan.py",
+        ["--from-file", str(hetero_yaml), "--overlay", "tile-class"],
+    )
+    assert rc == 0, err
+    assert "Compute sites by tile class (8x8 sites, auto placement)" in out
+    assert "systolic_int8_ws" in out
+    assert ".=spare" in out
+
+
+def test_show_floorplan_overlay_says_when_there_is_no_checkerboard(cli_runner):
+    """A uniform SKU has no explicit site grid; the CLI says so rather than
+    rendering an empty or invented one."""
+    rc, out, err = cli_runner(
+        _CLI / "show_floorplan.py", [_LEGACY, "--overlay", "power-domain"]
+    )
+    assert rc == 0, err
+    assert "no explicit checkerboard" in out
+
+
+def test_show_floorplan_rejects_two_sources(cli_runner, hetero_yaml):
+    rc, _, err = cli_runner(
+        _CLI / "show_floorplan.py", [_LEGACY, "--from-file", str(hetero_yaml)]
+    )
+    assert rc != 0 and "not both" in err
+
+
+@pytest.mark.parametrize("extra, expected", [
+    (["--view", "circuit"], "--view architectural"),
+    (["--json"], "only rendered in text output"),
+    (["--output", "fp.json"], "only rendered in text output"),
+])
+def test_show_floorplan_rejects_an_overlay_it_cannot_render(
+    cli_runner, hetero_yaml, extra, expected
+):
+    """--overlay is a text panel under the architectural view. Asking for
+    it anywhere else used to succeed and silently drop it."""
+    rc, _, err = cli_runner(
+        _CLI / "show_floorplan.py",
+        ["--from-file", str(hetero_yaml), "--overlay", "tile-class", *extra],
+    )
+    assert rc != 0
+    assert expected in err

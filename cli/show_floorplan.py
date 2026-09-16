@@ -49,8 +49,22 @@ from typing import Optional
 from embodied_schemas import load_process_nodes
 from embodied_schemas.process_node import CircuitClass
 
-from graphs.hardware.compute_product_loader import load_compute_products_unified
-from graphs.hardware.kpu_access import KPUBlockLookupError, has_kpu_block, kpu_die_of
+from graphs.hardware.compute_product_loader import (
+    ComputeProductFileError,
+    load_compute_product_file,
+    load_compute_products_unified,
+)
+from graphs.hardware.kpu_access import (
+    KPUBlockLookupError,
+    has_kpu_block,
+    kpu_block_of,
+    kpu_die_of,
+)
+from graphs.hardware.kpu_checkerboard_placer import (
+    place_tiles,
+    render_overlay,
+    site_power_domains,
+)
 from graphs.hardware.silicon_floorplan import (
     ArchitecturalFloorplan,
     ArchTile,
@@ -112,6 +126,11 @@ _ARCH_GLYPH_BY_ROLE = {
     TileRole.MEMORY_CONTROLLER: "D",  # D for DRAM controller / PHY
     TileRole.IO_PAD: ":",
     TileRole.CONTROL: "*",
+    # Heterogeneous checkerboard kinds (graphs#268 D2). They are compute,
+    # but a reader needs to see at a glance which sites are the PE fabric
+    # and which are a systolic array or a fixed-function core.
+    TileRole.SYSTOLIC: "S",
+    TileRole.FIXED_FUNCTION: "F",
 }
 
 # Off-die channel glyphs by edge -- each channel is a strip of these
@@ -266,6 +285,39 @@ def _render_architectural_summary(fp: ArchitecturalFloorplan) -> str:
                 f"whitespace={wi.whitespace_fraction*100:.1f}%"
             )
     return "\n".join(lines)
+
+
+def _render_site_overlay(sku, which: str) -> str:
+    """The compute-site grid labelled by tile class or power domain
+    (graphs#268 D2).
+
+    This is a site-coordinate view, not the millimetre die art: one cell
+    per compute site, which is what a placement question is actually about
+    ("did the ISP land on the edge", "which sites does this rail gate").
+    """
+    block = kpu_block_of(sku)
+    plan = place_tiles(block)
+    if plan is None:
+        return (
+            "  (no compute-site grid: this SKU has no explicit checkerboard, "
+            "so its tiles fill the NoC mesh row-major)"
+        )
+    if which == "power-domain":
+        labels = site_power_domains(block, plan)
+        if not labels:
+            return "  (no power domains declared)"
+        title = "Compute sites by power domain"
+    else:
+        labels = plan.site_owner()
+        title = "Compute sites by tile class"
+    grid, legend = render_overlay(plan, labels)
+    legend_text = "  ".join(f"{g}={name}" for g, name in sorted(legend.items()))
+    return (
+        f"{title} ({plan.rows}x{plan.cols} sites, {plan.mode} placement):\n"
+        + "\n".join("  " + line for line in grid.splitlines())
+        + f"\n  Legend: {legend_text}  .=spare"
+        + ("  -=no domain" if which == "power-domain" else "")
+    )
 
 
 def _arch_glyph_legend(fp: ArchitecturalFloorplan) -> str:
@@ -653,6 +705,12 @@ def main() -> int:
         help="List available KPU SKU ids and exit.",
     )
     parser.add_argument(
+        "--from-file",
+        metavar="PATH",
+        help="Render a ComputeProduct YAML / JSON file instead of a catalog "
+             "SKU, e.g. the output of cli/generate_kpu_sku.py.",
+    )
+    parser.add_argument(
         "--view", choices=["architectural", "circuit"],
         default="architectural",
         help=(
@@ -660,6 +718,14 @@ def main() -> int:
             "role (compute/memory/controller/io/control) and shows the "
             "checkerboard layout + what-if die estimates. 'circuit' "
             "groups by silicon library (HP_LOGIC/BAL/SRAM/ANALOG/IO)."
+        ),
+    )
+    parser.add_argument(
+        "--overlay", choices=["tile-class", "power-domain"],
+        help=(
+            "Also print the compute-site grid, labelled by tile class or by "
+            "power domain. Heterogeneous SKUs only: a uniform SKU has no "
+            "explicit checkerboard."
         ),
     )
     parser.add_argument(
@@ -690,20 +756,50 @@ def main() -> int:
         for kid in sorted(kpus):
             print(kid)
         return 0
-    if not args.sku_id:
-        parser.error("sku_id is required (or pass --list)")
-        return 2
-    if args.sku_id not in kpus:
-        print(f"error: unknown SKU id {args.sku_id!r}", file=sys.stderr)
-        print(f"hint: try one of {sorted(kpus)}", file=sys.stderr)
+    if args.sku_id and args.from_file:
+        parser.error("give a SKU id or --from-file, not both")
+    # The site overlay is a text panel printed under the architectural
+    # view; it has no place in the circuit view or a machine format. Say
+    # so rather than accepting the flag and silently dropping it.
+    if args.overlay:
+        if args.view != "architectural":
+            parser.error("--overlay needs --view architectural")
+        if _detect_format(args.output, args.json) != "text":
+            parser.error("--overlay is only rendered in text output")
+    if not args.sku_id and not args.from_file:
+        parser.error("sku_id is required (or pass --list or --from-file)")
         return 2
 
-    sku = kpus[args.sku_id]
+    # A generated SKU is a file long before it is a catalog entry, and a
+    # heterogeneous floorplan is what you look at while iterating on one
+    # (graphs#268 D2, matching show_kpu / validate_sku in C6).
+    if args.from_file:
+        try:
+            sku = load_compute_product_file(args.from_file)
+        except ComputeProductFileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not has_kpu_block(sku):
+            print(
+                f"error: {args.from_file} holds compute product {sku.id!r}, "
+                "which has no KPU block",
+                file=sys.stderr,
+            )
+            return 2
+        label = args.from_file
+    else:
+        if args.sku_id not in kpus:
+            print(f"error: unknown SKU id {args.sku_id!r}", file=sys.stderr)
+            print(f"hint: try one of {sorted(kpus)}", file=sys.stderr)
+            return 2
+        sku = kpus[args.sku_id]
+        label = args.sku_id
+
     nodes = load_process_nodes()
     try:
         process_node_id = kpu_die_of(sku).process_node_id
     except KPUBlockLookupError as exc:
-        print(f"error: invalid KPU SKU {args.sku_id!r}: {exc}", file=sys.stderr)
+        print(f"error: invalid KPU SKU {label!r}: {exc}", file=sys.stderr)
         return 2
     if process_node_id not in nodes:
         print(
@@ -731,6 +827,8 @@ def main() -> int:
                 + render_architectural_ascii(fp_arch, char_width=args.width)
                 + "\n" + _arch_glyph_legend(fp_arch)
             )
+            if args.overlay:
+                payload += "\n\n" + _render_site_overlay(sku, args.overlay)
     else:  # circuit
         fp_circ = derive_kpu_floorplan(sku, node)
         if fmt == "json":
