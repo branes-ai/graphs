@@ -1,0 +1,362 @@
+"""Phase D1 of the KPU heterogeneous-tile refactor (graphs#268): assigning
+tiles to checkerboard compute sites.
+
+A uniform SKU has no checkerboard and keeps the legacy row-major layout,
+which the golden floorplan snapshot pins. The heterogeneous fixture gets a
+deterministic placement that honours multi-site footprints, placement
+affinities and stream-link adjacency, and an explicit ``placement_map`` is
+read back exactly as the author drew it.
+"""
+
+from __future__ import annotations
+
+import pytest
+from embodied_schemas import ComputeProduct, load_compute_products, load_process_nodes
+from embodied_schemas.kpu import SPARE_SITE
+
+from graphs.hardware.kpu_access import has_kpu_block, kpu_block_of
+from graphs.hardware.kpu_checkerboard_placer import (
+    PlacementError,
+    SitePlan,
+    place_tiles,
+    stream_link_partners,
+)
+from graphs.hardware.kpu_hetero_fixture import build_heterogeneous_kpu
+from graphs.hardware.kpu_sku_generator import (
+    generate_kpu_sku,
+    input_spec_from_compute_product,
+)
+
+NODES = load_process_nodes()
+HETERO = generate_kpu_sku(
+    input_spec_from_compute_product(build_heterogeneous_kpu()), process_nodes=NODES
+)
+BLOCK = kpu_block_of(HETERO)
+PLAN = place_tiles(BLOCK)
+
+ISP, SGM, VIO = "ff_isp_raw2yuv", "ff_stereo_sgm", "ff_vio_stereo_inertial"
+
+_NEIGHBORS = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+def _adjacent(plan: SitePlan, a: str, b: str) -> bool:
+    sites_b = set(plan.sites_of(b))
+    return any(
+        (r + dr, c + dc) in sites_b
+        for r, c in plan.sites_of(a)
+        for dr, dc in _NEIGHBORS
+    )
+
+
+def _with_block(**checkerboard) -> ComputeProduct:
+    """The fixture with its checkerboard fields overridden, re-validated."""
+    data = HETERO.model_dump(mode="json")
+    data["dies"][0]["blocks"][0]["checkerboard"].update(checkerboard)
+    return ComputeProduct.model_validate(data)
+
+
+def _unchecked_block(**checkerboard):
+    """The fixture's block with its checkerboard overridden *without*
+    re-validation.
+
+    The schema already rejects most malformed checkerboards (a spare count
+    that disagrees with the map, an undeclared class id, a wrong shape), so
+    these cases cannot be built through ``model_validate``. ``model_copy``
+    skips validation, which is how the placer's own guards -- the ones that
+    matter for a block built by code rather than parsed from YAML -- get
+    exercised.
+    """
+    block = kpu_block_of(HETERO)
+    return block.model_copy(
+        update={"checkerboard": block.checkerboard.model_copy(update=checkerboard)}
+    )
+
+
+def _as_map(plan: SitePlan) -> list:
+    owner = plan.site_owner()
+    return [
+        [owner.get((r, c), SPARE_SITE) for c in range(plan.cols)]
+        for r in range(plan.rows)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Uniform SKUs have no checkerboard and no placer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sku", sorted(
+    k for k, v in load_compute_products().items() if has_kpu_block(v)
+))
+def test_catalog_skus_do_not_go_through_the_placer(sku):
+    """Every catalog SKU is a uniform mesh with no checkerboard spec, so it
+    keeps the legacy row-major floorplan the golden snapshot pins."""
+    block = kpu_block_of(load_compute_products()[sku])
+    assert block.checkerboard is None
+    assert place_tiles(block) is None
+
+
+# ---------------------------------------------------------------------------
+# Auto placement
+# ---------------------------------------------------------------------------
+
+
+def test_plan_covers_every_tile_exactly_once():
+    assert PLAN.mode == "auto"
+    assert (PLAN.rows, PLAN.cols) == (8, 8)
+    # 45 tiles, but the 2x2 VIO costs four sites: 44 + 4 = 48 of 64.
+    assert len(PLAN.placements) == BLOCK.total_tiles == 45
+    assert PLAN.occupied_sites == 48
+    assert len(PLAN.spare_sites) == 16
+    assert PLAN.occupied_sites + len(PLAN.spare_sites) == PLAN.total_sites
+
+    # No site is claimed twice, and spares are exactly the unclaimed ones.
+    owned = [site for p in PLAN.placements for site in p.sites]
+    assert len(owned) == len(set(owned)) == 48
+    assert set(owned).isdisjoint(PLAN.spare_sites)
+
+    # Every class gets the tile count it declared.
+    counts = {}
+    for p in PLAN.placements:
+        counts[p.tile_class_id] = counts.get(p.tile_class_id, 0) + 1
+    assert counts == {t.tile_class_id: t.num_tiles for t in BLOCK.tiles}
+
+
+def test_placement_is_deterministic():
+    """The golden floorplan snapshot is worthless if the placer wanders."""
+    first = place_tiles(BLOCK)
+    for _ in range(3):
+        assert place_tiles(BLOCK) == first
+
+
+def test_multi_site_footprint_is_placed_as_a_rectangle():
+    vio = [p for p in PLAN.placements if p.tile_class_id == VIO]
+    assert len(vio) == 1
+    assert (vio[0].rows, vio[0].cols) == (2, 2)
+    assert vio[0].num_sites == 4
+    # Its four sites are a contiguous square anchored at its top-left.
+    r, c = vio[0].row, vio[0].col
+    assert set(vio[0].sites) == {(r, c), (r, c + 1), (r + 1, c), (r + 1, c + 1)}
+
+
+def test_a_multi_site_tile_covers_and_absorbs_its_paired_cells():
+    """Each site is paired 1:1 with a memory cell, and a multi-site tile's
+    rectangle spans the memory halves between its compute halves -- so it
+    sits on all four of its cells, its own included."""
+    vio = next(p for p in PLAN.placements if p.tile_class_id == VIO)
+    assert set(PLAN.covered_memory_cells) == set(vio.sites)
+    assert len(PLAN.covered_memory_cells) == 4
+
+    # This class declares absorbs_memory_cells, so those four cells are its
+    # private state rather than shared L3.
+    assert PLAN.absorbed_memory_cells == PLAN.covered_memory_cells
+    # A 1x1 tile covers nothing; its cell stays on the mesh.
+    assert set(PLAN.covered_memory_cells).isdisjoint(PLAN.sites_of(ISP))
+
+
+def test_covering_is_geometry_and_absorbing_is_accounting():
+    """Without absorbs_memory_cells the tile still sits on the cells --
+    geometry does not change -- but they stay shared L3."""
+    data = HETERO.model_dump(mode="json")
+    for tile in data["dies"][0]["blocks"][0]["tiles"]:
+        if tile["tile_class_id"] == VIO:
+            tile["footprint"]["absorbs_memory_cells"] = False
+    plan = place_tiles(kpu_block_of(ComputeProduct.model_validate(data)))
+    assert len(plan.covered_memory_cells) == 4
+    assert plan.absorbed_memory_cells == ()
+
+
+def test_io_edge_affinity_puts_the_isp_on_the_edge():
+    (row, col), = PLAN.sites_of(ISP)
+    assert row == 0  # the IO pads edge
+    assert min(row, col, PLAN.rows - 1 - row, PLAN.cols - 1 - col) == 0
+
+
+def test_stream_linked_classes_end_up_adjacent():
+    """ISP -> SGM -> VIO is a NoC stream-link overlay; if the placer
+    separates them the link crosses the mesh."""
+    assert stream_link_partners(BLOCK) == {
+        ISP: {SGM}, SGM: {ISP, VIO}, VIO: {SGM},
+    }
+    assert _adjacent(PLAN, ISP, SGM)
+    assert _adjacent(PLAN, SGM, VIO)
+
+
+def test_affinity_outranks_adjacency_for_a_class_that_declared_one():
+    """The ISP is both IO-edge-pinned and a stream partner. Its partner
+    must not drag it off the edge."""
+    isp = next(t for t in BLOCK.tiles if t.tile_class_id == ISP)
+    assert isp.placement.affinity.value == "io_edge"
+    (row, _), = PLAN.sites_of(ISP)
+    assert row == 0
+    assert _adjacent(PLAN, ISP, SGM)  # and it still got its partner
+
+
+def test_render_is_a_grid_with_spares_marked():
+    lines = PLAN.render().splitlines()
+    assert len(lines) == PLAN.rows
+    assert all(len(line.split()) == PLAN.cols for line in lines)
+    # The last two rows are the 16 spare sites.
+    assert set(lines[-1].split()) == {SPARE_SITE}
+    assert SPARE_SITE not in lines[0].split()
+
+
+def test_placer_reports_a_grid_that_is_too_small():
+    """A 4x4 grid cannot hold 48 sites' worth of tiles; that is an error
+    with a number in it, not a silent truncation."""
+    from embodied_schemas.kpu import SiteGrid
+
+    with pytest.raises(PlacementError, match="does not fit"):
+        place_tiles(_unchecked_block(compute_sites=SiteGrid(rows=4, cols=4)))
+
+
+# ---------------------------------------------------------------------------
+# Explicit placement
+# ---------------------------------------------------------------------------
+
+
+def test_explicit_map_is_read_back_exactly():
+    """Feeding the auto plan back as an explicit map reproduces it, so the
+    two modes agree on what a placement means."""
+    explicit = place_tiles(kpu_block_of(
+        _with_block(placement="explicit", placement_map=_as_map(PLAN))
+    ))
+    assert explicit.mode == "explicit"
+    assert explicit.notes == ()
+    assert explicit.site_owner() == PLAN.site_owner()
+    assert explicit.absorbed_memory_cells == PLAN.absorbed_memory_cells
+    assert sorted(explicit.spare_sites) == sorted(PLAN.spare_sites)
+    assert sorted((p.tile_class_id, p.row, p.col) for p in explicit.placements) == \
+        sorted((p.tile_class_id, p.row, p.col) for p in PLAN.placements)
+
+
+def test_explicit_map_recovers_a_multi_site_footprint_as_one_tile():
+    explicit = place_tiles(kpu_block_of(
+        _with_block(placement="explicit", placement_map=_as_map(PLAN))
+    ))
+    vio = [p for p in explicit.placements if p.tile_class_id == VIO]
+    assert len(vio) == 1  # one tile, not four 1x1 tiles
+    assert (vio[0].rows, vio[0].cols) == (2, 2)
+
+
+def test_placer_rejects_a_map_whose_shape_is_not_the_grid():
+    with pytest.raises(PlacementError, match="but compute_sites is 8x8"):
+        place_tiles(_unchecked_block(placement_map=_as_map(PLAN)[:4]))
+
+
+def test_explicit_map_rejects_an_undeclared_class():
+    pmap = _as_map(PLAN)
+    pmap[7][7] = "pe_not_a_real_class"
+    with pytest.raises(PlacementError, match="does not declare"):
+        place_tiles(_unchecked_block(placement_map=pmap))
+
+
+def test_explicit_map_rejects_a_broken_footprint_rectangle():
+    """A 2x2 class needs a 2x2 block of its own sites; a torn corner is an
+    error, not a silently reshaped tile."""
+    pmap = _as_map(PLAN)
+    vio = next(p for p in PLAN.placements if p.tile_class_id == VIO)
+    pmap[vio.row + 1][vio.col + 1] = SPARE_SITE
+    with pytest.raises(PlacementError, match="block of its own sites"):
+        place_tiles(_unchecked_block(placement_map=pmap))
+
+
+def test_explicit_map_notes_a_tile_count_disagreement():
+    """The map is the authority, so a count mismatch is reported rather
+    than corrected; the C4 site-accounting validator turns it into a
+    finding."""
+    pmap = _as_map(PLAN)
+    replaced = 0
+    for r, row in enumerate(pmap):
+        for c, cid in enumerate(row):
+            if cid == "pe_int8_mac_i32" and replaced < 2:
+                pmap[r][c] = SPARE_SITE
+                replaced += 1
+    plan = place_tiles(_unchecked_block(placement_map=pmap))
+    assert len(plan.notes) == 1
+    assert "holds 22 'pe_int8_mac_i32' tile(s)" in plan.notes[0]
+    assert "declares 24" in plan.notes[0]
+
+
+# ---------------------------------------------------------------------------
+# The architectural floorplan consumes the plan
+# ---------------------------------------------------------------------------
+
+
+def _hetero_floorplan():
+    from graphs.hardware.silicon_floorplan import derive_kpu_architectural_floorplan
+
+    return derive_kpu_architectural_floorplan(HETERO, NODES["tsmc_n16"])
+
+
+def test_floorplan_gives_each_kind_its_own_role():
+    from graphs.hardware.silicon_floorplan import TileRole
+
+    blocks = _hetero_floorplan().blocks
+    roles = {}
+    for b in blocks:
+        roles[b.role] = roles.get(b.role, 0) + 1
+    assert roles[TileRole.COMPUTE] == 38  # the PE-fabric classes
+    assert roles[TileRole.SYSTOLIC] == 4
+    assert roles[TileRole.FIXED_FUNCTION] == 3
+    # 64 sites, 4 of them covered by the 2x2 VIO core.
+    assert roles[TileRole.MEMORY] == 60
+
+
+def test_floorplan_tiles_do_not_overlap():
+    """A multi-site footprint spans the memory halves it covers, so the
+    cells under it must not also be emitted."""
+    from graphs.hardware.silicon_floorplan import TileRole
+
+    boxes = [
+        (b.x_mm, b.y_mm, b.width_mm, b.height_mm, b.name)
+        for b in _hetero_floorplan().blocks
+        if b.role != TileRole.IO_PAD  # the ring is a frame, not a cell
+    ]
+
+    def overlaps(a, b) -> bool:
+        eps = 1e-9
+        return (
+            a[0] < b[0] + b[2] - eps and b[0] < a[0] + a[2] - eps
+            and a[1] < b[1] + b[3] - eps and b[1] < a[1] + a[3] - eps
+        )
+
+    collisions = [
+        (a[4], b[4])
+        for i, a in enumerate(boxes)
+        for b in boxes[i + 1:]
+        if overlaps(a, b)
+    ]
+    assert collisions == []
+
+
+def test_floorplan_multi_site_tile_spans_its_site_rectangle():
+    vio = next(b for b in _hetero_floorplan().blocks if b.name.startswith(VIO))
+    pitch = _hetero_floorplan().unified_pitch_mm
+    # 2 sites wide = 4 physical cells, 1 site... 2 sites tall = 2 cells.
+    assert vio.width_mm == pytest.approx(4 * pitch)
+    assert vio.height_mm == pytest.approx(2 * pitch)
+    # It carries the L3 of all four cells it sits on, so that SRAM stays in
+    # the area roll-up instead of reading as whitespace.
+    assert vio.l3_area_mm2 is not None and vio.l3_area_mm2 > 0
+    assert vio.used_area_mm2 >= vio.l3_area_mm2
+
+
+def test_floorplan_names_classes_that_resolve_to_no_compute_area():
+    """Silicon carried on a tile class is not a silicon_bin per_pe block,
+    so those classes currently size to their L2 term alone. The floorplan
+    says so rather than quietly under-sizing them (the area-model half of
+    Phase D)."""
+    notes = _hetero_floorplan().notes
+    assert "no resolved compute area" in notes
+    assert "Systolic-INT8-WS" in notes
+
+
+def test_legacy_floorplans_carry_no_such_note():
+    from embodied_schemas import load_compute_products
+    from graphs.hardware.silicon_floorplan import derive_kpu_architectural_floorplan
+
+    cp = load_compute_products()["kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"]
+    fp = derive_kpu_architectural_floorplan(cp, NODES["tsmc_n16"])
+    assert "no resolved compute area" not in fp.notes
+    assert fp.notes.startswith("Architectural v2:")
