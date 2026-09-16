@@ -758,6 +758,14 @@ def main() -> int:
         return 0
     if args.sku_id and args.from_file:
         parser.error("give a SKU id or --from-file, not both")
+    # The site overlay is a text panel printed under the architectural
+    # view; it has no place in the circuit view or a machine format. Say
+    # so rather than accepting the flag and silently dropping it.
+    if args.overlay:
+        if args.view != "architectural":
+            parser.error("--overlay needs --view architectural")
+        if _detect_format(args.output, args.json) != "text":
+            parser.error("--overlay is only rendered in text output")
     if not args.sku_id and not args.from_file:
         parser.error("sku_id is required (or pass --list or --from-file)")
         return 2

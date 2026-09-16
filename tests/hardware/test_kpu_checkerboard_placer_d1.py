@@ -478,3 +478,42 @@ def test_render_overlay_marks_spares_and_unlabelled_sites():
     assert set(legend.values()) == {"int8_pe", "vision", "quad0"}
     assert set(lines[-1].split()) == {SPARE_SITE}   # the spare rows
     assert "-" in grid                              # LNS / min-plus sites
+
+
+def test_a_class_with_unresolvable_carried_sram_gets_no_shared_l2():
+    """The fixture's systolic accumulator asks for sram_hp, absent on
+    tsmc_n16, so its carried SRAM resolves to nothing. It must not silently
+    fall back to a share of the chip-wide L2 pool it does not draw on
+    (CodeRabbit on #287)."""
+    fp = _hetero_floorplan()
+    shared_l2 = fp.compute_summaries["INT8-MAC"].l2_area_mm2
+    # A PE fabric carries no memory of its own, so it does take a share.
+    assert shared_l2 > 0
+    assert fp.compute_summaries["LNS16-MAC"].l2_area_mm2 == shared_l2
+
+    # The systolic class declares two buffers: a weight buffer in sram_hd,
+    # which resolves, and an accumulator in sram_hp, which tsmc_n16 does
+    # not offer. It gets the part that resolved -- never the shared share.
+    systolic = fp.compute_summaries["Systolic-INT8-WS"].l2_area_mm2
+    assert 0 < systolic < shared_l2
+
+    # A fixed-function core's silicon covers its SRAM, so it draws nothing
+    # from the shared pool either.
+    for ff in ("ISP", "SGM", "VIO"):
+        assert fp.compute_summaries[ff].l2_area_mm2 == 0.0
+
+
+def test_placed_tiles_report_their_own_memory_term():
+    """``compute_mem_areas`` drives pitch and the class summary, so the
+    placed block must use it too or ``used_area_mm2`` disagrees with the
+    summary (CodeRabbit on #287)."""
+    fp = _hetero_floorplan()
+    by_class = {}
+    for b in fp.blocks:
+        if b.tile_class is not None:
+            by_class.setdefault(b.tile_class, b)
+    for tile_type, summary in fp.compute_summaries.items():
+        block = by_class[tile_type]
+        sites = max(1, round(block.width_mm / fp.unified_pitch_mm / 2)) \
+            if block.l3_area_mm2 else 1
+        assert block.l2_area_mm2 == pytest.approx(summary.l2_area_mm2 * sites)

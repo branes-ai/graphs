@@ -211,11 +211,26 @@ _CARRIED_COMPUTE_SOURCES = frozenset(
     {"datapath", "systolic_cells", "fabric_overlay", "function_core"}
 )
 
+#: Sources that mean the class already accounts for its own memory, so it
+#: draws nothing from the chip-wide L2 pool. ``function_core`` is here as
+#: well as in the compute set: a core's ``silicon`` blocks describe the
+#: whole core, its SRAM included (see ``carried_silicon``).
+_SELF_ACCOUNTED_MEMORY_SOURCES = frozenset({"local_memory", "function_core"})
+
 
 def _carried_area_by_tile_type(
     cp: ComputeProduct, node: ProcessNodeEntry
-) -> tuple[dict[str, float], dict[str, float]]:
-    """``(compute, memory)`` area per tile_type from tile-carried silicon.
+) -> tuple[dict[str, float], dict[str, float], set[str]]:
+    """``(compute, memory, declares_memory)`` per tile_type from
+    tile-carried silicon.
+
+    ``declares_memory`` holds every class whose carried silicon already
+    accounts for its memory: one with a ``local_memory`` entry, and a
+    fixed-function core, whose ``silicon`` blocks describe the whole core
+    including its SRAM. Such a class does not draw on the shared L2 pool,
+    so it must not fall back to a share of it -- not when its library fails
+    to resolve on this node, and not when its memory is folded into the
+    compute term.
 
     A systolic or fixed-function class declares its silicon on itself
     rather than as a silicon_bin ``per_pe`` block (graphs#268 C1), so
@@ -229,11 +244,14 @@ def _carried_area_by_tile_type(
     """
     compute: dict[str, float] = {}
     memory: dict[str, float] = {}
+    declares_memory: set[str] = set()
     by_id = {t.tile_class_id: t.tile_type for t in kpu_block_of(cp).tiles}
     for cs in carried_silicon(cp):
         tile_type = by_id.get(cs.tile_class_id)
         if tile_type is None:  # chip-level NoC overlay
             continue
+        if cs.source in _SELF_ACCOUNTED_MEMORY_SOURCES:
+            declares_memory.add(tile_type)
         if not node.supports(cs.circuit_class):
             _logger.warning(
                 "silicon_floorplan: %r on %r uses library %s, absent on %s; "
@@ -244,7 +262,7 @@ def _carried_area_by_tile_type(
         area = cs.transistors_mtx / node.density_for(cs.circuit_class).mtx_per_mm2
         bucket = compute if cs.source in _CARRIED_COMPUTE_SOURCES else memory
         bucket[tile_type] = bucket.get(tile_type, 0.0) + area
-    return compute, memory
+    return compute, memory, declares_memory
 
 
 def _classify_silicon_bin_blocks(
@@ -1078,7 +1096,9 @@ def derive_kpu_architectural_floorplan(
     # silicon_bin per_pe block, so both sources feed the per-class area.
     # The generator rejects a SKU that counts a class both ways
     # (``double_counted_tile_classes``), so adding them is safe.
-    carried_compute, carried_memory = _carried_area_by_tile_type(cp, node)
+    carried_compute, carried_memory, declares_own_memory = (
+        _carried_area_by_tile_type(cp, node)
+    )
 
     # Per-class compute pitches
     compute_pitches: dict[str, float] = {}
@@ -1092,9 +1112,14 @@ def derive_kpu_architectural_floorplan(
             + carried_compute.get(tile.tile_type, 0.0)
         )
         # A class carrying its own SRAM has that instead of a share of the
-        # chip-wide L2 pool, which its tiles do not draw on.
-        own_memory = per_tile(carried_memory.get(tile.tile_type, 0.0))
-        mem_area = own_memory if own_memory > 0 else per_tile_l2
+        # chip-wide L2 pool, which its tiles do not draw on. Membership is
+        # what it declares, not what resolved: an unresolvable library
+        # leaves the area at zero rather than handing the class shared L2
+        # it does not use (the warning above names it).
+        mem_area = (
+            per_tile(carried_memory.get(tile.tile_type, 0.0))
+            if tile.tile_type in declares_own_memory else per_tile_l2
+        )
         total = pe_area + mem_area
         pitch = math.sqrt(total) if total > 0 else 0.0
         compute_pitches[tile.tile_type] = pitch
@@ -1241,7 +1266,7 @@ def derive_kpu_architectural_floorplan(
     # mesh wins shared pixels at the mesh/MC boundary).
     blocks.extend(_arch_place_checkerboard(
         arch, mesh_origin_x, mesh_origin_y, unified_pitch,
-        per_tile_l2, per_tile_l3, compute_pe_areas,
+        per_tile_l2, per_tile_l3, compute_pe_areas, compute_mem_areas,
     ))
 
     # Control logic (bottom-left corner gap, outside the mesh)
@@ -1363,6 +1388,7 @@ def _arch_place_site_grid(
     per_tile_l2: float,
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
+    compute_mem_areas: dict[str, float],
 ) -> list[ArchTile]:
     """Lay out a heterogeneous checkerboard from a placed site grid
     (graphs#268 D1).
@@ -1408,7 +1434,12 @@ def _arch_place_site_grid(
             height_mm=placement.rows * pitch,
             tile_class=tile.tile_type,
             pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
-            l2_area_mm2=per_tile_l2 * placement.num_sites,
+            # The class's own memory term, which for a class carrying its
+            # own SRAM is not a share of the chip-wide L2 pool.
+            l2_area_mm2=(
+                compute_mem_areas.get(tile.tile_type, per_tile_l2)
+                * placement.num_sites
+            ),
             # The cells this tile sits on; a 1x1 tile sits on none, and
             # its paired cell is emitted separately below.
             l3_area_mm2=(
@@ -1441,6 +1472,7 @@ def _arch_place_checkerboard(
     per_tile_l2: float,
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
+    compute_mem_areas: dict[str, float],
 ) -> list[ArchTile]:
     """Lay out compute + memory tiles in a TRUE 2D checkerboard.
 
@@ -1466,7 +1498,7 @@ def _arch_place_checkerboard(
     if arch.checkerboard is not None:
         return _arch_place_site_grid(
             arch, origin_x, origin_y, pitch, per_tile_l2, per_tile_l3,
-            compute_pe_areas,
+            compute_pe_areas, compute_mem_areas,
         )
 
     mesh_rows = arch.noc.mesh_rows

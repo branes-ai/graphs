@@ -375,3 +375,21 @@ def test_show_floorplan_rejects_two_sources(cli_runner, hetero_yaml):
         _CLI / "show_floorplan.py", [_LEGACY, "--from-file", str(hetero_yaml)]
     )
     assert rc != 0 and "not both" in err
+
+
+@pytest.mark.parametrize("extra, expected", [
+    (["--view", "circuit"], "--view architectural"),
+    (["--json"], "only rendered in text output"),
+    (["--output", "fp.json"], "only rendered in text output"),
+])
+def test_show_floorplan_rejects_an_overlay_it_cannot_render(
+    cli_runner, hetero_yaml, extra, expected
+):
+    """--overlay is a text panel under the architectural view. Asking for
+    it anywhere else used to succeed and silently drop it."""
+    rc, _, err = cli_runner(
+        _CLI / "show_floorplan.py",
+        ["--from-file", str(hetero_yaml), "--overlay", "tile-class", *extra],
+    )
+    assert rc != 0
+    assert expected in err
