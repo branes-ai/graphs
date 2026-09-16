@@ -930,6 +930,12 @@ def load_kpu_resource_model_from_yaml(
     model.tile_class_by_tile_type = {
         t.tile_type: t.tile_class_id for t in _kpu_block(cp).tiles if _programmable(t)
     }
+    # The mapper builds its capability-aware tile pools from the kind
+    # (graphs#268 C5b): a GEMM prefers the systolic classes, and a uniform
+    # pe_fabric chip keeps the legacy flat pool.
+    model.tile_kind_by_tile_type = {
+        t.tile_type: t.tile_kind.value for t in _kpu_block(cp).tiles if _programmable(t)
+    }
     model.fixed_function_units = _fixed_function_units(cp, node, default_profile, process_nodes)
 
     # Single-source the per-precision energy_scaling from the process node's

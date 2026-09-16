@@ -960,9 +960,24 @@ class HardwareResourceModel:
     # defaults make them safe to read on any model.
     #   fixed_function_units: tuple[FixedFunctionUnit, ...]
     #   tile_energy_models:   {tile_class_id: KPUTileEnergyModel} or None
+    #   tile_kind_by_tile_type: {tile_type: "pe_fabric" | "systolic"} or None
     fixed_function_units = ()
     tile_energy_models = None
     tile_class_by_tile_type = None
+    tile_kind_by_tile_type = None
+
+    @property
+    def is_heterogeneous_kpu(self) -> bool:
+        """True when this KPU carries more than one programmable tile kind,
+        or any fixed-function tile (graphs#268 C5b).
+
+        A uniform legacy SKU is all ``pe_fabric`` with no fixed-function
+        tiles, so it is False and the mapper keeps its flat tile pool --
+        the golden snapshot pins those mapper results.
+        """
+        if self.fixed_function_units:
+            return True
+        return len(set((self.tile_kind_by_tile_type or {}).values())) > 1
 
     def energy_model_for_tile_type(self, tile_type: Optional[str]):
         """The per-class ``KPUTileEnergyModel`` behind a ``TileSpecialization``
@@ -1957,6 +1972,18 @@ class HardwareMapper(ABC):
         compute_time = ops / effective_ops_per_sec if effective_ops_per_sec > 0 else 0
 
         # Memory time (precision-independent for bandwidth)
+        return self._classify_roofline(compute_time, bytes_transferred)
+
+    def _classify_roofline(
+        self, compute_time: float, bytes_transferred: int
+    ) -> Tuple[float, float, BottleneckType]:
+        """Memory time and the bottleneck verdict for a known compute time.
+
+        Split out of ``_calculate_latency`` so a mapper that derives its own
+        compute time -- the KPU's capability-aware tile pools (graphs#268
+        C5b) compute it from the tiles actually allocated -- classifies the
+        bottleneck against the same 1.5x boundary.
+        """
         memory_time = bytes_transferred / self.resource_model.peak_bandwidth
 
         # Determine bottleneck
