@@ -960,9 +960,24 @@ class HardwareResourceModel:
     # defaults make them safe to read on any model.
     #   fixed_function_units: tuple[FixedFunctionUnit, ...]
     #   tile_energy_models:   {tile_class_id: KPUTileEnergyModel} or None
+    #   tile_kind_by_tile_type: {tile_type: "pe_fabric" | "systolic"} or None
     fixed_function_units = ()
     tile_energy_models = None
     tile_class_by_tile_type = None
+    tile_kind_by_tile_type = None
+
+    @property
+    def is_heterogeneous_kpu(self) -> bool:
+        """True when this KPU carries more than one programmable tile kind,
+        or any fixed-function tile (graphs#268 C5b).
+
+        A uniform legacy SKU is all ``pe_fabric`` with no fixed-function
+        tiles, so it is False and the mapper keeps its flat tile pool --
+        the golden snapshot pins those mapper results.
+        """
+        if self.fixed_function_units:
+            return True
+        return len(set((self.tile_kind_by_tile_type or {}).values())) > 1
 
     def energy_model_for_tile_type(self, tile_type: Optional[str]):
         """The per-class ``KPUTileEnergyModel`` behind a ``TileSpecialization``

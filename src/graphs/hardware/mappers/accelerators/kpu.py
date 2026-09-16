@@ -23,7 +23,7 @@ Example:
   - Each iteration: load input (50KB), weights (36KB), compute, store (50KB)
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 import math
 
@@ -36,6 +36,7 @@ from ...resource_model import (
 )
 from graphs.transform.partitioning import FusedSubgraph, FusionReport
 from graphs.core.structures import BottleneckType
+from .kpu_tile_pools import TilePool, build_tile_pool, prefers_systolic
 
 
 @dataclass
@@ -107,6 +108,61 @@ class KPUMapper(HardwareMapper):
         self.total_on_chip_bytes = (
             self.num_tiles * self.scratchpad_per_tile + self.l2_cache_total
         )
+
+        # Capability-aware tile pools (graphs#268 C5b). A heterogeneous
+        # checkerboard mixes tile classes that do not all run the same
+        # precisions, plus fixed-function tiles that run no precision-typed
+        # ops at all, so the flat ``compute_units`` pool would hand work to
+        # tiles that cannot execute it. A uniform legacy SKU keeps the flat
+        # pool -- the KPU golden snapshot pins its mapper results.
+        self.heterogeneous = resource_model.is_heterogeneous_kpu
+
+    def _compute_resource(self, precision: Precision):
+        """The thermal point's ``KPUComputeResource``, whose specializations
+        carry this profile's per-class clocks and drop its gated classes."""
+        points = self.resource_model.thermal_operating_points or {}
+        point = points.get(self.thermal_profile) if self.thermal_profile else None
+        if point is None or not point.performance_specs:
+            return None
+        spec = point.performance_specs.get(precision)
+        if spec is None:
+            # The profile can't run this precision; any spec still carries
+            # the class list, and the pool reports itself incapable.
+            spec = next(iter(point.performance_specs.values()))
+        return spec.compute_resource
+
+    def _tile_pool(
+        self, subgraph: FusedSubgraph, precision: Precision
+    ) -> Optional[TilePool]:
+        """The pool of tiles this subgraph may run on, or None to use the
+        flat legacy allocation."""
+        if not self.heterogeneous:
+            return None
+        compute_resource = self._compute_resource(precision)
+        if compute_resource is None or not compute_resource.tile_specializations:
+            return None
+        return build_tile_pool(
+            self.resource_model,
+            compute_resource,
+            precision,
+            thermal_profile=self.thermal_profile,
+            prefer_systolic=prefers_systolic(subgraph.operation_types),
+        )
+
+    def _roofline(
+        self, compute_time: float, bytes_transferred: int
+    ) -> Tuple[float, float, BottleneckType]:
+        """The memory-time and bottleneck half of ``_calculate_latency``,
+        for the heterogeneous path that computes its own compute_time from
+        the allocated tiles rather than a fraction of the chip."""
+        memory_time = bytes_transferred / self.resource_model.peak_bandwidth
+        if compute_time > memory_time * 1.5:
+            bottleneck = BottleneckType.COMPUTE_BOUND
+        elif memory_time > compute_time * 1.5:
+            bottleneck = BottleneckType.BANDWIDTH_BOUND
+        else:
+            bottleneck = BottleneckType.BALANCED
+        return compute_time, memory_time, bottleneck
 
     def compute_energy_with_idle_power(
         self,
@@ -303,6 +359,13 @@ class KPUMapper(HardwareMapper):
         # Analyze tiling
         tile_config = self._analyze_tiling(subgraph, precision)
 
+        pool = self._tile_pool(subgraph, precision)
+        if pool is not None and pool.capable:
+            return self._map_subgraph_heterogeneous(
+                subgraph, execution_stage, concurrent_subgraphs, precision,
+                tile_config, pool,
+            )
+
         # Get parallelism
         if subgraph.parallelism is None:
             # Fallback: assume minimal parallelism
@@ -393,6 +456,91 @@ class KPUMapper(HardwareMapper):
             total_energy=total_energy,
             execution_stage=execution_stage,
             is_parallel=is_parallel,
+        )
+
+    def _map_subgraph_heterogeneous(
+        self,
+        subgraph: FusedSubgraph,
+        execution_stage: int,
+        concurrent_subgraphs: int,
+        precision: Precision,
+        tile_config: TileConfiguration,
+        pool: TilePool,
+    ) -> HardwareAllocation:
+        """Map a subgraph onto a capability-aware tile pool (graphs#268 C5b).
+
+        Differs from the flat path in three places:
+        - the allocation comes only from classes that run ``precision``, and
+          a dense matrix product takes the systolic classes first;
+        - tiles have different PE counts, so the thread demand is met class
+          by class rather than divided by one ``threads_per_tile``;
+        - compute time comes from the throughput of the allocated tiles,
+          not from a ``allocated / compute_units`` fraction of the chip --
+          on a mixed fabric those differ by more than the tile ratio.
+
+        Energy still uses the chip-level per-op figure; charging each class
+        its own MAC energy is deferred to the Phase F model work.
+        """
+        if subgraph.parallelism is None:
+            # Same fallback as the flat path: assume the whole pool.
+            threads_demanded = pool.num_tiles * pool.threads_per_tile
+        else:
+            threads_demanded = subgraph.parallelism.total_threads
+
+        allocation = pool.allocate(
+            threads_demanded, min_tiles=tile_config.tiles_per_iteration
+        )
+        tiles_allocated = max(1, allocation.num_tiles)
+        threads_required = allocation.threads
+
+        # Occupancy is against the pool that could have run this work;
+        # utilization is against the whole programmable fabric, so a GEMM
+        # sitting on 4 of 42 tiles reads as the low chip utilization it is.
+        occupancy = tiles_allocated / pool.num_tiles if pool.num_tiles else 1.0
+        utilization = (
+            tiles_allocated / pool.fabric_tiles if pool.fabric_tiles else 1.0
+        )
+
+        ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
+
+        # Weight-stationary traffic, identical to the flat path (issue #51).
+        activation_traffic_bytes = (
+            (subgraph.total_input_bytes + subgraph.total_output_bytes)
+            * tile_config.activation_iterations
+        )
+        bytes_transferred = activation_traffic_bytes + subgraph.total_weight_bytes
+
+        ops_with_tiling = int(ops * tile_config.tiling_overhead)
+        compute_time = (
+            ops_with_tiling / allocation.ops_per_sec if allocation.ops_per_sec > 0 else 0.0
+        )
+        compute_time, memory_time, bottleneck = self._roofline(
+            compute_time, bytes_transferred
+        )
+
+        compute_energy, memory_energy = self._calculate_energy(
+            ops=ops, bytes_transferred=bytes_transferred, precision=precision
+        )
+
+        return HardwareAllocation(
+            subgraph_id=str(subgraph.subgraph_id),
+            subgraph_name=", ".join(subgraph.node_names[:2]),
+            precision=precision,
+            threads_required=threads_required,
+            warps_required=0,  # KPU uses tiles, not warps
+            compute_units_allocated=tiles_allocated,
+            compute_units_ideal=tiles_allocated,
+            occupancy=occupancy,
+            utilization=utilization,
+            bottleneck=bottleneck,
+            compute_time=compute_time,
+            memory_time=memory_time,
+            estimated_latency=max(compute_time, memory_time),
+            compute_energy=compute_energy,
+            memory_energy=memory_energy,
+            total_energy=compute_energy + memory_energy,
+            execution_stage=execution_stage,
+            is_parallel=concurrent_subgraphs > 1,
         )
 
     def map_graph(

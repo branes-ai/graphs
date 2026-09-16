@@ -432,6 +432,23 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     change legacy mapper results wherever a precision is not supported by
     every tile class (FP32 on T64 runs on 13 of 64 tiles), so they are
     enabled only for heterogeneous architectures.
+    *As built:* `HardwareResourceModel.is_heterogeneous_kpu` gates the new
+    path (more than one programmable tile kind, or any fixed-function
+    tile); every catalog SKU is uniform `pe_fabric` and keeps the flat
+    pool. A pool holds the classes whose `ops_per_tile_per_clock` lists the
+    precision, ordered systolic-first for a dense matrix product
+    (`CONV2D`, `CONV2D_POINTWISE`, `LINEAR`, `MATMUL`,
+    `MULTIHEAD_ATTENTION`; depthwise convolution deliberately stays on the
+    PE fabric). Allocation fills each class before spilling to the next and
+    meets both the thread demand and the scratchpad tiling floor. Compute
+    time comes from the throughput of the allocated tiles rather than an
+    `allocated / compute_units` fraction of the chip -- on a mixed fabric
+    those differ by more than the tile ratio. Utilization is reported
+    against the tiles with precision-typed ops, not `compute_units` (which
+    counts the fixed-function tiles). When no class runs the precision the
+    pool declines and the flat path applies, unsupported-precision error
+    included. Per-class MAC energy in the mapper is deferred to Phase F;
+    the pool path still uses the chip-level per-op energy.
 - C6: kind-aware CLIs (`show_kpu`, `list_kpus`, `validate_sku`).
 - **Accept:** the golden snapshot is unchanged. A synthetic heterogeneous
   fixture (one class of each kind, including a 2x2 fixed-function footprint)
