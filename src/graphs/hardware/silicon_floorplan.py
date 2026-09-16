@@ -545,6 +545,35 @@ def _place_io_ring(
     ]
 
 
+def _place_compute_sites(
+    arch,
+    origin_x_mm: float,
+    origin_y_mm: float,
+    pitch_mm: float,
+) -> list[FloorplanBlock]:
+    """The circuit view of a placed checkerboard (graphs#268 E1).
+
+    One block per tile, sized by its footprint. Unlike the architectural
+    view there are no memory cells here -- this view shows compute tiles
+    only -- so a site is one pitch wide, not two.
+    """
+    plan = place_tiles(arch)
+    by_class = {t.tile_class_id: t for t in arch.tiles}
+    return [
+        FloorplanBlock(
+            name=f"tile[{p.row},{p.col}]",
+            circuit_class=_tile_circuit_class(by_class[p.tile_class_id]),
+            x_mm=origin_x_mm + p.col * pitch_mm,
+            y_mm=origin_y_mm + p.row * pitch_mm,
+            width_mm=p.cols * pitch_mm,
+            height_mm=p.rows * pitch_mm,
+            is_compute_tile=True,
+            tile_class=by_class[p.tile_class_id].tile_type,
+        )
+        for p in plan.placements
+    ]
+
+
 def _place_compute_mesh(
     cp: ComputeProduct,
     origin_x_mm: float,
@@ -556,6 +585,12 @@ def _place_compute_mesh(
     Tile-class assignment cycles through ``arch.tiles`` in declaration
     order (INT8-primary first, then BF16-primary, then Matrix), each
     class taking ``num_tiles`` consecutive grid positions.
+
+    A block with an explicit checkerboard goes through the placer instead,
+    so a multi-site tile occupies its whole footprint here as well as in
+    the architectural view (graphs#268 E1). Emitting one pitch-sized block
+    for an 8-site core would understate its envelope and its contribution
+    to the block-area roll-up.
     """
     arch = _kpu_block(cp)
     if not arch.tiles:
@@ -563,6 +598,8 @@ def _place_compute_mesh(
             f"sku {cp.id!r}: kpu_architecture.tiles is empty; cannot "
             f"place a compute mesh"
         )
+    if arch.checkerboard is not None:
+        return _place_compute_sites(arch, origin_x_mm, origin_y_mm, pitch_mm)
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
     expected_total = mesh_rows * mesh_cols
@@ -1465,11 +1502,11 @@ def _arch_place_site_grid(
             tile_class=tile.tile_type,
             pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
             # The class's own memory term, which for a class carrying its
-            # own SRAM is not a share of the chip-wide L2 pool.
-            l2_area_mm2=(
-                compute_mem_areas.get(tile.tile_type, per_tile_l2)
-                * placement.num_sites
-            ),
+            # own SRAM is not a share of the chip-wide L2 pool. Already a
+            # per-tile figure, and a multi-site placement is still one
+            # tile, so it is not scaled by the site count -- unlike the L3
+            # below, which is per cell.
+            l2_area_mm2=compute_mem_areas.get(tile.tile_type, per_tile_l2),
             # The cells this tile sits on; a 1x1 tile sits on none, and
             # its paired cell is emitted separately below.
             l3_area_mm2=(

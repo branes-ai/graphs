@@ -14,6 +14,7 @@ import pytest
 from embodied_schemas import ComputeProduct, load_compute_products, load_process_nodes
 from embodied_schemas.kpu import SPARE_SITE
 
+from graphs.hardware import kpu_tile_display as display
 from graphs.hardware.kpu_access import has_kpu_block, kpu_block_of
 from graphs.hardware.kpu_checkerboard_placer import (
     PlacementError,
@@ -507,25 +508,41 @@ def test_a_class_with_unresolvable_carried_sram_gets_no_shared_l2():
 def test_placed_tiles_report_their_own_memory_term():
     """``compute_mem_areas`` drives pitch and the class summary, so the
     placed block must use it too or ``used_area_mm2`` disagrees with the
-    summary (CodeRabbit on #287)."""
-    fp = _hetero_floorplan()
-    # Site counts come from the plan, not from reverse-engineering the
-    # millimetres: a 2x2 tile is four sites, which its width alone does
-    # not say (CodeRabbit on #287).
-    sites_by_class = {
-        p.tile_class_id: p.num_sites for p in PLAN.placements
-    }
-    type_of = {t.tile_class_id: t.tile_type for t in BLOCK.tiles}
-    sites_by_type = {type_of[cid]: n for cid, n in sites_by_class.items()}
-    assert sites_by_type[VIO_TYPE] == 4
+    summary (CodeRabbit on #287).
 
+    It is a per-*tile* figure, and a multi-site placement is still one
+    tile, so it is not scaled by the site count -- scaling it was the bug
+    this test originally enshrined (CodeRabbit on #288).
+    """
+    fp = _hetero_floorplan()
     by_class = {}
     for b in fp.blocks:
         if b.tile_class is not None:
             by_class.setdefault(b.tile_class, b)
     for tile_type, summary in fp.compute_summaries.items():
         block = by_class[tile_type]
-        expected = summary.l2_area_mm2 * sites_by_type[tile_type]
-        assert block.l2_area_mm2 == pytest.approx(expected), tile_type
+        assert block.l2_area_mm2 == pytest.approx(summary.l2_area_mm2), tile_type
     # At least one class must have a non-zero term, or this proves nothing.
     assert any(b.l2_area_mm2 for b in by_class.values())
+
+
+def test_the_circuit_view_gives_a_multi_site_tile_its_whole_footprint():
+    """The architectural view sizes blocks from the placement; the circuit
+    view used to emit one pitch-sized square per tile, so an 8-site core
+    showed as one site and its area vanished from the roll-up
+    (CodeRabbit on #288)."""
+    from graphs.hardware.silicon_floorplan import derive_kpu_floorplan
+
+    fp = derive_kpu_floorplan(HETERO, NODES["tsmc_n16"])
+    tiles = fp.compute_tiles()
+    assert len(tiles) == BLOCK.total_tiles  # one block per tile, not per site
+
+    pitch = fp.unified_pitch_mm
+    sites_by_type = {t.tile_type: display.tile_sites(t) for t in BLOCK.tiles}
+    for block in tiles:
+        sites = sites_by_type[block.tile_class]
+        assert block.area_mm2 == pytest.approx(sites * pitch * pitch), block.name
+
+    vio = next(b for b in tiles if b.tile_class == VIO_TYPE)
+    assert vio.width_mm == pytest.approx(2 * pitch)
+    assert vio.height_mm == pytest.approx(2 * pitch)

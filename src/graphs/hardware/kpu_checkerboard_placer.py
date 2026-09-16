@@ -339,7 +339,8 @@ def _choose_site(
 
 
 def _placement_order(classes: Sequence[_ClassToPlace],
-                     partners: Dict[str, set]) -> List[_ClassToPlace]:
+                     partners: Dict[str, set],
+                     footprints_first: bool = False) -> List[_ClassToPlace]:
     """Most-constrained first, largest footprint first within that.
 
     A class is *constrained* when it declared a placement affinity or has
@@ -355,6 +356,13 @@ def _placement_order(classes: Sequence[_ClassToPlace],
 
     Within each group the largest footprint goes first (the hardest to
     fit), then declaration order, which is the author's own priority.
+
+    ``footprints_first`` is the fallback order: footprint size alone,
+    ignoring constraints. Deferring a large unconstrained footprint can
+    leave no rectangle for it on a tight grid even though one existed
+    before the constrained classes fragmented the space, so
+    ``_auto_plan`` retries with this order rather than giving up. It is
+    the order D1 shipped with.
     """
 
     def constrained(cls: _ClassToPlace) -> bool:
@@ -363,10 +371,10 @@ def _placement_order(classes: Sequence[_ClassToPlace],
             or bool(partners.get(cls.tile_class_id))
         )
 
-    return sorted(
-        classes,
-        key=lambda c: (0 if constrained(c) else 1, -c.num_sites, c.order),
-    )
+    def group(cls: _ClassToPlace) -> int:
+        return 0 if footprints_first else (0 if constrained(cls) else 1)
+
+    return sorted(classes, key=lambda c: (group(c), -c.num_sites, c.order))
 
 
 def _covered_cells(placements: Iterable[TilePlacementResult],
@@ -397,12 +405,31 @@ def _covered_cells(placements: Iterable[TilePlacementResult],
 
 def _auto_plan(block: KPUBlock, rows: int, cols: int,
                classes: Sequence[_ClassToPlace]) -> SitePlan:
+    """Greedy placement, most-constrained first, falling back to
+    footprint-first if that leaves a large footprint nowhere to go.
+
+    Neither order dominates: putting the constrained classes first is what
+    lets an edge-pinned tile sit next to its stream partner, but it can
+    fragment the grid so that a big unconstrained rectangle no longer
+    fits. Trying both -- in a fixed order, so the result stays
+    deterministic -- succeeds whenever either would.
+    """
     partners = stream_link_partners(block)
+    try:
+        return _auto_plan_ordered(block, rows, cols, classes, partners, False)
+    except PlacementError:
+        return _auto_plan_ordered(block, rows, cols, classes, partners, True)
+
+
+def _auto_plan_ordered(block: KPUBlock, rows: int, cols: int,
+                       classes: Sequence[_ClassToPlace],
+                       partners: Dict[str, set],
+                       footprints_first: bool) -> SitePlan:
     free = {(r, c) for r in range(rows) for c in range(cols)}
     owner: Dict[Site, str] = {}
     placements: List[TilePlacementResult] = []
 
-    for cls in _placement_order(classes, partners):
+    for cls in _placement_order(classes, partners, footprints_first):
         for instance in range(cls.num_tiles):
             site = _choose_site(cls, free, owner, partners, rows, cols)
             if site is None:

@@ -37,6 +37,12 @@
 # process node, the clock / thermal envelope, and the systolic
 # accumulator's SRAM library -- n7 offers sram_hp, so the tile-class
 # library's own choice stands.
+#
+# The memory subsystem is deliberately identical to the n16 variant's,
+# including the LPDDR5 type and its 64 GB/s, so that comparing the two
+# dies isolates the process node. A real n7 product would likely pair
+# this die with LPDDR5X; that is a separate axis, and mixing it in here
+# would muddle the comparison the E2 ladder is built on.
 
 id: kpu_h64_auto1_lp5x4_7nm_tsmc_hpc
 name: Stillwater KPU-H64 Auto1
@@ -189,10 +195,10 @@ kpu_architecture:
         mtx_per_instance: 0.5
 
   memory:
-    memory_type: lpddr5x
+    memory_type: lpddr5
     memory_size_gb: 8.0
     memory_bus_bits: 64
-    memory_bandwidth_gbps: 68.0
+    memory_bandwidth_gbps: 64.0
     memory_controllers: 4
     l3_kib_per_tile: 256
     l2_kib_per_tile: 32
@@ -249,7 +255,7 @@ silicon_bin:
         kind: per_controller
         per_unit_mtx: 6.0
         count_ref: memory
-      notes: LPDDR5X PHY per controller
+      notes: LPDDR5 PHY per controller
     - name: io_pads
       circuit_class: io
       transistor_source:
