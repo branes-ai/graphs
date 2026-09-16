@@ -236,28 +236,39 @@ def stream_link_partners(block: KPUBlock) -> Dict[str, set]:
 
 
 def _affinity_key(affinity: TilePlacementAffinity, rows: int, cols: int):
-    """Order candidate sites by how well they satisfy an affinity.
+    """How well a site satisfies an affinity, as ``(primary, tiebreak)``.
 
-    The die's edges are not interchangeable, so the two edge affinities
-    pick opposite ones: an IO block belongs at the top edge, where the
-    floorplan puts the IO pads, and a memory-edge block at the bottom,
-    alongside the memory controllers. Both fall back to any border before
-    giving up. Every key ends in ``(row, col)`` so the result is stable.
+    ``primary`` is the satisfaction measure itself and nothing else, so
+    every site that satisfies the affinity equally well ties on it. That
+    matters: an IO-edge class with a stream partner should take the edge
+    site *next to its partner*, and it can only do that if the caller is
+    free to break the tie on adjacency. Folding a row preference into the
+    primary -- as this did at first -- pins the class to the top edge and
+    strands the partner across the mesh.
+
+    Both edge affinities measure distance to the nearest border, since a
+    die has four of them. Their tiebreaks then differ: an IO block drifts
+    toward the top edge, where the floorplan puts the pads, and a
+    memory-edge block toward the bottom, alongside the controllers. Every
+    tiebreak ends in ``(row, col)`` so the result is stable.
     """
     last_row, last_col = rows - 1, cols - 1
 
-    def border_distance(r: int, c: int) -> int:
+    def border_distance(rc) -> int:
+        r, c = rc
         return min(r, c, last_row - r, last_col - c)
 
     if affinity == TilePlacementAffinity.IO_EDGE:
-        return lambda rc: (rc[0], border_distance(*rc), rc[0], rc[1])
+        return lambda rc: (border_distance(rc), (rc[0], rc[1]))
     if affinity == TilePlacementAffinity.MEMORY_EDGE:
-        return lambda rc: (last_row - rc[0], border_distance(*rc), rc[0], rc[1])
+        return lambda rc: (border_distance(rc), (last_row - rc[0], rc[1]))
     if affinity == TilePlacementAffinity.CENTER:
-        # Chebyshev distance from the grid centre; ties by row then col.
+        # Chebyshev distance from the grid centre.
         cr, cc = (rows - 1) / 2, (cols - 1) / 2
-        return lambda rc: (max(abs(rc[0] - cr), abs(rc[1] - cc)), rc[0], rc[1])
-    return lambda rc: (rc[0], rc[1])
+        return lambda rc: (
+            max(abs(rc[0] - cr), abs(rc[1] - cc)), (rc[0], rc[1])
+        )
+    return lambda rc: (0, (rc[0], rc[1]))
 
 
 def _fits(free: set, row: int, col: int, height: int, width: int,
@@ -300,12 +311,13 @@ def _choose_site(
 ) -> Optional[Site]:
     """The best free top-left site for one instance of ``cls``.
 
-    Which constraint wins follows the pass the class is in. A class that
-    declared an affinity asked to be somewhere specific, so the affinity
-    ranks first and adjacency breaks its ties -- an ISP pinned to the IO
-    edge must not be dragged inboard by its stream partner. A class with
-    no affinity ranks adjacency first, since a link crossing the mesh is
-    the expensive mistake. Both end in row-major order.
+    A class that declared an affinity asked to be somewhere specific, so
+    how well a site satisfies it ranks first -- an ISP pinned to the IO
+    edge must not be dragged inboard by its stream partner. Among the
+    sites that satisfy it equally well, adjacency decides, so the ISP
+    takes the edge site *next to* its partner rather than an arbitrary
+    one. A class with no affinity ranks adjacency first, since a link
+    crossing the mesh is the expensive mistake. Both end row-major.
     """
     wanted = partners.get(cls.tile_class_id, set())
     affinity_key = _affinity_key(cls.affinity, rows, cols)
@@ -316,8 +328,11 @@ def _choose_site(
         if not _fits(free, row, col, cls.rows, cls.cols, rows, cols):
             continue
         adjacency = -_adjacency_bonus(row, col, cls.rows, cls.cols, wanted, owner)
-        affinity = affinity_key((row, col))
-        key = (affinity, adjacency) if has_affinity else (adjacency, affinity)
+        satisfaction, tiebreak = affinity_key((row, col))
+        key = (
+            (satisfaction, adjacency, tiebreak) if has_affinity
+            else (adjacency, satisfaction, tiebreak)
+        )
         if best_key is None or key < best_key:
             best, best_key = (row, col), key
     return best
@@ -325,29 +340,32 @@ def _choose_site(
 
 def _placement_order(classes: Sequence[_ClassToPlace],
                      partners: Dict[str, set]) -> List[_ClassToPlace]:
-    """The four passes, in the order the plan fixes.
+    """Most-constrained first, largest footprint first within that.
 
-    Multi-site footprints go first because they are the hardest to fit and
-    a fragmented grid can leave no rectangle for them. Affinities come
-    next, so an ISP claims the IO edge before the fabric fills it.
-    Stream-link partners follow, placing themselves against whatever is
-    already down. Everything else fills row-major.
+    A class is *constrained* when it declared a placement affinity or has
+    a stream-link partner: both restrict it to part of the grid, and a
+    grid that is already full in that part cannot satisfy it. An
+    unconstrained class can go anywhere, so it waits -- even a multi-site
+    one, which is still easy to fit while most of the grid is open.
+
+    Ordering by footprint alone is not enough, and the reference SKU shows
+    why: its systolic pairs are multi-site but unconstrained, and going
+    first they took the very edge sites next to the stereo core that the
+    IO-edge ISP needed, leaving its stream link to cross the mesh.
+
+    Within each group the largest footprint goes first (the hardest to
+    fit), then declaration order, which is the author's own priority.
     """
 
-    def pass_of(cls: _ClassToPlace) -> int:
-        if cls.num_sites > 1:
-            return 0
-        if cls.affinity != TilePlacementAffinity.ANY:
-            return 1
-        if partners.get(cls.tile_class_id):
-            return 2
-        return 3
+    def constrained(cls: _ClassToPlace) -> bool:
+        return (
+            cls.affinity != TilePlacementAffinity.ANY
+            or bool(partners.get(cls.tile_class_id))
+        )
 
     return sorted(
         classes,
-        # Within the footprint pass, the largest first; then declaration
-        # order, which is the author's own priority.
-        key=lambda c: (pass_of(c), -c.num_sites, c.order),
+        key=lambda c: (0 if constrained(c) else 1, -c.num_sites, c.order),
     )
 
 

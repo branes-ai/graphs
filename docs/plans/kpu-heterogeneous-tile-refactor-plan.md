@@ -532,6 +532,35 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
   - 1 SGM, stream-linked ISP -> SGM -> VIO.
 
   Generate, validate, and render the floorplan.
+  *As built:* `data/sku_specs/kpu_h64_auto1_lp5x4_{16nm_tsmc_ffp,7nm_tsmc_hpc}.yaml`.
+  Every tile class is a library `use:` reference, so the SKU states only
+  how many of each and where they sit. Site budget 24+8+6 PE fabric,
+  4 systolic at 1x2, ISP 1x1, SGM 2x4, VIO 2x2, 5 spare = 64. The two
+  variants differ in exactly three places -- process node, envelope, and
+  the systolic accumulator's SRAM library (n7 has `sram_hp`, n16 does not,
+  so that one drops to `sram_hc`; embodied-schemas#96) -- and place
+  identically, which is the point of expressing a design in sites.
+  Both generate and validate with no ERROR findings. At n16: 73.9 mm^2,
+  29% whitespace, 38.9 INT8 TOPS.
+  - **Three defects this flushed out, all fixed here:**
+    1. A class's pitch was computed as if it were 1x1, so declaring a
+       footprint changed nothing and one big core set the pitch of all 64
+       sites. Pitch is now area *per site*.
+    2. The v1 circuit floorplan never got D2's carried-silicon fix, so in
+       that view the systolic and fixed-function classes still collapsed
+       to the SRAM term and the pitch validators fired on the largest
+       classes on the die.
+    3. The placer ordered multi-site footprints first regardless of
+       constraint, so the unconstrained systolic pairs took the edge sites
+       next to the stereo core that the IO-edge ISP needed, and its stream
+       link crossed the mesh. Ordering is now most-constrained-first
+       (an affinity or a stream partner), largest footprint within that.
+       `stream_link_adjacency` also now checks where tiles actually land
+       under auto placement instead of trusting that a hint exists.
+  - **Not done here:** the SKUs are not in the embodied-schemas catalog.
+    Landing them needs an ES data PR, a release and a pin bump, and would
+    put them in the golden snapshot and every parametrized catalog test.
+    Worth doing, but as its own change.
 - E2: `cli/analyze_kpu_tile_ladder.py`: one function (SGM, VIO front-end, GEMM)
   across the fixed_function / systolic / pe_fabric variants, plus the Orin
   GPU/CPU mappers.
