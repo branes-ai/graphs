@@ -44,6 +44,7 @@ from embodied_schemas.overlay import NoCOverlayKind
 from embodied_schemas.power_domain import PowerDomainKind
 
 from ...kpu_access import kpu_block_of, kpu_die_of
+from ...kpu_checkerboard_placer import PlacementError, place_tiles
 from .. import ValidatorCategory, ValidatorContext, default_registry
 from ..framework import Finding, Severity
 from .. import silicon_math as sm
@@ -401,10 +402,16 @@ def _sites_by_class(pmap) -> dict[str, set]:
 class StreamLinkAdjacency:
     """Stream-linked tile classes should sit next to each other.
 
-    With an explicit placement map, consecutive stream-link endpoints must
-    have 4-adjacent sites (WARNING otherwise). With auto placement, the
-    pair should appear in either class's ``placement.adjacent_to`` so the
-    placer keeps them together (INFO otherwise).
+    Consecutive stream-link endpoints must have 4-adjacent sites, or the
+    link crosses the mesh and the segment encapsulation the chain exists
+    for is lost.
+
+    Since D1 there is a placer, so this checks where the tiles actually
+    land -- under an explicit placement map *and* under auto placement,
+    which used to be taken on trust (the check was only that a
+    ``placement.adjacent_to`` hint existed, which says what the author
+    wanted, not what the placer did). A block with no checkerboard has no
+    site grid to check, and falls back to the hint.
     """
 
     name = "stream_link_adjacency"
@@ -414,7 +421,22 @@ class StreamLinkAdjacency:
         block = kpu_block_of(ctx.sku)
         by_id = {t.tile_class_id: t for t in block.tiles}
         cb = block.checkerboard
-        sites = _sites_by_class(cb.placement_map) if cb and cb.placement_map else None
+        sites = None
+        where = ""
+        if cb is not None and cb.placement_map:
+            sites = _sites_by_class(cb.placement_map)
+            where = "in the placement map"
+        elif cb is not None:
+            try:
+                plan = place_tiles(block)
+            except PlacementError:
+                plan = None  # checkerboard_site_accounting reports this
+            if plan is not None:
+                sites = {
+                    cid: set(plan.sites_of(cid))
+                    for cid in {p.tile_class_id for p in plan.placements}
+                }
+                where = "as placed"
         findings: List[Finding] = []
         for ov, a, b in _stream_pairs(block):
             if sites is not None:
@@ -424,7 +446,7 @@ class StreamLinkAdjacency:
                     findings.append(_finding(
                         self, Severity.WARNING,
                         f"stream link {ov.overlay_id!r}: {a!r} and {b!r} are not adjacent "
-                        f"in the placement map; the link crosses the mesh.",
+                        f"{where}; the link crosses the mesh.",
                     ))
                 continue
             hints = set()

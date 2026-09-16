@@ -237,9 +237,18 @@ def test_checkerboard_site_accounting():
 
 
 def test_stream_link_adjacency():
-    findings = _run("stream_link_adjacency", HETERO)
-    assert [f.severity for f in findings] == [Severity.INFO, Severity.INFO]
+    """Since E1 this checks where the tiles actually land under auto
+    placement, not merely that a ``placement.adjacent_to`` hint exists --
+    a hint says what the author wanted, not what the placer did.
 
+    The fixture declares the ISP -> SGM -> VIO chain as a stream-link
+    overlay, and the D1 placer reads those endpoints as adjacency
+    constraints, so the chain comes out adjacent with no hints at all.
+    """
+    assert _run("stream_link_adjacency", HETERO) == []
+
+    # Adding the hints explicitly changes nothing: the overlay already
+    # said it.
     def hint(data):
         _tile(data, "ff_stereo_sgm")["placement"] = {
             "adjacent_to": ["ff_isp_raw2yuv", "ff_vio_stereo_inertial"]}
