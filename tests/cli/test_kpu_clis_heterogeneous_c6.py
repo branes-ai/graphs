@@ -525,3 +525,47 @@ def test_engine_registry_works_on_a_uniform_sku(cli_runner):
     assert rc == 0, err
     assert "=== Engines (3) ===" in out
     assert "no stream-linked chains" in out
+
+
+def test_engine_registry_csv_carries_all_three_sections(cli_runner, hetero_yaml, tmp_path):
+    """main() writes the file before returning a non-zero exit code, so a
+    CSV that held only the engines could not explain the failure
+    (CodeRabbit on #290)."""
+    import csv as _csv
+
+    out_path = tmp_path / "engines.csv"
+    rc, _, err = cli_runner(
+        _CLI / "list_kpu_engines.py",
+        ["--from-file", str(hetero_yaml), "--output", str(out_path),
+         "--require", "planning_qp=fp32"],
+    )
+    assert rc == 1, err
+    rows = list(_csv.DictReader(out_path.read_text(encoding="utf-8").splitlines()))
+    by_type = {}
+    for row in rows:
+        by_type.setdefault(row["record_type"], []).append(row)
+    assert set(by_type) == {"engine", "segment", "precision_finding"}
+    assert by_type["segment"][0]["segment_id"] == "isp_sgm_vio"
+    assert "pixel=7" in by_type["segment"][0]["absorbed_bytes_by_unit"]
+    finding = by_type["precision_finding"][0]
+    assert finding["severity"] == "ERROR"
+    assert finding["requirement"] == "planning_qp"
+
+
+def test_engine_registry_survives_a_core_with_no_retargetable_energy(
+    cli_runner, tmp_path, hetero_yaml
+):
+    """fixed_function_pj_per_unit returns None when the core's reference
+    node is not in the catalog. Formatting that as a float crashed the
+    default text view (CodeRabbit on #290)."""
+    data = yaml.safe_load(hetero_yaml.read_text(encoding="utf-8"))
+    for tile in data["dies"][0]["blocks"][0]["tiles"]:
+        if tile.get("core"):
+            tile["core"]["energy"]["ref_node_id"] = "not_a_real_node"
+    path = tmp_path / "orphan_ref.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    rc, out, err = cli_runner(_CLI / "list_kpu_engines.py", ["--from-file", str(path)])
+    assert rc == 0, err
+    assert "Traceback" not in err
+    assert "energy not retargetable" in out

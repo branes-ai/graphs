@@ -97,10 +97,19 @@ def _render_text(
                 f"{tops_w}"
             )
         if engine.function_id:
-            out.append(
-                f"      {engine.units_per_second:.4g} {engine.work_unit}/s  "
-                f"{engine.pj_per_unit:.4g} pJ/{engine.work_unit}"
+            rate = (
+                f"{engine.units_per_second:.4g} {engine.work_unit}/s"
+                if engine.units_per_second else "rate not declared"
             )
+            # fixed_function_pj_per_unit returns None when the core's
+            # reference node is not in the catalog, so it cannot be
+            # retargeted. Say that rather than crash on the format.
+            energy = (
+                f"{engine.pj_per_unit:.4g} pJ/{engine.work_unit}"
+                if engine.pj_per_unit is not None
+                else "energy not retargetable (reference node unavailable)"
+            )
+            out.append(f"      {rate}  {energy}")
         if engine.supported_kernels:
             out.append(f"      kernels: {', '.join(engine.supported_kernels)}")
         if engine.notes:
@@ -166,11 +175,47 @@ def _engine_rows(engines: Sequence[EngineDescriptor]) -> List[dict]:
 
 
 def _render_csv(engines, segments, findings) -> str:
-    rows = _engine_rows(engines)
+    """One table for all three sections, keyed by ``record_type``.
+
+    Writing only the engines would mean a CSV that cannot explain the
+    requirement the run failed on, or name the segments -- and ``main``
+    writes this file *before* returning a non-zero exit code, so that is
+    exactly when the reader needs them (CodeRabbit on #290).
+    """
+    rows: List[dict] = [{"record_type": "engine", **row} for row in _engine_rows(engines)]
+    rows += [
+        {
+            "record_type": "segment",
+            "segment_id": s.segment_id,
+            "engine_ids": ";".join(s.engine_ids),
+            "function_ids": ";".join(s.function_ids),
+            "num_stages": s.num_stages,
+            "absorbed_bytes_by_unit": ";".join(
+                f"{unit}={value:g}" for unit, value in s.absorbed_bytes_by_unit
+            ),
+        }
+        for s in segments
+    ]
+    rows += [
+        {
+            "record_type": "precision_finding",
+            "requirement": f.requirement,
+            "operand_format": f.operand_format,
+            "served_by": ";".join(f.served_by),
+            "severity": f.severity,
+            "message": f.message,
+        }
+        for f in findings
+    ]
     if not rows:
         return ""
+    fieldnames: List[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(rows[0]))
+    writer = csv.DictWriter(buf, fieldnames=fieldnames, restval="")
     writer.writeheader()
     writer.writerows(rows)
     return buf.getvalue()
