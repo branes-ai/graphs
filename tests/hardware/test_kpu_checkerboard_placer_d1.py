@@ -35,6 +35,7 @@ BLOCK = kpu_block_of(HETERO)
 PLAN = place_tiles(BLOCK)
 
 ISP, SGM, VIO = "ff_isp_raw2yuv", "ff_stereo_sgm", "ff_vio_stereo_inertial"
+VIO_TYPE = "VIO"
 
 _NEIGHBORS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -508,12 +509,23 @@ def test_placed_tiles_report_their_own_memory_term():
     placed block must use it too or ``used_area_mm2`` disagrees with the
     summary (CodeRabbit on #287)."""
     fp = _hetero_floorplan()
+    # Site counts come from the plan, not from reverse-engineering the
+    # millimetres: a 2x2 tile is four sites, which its width alone does
+    # not say (CodeRabbit on #287).
+    sites_by_class = {
+        p.tile_class_id: p.num_sites for p in PLAN.placements
+    }
+    type_of = {t.tile_class_id: t.tile_type for t in BLOCK.tiles}
+    sites_by_type = {type_of[cid]: n for cid, n in sites_by_class.items()}
+    assert sites_by_type[VIO_TYPE] == 4
+
     by_class = {}
     for b in fp.blocks:
         if b.tile_class is not None:
             by_class.setdefault(b.tile_class, b)
     for tile_type, summary in fp.compute_summaries.items():
         block = by_class[tile_type]
-        sites = max(1, round(block.width_mm / fp.unified_pitch_mm / 2)) \
-            if block.l3_area_mm2 else 1
-        assert block.l2_area_mm2 == pytest.approx(summary.l2_area_mm2 * sites)
+        expected = summary.l2_area_mm2 * sites_by_type[tile_type]
+        assert block.l2_area_mm2 == pytest.approx(expected), tile_type
+    # At least one class must have a non-zero term, or this proves nothing.
+    assert any(b.l2_area_mm2 for b in by_class.values())
