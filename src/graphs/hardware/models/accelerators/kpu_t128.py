@@ -18,9 +18,9 @@ def kpu_t128_resource_model() -> HardwareResourceModel:
     """
     model = load_kpu_resource_model_from_yaml("kpu_t128_32x32_lp5x8_16nm_tsmc_ffp")
     # M0.5 domain-flow MAC energies (see kpu_t64.py for rationale).
-    model.tile_energy_model.mac_energy_int8 = 0.10e-12
-    model.tile_energy_model.mac_energy_bf16 = 0.16e-12
-    model.tile_energy_model.mac_energy_fp32 = 0.30e-12
+    # Applied to the chip-level model and every per-class model, so a
+    # report that selects one class still sees this SKU's numbers.
+    model.apply_mac_energy_override(int8=0.10e-12, bf16=0.16e-12, fp32=0.30e-12)
     model.bom_cost_profile = BOMCostProfile(
         silicon_die_cost=100.0,       # 16nm TSMC, between T64 and T256
         package_cost=18.0,

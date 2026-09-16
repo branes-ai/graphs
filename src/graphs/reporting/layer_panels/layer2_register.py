@@ -133,15 +133,17 @@ def _kpu_fill_drain_overhead(
     if model.hardware_type is not HardwareType.KPU:
         return None
     # The M0.5 KPU resource models attach KPUComputeResource via
-    # thermal operating points. Read the first tile spec we find.
+    # thermal operating points. Read the representative (most-tiles) tile
+    # class of the first one we find (graphs#268 C5: not blindly the first
+    # specialization, which on a heterogeneous KPU may be a minor class).
     for tp in (model.thermal_operating_points or {}).values():
         for spec in tp.performance_specs.values():
             cr = getattr(spec, "compute_resource", None)
             if cr is None:
                 continue
-            tile_specs = getattr(cr, "tile_specializations", None) or []
-            if tile_specs:
-                ts = tile_specs[0]
+            pick = getattr(cr, "representative_specialization", None)
+            ts = pick() if pick else None
+            if ts is not None:
                 return (ts.pipeline_fill_cycles, ts.pipeline_drain_cycles)
     return None
 
