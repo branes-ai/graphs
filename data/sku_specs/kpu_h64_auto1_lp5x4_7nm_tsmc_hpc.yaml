@@ -1,0 +1,308 @@
+# kpu_h64_auto1 at tsmc_n7 -- the reference heterogeneous KPU
+# (branes-ai/graphs#268 E1).
+#
+# 64 compute sites on an 8x8 checkerboard, carrying four programmable tile
+# classes and three fixed-function cores drawn from the embodied-schemas
+# tile-class library. This is the first SKU that exercises every piece of
+# the heterogeneous refactor end to end: library `use:` references (C3),
+# tile-carried silicon (C1), a by-kind performance roll-up (B5),
+# multi-site footprints with absorbed memory cells, placement affinities
+# and a stream link (D1), and the per-class area model (D2).
+#
+# The autonomy pipeline it is built for:
+#
+#   camera -> ISP -> SGM (stereo depth) -> VIO (pose) -> planning
+#                       \                    /
+#                        +--> PE fabric + systolic array (perception DNN)
+#
+# The three fixed-function cores form a stream-linked chain so the ISP's
+# output reaches the depth and pose stages without a round trip through
+# DRAM; the placer keeps them 4-adjacent.
+#
+# Site budget (the schema checks this):
+#   PE INT8   24 x 1 = 24    systolic   4 x 2 = 8
+#   PE LNS16   8 x 1 =  8    ISP        1 x 1 = 1
+#   PE minplus 6 x 1 =  6    SGM        1 x 8 = 8
+#                            VIO        1 x 4 = 4
+#   spare                          = 5
+#   total                          = 64
+#
+# Footprints are sized so no class needs more silicon than its sites
+# offer. They are the same as the n16 variant's: the classes shrink
+# together going to n7, so their relative site demand barely moves, which
+# is the point of expressing a design in sites rather than millimetres.
+# `tile_footprint_pitch_fit` (C4) is the check that keeps this honest.
+#
+# This variant differs from the n16 one in exactly three places: the
+# process node, the clock / thermal envelope, and the systolic
+# accumulator's SRAM library -- n7 offers sram_hp, so the tile-class
+# library's own choice stands.
+#
+# The memory subsystem is deliberately identical to the n16 variant's,
+# including the LPDDR5 type and its 64 GB/s, so that comparing the two
+# dies isolates the process node. A real n7 product would likely pair
+# this die with LPDDR5X; that is a separate axis, and mixing it in here
+# would muddle the comparison the E2 ladder is built on.
+
+id: kpu_h64_auto1_lp5x4_7nm_tsmc_hpc
+name: Stillwater KPU-H64 Auto1
+vendor: stillwater
+process_node_id: tsmc_n7
+last_updated: "2026-09-16"
+
+notes: >-
+  Reference heterogeneous KPU for embodied autonomy: a PE fabric of three
+  datapath classes, a weight-stationary systolic array for dense GEMM and
+  convolution, and an ISP -> SGM -> VIO fixed-function chain. Every tile
+  class comes from the embodied-schemas tile-class library; the SKU only
+  states how many of each and where they sit.
+
+kpu_architecture:
+  # total_tiles is filled in from the tile counts.
+  tiles:
+    # --- PE fabric --------------------------------------------------
+    # The bulk of the die: INT8 MACs with INT32 accumulation, the
+    # legacy-equivalent class. A row-broadcast overlay feeds weights
+    # along each row.
+    - use: pe_int8_mac_i32
+      num_tiles: 24
+      overrides:
+        interconnect:
+          base: nearest_neighbor_4
+          link_bits: 32
+          overlays:
+            - overlay_id: row_bcast
+              kind: row_broadcast
+              instances_per: row
+              instances: 1
+              width_bits: 32
+              configuration: static_per_schedule
+              circuit_class: balanced_logic
+              mtx_per_instance: 0.002
+
+    # Logarithmic-number-system MACs: a multiply is an add, which is
+    # what makes this class cheaper per op than the INT8 fabric despite
+    # its wider datapath.
+    - use: pe_lns16_mac
+      num_tiles: 8
+      overrides:
+        datapath:
+          datapath_id: lns16_mac
+          mtx_per_pe: 0.009
+          functional_units:
+            - unit_id: mac
+              op: mac
+              modes:
+                - operand_format: lns16
+                  accumulate_format: lns16
+                  energy:
+                    kind: relative
+                    anchor: "balanced_logic:bf16"
+                    ratio: 0.45
+                    source: >-
+                      Derived: an LNS multiply is an adder, so the MAC
+                      costs roughly an add plus the log-domain
+                      accumulate table lookup.
+                - operand_format: lns8
+                  accumulate_format: lns16
+                  lanes: 2
+                  energy:
+                    kind: relative
+                    anchor: "balanced_logic:int8"
+                    ratio: 0.45
+                    source: "Derived, as lns16 above, at half width."
+
+    # Min-plus / absolute-difference tropical algebra: stereo cost
+    # volumes, dynamic programming, graph shortest paths. Its ops are
+    # not precision-keyed, so it contributes no TOPS.
+    - use: pe_minplus_i16
+      num_tiles: 6
+
+    # --- Systolic -----------------------------------------------------
+    # Dense GEMM and convolution. Two sites each: a 64x64 cell array
+    # needs more silicon than one site offers at this pitch.
+    - use: systolic_int8_ws
+      num_tiles: 4
+      overrides:
+        # Absorbing: the L3 cells paired with these two sites sit under
+        # the array, so they are its weight/partial-sum storage rather
+        # than shared scratchpad the mesh can reach.
+        footprint: {rows: 1, cols: 2, absorbs_memory_cells: true}
+        # The library entry gives the cell's energy but no transistor
+        # count, so the SKU states one: a MAC plus weight and partial-sum
+        # pipeline registers, cheaper than a PE-fabric cell (0.006) because
+        # it has no token match or operand routing.
+        mac:
+          unit_id: mac
+          op: mac
+          mtx: 0.004
+          modes:
+            - operand_format: int8
+              accumulate_format: int32
+              energy:
+                kind: relative
+                anchor: "balanced_logic:int8"
+                ratio: 0.65
+                source: >-
+                  embodied-schemas tile-class library systolic_int8_ws
+                  (Jouppi ISCA 2017 organization; Horowitz ISSCC 2014).
+
+    # --- Fixed function ----------------------------------------------
+    # Raw Bayer to YUV. At the IO edge, next to the camera PHYs, and the
+    # head of the stream-link chain.
+    - use: ff_isp_raw2yuv
+      num_tiles: 1
+      overrides:
+        placement:
+          affinity: io_edge
+          adjacent_to: [ff_stereo_sgm]
+
+    # Semi-global stereo matching. The largest core on the die by a wide
+    # margin: 8 sites.
+    - use: ff_stereo_sgm
+      num_tiles: 1
+      overrides:
+        footprint: {rows: 2, cols: 4, absorbs_memory_cells: true}
+        placement:
+          affinity: any
+          adjacent_to: [ff_vio_stereo_inertial]
+
+    # Visual-inertial odometry. 2x2 sites, absorbing the memory cells it
+    # covers: its pose graph and feature state live in that SRAM rather
+    # than in shared L3 the mesh can reach.
+    - use: ff_vio_stereo_inertial
+      num_tiles: 1
+      overrides:
+        footprint: {rows: 2, cols: 2, absorbs_memory_cells: true}
+
+  noc:
+    topology: mesh_2d
+    mesh_rows: 8
+    mesh_cols: 8
+    flit_bytes: 16
+    router_circuit_class: hp_logic
+    bisection_bandwidth_gbps: 64.0
+    overlays:
+      # The perception chain: ISP -> SGM -> VIO, point to point, so a
+      # frame never returns to DRAM between stages.
+      - overlay_id: isp_sgm_vio
+        kind: stream_link
+        endpoints: [ff_isp_raw2yuv, ff_stereo_sgm, ff_vio_stereo_inertial]
+        width_bytes: 32
+        instances: 1
+        configuration: static_per_schedule
+        circuit_class: hp_logic
+        mtx_per_instance: 0.5
+
+  memory:
+    memory_type: lpddr5
+    memory_size_gb: 8.0
+    memory_bus_bits: 64
+    memory_bandwidth_gbps: 64.0
+    memory_controllers: 4
+    l3_kib_per_tile: 256
+    l2_kib_per_tile: 32
+    l1_kib_per_pe: 4
+
+  multi_precision_alu: [int4, int8, bf16, fp32]
+
+  checkerboard:
+    compute_sites: {rows: 8, cols: 8}
+    placement: auto
+    spare_sites: 5
+
+silicon_bin:
+  blocks:
+    # The INT8 and min-plus classes state their PE cost here rather than
+    # on the library entry, which carries no transistor figure for them.
+    # The LNS, systolic and fixed-function classes carry their own
+    # silicon, so they must NOT appear here -- `silicon_no_double_count`
+    # (C4) is the check.
+    - name: pe_int8
+      circuit_class: balanced_logic
+      transistor_source:
+        kind: per_pe
+        per_unit_mtx: 0.006
+        count_ref: tile.pe_int8_mac_i32
+    - name: pe_minplus
+      circuit_class: balanced_logic
+      transistor_source:
+        kind: per_pe
+        per_unit_mtx: 0.004
+        count_ref: tile.pe_minplus_i16
+    - name: l2_sram
+      circuit_class: sram_hd
+      transistor_source:
+        kind: per_kib
+        per_unit_mtx: 0.052
+        count_ref: l2_total_kib
+    - name: l3_sram
+      circuit_class: sram_hd
+      transistor_source:
+        kind: per_kib
+        per_unit_mtx: 0.052
+        count_ref: l3_total_kib
+      notes: Distributed per-site L3 scratchpad
+    - name: noc_routers
+      circuit_class: hp_logic
+      transistor_source:
+        kind: per_router
+        per_unit_mtx: 0.8
+        count_ref: noc
+    - name: memory_phys
+      circuit_class: analog
+      transistor_source:
+        kind: per_controller
+        per_unit_mtx: 6.0
+        count_ref: memory
+      notes: LPDDR5 PHY per controller
+    - name: io_pads
+      circuit_class: io
+      transistor_source:
+        kind: fixed
+        mtx: 5.0
+    - name: control_logic
+      circuit_class: balanced_logic
+      transistor_source:
+        kind: fixed
+        mtx: 8.0
+      notes: Top-level scheduler, host interface, DMA controllers
+
+# Clocks and envelopes follow kpu_t64_32x32_lp5x4_7nm_tsmc_hpc, the
+# uniform KPU on the same node, so the two are comparable in the E2 ladder.
+clocks:
+  base_clock_mhz: 450.0
+  boost_clock_mhz: 750.0
+
+thermal_profiles:
+  - name: lp
+    tdp_watts: 1.3
+    clock_mhz: 450.0
+    cooling_solution_id: passive_heatsink_large
+    vdd_v: 0.50
+    efficiency_factor_by_precision: {int8: 0.60, bf16: 0.55, int4: 0.65}
+    tile_utilization_by_precision: {int8: 0.90, bf16: 0.85, int4: 0.92}
+  - name: default
+    tdp_watts: 2.7
+    clock_mhz: 600.0
+    cooling_solution_id: active_fan
+    vdd_v: 0.65
+    efficiency_factor_by_precision: {int8: 0.65, bf16: 0.60, int4: 0.70}
+    tile_utilization_by_precision: {int8: 0.93, bf16: 0.88, int4: 0.95}
+  - name: boost
+    tdp_watts: 4.0
+    clock_mhz: 700.0
+    cooling_solution_id: active_fan
+    vdd_v: 0.75
+    efficiency_factor_by_precision: {int8: 0.70, bf16: 0.65, int4: 0.75}
+    tile_utilization_by_precision: {int8: 0.95, bf16: 0.90, int4: 0.97}
+
+default_thermal_profile: default
+
+market:
+  launch_date: 2025-Q4
+  target_market: edge
+  product_family: Stillwater KPU
+  model_tier: entry
+  is_available: false
+  is_discontinued: false

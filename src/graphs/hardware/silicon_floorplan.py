@@ -383,15 +383,34 @@ def derive_kpu_floorplan(
     per_tile_sram = _per_tile_sram_area_mm2(
         cp, node, chip_l2_area, chip_l3_area
     )
+    # Tile-carried silicon counts here too (graphs#268 E1). The v2
+    # architectural view already did this; leaving v1 out meant a
+    # heterogeneous SKU's systolic and fixed-function classes collapsed to
+    # the SRAM term in the circuit view, and the pitch validators fired on
+    # classes that are in fact the largest on the die.
+    carried_compute, carried_memory, declares_own_memory = (
+        _carried_area_by_tile_type(cp, node)
+    )
     tile_pitches: dict[str, TilePitch] = {}
     for tile in arch.tiles:
         pe_area = _per_tile_pe_area_mm2(cp, node, tile, pe_by_tile_type)
-        total = pe_area + per_tile_sram
-        pitch = math.sqrt(total) if total > 0 else 0.0
+        if tile.num_tiles > 0:
+            pe_area += carried_compute.get(tile.tile_type, 0.0) / tile.num_tiles
+        sram_area = per_tile_sram
+        if tile.tile_type in declares_own_memory:
+            sram_area = (
+                carried_memory.get(tile.tile_type, 0.0) / tile.num_tiles
+                if tile.num_tiles > 0 else 0.0
+            )
+        total = pe_area + sram_area
+        # Per site, not per tile: a multi-site footprint spreads its
+        # silicon over the sites it occupies.
+        sites = tile_display.tile_sites(tile)
+        pitch = math.sqrt(total / sites) if total > 0 else 0.0
         tile_pitches[tile.tile_type] = TilePitch(
             tile_class=tile.tile_type,
             pe_area_mm2=pe_area,
-            sram_area_mm2=per_tile_sram,
+            sram_area_mm2=sram_area,
             total_area_mm2=total,
             pitch_mm=pitch,
         )
@@ -526,6 +545,35 @@ def _place_io_ring(
     ]
 
 
+def _place_compute_sites(
+    arch,
+    origin_x_mm: float,
+    origin_y_mm: float,
+    pitch_mm: float,
+) -> list[FloorplanBlock]:
+    """The circuit view of a placed checkerboard (graphs#268 E1).
+
+    One block per tile, sized by its footprint. Unlike the architectural
+    view there are no memory cells here -- this view shows compute tiles
+    only -- so a site is one pitch wide, not two.
+    """
+    plan = place_tiles(arch)
+    by_class = {t.tile_class_id: t for t in arch.tiles}
+    return [
+        FloorplanBlock(
+            name=f"tile[{p.row},{p.col}]",
+            circuit_class=_tile_circuit_class(by_class[p.tile_class_id]),
+            x_mm=origin_x_mm + p.col * pitch_mm,
+            y_mm=origin_y_mm + p.row * pitch_mm,
+            width_mm=p.cols * pitch_mm,
+            height_mm=p.rows * pitch_mm,
+            is_compute_tile=True,
+            tile_class=by_class[p.tile_class_id].tile_type,
+        )
+        for p in plan.placements
+    ]
+
+
 def _place_compute_mesh(
     cp: ComputeProduct,
     origin_x_mm: float,
@@ -537,6 +585,12 @@ def _place_compute_mesh(
     Tile-class assignment cycles through ``arch.tiles`` in declaration
     order (INT8-primary first, then BF16-primary, then Matrix), each
     class taking ``num_tiles`` consecutive grid positions.
+
+    A block with an explicit checkerboard goes through the placer instead,
+    so a multi-site tile occupies its whole footprint here as well as in
+    the architectural view (graphs#268 E1). Emitting one pitch-sized block
+    for an 8-site core would understate its envelope and its contribution
+    to the block-area roll-up.
     """
     arch = _kpu_block(cp)
     if not arch.tiles:
@@ -544,6 +598,8 @@ def _place_compute_mesh(
             f"sku {cp.id!r}: kpu_architecture.tiles is empty; cannot "
             f"place a compute mesh"
         )
+    if arch.checkerboard is not None:
+        return _place_compute_sites(arch, origin_x_mm, origin_y_mm, pitch_mm)
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
     expected_total = mesh_rows * mesh_cols
@@ -1104,6 +1160,7 @@ def derive_kpu_architectural_floorplan(
     compute_pitches: dict[str, float] = {}
     compute_pe_areas: dict[str, float] = {}
     compute_mem_areas: dict[str, float] = {}
+    compute_sites_per_tile: dict[str, int] = {}
     for tile in arch.tiles:
         per_tile = (lambda total: total / tile.num_tiles) if tile.num_tiles > 0 \
             else (lambda total: 0.0)
@@ -1121,10 +1178,17 @@ def derive_kpu_architectural_floorplan(
             if tile.tile_type in declares_own_memory else per_tile_l2
         )
         total = pe_area + mem_area
-        pitch = math.sqrt(total) if total > 0 else 0.0
+        # A class with a multi-site footprint spreads its silicon over
+        # those sites, so what sets the *site* pitch is its area per site
+        # (graphs#268 E1). Without this a big fixed-function core would
+        # drive the pitch of all 64 sites however many it was given, and
+        # declaring a footprint would change nothing.
+        sites = tile_display.tile_sites(tile)
+        pitch = math.sqrt(total / sites) if total > 0 else 0.0
         compute_pitches[tile.tile_type] = pitch
         compute_pe_areas[tile.tile_type] = pe_area
         compute_mem_areas[tile.tile_type] = mem_area
+        compute_sites_per_tile[tile.tile_type] = sites
 
     # A class with no area from either source sizes to its memory term
     # alone. Since D2 that means the SKU really declares no compute
@@ -1151,7 +1215,10 @@ def derive_kpu_architectural_floorplan(
         pe_area = compute_pe_areas[tile.tile_type]
         mem_area = compute_mem_areas[tile.tile_type]
         total = pe_area + mem_area
-        ws_per_tile = max(0.0, cell_area - total)
+        # Whitespace is against the cells the tile actually occupies.
+        ws_per_tile = max(
+            0.0, cell_area * compute_sites_per_tile[tile.tile_type] - total
+        )
         compute_summaries[tile.tile_type] = ComputeClassSummary(
             tile_class=tile.tile_type,
             num_tiles=tile.num_tiles,
@@ -1435,11 +1502,11 @@ def _arch_place_site_grid(
             tile_class=tile.tile_type,
             pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
             # The class's own memory term, which for a class carrying its
-            # own SRAM is not a share of the chip-wide L2 pool.
-            l2_area_mm2=(
-                compute_mem_areas.get(tile.tile_type, per_tile_l2)
-                * placement.num_sites
-            ),
+            # own SRAM is not a share of the chip-wide L2 pool. Already a
+            # per-tile figure, and a multi-site placement is still one
+            # tile, so it is not scaled by the site count -- unlike the L3
+            # below, which is per cell.
+            l2_area_mm2=compute_mem_areas.get(tile.tile_type, per_tile_l2),
             # The cells this tile sits on; a 1x1 tile sits on none, and
             # its paired cell is emitted separately below.
             l3_area_mm2=(
