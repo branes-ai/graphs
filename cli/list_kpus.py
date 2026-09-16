@@ -43,6 +43,7 @@ from embodied_schemas import (
     load_process_nodes,
 )
 
+from graphs.hardware import kpu_tile_display as display
 from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.kpu_access import (
     KPUBlockLookupError,
@@ -62,6 +63,9 @@ class KPURow:
     foundry: str  # from ProcessNodeEntry.foundry; "" if unresolved
     node_nm: int  # from ProcessNodeEntry.node_nm; 0 if unresolved
     total_tiles: int
+    tile_census: str  # per-kind tile counts, e.g. "pe:38 systolic:4 fixed-fn:3"
+    kinds: List[str]  # tile kinds present, for --kind
+    heterogeneous: bool
     total_pes: int
     default_tdp_w: float
     int8_tops: float
@@ -106,7 +110,10 @@ def _build_row(
     # The KPU block and the die carrying it, located by kind.
     die = kpu_die_of(cp)
     block = kpu_block_of(cp)
-    total_pes = sum(t.total_pes for t in block.tiles)
+    # Kind-aware (graphs#268 C6): a fixed-function tile has no PEs, and a
+    # systolic tile names its array differently, so both go through the
+    # shared display helper rather than being read as a PE fabric.
+    total_pes = display.total_pe_count(block)
     cooling_unresolved = [
         tp.cooling_solution_id
         for tp in cp.power.thermal_profiles
@@ -122,6 +129,9 @@ def _build_row(
         foundry=node.foundry.value if node is not None else "",
         node_nm=node.node_nm if node is not None else 0,
         total_tiles=block.total_tiles,
+        tile_census=display.kind_summary(block),
+        kinds=list(display.kind_counts(block)),
+        heterogeneous=display.is_heterogeneous(block),
         total_pes=total_pes,
         default_tdp_w=cp.power.tdp_watts,
         int8_tops=cp.performance.int8_tops,
@@ -169,6 +179,7 @@ def _filter_rows(
     foundry: Optional[str],
     node_nm: Optional[int],
     library: Optional[str],
+    kind: Optional[str] = None,
 ) -> List[KPURow]:
     """Apply filters in AND-conjunction. Foundry and node_nm match the
     resolved ProcessNode fields (data-driven, doesn't depend on SKU
@@ -190,6 +201,13 @@ def _filter_rows(
         # 'lp' don't accidentally match memory tokens such as 'lp5x16'.
         lib = library.lower()
         out = [r for r in out if lib in r.id.rsplit("_", 1)[-1].lower()]
+    if kind:
+        # "heterogeneous" asks for SKUs carrying more than one kind; a kind
+        # name asks for the SKUs that carry that kind at all (graphs#268 C6).
+        if kind == "heterogeneous":
+            out = [r for r in out if r.heterogeneous]
+        else:
+            out = [r for r in out if kind in r.kinds]
     return out
 
 
@@ -207,8 +225,13 @@ def _render_text(rows: List[KPURow]) -> str:
     node_w = max(node_w, len("node"))
     tier_w = max((len(r.model_tier) for r in rows), default=4)
     tier_w = max(tier_w, len("tier"))
+    # The census column earns its width only on a mixed catalog; a
+    # uniform-only listing stays as narrow as it was (graphs#268 C6).
+    show_census = any(r.heterogeneous for r in rows)
+    census_w = max((len(r.tile_census) for r in rows), default=0) if show_census else 0
+    census_h = f" {'tile kinds':<{census_w}s}" if show_census else ""
     header = (
-        f"{'id':<{id_w}s} {'tiles':>5s} {'PEs':>7s} {'TDP':>5s} "
+        f"{'id':<{id_w}s} {'tiles':>5s}{census_h} {'PEs':>7s} {'TDP':>5s} "
         f"{'INT8 TOPS':>10s} {'BF16 TFLOPS':>11s} "
         f"{'die mm^2':>9s} {'B trans':>8s} {'mem GB':>7s} {'GB/s':>7s} "
         f"{'node':>{node_w}s} {'tier':>{tier_w}s}"
@@ -216,8 +239,9 @@ def _render_text(rows: List[KPURow]) -> str:
     lines = [header, "-" * len(header)]
     for r in rows:
         node_str = r.process_node_id if r.process_node_resolved else f"{r.process_node_id}(!)"
+        census = f" {r.tile_census:<{census_w}s}" if show_census else ""
         lines.append(
-            f"{r.id:<{id_w}s} {r.total_tiles:>5d} {r.total_pes:>7d} "
+            f"{r.id:<{id_w}s} {r.total_tiles:>5d}{census} {r.total_pes:>7d} "
             f"{r.default_tdp_w:>5.0f} {r.int8_tops:>10.0f} "
             f"{r.bf16_tflops:>11.0f} {r.die_size_mm2:>9.0f} "
             f"{r.transistors_billion:>8.1f} {r.memory_gb:>7.0f} "
@@ -246,6 +270,7 @@ def _render_csv(rows: List[KPURow]) -> str:
     for r in rows:
         d = asdict(r)
         d["cooling_unresolved"] = ";".join(d["cooling_unresolved"])
+        d["kinds"] = ";".join(d["kinds"])
         writer.writerow(d)
     return buf.getvalue()
 
@@ -254,13 +279,13 @@ def _render_md(rows: List[KPURow]) -> str:
     if not rows:
         return "_no entries match_\n"
     lines = [
-        "| id | tiles | PEs | TDP (W) | INT8 TOPS | BF16 TFLOPS | die mm^2 | B trans | mem GB | GB/s | node | tier |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "| id | tiles | tile kinds | PEs | TDP (W) | INT8 TOPS | BF16 TFLOPS | die mm^2 | B trans | mem GB | GB/s | node | tier |",
+        "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for r in rows:
         node_str = r.process_node_id if r.process_node_resolved else f"{r.process_node_id} (!)"
         lines.append(
-            f"| `{r.id}` | {r.total_tiles} | {r.total_pes} | "
+            f"| `{r.id}` | {r.total_tiles} | {r.tile_census} | {r.total_pes} | "
             f"{r.default_tdp_w:.0f} | {r.int8_tops:.0f} | "
             f"{r.bf16_tflops:.0f} | {r.die_size_mm2:.0f} | "
             f"{r.transistors_billion:.1f} | {r.memory_gb:.0f} | "
@@ -315,6 +340,12 @@ def main() -> int:
         "convention rather than as a top-level ProcessNode field.",
     )
     parser.add_argument(
+        "--kind",
+        choices=sorted(display.KIND_LABELS) + ["heterogeneous"],
+        help="Filter to SKUs carrying this tile kind; 'heterogeneous' "
+        "selects the SKUs carrying more than one kind.",
+    )
+    parser.add_argument(
         "--sort",
         choices=sorted(_SORT_KEYS),
         default="tiles",
@@ -339,7 +370,7 @@ def main() -> int:
         print(f"error: invalid KPU SKU {sku_id!r}: {exc}", file=sys.stderr)
     rows = _filter_rows(
         rows, args.vendor, args.target_market,
-        args.foundry, args.node_nm, args.library,
+        args.foundry, args.node_nm, args.library, args.kind,
     )
     rows.sort(key=_SORT_KEYS[args.sort])
 
