@@ -28,10 +28,16 @@ from graphs.hardware.kpu_power_model import (
 )
 from graphs.hardware.kpu_sku_generator import input_spec_from_compute_product
 from graphs.hardware.kpu_sku_input import KPUSKUInputSpec
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 N16 = NODES["tsmc_n16"]
-CATALOG = {k: v for k, v in load_compute_products().items() if has_kpu_block(v)}
+# The legacy contract is about the uniform SKUs that predate the
+# heterogeneous work; see tests/hardware/test_kpu_catalog_ids.py.
+CATALOG = {
+    k: v for k, v in load_compute_products().items()
+    if k in LEGACY_KPU_SKU_IDS
+}
 HETERO_SPEC = input_spec_from_compute_product(build_heterogeneous_kpu())
 TERMS = ("pe_compute_w", "l2_sram_w", "l3_sram_w", "noc_w", "dram_phy_w", "leakage_w")
 
@@ -298,3 +304,4 @@ def test_fixed_function_power_does_not_make_a_zero_compute_precision_eligible():
     assert bd.pe_compute_w == 0.0 and bd.fixed_function_w > 0
     assert bd.l2_sram_w == bd.l3_sram_w == bd.dram_phy_w == 0.0
     assert bd.noc_w > 0  # the ISP's IO
+

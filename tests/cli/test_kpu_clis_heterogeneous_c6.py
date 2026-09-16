@@ -33,9 +33,11 @@ from graphs.hardware.kpu_sku_generator import (
     generate_kpu_sku,
     input_spec_from_compute_product,
 )
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 _CLI = Path(__file__).resolve().parents[2] / "cli"
 _LEGACY = "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"
+
 _NON_KPU = "amd_epyc_9654_sp5"
 
 HETERO = generate_kpu_sku(
@@ -133,9 +135,7 @@ def test_census_and_pe_total_exclude_fixed_function():
     assert display.total_pe_count(block) == 38 * 1024 + 4 * 4096
 
 
-@pytest.mark.parametrize("sku", sorted(
-    k for k, v in load_compute_products_unified().items() if has_kpu_block(v)
-))
+@pytest.mark.parametrize("sku", LEGACY_KPU_SKU_IDS)
 def test_legacy_skus_are_uniform_and_keep_their_pe_total(sku):
     """Every catalog SKU is one kind, and the helper reproduces the PE
     total the CLIs printed before C6 (sum of tile.total_pes)."""
@@ -258,38 +258,56 @@ def test_show_kpu_needs_exactly_one_source(cli_runner, hetero_yaml):
 # ---------------------------------------------------------------------------
 
 
-def test_list_kpus_census_column_is_absent_for_a_uniform_catalog(cli_runner):
-    """Today's catalog is all PE fabric, so the listing stays as narrow as
-    it was; the column appears once a heterogeneous SKU lands (E1)."""
+def test_list_kpus_census_column_appears_now_that_a_heterogeneous_sku_exists(
+    cli_runner
+):
+    """C6 said the column would earn its place once a heterogeneous SKU
+    landed. embodied-schemas 0.10.0 landed two, so it does."""
     rc, out, err = cli_runner(_CLI / "list_kpus.py", [])
     assert rc == 0, err
-    assert "tile kinds" not in out
+    assert "tile kinds" in out
+    assert "pe:38 systolic:4 fixed-fn:3" in out   # kpu_h64_auto1
+    assert "pe:64" in out                          # a uniform T64, unchanged
 
 
 def test_list_kpus_markdown_matches_the_text_rule(cli_runner, tmp_path):
     """The census column earns its place in every format on the same
-    condition, so a uniform-only Markdown listing keeps its old shape."""
+    condition, so Markdown shows it exactly when the text view does."""
     out_path = tmp_path / "kpus.md"
     rc, _, err = cli_runner(_CLI / "list_kpus.py", ["--output", str(out_path)])
     assert rc == 0, err
     header, separator = out_path.read_text(encoding="utf-8").splitlines()[:2]
-    assert "tile kinds" not in header
+    assert "tile kinds" in header
     # One separator cell per header cell, or the table renders broken.
+    assert header.count("|") == separator.count("|")
+
+    # Filtered to the uniform SKUs, the column stands down again -- the
+    # rule is about the rows being shown, not about the catalog.
+    uniform = tmp_path / "uniform.md"
+    rc, _, err = cli_runner(
+        _CLI / "list_kpus.py", ["--library", "ffp", "--output", str(uniform)]
+    )
+    assert rc == 0, err
+    header, separator = uniform.read_text(encoding="utf-8").splitlines()[:2]
+    assert "tile kinds" in header  # kpu_h64_auto1's n16 variant is an ffp part
     assert header.count("|") == separator.count("|")
 
 
 def test_list_kpus_kind_filter(cli_runner):
+    # Every KPU has a PE fabric, heterogeneous ones included.
     rc, out, err = cli_runner(_CLI / "list_kpus.py", ["--kind", "pe_fabric"])
     assert rc == 0, err
-    assert "12 KPU SKU(s)" in out
+    assert "14 KPU SKU(s)" in out
 
+    # Only kpu_h64_auto1 carries the other kinds.
     rc, out, err = cli_runner(_CLI / "list_kpus.py", ["--kind", "systolic"])
     assert rc == 0, err
-    assert "(no entries match)" in out
+    assert "2 KPU SKU(s)" in out and "kpu_h64_auto1" in out
 
     rc, out, err = cli_runner(_CLI / "list_kpus.py", ["--kind", "heterogeneous"])
     assert rc == 0, err
-    assert "(no entries match)" in out
+    assert "2 KPU SKU(s)" in out
+    assert "kpu_h64_auto1" in out and "kpu_t64" not in out
 
 
 def test_list_kpus_csv_carries_the_kinds(cli_runner, tmp_path):

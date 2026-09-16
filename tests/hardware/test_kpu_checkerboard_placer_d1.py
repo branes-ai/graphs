@@ -14,6 +14,7 @@ import pytest
 from embodied_schemas import ComputeProduct, load_compute_products, load_process_nodes
 from embodied_schemas.kpu import SPARE_SITE
 
+
 from graphs.hardware import kpu_tile_display as display
 from graphs.hardware.kpu_access import has_kpu_block, kpu_block_of
 from graphs.hardware.kpu_checkerboard_placer import (
@@ -27,6 +28,7 @@ from graphs.hardware.kpu_sku_generator import (
     generate_kpu_sku,
     input_spec_from_compute_product,
 )
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 HETERO = generate_kpu_sku(
@@ -87,9 +89,7 @@ def _as_map(plan: SitePlan) -> list:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("sku", sorted(
-    k for k, v in load_compute_products().items() if has_kpu_block(v)
-))
+@pytest.mark.parametrize("sku", LEGACY_KPU_SKU_IDS)
 def test_catalog_skus_do_not_go_through_the_placer(sku):
     """Every catalog SKU is a uniform mesh with no checkerboard spec, so it
     keeps the legacy row-major floorplan the golden snapshot pins."""

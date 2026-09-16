@@ -35,9 +35,15 @@ from graphs.hardware.kpu_sku_generator import (
 )
 from graphs.hardware.kpu_sku_input import KPUSKUInputSpec, resolve_tile_uses
 from graphs.hardware.sku_validators import silicon_math as sm
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 NODES = load_process_nodes()
-CATALOG = {k: v for k, v in load_compute_products().items() if has_kpu_block(v)}
+# The legacy contract is about the uniform SKUs that predate the
+# heterogeneous work; see tests/hardware/test_kpu_catalog_ids.py.
+CATALOG = {
+    k: v for k, v in load_compute_products().items()
+    if k in LEGACY_KPU_SKU_IDS
+}
 T64 = CATALOG["kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"]
 HETERO = build_heterogeneous_kpu()
 HETERO_SPEC = input_spec_from_compute_product(HETERO)
@@ -262,3 +268,4 @@ def test_cli_generates_from_a_library_spec(cli_runner, tmp_path):
     for bad in ("16by16", "=16x16"):  # an empty class must not mean "every class"
         rc, _, err = cli_runner(_CLI, ["--input", str(spec_path), "--pe-array", bad])
         assert rc == 2 and "--pe-array must be ROWSxCOLS or CLASS=ROWSxCOLS" in err, bad
+
