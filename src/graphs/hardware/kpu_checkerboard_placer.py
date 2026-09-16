@@ -532,3 +532,62 @@ def place_tiles(block: KPUBlock) -> Optional[SitePlan]:
     if checkerboard.placement_map is not None:
         return _explicit_plan(block, rows, cols, classes, checkerboard.placement_map)
     return _auto_plan(block, rows, cols, classes)
+
+
+# ---------------------------------------------------------------------------
+# Overlays on the site grid
+# ---------------------------------------------------------------------------
+
+
+def site_power_domains(block: KPUBlock, plan: SitePlan) -> Dict[Site, str]:
+    """``{(row, col): domain_id}`` for every site a power domain covers.
+
+    The two domain kinds reach a site by different routes (graphs#268 B4):
+    a ``cluster`` domain names site ranges directly, while a
+    ``tile_class`` domain names tile classes and so covers whichever sites
+    those classes were placed on -- which is only knowable after placement.
+    An ``uncore`` domain covers no compute site at all.
+
+    A site claimed by two domains keeps the first in declaration order;
+    ``power_domain_coverage`` (C4) is where an overlap becomes a finding.
+    """
+    owner = plan.site_owner()
+    out: Dict[Site, str] = {}
+    for domain in block.power_domains or []:
+        sites: List[Site] = []
+        for site_range in domain.site_ranges:
+            sites.extend(
+                (r, c)
+                for r in range(site_range.row_min, site_range.row_max + 1)
+                for c in range(site_range.col_min, site_range.col_max + 1)
+            )
+        for member in domain.members:
+            sites.extend(site for site, cid in owner.items() if cid == member)
+        for site in sites:
+            out.setdefault(site, domain.domain_id)
+    return out
+
+
+def render_overlay(
+    plan: SitePlan, labels: Dict[Site, str], unlabeled: str = "-"
+) -> tuple:
+    """``(grid, legend)`` for an arbitrary per-site labelling.
+
+    ``legend`` maps the short glyph back to the full label, so a caller can
+    print what each letter means. Spare sites stay ``SPARE_SITE``.
+    """
+    glyphs = _short_labels(sorted(set(labels.values())))
+    occupied = plan.site_owner()
+    width = max([len(g) for g in glyphs.values()] + [len(unlabeled), 1])
+    lines = []
+    for r in range(plan.rows):
+        cells = []
+        for c in range(plan.cols):
+            if (r, c) not in occupied:
+                cell = SPARE_SITE
+            else:
+                label = labels.get((r, c))
+                cell = glyphs[label] if label is not None else unlabeled
+            cells.append(cell.rjust(width))
+        lines.append(" ".join(cells))
+    return "\n".join(lines), {v: k for k, v in glyphs.items()}
