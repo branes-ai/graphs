@@ -203,8 +203,11 @@ def build_kpu_native_op(
     rm = mapper.resource_model
     tp = rm.thermal_operating_points[rm.default_thermal_profile]
     cr = tp.performance_specs[precision].compute_resource
-    spec = cr.tile_specializations[0]
-    tem = rm.tile_energy_model
+    spec = cr.representative_specialization(precision)  # graphs#268 C5
+    # That class's own energy model (the chip-level one when the SKU has no
+    # per-class models). A SKU's measured MAC energies are applied to both
+    # by ``apply_mac_energy_override``.
+    tem = rm.energy_model_for_tile_type(spec.tile_type) or rm.tile_energy_model
     fabrics = getattr(rm, "compute_fabrics", []) or []
     process_nm = fabrics[0].process_node_nm if fabrics else 16
 
@@ -242,7 +245,7 @@ def build_kpu_native_op(
             name="ALU (bare MAC)",
             energy_pj_per_mac=alu_pj,
             cumulative_pj_per_mac=alu_pj,
-            source=(f"tile_energy_model.mac_energy_{precision.value} "
+            source=(f"tile_energy_model[{spec.tile_type}].mac_energy_{precision.value} "
                     f"@ {process_nm}nm domain-flow"),
         ),
         NativeOpLayer(

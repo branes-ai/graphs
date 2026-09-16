@@ -32,9 +32,9 @@ def kpu_t64_resource_model() -> HardwareResourceModel:
     # tests/hardware/test_kpu_tile_energy.py continue to hold. Future
     # work: extend the YAML schema with a per-SKU mac_energy override
     # so this can move into embodied-schemas (Phase 5+ scope).
-    model.tile_energy_model.mac_energy_int8 = 0.10e-12
-    model.tile_energy_model.mac_energy_bf16 = 0.16e-12
-    model.tile_energy_model.mac_energy_fp32 = 0.30e-12
+    # Applied to the chip-level model and every per-class model, so a
+    # report that selects one class still sees this SKU's numbers.
+    model.apply_mac_energy_override(int8=0.10e-12, bf16=0.16e-12, fp32=0.30e-12)
     # Per-tile L1 scratchpad bandwidth: each PE delivers ~1.5 GB/s of
     # steady-state demand. Aggregate L1 BW ~96 TB/s across 64 tiles.
     # Shared L2 BW: 4 MB shared L2 feeds the tile mesh at NoC bisection

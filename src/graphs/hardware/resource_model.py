@@ -608,6 +608,26 @@ class KPUComputeResource:
             if precision in ts.ops_per_tile_per_clock
         ]
 
+    def representative_specialization(
+        self, precision: Optional[Precision] = None
+    ) -> Optional[TileSpecialization]:
+        """The tile class that stands for this compute resource in reports.
+
+        Among the classes that run ``precision`` (every class when None),
+        the one with the most tiles; ties keep declaration order. Falls back
+        to the first specialization when no class runs the precision, and
+        is None only for an empty resource. Replaces reading
+        ``tile_specializations[0]``, which for a heterogeneous KPU may be a
+        class that cannot run the precision at all (graphs#268 C5).
+        """
+        specs = self.tile_specializations
+        if not specs:
+            return None
+        pool = self.get_tiles_for_precision(precision) if precision is not None else specs
+        if not pool:
+            return specs[0]
+        return max(pool, key=lambda ts: ts.num_tiles)
+
     def calc_peak_ops(self, precision: Precision) -> float:
         """
         Calculate peak performance across all tiles supporting this precision.
@@ -903,6 +923,27 @@ class PrecisionProfile:
     accumulator_precision: Optional[Precision] = None
 
 
+@dataclass(frozen=True)
+class FixedFunctionUnit:
+    """A fixed-function compute segment on an accelerator (graphs#268 C5):
+    e.g. an ISP, a stereo matcher or a VIO core in a KPU checkerboard.
+
+    It executes work units of one kind (pixels, frames, ...), not
+    precision-typed ops, so it never enters ``precision_profiles`` or peak
+    TOPS. ``units_per_second`` is the whole class at its sustained clock;
+    ``energy_per_unit_j`` is at the SKU's process node (nominal Vdd).
+    """
+
+    function_id: str
+    tile_class_id: str
+    num_tiles: int
+    work_unit: str
+    units_per_second: float
+    energy_per_unit_j: Optional[float]
+    input_bytes_per_unit: float = 0.0
+    output_bytes_per_unit: float = 0.0
+
+
 @dataclass
 class HardwareResourceModel:
     """
@@ -911,6 +952,47 @@ class HardwareResourceModel:
     This defines the physical resources available on a hardware accelerator,
     including precision-specific peak performance.
     """
+
+    # Heterogeneous-KPU attachments (graphs#268 C5). Like
+    # ``tile_energy_model``, these are attributes set after construction,
+    # not dataclass fields, so the models of other hardware (and the KPU
+    # golden snapshot of every uniform SKU) are unaffected. The class-level
+    # defaults make them safe to read on any model.
+    #   fixed_function_units: tuple[FixedFunctionUnit, ...]
+    #   tile_energy_models:   {tile_class_id: KPUTileEnergyModel} or None
+    fixed_function_units = ()
+    tile_energy_models = None
+    tile_class_by_tile_type = None
+
+    def energy_model_for_tile_type(self, tile_type: Optional[str]):
+        """The per-class ``KPUTileEnergyModel`` behind a ``TileSpecialization``
+        label, falling back to the chip-level ``tile_energy_model``
+        (graphs#268 C5)."""
+        models = self.tile_energy_models or {}
+        cid = (self.tile_class_by_tile_type or {}).get(tile_type)
+        return models.get(cid) or getattr(self, "tile_energy_model", None)
+
+    def apply_mac_energy_override(
+        self,
+        *,
+        int8: Optional[float] = None,
+        bf16: Optional[float] = None,
+        fp32: Optional[float] = None,
+    ) -> None:
+        """Apply a SKU's measured per-MAC energies to the chip-level energy
+        model and to every per-class model, so a report that selects a
+        class model sees the SKU's numbers too (graphs#268 C5)."""
+        targets = [getattr(self, "tile_energy_model", None)]
+        targets += list((self.tile_energy_models or {}).values())
+        for tem in targets:
+            if tem is None:
+                continue
+            if int8 is not None:
+                tem.mac_energy_int8 = int8
+            if bf16 is not None:
+                tem.mac_energy_bf16 = bf16
+            if fp32 is not None:
+                tem.mac_energy_fp32 = fp32
 
     # Required fields (no defaults)
     name: str

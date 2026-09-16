@@ -51,6 +51,9 @@ from embodied_schemas import (
     load_process_nodes,
 )
 from embodied_schemas.compute_product import KPUBlock
+from embodied_schemas.datapath import AbsoluteEnergy, RelativeEnergy
+from embodied_schemas.kpu import FixedFunctionTile, KPUTileSpec, SystolicTile
+from embodied_schemas.power_domain import PowerDomainKind
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
 from ...architectural_energy import KPUTileEnergyModel
@@ -60,6 +63,7 @@ from ...fabric_model import SoCFabricModel, Topology
 from ...resource_model import (
     ClockDomain,
     ComputeFabric,
+    FixedFunctionUnit,
     HardwareResourceModel,
     HardwareType,
     KPUComputeResource,
@@ -298,8 +302,83 @@ def _fabric_energy_scaling(
 # Loader
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Tile kinds (graphs#268 C5)
+# ---------------------------------------------------------------------------
+
+def _programmable(tile) -> bool:
+    """Tile kinds with PEs / cells and precision-typed ops (pe_fabric,
+    systolic). Fixed-function tiles become ``fixed_function_units``."""
+    return isinstance(tile, (KPUTileSpec, SystolicTile))
+
+
+def _array_dims(tile) -> tuple[int, int]:
+    if isinstance(tile, SystolicTile):
+        return (tile.array_rows, tile.array_cols)
+    return (tile.pe_array_rows, tile.pe_array_cols)
+
+
+def _circuit_class(tile) -> CircuitClass:
+    return tile.circuit_class if isinstance(tile, SystolicTile) else tile.pe_circuit_class
+
+
+def _domain_op(cp: ComputeProduct, profile, tile):
+    """The tile class's power-domain operating point in ``profile`` (its
+    ``power_domain_id``, else a tile_class domain listing it), or None."""
+    ops = profile.domain_operating_points or {}
+    if not ops:
+        return None
+    domain = tile.power_domain_id
+    if domain is None:
+        domain = next(
+            (d.domain_id for d in _kpu_block(cp).power_domains or []
+             if d.kind == PowerDomainKind.TILE_CLASS and tile.tile_class_id in d.members),
+            None,
+        )
+    return ops.get(domain) if domain is not None else None
+
+
+def _class_clock_hz(cp: ComputeProduct, profile, tile) -> float:
+    op = _domain_op(cp, profile, tile)
+    return (op.clock_mhz if op is not None and op.clock_mhz else profile.clock_mhz) * 1e6
+
+
+def _class_gated(cp: ComputeProduct, profile, tile) -> bool:
+    op = _domain_op(cp, profile, tile)
+    return bool(op is not None and op.gated)
+
+
+def _datapath_mac_energy_pj(tile, node: ProcessNodeEntry, precision: str) -> Optional[float]:
+    """Per-MAC energy the tile's datapath declares for ``precision`` (the
+    MAC / FMA mode on that format), in this loader's convention: the node's
+    ``energy_per_op_pj`` anchor is one MAC, so a RelativeEnergy is
+    ``ratio x anchor``. None when nothing is declared or resolvable."""
+    if isinstance(tile, SystolicTile):
+        units = [tile.mac]
+    elif isinstance(tile, KPUTileSpec) and tile.datapath is not None:
+        units = tile.datapath.functional_units
+    else:
+        return None
+    for unit in units:
+        if unit.op.value not in ("mac", "fma"):
+            continue
+        for mode in unit.modes:
+            if mode.operand_format != precision:
+                continue
+            e = mode.energy
+            if isinstance(e, RelativeEnergy) and e.anchor in node.energy_per_op_pj:
+                return e.ratio * node.energy_per_op_pj[e.anchor]
+            if isinstance(e, AbsoluteEnergy):
+                return e.pj  # published at its reference node; not rescaled here
+    return None
+
+
 def _build_tile_energy_model(
-    cp: ComputeProduct, node: ProcessNodeEntry, *, default_clock_hz: float
+    cp: ComputeProduct,
+    node: ProcessNodeEntry,
+    *,
+    default_clock_hz: float,
+    tile=None,
 ) -> KPUTileEnergyModel:
     """Construct a KPUTileEnergyModel from the YAML SKU + process node.
 
@@ -325,10 +404,15 @@ def _build_tile_energy_model(
     arch = _kpu_block(cp)
     mem = arch.memory
 
-    # Dominant tile class -- the one with the highest num_tiles. In all
-    # four hand-authored Stillwater SKUs this is INT8-primary.
-    dominant_tile = max(arch.tiles, key=lambda t: t.num_tiles)
-    pes_per_tile = dominant_tile.pe_array_rows * dominant_tile.pe_array_cols
+    # Dominant tile class -- the programmable one with the highest
+    # num_tiles. In all hand-authored Stillwater SKUs this is INT8-primary.
+    # With ``tile`` set, the model is built for that class instead
+    # (graphs#268 C5 per-class models): its PE count, and its datapath /
+    # library energies.
+    per_class = tile is not None
+    if tile is None:
+        tile = max((t for t in arch.tiles if _programmable(t)), key=lambda t: t.num_tiles)
+    pes_per_tile = tile.pes_per_tile
 
     # MAC energies from the process node's per-(class, precision) table.
     # Use BALANCED_LOGIC as the default class (the PEs of the dominant
@@ -348,8 +432,14 @@ def _build_tile_energy_model(
     # (the alu energy table is FP32-keyed by convention).
     _PRECISION_FALLBACK_RATIO = {"int8": 0.12, "bf16": 0.50, "fp32": 1.0}
 
+    library = _circuit_class(tile) if per_class else CircuitClass.BALANCED_LOGIC
+
     def _mac_energy_pj(precision: str) -> float:
-        key = f"{CircuitClass.BALANCED_LOGIC.value}:{precision}"
+        if per_class:
+            declared = _datapath_mac_energy_pj(tile, node, precision)
+            if declared is not None and declared > 0:
+                return declared
+        key = f"{library.value}:{precision}"
         pj = node.energy_per_op_pj.get(key)
         if pj is not None and pj > 0:
             return pj
@@ -438,6 +528,33 @@ def _build_soc_fabric(
     )
 
 
+def _fixed_function_units(
+    cp: ComputeProduct, node: ProcessNodeEntry, profile, process_nodes
+) -> tuple[FixedFunctionUnit, ...]:
+    """The KPU's fixed-function tiles as ``FixedFunctionUnit``s: work units
+    per second at the class's clock in ``profile``, energy per unit
+    retargeted to ``node`` (graphs#268 C5)."""
+    from ...kpu_power_model import fixed_function_pj_per_unit
+
+    units = []
+    for t in _kpu_block(cp).tiles:
+        if not isinstance(t, FixedFunctionTile):
+            continue
+        core = t.core
+        pj = fixed_function_pj_per_unit(core, node, process_nodes)
+        units.append(FixedFunctionUnit(
+            function_id=core.function_id,
+            tile_class_id=t.tile_class_id,
+            num_tiles=t.num_tiles,
+            work_unit=core.throughput.unit.value,
+            units_per_second=core.units_per_clock * t.num_tiles * _class_clock_hz(cp, profile, t),
+            energy_per_unit_j=pj * 1e-12 if pj is not None else None,
+            input_bytes_per_unit=core.io.input_bytes_per_unit if core.io else 0.0,
+            output_bytes_per_unit=core.io.output_bytes_per_unit if core.io else 0.0,
+        ))
+    return tuple(units)
+
+
 def load_kpu_resource_model_from_yaml(
     base_id: str,
     *,
@@ -498,26 +615,27 @@ def load_kpu_resource_model_from_yaml(
     # ------------------------------------------------------------------
     # Build ComputeFabric per tile class (peak throughput vehicle)
     # ------------------------------------------------------------------
+    # One per programmable tile class, keyed by tile_class_id (for every
+    # catalog SKU identical to the old tile_type-derived name). Fixed-
+    # function tiles have no precision-typed ops; they become
+    # ``fixed_function_units`` below.
     compute_fabrics: list[ComputeFabric] = []
     for tile in _kpu_block(cp).tiles:
+        if not _programmable(tile):
+            continue
         ops_dict = _precision_dict_from_yaml(tile.ops_per_tile_per_clock)
         if not ops_dict:
             continue
+        cc = _circuit_class(tile)
         fabric = ComputeFabric(
-            fabric_type=f"kpu_{tile.tile_type.lower().replace('-', '_')}",
-            circuit_type=_CIRCUIT_TYPE_LABEL.get(
-                tile.pe_circuit_class, "standard_cell"
-            ),
+            fabric_type=f"kpu_{tile.tile_class_id}",
+            circuit_type=_CIRCUIT_TYPE_LABEL.get(cc, "standard_cell"),
             num_units=tile.num_tiles,
             ops_per_unit_per_clock=ops_dict,
-            core_frequency_hz=default_clock_hz,
+            core_frequency_hz=_class_clock_hz(cp, default_profile, tile),
             process_node_nm=node.node_nm,
-            energy_per_flop_fp32=_fabric_energy_per_fp32_j(
-                node, tile.pe_circuit_class
-            ),
-            energy_scaling=_fabric_energy_scaling(
-                node, tile.pe_circuit_class, list(ops_dict.keys())
-            ),
+            energy_per_flop_fp32=_fabric_energy_per_fp32_j(node, cc),
+            energy_scaling=_fabric_energy_scaling(node, cc, list(ops_dict.keys())),
         )
         compute_fabrics.append(fabric)
 
@@ -538,24 +656,38 @@ def load_kpu_resource_model_from_yaml(
         dvfs_enabled=True,
     )
     tile_specializations: list[TileSpecialization] = []
+    specialized_tiles = []  # the YAML tile behind each specialization
     for tile in _kpu_block(cp).tiles:
+        if not _programmable(tile):
+            continue
         ops_dict = _precision_dict_from_yaml(tile.ops_per_tile_per_clock)
         if not ops_dict:
             continue
         # No optimization_level information in the YAML at v1; default
         # to 1.0 for every supported precision.
         optimization_level = {p: 1.0 for p in ops_dict}
+        # The class's own clock when its power domain sets one (graphs#268
+        # C5); the chip clock domain otherwise (every catalog SKU).
+        class_hz = _class_clock_hz(cp, default_profile, tile)
+        tile_clock = clock_domain if class_hz == default_clock_hz else ClockDomain(
+            base_clock_hz=base_clock_hz,
+            max_boost_clock_hz=boost_clock_hz,
+            sustained_clock_hz=class_hz,
+            dvfs_enabled=True,
+        )
+        specialized_tiles.append(tile)
         tile_specializations.append(
             TileSpecialization(
                 tile_type=tile.tile_type,
                 num_tiles=tile.num_tiles,
                 ops_per_tile_per_clock=ops_dict,
                 optimization_level=optimization_level,
-                clock_domain=clock_domain,
-                array_dimensions=(tile.pe_array_rows, tile.pe_array_cols),
+                clock_domain=tile_clock,
+                array_dimensions=_array_dims(tile),
                 pe_configuration=tile.tile_type,
                 schedule_class=_SCHEDULE_CLASS_MAP.get(
-                    tile.schedule_class, TileScheduleClass.UNSPECIFIED
+                    tile.dataflow if isinstance(tile, SystolicTile) else tile.schedule_class,
+                    TileScheduleClass.UNSPECIFIED,
                 ),
                 pipeline_fill_cycles=tile.pipeline_fill_cycles,
                 pipeline_drain_cycles=tile.pipeline_drain_cycles,
@@ -571,6 +703,8 @@ def load_kpu_resource_model_from_yaml(
     # Determine which precisions any tile claims to support.
     supported_precisions: set[Precision] = set()
     for tile in _kpu_block(cp).tiles:
+        if not _programmable(tile):
+            continue
         supported_precisions.update(
             _precision_dict_from_yaml(tile.ops_per_tile_per_clock).keys()
         )
@@ -588,14 +722,27 @@ def load_kpu_resource_model_from_yaml(
         # Build a per-profile KPUComputeResource so calc_*_ops uses the
         # profile-specific clock.
         profile_specializations = []
-        for spec in tile_specializations:
+        for spec, tile in zip(tile_specializations, specialized_tiles):
+            # A gated power domain takes its classes out of this profile;
+            # a domain clock replaces the profile clock (graphs#268 C5).
+            if _class_gated(cp, profile, tile):
+                continue
+            class_hz = _class_clock_hz(cp, profile, tile)
+            spec_clock = profile_clock_domain if class_hz == profile.clock_mhz * 1e6 else (
+                ClockDomain(
+                    base_clock_hz=base_clock_hz,
+                    max_boost_clock_hz=class_hz,
+                    sustained_clock_hz=class_hz,
+                    dvfs_enabled=True,
+                )
+            )
             profile_specializations.append(
                 TileSpecialization(
                     tile_type=spec.tile_type,
                     num_tiles=spec.num_tiles,
                     ops_per_tile_per_clock=spec.ops_per_tile_per_clock,
                     optimization_level=spec.optimization_level,
-                    clock_domain=profile_clock_domain,
+                    clock_domain=spec_clock,
                     array_dimensions=spec.array_dimensions,
                     pe_configuration=spec.pe_configuration,
                     schedule_class=spec.schedule_class,
@@ -616,8 +763,13 @@ def load_kpu_resource_model_from_yaml(
         eff_by_prec = profile.efficiency_factor_by_precision or {}
         util_by_prec = profile.tile_utilization_by_precision or {}
 
+        # Only the precisions this profile can actually run: a gated class
+        # takes its precisions with it (graphs#268 C5).
+        profile_precisions = {
+            p for spec in profile_specializations for p in spec.ops_per_tile_per_clock
+        }
         performance_specs: dict[Precision, PerformanceCharacteristics] = {}
-        for precision in supported_precisions:
+        for precision in profile_precisions:
             performance_specs[precision] = PerformanceCharacteristics(
                 precision=precision,
                 compute_resource=profile_compute,
@@ -700,8 +852,7 @@ def load_kpu_resource_model_from_yaml(
     # Per-PE thread count proxy: the largest tile-class PE array. Used
     # by mappers that compute parallelism budgets.
     threads_per_unit = max(
-        (t.pe_array_rows * t.pe_array_cols
-         for t in _kpu_block(cp).tiles),
+        (t.pes_per_tile for t in _kpu_block(cp).tiles if _programmable(t)),
         default=1,
     )
 
@@ -763,6 +914,23 @@ def load_kpu_resource_model_from_yaml(
     # consumers (analyzers, the KPUMapper energy path) see the same shape.
     model.tile_energy_model = tile_energy_model
     model.soc_fabric = soc_fabric
+
+    # Per tile class (graphs#268 C5): an energy model per programmable
+    # class (``tile_energy_model`` stays the dominant class's, as before),
+    # and the fixed-function units.
+    model.tile_energy_models = {
+        t.tile_class_id: _build_tile_energy_model(
+            cp, node, default_clock_hz=_class_clock_hz(cp, default_profile, t), tile=t
+        )
+        for t in _kpu_block(cp).tiles
+        if _programmable(t)
+    }
+    # TileSpecialization carries the human label; reports resolve it to the
+    # class id to pick that class's energy model.
+    model.tile_class_by_tile_type = {
+        t.tile_type: t.tile_class_id for t in _kpu_block(cp).tiles if _programmable(t)
+    }
+    model.fixed_function_units = _fixed_function_units(cp, node, default_profile, process_nodes)
 
     # Single-source the per-precision energy_scaling from the process node's
     # energy_per_op_pj ratios (issue #81), overriding the hardcoded dataclass

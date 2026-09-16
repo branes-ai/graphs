@@ -421,6 +421,17 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
 - C5: resource-model loader, per-class energy model, the
   `fixed_function_units` attribute, capability-aware mapper pools, and the
   reporting `[0]`-representative fixes.
+  *As built:* split in two.
+  - **C5a** (loader, per-class energy models, `fixed_function_units`,
+    reporting fixes). `fixed_function_units` and `tile_energy_models` are
+    class attributes rather than dataclass fields, so the golden snapshot
+    of every uniform SKU is unchanged. Classes whose ops are not in the
+    `Precision` enum (LNS, min-plus) get an energy model but no compute
+    fabric.
+  - **C5b** (capability-aware mapper pools). Kept separate because pools
+    change legacy mapper results wherever a precision is not supported by
+    every tile class (FP32 on T64 runs on 13 of 64 tiles), so they are
+    enabled only for heterogeneous architectures.
 - C6: kind-aware CLIs (`show_kpu`, `list_kpus`, `validate_sku`).
 - **Accept:** the golden snapshot is unchanged. A synthetic heterogeneous
   fixture (one class of each kind, including a 2x2 fixed-function footprint)

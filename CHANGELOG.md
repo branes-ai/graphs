@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KPU resource model for heterogeneous tiles** (#268 Phase C5a). Uniform legacy SKUs load unchanged; the KPU golden gate (which pins the whole resource model) passes.
+  - **Loader (`kpu_yaml_loader.py`) is kind-aware:** array dimensions, circuit class and schedule class come from the tile kind, so systolic and fixed-function tiles no longer break it. Compute fabrics are keyed `kpu_<tile_class_id>` (identical to the old name for every catalog SKU). `threads_per_unit` is the largest programmable array.
+  - **Per power-domain clocks:** a tile class runs at its domain's clock in each profile, and a gated class drops out of that profile's compute resource.
+  - **`tile_energy_models`:** one `KPUTileEnergyModel` per programmable class, using its own PE count, library and datapath energies (a `RelativeEnergy` ratio times the node anchor). `tile_energy_model` still holds the dominant class's model.
+  - **`fixed_function_units`:** the new `FixedFunctionUnit` records each fixed-function class's work unit, units/s at its clock, energy per unit at the SKU node, and IO bytes. Fixed-function tiles never enter `precision_profiles` or peak TOPS.
+  - Both attachments are class attributes, not dataclass fields, like `tile_energy_model`, so other hardware models and the golden snapshot are unaffected.
+  - **`KPUComputeResource.representative_specialization(precision)`** replaces `tile_specializations[0]` in `compare_archetypes`, `native_op_energy` and the Layer 2 panel: the class with the most tiles that runs the precision. For a legacy SKU that is the same class as before for INT8 and BF16; for FP32 on T64 it is now BF16-primary, the only class that runs FP32.
+  - Tests: `tests/hardware/test_kpu_resource_model_c5.py`.
+  - **Still to come in C5b:** capability-aware mapper tile pools (`compute_units` still counts every tile, including fixed-function ones).
 - **SKU validators for heterogeneous KPUs** (#268 Phase C4). All 12 legacy SKUs produce the same findings as before (the KPU golden gate passes), and `validate_sku --all` stays clean.
   - **Existing validators:**
     - `area_self_consistency` and `block_library_validity` cover tile-carried silicon; legacy wording is unchanged.
