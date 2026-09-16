@@ -450,6 +450,18 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     included. Per-class MAC energy in the mapper is deferred to Phase F;
     the pool path still uses the chip-level per-op energy.
 - C6: kind-aware CLIs (`show_kpu`, `list_kpus`, `validate_sku`).
+  *As built:* a shared `graphs.hardware.kpu_tile_display` is the one place
+  that knows what each kind looks like -- geometry, library and PE count
+  return None / 0 where the kind has none, rather than reading a systolic
+  or fixed-function tile as a PE fabric (which raised `AttributeError`).
+  `show_kpu` gains a kind column, a per-class detail line, a tile census,
+  and checkerboard / power-domain / by-tile-kind sections that a uniform
+  SKU omits entirely; `list_kpus` gains a `tile kinds` column (shown only
+  when some SKU is heterogeneous) and a `--kind` filter. Both CLIs, plus
+  `validate_sku`, take `--from-file PATH` so a generated SKU is inspected
+  and validated before it reaches the catalog -- the E1 iteration loop.
+  Fixed-function tiles contribute no PEs to any total, and site accounting
+  counts a 2x2 footprint as four sites.
 - **Accept:** the golden snapshot is unchanged. A synthetic heterogeneous
   fixture (one class of each kind, including a 2x2 fixed-function footprint)
   flows through generator -> validators -> loader -> mapper without special

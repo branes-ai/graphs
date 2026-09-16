@@ -19,6 +19,7 @@ Usage:
     python cli/show_kpu.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
     python cli/show_kpu.py kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc --output t768.json
     python cli/show_kpu.py kpu_t64_32x32_lp5x4_16nm_tsmc_ffp --output t64.md
+    python cli/show_kpu.py --from-file build/kpu_h64.yaml
 """
 
 import argparse
@@ -32,7 +33,12 @@ from typing import Optional
 from embodied_schemas import ComputeProduct, PackagingKind, load_process_nodes
 from embodied_schemas.process_node import ProcessNodeEntry
 
-from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.hardware import kpu_tile_display as display
+from graphs.hardware.compute_product_loader import (
+    ComputeProductFileError,
+    load_compute_product_file,
+    load_compute_products_unified,
+)
 from graphs.hardware.kpu_access import (
     KPUBlockLookupError,
     has_kpu_block,
@@ -56,12 +62,12 @@ def _render_csv(cp: ComputeProduct) -> str:
     interop on the headline metrics."""
     block = _kpu_block(cp)
     die = kpu_die_of(cp)
-    total_pes = sum(t.total_pes for t in block.tiles)
+    total_pes = display.total_pe_count(block)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
         "id", "name", "vendor", "process_node_id",
-        "total_tiles", "total_pes",
+        "total_tiles", "tile_census", "total_pes",
         "die_size_mm2", "transistors_billion",
         "default_tdp_w", "default_clock_mhz",
         "int8_tops", "bf16_tflops", "fp32_tflops", "int4_tops",
@@ -74,7 +80,7 @@ def _render_csv(cp: ComputeProduct) -> str:
     )
     writer.writerow([
         cp.id, cp.name, cp.vendor, die.process_node_id,
-        block.total_tiles, total_pes,
+        block.total_tiles, display.kind_summary(block), total_pes,
         die.die_size_mm2, die.transistors_billion,
         cp.power.tdp_watts, default_clock,
         cp.performance.int8_tops, cp.performance.bf16_tflops,
@@ -118,22 +124,59 @@ def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
     out.append(f"  Total tiles:     {block.total_tiles}")
     out.append(f"  Multi-precision: {', '.join(block.multi_precision_alu)}")
     out.append("")
+    # Tile classes, rendered per kind (graphs#268 C6). A systolic tile
+    # names its array and library differently from a PE fabric, and a
+    # fixed-function tile has neither an array nor PEs, so each row shows
+    # what its kind actually has and a detail line says what it is.
+    out.append(f"  Tile census:     {display.kind_summary(block)}")
+    out.append("")
     out.append("  Tile classes:")
     out.append(
-        f"    {'tile_type':18s} {'num':>5s} {'PE array':>10s} {'PEs/tile':>9s} "
-        f"{'lib':>16s}  ops/tile/clock"
+        f"    {'tile_type':18s} {'kind':>9s} {'num':>4s} {'array':>7s} "
+        f"{'PEs/tile':>8s} {'footprint':>10s} {'lib':>15s}"
     )
-    total_pes = 0
     for t in block.tiles:
-        ops_str = ", ".join(f"{p}={int(v)}" for p, v in t.ops_per_tile_per_clock.items())
-        total_pes += t.total_pes
+        pes = display.tile_pe_count(t)
         out.append(
-            f"    {t.tile_type:18s} {t.num_tiles:>5d} "
-            f"{t.pe_array_rows:>4d}x{t.pe_array_cols:<5d} "
-            f"{t.pes_per_tile:>9d} {t.pe_circuit_class.value:>16s}  {ops_str}"
+            f"    {t.tile_type:18s} {display.KIND_LABELS[display.tile_kind(t)]:>9s} "
+            f"{t.num_tiles:>4d} {display.tile_geometry_str(t):>7s} "
+            f"{(str(pes) if pes else '-'):>8s} {display.tile_footprint_str(t):>10s} "
+            f"{(display.tile_circuit_class(t) or '-'):>15s}"
         )
-    out.append(f"  Total PEs:       {total_pes}")
+        out.append(f"      class={t.tile_class_id}  {display.tile_detail(t)}")
+        out.append(f"      ops/tile/clock: {display.tile_ops_str(t)}")
+    if any(display.absorbs_memory_cells(t) for t in block.tiles):
+        out.append(
+            f"    {display.ABSORBS_MARK} footprint absorbs the memory cells it covers"
+        )
+    pe_note = (
+        "   (fixed-function tiles contribute none)"
+        if any(not display.is_programmable(t) for t in block.tiles)
+        else ""
+    )
+    out.append(f"  Total PEs:       {display.total_pe_count(block)}{pe_note}")
     out.append("")
+    # Checkerboard and power domains exist only on heterogeneous SKUs
+    # (graphs#268 B4); a uniform SKU leaves both unset and prints neither.
+    cb = block.checkerboard
+    if cb is not None:
+        sites = cb.compute_sites.rows * cb.compute_sites.cols
+        out.append(
+            f"  Checkerboard: {cb.compute_sites.rows}x{cb.compute_sites.cols} "
+            f"compute sites ({sites}), {display.occupied_sites(block)} occupied "
+            f"by {block.total_tiles} tiles, {cb.spare_sites} spare, "
+            f"placement={cb.placement.value}"
+        )
+        if cb.memory_cell is not None:
+            out.append(f"    memory cell: {cb.memory_cell.kib_per_cell} KiB/cell")
+    if block.power_domains:
+        out.append("  Power domains:")
+        for pd in block.power_domains:
+            members = ", ".join(pd.members) if pd.members else "-"
+            out.append(
+                f"    {pd.domain_id:18s} {pd.kind.value:12s} "
+                f"gateable={'yes' if pd.gateable else 'no':3s}  members: {members}"
+            )
     out.append(
         f"  NoC: {block.noc.topology} {block.noc.mesh_rows}x{block.noc.mesh_cols}, "
         f"{block.noc.flit_bytes}-byte flits, "
@@ -175,6 +218,16 @@ def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
     out.append(f"  FP32:  {cp.performance.fp32_tflops:>8.1f} TFLOPS")
     if cp.performance.int4_tops is not None:
         out.append(f"  INT4:  {cp.performance.int4_tops:>8.1f} TOPS")
+    # The by-kind split (graphs#268 B5) says how much of the roll-up each
+    # kind contributes; a uniform SKU omits it, since the answer is "all".
+    by_kind = getattr(cp.performance, "by_tile_kind", None)
+    if by_kind:
+        out.append("")
+        out.append("  By tile kind (ops/sec):")
+        for kind, ops in by_kind.items():
+            label = display.KIND_LABELS.get(kind, kind)
+            rates = ", ".join(f"{p}={v / 1e12:.1f}T" for p, v in ops.items())
+            out.append(f"    {label:>9s}  {rates}")
     out.append("")
 
     # Clocks (under die now)
@@ -234,36 +287,81 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Show full spec of one KPU ComputeProduct."
     )
-    parser.add_argument("kpu_id", help="KPU SKU id, e.g., kpu_t256_32x32_lp5x16_16nm_tsmc_ffp")
+    parser.add_argument(
+        "kpu_id",
+        nargs="?",
+        help="KPU SKU id, e.g., kpu_t256_32x32_lp5x16_16nm_tsmc_ffp",
+    )
+    parser.add_argument(
+        "--from-file",
+        metavar="PATH",
+        help="Inspect a ComputeProduct YAML / JSON file instead of a catalog "
+             "SKU, e.g. the output of cli/generate_kpu_sku.py.",
+    )
     parser.add_argument(
         "--output",
         help="Output file. Format auto-detected from extension (.json/.md/.txt).",
     )
     args = parser.parse_args()
 
-    try:
-        cps = load_compute_products_unified()
-        nodes = load_process_nodes()
-    except Exception as exc:
-        print(f"error: failed to load catalog: {exc}", file=sys.stderr)
-        return 1
+    if not args.kpu_id and not args.from_file:
+        parser.error("give a KPU SKU id, or --from-file PATH")
+    if args.kpu_id and args.from_file:
+        parser.error("give a KPU SKU id or --from-file, not both")
 
-    cp = cps.get(args.kpu_id)
-    if cp is None or not has_kpu_block(cp):
-        kpu_ids = sorted(k for k, v in cps.items() if has_kpu_block(v))
-        print(
-            f"error: no KPU SKU with id={args.kpu_id!r}. "
-            f"Available: {', '.join(kpu_ids)}",
-            file=sys.stderr,
-        )
-        return 1
+    if args.from_file:
+        try:
+            cp = load_compute_product_file(args.from_file)
+        except ComputeProductFileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if not has_kpu_block(cp):
+            print(
+                f"error: {args.from_file} holds compute product {cp.id!r}, "
+                "which has no KPU block",
+                file=sys.stderr,
+            )
+            return 1
+        label = args.from_file
+    else:
+        try:
+            cps = load_compute_products_unified()
+        except Exception as exc:
+            print(f"error: failed to load catalog: {exc}", file=sys.stderr)
+            return 1
+        cp = cps.get(args.kpu_id)
+        if cp is None or not has_kpu_block(cp):
+            kpu_ids = sorted(k for k, v in cps.items() if has_kpu_block(v))
+            print(
+                f"error: no KPU SKU with id={args.kpu_id!r}. "
+                f"Available: {', '.join(kpu_ids)}",
+                file=sys.stderr,
+            )
+            return 1
+        label = args.kpu_id
 
     try:
         die = kpu_die_of(cp)
     except KPUBlockLookupError as exc:
-        print(f"error: invalid KPU SKU {args.kpu_id!r}: {exc}", file=sys.stderr)
+        print(f"error: invalid KPU SKU {label!r}: {exc}", file=sys.stderr)
         return 1
-    node = nodes.get(die.process_node_id)
+
+    # Process nodes are looked up after the source is settled: a --from-file
+    # product is readable on its own, and every renderer handles an
+    # unresolved node, so a catalog problem must not block inspecting a
+    # local file. A catalog SKU still needs the catalog.
+    try:
+        node = load_process_nodes().get(die.process_node_id)
+    except Exception as exc:
+        if not args.from_file:
+            print(f"error: failed to load catalog: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"warning: process-node catalog unavailable ({exc}); "
+            f"showing {die.process_node_id} unresolved",
+            file=sys.stderr,
+        )
+        node = None
 
     fmt = _detect_format(args.output)
     if fmt == "json":
