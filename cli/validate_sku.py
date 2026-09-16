@@ -24,6 +24,7 @@ Usage:
     python cli/validate_sku.py kpu_t256_32x32_lp5x16_16nm_tsmc_ffp --output findings.md
     python cli/validate_sku.py --all                  # gate every catalog SKU
     python cli/validate_sku.py --all --strict         # also fail on warnings
+    python cli/validate_sku.py --from-file build/kpu_h64.yaml
 
 Exit codes:
     0 = no ERROR findings (or filtered out by --severity)
@@ -39,6 +40,11 @@ import os
 import sys
 from typing import List, Optional
 
+from graphs.hardware.compute_product_loader import (
+    ComputeProductFileError,
+    load_compute_product_file,
+)
+from graphs.hardware.kpu_access import has_kpu_block
 from graphs.hardware.sku_validators import (
     ContextError,
     Finding,
@@ -279,6 +285,12 @@ def main() -> int:
         "embodied-schemas catalog. Exit non-zero on any ERROR finding "
         "across the whole catalog.",
     )
+    sku_group.add_argument(
+        "--from-file",
+        metavar="PATH",
+        help="Validate a ComputeProduct YAML / JSON file instead of a "
+        "catalog SKU, e.g. the output of cli/generate_kpu_sku.py.",
+    )
     parser.add_argument(
         "--category",
         choices=sorted(c.value for c in ValidatorCategory),
@@ -308,9 +320,28 @@ def main() -> int:
     if args.all:
         return _run_catalog_sweep(args, validator_count)
 
-    # Build context.
+    # Build context. A --from-file SKU is not in the catalog yet, so it is
+    # passed in as a one-entry catalog (graphs#268 C6): a heterogeneous
+    # design is validated while it is still being iterated on.
+    sku_id = args.sku_id
+    kpus = None
+    if args.from_file:
+        try:
+            cp = load_compute_product_file(args.from_file)
+        except ComputeProductFileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not has_kpu_block(cp):
+            print(
+                f"error: {args.from_file} holds compute product {cp.id!r}, "
+                "which has no KPU block",
+                file=sys.stderr,
+            )
+            return 2
+        sku_id, kpus = cp.id, {cp.id: cp}
+
     try:
-        ctx = build_context_for_kpu(args.sku_id)
+        ctx = build_context_for_kpu(sku_id, kpus=kpus)
     except ContextError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -334,13 +365,13 @@ def main() -> int:
     # Render.
     fmt = _detect_format(args.output)
     if fmt == "json":
-        rendered = _render_json(findings, args.sku_id, validator_count)
+        rendered = _render_json(findings, sku_id, validator_count)
     elif fmt == "csv":
-        rendered = _render_csv(findings, args.sku_id, validator_count)
+        rendered = _render_csv(findings, sku_id, validator_count)
     elif fmt == "md":
-        rendered = _render_md(findings, args.sku_id, validator_count) + "\n"
+        rendered = _render_md(findings, sku_id, validator_count) + "\n"
     else:
-        rendered = _render_text(findings, args.sku_id, validator_count) + "\n"
+        rendered = _render_text(findings, sku_id, validator_count) + "\n"
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
