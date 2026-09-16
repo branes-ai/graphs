@@ -65,7 +65,7 @@ def test_legacy_skus_load_with_the_new_attachments(sku):
     assert rm.fixed_function_units == ()
     assert set(rm.tile_energy_models) == {t.tile_class_id for t in block.tiles}
     cr = _compute(rm)
-    # The dominant class is the first one in every catalog SKU, so the
+    # The dominant class is the first one in every legacy catalog SKU, so the
     # reports see the same representative as before for INT8.
     assert cr.representative_specialization(Precision.INT8) is cr.tile_specializations[0]
 

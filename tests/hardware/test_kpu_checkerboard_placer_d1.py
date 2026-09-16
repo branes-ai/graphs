@@ -90,9 +90,11 @@ def _as_map(plan: SitePlan) -> list:
 
 
 @pytest.mark.parametrize("sku", LEGACY_KPU_SKU_IDS)
-def test_catalog_skus_do_not_go_through_the_placer(sku):
-    """Every catalog SKU is a uniform mesh with no checkerboard spec, so it
-    keeps the legacy row-major floorplan the golden snapshot pins."""
+def test_legacy_catalog_skus_do_not_go_through_the_placer(sku):
+    """Each *legacy* catalog SKU is a uniform mesh with no checkerboard
+    spec, so it keeps the legacy row-major floorplan the golden snapshot
+    pins. The catalog also holds kpu_h64_auto1, which does have a
+    checkerboard and is covered by the fixture tests above."""
     block = kpu_block_of(load_compute_products()[sku])
     assert block.checkerboard is None
     assert place_tiles(block) is None

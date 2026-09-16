@@ -137,8 +137,10 @@ def test_census_and_pe_total_exclude_fixed_function():
 
 @pytest.mark.parametrize("sku", LEGACY_KPU_SKU_IDS)
 def test_legacy_skus_are_uniform_and_keep_their_pe_total(sku):
-    """Every catalog SKU is one kind, and the helper reproduces the PE
-    total the CLIs printed before C6 (sum of tile.total_pes)."""
+    """Each legacy catalog SKU is one kind, and the helper reproduces the
+    PE total the CLIs printed before C6 (sum of tile.total_pes). The
+    catalog's two kpu_h64_auto1 SKUs are heterogeneous by design and are
+    covered by the fixture tests above."""
     block = kpu_block_of(load_compute_products_unified()[sku])
     assert display.is_heterogeneous(block) is False
     assert list(display.kind_counts(block)) == ["pe_fabric"]

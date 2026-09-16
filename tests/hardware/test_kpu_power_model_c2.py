@@ -1,7 +1,7 @@
 """Phase C2 of the KPU heterogeneous-tile refactor (graphs#268): kpu_power_model.
 
 - Legacy-shaped profiles keep the original TDP formula (golden-pinned), and
-  the heterogeneous engine reproduces it exactly for every catalog SKU.
+  the heterogeneous engine reproduces it exactly for every legacy catalog SKU.
 - Per-kind compute energy: datapath EnergyRef (relative / absolute),
   systolic cells, fixed-function units/s x pj_per_unit scaled by node.
 - Per power domain V/f and gating; the uncore Vdd for memory / NoC.
