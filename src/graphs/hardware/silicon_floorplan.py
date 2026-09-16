@@ -47,7 +47,9 @@ from embodied_schemas.compute_product import KPUBlock
 from embodied_schemas.kpu import KPUTileSpec
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
+from . import kpu_tile_display as tile_display
 from .kpu_access import kpu_block_of, kpu_die_of
+from .kpu_checkerboard_placer import place_tiles
 from .sku_validators.silicon_math import (
     SiliconMathError,
     resolve_block_area,
@@ -623,6 +625,19 @@ class TileRole(str, Enum):
     MEMORY_CONTROLLER = "memory_controller"
     IO_PAD = "io_pad"
     CONTROL = "control"
+    # Heterogeneous checkerboard kinds (graphs#268 D1). A systolic array
+    # and a fixed-function core are compute in the everyday sense, but an
+    # architect names them separately -- they schedule differently, they
+    # are not interchangeable with the PE fabric, and a floorplan reader
+    # needs to see at a glance which sites are which.
+    SYSTOLIC = "systolic"
+    FIXED_FUNCTION = "fixed_function"
+
+
+#: Roles that hold compute silicon; they share one area roll-up rule.
+_COMPUTE_ROLES = frozenset(
+    {TileRole.COMPUTE, TileRole.SYSTOLIC, TileRole.FIXED_FUNCTION}
+)
 
 
 @dataclass(frozen=True)
@@ -663,13 +678,20 @@ class ArchTile:
     def used_area_mm2(self) -> float:
         """Area actually consumed by silicon inside this tile's envelope.
 
-        For COMPUTE: pe_area + l2_area. For MEMORY: l3_area. For
-        non-tile roles (IO ring, controllers, control): the full
-        ``area_mm2``. The difference (envelope - used) is whitespace
-        inside the tile cell.
+        For COMPUTE (and the systolic / fixed-function kinds, which are
+        compute tiles with a different schedule): pe_area + l2_area, plus
+        l3_area when the tile absorbed the memory cells its footprint
+        covers -- otherwise that SRAM would vanish from the roll-up and
+        show up as whitespace. For MEMORY: l3_area. For non-tile roles (IO
+        ring, controllers, control): the full ``area_mm2``. The difference
+        (envelope - used) is whitespace inside the tile cell.
         """
-        if self.role == TileRole.COMPUTE:
-            return (self.pe_area_mm2 or 0.0) + (self.l2_area_mm2 or 0.0)
+        if self.role in _COMPUTE_ROLES:
+            return (
+                (self.pe_area_mm2 or 0.0)
+                + (self.l2_area_mm2 or 0.0)
+                + (self.l3_area_mm2 or 0.0)
+            )
         if self.role == TileRole.MEMORY:
             return self.l3_area_mm2 or 0.0
         return self.area_mm2
@@ -1006,6 +1028,25 @@ def derive_kpu_architectural_floorplan(
         compute_pitches[tile.tile_type] = pitch
         compute_pe_areas[tile.tile_type] = pe_area
 
+    # A class whose silicon is tile-carried rather than a silicon_bin
+    # ``per_pe`` block resolves to zero compute area here, which collapses
+    # its pitch to the L2 term alone. That is the pre-D1 behaviour and it
+    # is wrong for a heterogeneous SKU, where the systolic and
+    # fixed-function classes carry all their own silicon. Sourcing their
+    # area is the area-model half of Phase D (graphs#268 D2); until then
+    # the floorplan says so out loud rather than quietly under-sizing.
+    zero_area_classes = tuple(
+        tile.tile_type for tile in arch.tiles
+        if compute_pe_areas.get(tile.tile_type, 0.0) <= 0.0
+    )
+    if zero_area_classes:
+        _logger.warning(
+            "%s: tile classes %s resolve to zero compute area (their silicon "
+            "is tile-carried, not a silicon_bin per_pe block); their floorplan "
+            "pitch is the L2 term only",
+            cp.id, ", ".join(zero_area_classes),
+        )
+
     max_compute_pitch = max(compute_pitches.values(), default=0.0)
     unified_pitch = max(max_compute_pitch, memory_pitch)
     cell_area = unified_pitch * unified_pitch
@@ -1038,8 +1079,11 @@ def derive_kpu_architectural_floorplan(
 
     # Physical mesh rectangle: 2 * mesh_cols wide so total cells = 2N
     # and a true 2D checkerboard places exactly N compute + N memory.
-    mesh_rows = arch.noc.mesh_rows
-    mesh_cols = arch.noc.mesh_cols
+    # Site grid: an explicit checkerboard (graphs#268 D1) states its own
+    # rows x cols, which is not the NoC mesh once a class occupies more
+    # than one site. A legacy SKU has no checkerboard and keeps the
+    # implicit mesh_rows x mesh_cols -- the golden snapshot pins it.
+    mesh_rows, mesh_cols = _site_grid(arch)
     physical_cols = 2 * mesh_cols
     mesh_width = physical_cols * unified_pitch
     mesh_height = mesh_rows * unified_pitch
@@ -1152,7 +1196,12 @@ def derive_kpu_architectural_floorplan(
         per_channel_width_bits=per_channel_width_bits,
         per_channel_phy_area_mm2=per_channel_phy_area,
         notes=(
-            f"Architectural v2: {mesh_rows}x{mesh_cols} mesh as true 2D "
+            (
+                f"tile classes with no resolved compute area: "
+                f"{', '.join(zero_area_classes)}. "
+                if zero_area_classes and arch.checkerboard is not None else ""
+            )
+            + f"Architectural v2: {mesh_rows}x{mesh_cols} mesh as true 2D "
             f"checkerboard ({physical_cols}x{mesh_rows} cells) @ "
             f"{unified_pitch:.3f} mm pitch; {num_controllers} {memory_type} "
             f"channels @ {per_channel_width_bits}b each "
@@ -1208,6 +1257,101 @@ def _arch_place_io_ring(
     ]
 
 
+def _site_grid(arch) -> tuple[int, int]:
+    """The compute-site grid: the explicit checkerboard's, or the legacy
+    implicit ``mesh_rows x mesh_cols`` (graphs#268 D1)."""
+    checkerboard = getattr(arch, "checkerboard", None)
+    if checkerboard is None:
+        return arch.noc.mesh_rows, arch.noc.mesh_cols
+    return checkerboard.compute_sites.rows, checkerboard.compute_sites.cols
+
+
+def _arch_tile_role(tile) -> TileRole:
+    """The architectural role of a tile class, by kind."""
+    return {
+        "systolic": TileRole.SYSTOLIC,
+        "fixed_function": TileRole.FIXED_FUNCTION,
+    }.get(tile_display.tile_kind(tile), TileRole.COMPUTE)
+
+
+def _arch_place_site_grid(
+    arch,
+    origin_x: float,
+    origin_y: float,
+    pitch: float,
+    per_tile_l2: float,
+    per_tile_l3: float,
+    compute_pe_areas: dict[str, float],
+) -> list[ArchTile]:
+    """Lay out a heterogeneous checkerboard from a placed site grid
+    (graphs#268 D1).
+
+    The schema's model: every compute site is paired 1:1 with one memory
+    cell. Here that pair is two physical cells side by side -- compute at
+    physical column ``2 * site_col``, its memory cell at ``2 * site_col +
+    1`` -- so a site is two pitches wide and one pitch tall.
+
+    A class occupying more than one site spans the whole site rectangle,
+    memory halves included, and carries their L3 in its own
+    ``l3_area_mm2`` instead of leaving cells stranded under an opaque
+    block. Which of those the tile claims as *private* state is
+    ``absorbs_memory_cells``, an accounting question the memory roll-up
+    answers, not a geometric one.
+
+    Unlike the legacy walk this raises rather than padding or truncating:
+    the site-accounting invariant is the schema's, and a mismatch here
+    means the SKU is wrong, not the floorplan.
+    """
+    if not arch.tiles:
+        raise ValueError(
+            "kpu_architecture.tiles is empty; architectural floorplan "
+            "needs at least one tile class"
+        )
+    plan = place_tiles(arch)
+    by_class = {t.tile_class_id: t for t in arch.tiles}
+    covered = set(plan.covered_memory_cells)
+
+    blocks: list[ArchTile] = []
+    for placement in plan.placements:
+        tile = by_class[placement.tile_class_id]
+        # Sites are two physical cells wide; a multi-site tile spans the
+        # memory halves between its compute halves.
+        blocks.append(ArchTile(
+            name=f"{placement.tile_class_id}[{placement.row},{placement.col}]",
+            role=_arch_tile_role(tile),
+            x_mm=origin_x + 2 * placement.col * pitch,
+            y_mm=origin_y + placement.row * pitch,
+            # A multi-site tile spans the memory halves it covers; a 1x1
+            # tile is the compute half only, its cell placed beside it.
+            width_mm=(2 * placement.cols if placement.num_sites > 1 else 1) * pitch,
+            height_mm=placement.rows * pitch,
+            tile_class=tile.tile_type,
+            pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
+            l2_area_mm2=per_tile_l2 * placement.num_sites,
+            # The cells this tile sits on; a 1x1 tile sits on none, and
+            # its paired cell is emitted separately below.
+            l3_area_mm2=(
+                per_tile_l3 * placement.num_sites
+                if placement.num_sites > 1 else None
+            ),
+        ))
+
+    # One memory cell per site the mesh can still reach.
+    for row in range(plan.rows):
+        for col in range(plan.cols):
+            if (row, col) in covered:
+                continue
+            blocks.append(ArchTile(
+                name=f"memory[{row},{col}]",
+                role=TileRole.MEMORY,
+                x_mm=origin_x + (2 * col + 1) * pitch,
+                y_mm=origin_y + row * pitch,
+                width_mm=pitch, height_mm=pitch,
+                l3_area_mm2=per_tile_l3,
+            ))
+    return blocks
+
+
 def _arch_place_checkerboard(
     arch,
     origin_x: float,
@@ -1238,6 +1382,12 @@ def _arch_place_checkerboard(
             "kpu_architecture.tiles is empty; architectural floorplan "
             "needs at least one tile class"
         )
+    if arch.checkerboard is not None:
+        return _arch_place_site_grid(
+            arch, origin_x, origin_y, pitch, per_tile_l2, per_tile_l3,
+            compute_pe_areas,
+        )
+
     mesh_rows = arch.noc.mesh_rows
     mesh_cols = arch.noc.mesh_cols
     physical_cols = 2 * mesh_cols

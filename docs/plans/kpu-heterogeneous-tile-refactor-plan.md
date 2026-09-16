@@ -470,8 +470,39 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
 **Phase D: heterogeneous checkerboard floorplan** (G)
 - D1: placer (explicit plus greedy), footprints, absorbed memory cells,
   affinities, stream-link adjacency.
+  *As built:* `graphs.hardware.kpu_checkerboard_placer` answers only the
+  combinatorial question -- which class owns which site -- so it can be
+  tested on a grid without building a die; `silicon_floorplan` turns sites
+  into millimetre boxes. Auto placement runs the four passes in the order
+  above; a class that declared an affinity optimises for it first and uses
+  adjacency as the tiebreak, so an IO-edge ISP is not dragged inboard by
+  its stream partner. Stream-link adjacency reads the NoC overlay's
+  endpoints as well as `placement.adjacent_to`, so declaring the overlay
+  is enough. An explicit `placement_map` is read back rather than
+  re-placed, recovering footprints as rectangles and reporting a tile-count
+  disagreement as a note for the C4 site-accounting validator. Each site
+  is one compute cell plus its paired memory cell (two physical cells
+  wide); a multi-site tile spans the memory halves between its compute
+  halves, so it *covers* all of its cells -- geometry -- and *absorbs*
+  them only when it declares `absorbs_memory_cells`, which is accounting.
+  `TileRole` gains SYSTOLIC and FIXED_FUNCTION. Blocks with no
+  `checkerboard` (every catalog SKU) keep the legacy row-major walk, so the
+  golden floorplans are byte-identical.
 - D2: GEOMETRY validators (site accounting, footprint pitch fit, whitespace per
   class), `show_floorplan` glyphs, and the power-domain overlay.
+  - **Carried over from D1:** the per-class *area* model. A class whose
+    silicon is tile-carried rather than a silicon_bin `per_pe` block
+    resolves to zero compute area, collapsing its pitch to the L2 term;
+    on the fixture that is 6 of 7 classes. Part of it is a key mismatch --
+    the generator writes some `count_ref`s as `tile.<tile_class_id>` and
+    others as `tile.<tile_type>`, while the floorplan keys on `tile_type`.
+    D1 makes this loud (a log warning and a floorplan note) instead of
+    silently under-sizing; D2 sources the area from
+    `silicon_math.carried_silicon`. Until then the heterogeneous die size,
+    whitespace and what-if estimates are not trustworthy.
+  - Also carried over: `MemoryClassSummary` still assumes one memory cell
+    per tile, and `_arch_what_if_estimates` still assumes
+    `physical_cols = 2 * mesh_cols` with no covered cells.
 - **Accept:** legacy floorplans are byte-identical. For the fixture, the
   placement is deterministic and every validator is clean.
 
