@@ -51,6 +51,8 @@ from . import kpu_tile_display as tile_display
 from .kpu_access import kpu_block_of, kpu_die_of
 from .kpu_checkerboard_placer import place_tiles
 from .sku_validators.silicon_math import (
+    carried_silicon,
+    resolve_tile_ref,
     SiliconMathError,
     resolve_block_area,
 )
@@ -202,6 +204,67 @@ def _per_tile_sram_area_mm2(
     return (chip_l2_area_mm2 + chip_l3_area_mm2) / total_tiles
 
 
+#: ``CarriedSilicon.source`` values that are compute logic rather than
+#: memory. ``local_memory`` is the tile's own SRAM and is accounted with
+#: the memory side; ``noc_overlay`` is chip-level and belongs to no class.
+_CARRIED_COMPUTE_SOURCES = frozenset(
+    {"datapath", "systolic_cells", "fabric_overlay", "function_core"}
+)
+
+#: Sources that mean the class already accounts for its own memory, so it
+#: draws nothing from the chip-wide L2 pool. ``function_core`` is here as
+#: well as in the compute set: a core's ``silicon`` blocks describe the
+#: whole core, its SRAM included (see ``carried_silicon``).
+_SELF_ACCOUNTED_MEMORY_SOURCES = frozenset({"local_memory", "function_core"})
+
+
+def _carried_area_by_tile_type(
+    cp: ComputeProduct, node: ProcessNodeEntry
+) -> tuple[dict[str, float], dict[str, float], set[str]]:
+    """``(compute, memory, declares_memory)`` per tile_type from
+    tile-carried silicon.
+
+    ``declares_memory`` holds every class whose carried silicon already
+    accounts for its memory: one with a ``local_memory`` entry, and a
+    fixed-function core, whose ``silicon`` blocks describe the whole core
+    including its SRAM. Such a class does not draw on the shared L2 pool,
+    so it must not fall back to a share of it -- not when its library fails
+    to resolve on this node, and not when its memory is folded into the
+    compute term.
+
+    A systolic or fixed-function class declares its silicon on itself
+    rather than as a silicon_bin ``per_pe`` block (graphs#268 C1), so
+    without this the floorplan sized it at zero and its pitch collapsed to
+    the L2 term. Areas are for the whole class (``carried_silicon`` already
+    multiplies by ``num_tiles``); the caller divides.
+
+    Pieces whose library the node does not offer are skipped, matching
+    ``resolve_carried_areas``; ``unsupported_carried_silicon`` is where
+    that becomes a finding.
+    """
+    compute: dict[str, float] = {}
+    memory: dict[str, float] = {}
+    declares_memory: set[str] = set()
+    by_id = {t.tile_class_id: t.tile_type for t in kpu_block_of(cp).tiles}
+    for cs in carried_silicon(cp):
+        tile_type = by_id.get(cs.tile_class_id)
+        if tile_type is None:  # chip-level NoC overlay
+            continue
+        if cs.source in _SELF_ACCOUNTED_MEMORY_SOURCES:
+            declares_memory.add(tile_type)
+        if not node.supports(cs.circuit_class):
+            _logger.warning(
+                "silicon_floorplan: %r on %r uses library %s, absent on %s; "
+                "its area is left out of the floorplan",
+                cs.name, cs.tile_class_id, cs.circuit_class.value, node.node_name,
+            )
+            continue
+        area = cs.transistors_mtx / node.density_for(cs.circuit_class).mtx_per_mm2
+        bucket = compute if cs.source in _CARRIED_COMPUTE_SOURCES else memory
+        bucket[tile_type] = bucket.get(tile_type, 0.0) + area
+    return compute, memory, declares_memory
+
+
 def _classify_silicon_bin_blocks(
     cp: ComputeProduct, node: ProcessNodeEntry
 ) -> tuple[
@@ -241,7 +304,20 @@ def _classify_silicon_bin_blocks(
             continue
         ts = block.transistor_source
         if ts.kind.value == "per_pe" and ts.count_ref and ts.count_ref.startswith("tile."):
-            tile_type = ts.count_ref.split(".", 1)[1]
+            # A count_ref names a class by tile_class_id or, the legacy
+            # form, by tile_type label; resolve_tile_ref accepts both, so
+            # the floorplan keys on the class it actually points at rather
+            # than on the spelling (graphs#268 D2). A catalog SKU writes
+            # the label, which resolves to itself -- no change there.
+            ref = ts.count_ref.split(".", 1)[1]
+            try:
+                tile_type = resolve_tile_ref(cp, ref).tile_type
+            except SiliconMathError as exc:
+                _logger.warning(
+                    "silicon_floorplan: block %r in sku %r names an "
+                    "unresolvable tile: %s", block.name, cp.id, exc,
+                )
+                continue
             pe_area_by_tile_type[tile_type] = (
                 pe_area_by_tile_type.get(tile_type, 0.0) + ba.area_mm2
             )
@@ -1015,35 +1091,53 @@ def derive_kpu_architectural_floorplan(
     )
     memory_pitch = math.sqrt(per_tile_l3) if per_tile_l3 > 0 else 0.0
 
+    # Tile-carried silicon (graphs#268 D2): a systolic or fixed-function
+    # class declares its logic and its own SRAM on itself rather than as a
+    # silicon_bin per_pe block, so both sources feed the per-class area.
+    # The generator rejects a SKU that counts a class both ways
+    # (``double_counted_tile_classes``), so adding them is safe.
+    carried_compute, carried_memory, declares_own_memory = (
+        _carried_area_by_tile_type(cp, node)
+    )
+
     # Per-class compute pitches
     compute_pitches: dict[str, float] = {}
     compute_pe_areas: dict[str, float] = {}
+    compute_mem_areas: dict[str, float] = {}
     for tile in arch.tiles:
-        pe_area = (
-            pe_by_tile_type.get(tile.tile_type, 0.0) / tile.num_tiles
-            if tile.num_tiles > 0 else 0.0
+        per_tile = (lambda total: total / tile.num_tiles) if tile.num_tiles > 0 \
+            else (lambda total: 0.0)
+        pe_area = per_tile(
+            pe_by_tile_type.get(tile.tile_type, 0.0)
+            + carried_compute.get(tile.tile_type, 0.0)
         )
-        total = pe_area + per_tile_l2
+        # A class carrying its own SRAM has that instead of a share of the
+        # chip-wide L2 pool, which its tiles do not draw on. Membership is
+        # what it declares, not what resolved: an unresolvable library
+        # leaves the area at zero rather than handing the class shared L2
+        # it does not use (the warning above names it).
+        mem_area = (
+            per_tile(carried_memory.get(tile.tile_type, 0.0))
+            if tile.tile_type in declares_own_memory else per_tile_l2
+        )
+        total = pe_area + mem_area
         pitch = math.sqrt(total) if total > 0 else 0.0
         compute_pitches[tile.tile_type] = pitch
         compute_pe_areas[tile.tile_type] = pe_area
+        compute_mem_areas[tile.tile_type] = mem_area
 
-    # A class whose silicon is tile-carried rather than a silicon_bin
-    # ``per_pe`` block resolves to zero compute area here, which collapses
-    # its pitch to the L2 term alone. That is the pre-D1 behaviour and it
-    # is wrong for a heterogeneous SKU, where the systolic and
-    # fixed-function classes carry all their own silicon. Sourcing their
-    # area is the area-model half of Phase D (graphs#268 D2); until then
-    # the floorplan says so out loud rather than quietly under-sizing.
+    # A class with no area from either source sizes to its memory term
+    # alone. Since D2 that means the SKU really declares no compute
+    # silicon for it -- a data gap worth naming, not a modelling one.
     zero_area_classes = tuple(
         tile.tile_type for tile in arch.tiles
         if compute_pe_areas.get(tile.tile_type, 0.0) <= 0.0
     )
     if zero_area_classes:
         _logger.warning(
-            "%s: tile classes %s resolve to zero compute area (their silicon "
-            "is tile-carried, not a silicon_bin per_pe block); their floorplan "
-            "pitch is the L2 term only",
+            "%s: tile classes %s declare no compute silicon in either the "
+            "silicon_bin or on the tile itself; their floorplan pitch is "
+            "their memory term only",
             cp.id, ", ".join(zero_area_classes),
         )
 
@@ -1055,28 +1149,19 @@ def derive_kpu_architectural_floorplan(
     compute_summaries: dict[str, ComputeClassSummary] = {}
     for tile in arch.tiles:
         pe_area = compute_pe_areas[tile.tile_type]
-        total = pe_area + per_tile_l2
+        mem_area = compute_mem_areas[tile.tile_type]
+        total = pe_area + mem_area
         ws_per_tile = max(0.0, cell_area - total)
         compute_summaries[tile.tile_type] = ComputeClassSummary(
             tile_class=tile.tile_type,
             num_tiles=tile.num_tiles,
             pe_area_mm2=pe_area,
-            l2_area_mm2=per_tile_l2,
+            l2_area_mm2=mem_area,
             total_area_mm2=total,
             pitch_mm=compute_pitches[tile.tile_type],
             whitespace_per_tile_mm2=ws_per_tile,
             class_whitespace_mm2=ws_per_tile * tile.num_tiles,
         )
-    memory_ws_per_tile = max(0.0, cell_area - per_tile_l3)
-    memory_summary = MemoryClassSummary(
-        num_tiles=total_compute_tiles,
-        l3_area_mm2=per_tile_l3,
-        total_area_mm2=per_tile_l3,
-        pitch_mm=memory_pitch,
-        whitespace_per_tile_mm2=memory_ws_per_tile,
-        class_whitespace_mm2=memory_ws_per_tile * total_compute_tiles,
-    )
-
     # Physical mesh rectangle: 2 * mesh_cols wide so total cells = 2N
     # and a true 2D checkerboard places exactly N compute + N memory.
     # Site grid: an explicit checkerboard (graphs#268 D1) states its own
@@ -1087,6 +1172,23 @@ def derive_kpu_architectural_floorplan(
     physical_cols = 2 * mesh_cols
     mesh_width = physical_cols * unified_pitch
     mesh_height = mesh_rows * unified_pitch
+
+    # Memory cells the mesh can still reach: one per site, less the ones a
+    # multi-site tile sits on (graphs#268 D2). A legacy SKU has no
+    # checkerboard, so this is its tile count exactly, as before.
+    num_memory_cells = total_compute_tiles
+    if arch.checkerboard is not None:
+        plan = place_tiles(arch)
+        num_memory_cells = plan.total_sites - len(plan.covered_memory_cells)
+    memory_ws_per_tile = max(0.0, cell_area - per_tile_l3)
+    memory_summary = MemoryClassSummary(
+        num_tiles=num_memory_cells,
+        l3_area_mm2=per_tile_l3,
+        total_area_mm2=per_tile_l3,
+        pitch_mm=memory_pitch,
+        whitespace_per_tile_mm2=memory_ws_per_tile,
+        class_whitespace_mm2=memory_ws_per_tile * num_memory_cells,
+    )
 
     # Memory configuration from the SKU schema (preferred) -- falls
     # back to the silicon_bin PHY blocks + a default 4 if unset.
@@ -1164,7 +1266,7 @@ def derive_kpu_architectural_floorplan(
     # mesh wins shared pixels at the mesh/MC boundary).
     blocks.extend(_arch_place_checkerboard(
         arch, mesh_origin_x, mesh_origin_y, unified_pitch,
-        per_tile_l2, per_tile_l3, compute_pe_areas,
+        per_tile_l2, per_tile_l3, compute_pe_areas, compute_mem_areas,
     ))
 
     # Control logic (bottom-left corner gap, outside the mesh)
@@ -1175,8 +1277,12 @@ def derive_kpu_architectural_floorplan(
     ))
 
     # What-if estimates (periphery-aware: edge_pad held constant)
+    # "If every site held one tile of class X": the count is the grid's,
+    # not the SKU's tile count, which differs once a class spans several
+    # sites (graphs#268 D2). Every catalog SKU has
+    # mesh_rows * mesh_cols == total_tiles, so this is zero-diff for them.
     what_if = _arch_what_if_estimates(
-        compute_pitches, memory_pitch, total_compute_tiles,
+        compute_pitches, memory_pitch, mesh_rows * mesh_cols,
         mesh_rows, mesh_cols, edge_pad,
     )
 
@@ -1282,6 +1388,7 @@ def _arch_place_site_grid(
     per_tile_l2: float,
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
+    compute_mem_areas: dict[str, float],
 ) -> list[ArchTile]:
     """Lay out a heterogeneous checkerboard from a placed site grid
     (graphs#268 D1).
@@ -1327,7 +1434,12 @@ def _arch_place_site_grid(
             height_mm=placement.rows * pitch,
             tile_class=tile.tile_type,
             pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
-            l2_area_mm2=per_tile_l2 * placement.num_sites,
+            # The class's own memory term, which for a class carrying its
+            # own SRAM is not a share of the chip-wide L2 pool.
+            l2_area_mm2=(
+                compute_mem_areas.get(tile.tile_type, per_tile_l2)
+                * placement.num_sites
+            ),
             # The cells this tile sits on; a 1x1 tile sits on none, and
             # its paired cell is emitted separately below.
             l3_area_mm2=(
@@ -1360,6 +1472,7 @@ def _arch_place_checkerboard(
     per_tile_l2: float,
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
+    compute_mem_areas: dict[str, float],
 ) -> list[ArchTile]:
     """Lay out compute + memory tiles in a TRUE 2D checkerboard.
 
@@ -1385,7 +1498,7 @@ def _arch_place_checkerboard(
     if arch.checkerboard is not None:
         return _arch_place_site_grid(
             arch, origin_x, origin_y, pitch, per_tile_l2, per_tile_l3,
-            compute_pe_areas,
+            compute_pe_areas, compute_mem_areas,
         )
 
     mesh_rows = arch.noc.mesh_rows
@@ -1647,16 +1760,18 @@ def _arch_place_control(
 def _arch_what_if_estimates(
     compute_pitches: dict[str, float],
     memory_pitch: float,
-    total_compute_tiles: int,
+    num_cells: int,
     mesh_rows: int,
     mesh_cols: int,
     edge_pad: float,
 ) -> list[WhatIfDieEstimate]:
     """One 'all-tiles-of-class-X' die estimate per compute class.
 
-    Periphery (IO ring + controller margin) is held constant -- the
-    interesting axis is how mesh size + whitespace move with the
-    chosen unified pitch.
+    ``num_cells`` is how many compute cells the grid holds -- one per
+    site, since the hypothetical fills it with 1x1 tiles of a single
+    class. Periphery (IO ring + controller margin) is held constant: the
+    interesting axis is how mesh size and whitespace move with the chosen
+    unified pitch.
     """
     out: list[WhatIfDieEstimate] = []
     for class_name, class_pitch in compute_pitches.items():
@@ -1666,8 +1781,8 @@ def _arch_what_if_estimates(
         mesh_h = mesh_rows * unified
         mesh_area = mesh_w * mesh_h
         # Whitespace inside compute cells + memory cells
-        compute_used = (class_pitch * class_pitch) * total_compute_tiles
-        memory_used = (memory_pitch * memory_pitch) * total_compute_tiles
+        compute_used = (class_pitch * class_pitch) * num_cells
+        memory_used = (memory_pitch * memory_pitch) * num_cells
         whitespace = max(0.0, mesh_area - compute_used - memory_used)
         die_w = mesh_w + 2 * edge_pad
         die_h = mesh_h + 2 * edge_pad

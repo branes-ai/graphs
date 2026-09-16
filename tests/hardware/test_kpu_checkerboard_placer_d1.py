@@ -35,6 +35,7 @@ BLOCK = kpu_block_of(HETERO)
 PLAN = place_tiles(BLOCK)
 
 ISP, SGM, VIO = "ff_isp_raw2yuv", "ff_stereo_sgm", "ff_vio_stereo_inertial"
+VIO_TYPE = "VIO"
 
 _NEIGHBORS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -342,14 +343,49 @@ def test_floorplan_multi_site_tile_spans_its_site_rectangle():
     assert vio.used_area_mm2 >= vio.l3_area_mm2
 
 
-def test_floorplan_names_classes_that_resolve_to_no_compute_area():
-    """Silicon carried on a tile class is not a silicon_bin per_pe block,
-    so those classes currently size to their L2 term alone. The floorplan
-    says so rather than quietly under-sizing them (the area-model half of
-    Phase D)."""
-    notes = _hetero_floorplan().notes
-    assert "no resolved compute area" in notes
-    assert "Systolic-INT8-WS" in notes
+def test_every_class_resolves_to_real_compute_area():
+    """Silicon carried on a tile class is not a silicon_bin per_pe block.
+    Before D2 those classes sized to their L2 term alone; they now draw on
+    ``carried_silicon`` as well, so every class on the fixture has area."""
+    fp = _hetero_floorplan()
+    assert "no resolved compute area" not in fp.notes
+    for tile_type, summary in fp.compute_summaries.items():
+        assert summary.pe_area_mm2 > 0, tile_type
+    # The systolic and fixed-function classes are the ones that used to be
+    # zero; they are now the largest, which is why they are there.
+    assert fp.compute_summaries["Systolic-INT8-WS"].pe_area_mm2 > \
+        fp.compute_summaries["INT8-MAC"].pe_area_mm2
+
+
+def test_a_count_ref_by_class_id_resolves_like_one_by_label():
+    """The fixture writes one per_pe count_ref as ``tile.<tile_class_id>``
+    and another as ``tile.<tile_type>``; both are legal, and the floorplan
+    keys on the class each points at rather than on the spelling."""
+    block = kpu_block_of(HETERO)
+    refs = {
+        b.transistor_source.count_ref
+        for b in HETERO.dies[0].silicon_bin.blocks
+        if b.transistor_source.count_ref
+        and b.transistor_source.count_ref.startswith("tile.")
+    }
+    assert "tile.pe_int8_mac_i32" in refs  # by tile_class_id
+    assert "tile.MINPLUS-I16" in refs      # by tile_type label
+    summaries = _hetero_floorplan().compute_summaries
+    # Both land on their class, not on a key nothing matches.
+    assert summaries["INT8-MAC"].pe_area_mm2 > 0
+    assert summaries["MINPLUS-I16"].pe_area_mm2 > 0
+    assert {t.tile_type for t in block.tiles} == set(summaries)
+
+
+def test_a_library_the_node_lacks_is_reported_not_silently_dropped(caplog):
+    """The fixture's systolic accumulator asks for sram_hp, which tsmc_n16
+    does not offer (embodied-schemas#96). Its area cannot be resolved, so
+    the floorplan says so."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="graphs.hardware.silicon_floorplan"):
+        _hetero_floorplan()
+    assert any("sram_hp" in r.getMessage() for r in caplog.records)
 
 
 def test_legacy_floorplans_carry_no_such_note():
@@ -360,3 +396,136 @@ def test_legacy_floorplans_carry_no_such_note():
     fp = derive_kpu_architectural_floorplan(cp, NODES["tsmc_n16"])
     assert "no resolved compute area" not in fp.notes
     assert fp.notes.startswith("Architectural v2:")
+
+
+# ---------------------------------------------------------------------------
+# D2: site overlays
+# ---------------------------------------------------------------------------
+
+
+def _with_domains():
+    from embodied_schemas import ComputeProduct
+
+    data = HETERO.model_dump(mode="json")
+    data["dies"][0]["blocks"][0]["power_domains"] = [
+        {"domain_id": "int8_pe", "kind": "tile_class",
+         "members": ["pe_int8_mac_i32"], "gateable": True},
+        {"domain_id": "vision", "kind": "tile_class",
+         "members": [ISP, SGM, VIO], "gateable": True},
+        {"domain_id": "quad0", "kind": "cluster",
+         "site_ranges": [{"row_min": 4, "row_max": 5,
+                          "col_min": 0, "col_max": 7}]},
+    ]
+    return kpu_block_of(ComputeProduct.model_validate(data))
+
+
+def test_tile_class_domain_covers_the_sites_its_classes_landed_on():
+    """A tile_class domain names classes, not sites, so which sites it
+    gates is only knowable after placement."""
+    from graphs.hardware.kpu_checkerboard_placer import site_power_domains
+
+    block = _with_domains()
+    plan = place_tiles(block)
+    domains = site_power_domains(block, plan)
+    assert set(plan.sites_of("pe_int8_mac_i32")) == {
+        s for s, d in domains.items() if d == "int8_pe"
+    }
+    # The vision domain gathers all three fixed-function classes.
+    vision = {s for s, d in domains.items() if d == "vision"}
+    assert vision == set(plan.sites_of(ISP)) | set(plan.sites_of(SGM)) \
+        | set(plan.sites_of(VIO))
+
+
+def test_cluster_domain_covers_its_declared_site_range():
+    from graphs.hardware.kpu_checkerboard_placer import site_power_domains
+
+    block = _with_domains()
+    domains = site_power_domains(block, place_tiles(block))
+    quad = {s for s, d in domains.items() if d == "quad0"}
+    assert quad == {(r, c) for r in (4, 5) for c in range(8)}
+
+
+def test_sites_in_no_domain_are_left_unlabelled():
+    from graphs.hardware.kpu_checkerboard_placer import site_power_domains
+
+    block = _with_domains()
+    plan = place_tiles(block)
+    domains = site_power_domains(block, plan)
+    occupied = set(plan.site_owner())
+    uncovered = occupied - set(domains)
+    assert uncovered, "the fixture should leave some sites ungated"
+
+    # Every uncovered site belongs to a class no tile_class domain names,
+    # and lies outside the cluster domain's rows.
+    named = {"pe_int8_mac_i32", ISP, SGM, VIO}
+    owner = plan.site_owner()
+    for row, col in uncovered:
+        assert owner[(row, col)] not in named
+        assert row not in (4, 5)
+
+
+def test_render_overlay_marks_spares_and_unlabelled_sites():
+    from graphs.hardware.kpu_checkerboard_placer import (
+        render_overlay,
+        site_power_domains,
+    )
+
+    block = _with_domains()
+    plan = place_tiles(block)
+    grid, legend = render_overlay(plan, site_power_domains(block, plan))
+    lines = grid.splitlines()
+    assert len(lines) == plan.rows
+    assert all(len(line.split()) == plan.cols for line in lines)
+    assert set(legend.values()) == {"int8_pe", "vision", "quad0"}
+    assert set(lines[-1].split()) == {SPARE_SITE}   # the spare rows
+    assert "-" in grid                              # LNS / min-plus sites
+
+
+def test_a_class_with_unresolvable_carried_sram_gets_no_shared_l2():
+    """The fixture's systolic accumulator asks for sram_hp, absent on
+    tsmc_n16, so its carried SRAM resolves to nothing. It must not silently
+    fall back to a share of the chip-wide L2 pool it does not draw on
+    (CodeRabbit on #287)."""
+    fp = _hetero_floorplan()
+    shared_l2 = fp.compute_summaries["INT8-MAC"].l2_area_mm2
+    # A PE fabric carries no memory of its own, so it does take a share.
+    assert shared_l2 > 0
+    assert fp.compute_summaries["LNS16-MAC"].l2_area_mm2 == shared_l2
+
+    # The systolic class declares two buffers: a weight buffer in sram_hd,
+    # which resolves, and an accumulator in sram_hp, which tsmc_n16 does
+    # not offer. It gets the part that resolved -- never the shared share.
+    systolic = fp.compute_summaries["Systolic-INT8-WS"].l2_area_mm2
+    assert 0 < systolic < shared_l2
+
+    # A fixed-function core's silicon covers its SRAM, so it draws nothing
+    # from the shared pool either.
+    for ff in ("ISP", "SGM", "VIO"):
+        assert fp.compute_summaries[ff].l2_area_mm2 == 0.0
+
+
+def test_placed_tiles_report_their_own_memory_term():
+    """``compute_mem_areas`` drives pitch and the class summary, so the
+    placed block must use it too or ``used_area_mm2`` disagrees with the
+    summary (CodeRabbit on #287)."""
+    fp = _hetero_floorplan()
+    # Site counts come from the plan, not from reverse-engineering the
+    # millimetres: a 2x2 tile is four sites, which its width alone does
+    # not say (CodeRabbit on #287).
+    sites_by_class = {
+        p.tile_class_id: p.num_sites for p in PLAN.placements
+    }
+    type_of = {t.tile_class_id: t.tile_type for t in BLOCK.tiles}
+    sites_by_type = {type_of[cid]: n for cid, n in sites_by_class.items()}
+    assert sites_by_type[VIO_TYPE] == 4
+
+    by_class = {}
+    for b in fp.blocks:
+        if b.tile_class is not None:
+            by_class.setdefault(b.tile_class, b)
+    for tile_type, summary in fp.compute_summaries.items():
+        block = by_class[tile_type]
+        expected = summary.l2_area_mm2 * sites_by_type[tile_type]
+        assert block.l2_area_mm2 == pytest.approx(expected), tile_type
+    # At least one class must have a non-zero term, or this proves nothing.
+    assert any(b.l2_area_mm2 for b in by_class.values())
