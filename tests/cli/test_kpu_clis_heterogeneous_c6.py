@@ -447,3 +447,125 @@ def test_tile_ladder_json_carries_the_model_and_the_caveats(cli_runner, hetero_y
     assert vio["back_check"]
     assert by_function["stereo.sgm"]["ops_model"]["confidence"] == "INTERPOLATED"
     assert all(r["provenance"] for r in by_function["gemm.int8"]["rungs"])
+
+
+# ---------------------------------------------------------------------------
+# list_kpu_engines (graphs#268 E3)
+# ---------------------------------------------------------------------------
+
+
+def test_engine_registry_lists_engines_and_segments(cli_runner, hetero_yaml):
+    rc, out, err = cli_runner(
+        _CLI / "list_kpu_engines.py", ["--from-file", str(hetero_yaml)]
+    )
+    assert rc == 0, err
+    assert "Traceback" not in err
+    assert "=== Engines (7) ===" in out
+    assert "=== Segments (1) ===" in out
+    assert "isp_sgm_vio" in out and "stays on chip" in out
+    assert "kernels: gemm, conv2d" in out          # the systolic engine
+    assert "not precision-keyed" in out            # the min-plus engine
+
+
+def test_engine_registry_exits_nonzero_on_an_unservable_requirement(
+    cli_runner, hetero_yaml
+):
+    """A precision the die cannot carry is a hard finding, so the CLI is
+    usable as a gate."""
+    rc, out, err = cli_runner(
+        _CLI / "list_kpu_engines.py",
+        ["--from-file", str(hetero_yaml), "--require", "planning_qp=fp32"],
+    )
+    assert rc == 1
+    assert "ERROR" in out and "no programmable engine" in out
+
+
+def test_engine_registry_exits_zero_when_every_requirement_is_served(
+    cli_runner, hetero_yaml
+):
+    rc, out, err = cli_runner(
+        _CLI / "list_kpu_engines.py",
+        ["--from-file", str(hetero_yaml), "--require", "trunk=int8"],
+    )
+    assert rc == 0, err
+    assert "OK" in out and "served by" in out
+
+
+def test_engine_registry_rejects_a_malformed_requirement(cli_runner, hetero_yaml):
+    rc, _, err = cli_runner(
+        _CLI / "list_kpu_engines.py",
+        ["--from-file", str(hetero_yaml), "--require", "no_equals_sign"],
+    )
+    assert rc != 0
+    assert "NAME=FORMAT" in err and "Traceback" not in err
+
+
+def test_engine_registry_json_is_a_registry(cli_runner, hetero_yaml, tmp_path):
+    out_path = tmp_path / "engines.json"
+    rc, _, err = cli_runner(
+        _CLI / "list_kpu_engines.py",
+        ["--from-file", str(hetero_yaml), "--output", str(out_path),
+         "--require", "planning_qp=fp32"],
+    )
+    assert rc == 1, err  # the finding still sets the exit code
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert {"engines", "segments", "precision_findings"} <= set(payload)
+    by_id = {e["engine_id"]: e for e in payload["engines"]}
+    assert len(by_id) == 7
+    assert by_id["systolic_int8_ws"]["supported_kernels"] == ["gemm", "conv2d"]
+    assert by_id["ff_stereo_sgm"]["function_id"] == "stereo.sgm"
+    assert by_id["pe_int8_mac_i32"]["precision_floor"] == "int4"
+    assert payload["segments"][0]["absorbed_bytes_by_unit"] == {"pixel": 7.0}
+    assert payload["precision_findings"][0]["severity"] == "ERROR"
+
+
+def test_engine_registry_works_on_a_uniform_sku(cli_runner):
+    """The SoC study composes a uniform KPU as engines too."""
+    rc, out, err = cli_runner(_CLI / "list_kpu_engines.py", [_LEGACY])
+    assert rc == 0, err
+    assert "=== Engines (3) ===" in out
+    assert "no stream-linked chains" in out
+
+
+def test_engine_registry_csv_carries_all_three_sections(cli_runner, hetero_yaml, tmp_path):
+    """main() writes the file before returning a non-zero exit code, so a
+    CSV that held only the engines could not explain the failure
+    (CodeRabbit on #290)."""
+    import csv as _csv
+
+    out_path = tmp_path / "engines.csv"
+    rc, _, err = cli_runner(
+        _CLI / "list_kpu_engines.py",
+        ["--from-file", str(hetero_yaml), "--output", str(out_path),
+         "--require", "planning_qp=fp32"],
+    )
+    assert rc == 1, err
+    rows = list(_csv.DictReader(out_path.read_text(encoding="utf-8").splitlines()))
+    by_type = {}
+    for row in rows:
+        by_type.setdefault(row["record_type"], []).append(row)
+    assert set(by_type) == {"engine", "segment", "precision_finding"}
+    assert by_type["segment"][0]["segment_id"] == "isp_sgm_vio"
+    assert "pixel=7" in by_type["segment"][0]["absorbed_bytes_by_unit"]
+    finding = by_type["precision_finding"][0]
+    assert finding["severity"] == "ERROR"
+    assert finding["requirement"] == "planning_qp"
+
+
+def test_engine_registry_survives_a_core_with_no_retargetable_energy(
+    cli_runner, tmp_path, hetero_yaml
+):
+    """fixed_function_pj_per_unit returns None when the core's reference
+    node is not in the catalog. Formatting that as a float crashed the
+    default text view (CodeRabbit on #290)."""
+    data = yaml.safe_load(hetero_yaml.read_text(encoding="utf-8"))
+    for tile in data["dies"][0]["blocks"][0]["tiles"]:
+        if tile.get("core"):
+            tile["core"]["energy"]["ref_node_id"] = "not_a_real_node"
+    path = tmp_path / "orphan_ref.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    rc, out, err = cli_runner(_CLI / "list_kpu_engines.py", ["--from-file", str(path)])
+    assert rc == 0, err
+    assert "Traceback" not in err
+    assert "energy not retargetable" in out

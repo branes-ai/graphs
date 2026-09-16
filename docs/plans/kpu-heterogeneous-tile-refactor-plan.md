@@ -599,6 +599,32 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
 - E3: register the tile classes as engines in the SoC study analyzer. Add
   workload `segments` and precision-floor findings. Compare against the uniform
   T64 on the 5 regimes.
+  *As built: the half that does not need graphs#269.* That analyzer has no
+  code yet -- `PipelineWorkload`, `StageDemand`, `engine_kind` and
+  `SoCSpec` appear nowhere, `workloads/pipelines/` does not exist, and its
+  item 0.2 (the Autonomy Workload Data Annex) is marked a blocker for four
+  of the five regimes. So E3 delivers the export that analyzer will
+  consume, and the regime comparison is deferred with it.
+  - `graphs.hardware.kpu_engines` + `cli/list_kpu_engines.py`. One
+    `EngineDescriptor` per tile class, in declaration order: what it can
+    run (formats, systolic kernels, or a function id), what it costs
+    (ops/s and pJ/op per format at the default clock, silicon per tile,
+    and for a core its own work unit), and its **precision floor**.
+  - **Range decides, not speed.** `supports_at_least` ranks formats by the
+    range they carry, so a stage needing fp32 does not become runnable
+    because an engine is fast at int8. LNS formats rank with the float
+    they replace, which is the point of the class.
+  - **Segments** are read back off the stream-link overlays, with absorbed
+    traffic keyed by the *producer's* work unit -- a chain can mix
+    per-pixel and per-frame stages and summing those would be meaningless.
+  - **The T64 comparison, in the part reachable today:** the heterogeneous
+    die carries no fp32 at all, so a QP solver that runs on the uniform
+    T64's `bf16_primary` class has nowhere to go on `kpu_h64_auto1`. That
+    is the trade the refactor makes, stated as a finding rather than a
+    regime table.
+  - A class whose ops are not precision-keyed (min-plus, abs-diff) reports
+    no formats *with a note saying why*, rather than a zero a mapper would
+    read as "no throughput".
 - **Accept:**
   - The ladder is monotonic, with the ratios in bands backed by citations.
   - The ISP/SGM/VIO tiles pass the split envelope validator without waivers.
