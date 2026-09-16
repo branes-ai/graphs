@@ -23,10 +23,16 @@ from graphs.hardware.resource_model import (
     Precision,
     TileSpecialization,
 )
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 N16 = NODES["tsmc_n16"]
-CATALOG = {k: v for k, v in load_compute_products().items() if has_kpu_block(v)}
+# The legacy contract is about the uniform SKUs that predate the
+# heterogeneous work; see tests/hardware/test_kpu_catalog_ids.py.
+CATALOG = {
+    k: v for k, v in load_compute_products().items()
+    if k in LEGACY_KPU_SKU_IDS
+}
 HETERO = generate_kpu_sku(input_spec_from_compute_product(build_heterogeneous_kpu()),
                           process_nodes=NODES)
 
@@ -59,7 +65,7 @@ def test_legacy_skus_load_with_the_new_attachments(sku):
     assert rm.fixed_function_units == ()
     assert set(rm.tile_energy_models) == {t.tile_class_id for t in block.tiles}
     cr = _compute(rm)
-    # The dominant class is the first one in every catalog SKU, so the
+    # The dominant class is the first one in every legacy catalog SKU, so the
     # reports see the same representative as before for INT8.
     assert cr.representative_specialization(Precision.INT8) is cr.tile_specializations[0]
 
@@ -240,3 +246,4 @@ def test_gated_profile_drops_its_precisions():
         assert precisions == {Precision.INT8}  # only the systolic class remains
         for precision, perf in tp.performance_specs.items():
             assert perf.compute_resource.calc_peak_ops(precision) > 0
+

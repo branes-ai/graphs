@@ -74,10 +74,10 @@ def test_output_formats_by_extension(cli_runner, tmp_path):
         rc, _, err = cli_runner(_CLI, ["--kind", "kpu", "--output", str(tmp_path / name)])
         assert rc == 0, err
     rows = list(csv.DictReader(io.StringIO((tmp_path / "p.csv").read_text())))
-    assert len(rows) == 12 and rows[0]["block_kinds"] == "kpu"
+    assert len(rows) == 14 and rows[0]["block_kinds"] == "kpu"
     assert (tmp_path / "p.md").read_text().startswith("| id | vendor |")
-    assert len(json.loads((tmp_path / "p.json").read_text())) == 12
-    assert "12 compute product(s): kpu 12" in (tmp_path / "p.txt").read_text()
+    assert len(json.loads((tmp_path / "p.json").read_text())) == 14
+    assert "14 compute product(s): kpu 14" in (tmp_path / "p.txt").read_text()
     # --format wins over the extension.
     rc, _, _ = cli_runner(
         _CLI, ["--kind", "kpu", "--format", "json", "--output", str(tmp_path / "x.md")]
