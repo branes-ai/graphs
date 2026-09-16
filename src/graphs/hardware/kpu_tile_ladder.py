@@ -46,6 +46,15 @@ from graphs.hardware.kpu_access import kpu_block_of
 from graphs.hardware.kpu_power_model import fixed_function_pj_per_unit
 from graphs.hardware.sku_validators.silicon_math import carried_silicon
 
+#: Workload operand formats, mapped to the name of the ``Precision`` the
+#: GPU and CPU resource models scale their energy by. A format with no
+#: entry, or one the device does not model, is priced at fp32 and the rung
+#: says so.
+_PRECISION_NAME_BY_FORMAT = {
+    "int4": "INT4", "int8": "INT8", "uint8": "INT8", "int16": "INT16",
+    "fp16": "FP16", "bf16": "BF16", "fp32": "FP32", "fp64": "FP64",
+}
+
 #: LPDDR5 DRAM energy, matching the ``energy_per_byte`` the KPU resource
 #: models carry (1e-11 J). Quoted per byte so the saving is comparable
 #: with the compute column. For contrast, Darkroom measures 1360 pJ/pixel
@@ -218,6 +227,12 @@ def _op_energy_pj(
     on a MAC array, or a colour matrix on a min-plus fabric -- neither can
     run the work, and the resulting rung would be fiction.
 
+    Formats are tried in the order the ops model prefers them, and within
+    the first format the tile supports, the cheapest unit and mode wins.
+    Letting the unit loop run outermost instead would pick a less-preferred
+    format, or the first mode rather than the best one, purely from
+    declaration order (CodeRabbit on #289).
+
     Generalizes the loader's MAC-only lookup, which is the point: a
     min-plus class declares no MAC, and pricing stereo on it is why the
     class exists.
@@ -230,34 +245,39 @@ def _op_energy_pj(
         units = list(tile.datapath.functional_units)
     else:
         return None
-    for unit in units:
-        if unit.op.value not in ops.required_ops:
-            continue
-        for operand_format in ops.operand_formats:
-          for mode in unit.modes:
-            if mode.operand_format != operand_format:
+
+    for operand_format in ops.operand_formats:
+        best: Optional[Tuple[float, str, str]] = None
+        for unit in units:
+            if unit.op.value not in ops.required_ops:
                 continue
-            energy = mode.energy
-            per_invocation: Optional[float] = None
-            if isinstance(energy, RelativeEnergy):
-                anchor = node.energy_per_op_pj.get(energy.anchor)
-                if anchor is not None:
-                    per_invocation = energy.ratio * anchor * OPS_PER_MAC
-            elif isinstance(energy, AbsoluteEnergy):
-                per_invocation = energy.pj
-            if per_invocation is None:
-                continue
-            # ops_per_invocation is optional; a unit that does not state it
-            # follows the D3 default for its op (a MAC is 2, and so are
-            # min-plus and abs-diff; a lerp is 3).
-            per_op = unit.ops_per_invocation or _DEFAULT_OPS_PER_INVOCATION.get(
-                unit.op.value, OPS_PER_MAC
-            )
-            return (
-                per_invocation / max(1.0, float(per_op)),
-                unit.op.value,
-                operand_format,
-            )
+            for mode in unit.modes:
+                if mode.operand_format != operand_format:
+                    continue
+                energy = mode.energy
+                per_invocation: Optional[float] = None
+                if isinstance(energy, RelativeEnergy):
+                    anchor = node.energy_per_op_pj.get(energy.anchor)
+                    if anchor is not None:
+                        per_invocation = energy.ratio * anchor * OPS_PER_MAC
+                elif isinstance(energy, AbsoluteEnergy):
+                    per_invocation = energy.pj
+                if per_invocation is None:
+                    continue
+                # ops_per_invocation is optional; a unit that does not
+                # state it follows the D3 default for its op.
+                per_op = unit.ops_per_invocation or _DEFAULT_OPS_PER_INVOCATION.get(
+                    unit.op.value, OPS_PER_MAC
+                )
+                priced = (
+                    per_invocation / max(1.0, float(per_op)),
+                    unit.op.value,
+                    operand_format,
+                )
+                if best is None or priced[0] < best[0]:
+                    best = priced
+        if best is not None:
+            return best
     return None
 
 
@@ -334,7 +354,25 @@ def _reference_rung(mapper_name: str, kind: str, ops: OpsModel) -> Optional[Rung
     if mapper is None:
         return None
     rm = mapper.resource_model
-    precision = Precision.INT8 if "int8" in ops.operand_formats else Precision.FP16
+    # Price at the format the workload actually prefers. Defaulting
+    # everything non-int8 to FP16 mispriced the fp32 and int16 workloads by
+    # a factor of two (CodeRabbit on #289).
+    precision = None
+    for operand_format in ops.operand_formats:
+        name = _PRECISION_NAME_BY_FORMAT.get(operand_format)
+        candidate = getattr(Precision, name, None) if name else None
+        if candidate is not None and candidate in rm.energy_scaling:
+            precision = candidate
+            break
+    fallback = ""
+    if precision is None:
+        # A format this mapper does not model (LNS, say). FP32 is the
+        # unscaled reference, and the rung says it is standing in.
+        precision = Precision.FP32
+        fallback = (
+            f"; {'/'.join(ops.operand_formats)} is not in this device's "
+            f"energy model, priced at fp32"
+        )
     scale = rm.energy_scaling.get(precision, 1.0)
     # energy_per_flop_fp32 is per op already (a FLOP is one op).
     pj_per_op = rm.energy_per_flop_fp32 * scale * 1e12
@@ -349,7 +387,7 @@ def _reference_rung(mapper_name: str, kind: str, ops: OpsModel) -> Optional[Rung
             f"{rm.name} resource model: energy_per_flop_fp32 x "
             f"energy_scaling[{precision.value}]"
         ),
-        notes="whole-device figure; not a per-tile comparison",
+        notes="whole-device figure; not a per-tile comparison" + fallback,
     )
 
 
@@ -443,11 +481,19 @@ def _back_check(rungs: Sequence[Rung], ops: OpsModel,
     return tuple(out)
 
 
-def _core_for(block, function_id: str):
-    for tile in block.tiles:
-        if isinstance(tile, FixedFunctionTile) and tile.core.function_id == function_id:
-            return tile
-    return None
+def _cores_for(block, function_id: str) -> List:
+    """Every fixed-function tile class implementing ``function_id``.
+
+    A die may carry two cores for one function -- a low-power one and a
+    high-throughput one, say -- and the ladder promises to price every
+    implementation, so returning the first would quietly drop the rest
+    (CodeRabbit on #289).
+    """
+    return [
+        tile for tile in block.tiles
+        if isinstance(tile, FixedFunctionTile)
+        and tile.core.function_id == function_id
+    ]
 
 
 def build_ladder(
@@ -470,8 +516,8 @@ def build_ladder(
     block = kpu_block_of(cp)
     rungs: List[Rung] = []
 
-    core_tile = _core_for(block, function_id)
-    if core_tile is not None:
+    core_tiles = _cores_for(block, function_id)
+    for core_tile in core_tiles:
         rung = _fixed_function_rung(cp, node, core_tile, ops, nodes)
         if rung is not None:
             rungs.append(rung)
@@ -483,18 +529,24 @@ def build_ladder(
         if rung is not None:
             rungs.append(rung)
 
-    for name, kind in references:
-        rung = _reference_rung(name, kind, ops)
-        if rung is not None:
-            rungs.append(rung)
-
+    # The reference rungs are context, not evidence that this SKU runs the
+    # function. Without this check a KPU with no implementation at all
+    # would still report the function as supported, on the strength of a
+    # GPU number (CodeRabbit on #289).
     if not rungs:
         raise LadderError(
             f"no implementation of {function_id!r} could be priced on "
             f"{cp.id!r} at {node.node_name}"
         )
 
-    dram_bytes, dram_note = _dram_traffic(core_tile, block, ops)
+    for name, kind in references:
+        rung = _reference_rung(name, kind, ops)
+        if rung is not None:
+            rungs.append(rung)
+
+    dram_bytes, dram_note = _dram_traffic(
+        core_tiles[0] if core_tiles else None, block, ops
+    )
     ordered = tuple(sorted(rungs, key=lambda r: r.pj_per_unit))
     return Ladder(
         function_id=function_id,

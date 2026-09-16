@@ -117,6 +117,12 @@ def _render_text(ladders: List[Ladder], show_ops: bool) -> str:
 
 
 def _rows(ladders: List[Ladder]) -> List[dict]:
+    """One row per rung, carrying the ladder-level findings too.
+
+    A CSV reader must not be able to see the numbers without the caveats
+    that qualify them -- that the comparison is a lower bound, or that the
+    specialization order does not hold (CodeRabbit on #289).
+    """
     return [
         {
             "function_id": ladder.function_id,
@@ -134,6 +140,11 @@ def _rows(ladders: List[Ladder]) -> List[dict]:
             "confidence": rung.confidence,
             "provenance": rung.provenance,
             "notes": rung.notes,
+            "follows_specialization_order": ladder.follows_specialization_order,
+            "arithmetic_bound": ladder.arithmetic_bound,
+            "back_check": " | ".join(ladder.back_check_notes),
+            "dram_bytes_avoided_per_unit": ladder.dram_bytes_per_unit,
+            "dram_pj_avoided_per_unit": ladder.dram_pj_per_unit,
         }
         for ladder in ladders
         for rung in ladder.rungs

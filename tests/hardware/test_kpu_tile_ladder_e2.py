@@ -226,3 +226,72 @@ def test_the_cores_report_the_silicon_they_cost():
     assert sgm.area_mm2 is not None and sgm.area_mm2 > 0
     # The stereo core is far larger than one min-plus fabric tile.
     assert fabric.area_mm2 is None or sgm.area_mm2 > fabric.area_mm2
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CodeRabbit on #289)
+# ---------------------------------------------------------------------------
+
+
+def test_the_preferred_format_wins_over_declaration_order():
+    """Formats are tried in the order the ops model prefers, not the order
+    the tile happens to declare its modes in."""
+    ladder = _ladder("vio.stereo_inertial")
+    fabric = next(r for r in ladder.rungs if r.kind == "pe_fabric")
+    tile = next(
+        t for t in SKU.dies[0].blocks[0].tiles
+        if t.tile_class_id == "pe_int8_mac_i32"
+    )
+    declared = [
+        m.operand_format
+        for u in tile.datapath.functional_units for m in u.modes
+    ]
+    # The class declares int8 first and has no fp32 at all, so the model's
+    # fp32 -> bf16 -> fp16 preference must pick bf16, not the first mode.
+    assert declared[0] == "int8" and "fp32" not in declared
+    assert ladder.ops.operand_formats == ("fp32", "bf16", "fp16")
+    assert "bf16" in fabric.provenance
+
+
+def test_reference_rungs_are_priced_at_the_workloads_own_format():
+    """Defaulting everything non-int8 to fp16 mispriced the fp32 workload by
+    a factor of two."""
+    gpu_vio = next(r for r in _ladder("vio.stereo_inertial").rungs if r.kind == "gpu")
+    gpu_gemm = next(r for r in _ladder("gemm.int8").rungs if r.kind == "gpu")
+    # fp32 is the unscaled reference; int8 is an eighth of it on this device.
+    assert gpu_vio.pj_per_op == pytest.approx(8 * gpu_gemm.pj_per_op)
+
+
+def test_a_function_the_kpu_cannot_run_is_refused_not_answered_by_the_gpu():
+    """The reference rungs are context, not evidence that this SKU runs the
+    function; without the guard a KPU with no implementation would still
+    report it as supported."""
+    from graphs.hardware.kpu_tile_ladder import OpsModel, OPS_MODELS
+
+    OPS_MODELS["test.unrunnable"] = OpsModel(
+        ops_per_unit=1.0, work_unit="widget",
+        operand_formats=("fp64",), required_ops=("definitely_not_an_op",),
+        systolic_kernel=None,
+        derivation="a function no tile class in any SKU declares an op for",
+        confidence="THEORETICAL",
+        citation="test fixture for the no-implementation guard (#289)",
+    )
+    try:
+        with pytest.raises(LadderError, match="could be priced"):
+            _ladder("test.unrunnable")
+    finally:
+        del OPS_MODELS["test.unrunnable"]
+
+
+def test_every_core_implementing_a_function_gets_a_rung():
+    """A die may carry two cores for one function; returning the first
+    would quietly drop the rest."""
+    from graphs.hardware.kpu_tile_ladder import _cores_for
+    from graphs.hardware.kpu_access import kpu_block_of
+
+    block = kpu_block_of(SKU)
+    assert len(_cores_for(block, "stereo.sgm")) == 1
+    assert _cores_for(block, "not.a.function") == []
+    # One rung per implementing core.
+    ff_rungs = [r for r in _ladder("stereo.sgm").rungs if r.kind == "fixed_function"]
+    assert len(ff_rungs) == len(_cores_for(block, "stereo.sgm"))
