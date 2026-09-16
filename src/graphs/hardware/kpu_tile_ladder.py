@@ -207,6 +207,13 @@ class Rung:
     confidence: str
     provenance: str
     notes: str = ""
+    #: DRAM traffic this implementation avoids per work unit, when it is a
+    #: stream-linked core. Per rung, not per ladder: two cores for one
+    #: function can differ in output size and in whether they are linked
+    #: at all (CodeRabbit on #289).
+    dram_bytes_per_unit: Optional[float] = None
+    dram_pj_per_unit: Optional[float] = None
+    dram_note: str = ""
 
     @property
     def implied_pj_per_op(self) -> Optional[float]:
@@ -301,13 +308,14 @@ def _class_area_mm2(
 
 
 def _fixed_function_rung(
-    cp: ComputeProduct, node: ProcessNodeEntry, tile, ops: OpsModel, nodes
+    cp: ComputeProduct, node: ProcessNodeEntry, tile, ops: OpsModel, nodes, block
 ) -> Optional[Rung]:
     core = tile.core
     pj = fixed_function_pj_per_unit(core, node, nodes)
     if pj is None:
         return None
     area = _class_area_mm2(cp, node, tile.tile_class_id)
+    dram_bytes, dram_note = _dram_traffic(tile, block, ops)
     return Rung(
         label=f"{tile.tile_class_id} (fixed-function core)",
         kind="fixed_function",
@@ -320,6 +328,11 @@ def _fixed_function_rung(
             f"published {core.energy.pj_per_unit:g} pJ/{ops.work_unit} at "
             f"{core.energy.ref_node_id}, retargeted to {node.node_name}"
         ),
+        dram_bytes_per_unit=dram_bytes,
+        dram_pj_per_unit=(
+            dram_bytes * DRAM_PJ_PER_BYTE if dram_bytes is not None else None
+        ),
+        dram_note=dram_note,
     )
 
 
@@ -403,12 +416,19 @@ class Ladder:
     node_id: str
     ops: OpsModel
     rungs: Tuple[Rung, ...]
-    dram_bytes_per_unit: Optional[float]
-    dram_pj_per_unit: Optional[float]
-    dram_note: str = ""
     #: Where the ops model is carrying more weight than it can bear; see
     #: ``arithmetic_bound``. Computed at build time by ``_back_check``.
     back_check_notes: Tuple[str, ...] = ()
+
+    @property
+    def encapsulating_rungs(self) -> Tuple[Rung, ...]:
+        """Rungs that avoid DRAM traffic by being stream-linked.
+
+        Per rung rather than per ladder: with two cores for one function,
+        one may be linked into the chain and the other not, and attributing
+        the first one's saving to both would be wrong.
+        """
+        return tuple(r for r in self.rungs if r.dram_bytes_per_unit)
 
     @property
     def kind_order(self) -> Tuple[str, ...]:
@@ -516,9 +536,8 @@ def build_ladder(
     block = kpu_block_of(cp)
     rungs: List[Rung] = []
 
-    core_tiles = _cores_for(block, function_id)
-    for core_tile in core_tiles:
-        rung = _fixed_function_rung(cp, node, core_tile, ops, nodes)
+    for core_tile in _cores_for(block, function_id):
+        rung = _fixed_function_rung(cp, node, core_tile, ops, nodes, block)
         if rung is not None:
             rungs.append(rung)
 
@@ -544,9 +563,6 @@ def build_ladder(
         if rung is not None:
             rungs.append(rung)
 
-    dram_bytes, dram_note = _dram_traffic(
-        core_tiles[0] if core_tiles else None, block, ops
-    )
     ordered = tuple(sorted(rungs, key=lambda r: r.pj_per_unit))
     return Ladder(
         function_id=function_id,
@@ -554,11 +570,6 @@ def build_ladder(
         node_id=node.node_name,
         ops=ops,
         rungs=ordered,
-        dram_bytes_per_unit=dram_bytes,
-        dram_pj_per_unit=(
-            dram_bytes * DRAM_PJ_PER_BYTE if dram_bytes is not None else None
-        ),
-        dram_note=dram_note,
         back_check_notes=_back_check(ordered, ops, node),
     )
 

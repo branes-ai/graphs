@@ -197,19 +197,18 @@ def test_a_stream_linked_core_avoids_a_write_and_a_read_back():
                 if getattr(t, "core", None) is not None
                 and t.core.function_id == "stereo.sgm")
     out_bytes = core.core.io.output_bytes_per_unit
-    assert ladder.dram_bytes_per_unit == pytest.approx(2 * out_bytes)
-    assert ladder.dram_pj_per_unit == pytest.approx(
-        2 * out_bytes * DRAM_PJ_PER_BYTE
-    )
-    assert "not written and not read back" in ladder.dram_note
+    ff = next(r for r in ladder.rungs if r.kind == "fixed_function")
+    assert ff.dram_bytes_per_unit == pytest.approx(2 * out_bytes)
+    assert ff.dram_pj_per_unit == pytest.approx(2 * out_bytes * DRAM_PJ_PER_BYTE)
+    assert "not written and not read back" in ff.dram_note
 
 
 def test_gemm_has_no_encapsulation_claim():
     """It has no fixed-function core, so there is nothing to encapsulate
     and the ladder claims nothing."""
     ladder = _ladder("gemm.int8")
-    assert ladder.dram_bytes_per_unit is None
-    assert ladder.dram_pj_per_unit is None
+    assert ladder.encapsulating_rungs == ()
+    assert all(r.dram_bytes_per_unit is None for r in ladder.rungs)
 
 
 # ---------------------------------------------------------------------------
@@ -284,14 +283,58 @@ def test_a_function_the_kpu_cannot_run_is_refused_not_answered_by_the_gpu():
 
 
 def test_every_core_implementing_a_function_gets_a_rung():
-    """A die may carry two cores for one function; returning the first
-    would quietly drop the rest."""
-    from graphs.hardware.kpu_tile_ladder import _cores_for
+    """A die may carry two cores for one function -- a low-power one and a
+    high-throughput one -- and the ladder promises to price every
+    implementation. A one-core fixture cannot catch a regression that
+    returns only the first, so this builds a two-core block
+    (CodeRabbit on #289)."""
     from graphs.hardware.kpu_access import kpu_block_of
+    from graphs.hardware.kpu_tile_ladder import _cores_for
 
     block = kpu_block_of(SKU)
+    sgm = next(t for t in block.tiles if t.tile_class_id == "ff_stereo_sgm")
+    # A second, slower core for the same function: half the throughput at
+    # half the energy. model_copy skips validation, which is what lets a
+    # test build a block the site accounting would otherwise reject.
+    twin = sgm.model_copy(update={
+        "tile_class_id": "ff_stereo_sgm_lp",
+        "tile_type": "SGM-LP",
+        "core": sgm.core.model_copy(update={
+            "energy": sgm.core.energy.model_copy(
+                update={"pj_per_unit": sgm.core.energy.pj_per_unit / 2}
+            ),
+        }),
+    })
+    two_core_block = block.model_copy(update={"tiles": [*block.tiles, twin]})
+    two_core_sku = SKU.model_copy(update={
+        "dies": [SKU.dies[0].model_copy(update={"blocks": [two_core_block]})]
+    })
+
     assert len(_cores_for(block, "stereo.sgm")) == 1
     assert _cores_for(block, "not.a.function") == []
-    # One rung per implementing core.
-    ff_rungs = [r for r in _ladder("stereo.sgm").rungs if r.kind == "fixed_function"]
-    assert len(ff_rungs) == len(_cores_for(block, "stereo.sgm"))
+    assert len(_cores_for(two_core_block, "stereo.sgm")) == 2
+
+    ladder = build_ladder(two_core_sku, N16, "stereo.sgm", nodes=NODES)
+    ff_rungs = [r for r in ladder.rungs if r.kind == "fixed_function"]
+    assert len(ff_rungs) == 2
+    assert {r.label.split()[0] for r in ff_rungs} == {
+        "ff_stereo_sgm", "ff_stereo_sgm_lp"
+    }
+    # And they are priced separately, not given the first core's number.
+    assert ff_rungs[0].pj_per_unit != ff_rungs[1].pj_per_unit
+
+
+def test_dram_accounting_belongs_to_the_core_that_earns_it():
+    """Two cores for one function can differ in output size and in whether
+    they are stream-linked at all, so the saving is per rung. Attributing
+    the first core's figure to both would be wrong
+    (CodeRabbit on #289)."""
+    ladder = _ladder("stereo.sgm")
+    ff = next(r for r in ladder.rungs if r.kind == "fixed_function")
+    assert ff.dram_bytes_per_unit and ff.dram_pj_per_unit
+    assert ladder.encapsulating_rungs == (ff,)
+    # A programmable rung claims no encapsulation.
+    for rung in ladder.rungs:
+        if rung.kind != "fixed_function":
+            assert rung.dram_bytes_per_unit is None
+            assert rung.dram_note == ""

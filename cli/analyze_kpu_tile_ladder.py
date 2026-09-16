@@ -110,8 +110,11 @@ def _render_text(ladders: List[Ladder], show_ops: bool) -> str:
         out.append(f"  Specialization order (fixed-function < systolic < PE fabric): {verdict}")
         for note in ladder.back_check_notes:
             out.append(f"  ! {note}")
-        if ladder.dram_note:
-            out.append(f"  Segment encapsulation: {ladder.dram_note}")
+        for rung in ladder.rungs:
+            if rung.dram_note:
+                out.append(
+                    f"  Segment encapsulation ({rung.label}): {rung.dram_note}"
+                )
         out.append("")
     return "\n".join(out)
 
@@ -143,8 +146,9 @@ def _rows(ladders: List[Ladder]) -> List[dict]:
             "follows_specialization_order": ladder.follows_specialization_order,
             "arithmetic_bound": ladder.arithmetic_bound,
             "back_check": " | ".join(ladder.back_check_notes),
-            "dram_bytes_avoided_per_unit": ladder.dram_bytes_per_unit,
-            "dram_pj_avoided_per_unit": ladder.dram_pj_per_unit,
+            "dram_bytes_avoided_per_unit": rung.dram_bytes_per_unit,
+            "dram_pj_avoided_per_unit": rung.dram_pj_per_unit,
+            "dram_note": rung.dram_note,
         }
         for ladder in ladders
         for rung in ladder.rungs
@@ -167,9 +171,6 @@ def _render_json(ladders: List[Ladder]) -> str:
             "follows_specialization_order": ladder.follows_specialization_order,
             "arithmetic_bound": ladder.arithmetic_bound,
             "back_check": list(ladder.back_check_notes),
-            "dram_bytes_avoided_per_unit": ladder.dram_bytes_per_unit,
-            "dram_pj_avoided_per_unit": ladder.dram_pj_per_unit,
-            "dram_note": ladder.dram_note,
             "rungs": [
                 {
                     "implementation": r.label, "kind": r.kind,
@@ -178,6 +179,9 @@ def _render_json(ladders: List[Ladder]) -> str:
                     "ratio_to_best": ladder.ratio_to_best(r),
                     "confidence": r.confidence, "provenance": r.provenance,
                     "notes": r.notes,
+                    "dram_bytes_avoided_per_unit": r.dram_bytes_per_unit,
+                    "dram_pj_avoided_per_unit": r.dram_pj_per_unit,
+                    "dram_note": r.dram_note,
                 }
                 for r in ladder.rungs
             ],
@@ -230,9 +234,12 @@ def _render_md(ladders: List[Ladder]) -> str:
         for note in ladder.back_check_notes:
             out.append("")
             out.append(f"> {note}")
-        if ladder.dram_note:
-            out.append("")
-            out.append(f"Segment encapsulation: {ladder.dram_note}")
+        for rung in ladder.rungs:
+            if rung.dram_note:
+                out.append("")
+                out.append(
+                    f"Segment encapsulation ({rung.label}): {rung.dram_note}"
+                )
         out.append("")
     return "\n".join(out)
 
