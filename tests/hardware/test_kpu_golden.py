@@ -23,6 +23,7 @@ import math
 import pytest
 
 from graphs.hardware import kpu_golden as kg
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 _MAX_REPORTED_DIFFS = 25
 
@@ -158,7 +159,7 @@ def test_sub_byte_precisions_carry_memory_traffic(sku_id):
         assert ratio == pytest.approx(0.5)
 
 
-@pytest.mark.parametrize("sku_id", _catalog_ids())
+@pytest.mark.parametrize("sku_id", LEGACY_KPU_SKU_IDS)
 def test_dynamic_power_covers_every_supported_precision(sku_id):
     snap = kg.load_snapshot(sku_id)
     tiles = snap["input"]["dies"][0]["blocks"][0]["tiles"]

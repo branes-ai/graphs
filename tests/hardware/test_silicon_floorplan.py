@@ -39,6 +39,7 @@ from graphs.hardware.sku_validators import (
     default_registry,
     load_validators,
 )
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,7 +70,15 @@ def _kpu_sku_ids() -> list[str]:
     )
 
 
-ALL_KPU_IDS = _kpu_sku_ids()
+# The mesh invariants below -- N compute tiles at one pitch, every
+# interior tile flanked by memory -- are the uniform SKUs' contract. A
+# heterogeneous checkerboard deliberately breaks all three: multi-site
+# footprints, a per-site pitch, and cores that absorb the cells they cover.
+# See tests/hardware/test_kpu_catalog_ids.py.
+ALL_KPU_IDS = list(LEGACY_KPU_SKU_IDS)
+
+#: Kept for tests that really do mean every KPU SKU in the catalog.
+CATALOG_KPU_IDS = _kpu_sku_ids()
 
 
 # ---------------------------------------------------------------------------
@@ -705,3 +714,4 @@ def test_show_floorplan_cli_arch_json_output(tmp_path: Path):
     assert len(payload["what_if"]) >= 1
     for wi in payload["what_if"]:
         assert wi["die_area_mm2"] > 0
+

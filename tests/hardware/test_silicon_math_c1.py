@@ -26,10 +26,16 @@ from graphs.hardware.kpu_hetero_fixture import (
     build_heterogeneous_kpu,
 )
 from graphs.hardware.sku_validators import silicon_math as sm
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 N16, N7 = NODES["tsmc_n16"], NODES["tsmc_n7"]
-CATALOG = {k: v for k, v in load_compute_products().items() if has_kpu_block(v)}
+# The legacy contract is about the uniform SKUs that predate the
+# heterogeneous work; see tests/hardware/test_kpu_catalog_ids.py.
+CATALOG = {
+    k: v for k, v in load_compute_products().items()
+    if k in LEGACY_KPU_SKU_IDS
+}
 HETERO = build_heterogeneous_kpu()
 
 
@@ -235,3 +241,4 @@ def test_double_counted_tile_classes():
         })
     cp = _with_block(HETERO, count_lns_twice)
     assert sm.double_counted_tile_classes(cp) == ["pe_lns16_mac"]
+

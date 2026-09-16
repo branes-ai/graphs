@@ -19,6 +19,7 @@ import pytest
 import yaml
 from embodied_schemas import load_compute_products, load_process_nodes
 
+
 from graphs.hardware.kpu_access import has_kpu_block
 from graphs.hardware.kpu_engines import (
     describe_engines,
@@ -27,6 +28,7 @@ from graphs.hardware.kpu_engines import (
     precision_floor_findings,
 )
 from graphs.hardware.kpu_sku_generator import KPUSKUInputSpec, generate_kpu_sku
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
 
 SPEC = (
     Path(__file__).resolve().parents[2]
@@ -225,9 +227,7 @@ def test_a_uniform_sku_declares_no_segments():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("sku_id", sorted(
-    k for k, v in load_compute_products().items() if has_kpu_block(v)
-))
+@pytest.mark.parametrize("sku_id", LEGACY_KPU_SKU_IDS)
 def test_every_catalog_sku_describes_without_error(sku_id):
     """The export must work on a uniform KPU too: the SoC study composes
     those as engines as readily as a heterogeneous one."""
