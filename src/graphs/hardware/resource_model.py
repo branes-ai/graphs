@@ -1972,6 +1972,18 @@ class HardwareMapper(ABC):
         compute_time = ops / effective_ops_per_sec if effective_ops_per_sec > 0 else 0
 
         # Memory time (precision-independent for bandwidth)
+        return self._classify_roofline(compute_time, bytes_transferred)
+
+    def _classify_roofline(
+        self, compute_time: float, bytes_transferred: int
+    ) -> Tuple[float, float, BottleneckType]:
+        """Memory time and the bottleneck verdict for a known compute time.
+
+        Split out of ``_calculate_latency`` so a mapper that derives its own
+        compute time -- the KPU's capability-aware tile pools (graphs#268
+        C5b) compute it from the tiles actually allocated -- classifies the
+        bottleneck against the same 1.5x boundary.
+        """
         memory_time = bytes_transferred / self.resource_model.peak_bandwidth
 
         # Determine bottleneck

@@ -149,21 +149,6 @@ class KPUMapper(HardwareMapper):
             prefer_systolic=prefers_systolic(subgraph.operation_types),
         )
 
-    def _roofline(
-        self, compute_time: float, bytes_transferred: int
-    ) -> Tuple[float, float, BottleneckType]:
-        """The memory-time and bottleneck half of ``_calculate_latency``,
-        for the heterogeneous path that computes its own compute_time from
-        the allocated tiles rather than a fraction of the chip."""
-        memory_time = bytes_transferred / self.resource_model.peak_bandwidth
-        if compute_time > memory_time * 1.5:
-            bottleneck = BottleneckType.COMPUTE_BOUND
-        elif memory_time > compute_time * 1.5:
-            bottleneck = BottleneckType.BANDWIDTH_BOUND
-        else:
-            bottleneck = BottleneckType.BALANCED
-        return compute_time, memory_time, bottleneck
-
     def compute_energy_with_idle_power(
         self,
         latency: float,
@@ -220,10 +205,17 @@ class KPUMapper(HardwareMapper):
     def _analyze_tiling(
         self,
         subgraph: FusedSubgraph,
-        precision: Precision
+        precision: Precision,
+        max_parallel_tiles: int = None
     ) -> TileConfiguration:
         """
         Analyze tiling and on-chip residency for a subgraph.
+
+        ``max_parallel_tiles`` is how many tiles can hold a data tile at
+        once; it defaults to the whole chip. The heterogeneous path passes
+        its capability-aware pool instead (graphs#268 C5b), because
+        ``compute_units`` there counts tile classes that cannot run this
+        precision at all -- and the fixed-function tiles.
 
         Implements the weight-stationary execution model that is the KPU's
         architectural reason for existing (issue #51). For each subgraph:
@@ -290,7 +282,8 @@ class KPUMapper(HardwareMapper):
         # tiles_per_iteration drives parallelism, not memory traffic. Use the
         # number of tiles needed to hold one outer pass.
         tiles_required = max(1, math.ceil(total_bytes / scratchpad_size))
-        tiles_per_iteration = min(tiles_required, self.num_tiles)
+        parallel_tiles = self.num_tiles if max_parallel_tiles is None else max_parallel_tiles
+        tiles_per_iteration = min(tiles_required, max(1, parallel_tiles))
         num_iterations = max(1, math.ceil(tiles_required / tiles_per_iteration))
 
         # Small prologue-load overhead when there is more than one outer pass.
@@ -356,15 +349,20 @@ class KPUMapper(HardwareMapper):
         4. Calculate occupancy (limited by tile count)
         5. Calculate latency using roofline model + tiling overhead
         """
-        # Analyze tiling
-        tile_config = self._analyze_tiling(subgraph, precision)
-
+        # Capability-aware pools first: they set how many tiles can hold a
+        # data tile at once, which is what sizes the tiling (graphs#268 C5b).
         pool = self._tile_pool(subgraph, precision)
         if pool is not None and pool.capable:
             return self._map_subgraph_heterogeneous(
                 subgraph, execution_stage, concurrent_subgraphs, precision,
-                tile_config, pool,
+                self._analyze_tiling(
+                    subgraph, precision, max_parallel_tiles=pool.num_tiles
+                ),
+                pool,
             )
+
+        # Analyze tiling
+        tile_config = self._analyze_tiling(subgraph, precision)
 
         # Get parallelism
         if subgraph.parallelism is None:
@@ -514,7 +512,7 @@ class KPUMapper(HardwareMapper):
         compute_time = (
             ops_with_tiling / allocation.ops_per_sec if allocation.ops_per_sec > 0 else 0.0
         )
-        compute_time, memory_time, bottleneck = self._roofline(
+        compute_time, memory_time, bottleneck = self._classify_roofline(
             compute_time, bytes_transferred
         )
 

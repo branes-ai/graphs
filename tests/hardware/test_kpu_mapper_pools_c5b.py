@@ -11,7 +11,7 @@ actually given.
 from __future__ import annotations
 
 import pytest
-from embodied_schemas import load_process_nodes
+from embodied_schemas import ComputeProduct, load_process_nodes
 
 from graphs.core.structures import OperationType, ParallelismDescriptor
 from graphs.hardware.kpu_hetero_fixture import build_heterogeneous_kpu
@@ -60,7 +60,7 @@ def _subgraph(op: OperationType, total_threads: int = 4096, macs: int = 10**9):
 def _pool(precision=Precision.INT8, prefer_systolic=False, mapper=None):
     mapper = mapper or KPUMapper(HETERO_RM)
     return build_tile_pool(
-        HETERO_RM,
+        mapper.resource_model,
         mapper._compute_resource(precision),
         precision,
         thermal_profile=mapper.thermal_profile,
@@ -140,14 +140,48 @@ def test_pool_is_incapable_when_no_class_runs_the_precision():
         mapper.map_subgraph(_subgraph(OperationType.MATMUL), 0, 1, Precision.FP32)
 
 
-def test_a_precision_only_a_gated_class_runs_falls_back_to_the_flat_path():
-    """Gating a class can leave a profile without any class for a precision
-    the chip still advertises. The pool declines; the flat path's
-    unsupported-precision penalty applies, as it did before C5b."""
+def test_int4_runs_on_the_pe_fabric_class_that_supports_it():
+    """INT4 is a chip precision only the PE-fabric class runs, so the pool
+    holds that class alone -- the systolic tiles are excluded."""
     mapper = KPUMapper(HETERO_RM)
     pool = _pool(precision=Precision.INT4, mapper=mapper)
-    # INT4 is a chip precision; the fixture's INT8 fabric class runs it.
     assert pool.capable is True
+    assert [s.tile_type for s in pool.specializations] == [PE_INT8]
+    alloc = mapper.map_subgraph(_subgraph(OperationType.RELU), 0, 1, Precision.INT4)
+    assert 1 <= alloc.compute_units_allocated <= 24
+    assert alloc.estimated_latency > 0
+
+
+def _gated_rm():
+    """The fixture with its INT8 PE-fabric class power-gated, leaving only
+    the systolic class (which runs INT8 and nothing else)."""
+    data = HETERO.model_dump(mode="json")
+    data["dies"][0]["blocks"][0]["power_domains"] = [
+        {"domain_id": "int8_pe", "kind": "tile_class",
+         "members": ["pe_int8_mac_i32"], "gateable": True}
+    ]
+    for p in data["power"]["thermal_profiles"]:
+        p["domain_operating_points"] = {"int8_pe": {"gated": True}}
+    gated = ComputeProduct.model_validate(data)
+    return load_kpu_resource_model_from_yaml(
+        gated.id, kpus={gated.id: gated}, process_nodes=NODES
+    )
+
+
+def test_gating_the_only_int4_class_makes_the_pool_decline():
+    """A gated class takes its precisions out of the profile. INT4 is then
+    unsupported at this thermal point although the chip still advertises
+    it, so the pool declines and the flat path's unsupported-precision
+    penalty applies, exactly as it did before C5b."""
+    rm = _gated_rm()
+    mapper = KPUMapper(rm)
+    assert mapper.heterogeneous is True
+
+    int8_pool = _pool(precision=Precision.INT8, mapper=mapper)
+    assert [s.tile_type for s in int8_pool.specializations] == [SYSTOLIC]
+
+    int4_pool = _pool(precision=Precision.INT4, mapper=mapper)
+    assert int4_pool.capable is False
     alloc = mapper.map_subgraph(_subgraph(OperationType.RELU), 0, 1, Precision.INT4)
     assert alloc.compute_units_allocated >= 1
     assert alloc.estimated_latency > 0
@@ -252,6 +286,32 @@ def test_map_subgraph_uses_the_pool_for_a_gemm():
     assert alloc.occupancy == pytest.approx(12 / 28)
     assert alloc.estimated_latency > 0
     assert alloc.total_energy > 0
+
+
+def test_tiling_width_is_the_pool_not_compute_units():
+    """A workload needing more resident data tiles than the pool has must
+    not be sized against all 45 ``compute_units``: 17 of those run no INT8
+    (3 fixed-function, 14 LNS / min-plus), so the tiling would claim a
+    parallel width the pool cannot deliver and under-count the iterations.
+    """
+    mapper = KPUMapper(HETERO_RM)
+    # 40 scratchpads' worth of working set: more than the 28-tile pool,
+    # fewer than the 45 compute_units.
+    big = _subgraph(OperationType.RELU)
+    big.total_input_bytes = 20 * mapper.scratchpad_per_tile
+    big.total_output_bytes = 20 * mapper.scratchpad_per_tile
+    big.total_weight_bytes = 0
+
+    flat = mapper._analyze_tiling(big, Precision.INT8)
+    pooled = mapper._analyze_tiling(big, Precision.INT8, max_parallel_tiles=28)
+    assert flat.num_tiles_required == pooled.num_tiles_required == 40
+    assert flat.tiles_per_iteration == 40  # bounded by the 45 compute_units
+    assert pooled.tiles_per_iteration == 28
+    assert pooled.num_iterations == 2 and flat.num_iterations == 1
+
+    # map_subgraph takes the pooled sizing and never allocates past the pool.
+    alloc = mapper.map_subgraph(big, 0, 1, Precision.INT8)
+    assert alloc.compute_units_allocated <= 28
 
 
 def test_gemm_and_elementwise_land_on_different_classes():
