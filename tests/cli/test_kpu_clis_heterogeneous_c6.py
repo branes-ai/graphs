@@ -201,9 +201,32 @@ def test_show_kpu_legacy_view_has_no_heterogeneous_sections(cli_runner):
     assert "(fixed-function tiles contribute none)" not in out
     assert "Checkerboard:" not in out
     assert "By tile kind" not in out
-    assert "Power domains:" not in out
     # The kind column is still there, saying every tile is a PE fabric.
     assert "Tile census:     pe:64" in out
+    # Since graphs#268 F2 a uniform SKU carries the default DVFS partition.
+    # A regular partition is one summary line, not 16 identical rows.
+    assert "Power domains:" in out
+    assert "16 clusters of 2x2 sites, each its own rail and PLL" in out
+    assert "c_0_0              cluster" not in out
+    assert "uncore             uncore" in out
+
+
+def test_show_kpu_lists_an_irregular_partition_domain_by_domain(cli_runner, tmp_path):
+    """When clusters differ -- here two share a rail -- the individual
+    detail is the point, so the summary line gives way to one row per
+    cluster with its sites, rail and clock."""
+    data = load_compute_products_unified()[_LEGACY].model_dump(mode="json")
+    domains = data["dies"][0]["blocks"][0]["power_domains"]
+    domains[1]["rail_id"] = domains[0]["rail_id"]
+    path = tmp_path / "irregular.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    rc, out, err = cli_runner(_CLI / "show_kpu.py", ["--from-file", str(path)])
+    assert rc == 0, err
+    assert "clusters of 2x2 sites" not in out
+    assert "c_0_0              cluster" in out
+    assert "sites: r0-1 c0-1" in out
+    assert "rail=vdd_c_0_0" in out
 
 
 def test_show_kpu_from_file_rejects_a_non_kpu_product(cli_runner, tmp_path):
@@ -381,14 +404,18 @@ def test_show_floorplan_site_overlay_by_tile_class(cli_runner, hetero_yaml):
     assert ".=spare" in out
 
 
-def test_show_floorplan_overlay_says_when_there_is_no_checkerboard(cli_runner):
-    """A uniform SKU has no explicit site grid; the CLI says so rather than
-    rendering an empty or invented one."""
+def test_show_floorplan_overlay_renders_a_uniform_skus_cluster_partition(cli_runner):
+    """A uniform SKU has no checkerboard to place, but its tiles still fill
+    the NoC mesh row-major, and since graphs#268 F2 it carries the default
+    per-cluster DVFS partition over those sites. The overlay shows it on
+    the implicit plan rather than reporting nothing to show."""
     rc, out, err = cli_runner(
         _CLI / "show_floorplan.py", [_LEGACY, "--overlay", "power-domain"]
     )
     assert rc == 0, err
-    assert "no explicit checkerboard" in out
+    assert "Compute sites by power domain (8x8 sites, implicit placement)" in out
+    assert "c00=c_0_0" in out and "c33=c_3_3" in out  # the T64's 16 clusters
+    assert "no explicit checkerboard" not in out
 
 
 def test_show_floorplan_rejects_two_sources(cli_runner, hetero_yaml):

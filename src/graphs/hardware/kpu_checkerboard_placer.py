@@ -636,3 +636,48 @@ def render_overlay(
             cells.append(cell.rjust(width))
         lines.append(" ".join(cells))
     return "\n".join(lines), {v: k for k, v in glyphs.items()}
+
+
+def implicit_site_plan(block: KPUBlock) -> Optional[SitePlan]:
+    """The site plan of a uniform KPU with no explicit checkerboard.
+
+    Such a block has no placement to compute: its tiles fill the NoC mesh
+    row-major in declaration order, which is exactly what the legacy
+    floorplan does. This returns that assignment as a ``SitePlan`` so the
+    site-coordinate views -- the power-domain overlay above all -- work on
+    it too. Before the default per-cluster DVFS partition (graphs#268 F2)
+    there was nothing site-level to show on a uniform SKU; now its clusters
+    are exactly that.
+
+    ``place_tiles`` still returns None for these blocks, so the floorplan
+    keeps the legacy geometry; this is a view, not a placement.
+
+    Returns None for a block that does have a checkerboard (use
+    ``place_tiles``) or whose tiles do not fit its mesh.
+    """
+    if block.checkerboard is not None:
+        return None
+    rows, cols = block.noc.mesh_rows, block.noc.mesh_cols
+    classes = _classes_to_place(block)
+    if any(c.num_sites != 1 for c in classes):
+        return None  # a multi-site footprint needs a real placement
+    placements: List[TilePlacementResult] = []
+    index = 0
+    for cls in classes:
+        for instance in range(cls.num_tiles):
+            if index >= rows * cols:
+                return None
+            placements.append(TilePlacementResult(
+                tile_class_id=cls.tile_class_id, tile_type=cls.tile_type,
+                row=index // cols, col=index % cols, instance=instance,
+            ))
+            index += 1
+    spare = tuple((i // cols, i % cols) for i in range(index, rows * cols))
+    return SitePlan(
+        rows=rows, cols=cols,
+        placements=tuple(placements),
+        spare_sites=spare,
+        covered_memory_cells=(),
+        absorbed_memory_cells=(),
+        mode="implicit",
+    )

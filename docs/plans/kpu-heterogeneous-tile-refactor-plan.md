@@ -682,6 +682,42 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     fires, so the validator cannot be silently inert.
 - Optionally migrate t768 Matrix to `systolic` (D8).
 - Adopt the per-cluster DVFS default on the legacy SKUs.
+  *As built (F2):* embodied-schemas 0.13.0 gives each uniform SKU one
+  `cluster` domain per k x k block of compute sites, each with its own
+  `rail_id` and `clock_domain_id`, plus one `uncore` domain for the memory
+  PHYs, IO and control logic. Cluster size follows the DVFS design's table
+  and its "recommended k=4": 2x2 for the T64, 4x4 elsewhere, so 16 / 8 /
+  16 / 32 clusters, and 48 for the T768 the table omits. Every cluster
+  clears the design's ~1 mm floor, measured from the floorplan pitch (the
+  tightest is the T64 at 7 nm, 1.06 mm).
+  - **No model change, by construction.** No profile declares
+    `domain_operating_points`, so every cluster runs at its profile's Vdd
+    and clock and `is_legacy_shaped` still holds. The golden snapshot
+    confirms it independently: exactly one difference per legacy SKU, the
+    input's `power_domains` -- nothing in silicon, floorplan, resource
+    model, mapper or validator findings moved.
+  - **Schema:** a `cluster` domain's site ranges now resolve against the
+    implicit mesh when there is no checkerboard, which is what the
+    `checkerboard` field already documented `None` to mean. Requiring an
+    explicit checkerboard would have pushed the uniform SKUs onto the
+    heterogeneous floorplan path, which lays each memory cell beside its
+    compute cell instead of in the 2D interleave.
+  - **The design contradicts itself for the T128**: its prose rule of thumb
+    ("the smallest cluster such that ... 8-64 clusters") picks 2x2 (32
+    clusters), its table says 4x4. The table wins.
+  - `generate_kpu_sku --default-power-domains` reproduces the catalog data;
+    `show_floorplan --overlay power-domain` now renders a uniform SKU's
+    partition on the implicit row-major site plan; `show_kpu` collapses a
+    regular partition to one line.
+  - **Caught along the way:** `build_heterogeneous_kpu` starts from the T64
+    catalog entry, so the fixture silently inherited the 16-cluster
+    partition, which happened to validate on its 8x8 checkerboard. Only one
+    test, which narrows the mesh, exposed it. Fixed and guarded.
+  - **Not modeled**, each needing a schema field or data the catalog lacks:
+    the quadrant level, regulator and PLL silicon and power, per-cluster
+    harvest, and process-variation bins. Clusters are not `gateable`: the
+    design gates tiles and quadrants, and makes the cluster the DVFS and
+    floorsweeping unit.
 
 ## 9. Risks and mitigations
 

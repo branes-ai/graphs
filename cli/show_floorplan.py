@@ -61,6 +61,7 @@ from graphs.hardware.kpu_access import (
     kpu_die_of,
 )
 from graphs.hardware.kpu_checkerboard_placer import (
+    implicit_site_plan,
     place_tiles,
     render_overlay,
     site_power_domains,
@@ -296,12 +297,12 @@ def _render_site_overlay(sku, which: str) -> str:
     ("did the ISP land on the edge", "which sites does this rail gate").
     """
     block = kpu_block_of(sku)
-    plan = place_tiles(block)
+    # A uniform SKU has no placement, but its tiles still occupy the NoC
+    # mesh row-major, and since graphs#268 F2 it has cluster power domains
+    # over those sites -- so it gets the implicit plan rather than nothing.
+    plan = place_tiles(block) or implicit_site_plan(block)
     if plan is None:
-        return (
-            "  (no compute-site grid: this SKU has no explicit checkerboard, "
-            "so its tiles fill the NoC mesh row-major)"
-        )
+        return "  (no compute-site grid: the tiles do not fit the NoC mesh one per site)"
     if which == "power-domain":
         labels = site_power_domains(block, plan)
         if not labels:
