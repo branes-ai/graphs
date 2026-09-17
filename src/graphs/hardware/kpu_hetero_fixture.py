@@ -86,6 +86,13 @@ def build_heterogeneous_kpu() -> ComputeProduct:
 
     block["tiles"] = [t.model_dump(mode="json") for t in tiles]
     block["total_tiles"] = sum(t.num_tiles for t in tiles)
+    # The T64 chassis carries the uniform default DVFS partition (graphs#268
+    # F2): 2x2 clusters over a mesh of identical PE-fabric tiles. That
+    # partition means nothing over this heterogeneous checkerboard, and the
+    # fixture predates it, so it does not inherit it. Without this line the
+    # fixture silently gained 16 cluster domains that happened to validate
+    # on the same 8x8 grid.
+    block["power_domains"] = None
     block["checkerboard"] = {
         "compute_sites": {"rows": 8, "cols": 8},
         "placement": "auto",
