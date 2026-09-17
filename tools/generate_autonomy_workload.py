@@ -1,0 +1,180 @@
+#!/usr/bin/env python
+"""Generate the autonomy workload YAML from the Branes.ai reference model.
+
+The model in ``docs/workload-model/`` (Autonomy Workload Data Annex,
+2026-09-17) is the source of truth: it derives every stage unit cost forward
+from algorithm structure and instantiates eighteen missions as explicit sensor
+suites and update rates. This script reads it and writes
+``workloads/pipelines/autonomy/branes_7tier_v1.yaml``, so a changed rate in
+``profiles.py`` regenerates the catalog copy instead of being transcribed.
+
+Two profiles are the operating regimes of the companion argument document
+(``BranesAI-Autonomy-Compute-Requirements.pdf``, 2026-09-13) and are labelled
+with that document's published figures, which
+``tests/core/test_pipeline_workload.py`` checks against the derived ones.
+
+Usage:
+    python tools/generate_autonomy_workload.py [--check] [-o PATH]
+
+    --check  regenerate in memory and diff against the file on disk; exit 1
+             if they differ (CI guard against hand edits)
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+MODEL_DIR = REPO / "docs" / "workload-model"
+
+sys.path.insert(0, str(REPO / "src"))
+
+from graphs.core.pipeline_workload import (  # noqa: E402
+    MissionProfile,
+    PipelineWorkload,
+    Provenance,
+    Stage,
+)
+
+#: Argument document (2026-09-13), section 4: the two regimes the model
+#: instantiates, and the figures published for them.
+REGIMES = {
+    ("Drone", "ISR (endurance / wide-area search)"): (
+        "far flight",
+        {"tops": 10.24, "class_a_share": 0.690, "class_c_share": 0.003,
+         "dram_gb_per_s": 289.0, "oversubscription": 16.2},
+    ),
+    ("Drone", "Interceptor (terminal engagement)"): (
+        "air superiority",
+        {"tops": 12.81, "class_a_share": 0.834, "class_c_share": 0.006,
+         "dram_gb_per_s": 100.0, "oversubscription": 17.3},
+    ),
+}
+
+
+def _load_model():
+    """Import the reference model, which expects its own directory on the path."""
+    sys.path.insert(0, str(MODEL_DIR))
+    import derive  # noqa: E402
+    import pipeline  # noqa: E402
+    import profiles  # noqa: E402
+
+    return derive, pipeline, profiles
+
+
+def build() -> PipelineWorkload:
+    derive, pipeline, profiles = _load_model()
+
+    stages = {}
+    for rec in derive.D:
+        stages[rec["key"]] = Stage(
+            key=rec["key"],
+            name=rec["name"],
+            pipeline_tier=rec["tier"],
+            unit=rec["unit"],
+            ops_per_call=float(rec["ops"]),
+            bytes_per_call=float(rec["bytes"]),
+            class_split=tuple(float(x) for x in rec["cls"]),
+            config={str(k): str(v) for k, v in (rec.get("config") or {}).items()},
+            basis=" ".join((rec.get("basis") or "").split()),
+        )
+
+    built = []
+    for mission in profiles.PROFILES:
+        # A mission's parametric stages (SGM, radar, MPC, the transformers)
+        # cost differently per mission, because the unit cost depends on the
+        # sensor configuration. Carry the mission's own unit costs where they
+        # differ from the stage's reference configuration.
+        rates = {k: float(s["rate"]) for k, s in mission.stages.items()}
+        # Parametric stages cost differently per mission: the unit cost
+        # depends on the sensor configuration (SGM resolution and disparity
+        # count, radar cube, MPC horizon and state count). Carry the
+        # mission's own figure wherever it differs from the reference one.
+        costs = {}
+        for k, st in mission.stages.items():
+            ref = stages[k]
+            if (float(st["uops"]) != ref.ops_per_call
+                    or float(st["ubytes"]) != ref.bytes_per_call):
+                costs[k] = {
+                    "ops_per_call": float(st["uops"]),
+                    "bytes_per_call": float(st["ubytes"]),
+                }
+        # The sensor suite itself, so a core's contract limits (an SGM core
+        # rated to 1920x1080 at 30 fps, a VIO core to 752x480) can be checked
+        # against what the mission actually runs.
+        sensors = {
+            k: (list(v) if isinstance(v, tuple) else v)
+            for k, v in sorted(mission.k.items()) if v
+        }
+        key = (mission.ff, mission.name)
+        regime, published = REGIMES.get(key, (None, {}))
+        built.append(MissionProfile(
+            form_factor=mission.ff,
+            name=mission.name,
+            power_budget_w=float(mission.budget_w),
+            deadline_ms=float(mission.deadline_ms),
+            rates_hz=rates,
+            stage_costs=costs,
+            sensors=sensors,
+            note=mission.note,
+            regime=regime,
+            published=published,
+        ))
+
+    return PipelineWorkload(
+        stages=stages,
+        profiles=tuple(built),
+        throughput=type(PipelineWorkload.__dataclass_fields__["throughput"].default)(
+            a=pipeline.EFF["A"], b=pipeline.EFF["B"], c=pipeline.EFF["C"],
+        ),
+        provenance=Provenance(
+            document="BranesAI Autonomy Workload Data Annex",
+            section="stage unit costs (derive.py), missions (profiles.py), "
+                    "service-time model (pipeline.py)",
+            dated="2026-09-17",
+            note="Generated by tools/generate_autonomy_workload.py from "
+                 "docs/workload-model/; do not edit by hand. Regime labels and "
+                 "published figures are from BranesAI-Autonomy-Compute-Requirements.pdf "
+                 "(2026-09-13), section 4.",
+        ),
+        version="branes_7tier_v1",
+    )
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "-o", "--output", type=Path,
+        default=REPO / "workloads" / "pipelines" / "autonomy" / "branes_7tier_v1.yaml",
+    )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Compare against the file on disk instead of writing it.",
+    )
+    args = parser.parse_args(argv)
+
+    workload = build()
+    if args.check:
+        if not args.output.exists():
+            print(f"FAIL: {args.output} does not exist")
+            return 1
+        import yaml
+
+        current = yaml.safe_load(args.output.read_text())
+        if current != workload.to_dict():
+            print(f"FAIL: {args.output} differs from the reference model; regenerate it")
+            return 1
+        print(f"OK: {args.output} matches docs/workload-model/")
+        return 0
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    workload.save(args.output)
+    print(f"wrote {args.output} ({len(workload.stages)} stages, "
+          f"{len(workload.profiles)} profiles)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
