@@ -318,7 +318,7 @@ compute sites.
 | D5 | Power-domain granularity | Generic `PowerDomain`. `pe_fabric` sites default to the 4x4 cluster partition from the DVFS doc; each fixed-function class gets its own gateable domain. |
 | D6 | TDP definition with heterogeneous tiles | A declared `tdp_scenario` (concurrency plus activity) per thermal profile. The default reproduces today's formula exactly for legacy SKUs. |
 | D7 | Source of LNS / custom-datapath energy | THEORETICAL ratios to the anchor op now. Stillwater RTL synthesis numbers, when available, go in the private overlay as CALIBRATED. |
-| D8 | Migrate t768 Matrix (8x8, weight-stationary, 128 ops/PE) to `systolic` | Not in this sprint (it would break zero-diff). New SKUs use `systolic`. |
+| D8 | Migrate t768 Matrix (8x8, weight-stationary, 128 ops/PE) to `systolic` | Not in this sprint (it would break zero-diff). New SKUs use `systolic`. *Done in Phase F, structurally: same throughput and energy basis; see the D8 as-built note.* |
 | D9 | SKU id convention for heterogeneous KPUs (today `kpu_t<N>_<R>x<C>_...` bakes in one PE array) | `kpu_h<sites>_<mixtag>_<mem>_<node>`, for example `kpu_h64_auto1_lp5x8_7nm_tsmc_hpc`. Legacy ids unchanged. |
 | D10 | Reserve a `scalar` tile kind (a small core for Class C irregular work: kNN trees, hashing, graph search) | Reserve the enum value now; no model this sprint |
 
@@ -681,6 +681,46 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     ERROR at 10%), with a test that restores the old Vdds and asserts it
     fires, so the validator cannot be silently inert.
 - Optionally migrate t768 Matrix to `systolic` (D8).
+  *As built:* embodied-schemas 0.14.0 rewrites the Matrix class as a
+  `SystolicTile`. Its 8192 INT8 ops per clock become 8x8 cells of **64 MAC
+  lanes** (32 in BF16 / FP16), which matches the 0.3 Mtx per cell that
+  `pe_matrix` already budgets (about 4.7K transistors per lane).
+  - **Structural, by choice.** Throughput is unchanged (1353.8 INT8 TOPS).
+    So is the energy basis: no mode declares energy, so ops stay on the
+    node `hp_logic` anchor. The library's 0.65x systolic ratio would cut
+    computed TDP about 22% and need a Vdd re-tune, so it is its own model
+    change.
+  - **Equivalence is tested against the same chip written the old way**,
+    not against copied numbers. The heterogeneous power engine reproduces
+    the legacy formula's dynamic terms to 1e-12, and leakage moves by
+    exactly the Matrix memory pricing below.
+  - **The one modeled change:** a systolic tile does not inherit chip
+    L1 / L2, so it declares the 4 KiB and 32 KiB it used to inherit. As
+    tile-carried SRAM that is 0.052 Mtx/KiB against this SKU's 0.022 L2
+    block: +74 Mtx, under 3 mW, no TDP move of 0.05 W. (The T768's 0.022
+    for L2 / L3 is an outlier among the catalog SKUs; left alone.)
+  - **Floorplan divisors, found by this migration.** The shared L2 pool was
+    divided by `total_tiles`, not by the tiles that inherit it, and L3 by
+    `total_tiles`, not by the shared memory cells. In the circuit view, a
+    class carrying its own memory also lost its L3 share. A uniform SKU
+    has one number for all three, so its golden never showed this; the
+    H64 has 45 tiles, 38 inheriting and 44 L3 cells, and both of its
+    goldens move.
+  - **The mapper takes the capability-pool path.** FP32 and INT4 work no
+    longer lands on tiles that cannot run it (FP32 GEMM: 768 -> 154
+    BF16 tiles), and threads count Matrix's 64 cells. Partial allocations
+    also get much faster, which is the pool path's throughput-of-the-
+    allocated-tiles model. The flat path multiplies chip throughput by
+    `allocated / units` *and* by `occupancy`, which is the same fraction,
+    so it squares it. That quirk predates D8 and still applies to the
+    uniform SKUs.
+  - **A new, genuine finding:** `tile_footprint_pitch_fit` warns that
+    Matrix needs about 5.9 PE-fabric sites. The shipped SKU already paid
+    for that as 75% die whitespace; the footprint remedy needs an explicit
+    checkerboard the T768 does not declare.
+  - Tests: `MIGRATED_KPU_SKU_IDS` / `SHIPPED_KPU_SKU_IDS` in both repos
+    keep the contracts that survive a tile-kind change covering the T768,
+    and the all-PE-fabric contracts on the legacy list.
 - Adopt the per-cluster DVFS default on the legacy SKUs.
   *As built (F2):* embodied-schemas 0.13.0 gives each uniform SKU one
   `cluster` domain per k x k block of compute sites, each with its own
