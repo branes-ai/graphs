@@ -633,6 +633,34 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
 
 **Phase F: deliberate model corrections** (each one a `model-change` PR with an ES Vdd re-tune)
 - Add the missing L1 area block (C11) to all 12 SKUs.
+  *As built: the block was added, but C11's premise needed correcting
+  first.* L1 was declared per PE. At the catalog's own 0.052 Mtx/KiB that
+  is ~208,000 transistors per PE, against the 6,000 its own `per_pe` block
+  budgets for "MAC + reg + sequencing" -- and binning it would have added
+  835-851% of the die on the uniform SKUs, 148% on the T768. No Vdd
+  re-tune absorbs that.
+  - **The hierarchy, from the architect:** L3 is the block linear-algebra
+    reuse scratchpad with its own memory tile; L2 reformats L3 blocks so
+    streaming preparation is easy at fabric clock rates, and may sit in
+    either the L3 memory tile or the compute tile depending on the bank
+    layout needed to feed L1; **L1 is per compute tile**, tightly coupled
+    to the fabric edges, turning row and column fetches out of L2 into
+    streams of operands pushed into the edges of the fabric. A PE is an
+    ALU with datapath registers and a 16-32 entry token CAM, and holds no
+    SRAM.
+  - embodied-schemas 0.11.0 renames `l1_kib_per_pe` to `l1_kib_per_tile`
+    and adds the `l1_sram` block to every KPU SKU: 0.17-0.45% of die area.
+  - **No Vdd re-tune was needed, and that was measured rather than
+    assumed.** C11 expected one because "the L1 area feeds leakage and
+    therefore TDP" -- it does, at 0.003 W/mm^2 for `sram_hd` on n16, but
+    the added leakage is under 1 mW, two orders of magnitude below the
+    0.1 W the thermal profiles declare their TDP at. Every SKU's rounded
+    TDP is unchanged at every profile.
+  - **Separately found:** the `lp` and `default` profiles of every
+    `7nm_tsmc_hpc` SKU already declare more TDP than the model computes
+    (T64 `lp`: declared 1.3 W, computed 1.1 W). Verified against the
+    baseline as pre-existing, and left alone rather than folded into an
+    unrelated change.
 - Optionally migrate t768 Matrix to `systolic` (D8).
 - Adopt the per-cluster DVFS default on the legacy SKUs.
 
