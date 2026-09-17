@@ -710,10 +710,15 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     longer lands on tiles that cannot run it (FP32 GEMM: 768 -> 154
     BF16 tiles), and threads count Matrix's 64 cells. Partial allocations
     also get much faster, which is the pool path's throughput-of-the-
-    allocated-tiles model. The flat path multiplies chip throughput by
-    `allocated / units` *and* by `occupancy`, which is the same fraction,
-    so it squares it. That quirk predates D8 and still applies to the
-    uniform SKUs.
+    allocated-tiles model. The flat path multiplied chip throughput by
+    `allocated / units` *and* by `occupancy`, which was the same fraction,
+    so it squared it -- 33 of 768 tiles at ~1/541 of the chip. That quirk
+    predated D8 and applied to six other mappers as well; graphs#296
+    (41f7e6e) fixed it. `occupancy` is the fill of the *allocated* units
+    (the GPU's warp fill), not the chip fraction, which is `utilization`;
+    a mapper that sizes its allocation to the work in whole units passes
+    1.0. The two KPU paths now agree exactly on every uniform SKU, which
+    is what the equivalence test pins.
   - **A new, genuine finding:** `tile_footprint_pitch_fit` warns that
     Matrix needs about 5.9 PE-fabric sites. The shipped SKU already paid
     for that as 75% die whitespace; the footprint remedy needs an explicit
