@@ -858,7 +858,7 @@
   }
  },
  "generator": {
-  "die_size_mm2": 213.6,
+  "die_size_mm2": 214.7,
   "performance": {"bf16_tflops": 157.3, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 15.67, "int4_tops": 439.9, "int8_tops": 314.6, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "default",
@@ -906,11 +906,11 @@
    ]
   },
   "tdp_breakdown_by_profile": {
-   "boost": {"clock_mhz": 700.0, "dram_phy_w": 0.6238573714285721, "dynamic_w": 32.45880137142857, "l2_sram_w": 0.533211428571429, "l3_sram_w": 0.07998171428571436, "leakage_w": 1.1574819631661093, "noc_w": 0.6398537142857141, "pe_compute_w": 30.58189714285714, "profile_name": "boost", "total_tdp_w": 33.616283334594684, "worst_precision": "bf16"},
-   "default": {"clock_mhz": 600.0, "dram_phy_w": 0.4016453172244903, "dynamic_w": 20.897285454367346, "l2_sram_w": 0.34328659591836774, "l3_sram_w": 0.051492989387755164, "leakage_w": 1.1574819631661093, "noc_w": 0.4119439151020409, "pe_compute_w": 19.688916636734696, "profile_name": "default", "total_tdp_w": 22.054767417533455, "worst_precision": "bf16"},
-   "lp": {"clock_mhz": 450.0, "dram_phy_w": 0.1782449632653063, "dynamic_w": 9.273943248979595, "l2_sram_w": 0.15234612244897974, "l3_sram_w": 0.022851918367346964, "leakage_w": 1.1574819631661093, "noc_w": 0.18281534693877552, "pe_compute_w": 8.737684897959184, "profile_name": "lp", "total_tdp_w": 10.431425212145705, "worst_precision": "bf16"}
+   "boost": {"clock_mhz": 700.0, "dram_phy_w": 0.6238573714285721, "dynamic_w": 32.45880137142857, "l2_sram_w": 0.533211428571429, "l3_sram_w": 0.07998171428571436, "leakage_w": 1.1590794031661091, "noc_w": 0.6398537142857141, "pe_compute_w": 30.58189714285714, "profile_name": "boost", "total_tdp_w": 33.61788077459468, "worst_precision": "bf16"},
+   "default": {"clock_mhz": 600.0, "dram_phy_w": 0.4016453172244903, "dynamic_w": 20.897285454367346, "l2_sram_w": 0.34328659591836774, "l3_sram_w": 0.051492989387755164, "leakage_w": 1.1590794031661091, "noc_w": 0.4119439151020409, "pe_compute_w": 19.688916636734696, "profile_name": "default", "total_tdp_w": 22.056364857533456, "worst_precision": "bf16"},
+   "lp": {"clock_mhz": 450.0, "dram_phy_w": 0.1782449632653063, "dynamic_w": 9.273943248979595, "l2_sram_w": 0.15234612244897974, "l3_sram_w": 0.022851918367346964, "leakage_w": 1.1590794031661091, "noc_w": 0.18281534693877552, "pe_compute_w": 8.737684897959184, "profile_name": "lp", "total_tdp_w": 10.433022652145704, "worst_precision": "bf16"}
   },
-  "transistors_billion": 6.42
+  "transistors_billion": 6.473
  },
  "input": {
   "confidence": "theoretical",
@@ -921,7 +921,7 @@
      {
       "checkerboard": null,
       "kind": "kpu",
-      "memory": {"l1_kib_per_pe": 4, "l2_kib_per_tile": 32, "l3_kib_per_tile": 256, "memory_bandwidth_gbps": 272.0, "memory_bus_bits": 256, "memory_controllers": 16, "memory_size_gb": 32.0, "memory_type": "lpddr5x"},
+      "memory": {"l1_kib_per_tile": 4, "l2_kib_per_tile": 32, "l3_kib_per_tile": 256, "memory_bandwidth_gbps": 272.0, "memory_bus_bits": 256, "memory_controllers": 16, "memory_size_gb": 32.0, "memory_type": "lpddr5x"},
       "multi_precision_alu": ["int4", "int8", "bf16", "fp32"],
       "noc": {"bisection_bandwidth_gbps": 256.0, "flit_bytes": 16, "mesh_cols": 16, "mesh_rows": 16, "overlays": null, "router_circuit_class": "hp_logic", "topology": "mesh_2d"},
       "power_domains": null,
@@ -1018,6 +1018,12 @@
        "name": "pe_matrix",
        "notes": "",
        "transistor_source": {"count_ref": "tile.Matrix", "kind": "per_pe", "mtx": null, "per_unit_mtx": 0.02}
+      },
+      {
+       "circuit_class": "sram_hd",
+       "name": "l1_sram",
+       "notes": "Fabric-edge stream storage, per compute tile",
+       "transistor_source": {"count_ref": "l1_total_kib", "kind": "per_kib", "mtx": null, "per_unit_mtx": 0.052}
       },
       {
        "circuit_class": "sram_hd",
@@ -2298,6 +2304,19 @@
     "transistors_mtx": 532.48
    },
    {
+    "area_mm2": 1.06496,
+    "circuit_class": "sram_hd",
+    "density_mtx_per_mm2": 50.0,
+    "leakage_w": 0.0015974399999999999,
+    "name": "l1_sram",
+    "peak_dynamic_w_by_profile": {
+     "boost": {"bf16": 0.0, "fp16": 0.0, "fp32": 0.0, "int4": 0.0, "int8": 0.0},
+     "default": {"bf16": 0.0, "fp16": 0.0, "fp32": 0.0, "int4": 0.0, "int8": 0.0},
+     "lp": {"bf16": 0.0, "fp16": 0.0, "fp32": 0.0, "int4": 0.0, "int8": 0.0}
+    },
+    "transistors_mtx": 53.248
+   },
+   {
     "area_mm2": 8.51968,
     "circuit_class": "sram_hd",
     "density_mtx_per_mm2": 50.0,
@@ -2377,8 +2396,8 @@
    }
   ],
   "num_tiles_by_type": {"BF16-primary": 51, "INT8-primary": 179, "Matrix": 26},
-  "total_chip_leakage_w": 1.1574819631661093,
-  "total_l1_kib": 1048576,
+  "total_chip_leakage_w": 1.1590794031661091,
+  "total_l1_kib": 1024,
   "total_l2_kib": 8192,
   "total_l3_kib": 65536,
   "total_pe_count": 262144,

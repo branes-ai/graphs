@@ -457,7 +457,7 @@ def _build_tile_energy_model(
         dram_bandwidth_gb_s=mem.memory_bandwidth_gbps,
         l3_size_per_tile=mem.l3_kib_per_tile * 1024,
         l2_size_per_tile=mem.l2_kib_per_tile * 1024,
-        l1_size_per_pe=mem.l1_kib_per_pe * 1024,
+        l1_size_per_tile=mem.l1_kib_per_tile * 1024,
         clock_frequency_hz=default_clock_hz,
         # DRAM PHY energy
         dram_read_energy_per_byte=dram_read_pj * 1e-12,
