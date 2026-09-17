@@ -196,7 +196,7 @@ kpu_architecture:
     memory_controllers: 4
     l3_kib_per_tile: 256
     l2_kib_per_tile: 32
-    l1_kib_per_pe: 4
+    l1_kib_per_tile: 4
 
   multi_precision_alu: [int4, int8, bf16, fp32]
 
@@ -224,6 +224,13 @@ silicon_bin:
         kind: per_pe
         per_unit_mtx: 0.004
         count_ref: tile.pe_minplus_i16
+    - name: l1_sram
+      circuit_class: sram_hd
+      transistor_source:
+        kind: per_kib
+        per_unit_mtx: 0.052
+        count_ref: l1_total_kib
+      notes: Fabric-edge stream storage, per compute tile
     - name: l2_sram
       circuit_class: sram_hd
       transistor_source:

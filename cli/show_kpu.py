@@ -190,7 +190,7 @@ def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
         f"{block.memory.memory_controllers} controllers"
     )
     out.append(
-        f"  L1: {block.memory.l1_kib_per_pe} KiB/PE  "
+        f"  L1: {block.memory.l1_kib_per_tile} KiB/tile  "
         f"L2: {block.memory.l2_kib_per_tile} KiB/tile  "
         f"L3: {block.memory.l3_kib_per_tile} KiB/tile  "
         f"(L3 total: {block.memory.l3_kib_per_tile * block.total_tiles / 1024:.1f} MiB)"

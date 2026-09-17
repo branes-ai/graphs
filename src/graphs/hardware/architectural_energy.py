@@ -2719,9 +2719,15 @@ class KPUTileEnergyModel:
 
     # Memory hierarchy configuration (4-stage)
     dram_bandwidth_gb_s: float  # 25.6 (T64/DDR4), 204.8 (T256/LPDDR5), 1638.4 (T768/HBM2)
+    # The KPU hierarchy is a streaming pipeline: L3 is the block reuse
+    # scratchpad, L2 reformats its blocks for streaming, and L1 is the
+    # fabric-edge storage that turns row/column fetches into operand
+    # streams. Every level is per compute TILE -- L1 was declared per PE
+    # until graphs#268 F1, which is a denominator that implies 835% of a
+    # die in SRAM.
     l3_size_per_tile: int  # 256 KiB per tile (distributed scratchpad)
     l2_size_per_tile: int  # 32 KiB per tile
-    l1_size_per_pe: int  # 4 KiB per PE
+    l1_size_per_tile: int  # 4 KiB per tile (fabric-edge stream storage)
 
     # Clock frequency
     clock_frequency_hz: float  # 800 MHz (T64), 1200 MHz (T256), 1500 MHz (T768)

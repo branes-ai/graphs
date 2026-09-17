@@ -215,7 +215,7 @@ def test_tile_energy_model_architectural_shape_matches_yaml(sku_id, catalogs):
     assert tem.dram_bandwidth_gb_s == arch.memory.memory_bandwidth_gbps
     assert tem.l3_size_per_tile == arch.memory.l3_kib_per_tile * 1024
     assert tem.l2_size_per_tile == arch.memory.l2_kib_per_tile * 1024
-    assert tem.l1_size_per_pe == arch.memory.l1_kib_per_pe * 1024
+    assert tem.l1_size_per_tile == arch.memory.l1_kib_per_tile * 1024
     # Default profile clock
     default = next(
         p for p in sku.power.thermal_profiles

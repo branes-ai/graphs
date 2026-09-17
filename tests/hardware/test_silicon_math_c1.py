@@ -61,7 +61,12 @@ def test_legacy_skus_keep_the_uniform_identities(sku):
     assert sm.carried_silicon(cp) == []
     assert sm.double_counted_tile_classes(cp) == []
     assert sm.l3_memory_cells(cp) == block.total_tiles
-    assert sm.total_l1_kib(cp) == block.memory.l1_kib_per_pe * sm.total_pe_count(cp)
+    # L1 is fabric-edge stream storage, so it scales with compute tiles,
+    # not PEs (graphs#268 F1).
+    inheriting = sum(
+        t.num_tiles for t in block.tiles if sm.inherits_chip_memory(t)
+    )
+    assert sm.total_l1_kib(cp) == block.memory.l1_kib_per_tile * inheriting
     assert sm.total_l2_kib(cp) == block.memory.l2_kib_per_tile * block.total_tiles
     node = NODES[cp.dies[0].process_node_id]
     assert sm.total_chip_leakage_w(cp, node) == sum(
@@ -84,7 +89,7 @@ def test_rollups_by_kind():
     }
     assert sm.num_tiles_by_type(HETERO)["VIO"] == 1
     # Chip L1 / L2 cover only the pe_fabric classes without local_memory.
-    assert sm.total_l1_kib(HETERO) == mem.l1_kib_per_pe * 38 * 1024
+    assert sm.total_l1_kib(HETERO) == mem.l1_kib_per_tile * 38
     assert sm.total_l2_kib(HETERO) == mem.l2_kib_per_tile * 38
     # 64 checkerboard cells, 4 absorbed by the 2x2 VIO footprint (spares keep theirs).
     assert sm.l3_memory_cells(HETERO) == 60

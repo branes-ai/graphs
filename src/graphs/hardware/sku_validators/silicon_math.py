@@ -105,12 +105,21 @@ def total_pe_count(cp: ComputeProduct) -> int:
 
 
 def total_l1_kib(cp: ComputeProduct) -> int:
-    """Chip-level per-PE L1 SRAM in KiB: ``l1_kib_per_pe`` times the PEs of
-    the tile classes that inherit the chip memory figures. Tile-declared
-    memory is tile-carried silicon (``carried_silicon``)."""
+    """Chip-level L1 SRAM in KiB: ``l1_kib_per_tile`` times the tiles of
+    the classes that inherit the chip memory figures.
+
+    L1 is the fabric-edge stream storage that turns row and column fetches
+    out of L2 into operand streams pushed into the edges of the fabric, so
+    it scales with compute *tiles*, not PEs. Multiplying it by PE count --
+    which this did until graphs#268 F1 -- implied 835% of a die in SRAM,
+    against a per-PE budget of 6K transistors that already covers the ALU,
+    its datapath registers and the token CAM.
+
+    Tile-declared memory is tile-carried silicon (``carried_silicon``).
+    """
     block = _kpu_block(cp)
-    pes = sum(t.total_pes for t in block.tiles if inherits_chip_memory(t))
-    return block.memory.l1_kib_per_pe * pes
+    tiles = sum(t.num_tiles for t in block.tiles if inherits_chip_memory(t))
+    return block.memory.l1_kib_per_tile * tiles
 
 
 def total_l2_kib(cp: ComputeProduct) -> int:
