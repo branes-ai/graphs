@@ -341,9 +341,30 @@ def test_floorplan_multi_site_tile_spans_its_site_rectangle():
     # 2 sites wide = 4 physical cells, 1 site... 2 sites tall = 2 cells.
     assert vio.width_mm == pytest.approx(4 * pitch)
     assert vio.height_mm == pytest.approx(2 * pitch)
-    # It carries the L3 of all four cells it sits on, so that SRAM stays in
-    # the area roll-up instead of reading as whitespace.
-    assert vio.l3_area_mm2 is not None and vio.l3_area_mm2 > 0
+    # Its footprint absorbs the four cells it sits on, so they hold its own
+    # memory (counted in its memory term), not shared L3. Charging them as
+    # shared L3 too counted that silicon twice (CodeRabbit on graphs#295).
+    footprint = next(t for t in BLOCK.tiles if t.tile_type == VIO_TYPE).footprint
+    assert footprint.absorbs_memory_cells
+    assert vio.l3_area_mm2 == 0.0
+
+
+def test_a_non_absorbing_multi_site_tile_carries_the_l3_of_its_cells():
+    """Without ``absorbs_memory_cells`` the covered cells are still shared
+    L3, which the tile carries so it stays in the area roll-up instead of
+    reading as whitespace."""
+    from graphs.hardware.silicon_floorplan import derive_kpu_architectural_floorplan
+
+    data = HETERO.model_dump(mode="json")
+    for tile in data["dies"][0]["blocks"][0]["tiles"]:
+        if tile["tile_type"] == VIO_TYPE:
+            tile["footprint"]["absorbs_memory_cells"] = False
+    cp = ComputeProduct.model_validate(data)
+    fp = derive_kpu_architectural_floorplan(cp, NODES["tsmc_n16"])
+    vio = next(b for b in fp.blocks if b.name.startswith(VIO))
+    cell = next(b for b in fp.blocks if b.name.startswith("memory["))
+    assert cell.l3_area_mm2 > 0
+    assert vio.l3_area_mm2 == pytest.approx(4 * cell.l3_area_mm2)
     assert vio.used_area_mm2 >= vio.l3_area_mm2
 
 

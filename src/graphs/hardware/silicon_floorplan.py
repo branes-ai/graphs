@@ -213,10 +213,13 @@ class _SharedMemoryShares:
     def l3_for(self, tile) -> float:
         """L3 beside one tile of this class: one cell per site, none for a
         footprint that absorbs its memory cells into tile-local memory."""
-        fp = tile.footprint
-        if fp is not None and fp.absorbs_memory_cells:
+        if _absorbs_memory_cells(tile):
             return 0.0
         return self.l3_per_cell * tile_display.tile_sites(tile)
+
+
+def _absorbs_memory_cells(tile) -> bool:
+    return tile.footprint is not None and tile.footprint.absorbs_memory_cells
 
 
 def _shared_memory_shares(
@@ -1495,9 +1498,10 @@ def _arch_place_site_grid(
     A class occupying more than one site spans the whole site rectangle,
     memory halves included, and carries their L3 in its own
     ``l3_area_mm2`` instead of leaving cells stranded under an opaque
-    block. Which of those the tile claims as *private* state is
-    ``absorbs_memory_cells``, an accounting question the memory roll-up
-    answers, not a geometric one.
+    block. Geometry is the same either way; the L3 is not. A footprint
+    with ``absorbs_memory_cells`` turned those cells into tile-local memory,
+    which ``l3_memory_cells`` removes from the shared pool and the class's
+    own memory term already counts, so such a tile carries no shared L3.
 
     Unlike the legacy walk this raises rather than padding or truncating:
     the site-accounting invariant is the schema's, and a mismatch here
@@ -1535,9 +1539,11 @@ def _arch_place_site_grid(
             # below, which is per cell.
             l2_area_mm2=compute_mem_areas[tile.tile_type],
             # The cells this tile sits on; a 1x1 tile sits on none, and
-            # its paired cell is emitted separately below.
+            # its paired cell is emitted separately below. An absorbing
+            # footprint's cells hold no shared L3: charging them here
+            # counted that silicon twice (CodeRabbit on #295).
             l3_area_mm2=(
-                per_tile_l3 * placement.num_sites
+                (0.0 if _absorbs_memory_cells(tile) else per_tile_l3 * placement.num_sites)
                 if placement.num_sites > 1 else None
             ),
         ))

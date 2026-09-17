@@ -44,6 +44,7 @@ from graphs.hardware.sku_validators import (
 )
 from graphs.hardware.sku_validators import silicon_math as sm
 from hardware.test_kpu_catalog_ids import (
+    ALL_KPU_SKU_IDS,
     HETEROGENEOUS_KPU_SKU_IDS,
     LEGACY_KPU_SKU_IDS,
     MIGRATED_KPU_SKU_IDS,
@@ -231,6 +232,20 @@ def test_shared_memory_divides_by_who_draws_on_it(sku):
     assert shares.l3_for(by_type["ISP"]) == pytest.approx(l3 / cells)
     assert shares.l3_for(by_type["VIO"]) == 0.0
     assert shares.l2_for(by_type["ISP"]) == 0.0
+
+
+@pytest.mark.parametrize("sku", ALL_KPU_SKU_IDS)
+def test_architectural_blocks_charge_the_shared_l3_pool_exactly_once(sku):
+    """Every mm^2 of the chip's shared L3 lands on exactly one block: a
+    memory cell, or the multi-site tile covering it. An absorbing footprint's
+    cells are tile-local memory, not shared L3, and used to be charged anyway
+    -- about 4.4 mm^2 too much on the 16 nm H64 (CodeRabbit on #295)."""
+    cp = CATALOG[sku]
+    node = NODES[cp.dies[0].process_node_id]
+    fp = sf.derive_kpu_architectural_floorplan(cp, node)
+    _, _, l3, _ = sf._classify_silicon_bin_blocks(cp, node)
+    charged = sum(b.l3_area_mm2 or 0.0 for b in fp.blocks)
+    assert charged == pytest.approx(l3, rel=1e-12)
 
 
 @pytest.mark.parametrize("sku", LEGACY_KPU_SKU_IDS)
