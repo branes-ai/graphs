@@ -29,7 +29,8 @@ from embodied_schemas import load_compute_products
 
 from graphs.hardware.kpu_access import has_kpu_block, kpu_block_of
 
-#: The twelve uniform KPU SKUs that predate the heterogeneous work.
+#: The uniform KPU SKUs that predate the heterogeneous work and keep their
+#: original shape.
 LEGACY_KPU_SKU_IDS = (
     "kpu_t64_32x32_lp5x4_12nm_gf_fdx",
     "kpu_t64_32x32_lp5x4_16nm_tsmc_ffp",
@@ -42,6 +43,14 @@ LEGACY_KPU_SKU_IDS = (
     "kpu_t256_32x32_lp5x16_7nm_tsmc_hpc",
     "kpu_t512_32x32_lp5x32_12nm_gf_fdx",
     "kpu_t512_32x32_lp5x32_7nm_tsmc_hpc",
+)
+
+#: SKUs that predate the heterogeneous work and were then deliberately moved
+#: onto a new tile kind: the T768, whose Matrix class became ``systolic``
+#: (graphs#268 D8). Mirrors the list in embodied-schemas. They left the
+#: uniform contracts on purpose, so they get their own list rather than
+#: silently dropping out of the legacy one.
+MIGRATED_KPU_SKU_IDS = (
     "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
 )
 
@@ -51,8 +60,15 @@ HETEROGENEOUS_KPU_SKU_IDS = (
     "kpu_h64_auto1_lp5x4_7nm_tsmc_hpc",
 )
 
+#: Every SKU that shipped before the heterogeneous work, migrated or not: the
+#: scope of the contracts that are about the implicit mesh rather than about
+#: every tile being a PE fabric.
+SHIPPED_KPU_SKU_IDS = LEGACY_KPU_SKU_IDS + MIGRATED_KPU_SKU_IDS
+
 #: Every KPU SKU in the catalog, for tests that really do mean all of them.
-ALL_KPU_SKU_IDS = tuple(sorted(LEGACY_KPU_SKU_IDS + HETEROGENEOUS_KPU_SKU_IDS))
+ALL_KPU_SKU_IDS = tuple(
+    sorted(LEGACY_KPU_SKU_IDS + MIGRATED_KPU_SKU_IDS + HETEROGENEOUS_KPU_SKU_IDS)
+)
 
 
 def catalog_kpu_ids() -> tuple:
@@ -61,18 +77,21 @@ def catalog_kpu_ids() -> tuple:
     )
 
 
-def test_the_two_id_lists_cover_the_catalog_and_do_not_overlap():
+def test_the_id_lists_cover_the_catalog_and_do_not_overlap():
     """A new KPU SKU must be classified deliberately, not fall through.
 
     If this fails, someone added a SKU without deciding whether the legacy
     contracts apply to it.
     """
     catalog = set(catalog_kpu_ids())
-    legacy, hetero = set(LEGACY_KPU_SKU_IDS), set(HETEROGENEOUS_KPU_SKU_IDS)
-    assert not legacy & hetero
-    assert legacy | hetero == catalog, (
-        f"unclassified KPU SKUs: {sorted(catalog - legacy - hetero)}; "
-        f"missing from the catalog: {sorted((legacy | hetero) - catalog)}"
+    lists = (
+        set(LEGACY_KPU_SKU_IDS), set(MIGRATED_KPU_SKU_IDS), set(HETEROGENEOUS_KPU_SKU_IDS)
+    )
+    assert sum(len(ids) for ids in lists) == len(set().union(*lists)), "a SKU is in two lists"
+    classified = set().union(*lists)
+    assert classified == catalog, (
+        f"unclassified KPU SKUs: {sorted(catalog - classified)}; "
+        f"missing from the catalog: {sorted(classified - catalog)}"
     )
 
 
@@ -86,6 +105,11 @@ def test_the_lists_say_what_they_claim_about_tile_kinds():
     for sku in LEGACY_KPU_SKU_IDS:
         kinds = {t.tile_kind.value for t in kpu_block_of(products[sku]).tiles}
         assert kinds == {"pe_fabric"}, f"{sku} is no longer uniform: {kinds}"
+    for sku in MIGRATED_KPU_SKU_IDS:
+        block = kpu_block_of(products[sku])
+        kinds = {t.tile_kind.value for t in block.tiles}
+        assert len(kinds) > 1, f"{sku} is not migrated: {kinds}"
+        assert block.checkerboard is None, f"{sku} left its implicit mesh"
     for sku in HETEROGENEOUS_KPU_SKU_IDS:
         kinds = {t.tile_kind.value for t in kpu_block_of(products[sku]).tiles}
         assert len(kinds) > 1, f"{sku} is no longer heterogeneous: {kinds}"

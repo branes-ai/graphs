@@ -39,7 +39,7 @@ from graphs.hardware.sku_validators import (
     default_registry,
     load_validators,
 )
-from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
+from hardware.test_kpu_catalog_ids import SHIPPED_KPU_SKU_IDS
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,7 +75,8 @@ def _kpu_sku_ids() -> list[str]:
 # heterogeneous checkerboard deliberately breaks all three: multi-site
 # footprints, a per-site pitch, and cores that absorb the cells they cover.
 # See tests/hardware/test_kpu_catalog_ids.py.
-ALL_KPU_IDS = list(LEGACY_KPU_SKU_IDS)
+# The implicit-mesh SKUs, migrated T768 included (graphs#268 D8).
+ALL_KPU_IDS = list(SHIPPED_KPU_SKU_IDS)
 
 #: Kept for tests that really do mean every KPU SKU in the catalog.
 CATALOG_KPU_IDS = _kpu_sku_ids()

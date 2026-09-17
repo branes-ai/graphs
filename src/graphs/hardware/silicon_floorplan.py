@@ -52,6 +52,8 @@ from .kpu_access import kpu_block_of, kpu_die_of
 from .kpu_checkerboard_placer import place_tiles
 from .sku_validators.silicon_math import (
     carried_silicon,
+    inherits_chip_memory,
+    l3_memory_cells,
     resolve_tile_ref,
     SiliconMathError,
     resolve_block_area,
@@ -186,22 +188,50 @@ def _per_tile_pe_area_mm2(
     return aggregate_pe_area / tile.num_tiles
 
 
-def _per_tile_sram_area_mm2(
-    cp: ComputeProduct,
-    node: ProcessNodeEntry,
-    chip_l2_area_mm2: float,
-    chip_l3_area_mm2: float,
-) -> float:
-    """Per-tile L2 + L3 SRAM area (chip-wide totals divided by num_tiles).
+@dataclass(frozen=True)
+class _SharedMemoryShares:
+    """The chip-wide L2 and L3 pools, divided among what actually draws on
+    them.
 
-    The KPU's M0.5 architecture has per-tile L2 (32 KiB typical) and
-    per-tile L3 (256 KiB scratchpad). silicon_bin reports them as
-    chip-wide aggregates; per-tile is aggregate / num_tiles.
+    ``l2_per_tile`` is L2 area per tile of a class that inherits the chip
+    memory figures (``inherits_chip_memory``): the pool is sized for those
+    tiles only (``total_l2_kib``). ``l3_per_cell`` is L3 area per shared
+    memory cell (``l3_memory_cells``).
+
+    Both used to divide by ``total_tiles``. On a uniform KPU that is the
+    same number, which is why the golden never showed it; with a systolic
+    or fixed-function class the L2 pool was spread over tiles that do not
+    use it, understating every PE-fabric tile's L2 (graphs#268 D8).
     """
-    total_tiles = _kpu_block(cp).total_tiles
-    if total_tiles <= 0:
-        return 0.0
-    return (chip_l2_area_mm2 + chip_l3_area_mm2) / total_tiles
+
+    l2_per_tile: float
+    l3_per_cell: float
+
+    def l2_for(self, tile) -> float:
+        return self.l2_per_tile if inherits_chip_memory(tile) else 0.0
+
+    def l3_for(self, tile) -> float:
+        """L3 beside one tile of this class: one cell per site, none for a
+        footprint that absorbs its memory cells into tile-local memory."""
+        if _absorbs_memory_cells(tile):
+            return 0.0
+        return self.l3_per_cell * tile_display.tile_sites(tile)
+
+
+def _absorbs_memory_cells(tile) -> bool:
+    return tile.footprint is not None and tile.footprint.absorbs_memory_cells
+
+
+def _shared_memory_shares(
+    cp: ComputeProduct, chip_l2_area_mm2: float, chip_l3_area_mm2: float
+) -> _SharedMemoryShares:
+    block = _kpu_block(cp)
+    inheriting = sum(t.num_tiles for t in block.tiles if inherits_chip_memory(t))
+    cells = l3_memory_cells(cp)
+    return _SharedMemoryShares(
+        l2_per_tile=chip_l2_area_mm2 / inheriting if inheriting > 0 else 0.0,
+        l3_per_cell=chip_l3_area_mm2 / cells if cells > 0 else 0.0,
+    )
 
 
 #: ``CarriedSilicon.source`` values that are compute logic rather than
@@ -380,9 +410,7 @@ def derive_kpu_floorplan(
     )
 
     # 2. Per-tile-class pitch
-    per_tile_sram = _per_tile_sram_area_mm2(
-        cp, node, chip_l2_area, chip_l3_area
-    )
+    shares = _shared_memory_shares(cp, chip_l2_area, chip_l3_area)
     # Tile-carried silicon counts here too (graphs#268 E1). The v2
     # architectural view already did this; leaving v1 out meant a
     # heterogeneous SKU's systolic and fixed-function classes collapsed to
@@ -396,12 +424,18 @@ def derive_kpu_floorplan(
         pe_area = _per_tile_pe_area_mm2(cp, node, tile, pe_by_tile_type)
         if tile.num_tiles > 0:
             pe_area += carried_compute.get(tile.tile_type, 0.0) / tile.num_tiles
-        sram_area = per_tile_sram
+        # This view folds each tile's L3 cell into the tile, so a class
+        # carrying its own L1 / L2 still sits beside shared L3. Replacing
+        # the whole SRAM term with the carried memory dropped that L3
+        # (graphs#268 D8).
         if tile.tile_type in declares_own_memory:
             sram_area = (
                 carried_memory.get(tile.tile_type, 0.0) / tile.num_tiles
                 if tile.num_tiles > 0 else 0.0
             )
+        else:
+            sram_area = shares.l2_for(tile)
+        sram_area += shares.l3_for(tile)
         total = pe_area + sram_area
         # Per site, not per tile: a multi-site footprint spreads its
         # silicon over the sites it occupies.
@@ -1138,13 +1172,9 @@ def derive_kpu_architectural_floorplan(
     )
     total_compute_tiles = arch.total_tiles
 
-    # Per-tile L2 / L3
-    per_tile_l2 = (
-        chip_l2_area / total_compute_tiles if total_compute_tiles > 0 else 0.0
-    )
-    per_tile_l3 = (
-        chip_l3_area / total_compute_tiles if total_compute_tiles > 0 else 0.0
-    )
+    # L2 per inheriting tile, L3 per shared memory cell
+    shares = _shared_memory_shares(cp, chip_l2_area, chip_l3_area)
+    per_tile_l3 = shares.l3_per_cell
     memory_pitch = math.sqrt(per_tile_l3) if per_tile_l3 > 0 else 0.0
 
     # Tile-carried silicon (graphs#268 D2): a systolic or fixed-function
@@ -1172,10 +1202,11 @@ def derive_kpu_architectural_floorplan(
         # chip-wide L2 pool, which its tiles do not draw on. Membership is
         # what it declares, not what resolved: an unresolvable library
         # leaves the area at zero rather than handing the class shared L2
-        # it does not use (the warning above names it).
+        # it does not use (the warning above names it). A class that neither
+        # inherits nor declares memory has none.
         mem_area = (
             per_tile(carried_memory.get(tile.tile_type, 0.0))
-            if tile.tile_type in declares_own_memory else per_tile_l2
+            if tile.tile_type in declares_own_memory else shares.l2_for(tile)
         )
         total = pe_area + mem_area
         # A class with a multi-site footprint spreads its silicon over
@@ -1333,7 +1364,7 @@ def derive_kpu_architectural_floorplan(
     # mesh wins shared pixels at the mesh/MC boundary).
     blocks.extend(_arch_place_checkerboard(
         arch, mesh_origin_x, mesh_origin_y, unified_pitch,
-        per_tile_l2, per_tile_l3, compute_pe_areas, compute_mem_areas,
+        per_tile_l3, compute_pe_areas, compute_mem_areas,
     ))
 
     # Control logic (bottom-left corner gap, outside the mesh)
@@ -1452,7 +1483,6 @@ def _arch_place_site_grid(
     origin_x: float,
     origin_y: float,
     pitch: float,
-    per_tile_l2: float,
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
     compute_mem_areas: dict[str, float],
@@ -1468,9 +1498,10 @@ def _arch_place_site_grid(
     A class occupying more than one site spans the whole site rectangle,
     memory halves included, and carries their L3 in its own
     ``l3_area_mm2`` instead of leaving cells stranded under an opaque
-    block. Which of those the tile claims as *private* state is
-    ``absorbs_memory_cells``, an accounting question the memory roll-up
-    answers, not a geometric one.
+    block. Geometry is the same either way; the L3 is not. A footprint
+    with ``absorbs_memory_cells`` turned those cells into tile-local memory,
+    which ``l3_memory_cells`` removes from the shared pool and the class's
+    own memory term already counts, so such a tile carries no shared L3.
 
     Unlike the legacy walk this raises rather than padding or truncating:
     the site-accounting invariant is the schema's, and a mismatch here
@@ -1506,11 +1537,13 @@ def _arch_place_site_grid(
             # per-tile figure, and a multi-site placement is still one
             # tile, so it is not scaled by the site count -- unlike the L3
             # below, which is per cell.
-            l2_area_mm2=compute_mem_areas.get(tile.tile_type, per_tile_l2),
+            l2_area_mm2=compute_mem_areas[tile.tile_type],
             # The cells this tile sits on; a 1x1 tile sits on none, and
-            # its paired cell is emitted separately below.
+            # its paired cell is emitted separately below. An absorbing
+            # footprint's cells hold no shared L3: charging them here
+            # counted that silicon twice (CodeRabbit on #295).
             l3_area_mm2=(
-                per_tile_l3 * placement.num_sites
+                (0.0 if _absorbs_memory_cells(tile) else per_tile_l3 * placement.num_sites)
                 if placement.num_sites > 1 else None
             ),
         ))
@@ -1536,7 +1569,6 @@ def _arch_place_checkerboard(
     origin_x: float,
     origin_y: float,
     pitch: float,
-    per_tile_l2: float,
     per_tile_l3: float,
     compute_pe_areas: dict[str, float],
     compute_mem_areas: dict[str, float],
@@ -1564,7 +1596,7 @@ def _arch_place_checkerboard(
         )
     if arch.checkerboard is not None:
         return _arch_place_site_grid(
-            arch, origin_x, origin_y, pitch, per_tile_l2, per_tile_l3,
+            arch, origin_x, origin_y, pitch, per_tile_l3,
             compute_pe_areas, compute_mem_areas,
         )
 
@@ -1596,7 +1628,9 @@ def _arch_place_checkerboard(
                     x_mm=x, y_mm=y, width_mm=pitch, height_mm=pitch,
                     tile_class=tile.tile_type,
                     pe_area_mm2=compute_pe_areas.get(tile.tile_type, 0.0),
-                    l2_area_mm2=per_tile_l2,
+                    # The class's own memory term (graphs#268 D8): a class
+                    # carrying its own SRAM does not take the shared L2.
+                    l2_area_mm2=compute_mem_areas[tile.tile_type],
                 ))
             else:
                 blocks.append(ArchTile(

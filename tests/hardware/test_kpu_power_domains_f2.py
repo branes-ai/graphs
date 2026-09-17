@@ -31,7 +31,7 @@ from graphs.hardware.kpu_sku_generator import (
     generate_kpu_sku,
     input_spec_from_compute_product,
 )
-from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
+from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS, SHIPPED_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 CATALOG = load_compute_products()
@@ -120,7 +120,8 @@ def test_the_uncore_holds_exactly_the_silicon_outside_the_mesh():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("sku_id", LEGACY_KPU_SKU_IDS)
+# The T768 keeps its partition through the D8 tile-kind migration.
+@pytest.mark.parametrize("sku_id", SHIPPED_KPU_SKU_IDS)
 def test_the_catalog_carries_exactly_the_default(sku_id):
     """embodied-schemas 0.13.0 was authored from this helper; if the two
     diverge, one of them was edited by hand."""
@@ -223,7 +224,7 @@ def test_generate_cli_reproduces_the_catalog_partition(cli_runner, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("sku_id", LEGACY_KPU_SKU_IDS)
+@pytest.mark.parametrize("sku_id", SHIPPED_KPU_SKU_IDS)
 def test_implicit_plan_is_the_legacy_row_major_fill(sku_id):
     """A view, not a placement: place_tiles still declines a uniform SKU so
     the floorplan keeps its geometry, but the implicit plan gives the site

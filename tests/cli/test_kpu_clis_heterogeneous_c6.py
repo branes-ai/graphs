@@ -324,15 +324,20 @@ def test_list_kpus_kind_filter(cli_runner):
     assert rc == 0, err
     assert "14 KPU SKU(s)" in out
 
-    # Only kpu_h64_auto1 carries the other kinds.
+    # kpu_h64_auto1 carries the other kinds, and the T768 its systolic
+    # Matrix class (graphs#268 D8).
     rc, out, err = cli_runner(_CLI / "list_kpus.py", ["--kind", "systolic"])
     assert rc == 0, err
-    assert "2 KPU SKU(s)" in out and "kpu_h64_auto1" in out
+    assert "3 KPU SKU(s)" in out and "kpu_h64_auto1" in out and "kpu_t768" in out
 
     rc, out, err = cli_runner(_CLI / "list_kpus.py", ["--kind", "heterogeneous"])
     assert rc == 0, err
-    assert "2 KPU SKU(s)" in out
-    assert "kpu_h64_auto1" in out and "kpu_t64" not in out
+    assert "3 KPU SKU(s)" in out
+    assert "kpu_h64_auto1" in out and "kpu_t768" in out and "kpu_t64" not in out
+
+    rc, out, err = cli_runner(_CLI / "list_kpus.py", ["--kind", "fixed_function"])
+    assert rc == 0, err
+    assert "2 KPU SKU(s)" in out and "kpu_t768" not in out
 
 
 def test_list_kpus_csv_carries_the_kinds(cli_runner, tmp_path):

@@ -23,7 +23,7 @@ from graphs.hardware.resource_model import (
     Precision,
     TileSpecialization,
 )
-from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
+from hardware.test_kpu_catalog_ids import SHIPPED_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 N16 = NODES["tsmc_n16"]
@@ -31,7 +31,7 @@ N16 = NODES["tsmc_n16"]
 # heterogeneous work; see tests/hardware/test_kpu_catalog_ids.py.
 CATALOG = {
     k: v for k, v in load_compute_products().items()
-    if k in LEGACY_KPU_SKU_IDS
+    if k in SHIPPED_KPU_SKU_IDS  # the migrated T768 too (graphs#268 D8)
 }
 HETERO = generate_kpu_sku(input_spec_from_compute_product(build_heterogeneous_kpu()),
                           process_nodes=NODES)

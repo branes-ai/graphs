@@ -79,7 +79,9 @@ def _pool(precision=Precision.INT8, prefer_systolic=False, mapper=None):
         LEGACY_SKU,
         "kpu_t128_32x32_lp5x8_16nm_tsmc_ffp",
         "kpu_t256_32x32_lp5x16_7nm_tsmc_hpc",
-        "kpu_t768_16x8_hbm3x16_7nm_tsmc_hpc",
+        # The T768 was here until its Matrix class became systolic
+        # (graphs#268 D8); test_kpu_t768_systolic_d8 covers its pool path.
+        "kpu_t512_32x32_lp5x32_7nm_tsmc_hpc",
     ],
 )
 def test_legacy_skus_are_not_heterogeneous(sku):
