@@ -25,7 +25,8 @@ T128, T256 and T512, and says "recommended k=4". Its prose rule of thumb
 instead pick 2x2 for the T128 (32 clusters), contradicting its own table.
 This module follows the table: prefer 4x4, drop to 2x2 when 4x4 yields fewer
 than 8 clusters, grow to 6x6 or 8x8 when it yields more than 64 (the
-design's note for future large SKUs). The T768, absent from the table,
+design's note for future large SKUs), and try 2, 6 and 8 in that order when
+4 does not divide the grid at all. The T768, absent from the table,
 gets 4x4 and 48 clusters by the same rule.
 
 **Not modeled here** (each needs a schema field or data the catalog does
@@ -46,8 +47,8 @@ PREFERRED_CLUSTER_EDGE = 4
 #: Per-chip cluster count the design targets.
 CLUSTER_COUNT_RANGE = (8, 64)
 
-#: Tried when the preferred edge gives too few clusters (smaller first) or
-#: too many (larger first).
+#: Tried when the preferred edge gives too few clusters (smaller), too many
+#: (larger), or does not divide the grid (all of them, smallest first).
 _SMALLER_EDGES = (2,)
 _LARGER_EDGES = (6, 8)
 
@@ -81,10 +82,17 @@ def default_cluster_edge(rows: int, cols: int) -> int:
     preferred = _count(rows, cols, PREFERRED_CLUSTER_EDGE)
     if preferred is not None and lo <= preferred <= hi:
         return PREFERRED_CLUSTER_EDGE
-    # Too few clusters (or 4 does not divide): go finer. Too many: coarser.
-    fallbacks = (
-        _LARGER_EDGES if preferred is not None and preferred > hi else _SMALLER_EDGES
-    )
+    if preferred is None:
+        # 4 does not divide the grid, so the count says nothing about which
+        # direction to go: try every other edge, smallest first -- the
+        # design's prose rule. An 18x18 mesh fails 2 (81 clusters) and
+        # takes 6 (9); only trying the finer side made that an error
+        # (CodeRabbit on #294).
+        fallbacks = tuple(sorted(_SMALLER_EDGES + _LARGER_EDGES))
+    elif preferred < lo:
+        fallbacks = _SMALLER_EDGES  # too few clusters: go finer
+    else:
+        fallbacks = _LARGER_EDGES  # too many: go coarser
     for edge in fallbacks:
         count = _count(rows, cols, edge)
         if count is not None and lo <= count <= hi:

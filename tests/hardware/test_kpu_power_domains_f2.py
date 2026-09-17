@@ -69,6 +69,18 @@ def test_a_grid_too_fine_for_4x4_grows_the_cluster():
     assert default_cluster_edge(64, 64) == 8  # 64 clusters
 
 
+@pytest.mark.parametrize("rows, cols, edge", [
+    (10, 10, 2),  # 4 does not divide; 2x2 gives 25
+    (18, 18, 6),  # 4 does not divide; 2x2 gives 81, too many; 6x6 gives 9
+])
+def test_a_grid_4_does_not_divide_tries_every_other_edge(rows, cols, edge):
+    """When 4x4 does not divide the grid its count says nothing about the
+    direction to go, so both finer and coarser edges are tried, finer first
+    (CodeRabbit on #294: 18x18 was refused although 6x6 fits)."""
+    assert rows % 4 or cols % 4
+    assert default_cluster_edge(rows, cols) == edge
+
+
 def test_a_grid_no_edge_divides_is_refused():
     with pytest.raises(PowerDomainDefaultError, match="divides"):
         default_cluster_edge(7, 7)
