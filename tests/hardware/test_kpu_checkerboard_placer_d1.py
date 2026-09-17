@@ -28,7 +28,7 @@ from graphs.hardware.kpu_sku_generator import (
     generate_kpu_sku,
     input_spec_from_compute_product,
 )
-from hardware.test_kpu_catalog_ids import LEGACY_KPU_SKU_IDS
+from hardware.test_kpu_catalog_ids import SHIPPED_KPU_SKU_IDS
 
 NODES = load_process_nodes()
 HETERO = generate_kpu_sku(
@@ -89,7 +89,8 @@ def _as_map(plan: SitePlan) -> list:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("sku", LEGACY_KPU_SKU_IDS)
+# The migrated T768 keeps its implicit mesh too (graphs#268 D8).
+@pytest.mark.parametrize("sku", SHIPPED_KPU_SKU_IDS)
 def test_legacy_catalog_skus_do_not_go_through_the_placer(sku):
     """Each *legacy* catalog SKU is a uniform mesh with no checkerboard
     spec, so it keeps the legacy row-major floorplan the golden snapshot
