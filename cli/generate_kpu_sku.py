@@ -59,6 +59,7 @@ from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.kpu_access import kpu_die_of
 from graphs.hardware.kpu_sku_generator import (
     GeneratorError,
+    apply_default_power_domains,
     apply_pe_array_override,
     apply_tile_mix,
     generate_kpu_sku,
@@ -159,6 +160,15 @@ def main() -> int:
         "Repeatable. total_tiles and an auto checkerboard's spare sites follow.",
     )
     parser.add_argument(
+        "--default-power-domains",
+        action="store_true",
+        help="Give a uniform KPU the default per-cluster DVFS partition from "
+        "docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md: "
+        "4x4-site clusters (2x2 when that gives fewer than 8), each with its own "
+        "rail and PLL, plus an uncore domain. Declares no operating points, so "
+        "TDP, performance and area are unchanged.",
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="Run the validator registry against the generated SKU. "
@@ -227,6 +237,13 @@ def main() -> int:
             spec = apply_pe_array_override(spec, rows, cols, tile_class=tile_class)
         except ValueError as exc:
             print(f"error: --pe-array: {exc}", file=sys.stderr)
+            return 2
+
+    if args.default_power_domains:
+        try:
+            spec = apply_default_power_domains(spec)
+        except ValueError as exc:
+            print(f"error: --default-power-domains: {exc}", file=sys.stderr)
             return 2
 
     # Generate.

@@ -442,6 +442,29 @@ def apply_pe_array_override(
     return _revalidated(spec, new_tiles)
 
 
+def apply_default_power_domains(spec: KPUSKUInputSpec) -> KPUSKUInputSpec:
+    """Give a uniform KPU the design's default per-cluster DVFS partition
+    (graphs#268 F2, ``--default-power-domains``).
+
+    One ``cluster`` domain per k x k block of compute sites, each with its
+    own rail and PLL, plus one ``uncore`` domain. No operating points are
+    declared, so every cluster runs at its profile's Vdd and clock and TDP,
+    performance and area do not move; see ``kpu_power_domains``.
+
+    Raises:
+        ValueError: the architecture is not uniform, or already declares
+            power domains.
+    """
+    from .kpu_power_domains import PowerDomainDefaultError, default_power_domains_for
+
+    arch = spec.kpu_architecture
+    try:
+        domains = default_power_domains_for(arch, spec.silicon_bin.blocks)
+    except PowerDomainDefaultError as exc:
+        raise ValueError(str(exc)) from exc
+    return _revalidated(spec, list(arch.tiles), power_domains=domains)
+
+
 def apply_tile_mix(spec: KPUSKUInputSpec, mix: dict[str, int]) -> KPUSKUInputSpec:
     """Set ``num_tiles`` for the named tile classes (graphs#268 C3,
     ``--tile-mix CLASS=N,...``). Classes are named by ``tile_class_id`` or

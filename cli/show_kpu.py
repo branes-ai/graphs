@@ -92,6 +92,59 @@ def _render_csv(cp: ComputeProduct) -> str:
     return buf.getvalue()
 
 
+def _render_power_domains(block) -> list:
+    """The power-domain lines of the architecture section.
+
+    A regular DVFS partition -- every cluster the same shape, each on its own
+    rail and PLL, the default since graphs#268 F2 -- collapses to one summary
+    line: listing 48 identical T768 clusters would bury the uncore and any
+    tile_class domain under noise, while saying nothing about the sites. An
+    irregular partition is listed domain by domain with its site ranges,
+    because then the individual detail is the point. ``show_floorplan
+    --overlay power-domain`` draws the site map either way.
+    """
+    lines = []
+    clusters = [d for d in block.power_domains if d.kind.value == "cluster"]
+    others = [d for d in block.power_domains if d.kind.value != "cluster"]
+    shapes = {
+        tuple(sorted((r.rows, r.cols) for r in d.site_ranges)) for d in clusters
+    }
+    regular = (
+        clusters
+        and len(shapes) == 1
+        and len(next(iter(shapes))) == 1
+        and len({d.rail_id for d in clusters}) == len(clusters)
+        and len({d.clock_domain_id for d in clusters}) == len(clusters)
+        and all(d.rail_id and d.clock_domain_id for d in clusters)
+        and len({d.gateable for d in clusters}) == 1
+    )
+    if regular:
+        (rows, cols), = next(iter(shapes))
+        gateable = "yes" if clusters[0].gateable else "no"
+        lines.append(
+            f"    {len(clusters)} clusters of {rows}x{cols} sites, each its own rail "
+            f"and PLL, gateable={gateable}  "
+            f"({clusters[0].domain_id} .. {clusters[-1].domain_id})"
+        )
+    else:
+        for d in clusters:
+            ranges = ", ".join(
+                f"r{r.row_min}-{r.row_max} c{r.col_min}-{r.col_max}" for r in d.site_ranges
+            )
+            lines.append(
+                f"    {d.domain_id:18s} cluster      "
+                f"gateable={'yes' if d.gateable else 'no':3s}  sites: {ranges}  "
+                f"rail={d.rail_id or '-'} clock={d.clock_domain_id or '-'}"
+            )
+    for d in others:
+        members = ", ".join(d.members) if d.members else "-"
+        lines.append(
+            f"    {d.domain_id:18s} {d.kind.value:12s} "
+            f"gateable={'yes' if d.gateable else 'no':3s}  members: {members}"
+        )
+    return lines
+
+
 def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
     out = []
     out.append(f"=== KPU SKU: {cp.id} ===")
@@ -171,12 +224,7 @@ def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
             out.append(f"    memory cell: {cb.memory_cell.kib_per_cell} KiB/cell")
     if block.power_domains:
         out.append("  Power domains:")
-        for pd in block.power_domains:
-            members = ", ".join(pd.members) if pd.members else "-"
-            out.append(
-                f"    {pd.domain_id:18s} {pd.kind.value:12s} "
-                f"gateable={'yes' if pd.gateable else 'no':3s}  members: {members}"
-            )
+        out.extend(_render_power_domains(block))
     out.append(
         f"  NoC: {block.noc.topology} {block.noc.mesh_rows}x{block.noc.mesh_cols}, "
         f"{block.noc.flit_bytes}-byte flits, "
