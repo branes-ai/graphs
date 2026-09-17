@@ -123,11 +123,19 @@ class DeclaredTdpMatchesModel:
         # Imported here: the power model pulls in the generator, and the
         # validator package is imported from it.
         from ...kpu_power_model import compute_thermal_profile_tdp_w
-        from ...kpu_sku_generator import input_spec_from_compute_product
+        from ...kpu_sku_generator import (
+            GeneratorError,
+            input_spec_from_compute_product,
+        )
 
         try:
             spec = input_spec_from_compute_product(ctx.sku)
-        except Exception as exc:  # a shape the generator cannot express
+        except GeneratorError as exc:
+            # The only failure the generator documents: no KPU block, or
+            # more than one. Anything else is a bug in this validator or
+            # the model, and must reach the registry, which turns an
+            # uncaught exception into an ERROR. Swallowing it here would
+            # downgrade a real defect to a non-fatal INFO.
             return [
                 Finding(
                     validator=self.name,
