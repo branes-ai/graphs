@@ -213,6 +213,14 @@ class MissionProfile:
     #: disparities is not SGM at 1440x1080 with 128, and an MPC over 60 states
     #: is not one over 12. ``{stage_key: {"ops_per_call": x, "bytes_per_call": y}}``.
     stage_costs: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    #: The mission's sensor suite and configuration knobs, as the model states
+    #: them: ``stereo: [cameras, width, height, fps, disparities]``,
+    #: ``mono``/``vio``: ``[cameras, width, height, fps]``, ``radar``:
+    #: ``[units, hz, rx, samples, chirps]``, ``mpc_dims``: ``[nx, nu, horizon]``,
+    #: plus scalar rates. A fixed-function core has contract limits -- an SGM
+    #: core rated to 1920x1080 at 30 fps, a VIO core to 752x480 -- and they can
+    #: only be checked against a mission whose configuration is stated.
+    sensors: Dict[str, Any] = field(default_factory=dict)
     note: str = ""
     #: The operating regime this profile is, when it is one of the five in
     #: the companion argument document.
@@ -235,6 +243,8 @@ class MissionProfile:
         }
         if self.stage_costs:
             out["stage_costs"] = {k: dict(v) for k, v in self.stage_costs.items()}
+        if self.sensors:
+            out["sensors"] = dict(self.sensors)
         if self.note:
             out["note"] = self.note
         if self.regime:
@@ -255,6 +265,7 @@ class MissionProfile:
                 k: {ck: float(cv) for ck, cv in v.items()}
                 for k, v in (data.get("stage_costs") or {}).items()
             },
+            sensors=dict(data.get("sensors") or {}),
             note=data.get("note", ""),
             regime=data.get("regime"),
             published=dict(data.get("published") or {}),

@@ -94,6 +94,22 @@ def test_parametric_stages_carry_their_mission_configuration(workload):
     assert mpc_h.stage.ops_per_call > 50 * mpc_i.stage.ops_per_call
 
 
+def test_profiles_carry_the_sensor_suite_they_are_configured_with(workload):
+    """A fixed-function core states contract limits -- the SGM core is rated
+    to 1920x1080 at 30 fps with 128 disparities, the Navion-class VIO core to
+    752x480 -- and they can only be checked against a mission whose sensor
+    configuration is stated. Rates and unit costs alone cannot answer it."""
+    interceptor = workload.profile("air superiority")
+    assert interceptor.sensors["stereo"] == [1, 1440, 1080, 40, 128]
+    assert interceptor.sensors["vio"] == [2, 1440, 1080, 40]
+    assert interceptor.sensors["mpc_dims"] == [12, 4, 30]
+    for profile in workload.profiles:
+        assert profile.sensors, profile.name
+        for key in ("stereo", "mono", "vio"):
+            if key in profile.sensors:
+                assert len(profile.sensors[key]) in (4, 5), (profile.name, key)
+
+
 # ---------------------------------------------------------------------------
 # The published figures
 # ---------------------------------------------------------------------------

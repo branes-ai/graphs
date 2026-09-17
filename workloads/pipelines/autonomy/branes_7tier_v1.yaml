@@ -298,6 +298,15 @@ profiles:
     det:
       ops_per_call: 3540000000.0
       bytes_per_call: 24900000.0
+  sensors:
+    det_gmac: 1.6
+    det_hz: 15
+    det_mpar: 3.2
+    mono:
+    - 1
+    - 1920
+    - 1080
+    - 15
   note: One 1080p camera at 15 Hz, tiny detector, no map, no closed loop
 - form_factor: Edge AI device
   name: Multi-stream tracking & anomaly
@@ -310,6 +319,15 @@ profiles:
     det:
       ops_per_call: 10340000000.0
       bytes_per_call: 65500000.0
+  sensors:
+    det_gmac: 5.0
+    det_hz: 60
+    det_mpar: 9
+    mono:
+    - 4
+    - 1920
+    - 1080
+    - 15
   note: Four 1080p streams at 15 Hz, small detector plus re-identification
 - form_factor: Edge AI device
   name: Supervisory control & command grounding
@@ -327,6 +345,21 @@ profiles:
     vlm:
       ops_per_call: 488000000000.0
       bytes_per_call: 24617440512.0
+  sensors:
+    det_gmac: 5.0
+    det_hz: 30
+    det_mpar: 9
+    mono:
+    - 2
+    - 1920
+    - 1080
+    - 15
+    replan_hz: 1
+    vlm_decode: 48
+    vlm_par: 0.5
+    vlm_prefill: 400
+    vlm_qps: 1.0
+    vlm_vis_gop: 40
   note: Two 1080p streams, 0.5 B on-device VLM at 1 query/s, operator in the loop
 - form_factor: Drone
   name: Inspection (structure / asset)
@@ -356,6 +389,41 @@ profiles:
     det:
       ops_per_call: 90340000000.0
       bytes_per_call: 170500000.0
+  sensors:
+    ba_hz: 10
+    cbf_hz: 50
+    ctrl_hz: 400
+    det_gmac: 45
+    det_hz: 15
+    dof: 4
+    esdf_hz: 4
+    gain_evals_s: 300
+    lidar_pts_s: 400000.0
+    mono:
+    - 1
+    - 1440
+    - 1080
+    - 15
+    mpc_dims:
+    - 12
+    - 4
+    - 30
+    mpc_hz: 50
+    policy_hz: 10
+    replan_hz: 2
+    sdfenc_hz: 10
+    stereo:
+    - 1
+    - 1440
+    - 1080
+    - 15
+    - 96
+    tsdf_pts_s: 400000.0
+    vio:
+    - 2
+    - 1440
+    - 1080
+    - 20
   note: Low speed, close standoff, onboard defect detection, GNSS-denied
 - form_factor: Drone
   name: ISR (endurance / wide-area search)
@@ -390,6 +458,48 @@ profiles:
     det:
       ops_per_call: 90340000000.0
       bytes_per_call: 170500000.0
+  sensors:
+    ba_hz: 20
+    cbf_hz: 50
+    ctrl_hz: 100
+    det_gmac: 45
+    det_hz: 45
+    dof: 4
+    esdf_hz: 5
+    gain_evals_s: 600
+    lidar_pts_s: 600000.0
+    mono:
+    - 2
+    - 1440
+    - 1080
+    - 20
+    mpc_dims:
+    - 12
+    - 4
+    - 30
+    mpc_hz: 50
+    policy_hz: 20
+    radar:
+    - 1
+    - 20
+    - 12
+    - 512
+    - 128
+    replan_hz: 2
+    sdfenc_hz: 20
+    stereo:
+    - 1
+    - 1440
+    - 1080
+    - 20
+    - 128
+    tsdf_pts_s: 600000.0
+    vio:
+    - 2
+    - 1440
+    - 1080
+    - 20
+    vlm_qps: 2.0
   note: 'Companion-annex far-flight regime: onboard 2 B VLM, emissions-restricted'
   regime: far flight
   published:
@@ -426,6 +536,46 @@ profiles:
     det:
       ops_per_call: 90340000000.0
       bytes_per_call: 170500000.0
+  sensors:
+    ba_hz: 50
+    cbf_hz: 100
+    ctrl_hz: 400
+    det_gmac: 45
+    det_hz: 100
+    dof: 4
+    esdf_hz: 10
+    lidar_pts_s: 1000000.0
+    mono:
+    - 1
+    - 1440
+    - 1080
+    - 40
+    mpc_dims:
+    - 12
+    - 4
+    - 30
+    mpc_hz: 100
+    policy_hz: 100
+    radar:
+    - 1
+    - 20
+    - 32
+    - 1024
+    - 256
+    replan_hz: 1
+    sdfenc_hz: 100
+    stereo:
+    - 1
+    - 1440
+    - 1080
+    - 40
+    - 128
+    tsdf_pts_s: 1000000.0
+    vio:
+    - 2
+    - 1440
+    - 1080
+    - 40
   note: 'Companion-annex air-superiority regime: 150-250 m/s closure, no VLM in the loop'
   regime: air superiority
   published:
@@ -468,6 +618,42 @@ profiles:
     cbf:
       ops_per_call: 31890.0
       bytes_per_call: 9126.0
+  sensors:
+    ba_hz: 10
+    cbf_haz: 16
+    cbf_hz: 200
+    ctrl_hz: 1000
+    det_gmac: 45
+    det_hz: 30
+    dof: 12
+    esdf_hz: 5
+    gain_evals_s: 200
+    lidar_pts_s: 300000.0
+    mono:
+    - 2
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 24
+    - 12
+    - 20
+    mpc_hz: 200
+    policy_hz: 50
+    replan_hz: 2
+    sdfenc_hz: 20
+    stereo:
+    - 1
+    - 1280
+    - 720
+    - 30
+    - 96
+    tsdf_pts_s: 300000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 30
   note: Known map, gauge and thermal reading, 12-DoF whole-body control
 - form_factor: Quadruped
   name: Surveillance (persistent patrol)
@@ -503,6 +689,42 @@ profiles:
     cbf:
       ops_per_call: 31890.0
       bytes_per_call: 9126.0
+  sensors:
+    ba_hz: 15
+    cbf_haz: 16
+    cbf_hz: 200
+    ctrl_hz: 1000
+    det_gmac: 45
+    det_hz: 60
+    dof: 12
+    esdf_hz: 5
+    gain_evals_s: 400
+    lidar_pts_s: 400000.0
+    mono:
+    - 4
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 24
+    - 12
+    - 20
+    mpc_hz: 200
+    policy_hz: 50
+    replan_hz: 2
+    sdfenc_hz: 25
+    stereo:
+    - 1
+    - 1280
+    - 720
+    - 30
+    - 96
+    tsdf_pts_s: 400000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 30
   note: 360-degree camera ring, person detection and re-identification, day/night
 - form_factor: Quadruped
   name: ISR (dismounted, comms-denied)
@@ -543,6 +765,49 @@ profiles:
     cbf:
       ops_per_call: 31890.0
       bytes_per_call: 9126.0
+  sensors:
+    ba_hz: 20
+    cbf_haz: 16
+    cbf_hz: 250
+    ctrl_hz: 1000
+    det_gmac: 45
+    det_hz: 70
+    dof: 12
+    esdf_hz: 8
+    gain_evals_s: 1500
+    lidar_pts_s: 600000.0
+    mono:
+    - 4
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 24
+    - 12
+    - 20
+    mpc_hz: 250
+    policy_hz: 50
+    radar:
+    - 1
+    - 10
+    - 12
+    - 512
+    - 128
+    replan_hz: 3
+    sdfenc_hz: 30
+    stereo:
+    - 1
+    - 1440
+    - 1080
+    - 30
+    - 128
+    tsdf_pts_s: 600000.0
+    vio:
+    - 2
+    - 1440
+    - 1080
+    - 30
+    vlm_qps: 1.0
   note: Unstructured terrain, onboard 2 B VLM, no datalink assumption
 - form_factor: AMR
   name: Warehousing (structured aisles)
@@ -577,6 +842,41 @@ profiles:
     cbf:
       ops_per_call: 26370.0
       bytes_per_call: 8870.0
+  sensors:
+    ba_hz: 8
+    cbf_haz: 8
+    cbf_hz: 100
+    ctrl_hz: 200
+    det_gmac: 22
+    det_hz: 20
+    dof: 3
+    esdf_hz: 4
+    lidar_pts_s: 150000.0
+    mono:
+    - 1
+    - 1280
+    - 720
+    - 20
+    mpc_dims:
+    - 8
+    - 3
+    - 25
+    mpc_hz: 50
+    policy_hz: 20
+    replan_hz: 2
+    sdfenc_hz: 10
+    stereo:
+    - 1
+    - 1280
+    - 720
+    - 20
+    - 64
+    tsdf_pts_s: 150000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 20
   note: Known map, fiducials, 2 m/s, near-static environment
 - form_factor: AMR
   name: Logistics (mixed / dynamic yard)
@@ -613,6 +913,48 @@ profiles:
     mpc:
       ops_per_call: 333000.0
       bytes_per_call: 66800.0
+  sensors:
+    ba_hz: 15
+    cbf_haz: 12
+    cbf_hz: 200
+    ctrl_hz: 200
+    det_gmac: 45
+    det_hz: 45
+    dof: 3
+    esdf_hz: 8
+    gain_evals_s: 300
+    lidar_pts_s: 500000.0
+    mono:
+    - 3
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 8
+    - 3
+    - 25
+    mpc_hz: 100
+    policy_hz: 40
+    radar:
+    - 1
+    - 10
+    - 12
+    - 512
+    - 128
+    replan_hz: 3
+    sdfenc_hz: 25
+    stereo:
+    - 1
+    - 1280
+    - 720
+    - 30
+    - 96
+    tsdf_pts_s: 500000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 30
   note: Humans and vehicles present, indoor-outdoor transitions, 4 m/s
 - form_factor: AMR
   name: Loading / unloading (manipulation)
@@ -648,6 +990,44 @@ profiles:
     cbf:
       ops_per_call: 31890.0
       bytes_per_call: 9126.0
+  sensors:
+    ba_hz: 15
+    cbf_haz: 16
+    cbf_hz: 250
+    ctrl_hz: 1000
+    det_gmac: 70
+    det_hz: 45
+    det_mpar: 42
+    dof: 9
+    esdf_hz: 10
+    lidar_pts_s: 400000.0
+    mono:
+    - 3
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 18
+    - 9
+    - 20
+    mpc_hz: 200
+    policy_hz: 40
+    replan_hz: 5
+    sdfenc_hz: 30
+    stereo:
+    - 2
+    - 1280
+    - 720
+    - 30
+    - 96
+    tsdf_pts_s: 600000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 30
+    vla_hz: 10
+    vla_par: 3
   note: Instance segmentation and 6-DoF pose, chunked grasp policy, 6-DoF arm
 - form_factor: Humanoid
   name: Industrial automation (structured cell)
@@ -683,6 +1063,44 @@ profiles:
     cbf:
       ops_per_call: 34650.0
       bytes_per_call: 9254.0
+  sensors:
+    ba_hz: 20
+    cbf_haz: 20
+    cbf_hz: 500
+    ctrl_hz: 1000
+    det_gmac: 70
+    det_hz: 40
+    det_mpar: 42
+    dof: 30
+    esdf_hz: 10
+    lidar_pts_s: 200000.0
+    mono:
+    - 3
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 60
+    - 30
+    - 20
+    mpc_hz: 500
+    policy_hz: 50
+    replan_hz: 5
+    sdfenc_hz: 30
+    stereo:
+    - 1
+    - 1280
+    - 720
+    - 30
+    - 96
+    tsdf_pts_s: 300000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 30
+    vla_hz: 10
+    vla_par: 3
   note: Repetitive task set, 30-DoF whole-body MPC at 500 Hz
 - form_factor: Humanoid
   name: Cobot (human-adjacent, contact-rich)
@@ -718,6 +1136,44 @@ profiles:
     cbf:
       ops_per_call: 37410.0
       bytes_per_call: 9382.0
+  sensors:
+    ba_hz: 25
+    cbf_haz: 24
+    cbf_hz: 1000
+    ctrl_hz: 2000
+    det_gmac: 70
+    det_hz: 60
+    det_mpar: 42
+    dof: 30
+    esdf_hz: 15
+    lidar_pts_s: 300000.0
+    mono:
+    - 4
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 60
+    - 30
+    - 20
+    mpc_hz: 500
+    policy_hz: 100
+    replan_hz: 5
+    sdfenc_hz: 50
+    stereo:
+    - 2
+    - 1280
+    - 720
+    - 30
+    - 96
+    tsdf_pts_s: 400000.0
+    vio:
+    - 2
+    - 1280
+    - 720
+    - 30
+    vla_hz: 20
+    vla_par: 3
   note: Human pose and intent prediction, contact scheduling, 1 kHz safety filter
 - form_factor: Humanoid
   name: House work (open-world, long-horizon)
@@ -755,6 +1211,46 @@ profiles:
     cbf:
       ops_per_call: 37410.0
       bytes_per_call: 9382.0
+  sensors:
+    ba_hz: 30
+    cbf_haz: 24
+    cbf_hz: 1000
+    ctrl_hz: 2000
+    det_gmac: 70
+    det_hz: 60
+    det_mpar: 42
+    dof: 30
+    esdf_hz: 20
+    gain_evals_s: 800
+    lidar_pts_s: 400000.0
+    mono:
+    - 4
+    - 1280
+    - 720
+    - 30
+    mpc_dims:
+    - 60
+    - 30
+    - 20
+    mpc_hz: 500
+    policy_hz: 100
+    replan_hz: 8
+    sdfenc_hz: 50
+    stereo:
+    - 2
+    - 1440
+    - 1080
+    - 30
+    - 128
+    tsdf_pts_s: 600000.0
+    vio:
+    - 2
+    - 1440
+    - 1080
+    - 30
+    vla_hz: 30
+    vla_par: 3
+    vlm_qps: 1.0
   note: Open-vocabulary tasking, 3 B VLA at 30 Hz, 2 B VLM task planner
 - form_factor: Autonomous vehicle
   name: SAE L2 / L2+ (partial automation)
@@ -783,6 +1279,37 @@ profiles:
     cbf:
       ops_per_call: 27750.0
       bytes_per_call: 8934.0
+  sensors:
+    ba_hz: 10
+    cbf_haz: 10
+    cbf_hz: 100
+    ctrl_hz: 100
+    det_gmac: 15
+    det_hz: 30
+    det_mpar: 30
+    dof: 2
+    mono:
+    - 6
+    - 1928
+    - 1208
+    - 30
+    mpc_dims:
+    - 8
+    - 2
+    - 30
+    mpc_hz: 50
+    radar:
+    - 5
+    - 20
+    - 12
+    - 512
+    - 128
+    replan_hz: 10
+    vio:
+    - 2
+    - 1928
+    - 1208
+    - 30
   note: Hands-on. Six 2 MP cameras at 30 Hz, five radars, no LiDAR, driver is fallback
 - form_factor: Autonomous vehicle
   name: SAE L3 (conditional automation)
@@ -821,6 +1348,48 @@ profiles:
     cbf:
       ops_per_call: 31890.0
       bytes_per_call: 9126.0
+  sensors:
+    ba_hz: 25
+    cbf_haz: 16
+    cbf_hz: 200
+    ctrl_hz: 200
+    det_gmac: 75
+    det_hz: 30
+    det_mpar: 45
+    dof: 2
+    esdf_hz: 20
+    lidar_pts_s: 1200000.0
+    mono:
+    - 11
+    - 1928
+    - 1208
+    - 30
+    mpc_dims:
+    - 8
+    - 2
+    - 30
+    mpc_hz: 100
+    policy_hz: 50
+    radar:
+    - 5
+    - 20
+    - 12
+    - 512
+    - 128
+    replan_hz: 20
+    sdfenc_hz: 50
+    stereo:
+    - 1
+    - 1928
+    - 1208
+    - 30
+    - 128
+    tsdf_pts_s: 1200000.0
+    vio:
+    - 2
+    - 1928
+    - 1208
+    - 30
   note: Eyes-off in ODD. Eleven cameras, one LiDAR, five radars, multi-agent prediction
 - form_factor: Autonomous vehicle
   name: SAE L4 / L5 (high / full automation)
@@ -861,4 +1430,49 @@ profiles:
     cbf:
       ops_per_call: 37410.0
       bytes_per_call: 9382.0
+  sensors:
+    ba_hz: 50
+    cbf_haz: 24
+    cbf_hz: 400
+    ctrl_hz: 400
+    det_gmac: 155
+    det_hz: 60
+    det_mpar: 95
+    dof: 2
+    esdf_hz: 40
+    gain_evals_s: 500
+    lidar_pts_s: 4000000.0
+    mono:
+    - 20
+    - 2896
+    - 1876
+    - 30
+    mpc_dims:
+    - 8
+    - 2
+    - 30
+    mpc_hz: 200
+    policy_hz: 100
+    radar:
+    - 8
+    - 20
+    - 32
+    - 1024
+    - 256
+    replan_hz: 40
+    sdfenc_hz: 100
+    stereo:
+    - 2
+    - 1928
+    - 1208
+    - 30
+    - 128
+    tsdf_pts_s: 4000000.0
+    vio:
+    - 4
+    - 1928
+    - 1208
+    - 30
+    vlm_par: 7
+    vlm_qps: 0.25
   note: No fallback driver. 20+ cameras to 8 MP, 3-5 LiDAR, 8 radars, dual-redundant stack

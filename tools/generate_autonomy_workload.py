@@ -101,6 +101,13 @@ def build() -> PipelineWorkload:
                     "ops_per_call": float(st["uops"]),
                     "bytes_per_call": float(st["ubytes"]),
                 }
+        # The sensor suite itself, so a core's contract limits (an SGM core
+        # rated to 1920x1080 at 30 fps, a VIO core to 752x480) can be checked
+        # against what the mission actually runs.
+        sensors = {
+            k: (list(v) if isinstance(v, tuple) else v)
+            for k, v in sorted(mission.k.items()) if v
+        }
         key = (mission.ff, mission.name)
         regime, published = REGIMES.get(key, (None, {}))
         built.append(MissionProfile(
@@ -110,6 +117,7 @@ def build() -> PipelineWorkload:
             deadline_ms=float(mission.deadline_ms),
             rates_hz=rates,
             stage_costs=costs,
+            sensors=sensors,
             note=mission.note,
             regime=regime,
             published=published,
