@@ -100,11 +100,13 @@ class HailoMapper(HardwareMapper):
 
         units_allocated = max(1, min(units_required, self.dataflow_cores))
 
-        # Calculate occupancy (what fraction of dataflow resources are busy)
-        occupancy = units_allocated / self.dataflow_cores
+        # Occupancy: how full the allocated units are. They are sized to the
+        # work, so full; the chip fraction is utilization, which
+        # _calculate_latency applies once. Passing it as occupancy squared it.
+        occupancy = 1.0
 
-        # Calculate utilization
-        utilization = occupancy
+        # Calculate utilization (fraction of the dataflow cores in use)
+        utilization = units_allocated / self.dataflow_cores
 
         # Calculate latency using dataflow roofline model
         ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2

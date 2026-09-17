@@ -221,11 +221,14 @@ class CGRAMapper(HardwareMapper):
         # Run greedy place-and-route
         pnr_result = self._greedy_place_and_route(subgraph, precision)
 
-        # Calculate occupancy (what fraction of PCUs are busy)
-        occupancy = pnr_result.pcus_allocated / self.num_pcus
+        # Occupancy: how full the placed PCUs are. Place-and-route allocates
+        # what the graph needs, so full; the chip fraction goes into
+        # utilization and is applied once by _calculate_latency. Passing it
+        # as occupancy squared it.
+        occupancy = 1.0
 
         # Calculate utilization (considering spatial efficiency)
-        utilization = occupancy * pnr_result.spatial_efficiency
+        utilization = (pnr_result.pcus_allocated / self.num_pcus) * pnr_result.spatial_efficiency
 
         # Calculate latency
         ops = subgraph.total_flops if subgraph.total_flops > 0 else subgraph.total_macs * 2
