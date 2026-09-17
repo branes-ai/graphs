@@ -376,8 +376,10 @@ class TPUMapper(HardwareMapper):
         if tpu_alloc.uses_systolic_array:
             occupancy = tpu_alloc.systolic_array_utilization
         else:
-            # Vector ops: standard occupancy
-            occupancy = mxus_allocated / self.num_mxus
+            # Vector ops: whole MXUs sized to the work, so full. The chip
+            # fraction is utilization, applied once by _calculate_latency;
+            # passing mxus_allocated / num_mxus here squared it.
+            occupancy = 1.0
 
         # Calculate utilization
         utilization = mxus_allocated / self.num_mxus

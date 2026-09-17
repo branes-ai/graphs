@@ -1934,11 +1934,26 @@ class HardwareMapper(ABC):
         Uses thermal operating points (with DVFS and empirical derates) when available,
         otherwise falls back to legacy peak ops calculation.
 
+        Throughput is the chip's, scaled once by the fraction of the chip
+        allocated and once by how full those allocated units are:
+        ``ops/sec x (allocated_units / compute_units) x occupancy``.
+
+        The two factors are different quantities. ``occupancy`` is the
+        fraction of the *allocated* units' capacity the work uses -- the GPU
+        mapper's warps used over the warps its SMs can hold, or a TPU
+        systolic array's fill -- not the fraction of the chip. A mapper that
+        passed ``allocated / compute_units`` as occupancy (CPU, DSP, Hailo,
+        DPU, CGRA, the KPU flat path and the TPU vector path all did) squared
+        the chip fraction: 33 of 768 KPU tiles ran at (33/768)^2 of the chip,
+        about 1/541, instead of 33/768. A mapper that sizes its allocation to
+        the demand in whole units passes 1.0.
+
         Args:
             ops: Number of operations (precision-agnostic count)
             bytes_transferred: Bytes read/written to main memory
             allocated_units: Compute units allocated
-            occupancy: Occupancy fraction
+            occupancy: Fraction (0-1] of the allocated units' capacity the
+                work uses; 1.0 when the allocation is sized to the demand
             precision: Numerical precision
 
         Returns:

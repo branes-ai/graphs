@@ -409,8 +409,11 @@ class CPUMapper(HardwareMapper):
             cores_allocated  # 1 thread per core (SMT doesn't help compute)
         )
 
-        # Calculate occupancy (what fraction of cores are busy)
-        occupancy = cores_allocated / self.cores
+        # Occupancy: how full the allocated cores are. The allocation is sized
+        # to the work (and capped by its useful fan-out above), so they are
+        # full; the chip fraction is utilization, applied once by
+        # _calculate_latency. Passing cores_allocated / cores here squared it.
+        occupancy = 1.0
 
         # Calculate utilization (cores used / total cores)
         utilization = cores_allocated / self.cores

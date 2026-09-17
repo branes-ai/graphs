@@ -318,8 +318,11 @@ class DPUMapper(HardwareMapper):
         tiles_allocated = max(1, tiles_allocated)  # At least 1 tile
         threads_required = tiles_allocated * self.threads_per_tile
 
-        # Calculate occupancy (what fraction of tiles are busy)
-        occupancy = tiles_allocated / self.num_tiles
+        # Occupancy: how full the allocated tiles are. Whole tiles sized to
+        # the work (and to the tiling floor), so full; the chip fraction is
+        # utilization, which _calculate_latency applies once. Passing
+        # tiles_allocated / num_tiles here squared it.
+        occupancy = 1.0
 
         # Calculate utilization
         utilization = tiles_allocated / self.num_tiles
