@@ -27,12 +27,12 @@ ratio is applied to both dies, which is the comparison's main assumption --
 see the caveat printed with every report.
 
 Usage:
-    python cli/compare_dies_on_workload.py
-    python cli/compare_dies_on_workload.py --regimes
-    python cli/compare_dies_on_workload.py --profile "air superiority"
-    python cli/compare_dies_on_workload.py --achieved-to-peak 0.05
-    python cli/compare_dies_on_workload.py --dies kpu_t64_32x32_lp5x4_7nm_tsmc_hpc
-    python cli/compare_dies_on_workload.py --output comparison.md
+    python cli/analyze_dies_on_workload.py
+    python cli/analyze_dies_on_workload.py --regimes
+    python cli/analyze_dies_on_workload.py --profile "air superiority"
+    python cli/analyze_dies_on_workload.py --achieved-to-peak 0.05
+    python cli/analyze_dies_on_workload.py --dies kpu_t64_32x32_lp5x4_7nm_tsmc_hpc
+    python cli/analyze_dies_on_workload.py --output comparison.md
 
 Exit codes:
     0 = report produced
@@ -141,6 +141,8 @@ def _render_text(title: str, rows: List[dict], notes: List[str]) -> str:
 
 
 def _render_md(title: str, rows: List[dict], notes: List[str]) -> str:
+    if not rows:
+        return "\n".join([f"## {title}", "", "(nothing to show)"] + notes) + "\n"
     keys = list(rows[0])
     lines = [f"## {title}", "", "| " + " | ".join(keys) + " |",
              "|" + "|".join("---" for _ in keys) + "|"]
@@ -151,6 +153,8 @@ def _render_md(title: str, rows: List[dict], notes: List[str]) -> str:
 
 
 def _render_csv(rows: List[dict]) -> str:
+    if not rows:
+        return ""
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=list(rows[0]))
     writer.writeheader()

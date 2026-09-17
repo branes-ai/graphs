@@ -32,7 +32,7 @@ wants one.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from embodied_schemas import ComputeProduct, ProcessNodeEntry

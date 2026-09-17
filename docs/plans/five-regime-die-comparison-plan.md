@@ -100,7 +100,7 @@ shares (83.4% A, 16.0% B, 0.6% C).
 
 ## Phase B -- the comparison (#268's deferred item)
 
-`cli/compare_kpu_regimes.py`, over the two 64-site dies at both nodes
+`cli/analyze_dies_on_workload.py`, over the two 64-site dies at both nodes
 (`kpu_t64_32x32_lp5x4_*`, `kpu_h64_auto1_lp5x4_*`), reusing the E3 engine
 descriptors rather than re-deriving capability:
 
@@ -137,12 +137,16 @@ tests; `--output` emits JSON/CSV/MD through the shared formatter.
 
 ## Phase C -- write-up
 
-`docs/assessments/five-regime-die-comparison.md`: the table, the three
+`docs/assessments/kpu-die-comparison-autonomy-workload.md`: the table, the
 findings above, and an explicit list of what the model does not include
 (annex section 8: kernel launch and scheduling overhead, IPC, cold caches
 and contention, drivers and thermal throttling, redundancy) plus what this
-plan adds to that list (no per-stage rates without the workbook, so regime
-demand is declared).
+plan adds to that list: no DVFS or power budgeting, no floorplan effects, no
+multi-die allocations, and capability aggregated per precision class rather
+than mapped onto individual tile classes. The per-stage-rate gap this plan
+was first written around is closed -- the workbook and its model arrived on
+2026-09-17, so regime demand is derived, and the three regimes without
+profiles keep only their published aggregates.
 
 ## Where the reference implementation lives
 

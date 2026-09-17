@@ -10,9 +10,9 @@ FP32 at all.
 Reproduce with:
 
 ```
-python cli/compare_dies_on_workload.py                     # the table below
-python cli/compare_dies_on_workload.py --profile "air superiority"
-python cli/compare_dies_on_workload.py --achieved-to-peak 0.05
+python cli/analyze_dies_on_workload.py                     # the table below
+python cli/analyze_dies_on_workload.py --profile "air superiority"
+python cli/analyze_dies_on_workload.py --achieved-to-peak 0.05
 ```
 
 ## Method and inputs

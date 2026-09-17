@@ -125,6 +125,8 @@ def _render_text(title: str, rows: list[dict], notes: list[str]) -> str:
 
 
 def _render_csv(rows: list[dict]) -> str:
+    if not rows:
+        return ""
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=list(rows[0]))
     writer.writeheader()
@@ -133,6 +135,8 @@ def _render_csv(rows: list[dict]) -> str:
 
 
 def _render_md(title: str, rows: list[dict], notes: list[str]) -> str:
+    if not rows:
+        return "\n".join([f"## {title}", "", "(nothing to show)"] + notes) + "\n"
     keys = list(rows[0])
     lines = [f"## {title}", "", "| " + " | ".join(keys) + " |",
              "|" + "|".join("---" for _ in keys) + "|"]
@@ -146,6 +150,11 @@ def _regime_notes(workload: PipelineWorkload) -> list[str]:
     for profile in workload.regimes():
         got = workload.summary(profile)
         pub = profile.published
+        if not pub.get("tops"):
+            # A labelled regime without published figures has nothing to be
+            # checked against; say so rather than dividing by zero.
+            notes.append(f"{profile.regime}: derived {got.tops:.2f} TOP/s; no published figures.")
+            continue
         notes.append(
             f"{profile.regime}: derived {got.tops:.2f} TOP/s / {got.gb_per_s:.0f} GB/s / "
             f"{got.oversubscription:.1f} s per s; published "
