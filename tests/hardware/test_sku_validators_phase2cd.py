@@ -217,4 +217,4 @@ def test_total_validator_count_after_phase2cd_and_stage8():
     - graphs#268 C4: +11 heterogeneous-KPU validators
                      (validators/heterogeneous.py)
     """
-    assert len(default_registry) == 25
+    assert len(default_registry) == 26
