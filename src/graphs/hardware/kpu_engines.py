@@ -33,8 +33,8 @@ analysis that prices one function across these engines.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from embodied_schemas import ComputeProduct
 from embodied_schemas.datapath import AbsoluteEnergy, RelativeEnergy
@@ -131,6 +131,11 @@ class EngineDescriptor:
     work_unit: Optional[str] = None
     units_per_second: Optional[float] = None
     pj_per_unit: Optional[float] = None
+    #: The core's stated configuration limits, e.g. ``{"max_width": 1920,
+    #: "max_fps": 30, "disparities": 128}``. A core rated for one
+    #: configuration does not silently serve a larger one, so a consumer can
+    #: check a workload against these rather than against throughput alone.
+    config_limits: Mapping[str, Any] = field(default_factory=dict)
     confidence: str = "THEORETICAL"
     provenance: str = ""
     notes: str = ""
@@ -270,6 +275,7 @@ def describe_engines(
                 work_unit=core.throughput.unit.value,
                 units_per_second=(tile.units_per_clock or 0.0) * clock_hz,
                 pj_per_unit=pj,
+                config_limits=dict(core.contract.config_limits or {}),
                 confidence=core.confidence.value.upper(),
                 provenance=core.energy.source or core.source,
                 notes=(
