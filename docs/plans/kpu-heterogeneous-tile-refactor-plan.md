@@ -661,6 +661,25 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     (T64 `lp`: declared 1.3 W, computed 1.1 W). Verified against the
     baseline as pre-existing, and left alone rather than folded into an
     unrelated change.
+- **F4 (found while measuring F1): the 7 nm TDP drift.** The `lp` and
+  `default` profiles of every `7nm_tsmc_hpc` SKU declared more TDP than
+  the power model computes -- the T512's `lp` claimed 10.3 W against a
+  computed 8.9 W. `tsmc_n7` carries `leakage_vdd_exponent: 4.5`, so below
+  nominal Vdd the leakage term falls steeply; these four kept the round
+  0.500 / 0.650 / 0.750 V they were authored with, while the 16 nm family
+  and the T768 were re-tuned when that scaling landed.
+  - **The tell was which profile looked healthy.** `boost` sits exactly at
+    the node's nominal 0.75 V, where the scaling is a no-op, so the one
+    profile that could not reveal the problem was the one that passed.
+  - The declared envelope is the target and Vdd is the knob, so the Vdds
+    moved: `lp` 0.500 -> ~0.537, `default` 0.650 -> ~0.663, all four
+    converging on the same band and all below nominal. Every KPU profile
+    in the catalog now computes the TDP it declares.
+  - **The guard that was missing:** nothing compared declared against
+    computed TDP, which is why it sat unnoticed. A
+    `declared_tdp_matches_model` validator now does (WARNING at 0.05 W,
+    ERROR at 10%), with a test that restores the old Vdds and asserts it
+    fires, so the validator cannot be silently inert.
 - Optionally migrate t768 Matrix to `systolic` (D8).
 - Adopt the per-cluster DVFS default on the legacy SKUs.
 

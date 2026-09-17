@@ -87,3 +87,89 @@ class PowerProfileMonotonicity:
             )
 
         return findings
+
+
+#: How far a profile's declared TDP may sit from the power model's own
+#: figure before it is a finding. The declared values are stated to 0.1 W,
+#: so half a step is the tightest band that does not fire on rounding.
+_TDP_DRIFT_W = 0.05
+
+#: Beyond this the two numbers are not describing the same part.
+_TDP_DRIFT_FRACTION = 0.10
+
+
+@default_registry.register_class
+class DeclaredTdpMatchesModel:
+    """A profile's declared ``tdp_watts`` must be what the power model
+    computes for it.
+
+    Nothing checked this, and it drifted (graphs#268 F4). Every
+    ``7nm_tsmc_hpc`` SKU's ``lp`` and ``default`` profiles declared more
+    than the model computed -- the T512's ``lp`` claimed 10.3 W against a
+    computed 8.9 W -- because their Vdd values were never re-tuned after
+    leakage gained its Vdd scaling. Their ``boost`` profiles sat exactly at
+    nominal Vdd, where that scaling is a no-op, so the one profile that
+    could not reveal the problem was the one that looked healthy.
+
+    The declared value is the target: Vdd is the knob tuned to hit it. So a
+    mismatch means either the Vdd wants re-tuning or the envelope claim is
+    stale, and the message says which direction the model went.
+    """
+
+    name = "declared_tdp_matches_model"
+    category = ValidatorCategory.ELECTRICAL
+
+    def check(self, ctx: ValidatorContext) -> List[Finding]:
+        # Imported here: the power model pulls in the generator, and the
+        # validator package is imported from it.
+        from ...kpu_power_model import compute_thermal_profile_tdp_w
+        from ...kpu_sku_generator import input_spec_from_compute_product
+
+        try:
+            spec = input_spec_from_compute_product(ctx.sku)
+        except Exception as exc:  # a shape the generator cannot express
+            return [
+                Finding(
+                    validator=self.name,
+                    category=self.category,
+                    severity=Severity.INFO,
+                    message=(
+                        f"cannot check declared TDP: this SKU does not round-trip "
+                        f"through the generator ({exc})"
+                    ),
+                )
+            ]
+
+        findings: List[Finding] = []
+        for profile in ctx.sku.power.thermal_profiles:
+            computed = compute_thermal_profile_tdp_w(spec, profile, ctx.process_node)
+            delta = computed - profile.tdp_watts
+            if abs(delta) < _TDP_DRIFT_W:
+                continue
+            fraction = abs(delta) / profile.tdp_watts if profile.tdp_watts else 1.0
+            severity = (
+                Severity.ERROR if fraction >= _TDP_DRIFT_FRACTION else Severity.WARNING
+            )
+            direction = "below" if delta < 0 else "above"
+            findings.append(
+                Finding(
+                    validator=self.name,
+                    category=self.category,
+                    severity=severity,
+                    profile=profile.name,
+                    message=(
+                        f"profile {profile.name!r} declares {profile.tdp_watts:.1f} W "
+                        f"but the power model computes {computed:.1f} W at "
+                        f"vdd={profile.vdd_v:.3f} V, {abs(delta):.2f} W "
+                        f"({fraction * 100:.0f}%) {direction}. Either re-tune vdd_v "
+                        f"to hit the declared envelope, or correct the envelope."
+                    ),
+                    citation=(
+                        f"kpu_power_model.compute_thermal_profile_tdp_w at "
+                        f"{ctx.process_node.node_name}; drift band "
+                        f"WARN>={_TDP_DRIFT_W} W ERR>="
+                        f"{_TDP_DRIFT_FRACTION * 100:.0f}%"
+                    ),
+                )
+            )
+        return findings
