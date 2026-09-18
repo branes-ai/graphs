@@ -1,0 +1,65 @@
+# Explicit stage-to-engine mapping of the autonomy workload onto the
+# Orin-class reference design (graphs#269 PR 3.2). One engine per stage;
+# splitting a stage across engines (a DLA trunk with a GPU head) is Phase 5.
+# Engine names are the design's block instances. The ISP, codec and PVA carry
+# no schedulable compute in the library, so nothing maps to them.
+design: orin_class_reference
+workload: branes_7tier_v1
+stages:
+  lidar:
+    engine: cpu
+    reason: Scattered voxel-hash work on the CPU cores (FAST-LIO2 preprocessing runs there).
+  sgm:
+    engine: gpu_sm
+    reason: Stereo SGM runs on the GPU in NVIDIA VPI / Isaac ROS; the PVA path has no compute model yet.
+  radar:
+    engine: gpu_sm
+    reason: Range and Doppler FFTs batched on the GPU (cuFFT).
+  mono:
+    engine: cpu
+    reason: Class C per-pixel front-end; the ISP block has no programmable compute.
+  lio:
+    engine: cpu
+    reason: FAST-LIO2 is a CPU iterated EKF.
+  vio:
+    engine: gpu_sm
+    reason: FAST / KLT tracking on the GPU (VPI).
+  ba:
+    engine: cpu
+    reason: Schur-complement bundle adjustment on the CPU (Ceres / g2o class).
+  tsdf:
+    engine: gpu_sm
+    reason: TSDF integration on the GPU, per nvblox.
+  esdf:
+    engine: gpu_sm
+    reason: ESDF propagation on the GPU, per nvblox.
+  det:
+    engine: gpu_sm
+    reason: The detector has a Class B share the DLA cannot run (INT8 only in the library), so the whole stage goes to the GPU.
+  vlm:
+    engine: gpu_sm
+    reason: Transformer decode on the GPU.
+  vla:
+    engine: gpu_sm
+    reason: VLA forward pass on the GPU.
+  gain:
+    engine: gpu_sm
+    reason: Information-gain raycasting on the GPU.
+  graph:
+    engine: cpu
+    reason: Roadmap growth and search are branchy; CPU.
+  sdfenc:
+    engine: gpu_sm
+    reason: Has a Class B head the DLA cannot run.
+  policy:
+    engine: gpu_sm
+    reason: Has a Class B share the DLA cannot run.
+  mpc:
+    engine: cpu
+    reason: SQP / Riccati solve on the CPU (acados class).
+  cbf:
+    engine: cpu
+    reason: Map-window sweep and small QP on the CPU.
+  ctrl:
+    engine: cpu
+    reason: The basis puts it on the flight controller; the nearest engine on this die is the CPU.

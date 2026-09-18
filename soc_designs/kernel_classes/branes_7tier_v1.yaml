@@ -1,0 +1,63 @@
+# Kernel class per stage of workloads/pipelines/autonomy/branes_7tier_v1.yaml
+# (decision P3-D2). A classification from each stage's derivation basis, not a
+# number: it picks which efficiency row a stage reads. Where a stage mixes
+# kernels, the class is the one its basis says dominates the cost.
+workload: branes_7tier_v1
+stages:
+  lidar:
+    kernel_class: sparse_hash_scatter
+    reason: Deskew is cheap per point; the cost is the voxel-hash downsample, whose probes are scattered (the basis prices bytes at cache-line granularity for that reason).
+  sgm:
+    kernel_class: cost_volume_dp
+    reason: Semi-global matching is a dynamic program over a Census-Hamming cost volume.
+  radar:
+    kernel_class: fft
+    reason: The FMCW chain is range and Doppler FFTs, then CFAR and angle estimation on their output.
+  mono:
+    kernel_class: pixel_fixed_function
+    reason: A light per-pixel front-end path; the basis excludes the software ISP.
+  lio:
+    kernel_class: small_dense_linalg
+    reason: The basis prices a FAST-LIO2-class iterated EKF, whose cost is the per-point residual and Jacobian updates into a small dense system. Its kNN map queries are not costed separately.
+  vio:
+    kernel_class: feature_track
+    reason: FAST / Shi-Tomasi extraction with pyramidal KLT; the basis says KLT dominates.
+  ba:
+    kernel_class: small_dense_linalg
+    reason: Schur-complement Levenberg-Marquardt over a keyframe window, cubic in the window.
+  tsdf:
+    kernel_class: raycast
+    reason: Bundled raycasting with a weighted truncated SDF update, per Voxblox / nvblox.
+  esdf:
+    kernel_class: wavefront
+    reason: Incremental brushfire propagation over the TSDF, a wavefront over changed voxels.
+  det:
+    kernel_class: dense_conv_gemm
+    reason: A YOLOe-class convolutional detector at 640x640.
+  vlm:
+    kernel_class: weight_stream_decode
+    reason: Autoregressive decode re-reads the whole weight set per token; the basis calls it bandwidth-bound.
+  vla:
+    kernel_class: attention_prefill
+    reason: Chunked VLA amortizes one full forward pass over several control steps, so each call is a prefill-shaped pass (125 op/B), not token-by-token decode.
+  gain:
+    kernel_class: raycast
+    reason: Frustum raycasting per candidate vertex over unknown space.
+  graph:
+    kernel_class: graph_search
+    reason: PRM / RRT-class roadmap growth with edge collision queries.
+  sdfenc:
+    kernel_class: dense_conv_gemm
+    reason: A convolutional encoder trunk plus an implicit SDF head, both dense layers.
+  policy:
+    kernel_class: dense_conv_gemm
+    reason: An actor network evaluated once per call, dense layers throughout.
+  mpc:
+    kernel_class: small_qp
+    reason: SQP with a Riccati recursion over the horizon.
+  cbf:
+    kernel_class: sparse_hash_scatter
+    reason: The basis says the QP is trivial and the cost is the sweep over a sliding window of the hashed voxel map to find live hazards.
+  ctrl:
+    kernel_class: small_dense_linalg
+    reason: Attitude / rate or joint servo loops, small fixed-size matrix arithmetic; runs on the flight controller, per the basis.
