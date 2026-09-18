@@ -1,0 +1,41 @@
+id: arm_cortex_a78ae_x4
+name: Arm Cortex-A78AE cluster (4 cores)
+vendor: Arm
+engine_kind: cpu
+silicon:
+- name: core_logic
+  circuit_class: hp_logic
+  unanchored: true
+  source: No trustworthy absolute Cortex-A78 / A78AE core area is public. Arm discloses only relative
+    figures ('5% smaller than A77'); a 1.33 mm^2 figure circulates second-hand without its node or scope.
+  confidence: unknown
+- name: l1_caches
+  circuit_class: sram_hd
+  mtx: 26.624
+  source: 64 KB L1I + 64 KB L1D per core, 4 cores (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1); 512 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+- name: l2_caches
+  circuit_class: sram_hd
+  mtx: 53.248
+  source: 256 KB L2 per core, 4 cores (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1); 1024 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+- name: l3_cache
+  circuit_class: sram_hd
+  mtx: 106.496
+  source: 2 MB L3 per cluster (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2 (July
+    2022), Table 1); 2048 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+compute:
+  engine_kind: cpu
+  units: 4
+  unit_name: core
+  architecture_class: stored_program
+  source: 3 clusters of 4 Cortex-A78AE cores (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1). Per-format peaks are Phase 3's; none are claimed here.
+clock:
+  fmax_ghz_ref: 2.2
+  reference_node: samsung_8lpp
+  source: Max CPU frequency 2.2 GHz, Jetson AGX Orin 64GB (NVIDIA Jetson AGX Orin Series Technical Brief,
+    TB_10749-001_v1.2 (July 2022), Table 1)

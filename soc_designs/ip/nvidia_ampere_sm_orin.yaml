@@ -1,0 +1,42 @@
+id: nvidia_ampere_sm_orin
+name: NVIDIA Ampere SM (Orin GA10B-class)
+vendor: NVIDIA
+engine_kind: gpu
+silicon:
+- name: sm_logic
+  circuit_class: hp_logic
+  unanchored: true
+  source: No credible public per-SM area. GA102 (628.4 mm^2 / 28.3 B / 84 SM on Samsung 8N, GA102 architecture
+    whitepaper) averages 7.5 mm^2 per SM but that includes L2, memory controllers and fixed-function units.
+    A die-shot breakdown exists (SemiAnalysis / Locuza, paywalled). TechInsights 'Nvidia Jetson AGX Orin
+    AI SoC Digital Floorplan Analysis' (DFR-2206-809, paid) tabulates functional-block sizes.
+  confidence: unknown
+- name: l1_shared
+  circuit_class: sram_hd
+  mtx: 9.984
+  source: 192 KB L1/shared per SM (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2 (July
+    2022), Table 1); 192 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+- name: register_file
+  circuit_class: sram_hd
+  mtx: 13.312
+  source: 64K x 32-bit registers per SM (NVIDIA Ampere GA102 architecture whitepaper); 256 KiB x 0.052
+    Mtx/KiB
+  confidence: theoretical
+  notes: Priced as 6T SRAM. A multi-ported register file is larger per bit, so this line is a lower bound.
+compute:
+  engine_kind: gpu
+  units: 1
+  unit_name: SM
+  ops_per_clock:
+    int8: 4096.0
+    fp32: 256.0
+  architecture_class: data_parallel
+  source: '128 CUDA cores and 4 Tensor cores per SM (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1). fp32: 128 FMA x 2. int8 dense: 4 TC x 1024 ops, checked against NVIDIA''s aggregate
+    -- (275 - 105) sparse TOPS for the GPU / 2 for dense / (64 TC x 1.3 GHz) = 1021 ops per TC per clock.'
+clock:
+  fmax_ghz_ref: 1.3
+  reference_node: samsung_8lpp
+  source: Max GPU frequency 1.3 GHz, Jetson AGX Orin 64GB (NVIDIA Jetson AGX Orin Series Technical Brief,
+    TB_10749-001_v1.2 (July 2022), Table 1)

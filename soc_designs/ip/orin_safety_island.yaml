@@ -1,0 +1,18 @@
+id: orin_safety_island
+name: Orin safety island
+vendor: NVIDIA
+silicon:
+- name: island_sram
+  circuit_class: sram_hd
+  mtx: 159.744
+  source: 3 MB SRAM in the safety island (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1); 3072 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+  notes: Technical Brief Figure 2.
+- name: lockstep_r52_cores
+  circuit_class: balanced_logic
+  unanchored: true
+  source: Lockstep Cortex-R52 cores (Technical Brief Figure 2). Arm publishes no absolute Cortex-R52 area,
+    and Orin's island is not broken out. TechInsights 'Nvidia Jetson AGX Orin AI SoC Digital Floorplan
+    Analysis' (DFR-2206-809, paid) tabulates functional-block sizes.
+  confidence: unknown

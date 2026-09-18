@@ -1,0 +1,27 @@
+id: nvdla_v2
+name: NVIDIA DLA v2.0
+vendor: NVIDIA
+engine_kind: npu
+silicon:
+- name: dla_core
+  circuit_class: balanced_logic
+  unanchored: true
+  source: NVDLA v2.0 is not open source and publishes no area. The open v1 'large' configuration (2048
+    INT8 MACs, 512 KB conv buffer) synthesizes to 3.3 mm^2 at 16 nm (nvdla.org/primer.html), but v2 has
+    four times the MACs and unpublished buffers, so v1 is not a defensible proxy; it is in the library
+    as nvdla_v1_large. TechInsights 'Nvidia Jetson AGX Orin AI SoC Digital Floorplan Analysis' (DFR-2206-809,
+    paid) tabulates functional-block sizes.
+  confidence: unknown
+compute:
+  engine_kind: npu
+  units: 1
+  unit_name: DLA
+  ops_per_clock:
+    int8: 16384.0
+  source: 'NVIDIA: up to 105 INT8 sparse TOPS total on Orin''s two DLAs (Technical Brief Figure 1) ->
+    52.5 dense -> 26.25 per DLA / 1.6 GHz = 16,406 ops per clock, i.e. 8,192 INT8 MACs.'
+clock:
+  fmax_ghz_ref: 1.6
+  reference_node: samsung_8lpp
+  source: Max DLA frequency 1.6 GHz, Jetson AGX Orin 64GB (NVIDIA Jetson AGX Orin Series Technical Brief,
+    TB_10749-001_v1.2 (July 2022), Table 1)

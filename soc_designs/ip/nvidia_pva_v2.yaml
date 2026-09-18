@@ -1,0 +1,25 @@
+id: nvidia_pva_v2
+name: NVIDIA PVA v2.0
+vendor: NVIDIA
+engine_kind: dsp
+silicon:
+- name: vliw_vector_units
+  circuit_class: balanced_logic
+  unanchored: true
+  source: Two 7-slot VLIW vector units, two DMA engines and a Cortex-R5 (Technical Brief Figure 10); no
+    public area. Comparable vision DSPs (Cadence Vision Q7, CEVA-XM6) publish performance but not area.
+  confidence: unknown
+- name: r5_l2
+  circuit_class: sram_hd
+  mtx: 53.248
+  source: 1 MB L2 in the PVA's Cortex-R5 subsystem (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1); 1024 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+  notes: Technical Brief Figure 10.
+- name: vpu_tcm
+  circuit_class: sram_hd
+  mtx: 13.312
+  source: 128 KB TCM per VPU, two VPUs (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1); 256 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+  notes: Technical Brief Figure 10.

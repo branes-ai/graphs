@@ -50,7 +50,12 @@ from embodied_schemas.local_memory import LocalMemory, LocalMemoryScope
 from embodied_schemas.overlay import OverlayScope
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
-from graphs.hardware.kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
+from graphs.hardware.kpu_access import (
+    KPUBlockLookupError,
+    has_kpu_block,
+    kpu_block_of,
+    kpu_die_of,
+)
 
 
 class SiliconMathError(Exception):
@@ -80,6 +85,28 @@ def _kpu_die(cp: ComputeProduct) -> Die:
         return kpu_die_of(cp)
     except KPUBlockLookupError as exc:
         raise SiliconMathError(str(exc)) from exc
+
+
+def silicon_die(cp: ComputeProduct) -> Die:
+    """The die whose silicon_bin prices the product.
+
+    For a KPU product, the die carrying the KPU block -- exactly what
+    ``_kpu_die`` returns, so every KPU result is unchanged. For a product
+    without one (a GPU module like the Jetson Orin, whose silicon_bin is all
+    ``fixed`` lines), its only die. A multi-die product without a KPU block
+    has no single answer: use ``resolve_product_block_areas``.
+    """
+    if has_kpu_block(cp):
+        # One KPU block: its die. More than one: kpu_die_of raises, and so do
+        # we -- an ambiguous KPU product must not fall through to pricing
+        # whichever die happens to be first (CodeRabbit on #303).
+        return _kpu_die(cp)
+    if len(cp.dies) == 1:
+        return cp.dies[0]
+    raise SiliconMathError(
+        f"{cp.id}: {len(cp.dies)} dies and no KPU block, so there is no "
+        f"single silicon die; price each with resolve_product_block_areas"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +331,35 @@ class BlockArea:
     area_mm2: float              # transistors / density
 
 
+def area_for(
+    name: str, transistors_mtx: float, circuit_class: CircuitClass, node: ProcessNodeEntry
+) -> BlockArea:
+    """Area of ``transistors_mtx`` in library ``circuit_class`` at ``node``.
+
+    The one area formula: transistors over the node's density for that
+    library. A KPU silicon_bin block and an SoC IP silicon line (graphs#269)
+    are both priced through it, so the two paths cannot disagree on how area
+    scales with the node.
+
+    Raises SiliconMathError if the node doesn't offer the library -- callers
+    (validators) catch this and emit a block_library_validity Finding.
+    """
+    if not node.supports(circuit_class):
+        raise SiliconMathError(
+            f"block {name!r}: process node {node.id!r} does not "
+            f"offer library {circuit_class.value!r}. Available: "
+            f"{sorted(c.value for c in node.densities)}"
+        )
+    density = node.density_for(circuit_class).mtx_per_mm2
+    return BlockArea(
+        name=name,
+        circuit_class=circuit_class,
+        transistors_mtx=transistors_mtx,
+        density_mtx_per_mm2=density,
+        area_mm2=transistors_mtx / density,
+    )
+
+
 def resolve_block_area(
     block: SiliconBinBlock, cp: ComputeProduct, node: ProcessNodeEntry
 ) -> BlockArea:
@@ -314,19 +370,11 @@ def resolve_block_area(
     block_library_validity Finding.
     """
     if not node.supports(block.circuit_class):
-        raise SiliconMathError(
-            f"block {block.name!r}: process node {node.id!r} does not "
-            f"offer library {block.circuit_class.value!r}. Available: "
-            f"{sorted(c.value for c in node.densities)}"
-        )
-    transistors = resolve_block_transistors(block, cp)
-    density = node.density_for(block.circuit_class).mtx_per_mm2
-    return BlockArea(
-        name=block.name,
-        circuit_class=block.circuit_class,
-        transistors_mtx=transistors,
-        density_mtx_per_mm2=density,
-        area_mm2=transistors / density,
+        # Checked before resolving transistors, as before: an unsupported
+        # library is the error to report, not a count_ref problem.
+        return area_for(block.name, 0.0, block.circuit_class, node)
+    return area_for(
+        block.name, resolve_block_transistors(block, cp), block.circuit_class, node
     )
 
 
@@ -339,11 +387,34 @@ def resolve_all_block_areas(
     coverage.
     """
     out: list[BlockArea] = []
-    for block in _kpu_die(cp).silicon_bin.blocks:
+    for block in silicon_die(cp).silicon_bin.blocks:
         try:
             out.append(resolve_block_area(block, cp, node))
         except SiliconMathError:
             continue
+    return out
+
+
+def resolve_product_block_areas(
+    cp: ComputeProduct, nodes: Mapping[str, ProcessNodeEntry]
+) -> list[tuple[str, BlockArea]]:
+    """Every silicon_bin block of every die, each at its own die's node, as
+    ``(die_id, BlockArea)``. The multi-die form: a chiplet product's dies can
+    sit on different nodes, so no single ``node`` argument prices them all.
+    Blocks whose library a die's node lacks are skipped, as above."""
+    out: list[tuple[str, BlockArea]] = []
+    for die in cp.dies:
+        node = nodes.get(die.process_node_id)
+        if node is None:
+            raise SiliconMathError(
+                f"{cp.id}: die {die.die_id!r} names process node "
+                f"{die.process_node_id!r}, which is not in the catalog"
+            )
+        for block in die.silicon_bin.blocks:
+            try:
+                out.append((die.die_id, resolve_block_area(block, cp, node)))
+            except SiliconMathError:
+                continue
     return out
 
 
