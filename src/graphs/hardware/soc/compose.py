@@ -205,6 +205,14 @@ class SoCInstance:
         )
 
     @property
+    def dram_peak_gb_per_s(self) -> float:
+        """Off-chip bandwidth from the blocks that state it; 0 when none do."""
+        return sum(
+            b.count * b.template.memory_interface.peak_gb_per_s
+            for b in self.blocks if b.template.memory_interface is not None
+        )
+
+    @property
     def off_reference_clocks(self) -> Tuple[str, ...]:
         """Blocks whose clock could not be carried to this node: no stated
         speed relation connects it to the node the clock was measured on.

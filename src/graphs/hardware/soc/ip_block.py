@@ -203,6 +203,19 @@ class IPShoreline(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class IPMemoryInterface(BaseModel):
+    """Off-chip bandwidth one instance provides: a DRAM controller + PHY.
+
+    Peak, as the vendor states it; the Phase 3 schedule applies the sustained
+    fraction, which depends on the access pattern rather than the block.
+    """
+
+    peak_gb_per_s: PositiveFloat
+    source: str = Field(..., min_length=1)
+
+    model_config = {"extra": "forbid"}
+
+
 class IPBlockTemplate(BaseModel):
     """One reusable, node-independent SoC block."""
 
@@ -214,6 +227,7 @@ class IPBlockTemplate(BaseModel):
     compute: Optional[IPCompute] = None
     clock: Optional[IPClock] = None
     shoreline: Optional[IPShoreline] = None
+    memory_interface: Optional[IPMemoryInterface] = None
     notes: str = ""
 
     model_config = {"extra": "forbid"}

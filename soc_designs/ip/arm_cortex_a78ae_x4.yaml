@@ -31,9 +31,19 @@ compute:
   engine_kind: cpu
   units: 4
   unit_name: core
+  ops_per_clock:
+    int8: 256.0
+    fp16: 128.0
+    fp32: 64.0
+    fp64: 32.0
   architecture_class: stored_program
   source: 3 clusters of 4 Cortex-A78AE cores (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
-    (July 2022), Table 1). Per-format peaks are Phase 3's; none are claimed here.
+    (July 2022), Table 1). Per-core peaks from the issue rates in the Arm Cortex-A78AE Core Software
+    Optimization Guide (PJDOC-466751330-14665, Issue 4.0), section 3.1 -- 'ASIMD FP multiply accumulate
+    FMLA, FMLS' throughput 2 per cycle and 'ASIMD dot product SDOT, UDOT' throughput 2 per cycle, both on
+    the V pipes -- on 128-bit vectors, with a multiply-accumulate counted as 2 ops. FP32 2 x 4 lanes x 2 =
+    16, FP64 8, FP16 32 (the FMLA row, Armv8.2 half precision), INT8 2 x 16 MACs x 2 = 64 ops per clock per
+    core; per 4-core instance 64 / 32 / 128 / 256. Issue-rate peaks, not attained.
 clock:
   fmax_ghz_ref: 2.2
   reference_node: samsung_8lpp
