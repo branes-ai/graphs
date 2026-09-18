@@ -122,14 +122,20 @@ The parent plan proposed optional node speed fields in embodied-schemas and an
 alpha-power law, fmax(Vdd) ~ (Vdd - Vth)^alpha / Vdd. Research (2026-09-18)
 found:
 
-- **Sourced:** TSMC's own iso-power speed gains for N16 -> N7 (~30-35%; two
-  TSMC documents disagree), N7 -> N5 (15%) and N5 -> N4P (11%).
+- **Sourced at iso-power:** N16 -> N7, where TSMC states "around 35% speed
+  gain at the same power". A second TSMC page gives 30% with no condition,
+  kept as the conservative low end.
+- **Sourced without a power condition:** N7 -> N5 (15%) and N5 -> N4P (11%).
+  TSMC's own text attaches no condition; trade press adds "at the same
+  power". These are recorded as `unstated` and do not retarget a clock
+  (CodeRabbit on #304). A 15% gain that may cost power is not the clock the
+  block reaches in its budget.
 - **Not found:** threshold voltages for any of these FinFET nodes, a sourced
   alpha exponent for sub-20 nm devices, Vdd ranges for N5, 8LPP or GF 12nm,
   a Samsung 10LPP -> 8LPP speed figure, and any Samsung-vs-TSMC relation (no
   foundry benchmarks against a competitor).
 
-So `clocking.retarget_fmax` walks only the stated relations, carries each as
+So `clocking.retarget_fmax` walks only the iso-power relations, carries each as
 a low-high range so the TSMC disagreement stays visible, and quotes the
 conservative end. Where no chain of relations connects two nodes it returns
 None, and composition marks the block `unretargetable` and lists it in

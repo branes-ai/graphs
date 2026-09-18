@@ -271,7 +271,14 @@ def _run_soc(args) -> int:
     from graphs.hardware.soc import compose_soc, load_designs, load_ip_library
     from graphs.hardware.soc.validators import SOC_VALIDATORS, validate_soc
 
-    designs = load_designs()
+    import yaml
+
+    try:
+        designs = load_designs()
+        library = load_ip_library()
+    except (ValueError, yaml.YAMLError) as exc:  # pydantic's ValidationError is a ValueError
+        print(f"error: SoC catalog failed to load: {exc}", file=sys.stderr)
+        return 2
     if args.soc not in designs:
         print(
             f"error: no SoC design {args.soc!r}. Available: {', '.join(sorted(designs))}",
@@ -279,7 +286,7 @@ def _run_soc(args) -> int:
         )
         return 2
     try:
-        soc = compose_soc(designs[args.soc], load_ip_library(), load_process_nodes(), args.node)
+        soc = compose_soc(designs[args.soc], library, load_process_nodes(), args.node)
     except (KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

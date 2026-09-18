@@ -37,6 +37,7 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import yaml  # noqa: E402
 from embodied_schemas import load_process_nodes  # noqa: E402
 
 from graphs.hardware.soc import (  # noqa: E402
@@ -154,13 +155,19 @@ def _render_text(soc: SoCInstance, sources: bool) -> str:
     return out.getvalue()
 
 
-def _render_md(soc: SoCInstance, sources: bool) -> str:
-    rows = _block_rows(soc)
+def _md_table(rows: List[dict]) -> List[str]:
+    """A Markdown table, or nothing for no rows."""
+    if not rows:
+        return []
     keys = list(rows[0])
+    lines = ["| " + " | ".join(keys) + " |", "|" + "|".join("---" for _ in keys) + "|"]
+    return lines + ["| " + " | ".join(str(r[k]) for k in keys) + " |" for r in rows]
+
+
+def _render_md(soc: SoCInstance, sources: bool) -> str:
     lines = [f"## {soc.design.name} at {soc.node.id}", ""]
     lines += [f"- {s}" for s in _summary(soc)] + [""]
-    lines += ["| " + " | ".join(keys) + " |", "|" + "|".join("---" for _ in keys) + "|"]
-    lines += ["| " + " | ".join(str(r[k]) for k in keys) + " |" for r in rows]
+    lines += _md_table(_block_rows(soc))
     if soc.gaps:
         lines += ["", "### Unanchored silicon", ""]
         lines += [f"- `{b}.{l.name}` ({l.circuit_class.value})"
@@ -209,7 +216,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--output", "-o", help="Write to a file; format from extension.")
     args = parser.parse_args(argv)
 
-    library = load_ip_library()
+    try:
+        library = load_ip_library()
+        designs = load_designs()
+    except (ValueError, yaml.YAMLError) as exc:  # pydantic's ValidationError is a ValueError
+        print(f"error: SoC catalog failed to load: {exc}", file=sys.stderr)
+        return 2
     fmt = detect_format(args.output)
 
     if args.list_ip:
@@ -218,19 +230,20 @@ def main(argv: Optional[List[str]] = None) -> int:
             payload = json.dumps(rows, indent=2)
         elif fmt == "csv":
             payload = _render_csv(rows)
+        elif fmt == "md":
+            payload = "\n".join([f"## IP library ({len(rows)})", ""] + _md_table(rows)) + "\n"
         else:
             payload = f"=== IP library ({len(rows)}) ===\n\n" + _table(rows)
         write_report(payload, args.output)
         return 0
 
-    designs = load_designs()
     if args.design not in designs:
         print(f"error: no SoC design {args.design!r}. Available: {', '.join(sorted(designs))}",
               file=sys.stderr)
         return 2
     try:
         soc = compose_soc(designs[args.design], library, load_process_nodes(), args.node)
-    except (KeyError, SiliconMathError) as exc:
+    except (KeyError, ValueError, SiliconMathError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

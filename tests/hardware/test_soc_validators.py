@@ -205,3 +205,43 @@ def test_show_soc_lists_the_library():
     assert result.returncode == 0, result.stderr
     assert "nvidia_ampere_sm_orin" in result.stdout
     assert "nvdla_v1_large" in result.stdout
+
+
+def test_show_soc_lists_the_library_as_markdown(tmp_path):
+    out = tmp_path / "ip.md"
+    result = _run("cli/show_soc.py", "--list-ip", "--output", str(out))
+    assert result.returncode == 0, result.stderr
+    text = out.read_text()
+    assert text.startswith("## IP library (")
+    assert text.splitlines()[2].startswith("| ") and set(text.splitlines()[3]) <= set("|-")
+    assert "nvdla_v1_large" in text
+
+
+def _load_cli(name):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, REPO / "cli" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _broken(*_args, **_kwargs):
+    raise ValueError("ip foo.yaml: id 'bar' must match the file name")
+
+
+def test_a_malformed_catalog_is_an_error_not_a_traceback(monkeypatch, capsys):
+    """A catalog that fails to load exits 2 with the reason on stderr, in both
+    CLIs (CodeRabbit on #304)."""
+    show_soc = _load_cli("show_soc")
+    monkeypatch.setattr(show_soc, "load_ip_library", _broken)
+    assert show_soc.main(["--list-ip"]) == 2
+    assert "must match the file name" in capsys.readouterr().err
+
+    import graphs.hardware.soc as soc_pkg
+
+    validate_sku = _load_cli("validate_sku")
+    monkeypatch.setattr(soc_pkg, "load_designs", _broken)
+    monkeypatch.setattr(sys, "argv", ["validate_sku.py", "--soc", "orin_class_reference"])
+    assert validate_sku.main() == 2
+    assert "SoC catalog failed to load" in capsys.readouterr().err

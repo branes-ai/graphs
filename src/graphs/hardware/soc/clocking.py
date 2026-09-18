@@ -2,9 +2,13 @@
 
 An IP template's ``fmax_ghz_ref`` is characterized on one node. Pricing the
 design on another node needs a speed relation between the two, and the only
-defensible source is the foundry's own statement of speed gain at iso-power:
-TSMC quotes ~30-35% from N16 to N7, 15% from N7 to N5, 11% from N5 to N4P.
-Those relations live in ``soc_designs/node_speed.yaml``, each with its source.
+defensible source is the foundry's own statement of speed gain *at iso-power*:
+the same block, the same power budget, a faster clock. Relations live in
+``soc_designs/node_speed.yaml``, each with its source and the power condition
+that source states. TSMC states the condition for N16 -> N7 (~35% at the same
+power). Its 15% for N7 -> N5 and 11% for N5 -> N4P come with no condition, so
+they are recorded as ``unstated`` and do not retarget a clock: a gain that
+may be bought with more power is not the clock the block reaches in its budget.
 
 ``retarget_fmax`` walks those relations (either direction, inverting as it
 goes) and multiplies the ratios along the path, carrying low and high ends
@@ -30,7 +34,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -52,11 +56,15 @@ class SpeedRange(BaseModel):
 
 
 class SpeedRelation(BaseModel):
-    """A foundry-stated speed gain at iso-power from one node to another."""
+    """A foundry-stated speed gain from one node to another, and the power
+    condition the source attaches to it."""
 
     from_node: str
     to_node: str
-    iso_power_speed_ratio: SpeedRange
+    speed_ratio: SpeedRange
+    #: ``iso_power`` only when the source says so ("at the same power");
+    #: ``unstated`` otherwise. Only iso-power relations retarget a clock.
+    power_condition: Literal["iso_power", "unstated"]
     source: str = Field(..., min_length=1)
     confidence: Confidence = Confidence.THEORETICAL
 
@@ -114,9 +122,10 @@ def retarget_fmax(
 ) -> Optional[RetargetedClock]:
     """Carry ``fmax_ghz`` from ``reference_node`` to ``target_node``.
 
-    Returns None when no chain of stated relations connects the two nodes --
-    the caller must then treat the clock as unknown at the target, not as
-    ``fmax_ghz``.
+    Returns None when no chain of iso-power relations connects the two
+    nodes -- the caller must then treat the clock as unknown at the target,
+    not as ``fmax_ghz``. Relations whose power condition is unstated are
+    never used.
     """
     if reference_node == target_node:
         return RetargetedClock(fmax_ghz, reference_node, target_node, fmax_ghz, fmax_ghz,
@@ -127,7 +136,9 @@ def retarget_fmax(
     # dividing by a range swaps its ends.
     edges: Dict[str, List[Tuple[str, float, float, str]]] = {}
     for r in table.relations:
-        lo, hi = r.iso_power_speed_ratio.low, r.iso_power_speed_ratio.high
+        if r.power_condition != "iso_power":
+            continue
+        lo, hi = r.speed_ratio.low, r.speed_ratio.high
         edges.setdefault(r.from_node, []).append((r.to_node, lo, hi, r.source))
         edges.setdefault(r.to_node, []).append((r.from_node, 1.0 / hi, 1.0 / lo, r.source))
 
