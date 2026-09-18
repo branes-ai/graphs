@@ -113,8 +113,8 @@ In order of leverage:
      plan lists where a figure could come from.
    - The H64's systolic, LNS and fixed-function tiles. These need a budget in
      the KPU SKU itself (embodied-schemas).
-4. **A memory system sized for far flight.** It needs at least
-   306 / 0.65 = 470 GB/s of peak DRAM bandwidth, or a workload whose DRAM
+4. **A memory system sized for far flight.** It needs at least 471 GB/s
+   of peak DRAM bandwidth (305.9 / 0.65 = 470.6), or a workload whose DRAM
    traffic is cut, for example by keeping the TSDF/ESDF working set on chip.
    No design in either family meets it on today's 256-bit LPDDR5.
 

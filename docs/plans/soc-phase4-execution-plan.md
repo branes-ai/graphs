@@ -9,7 +9,7 @@ of Phases 2 and 3 carry over, above all the strict rule: a gap stays a gap
 
 | Quantity | Orin-class | A KPU-heterogeneous design |
 |---|---|---|
-| Die area | Lower bound. 14 of Orin's silicon lines are unanchored. | The KPU block is complete: each KPU ComputeProduct's lines carry generator transistor counts. Any Orin IP the design reuses (CPU, PHY, IO) brings its gaps along. |
+| Die area | Lower bound. 14 of Orin's silicon lines are unanchored. | Also a lower bound. The KPU's priced lines carry generator transistor counts, but the H64 leaves five tile classes (systolic, LNS, and three fixed-function) unpriced. Any Orin IP the design reuses (CPU, PHY, IO) brings its gaps along. |
 | Compute and oversubscription | Pooled `annex_v1` only, and it ignores the design. `default_v1` prices nothing on Orin. | `default_v1` has no KPU entry, so all gaps. `annex_v1` gives the same number as Orin. |
 | DRAM feasibility | Decidable: demand against the stated LPDDR5 bandwidth. | Decidable once the design states its memory interface. |
 | Power | Lower bound. There is no dynamic term under `annex_v1`. | Same. |

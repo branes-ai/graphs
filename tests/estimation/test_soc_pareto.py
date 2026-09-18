@@ -62,8 +62,25 @@ def test_front_classification():
             _Row(design="bounded_beaten", area=7, area_lb=True, power=3),
             _Row(design="bounded_low", area=3, area_lb=True, power=0.5)]
     status = {r.to_row()["design"]: s for r, s in classify_front(rows, ["area", "power"])}
-    assert status == {"exact_best": "front", "exact_worse": "dominated",
+    # exact_best is not provably on the front: bounded_low's true values
+    # could still be below it on both metrics (#307 review).
+    assert status == {"exact_best": "undecided", "exact_worse": "dominated",
                       "bounded_beaten": "dominated", "bounded_low": "undecided"}
+
+
+def test_an_exact_point_is_on_the_front_once_no_bound_could_beat_it():
+    rows = [_Row(design="exact_best", area=5, power=1),
+            _Row(design="bounded_high", area=6, area_lb=True, power=2)]
+    status = {r.to_row()["design"]: s for r, s in classify_front(rows, ["area", "power"])}
+    assert status == {"exact_best": "front", "bounded_high": "dominated"}
+
+
+def test_could_dominate_reads_bounds_at_their_floor():
+    from graphs.estimation.soc.pareto import could_dominate
+
+    assert could_dominate(_row(area=3, area_lb=True), _row(area=5), ["area"])
+    assert not could_dominate(_row(area=5, area_lb=True), _row(area=5), ["area"])  # tie at best
+    assert not could_dominate(_row(area=7, area_lb=True), _row(area=5), ["area"])
 
 
 def test_fronts_are_per_profile():
@@ -148,3 +165,30 @@ def test_cli_plot(tmp_path):
 def test_cli_plot_needs_two_metrics():
     result = _run("--study", "orin_node_scaling", "--plot", "x.png")
     assert result.returncode == 2, result.stderr
+
+
+def test_a_missing_profile_is_reported_not_assumed():
+    rows = [_Row(design="a", profile="p1"), _Row(design="a", profile="p2"),
+            _Row(design="b", profile="p1")]
+    by = {v.variant[0]: v for v in union_of_regimes(rows).verdicts}
+    assert by["b"].missing_profiles == ("p2",)
+    assert by["b"].to_dict()["missing_profiles"] == ["p2"]
+    assert by["a"].missing_profiles == ()
+
+
+def test_union_verdicts_carry_the_weakest_confidence():
+    def conf(level):
+        return {"level": level, "score": 0.5, "source": level}
+
+    a = _Row(design="a", profile="p1")
+    a._row["estimation_confidence"] = conf("theoretical")
+    b = _Row(design="a", profile="p2")
+    b._row["estimation_confidence"] = conf("unknown")
+    (verdict,) = union_of_regimes([a, b]).verdicts
+    assert verdict.to_dict()["estimation_confidence"]["level"] == "unknown"
+
+
+def test_cli_refuses_union_as_csv(tmp_path):
+    result = _run("--study", "orin_node_scaling", "--union", "-o", str(tmp_path / "x.csv"))
+    assert result.returncode == 2, result.stderr
+    assert "--union" in result.stderr

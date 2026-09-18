@@ -59,8 +59,10 @@ class Override(BaseModel):
         """A copy of ``design`` with this field set to ``value``."""
         m = _TARGET.match(self.target)
         if m["layout"]:
-            layout = design.layout.model_copy(update={m["layout"]: value})
-            return design.model_copy(update={"layout": layout})
+            # Rebuild through validation: model_copy would let a whitespace
+            # fraction of 1.5 or a negative IO ring through.
+            layout = {**design.layout.model_dump(), m["layout"]: value}
+            return SoCDesign.model_validate({**design.model_dump(), "layout": layout})
         instance, fld = m["instance"], m["field"]
         if instance not in {b.instance for b in design.blocks}:
             raise KeyError(f"override {self.target}: design {design.id!r} has no block {instance!r}")
@@ -142,6 +144,11 @@ class SweepRow:
             "gate_idle": self.point.gate_idle,
             "complete": r.complete,
             "confidence": r.confidence.value,
+            "estimation_confidence": {
+                "level": r.estimation_confidence.level.value,
+                "score": r.estimation_confidence.score,
+                "source": r.estimation_confidence.source,
+            },
             "feasible": r.feasible(),
             "die_area_mm2": r.soc.die_area_mm2,
             "die_area_is_lower_bound": not r.soc.complete,

@@ -99,6 +99,8 @@ def _union_lines(report) -> List[str]:
         verdict = {True: "feasible for all", False: "infeasible", None: "undecided"}[v.feasible]
         why = (f" -- fails {', '.join(v.failing_profiles)}" if v.failing_profiles
                else f" -- open in {', '.join(v.open_profiles)}" if v.open_profiles else "")
+        if v.missing_profiles:
+            why += f" -- no point for {', '.join(v.missing_profiles)}"
         area = f"{v.area.value:.1f}{'' if v.area.exact else ' ' + LB}"
         lines.append(f"  {v.variant[0]} [{v.variant[1]}] {v.variant[2]} {v.variant[3]}"
                      f"{' gated' if v.variant[4] else ''}: {verdict}, {area} mm^2{why}")
@@ -195,6 +197,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     pareto = _csv_list(args.pareto)
     if args.plot and (not pareto or len(pareto) < 2):
         parser.error("--plot needs --pareto with two metrics")
+    if args.union and detect_format(args.output) == "csv":
+        parser.error("--union is a report, not a row: use a .json, .md or text output "
+                     "(CSV carries the points only)")
 
     try:
         analyzer = SoCAnalyzer()

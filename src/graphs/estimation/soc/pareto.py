@@ -12,7 +12,8 @@ may not belong to, so dominance here is *proven* (decision P4-D2):
 A lower bound on A proves nothing about A being small, so A dominates
 nothing on a metric where it is only bounded. Each point is then:
 
-* ``front``     -- exact on every metric and dominated by no point;
+* ``front``     -- exact on every metric, and no point dominates it or,
+  through a lower bound, could;
 * ``dominated`` -- some point provably dominates it;
 * ``undecided`` -- neither can be shown: it has a bound somewhere and
   nothing beats it provably.
@@ -32,6 +33,8 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .study import SweepRow
+
+_LEVELS = ["calibrated", "interpolated", "theoretical", "unknown"]
 
 #: Sweep metrics that can be minimized, with the flag that marks a bound.
 METRICS: Dict[str, Tuple[str, Optional[str]]] = {
@@ -64,6 +67,15 @@ def dominates(a: dict, b: dict, metrics: Sequence[str]) -> bool:
     return strictly
 
 
+def could_dominate(a: dict, b: dict, metrics: Sequence[str]) -> bool:
+    """Whether A's true values *might* beat B's: every metric no larger and
+    one smaller, reading A's lower bounds at their floor. An exact point
+    that some bounded peer could dominate is not provably on the front."""
+    va = [_metric(a, m).value for m in metrics]
+    vb = [_metric(b, m).value for m in metrics]
+    return all(x <= y for x, y in zip(va, vb)) and any(x < y for x, y in zip(va, vb))
+
+
 def _variant_key(row: dict) -> Tuple:
     return (row["design"], row["variant"], row["node"], row["efficiency"], row["gate_idle"])
 
@@ -79,7 +91,8 @@ def classify_front(rows: Sequence[SweepRow], metrics: Sequence[str]) -> List[Tup
         peers = [p for j, p in enumerate(flat) if j != i and p["profile"] == row["profile"]]
         if any(dominates(p, row, metrics) for p in peers):
             status = "dominated"
-        elif all(_metric(row, m).exact for m in metrics):
+        elif all(_metric(row, m).exact for m in metrics) and not any(
+                could_dominate(p, row, metrics) for p in peers):
             status = "front"
         else:
             status = "undecided"
@@ -94,14 +107,20 @@ class UnionVerdict:
     area: Bounded
     failing_profiles: Tuple[str, ...]
     open_profiles: Tuple[str, ...]
+    #: Study profiles this variant has no point for: it cannot be proven there.
+    missing_profiles: Tuple[str, ...] = ()
+    #: The weakest estimation confidence across the variant's points.
+    confidence: Optional[dict] = None
 
     def to_dict(self) -> dict:
         design, variant, node, eff, gate = self.variant
         return {"design": design, "variant": variant, "node": node, "efficiency": eff,
                 "gate_idle": gate, "feasible_for_all": self.feasible,
                 "die_area_mm2": self.area.value, "die_area_is_lower_bound": not self.area.exact,
+                "estimation_confidence": self.confidence,
                 "failing_profiles": list(self.failing_profiles),
-                "open_profiles": list(self.open_profiles)}
+                "open_profiles": list(self.open_profiles),
+                "missing_profiles": list(self.missing_profiles)}
 
 
 @dataclass(frozen=True)
@@ -141,12 +160,15 @@ def union_of_regimes(rows: Sequence[SweepRow]) -> UnionReport:
     for key, group in groups.items():
         failing = tuple(r["profile"] for r in group if r["feasible"] is False)
         open_ = tuple(r["profile"] for r in group if r["feasible"] is None)
-        covered = {r["profile"] for r in group} == set(profiles)
-        feasible = False if failing else (True if covered and not open_ else None)
+        seen = {r["profile"] for r in group}
+        missing = tuple(p for p in profiles if p not in seen)
+        feasible = False if failing else (True if not missing and not open_ else None)
         area = Bounded(group[0]["die_area_mm2"], not group[0]["die_area_is_lower_bound"])
-        verdicts.append(UnionVerdict(key, feasible, area, failing, open_))
+        confidences = [r["estimation_confidence"] for r in group if r.get("estimation_confidence")]
+        weakest = max(confidences, key=lambda c: _LEVELS.index(c["level"])) if confidences else None
+        verdicts.append(UnionVerdict(key, feasible, area, failing, open_, missing, weakest))
     return UnionReport(profiles, tuple(verdicts))
 
 
 __all__ = ["METRICS", "Bounded", "UnionReport", "UnionVerdict", "classify_front",
-           "dominates", "union_of_regimes"]
+           "could_dominate", "dominates", "union_of_regimes"]

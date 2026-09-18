@@ -180,3 +180,17 @@ def test_cli_bad_input_exits_2():
     assert result.returncode == 2, result.stderr
     result = _run("--designs", "orin_class_reference", "--efficiency", "nope")
     assert result.returncode == 2, result.stderr
+
+
+@pytest.mark.parametrize("target, value", [("layout.whitespace_fraction", 1.5),
+                                           ("layout.io_ring_mm", -0.1)])
+def test_a_layout_override_is_validated(analyzer, target, value):
+    """model_copy skips validation; an override rebuilds the design through it."""
+    with pytest.raises(ValidationError):
+        expand(_study(overrides=[{"target": target, "values": [value]}]), analyzer)
+
+
+def test_rows_carry_the_estimation_confidence(analyzer):
+    (row,) = [r.to_row() for r in run_study(_study(profiles=["far flight"]), analyzer)]
+    assert row["estimation_confidence"]["level"] == row["confidence"] == "unknown"
+    assert row["estimation_confidence"]["source"]
