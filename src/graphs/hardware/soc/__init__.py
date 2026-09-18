@@ -4,6 +4,7 @@
 applied later, by ``compose_soc``, so one design prices at any node.
 """
 
+from .clocking import NodeSpeedTable, RetargetedClock, load_node_speed, retarget_fmax
 from .compose import BlockInstance, LineArea, SoCInstance, compose_soc
 from .design import DesignBlock, Layout, Reference, SoCDesign, load_design, load_designs
 from .ip_block import (
@@ -18,6 +19,10 @@ from .ip_block import (
 )
 
 __all__ = [
+    "NodeSpeedTable",
+    "RetargetedClock",
+    "load_node_speed",
+    "retarget_fmax",
     "BlockInstance",
     "LineArea",
     "SoCInstance",

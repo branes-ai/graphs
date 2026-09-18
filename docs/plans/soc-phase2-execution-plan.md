@@ -115,3 +115,39 @@ is the TechInsights report, which tabulates Orin's functional-block sizes.
 Criteria 2 and 3 pass: GPU 85.2 and DLA 52.4 dense INT8 TOPS against 85.0 and
 52.5 derived from NVIDIA's own 275 / 105 sparse figures, and the priced area and
 per-op energy fall monotonically from 8LPP to N7 to N5.
+
+### P2-D8. Clocks retarget along foundry-stated relations only; no Vdd law
+
+The parent plan proposed optional node speed fields in embodied-schemas and an
+alpha-power law, fmax(Vdd) ~ (Vdd - Vth)^alpha / Vdd. Research (2026-09-18)
+found:
+
+- **Sourced at iso-power:** N16 -> N7, where TSMC states "around 35% speed
+  gain at the same power". A second TSMC page gives 30% with no condition,
+  kept as the conservative low end.
+- **Sourced without a power condition:** N7 -> N5 (15%) and N5 -> N4P (11%).
+  TSMC's own text attaches no condition; trade press adds "at the same
+  power". These are recorded as `unstated` and do not retarget a clock
+  (CodeRabbit on #304). A 15% gain that may cost power is not the clock the
+  block reaches in its budget.
+- **Not found:** threshold voltages for any of these FinFET nodes, a sourced
+  alpha exponent for sub-20 nm devices, Vdd ranges for N5, 8LPP or GF 12nm,
+  a Samsung 10LPP -> 8LPP speed figure, and any Samsung-vs-TSMC relation (no
+  foundry benchmarks against a competitor).
+
+So `clocking.retarget_fmax` walks only the iso-power relations, carries each as
+a low-high range so the TSMC disagreement stays visible, and quotes the
+conservative end. Where no chain of relations connects two nodes it returns
+None, and composition marks the block `unretargetable` and lists it in
+`off_reference_clocks` instead of inventing a clock. The Vdd law is not
+modeled: with Vth and alpha unsourced it would have two free parameters and
+no anchor.
+
+With three relations, all TSMC, the table stays graphs-local in
+`soc_designs/node_speed.yaml` rather than becoming an embodied-schemas schema
+change (parent-plan decision D2: graphs-local first, upstream in Phase 5).
+
+Consequence for the acceptance design: Orin's GPU, DLA and CPU clocks are
+8LPP figures, and nothing connects 8LPP to TSMC, so its N7 and N5 peaks are
+provisional and flagged. Its 8LPP peaks -- the ones criterion 2 checks -- are
+unaffected.

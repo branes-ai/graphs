@@ -14,10 +14,17 @@ retargeting scales each library by its own density ratio. Logic density
 roughly triples from 8 nm to 5 nm while analog and IO barely move, which is
 what makes a small-node die PHY- and pad-dominated.
 
-Clocks: a design's explicit ``clock_ghz`` wins; otherwise the template's
-``fmax_ghz_ref``, which is only valid at the node it was characterized on.
-Retargeting it is ``clocking.py``'s job (PR 2.3), and ``SoCInstance`` says
-which clocks are off their reference node.
+Clocks, in precedence order (``BlockInstance.clock_basis``):
+
+* ``explicit`` -- the design's own ``clock_ghz``;
+* ``reference`` -- the template's ``fmax_ghz_ref``, at the node it was
+  characterized on;
+* ``retargeted`` -- carried to the target node along foundry-stated speed
+  relations (``clocking.retarget_fmax``), quoted at the conservative end of
+  any range;
+* ``unretargetable`` -- no stated relation connects the two nodes. The
+  template's figure is kept so a peak can still be shown, but the instance
+  lists the block in ``off_reference_clocks`` and that peak is provisional.
 """
 
 from __future__ import annotations
@@ -29,6 +36,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
 from ..sku_validators.silicon_math import area_for
+from .clocking import NodeSpeedTable, RetargetedClock, load_node_speed, retarget_fmax
 from .design import DesignBlock, SoCDesign
 from .ip_block import Confidence, EngineKind, IPBlockTemplate, IPSilicon
 
@@ -70,7 +78,15 @@ class BlockInstance:
     template: IPBlockTemplate
     lines: Tuple[LineArea, ...]
     clock_ghz: Optional[float]
-    clock_is_reference: bool  # False: fmax_ghz_ref used off its reference node
+    clock_basis: str  # explicit | reference | retargeted | unretargetable | none
+    clock_retarget: Optional[RetargetedClock] = None
+
+    @property
+    def clock_is_reference(self) -> bool:
+        """Whether the clock is valid at the target node. False only when
+        the template's figure had to be used where no speed relation could
+        carry it."""
+        return self.clock_basis != "unretargetable"
 
     @property
     def name(self) -> str:
@@ -190,8 +206,9 @@ class SoCInstance:
 
     @property
     def off_reference_clocks(self) -> Tuple[str, ...]:
-        """Blocks using a template fmax away from the node it was measured on.
-        Their peaks are provisional until PR 2.3 retargets clocks."""
+        """Blocks whose clock could not be carried to this node: no stated
+        speed relation connects it to the node the clock was measured on.
+        Their peaks use the reference figure and are provisional."""
         return tuple(b.name for b in self.blocks if not b.clock_is_reference)
 
     @property
@@ -240,6 +257,7 @@ def compose_soc(
     library: Mapping[str, IPBlockTemplate],
     nodes: Mapping[str, ProcessNodeEntry],
     node_id: Optional[str] = None,
+    speed_table: Optional[NodeSpeedTable] = None,
 ) -> SoCInstance:
     """Price ``design`` at ``node_id`` (default: the design's own node)."""
     design.check_against(library)
@@ -252,12 +270,22 @@ def compose_soc(
     for block in design.blocks:
         template = library[block.ip]
         lines = tuple(_price_line(line, block.count, node, nodes) for line in template.silicon)
+        retarget: Optional[RetargetedClock] = None
         if block.clock_ghz is not None:
-            clock, is_reference = block.clock_ghz, True
-        elif template.clock is not None:
-            clock = template.clock.fmax_ghz_ref
-            is_reference = template.clock.reference_node == node.id
+            clock, basis = block.clock_ghz, "explicit"
+        elif template.clock is None:
+            clock, basis = None, "none"
+        elif template.clock.reference_node == node.id:
+            clock, basis = template.clock.fmax_ghz_ref, "reference"
         else:
-            clock, is_reference = None, True
-        blocks.append(BlockInstance(block, template, lines, clock, is_reference))
+            if speed_table is None:
+                speed_table = load_node_speed()
+            retarget = retarget_fmax(
+                template.clock.fmax_ghz_ref, template.clock.reference_node, node.id, speed_table
+            )
+            if retarget is not None:
+                clock, basis = retarget.ghz, "retargeted"
+            else:
+                clock, basis = template.clock.fmax_ghz_ref, "unretargetable"
+        blocks.append(BlockInstance(block, template, lines, clock, basis, retarget))
     return SoCInstance(design=design, node=node, blocks=tuple(blocks))
