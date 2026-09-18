@@ -1,0 +1,32 @@
+notes: 'Foundry-stated speed gains at iso-power between process nodes, for retargeting a block''s rated
+  clock from the node it was characterized on (graphs#269 PR 2.3). Only relations a foundry states are
+  here; a pair with no stated relation cannot be retargeted, and clocking.py says so rather than extrapolating.
+  Research, 2026-09-18: threshold voltages, the FinFET alpha-power exponent, and any Samsung-vs-TSMC relation
+  were not found in public sources, so Vdd scaling is not modeled.'
+relations:
+- from_node: tsmc_n16
+  to_node: tsmc_n7
+  iso_power_speed_ratio:
+    low: 1.3
+    high: 1.35
+  source: 'TSMC, ''TSMC''s Industry-first and Leading 7nm Technology Enters Volume Production'' (esg.tsmc.com
+    case study 9): ~35% speed at the same power vs 16FF+. TSMC''s N7/N6 DCE platform page states ~30%
+    for the same comparison; the two TSMC documents disagree, so the range carries both.'
+  confidence: theoretical
+- from_node: tsmc_n7
+  to_node: tsmc_n5
+  iso_power_speed_ratio:
+    low: 1.15
+    high: 1.15
+  source: 'TSMC press release ''TSMC and OIP Ecosystem Partners Deliver Industry''s First Complete Design
+    Infrastructure for 5nm Process Technology'' (pr.tsmc.com/english/news/1987, April 2019): 15% speed
+    at the same power, measured on an Arm Cortex-A72 core'
+  confidence: theoretical
+- from_node: tsmc_n5
+  to_node: tsmc_n4p
+  iso_power_speed_ratio:
+    low: 1.11
+    high: 1.11
+  source: 'TSMC press release ''TSMC Expands Advanced Technology Leadership with N4P Process'' (pr.tsmc.com/english/news/2874,
+    26 Oct 2021): 11% performance at iso-power vs N5'
+  confidence: theoretical
