@@ -21,7 +21,6 @@ Usage:
 """
 
 import argparse
-import csv
 import io
 import json
 import os
@@ -38,7 +37,7 @@ from embodied_schemas.process_node import ProcessNodeEntry
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.kpu_access import has_kpu_block
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 # Reuse the layer renderers from sibling inspectors so the composed view
 # stays formatting-identical to the per-layer tools.
@@ -246,7 +245,7 @@ def _compose_csv(
     resolution status as context columns. Use --output FILE.json for the
     full nested view."""
     buf = io.StringIO()
-    writer = csv.DictWriter(
+    writer = csv_writer(
         buf,
         fieldnames=[
             "compute_product_id",

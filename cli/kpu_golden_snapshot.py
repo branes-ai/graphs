@@ -37,7 +37,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -45,14 +44,14 @@ from pathlib import Path
 from typing import Optional
 
 from graphs.hardware import kpu_golden as kg
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 def _render_csv(results: dict[str, list[str]], stale: list[str]) -> str:
     """One row per difference (all of them, untruncated); one row per clean
     or stale SKU with an empty ``difference`` column."""
     buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
+    writer = csv_writer(buf)
     writer.writerow(["sku_id", "status", "difference"])
     for sku_id, diffs in results.items():
         if not diffs:

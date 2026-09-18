@@ -56,6 +56,22 @@ def detect_format(output: Optional[str], force: Optional[str] = None) -> str:
     return EXTENSION_FORMATS.get(ext, "text")
 
 
+def csv_writer(buffer, fieldnames=None, **kwargs):
+    """A ``csv`` writer that emits ``\n``, for CSV built into a string.
+
+    ``csv``'s default terminator is ``\r\n``. When the result is written
+    through a text-mode file, each one becomes ``\r\r\n`` on Windows --
+    blank records in the middle of the file. Every CLI here renders CSV into
+    a buffer and writes the string, so they all want ``\n``.
+    """
+    import csv as _csv
+
+    kwargs.setdefault("lineterminator", "\n")
+    if fieldnames is None:
+        return _csv.writer(buffer, **kwargs)
+    return _csv.DictWriter(buffer, fieldnames=list(fieldnames), **kwargs)
+
+
 def write_report(
     payload: str,
     output: Optional[str] = None,
@@ -70,7 +86,10 @@ def write_report(
     overrides where the payload goes when there is no ``output`` path.
     """
     if output:
-        with open(output, "w", encoding="utf-8") as handle:
+        # newline="" so the payload is written through as-is. A CSV payload
+        # already carries its own terminators, and text-mode translation would
+        # turn each of them into \r\r\n on Windows.
+        with open(output, "w", encoding="utf-8", newline="") as handle:
             handle.write(payload)
         if announce:
             print(f"wrote {output}")

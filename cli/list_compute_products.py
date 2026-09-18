@@ -26,7 +26,6 @@ Usage:
 """
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -38,7 +37,7 @@ from embodied_schemas import load_process_nodes
 from embodied_schemas.compute_product import BlockKind, ComputeProduct
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 def _val(x) -> str:
@@ -160,7 +159,7 @@ def _render_csv(rows: List[ProductRow]) -> str:
     if not rows:
         return ""
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(asdict(rows[0]).keys()))
+    writer = csv_writer(buf, fieldnames=list(asdict(rows[0]).keys()))
     writer.writeheader()
     for r in rows:
         writer.writerow(asdict(r))
