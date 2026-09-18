@@ -1,0 +1,55 @@
+id: orin_class_reference
+name: Orin-class reference (Jetson AGX Orin 64GB)
+process_node: samsung_8lpp
+blocks:
+- instance: gpu_sm
+  ip: nvidia_ampere_sm_orin
+  count: 16
+  notes: 2 GPCs, 8 TPCs, 16 SMs on the 64GB part (NVIDIA Jetson AGX Orin Series Technical Brief, TB_10749-001_v1.2
+    (July 2022), Table 1)
+- instance: gpu_l2
+  ip: nvidia_orin_gpu_l2
+- instance: dla
+  ip: nvdla_v2
+  count: 2
+  notes: 2x NVDLA v2.0
+- instance: cpu
+  ip: arm_cortex_a78ae_x4
+  count: 3
+  notes: 12 cores as 3 clusters of 4
+- instance: pva
+  ip: nvidia_pva_v2
+- instance: isp
+  ip: nvidia_orin_hdr_isp
+- instance: codec
+  ip: nvidia_orin_video_codec
+- instance: system_cache
+  ip: orin_system_cache
+- instance: safety_island
+  ip: orin_safety_island
+- instance: memory
+  ip: lpddr5_phy_256b
+- instance: io
+  ip: orin_io_complex
+- instance: fabric
+  ip: orin_fabric
+layout:
+  whitespace_fraction: 0.15
+  io_ring_mm: 0.3
+  source: Parent plan defaults (soc-microarchitecture-study-plan.md 5.2); not measured
+reference:
+  die_area_mm2: 455.0
+  transistors_billion: 17.0
+  process_node: samsung_8lpp
+  peak_tops:
+    int8_gpu_dense: 85.0
+    int8_dla_dense: 52.5
+  source: 'Die area and transistor count: a third-party teardown by TechAnaLye, reported via @SkyJuice60
+    in June 2022 -- NOT an NVIDIA figure. NVIDIA''s documents state neither, and no second independent
+    measurement was found; TechInsights DFR-2206-809 (paid) is the likely stronger source. Peak TOPS:
+    NVIDIA states 275 INT8 sparse TOPS combined and up to 105 on the two DLAs (NVIDIA Jetson AGX Orin
+    Series Technical Brief, TB_10749-001_v1.2 (July 2022)), so the GPU is 170 sparse; the dense figures
+    are half, because 2:4 structured sparsity doubles by construction.'
+notes: The Phase 2 acceptance design. Most of its silicon has no public area anchor and is declared unanchored,
+  so a composition of it is a lower bound that names every gap, not a reconstruction of the die. The peak-TOPS
+  check is fully sourced.
