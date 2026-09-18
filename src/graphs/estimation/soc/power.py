@@ -210,21 +210,20 @@ def _dynamic(schedule: Schedule, soc: SoCInstance, workload: PipelineWorkload):
             if share <= 0:
                 continue
             # A split runs each class on its own engine, priced in that
-            # engine's datapath library.
+            # engine's datapath library. A class that cannot be priced is a
+            # gap; the classes that can still count -- the term is a floor.
             engine = svc.class_engines.get(cls, svc.engine)
             lib = datapath_library(blocks[engine])
             if lib is None:
                 gaps.append(f"{svc.stage}: {engine} states no single datapath library")
-                watts = None
-                break
+                continue
             key = f"{lib.value}:{svc.formats[cls]}"
             pj = table.get(key)
             if pj is None:
                 gaps.append(f"{svc.stage}: {soc.node.id} has no energy_per_op_pj[{key}]")
-                watts = None
-                break
+                continue
             watts[engine] = watts.get(engine, 0.0) + stage.ops_per_call * share * svc.rate_hz * pj * 1e-12
-        for engine, w in (watts or {}).items():
+        for engine, w in watts.items():
             per_engine[engine] = per_engine.get(engine, 0.0) + w
     return per_engine, tuple(gaps)
 

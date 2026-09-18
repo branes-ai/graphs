@@ -277,6 +277,8 @@ def split_service(
     one the service is a **lower bound** (transfer unpriced), flagged, and the
     schedule it is in is incomplete.
     """
+    if transfer_bytes is not None and not transfer_bytes > 0:
+        raise ValueError(f"{demand.stage.key}: transfer_bytes must be positive, got {transfer_bytes!r}")
     stage: Stage = demand.stage
     label = "+".join(dict.fromkeys(e.name for e in class_engines.values()))
     base = dict(stage=stage.key, engine=label, rate_hz=demand.rate_hz,

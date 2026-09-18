@@ -154,3 +154,11 @@ def test_a_mapping_file_split_carries_its_transfer(tmp_path, analyzer):
     det = next(s for s in result.schedule.services if s.stage == "det")
     assert det.class_engines == {"A": "dla", "B": "gpu_sm"} and not det.lower_bound
     assert result.schedule.complete
+
+
+@pytest.mark.parametrize("bad", [0.0, -1e6])
+def test_a_programmatic_transfer_must_be_positive(analyzer, bad):
+    """A mapping file validates transfer_bytes > 0; a caller's dict must too,
+    or a negative transfer would shorten the service time (#311 review)."""
+    with pytest.raises(ValueError, match="must be positive"):
+        _split_det(analyzer, {"det": bad})
