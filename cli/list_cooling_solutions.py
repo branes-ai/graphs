@@ -20,7 +20,6 @@ Usage:
 """
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -30,7 +29,7 @@ from typing import List, Optional
 from embodied_schemas import load_cooling_solutions
 from embodied_schemas.cooling_solution import CoolingSolutionEntry
 
-from graphs.reporting.output_format import detect_format
+from graphs.reporting.output_format import csv_writer, detect_format
 
 
 @dataclass
@@ -94,7 +93,7 @@ def _render_csv(rows: List[CoolingRow]) -> str:
     if not rows:
         return ""
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(asdict(rows[0]).keys()))
+    writer = csv_writer(buf, fieldnames=list(asdict(rows[0]).keys()))
     writer.writeheader()
     for r in rows:
         writer.writerow(asdict(r))

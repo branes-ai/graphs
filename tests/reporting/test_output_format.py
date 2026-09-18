@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -18,6 +19,7 @@ import pytest
 from graphs.reporting.output_format import (
     EXTENSION_FORMATS,
     FORMATS,
+    csv_writer,
     detect_format,
     write_report,
 )
@@ -133,3 +135,57 @@ def test_a_show_cli_writes_real_csv(tmp_path, name, argument):
     assert rows[0] == ["field", "value"]
     assert len(rows) > 5
     assert dict(rows[1:])["id"] == argument
+
+
+def test_csv_writer_emits_lf_not_crlf():
+    """csv's default terminator is CRLF. These CLIs render CSV into a string
+    and then write it through a text-mode file, so a CRLF in the payload
+    becomes CR CR LF on Windows -- blank records mid-file (CodeRabbit on
+    #299)."""
+    import io
+
+    buffer = io.StringIO()
+    writer = csv_writer(buffer, fieldnames=["a", "b"])
+    writer.writeheader()
+    writer.writerow({"a": 1, "b": 2})
+    assert buffer.getvalue() == "a,b\n1,2\n"
+
+    plain = io.StringIO()
+    csv_writer(plain).writerow(["x", "y"])
+    assert plain.getvalue() == "x,y\n"
+
+
+def test_write_report_does_not_translate_the_payload(tmp_path):
+    """write_report opens with newline='' so a payload that carries its own
+    terminators is written through byte for byte."""
+    path = tmp_path / "report.csv"
+    write_report("a,b\n1,2\n", str(path), announce=False)
+    assert path.read_bytes() == b"a,b\n1,2\n"
+
+
+def test_no_migrated_cli_builds_csv_with_the_default_terminator():
+    """The structural guard: a CLI that renders CSV into a buffer must go
+    through csv_writer, which decides the terminator once."""
+    offenders = []
+    for path in sorted(CLI_DIR.glob("*.py")):
+        source = path.read_text(encoding="utf-8", errors="ignore")
+        for call in re.finditer(r"csv\.(?:Dict)?[Ww]riter\(\s*(buf|out)\b", source):
+            if "lineterminator" not in source[call.start():call.start() + 200]:
+                offenders.append(f"{path.name}: {call.group(0)}")
+    assert offenders == []
+
+
+@pytest.mark.parametrize("name, args", [
+    ("show_process_node.py", ["tsmc_n7"]),
+    ("show_cooling_solution.py", ["active_fan"]),
+    ("show_pipeline_workload.py", ["--regimes"]),
+    ("analyze_dies_on_workload.py", ["--regimes"]),
+])
+def test_written_csv_has_no_carriage_returns(tmp_path, name, args):
+    out = tmp_path / "report.csv"
+    result = subprocess.run(
+        [sys.executable, str(CLI_DIR / name), *args, "--output", str(out)],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-400:]
+    assert b"\r" not in out.read_bytes(), name

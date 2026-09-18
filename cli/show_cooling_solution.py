@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -20,7 +19,7 @@ from typing import Optional
 from embodied_schemas import load_cooling_solutions
 from embodied_schemas.cooling_solution import CoolingSolutionEntry
 
-from graphs.reporting.output_format import detect_format
+from graphs.reporting.output_format import csv_writer, detect_format
 
 
 def _na(v: Optional[float], unit: str = "") -> str:
@@ -106,7 +105,7 @@ def _render_csv(data: dict) -> str:
             yield prefix, "" if value is None else str(value)
 
     out = io.StringIO()
-    writer = csv.writer(out)
+    writer = csv_writer(out)
     writer.writerow(["field", "value"])
     writer.writerows(flatten(data))
     return out.getvalue()

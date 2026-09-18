@@ -29,7 +29,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -51,7 +50,7 @@ from graphs.hardware.kpu_engines import (
     describe_segments,
     precision_floor_findings,
 )
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 def _render_text(
@@ -205,7 +204,7 @@ def _render_csv(engines, segments, findings) -> str:
             if key not in fieldnames:
                 fieldnames.append(key)
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=fieldnames, restval="")
+    writer = csv_writer(buf, fieldnames=fieldnames, restval="")
     writer.writeheader()
     writer.writerows(rows)
     return buf.getvalue()
