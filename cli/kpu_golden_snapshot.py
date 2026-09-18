@@ -40,21 +40,12 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 from graphs.hardware import kpu_golden as kg
-
-
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json", "csv": "csv", "md": "md", "markdown": "md", "txt": "text",
-    }.get(ext, "text")
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _render_csv(results: dict[str, list[str]], stale: list[str]) -> str:
@@ -176,7 +167,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not args.sku else []
     )
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     if fmt == "json":
         payload = json.dumps({"results": results, "stale": stale}, indent=2) + "\n"
     elif fmt == "csv":

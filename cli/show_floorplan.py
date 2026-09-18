@@ -41,7 +41,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -76,6 +75,7 @@ from graphs.hardware.silicon_floorplan import (
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -94,24 +94,6 @@ def _positive_int(value: str) -> int:
             f"--width must be a positive integer (got {parsed})"
         )
     return parsed
-
-
-def _detect_format(output: Optional[str], json_flag: bool) -> str:
-    """Map ``--output`` extension to format. Mirrors validate_sku.py.
-
-    Per the project's CLI rules, every ``--output`` accepts JSON, CSV,
-    MD, and text via extension auto-detection. ``--json`` overrides
-    extension when set.
-    """
-    if json_flag:
-        return "json"
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json", "csv": "csv", "md": "md",
-        "markdown": "md", "txt": "text",
-    }.get(ext, "text")
 
 
 # ---------------------------------------------------------------------------
@@ -765,7 +747,7 @@ def main() -> int:
     if args.overlay:
         if args.view != "architectural":
             parser.error("--overlay needs --view architectural")
-        if _detect_format(args.output, args.json) != "text":
+        if detect_format(args.output, "json" if args.json else None) != "text":
             parser.error("--overlay is only rendered in text output")
     if not args.sku_id and not args.from_file:
         parser.error("sku_id is required (or pass --list or --from-file)")
@@ -811,7 +793,7 @@ def main() -> int:
         return 2
     node = nodes[process_node_id]
 
-    fmt = _detect_format(args.output, args.json)
+    fmt = detect_format(args.output, "json" if args.json else None)
 
     if args.view == "architectural":
         fp_arch = derive_kpu_architectural_floorplan(sku, node)

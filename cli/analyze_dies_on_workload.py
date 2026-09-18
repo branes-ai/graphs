@@ -59,6 +59,7 @@ from graphs.hardware.workload_fit import (  # noqa: E402
     DieFit,
     fit_profile,
 )
+from graphs.reporting.output_format import detect_format, write_report  # noqa: E402
 
 #: The two 64-site dies graphs#268 set out to compare, at 16 nm.
 DEFAULT_DIES = (
@@ -227,9 +228,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "at 2,000 / 300 / 15 GOP/s per class, for reference."
         )
 
-    fmt = ("json" if args.output and args.output.endswith(".json")
-           else "csv" if args.output and args.output.endswith(".csv")
-           else "md" if args.output and args.output.endswith(".md") else "text")
+    fmt = detect_format(args.output)
     if fmt == "json":
         payload = json.dumps({
             "title": title, "rows": rows, "notes": notes,
@@ -242,11 +241,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         payload = _render_text(title, rows, notes)
 
-    if args.output:
-        Path(args.output).write_text(payload)
-        print(f"wrote {args.output}")
-    else:
-        print(payload, end="")
+    write_report(payload, args.output)
     return 0
 
 
