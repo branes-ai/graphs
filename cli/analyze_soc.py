@@ -76,8 +76,8 @@ def _summary_lines(result: SoCAnalysisResult) -> List[str]:
         f"sense-to-act chain: {s['e2e_latency_ms']:.1f} ms"
         + ("" if s["e2e_latency_complete"] else lb)
         + f" vs deadline {s['deadline_ms']:g} ms",
-        f"DRAM: demand {m['dram_demand_gbs']:.1f} GB/s vs sustained supply "
-        f"{_fmt(m['dram_supply_gbs'], '.1f')} GB/s",
+        f"DRAM: demand {m['dram_demand_gb_per_s']:.1f} GB/s vs sustained supply "
+        f"{_fmt(m['dram_supply_gb_per_s'], '.1f')} GB/s",
         f"power: {p['total_w']:.3g} W" + (lb if p["total_is_lower_bound"] else "")
         + f" vs budget {p['budget_w']:g} W -- within: {_verdict(p['within_budget'])}",
         f"useful TOPS/W: {_fmt(p['useful_tops_per_w'], '.3g', 'withheld (dynamic power unpriced)')}"
@@ -128,7 +128,7 @@ def _csv_row(result: SoCAnalysisResult) -> dict:
         "feasible": _verdict(s["feasible"]), "oversubscription": s["oversubscription"],
         "stages_over": ";".join(s["stages_over"]), "unpriced_stages": len(result.schedule.gaps),
         "e2e_latency_ms": s["e2e_latency_ms"], "deadline_ms": s["deadline_ms"],
-        "dram_demand_gbs": m["dram_demand_gbs"], "dram_supply_gbs": m["dram_supply_gbs"],
+        "dram_demand_gb_per_s": m["dram_demand_gb_per_s"], "dram_supply_gb_per_s": m["dram_supply_gb_per_s"],
         "power_w": p["total_w"], "power_is_lower_bound": p["total_is_lower_bound"],
         "budget_w": p["budget_w"], "useful_tops_per_w": p["useful_tops_per_w"],
     }

@@ -240,7 +240,7 @@ def roll_up(
     if gate_idle and schedule.mapping == POOLED:
         leak_gaps.append("gate_idle: a pooled schedule has no per-engine idleness to gate")
 
-    dram_bytes_per_s = schedule.dram_demand_gbps * 1e9
+    dram_bytes_per_s = schedule.dram_demand_gb_per_s * 1e9
     if node.dram_io_pj_per_byte is None:
         memory = Term("memory", gaps=(f"{node.id} states no dram_io_pj_per_byte",))
     else:

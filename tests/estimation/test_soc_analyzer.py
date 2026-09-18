@@ -73,6 +73,8 @@ def test_an_incomplete_result_is_unknown_and_says_why(analyzer):
     assert any(x.startswith("die:") for x in reasons)
     assert any(x.startswith("schedule:") for x in reasons)
     assert result.feasible() is None
+    assert result.estimation_confidence.level.value == "unknown"
+    assert result.estimation_confidence.source.startswith("die:")
 
 
 def test_a_proven_violation_is_infeasible_despite_gaps(analyzer):
@@ -91,7 +93,7 @@ def test_the_result_follows_the_parent_plan_schema(analyzer):
     dla = next(b for b in d["die"]["by_block"] if b["block"] == "dla")
     assert dla["area_mm2"] is None  # no anchored line: unknown, never zero
     assert d["peak"]["gpu_sm"]["int8"] == pytest.approx(16 * 4096 * 1.3e9)
-    assert all("pipeline_tier" in s and "dram_gbs" in s for s in d["stages"])
+    assert all("pipeline_tier" in s and "dram_gb_per_s" in s for s in d["stages"])
     json.dumps(d)  # serializable as is
 
 
@@ -101,7 +103,7 @@ def test_stage_rows_use_the_profiles_own_costs(analyzer):
     det = next(s for s in result.to_dict()["stages"] if s["stage"] == "det")
     stage = result.stages["det"]
     assert stage.bytes_per_call != analyzer.workload.stages["det"].bytes_per_call
-    assert det["dram_gbs"] == pytest.approx(stage.bytes_per_call * det["rate_hz"] / 1e9)
+    assert det["dram_gb_per_s"] == pytest.approx(stage.bytes_per_call * det["rate_hz"] / 1e9)
 
 
 # ---------------------------------------------------------------------------

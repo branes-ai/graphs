@@ -23,6 +23,7 @@ from typing import Dict, List, Mapping, Optional, Tuple, Union
 
 from embodied_schemas import load_process_nodes
 
+from graphs.core.confidence import EstimationConfidence
 from graphs.core.pipeline_workload import (
     MissionProfile,
     PipelineWorkload,
@@ -40,7 +41,14 @@ from graphs.hardware.soc import (
 from graphs.hardware.soc.validators import validate_soc
 
 from .efficiency import EfficiencyTable, KernelClassMap, load_efficiency_tables, load_kernel_classes
-from .mapping import SUSTAINED_DRAM_FRACTION, engines_of, find_mapping, load_mapping, weakest
+from .mapping import (
+    SUSTAINED_DRAM_FRACTION,
+    engines_of,
+    estimation_confidence,
+    find_mapping,
+    load_mapping,
+    weakest,
+)
 from .power import PowerReport, roll_up
 from .schedule import Schedule, schedule
 
@@ -91,6 +99,14 @@ class SoCAnalysisResult:
         return weakest(*levels)
 
     @property
+    def estimation_confidence(self) -> EstimationConfidence:
+        """The repo-wide estimate descriptor; its source is the first input
+        that limits the result, or the schedule's own when none does."""
+        reasons = self.limited_by()
+        source = reasons[0] if reasons else self.schedule.estimation_confidence.source
+        return estimation_confidence(self.confidence, source)
+
+    @property
     def complete(self) -> bool:
         return self.soc.complete and self.schedule.complete and self.power.complete
 
@@ -113,7 +129,7 @@ class SoCAnalysisResult:
             stage = self.stages[svc.stage]
             row = svc.to_dict()
             row["pipeline_tier"] = stage.pipeline_tier
-            row["dram_gbs"] = stage.bytes_per_call * svc.rate_hz / 1e9
+            row["dram_gb_per_s"] = stage.bytes_per_call * svc.rate_hz / 1e9
             stage_rows.append(row)
         return {
             "design": soc.design.id,
@@ -126,6 +142,7 @@ class SoCAnalysisResult:
             "complete": self.complete,
             "confidence_summary": {
                 "level": self.confidence.value,
+                "score": self.estimation_confidence.score,
                 "limited_by": self.limited_by(),
             },
             "die": {
@@ -160,12 +177,12 @@ class SoCAnalysisResult:
                 for name in sched.servers
             ],
             "memory": {
-                "dram_demand_gbs": sched.dram_demand_gbps,
-                "dram_supply_gbs": sched.dram_supply_gbps,
-                "sustained_fraction": (sched.dram_supply_gbps / soc.dram_peak_gbps
-                                       if sched.dram_supply_gbps and soc.dram_peak_gbps else None),
-                "headroom_gbs": (sched.dram_supply_gbps - sched.dram_demand_gbps
-                                 if sched.dram_supply_gbps is not None else None),
+                "dram_demand_gb_per_s": sched.dram_demand_gb_per_s,
+                "dram_supply_gb_per_s": sched.dram_supply_gb_per_s,
+                "sustained_fraction": (sched.dram_supply_gb_per_s / soc.dram_peak_gb_per_s
+                                       if sched.dram_supply_gb_per_s and soc.dram_peak_gb_per_s else None),
+                "headroom_gb_per_s": (sched.dram_supply_gb_per_s - sched.dram_demand_gb_per_s
+                                 if sched.dram_supply_gb_per_s is not None else None),
             },
             "power": power.to_dict(),
             "summary": {

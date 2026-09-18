@@ -80,7 +80,7 @@ def test_dram_io_energy_is_priced_where_the_node_states_it():
     report = roll_up(s, soc, WORKLOAD)
     assert report.memory.complete
     assert report.memory.watts == pytest.approx(
-        s.dram_demand_gbps * 1e9 * NODES["tsmc_n7"].dram_io_pj_per_byte * 1e-12)
+        s.dram_demand_gb_per_s * 1e9 * NODES["tsmc_n7"].dram_io_pj_per_byte * 1e-12)
 
 
 def test_leakage_is_anchored_area_times_the_library_density():
