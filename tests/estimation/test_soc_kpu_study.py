@@ -29,7 +29,8 @@ DESIGN = load_designs()["kpu_heterogeneous_h64"]
 
 
 def test_generated_templates_match_their_compute_products():
-    assert gen.main(["--check"]) == 0
+    status = gen.main(["--check"])
+    assert status == 0
 
 
 def test_the_h64s_unpriced_tiles_are_gaps_not_a_complete_block():
