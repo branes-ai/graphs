@@ -177,6 +177,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Efficiency table: annex_v1 (default) or default_v1")
     parser.add_argument("--mapping", default="auto",
                         help="auto (shipped explicit mapping, else greedy), explicit, greedy, "
+                             "ilp (optimal bottleneck, needs scipy), "
                              "or a mapping .yaml file")
     parser.add_argument("--gate-idle", action="store_true",
                         help="Power-gate engines the schedule leaves idle (zero their leakage)")
