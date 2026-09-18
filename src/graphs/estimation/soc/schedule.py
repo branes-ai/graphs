@@ -21,7 +21,7 @@ which stages and why. Nothing is filled in to make a total look whole.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from graphs.core.pipeline_workload import REACTIVE_CHAIN, MissionProfile, PipelineWorkload
 from graphs.core.confidence import EstimationConfidence
@@ -39,6 +39,7 @@ from .mapping import (
     estimation_confidence,
     greedy_mapping,
     pooled_service,
+    split_service,
     weakest,
 )
 
@@ -64,8 +65,14 @@ class Schedule:
         return tuple((s.stage, s.gap) for s in self.services if not s.served)
 
     @property
+    def lower_bounds(self) -> Tuple[str, ...]:
+        """Priced stages whose time is only a floor (a split with no stated
+        transfer size)."""
+        return tuple(s.stage for s in self.services if s.served and s.lower_bound)
+
+    @property
     def complete(self) -> bool:
-        return not self.gaps
+        return not self.gaps and not self.lower_bounds
 
     @property
     def served(self) -> Tuple[StageService, ...]:
@@ -87,7 +94,8 @@ class Schedule:
     def engine_utilization(self) -> Dict[str, float]:
         out = {name: 0.0 for name in self.servers}
         for s in self.served:
-            out[s.engine] = out.get(s.engine, 0.0) + s.occupancy / self.servers.get(s.engine, 1)
+            for engine, seconds in s.engine_seconds.items():
+                out[engine] = out.get(engine, 0.0) + seconds * s.rate_hz / self.servers.get(engine, 1)
         return out
 
     @property
@@ -153,7 +161,8 @@ class Schedule:
     def estimation_confidence(self) -> EstimationConfidence:
         """The weakest stage's confidence, and which stage set it."""
         if not self.complete:
-            source = f"{len(self.gaps)} stage(s) unpriced"
+            source = (f"{len(self.gaps)} stage(s) unpriced, "
+                      f"{len(self.lower_bounds)} priced only as a lower bound")
         else:
             weakest_stage = max(self.served, key=lambda s: _LEVEL_ORDER.index(s.confidence))
             source = f"{weakest_stage.stage}: {weakest_stage.confidence_source}"
@@ -168,6 +177,7 @@ class Schedule:
             "mapping": self.mapping,
             "complete": self.complete,
             "gaps": [{"stage": s, "reason": r} for s, r in self.gaps],
+            "lower_bounds": list(self.lower_bounds),
             "stages": [s.to_dict() for s in self.services],
             "engines": [
                 {"engine": n, "servers": self.servers[n], "utilization": util.get(n, 0.0)}
@@ -198,13 +208,16 @@ def schedule(
     soc: Optional[SoCInstance],
     table: EfficiencyTable,
     kernels: Optional[KernelClassMap] = None,
-    mapping: Union[str, Dict[str, str]] = "greedy",
+    mapping: Union[str, Dict[str, Any]] = "greedy",
     sustained_fraction: float = SUSTAINED_DRAM_FRACTION,
+    transfers: Optional[Dict[str, float]] = None,
 ) -> Schedule:
     """Run one profile on one SoC.
 
     ``mapping`` is ``"greedy"``, ``"ilp"`` (optimal, needs scipy) or an
-    explicit ``{stage: engine}`` dict; a
+    explicit dict: ``{stage: engine}``, or ``{stage: {class: engine}}`` to
+    split a stage's precision classes across engines, with ``transfers``
+    giving each split's intermediate bytes per call; a
     pooled table ignores it. A stage an explicit mapping leaves out is a gap.
     ``soc`` may be ``None`` for a pooled table, in which case DRAM supply is
     unknown.
@@ -240,14 +253,22 @@ def schedule(
     if isinstance(mapping, str):
         raise ValueError(f"mapping must be 'greedy', 'ilp' or a {{stage: engine}} dict, got {mapping!r}")
     check_explicit(mapping, engines)
+    transfers = transfers or {}
     out = []
     for d in demands:
-        name = mapping.get(d.stage.key)
-        if name is None:
+        target = mapping.get(d.stage.key)
+        if target is None:
             out.append(StageService(stage=d.stage.key, engine="", rate_hz=d.rate_hz,
                                     gap="not in the explicit mapping"))
             continue
-        out.append(engine_service(d, kernels.of(d.stage.key), engines[name], table, supply or 0.0))
+        kernel = kernels.of(d.stage.key)
+        if isinstance(target, dict):
+            out.append(split_service(d, kernel, {c: engines[e] for c, e in target.items()},
+                                     table, supply or 0.0, transfers.get(d.stage.key)))
+        else:
+            out.append(engine_service(d, kernel, engines[target], table, supply or 0.0))
+    # A split's intermediate crosses DRAM: its traffic is demand like any other.
+    dram_demand += sum(svc.transfer_bytes * svc.rate_hz for svc in out if svc.served) / 1e9
     return Schedule(profile, table.id, "explicit", tuple(out), servers, dram_demand, supply)
 
 

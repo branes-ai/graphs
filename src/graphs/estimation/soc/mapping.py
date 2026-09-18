@@ -34,10 +34,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 from graphs.core.pipeline_workload import CLASS_NAMES, Stage, StageDemand
@@ -131,6 +131,19 @@ class StageService:
     confidence: Confidence = Confidence.UNKNOWN
     #: What set ``confidence``: the weakest input.
     confidence_source: str = ""
+    #: A split stage: the engine each precision class runs on. Empty for a
+    #: stage on one engine (``engine`` holds it).
+    class_engines: Dict[str, str] = field(default_factory=dict)
+    #: Compute seconds per engine, for utilization. Empty means all of
+    #: ``t_compute_s`` on ``engine``.
+    parts: Dict[str, float] = field(default_factory=dict)
+    #: Seconds moving the intermediate between a split's engines via DRAM.
+    t_transfer_s: float = 0.0
+    #: Extra DRAM bytes per call the split's transfer adds.
+    transfer_bytes: float = 0.0
+    #: True when a figure is missing and the time is only a floor -- a split
+    #: whose transfer size nothing states.
+    lower_bound: bool = False
 
     @property
     def served(self) -> bool:
@@ -140,7 +153,7 @@ class StageService:
     def t_service_s(self) -> Optional[float]:
         if not self.served:
             return None
-        return max(self.t_compute_s, self.t_memory_s or 0.0)
+        return max(self.t_compute_s + self.t_transfer_s, self.t_memory_s or 0.0)
 
     @property
     def estimation_confidence(self) -> EstimationConfidence:
@@ -150,7 +163,16 @@ class StageService:
     def bound(self) -> Optional[str]:
         if not self.served:
             return None
-        return "memory" if (self.t_memory_s or 0.0) > self.t_compute_s else "compute"
+        return "memory" if (self.t_memory_s or 0.0) > self.t_compute_s + self.t_transfer_s else "compute"
+
+    @property
+    def engine_seconds(self) -> Dict[str, float]:
+        """Seconds of each engine one call occupies (compute parts; the
+        stage-level memory stall is not attributed, so utilization is a
+        floor for memory-bound splits, as for any stage)."""
+        if not self.served:
+            return {}
+        return dict(self.parts) if self.parts else {self.engine: self.t_service_s}
 
     @property
     def occupancy(self) -> Optional[float]:
@@ -172,6 +194,9 @@ class StageService:
             "gap": self.gap,
             "confidence": self.confidence.value,
             "confidence_source": self.confidence_source or self.gap or "",
+            "class_engines": dict(self.class_engines),
+            "t_transfer_ms": 1e3 * self.t_transfer_s,
+            "lower_bound": self.lower_bound,
         }
 
 
@@ -235,16 +260,111 @@ def engine_service(
     )
 
 
+def split_service(
+    demand: StageDemand,
+    kernel: KernelClass,
+    class_engines: Mapping[str, Engine],
+    table: EfficiencyTable,
+    dram_sustained_gb_per_s: float,
+    transfer_bytes: Optional[float] = None,
+) -> StageService:
+    """One call of a stage whose precision classes run on different engines.
+
+    The parts run in sequence (the trunk feeds the head), each at its own
+    engine's peak and efficiency, and the intermediate crosses DRAM between
+    them -- written once, read once: ``2 x transfer_bytes`` of traffic. The
+    workload does not state intermediate sizes, so the mapping must; without
+    one the service is a **lower bound** (transfer unpriced), flagged, and the
+    schedule it is in is incomplete.
+    """
+    stage: Stage = demand.stage
+    label = "+".join(dict.fromkeys(e.name for e in class_engines.values()))
+    base = dict(stage=stage.key, engine=label, rate_hz=demand.rate_hz,
+                class_engines={c: e.name for c, e in class_engines.items()})
+    needed = [c for c, share in zip(CLASS_NAMES, stage.class_split) if share > 0]
+    if sorted(class_engines) != sorted(needed):
+        return StageService(**base, gap=f"split must place exactly classes {needed}, "
+                                        f"got {sorted(class_engines)}")
+    parts: Dict[str, float] = {}
+    formats: Dict[str, str] = {}
+    confidence = WORKLOAD_CONFIDENCE
+    for cls, share in zip(CLASS_NAMES, stage.class_split):
+        if share <= 0:
+            continue
+        engine = class_engines[cls]
+        fmt = execution_format(cls, engine.formats)
+        if fmt is None:
+            return StageService(**base, gap=f"{engine.kind.value} cannot run Class {cls}")
+        formats[cls] = fmt
+        entry = table.lookup(kernel, engine.kind, fmt)
+        if entry is None or not entry.known:
+            return StageService(**base, formats=formats,
+                                gap=f"no {table.id} efficiency for {kernel.value}/{engine.kind.value}/{fmt}")
+        seconds = stage.ops_per_call * share / (engine.server_peak_ops_per_s(fmt) * entry.compute_eff)
+        parts[engine.name] = parts.get(engine.name, 0.0) + seconds
+        confidence = weakest(confidence, entry.confidence)
+    sources = [f"{table.id} efficiencies per class", "workload unit costs"]
+    for engine in {e.name: e for e in class_engines.values()}.values():
+        if not engine.block.clock_is_reference:
+            confidence = Confidence.UNKNOWN
+            sources.insert(0, f"{engine.name} clock is provisional at {engine.block.clock_basis}")
+    crosses = len(parts) > 1
+    lower_bound = crosses and transfer_bytes is None
+    t_transfer, moved = 0.0, 0.0
+    if crosses and transfer_bytes is not None:
+        moved = 2.0 * transfer_bytes
+        if dram_sustained_gb_per_s > 0:
+            t_transfer = moved / (dram_sustained_gb_per_s * 1e9)
+        else:
+            lower_bound = True  # bytes known, bandwidth not: the time is still a floor
+    if lower_bound:
+        confidence = Confidence.UNKNOWN
+        sources.insert(0, "split transfer unpriced: the mapping states no intermediate size"
+                       if transfer_bytes is None else "split transfer unpriced: no DRAM supply")
+    t_memory = None
+    if dram_sustained_gb_per_s > 0:
+        t_memory = (stage.bytes_per_call + moved) / (dram_sustained_gb_per_s * 1e9)
+    return StageService(
+        **base, t_compute_s=sum(parts.values()), t_memory_s=t_memory, formats=formats,
+        confidence=confidence, confidence_source="; ".join(sources), parts=parts,
+        t_transfer_s=t_transfer, transfer_bytes=moved, lower_bound=lower_bound,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Mapping
 # ---------------------------------------------------------------------------
 
 
 class StageAssignment(BaseModel):
-    engine: str
+    """A stage on one engine, or split by precision class across several."""
+
+    engine: Optional[str] = None
+    #: A split: precision class (A / B / C) -> engine.
+    engines: Optional[Dict[str, str]] = None
+    #: Bytes of the intermediate a split hands between its engines per call,
+    #: with where the figure comes from. Without it the split is a lower bound.
+    transfer_bytes: Optional[float] = Field(None, gt=0)
+    transfer_source: str = ""
     reason: str = Field(..., min_length=10)
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def _one_form(self) -> "StageAssignment":
+        if (self.engine is None) == (self.engines is None):
+            raise ValueError("give exactly one of engine or engines")
+        if self.engines is not None and not set(self.engines) <= {"A", "B", "C"}:
+            raise ValueError(f"split classes must be A, B or C, got {sorted(self.engines)}")
+        if self.transfer_bytes is not None and self.engines is None:
+            raise ValueError("transfer_bytes only qualifies a split (engines)")
+        if self.transfer_bytes is not None and len(self.transfer_source) < 10:
+            raise ValueError("transfer_bytes needs a transfer_source saying where it comes from")
+        return self
+
+    @property
+    def target(self):
+        return self.engine if self.engine is not None else dict(self.engines)
 
 
 class MappingFile(BaseModel):
@@ -257,8 +377,12 @@ class MappingFile(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    def assignments(self) -> Dict[str, str]:
-        return {k: v.engine for k, v in self.stages.items()}
+    def assignments(self) -> Dict[str, Any]:
+        """stage -> engine name, or {class: engine} for a split."""
+        return {k: v.target for k, v in self.stages.items()}
+
+    def transfers(self) -> Dict[str, float]:
+        return {k: v.transfer_bytes for k, v in self.stages.items() if v.transfer_bytes is not None}
 
 
 DEFAULT_MAPPING_DIR = Path(__file__).resolve().parents[4] / "soc_designs" / "mappings"
@@ -274,9 +398,12 @@ def find_mapping(design: str, workload: str, root: Optional[Path] = None) -> Opt
     return load_mapping(file) if file.exists() else None
 
 
-def check_explicit(assignments: Mapping[str, str], engines: Mapping[str, Engine]) -> None:
+def check_explicit(assignments: Mapping[str, Any], engines: Mapping[str, Engine]) -> None:
     """Every named engine must exist in the composed design."""
-    bad = sorted({e for e in assignments.values() if e not in engines})
+    named = set()
+    for target in assignments.values():
+        named |= set(target.values()) if isinstance(target, dict) else {target}
+    bad = sorted(e for e in named if e not in engines)
     if bad:
         raise KeyError(f"mapping names engines the design does not have: {bad}; have {sorted(engines)}")
 
@@ -328,6 +455,7 @@ __all__ = [
     "StageService",
     "check_explicit",
     "engine_service",
+    "split_service",
     "engines_of",
     "find_mapping",
     "greedy_mapping",
