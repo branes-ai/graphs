@@ -51,7 +51,7 @@ _LEVEL_ORDER = [Confidence.CALIBRATED, Confidence.INTERPOLATED, Confidence.THEOR
 class Schedule:
     profile: MissionProfile
     table: str
-    mapping: str  # "pooled", "explicit" or "greedy"
+    mapping: str  # "pooled", "explicit", "greedy" or "ilp"
     services: Tuple[StageService, ...]
     servers: Dict[str, int]
     dram_demand_gb_per_s: float
@@ -203,7 +203,8 @@ def schedule(
 ) -> Schedule:
     """Run one profile on one SoC.
 
-    ``mapping`` is ``"greedy"`` or an explicit ``{stage: engine}`` dict; a
+    ``mapping`` is ``"greedy"``, ``"ilp"`` (optimal, needs scipy) or an
+    explicit ``{stage: engine}`` dict; a
     pooled table ignores it. A stage an explicit mapping leaves out is a gap.
     ``soc`` may be ``None`` for a pooled table, in which case DRAM supply is
     unknown.
@@ -226,13 +227,18 @@ def schedule(
     engines: Dict[str, Engine] = engines_of(soc)
     servers = {name: e.servers for name, e in engines.items()}
 
-    if mapping == "greedy":
-        by_stage = greedy_mapping(demands, engines, kernels, table, supply or 0.0)
+    if mapping in ("greedy", "ilp"):
+        if mapping == "ilp":
+            from .ilp import ilp_mapping  # noqa: PLC0415 -- scipy is optional
+
+            by_stage = ilp_mapping(demands, engines, kernels, table, supply or 0.0)
+        else:
+            by_stage = greedy_mapping(demands, engines, kernels, table, supply or 0.0)
         services = tuple(by_stage[d.stage.key] for d in demands)
-        return Schedule(profile, table.id, "greedy", services, servers, dram_demand, supply)
+        return Schedule(profile, table.id, mapping, services, servers, dram_demand, supply)
 
     if isinstance(mapping, str):
-        raise ValueError(f"mapping must be 'greedy' or a {{stage: engine}} dict, got {mapping!r}")
+        raise ValueError(f"mapping must be 'greedy', 'ilp' or a {{stage: engine}} dict, got {mapping!r}")
     check_explicit(mapping, engines)
     out = []
     for d in demands:

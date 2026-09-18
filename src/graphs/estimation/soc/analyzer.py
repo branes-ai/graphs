@@ -240,9 +240,9 @@ class SoCAnalyzer:
             if shipped is not None:
                 return shipped.assignments(), f"soc_designs/mappings/{design.id}__{self.workload.version}.yaml"
             return "greedy", "greedy"
-        if choice == "greedy":
-            return "greedy", "greedy"
-        raise ValueError(f"mapping must be auto, explicit, greedy, a .yaml file or a dict; got {choice!r}")
+        if choice in ("greedy", "ilp"):
+            return choice, choice
+        raise ValueError(f"mapping must be auto, explicit, greedy, ilp, a .yaml file or a dict; got {choice!r}")
 
     def analyze(
         self,

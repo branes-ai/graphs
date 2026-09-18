@@ -185,6 +185,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--profiles", default="regimes",
                         help="Ad-hoc: all, regimes (default), or comma-separated profiles")
     parser.add_argument("--efficiency", default="annex_v1", help="Ad-hoc: comma-separated tables")
+    parser.add_argument("--mapping", default="auto",
+                        help="Ad-hoc: auto, explicit, greedy or ilp (optimal, needs scipy)")
     parser.add_argument("--gate-idle", choices=["off", "on", "both"], default="off",
                         help="Ad-hoc: idle-engine gating")
     parser.add_argument("--pareto", help="Classify points on these minimized metrics, e.g. area,power "
@@ -210,7 +212,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             study = Study(
                 id="adhoc", name="ad-hoc sweep", workload=analyzer.workload.version,
                 designs=_csv_list(args.designs), nodes=_csv_list(args.nodes) or [None],
-                profiles=profiles, efficiency=_csv_list(args.efficiency),
+                profiles=profiles, efficiency=_csv_list(args.efficiency), mapping=args.mapping,
                 gate_idle={"off": [False], "on": [True], "both": [False, True]}[args.gate_idle],
             )
         rows = run_study(study, analyzer)
