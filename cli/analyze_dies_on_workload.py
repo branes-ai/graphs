@@ -42,7 +42,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -59,7 +58,7 @@ from graphs.hardware.workload_fit import (  # noqa: E402
     DieFit,
     fit_profile,
 )
-from graphs.reporting.output_format import detect_format, write_report  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format, write_report# noqa: E402
 
 #: The two 64-site dies graphs#268 set out to compare, at 16 nm.
 DEFAULT_DIES = (
@@ -157,7 +156,7 @@ def _render_csv(rows: List[dict]) -> str:
     if not rows:
         return ""
     out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=list(rows[0]))
+    writer = csv_writer(out, fieldnames=list(rows[0]))
     writer.writeheader()
     writer.writerows(rows)
     return out.getvalue()

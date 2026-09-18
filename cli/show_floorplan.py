@@ -38,7 +38,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -75,7 +74,7 @@ from graphs.hardware.silicon_floorplan import (
     derive_kpu_architectural_floorplan,
     derive_kpu_floorplan,
 )
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +539,7 @@ def _arch_to_csv(fp: ArchitecturalFloorplan) -> str:
     height_mm, area_mm2.
     """
     buf = io.StringIO()
-    writer = csv.DictWriter(
+    writer = csv_writer(
         buf,
         fieldnames=[
             "sku_id", "kind", "role_or_edge", "name", "tile_class",
@@ -620,7 +619,7 @@ def _arch_to_md(fp: ArchitecturalFloorplan) -> str:
 
 def _circuit_to_csv(fp: Floorplan) -> str:
     buf = io.StringIO()
-    writer = csv.DictWriter(
+    writer = csv_writer(
         buf,
         fieldnames=[
             "sku_id", "name", "circuit_class", "is_compute_tile",

@@ -38,7 +38,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -58,7 +57,7 @@ from graphs.hardware.kpu_tile_ladder import (
     LadderError,
     build_ladder,
 )
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 def _render_text(ladders: List[Ladder], show_ops: bool) -> str:
@@ -186,7 +185,7 @@ def _render_csv(ladders: List[Ladder]) -> str:
     if not rows:
         return ""
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(rows[0]))
+    writer = csv_writer(buf, fieldnames=list(rows[0]))
     writer.writeheader()
     writer.writerows(rows)
     return buf.getvalue()

@@ -32,7 +32,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -47,7 +46,7 @@ from graphs.core.pipeline_workload import (  # noqa: E402
     PipelineWorkload,
     load_autonomy_workload,
 )
-from graphs.reporting.output_format import detect_format, write_report  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format, write_report# noqa: E402
 
 
 def _profile_rows(summaries) -> list[dict]:
@@ -122,7 +121,7 @@ def _render_csv(rows: list[dict]) -> str:
     if not rows:
         return ""
     out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=list(rows[0]))
+    writer = csv_writer(out, fieldnames=list(rows[0]))
     writer.writeheader()
     writer.writerows(rows)
     return out.getvalue()

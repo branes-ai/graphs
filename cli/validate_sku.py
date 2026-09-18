@@ -33,7 +33,6 @@ Exit codes:
 """
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -55,7 +54,7 @@ from graphs.hardware.sku_validators import (
     has_errors,
     load_validators,
 )
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 def _render_text(
@@ -149,7 +148,7 @@ def _render_csv(findings: List[Finding], sku_id: str, validator_count: int) -> s
     """One row per finding. Header columns: sku_id, severity, category,
     validator, block, profile, message, citation."""
     buf = io.StringIO()
-    writer = csv.DictWriter(
+    writer = csv_writer(
         buf,
         fieldnames=[
             "sku_id", "severity", "category", "validator",

@@ -29,7 +29,6 @@ Usage:
 """
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -50,7 +49,7 @@ from graphs.hardware.kpu_access import (
     kpu_block_of,
     kpu_die_of,
 )
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 @dataclass
@@ -265,7 +264,7 @@ def _render_csv(rows: List[KPURow]) -> str:
     if not rows:
         return ""
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(asdict(rows[0]).keys()))
+    writer = csv_writer(buf, fieldnames=list(asdict(rows[0]).keys()))
     writer.writeheader()
     for r in rows:
         d = asdict(r)

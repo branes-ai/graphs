@@ -37,6 +37,7 @@ from graphs.estimation.energy import EnergyAnalyzer
 from graphs.estimation.roofline import RooflineAnalyzer
 from graphs.hardware.mappers import get_mapper_by_name
 from graphs.hardware.resource_model import Precision
+from graphs.reporting.output_format import csv_writer
 
 
 # (label, mapper registry name, native precision)
@@ -245,10 +246,9 @@ def write_output(results: List[dict], path: Path, text: str) -> None:
         import json
         path.write_text(json.dumps(results, indent=2))
     elif ext == ".csv":
-        import csv
         import io
         buf = io.StringIO()
-        w = csv.writer(buf)
+        w = csv_writer(buf)
         w.writerow(_FLAT_COLS)
         w.writerows(_flat_rows(results))
         path.write_text(buf.getvalue())

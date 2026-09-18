@@ -23,7 +23,6 @@ Usage:
 """
 
 import argparse
-import csv
 import io
 import json
 import sys
@@ -44,7 +43,7 @@ from graphs.hardware.kpu_access import (
     kpu_block_of,
     kpu_die_of,
 )
-from graphs.reporting.output_format import detect_format  # noqa: E402
+from graphs.reporting.output_format import csv_writer, detect_format# noqa: E402
 
 
 def _kpu_block(cp: ComputeProduct):
@@ -64,7 +63,7 @@ def _render_csv(cp: ComputeProduct) -> str:
     die = kpu_die_of(cp)
     total_pes = display.total_pe_count(block)
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv_writer(buf)
     writer.writerow([
         "id", "name", "vendor", "process_node_id",
         "total_tiles", "tile_census", "total_pes",
