@@ -48,5 +48,27 @@ never placed on or off the front by their bounds.
 |---|---|
 | 4.1 | `estimation/soc/study.py` (study schema, axis expansion, sweep runner) and `cli/sweep_soc.py`; study YAMLs in `soc_designs/studies/`. |
 | 4.2 | Bound-aware Pareto and "union of regimes" minimum-design reports; plots as an optional extra. |
-| 4.3 | A KPU IP template generated from a KPU ComputeProduct; the KPU-heterogeneous design; the study at N16 / N7 / N5, written up in `docs/assessments/`. |
+| 4.3 | `tools/generate_kpu_ip.py` (KPU ComputeProduct -> IP template, unpriced tile classes as gaps); `kpu_heterogeneous_h64`; the study, written up in `docs/assessments/soc-orin-vs-kpu-heterogeneous.md`. |
 | 4.4 | MCP tool registration (run `cross-repo-checker` first). |
+
+### P4-D3. A KPU on an SoC is a generated core, one server
+
+`tools/generate_kpu_ip.py` turns a KPU ComputeProduct into an IP template:
+
+- **Silicon:** its `silicon_bin` transistors. A *core* drops the chip's own
+  memory PHYs and pads, which belong to the SoC.
+- **Peak:** the tile table's exact ops per clock, for modeled formats only.
+- **Clock:** its boost clock at its own node.
+
+Tile classes that no `silicon_bin` line prices become unanchored lines.
+Without that, the H64 would have looked complete while missing five tile
+classes. A KPU runs a stage across the whole fabric, so it is one server,
+like a GPU. `IPCompute.datapath_class` names the library its ALUs are in,
+since a KPU also has an HP-logic NoC.
+
+### Result of 4.3
+
+Undecided on area, compute and power, because both sides are lower bounds.
+Decided on DRAM: both designs fail far flight on memory alone. The write-up
+lists what would decide the rest.
+
