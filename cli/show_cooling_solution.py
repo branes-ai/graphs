@@ -11,6 +11,8 @@ Usage:
 """
 
 import argparse
+import csv
+import io
 import json
 import sys
 from typing import Optional
@@ -82,6 +84,33 @@ def _render_md(e: CoolingSolutionEntry) -> str:
     return "\n".join(lines)
 
 
+
+def _render_csv(data: dict) -> str:
+    """One field per row, nested keys dotted.
+
+    A "show" CLI describes one entity, so its CSV is the record flattened
+    rather than a table: ``field,value``. Without this, a ``.csv`` path got
+    the text rendering (CodeRabbit on #299).
+    """
+    def flatten(value, prefix=""):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                yield from flatten(v, f"{prefix}.{k}" if prefix else str(k))
+        elif isinstance(value, (list, tuple)):
+            if value and isinstance(value[0], (dict, list, tuple)):
+                for i, v in enumerate(value):
+                    yield from flatten(v, f"{prefix}[{i}]")
+            else:
+                yield prefix, "; ".join(str(v) for v in value)
+        else:
+            yield prefix, "" if value is None else str(value)
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["field", "value"])
+    writer.writerows(flatten(data))
+    return out.getvalue()
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Show full spec of one CoolingSolutionEntry."
@@ -89,7 +118,7 @@ def main() -> int:
     parser.add_argument("cooling_id", help="Cooling-solution id")
     parser.add_argument(
         "--output",
-        help="Output file. Format auto-detected from extension (.json/.md/.txt).",
+        help="Output file. Format auto-detected from extension (.json/.csv/.md/.txt).",
     )
     args = parser.parse_args()
 
@@ -113,6 +142,8 @@ def main() -> int:
         rendered = json.dumps(e.model_dump(mode="json"), indent=2) + "\n"
     elif fmt == "md":
         rendered = _render_md(e) + "\n"
+    elif fmt == "csv":
+        rendered = _render_csv(e.model_dump(mode="json"))
     else:
         rendered = _render_text(e) + "\n"
 

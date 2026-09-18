@@ -8,6 +8,7 @@ that no CLI has quietly grown a copy back.
 
 from __future__ import annotations
 
+import csv
 import pathlib
 import subprocess
 import sys
@@ -112,3 +113,23 @@ def test_a_migrated_cli_still_writes_each_format(tmp_path, name):
         assert result.returncode == 0, result.stderr[-400:]
         assert out.exists(), (name, extension)
         assert out.read_text().lstrip().startswith(opener), (name, extension)
+
+
+@pytest.mark.parametrize("name, argument", [
+    ("show_process_node.py", "tsmc_n7"),
+    ("show_cooling_solution.py", "active_fan"),
+])
+def test_a_show_cli_writes_real_csv(tmp_path, name, argument):
+    """A single-entity inspector has no rows, so its CSV is the record
+    flattened to field,value -- but it must be CSV. Both of these accepted a
+    .csv path and wrote the text rendering into it (CodeRabbit on #299)."""
+    out = tmp_path / "entity.csv"
+    result = subprocess.run(
+        [sys.executable, str(CLI_DIR / name), argument, "--output", str(out)],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-400:]
+    rows = list(csv.reader(out.read_text().splitlines()))
+    assert rows[0] == ["field", "value"]
+    assert len(rows) > 5
+    assert dict(rows[1:])["id"] == argument
