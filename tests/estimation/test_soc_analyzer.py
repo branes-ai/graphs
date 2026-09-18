@@ -222,8 +222,11 @@ def test_cli_lists_profiles_in_the_requested_format(tmp_path):
     table = tmp_path / "profiles.csv"
     result = _run("--list-profiles", "-o", str(table))
     assert result.returncode == 0, result.stderr
-    assert len(list(csv.DictReader(table.open(newline="")))) == 18
+    with table.open(newline="") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert len(csv_rows) == 18
     md = tmp_path / "profiles.md"
     result = _run("--list-profiles", "-o", str(md))
     assert result.returncode == 0, result.stderr
-    assert md.read_text().startswith("## Profiles (18)")
+    text = md.read_text()
+    assert text.startswith("## Profiles (18)")
