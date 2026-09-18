@@ -38,6 +38,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 import yaml
 from pydantic import BaseModel, Field
 
+from graphs.core.confidence import ConfidenceLevel, EstimationConfidence
 from graphs.core.pipeline_workload import CLASS_NAMES, Stage, StageDemand
 from graphs.hardware.soc import BlockInstance, Confidence, EngineKind, SoCInstance
 
@@ -64,6 +65,17 @@ _ORDER = [Confidence.CALIBRATED, Confidence.INTERPOLATED, Confidence.THEORETICAL
 
 def weakest(*levels: Confidence) -> Confidence:
     return max(levels, key=_ORDER.index)
+
+
+def estimation_confidence(level: Confidence, source: str) -> EstimationConfidence:
+    """The repo-wide estimate descriptor (``graphs.core``) for a level carried
+    as the shared ``Confidence`` enum; the two enums have the same values."""
+    return {
+        Confidence.CALIBRATED: EstimationConfidence.calibrated,
+        Confidence.INTERPOLATED: EstimationConfidence.interpolated,
+        Confidence.THEORETICAL: EstimationConfidence.theoretical,
+    }.get(level, lambda source: EstimationConfidence(level=ConfidenceLevel.UNKNOWN,
+                                                      source=source))(source=source)
 
 
 @dataclass(frozen=True)
@@ -115,6 +127,8 @@ class StageService:
     formats: Dict[str, str] = field(default_factory=dict)
     gap: Optional[str] = None
     confidence: Confidence = Confidence.UNKNOWN
+    #: What set ``confidence``: the weakest input.
+    confidence_source: str = ""
 
     @property
     def served(self) -> bool:
@@ -125,6 +139,10 @@ class StageService:
         if not self.served:
             return None
         return max(self.t_compute_s, self.t_memory_s or 0.0)
+
+    @property
+    def estimation_confidence(self) -> EstimationConfidence:
+        return estimation_confidence(self.confidence, self.confidence_source or (self.gap or ""))
 
     @property
     def bound(self) -> Optional[str]:
@@ -151,6 +169,7 @@ class StageService:
             "formats": dict(self.formats),
             "gap": self.gap,
             "confidence": self.confidence.value,
+            "confidence_source": self.confidence_source or self.gap or "",
         }
 
 
@@ -163,6 +182,7 @@ def pooled_service(demand: StageDemand, table: EfficiencyTable) -> StageService:
         rate_hz=demand.rate_hz,
         t_compute_s=demand.stage.service_time_s(throughput),
         confidence=weakest(table.pooled.confidence, WORKLOAD_CONFIDENCE),
+        confidence_source=f"{table.id} pooled class throughput; workload unit costs",
     )
 
 
@@ -171,7 +191,7 @@ def engine_service(
     kernel: KernelClass,
     engine: Engine,
     table: EfficiencyTable,
-    dram_sustained_gbps: float,
+    dram_sustained_gb_per_s: float,
 ) -> StageService:
     """One call of a stage on one server of ``engine``, or why it cannot be priced."""
     stage: Stage = demand.stage
@@ -196,12 +216,20 @@ def engine_service(
             engine.server_peak_ops_per_s(fmt) * entry.compute_eff
         )
         confidence = weakest(confidence, entry.confidence)
+    sources = [f"{table.id} efficiency for {kernel.value}/{engine.kind.value}", "workload unit costs"]
+    if not engine.block.clock_is_reference:
+        # The peak uses a clock no stated relation carries to this node, so
+        # the service time rests on a figure that does not apply here. (A
+        # block's silicon-line confidence is about its area, not its speed,
+        # and does not enter.)
+        confidence = Confidence.UNKNOWN
+        sources.insert(0, f"{engine.name} clock is provisional at {engine.block.clock_basis}")
     t_memory = None
-    if dram_sustained_gbps > 0:
-        t_memory = stage.bytes_per_call / (dram_sustained_gbps * 1e9)
+    if dram_sustained_gb_per_s > 0:
+        t_memory = stage.bytes_per_call / (dram_sustained_gb_per_s * 1e9)
     return StageService(
         **base, t_compute_s=t_compute, t_memory_s=t_memory,
-        formats=formats, confidence=confidence,
+        formats=formats, confidence=confidence, confidence_source="; ".join(sources),
     )
 
 
@@ -256,7 +284,7 @@ def greedy_mapping(
     engines: Mapping[str, Engine],
     kernels: KernelClassMap,
     table: EfficiencyTable,
-    dram_sustained_gbps: float,
+    dram_sustained_gb_per_s: float,
 ) -> Dict[str, StageService]:
     """Heaviest stage first, each to the priced engine it loads least.
 
@@ -272,7 +300,7 @@ def greedy_mapping(
         options: List[Tuple[float, float, StageService]] = []
         reasons: List[str] = []
         for name, engine in engines.items():
-            svc = engine_service(demand, kernel, engine, table, dram_sustained_gbps)
+            svc = engine_service(demand, kernel, engine, table, dram_sustained_gb_per_s)
             if not svc.served:
                 reasons.append(svc.gap)
                 continue
@@ -303,5 +331,6 @@ __all__ = [
     "greedy_mapping",
     "load_mapping",
     "pooled_service",
+    "estimation_confidence",
     "weakest",
 ]

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Tuple, Union
 
 from graphs.core.pipeline_workload import REACTIVE_CHAIN, MissionProfile, PipelineWorkload
+from graphs.core.confidence import EstimationConfidence
 from graphs.hardware.soc import Confidence, SoCInstance
 
 from .efficiency import EfficiencyTable, KernelClassMap
@@ -35,10 +36,15 @@ from .mapping import (
     check_explicit,
     engine_service,
     engines_of,
+    estimation_confidence,
     greedy_mapping,
     pooled_service,
     weakest,
 )
+
+
+_LEVEL_ORDER = [Confidence.CALIBRATED, Confidence.INTERPOLATED, Confidence.THEORETICAL,
+                Confidence.UNKNOWN]
 
 
 @dataclass(frozen=True)
@@ -48,8 +54,8 @@ class Schedule:
     mapping: str  # "pooled", "explicit" or "greedy"
     services: Tuple[StageService, ...]
     servers: Dict[str, int]
-    dram_demand_gbps: float
-    dram_supply_gbps: Optional[float]  # sustained; None when the design states none
+    dram_demand_gb_per_s: float
+    dram_supply_gb_per_s: Optional[float]  # sustained; None when the design states none
 
     # ---- completeness ----------------------------------------------------
 
@@ -94,9 +100,9 @@ class Schedule:
 
     @property
     def dram_utilization(self) -> Optional[float]:
-        if not self.dram_supply_gbps:
+        if not self.dram_supply_gb_per_s:
             return None
-        return self.dram_demand_gbps / self.dram_supply_gbps
+        return self.dram_demand_gb_per_s / self.dram_supply_gb_per_s
 
     # ---- latency ---------------------------------------------------------
 
@@ -132,6 +138,8 @@ class Schedule:
         )
         if violated:
             return False
+        if self.dram_demand_gb_per_s > 0 and self.dram_supply_gb_per_s is None:
+            return None  # unknown supply is not zero utilization
         return True if self.complete else None
 
     @property
@@ -140,6 +148,16 @@ class Schedule:
         if not self.complete:
             levels.append(Confidence.UNKNOWN)
         return weakest(*levels)
+
+    @property
+    def estimation_confidence(self) -> EstimationConfidence:
+        """The weakest stage's confidence, and which stage set it."""
+        if not self.complete:
+            source = f"{len(self.gaps)} stage(s) unpriced"
+        else:
+            weakest_stage = max(self.served, key=lambda s: _LEVEL_ORDER.index(s.confidence))
+            source = f"{weakest_stage.stage}: {weakest_stage.confidence_source}"
+        return estimation_confidence(self.confidence, source)
 
     def to_dict(self) -> dict:
         util = self.engine_utilization()
@@ -156,8 +174,8 @@ class Schedule:
                 for n in self.servers
             ],
             "memory": {
-                "dram_demand_gbs": self.dram_demand_gbps,
-                "dram_supply_gbs": self.dram_supply_gbps,
+                "dram_demand_gb_per_s": self.dram_demand_gb_per_s,
+                "dram_supply_gb_per_s": self.dram_supply_gb_per_s,
                 "utilization": self.dram_utilization,
             },
             "summary": {
@@ -169,6 +187,7 @@ class Schedule:
                 "meets_deadline": self.meets_deadline(),
                 "feasible": self.feasible(),
                 "confidence": self.confidence.value,
+                "confidence_source": self.estimation_confidence.source,
             },
         }
 
@@ -194,8 +213,8 @@ def schedule(
     demands = workload.demands(profile)
     dram_demand = sum(d.bytes_per_s for d in demands) / 1e9
     supply = None
-    if soc is not None and soc.dram_peak_gbps > 0:
-        supply = soc.dram_peak_gbps * sustained_fraction
+    if soc is not None and soc.dram_peak_gb_per_s > 0:
+        supply = soc.dram_peak_gb_per_s * sustained_fraction
 
     if table.kind == "pooled":
         services = tuple(pooled_service(d, table) for d in demands)

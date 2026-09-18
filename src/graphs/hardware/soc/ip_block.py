@@ -210,7 +210,7 @@ class IPMemoryInterface(BaseModel):
     fraction, which depends on the access pattern rather than the block.
     """
 
-    peak_gbps: PositiveFloat
+    peak_gb_per_s: PositiveFloat
     source: str = Field(..., min_length=1)
 
     model_config = {"extra": "forbid"}

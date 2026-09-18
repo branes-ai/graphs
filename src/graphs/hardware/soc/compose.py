@@ -205,10 +205,10 @@ class SoCInstance:
         )
 
     @property
-    def dram_peak_gbps(self) -> float:
+    def dram_peak_gb_per_s(self) -> float:
         """Off-chip bandwidth from the blocks that state it; 0 when none do."""
         return sum(
-            b.count * b.template.memory_interface.peak_gbps
+            b.count * b.template.memory_interface.peak_gb_per_s
             for b in self.blocks if b.template.memory_interface is not None
         )
 

@@ -19,7 +19,7 @@ from graphs.estimation.soc.mapping import (
     find_mapping,
 )
 from graphs.estimation.soc.schedule import schedule
-from graphs.hardware.soc import Confidence, EngineKind, compose_soc, load_designs, load_ip_library
+from graphs.hardware.soc import Confidence, compose_soc, load_designs, load_ip_library
 
 WORKLOAD = load_autonomy_workload()
 TABLES = load_efficiency_tables()
@@ -72,7 +72,7 @@ def test_blocks_without_compute_are_not_engines(orin):
 
 
 def test_orin_dram_is_nvidias_figure(orin):
-    assert orin.dram_peak_gbps == pytest.approx(204.8)
+    assert orin.dram_peak_gb_per_s == pytest.approx(204.8)
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ def test_annex_v1_reproduces_every_profile(orin, profile):
     assert got.oversubscription == pytest.approx(ref.oversubscription, rel=1e-12)
     assert got.stages_over() == ref.stages_over()
     assert got.reactive_chain_ms == pytest.approx(ref.reactive_chain_ms, rel=1e-12)
-    assert got.dram_demand_gbps == pytest.approx(ref.gb_per_s, rel=1e-12)
+    assert got.dram_demand_gb_per_s == pytest.approx(ref.gb_per_s, rel=1e-12)
 
 
 @pytest.mark.parametrize("profile, tolerance", [(FAR, 0.01), (AIR, 0.04)], ids=["far", "air"])
@@ -101,7 +101,7 @@ def test_annex_v1_matches_the_argument_documents_regimes(orin, profile, toleranc
 
 def test_pooled_schedule_needs_no_soc_but_then_knows_no_dram_supply():
     got = schedule(WORKLOAD, FAR, None, TABLES["annex_v1"])
-    assert got.dram_supply_gbps is None and got.dram_utilization is None
+    assert got.dram_supply_gb_per_s is None and got.dram_utilization is None
 
 
 def test_far_flight_outruns_orins_dram(orin):
@@ -109,8 +109,8 @@ def test_far_flight_outruns_orins_dram(orin):
     204.8 GB/s peak, let alone the 65% sustained: infeasible on memory before
     compute is considered."""
     got = schedule(WORKLOAD, FAR, orin, TABLES["annex_v1"])
-    assert got.dram_supply_gbps == pytest.approx(204.8 * SUSTAINED_DRAM_FRACTION)
-    assert got.dram_demand_gbps > orin.dram_peak_gbps
+    assert got.dram_supply_gb_per_s == pytest.approx(204.8 * SUSTAINED_DRAM_FRACTION)
+    assert got.dram_demand_gb_per_s > orin.dram_peak_gb_per_s
     assert got.dram_utilization > 2
     assert got.feasible() is False
 
@@ -183,7 +183,7 @@ def test_service_time_is_ops_over_peak_times_efficiency_per_class(orin):
 def test_a_low_intensity_stage_is_memory_bound(orin):
     gpu = engines_of(orin)["gpu_sm"]
     demand = next(d for d in WORKLOAD.demands(FAR) if d.stage.key == "gain")  # ~2 op/B
-    supply = orin.dram_peak_gbps * SUSTAINED_DRAM_FRACTION
+    supply = orin.dram_peak_gb_per_s * SUSTAINED_DRAM_FRACTION
     svc = engine_service(demand, KernelClass.RAYCAST, gpu, _everything_known(0.5), supply)
     assert svc.bound == "memory"
     assert svc.t_service_s == pytest.approx(demand.stage.bytes_per_call / (supply * 1e9))
@@ -227,3 +227,46 @@ def test_the_result_serializes(orin, explicit):
 def test_a_per_engine_table_needs_the_soc_and_kernel_classes():
     with pytest.raises(ValueError, match="per-engine"):
         schedule(WORKLOAD, AIR, None, TABLES["default_v1"])
+
+
+# ---------------------------------------------------------------------------
+# Review findings on #305
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_dram_supply_leaves_feasibility_open():
+    """Without a composed SoC nothing states the DRAM supply; that is not zero
+    utilization, so a light profile that violates nothing is open, not
+    feasible."""
+    light = min(WORKLOAD.profiles, key=lambda p: WORKLOAD.summary(p).oversubscription)
+    got = schedule(WORKLOAD, light, None, TABLES["annex_v1"])
+    assert got.complete and not got.stages_over()
+    assert got.dram_demand_gb_per_s > 0 and got.dram_supply_gb_per_s is None
+    assert got.feasible() is None
+
+
+def test_a_provisional_clock_makes_its_services_unknown(explicit):
+    """At N7, Orin's clocks have no stated relation from 8LPP: the peaks the
+    service times divide by are provisional, so those estimates are UNKNOWN
+    and say why."""
+    at_n7 = compose_soc(DESIGN, load_ip_library(), load_process_nodes(), "tsmc_n7")
+    got = schedule(WORKLOAD, AIR, at_n7, _everything_known(), KERNELS, explicit)
+    assert got.complete
+    for svc in got.services:
+        assert svc.confidence == Confidence.UNKNOWN
+        assert "clock is provisional" in svc.confidence_source
+    assert got.confidence == Confidence.UNKNOWN
+
+
+def test_estimates_carry_the_repo_estimation_confidence(orin, explicit):
+    from graphs.core import ConfidenceLevel, EstimationConfidence
+
+    got = schedule(WORKLOAD, AIR, orin, _everything_known(), KERNELS, explicit)
+    svc = got.services[0]
+    assert isinstance(svc.estimation_confidence, EstimationConfidence)
+    assert svc.estimation_confidence.level == ConfidenceLevel.THEORETICAL
+    assert "efficiency" in svc.estimation_confidence.source
+    assert got.estimation_confidence.level == ConfidenceLevel.THEORETICAL
+    gaps = schedule(WORKLOAD, AIR, orin, TABLES["default_v1"], KERNELS, explicit)
+    assert gaps.estimation_confidence.level == ConfidenceLevel.UNKNOWN
+    assert "unpriced" in gaps.estimation_confidence.source
