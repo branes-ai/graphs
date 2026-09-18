@@ -146,4 +146,5 @@ def test_cli_plot(tmp_path):
 
 
 def test_cli_plot_needs_two_metrics():
-    assert _run("--study", "orin_node_scaling", "--plot", "x.png").returncode == 2
+    result = _run("--study", "orin_node_scaling", "--plot", "x.png")
+    assert result.returncode == 2, result.stderr

@@ -153,24 +153,30 @@ def test_cli_runs_a_shipped_study():
 
 def test_cli_ad_hoc_sweep_to_csv_and_json(tmp_path):
     out = tmp_path / "s.csv"
-    assert _run("--designs", "orin_class_reference", "--nodes", "samsung_8lpp,tsmc_n7",
-                "--gate-idle", "both", "-o", str(out)).returncode == 0
+    result = _run("--designs", "orin_class_reference", "--nodes", "samsung_8lpp,tsmc_n7",
+                  "--gate-idle", "both", "-o", str(out))
+    assert result.returncode == 0, result.stderr
     rows = list(csv.DictReader(out.open(newline="")))
     assert len(rows) == 2 * 2 * 2
     assert {r["gate_idle"] for r in rows} == {"True", "False"}
     js = tmp_path / "s.json"
-    assert _run("--study", "orin_node_scaling", "-o", str(js)).returncode == 0
+    result = _run("--study", "orin_node_scaling", "-o", str(js))
+    assert result.returncode == 0, result.stderr
     payload = json.loads(js.read_text())
     assert payload["study"]["id"] == "orin_node_scaling" and len(payload["points"]) == 12
 
 
 def test_cli_markdown(tmp_path):
     out = tmp_path / "s.md"
-    assert _run("--study", "orin_node_scaling", "-o", str(out)).returncode == 0
+    result = _run("--study", "orin_node_scaling", "-o", str(out))
+    assert result.returncode == 0, result.stderr
     assert out.read_text().startswith("## orin_node_scaling")
 
 
 def test_cli_bad_input_exits_2():
-    assert _run("--study", "nope").returncode == 2
-    assert _run("--designs", "nope").returncode == 2
-    assert _run("--designs", "orin_class_reference", "--efficiency", "nope").returncode == 2
+    result = _run("--study", "nope")
+    assert result.returncode == 2, result.stderr
+    result = _run("--designs", "nope")
+    assert result.returncode == 2, result.stderr
+    result = _run("--designs", "orin_class_reference", "--efficiency", "nope")
+    assert result.returncode == 2, result.stderr
