@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 from embodied_schemas import load_compute_products, load_process_nodes
 
-from graphs.estimation.soc import SoCAnalyzer, engines_of, load_efficiency_tables, load_kernel_classes, schedule
+from graphs.estimation.soc import SoCAnalyzer, engines_of, load_kernel_classes, schedule
 from graphs.estimation.soc.pareto import classify_front, union_of_regimes
 from graphs.estimation.soc.study import load_study, run_study
-from graphs.hardware.soc import EngineKind, compose_soc, load_designs, load_ip_library
+from graphs.hardware.soc import compose_soc, load_designs, load_ip_library
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))

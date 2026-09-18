@@ -116,7 +116,7 @@ def _plot(rows: List[SweepRow], statuses: List[str], metrics: List[str], path: s
         raise ValueError("--plot needs matplotlib (the 'viz' extra)") from exc
     from graphs.estimation.soc.pareto import METRICS
 
-    (xk, xf), (yk, yf) = METRICS[metrics[0]], METRICS[metrics[1]]
+    (xk, _), (yk, _) = METRICS[metrics[0]], METRICS[metrics[1]]
     fig, ax = plt.subplots(figsize=(7, 5))
     style = {"front": ("o", "tab:green"), "dominated": ("x", "tab:gray"), "undecided": ("^", "tab:orange")}
     for status, (marker, color) in style.items():
