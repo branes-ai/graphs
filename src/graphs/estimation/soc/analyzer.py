@@ -246,7 +246,7 @@ class SoCAnalyzer:
 
     def analyze(
         self,
-        design: str,
+        design: Union[str, SoCDesign],
         profile: Union[str, MissionProfile],
         node: Optional[str] = None,
         efficiency: str = "annex_v1",
@@ -254,11 +254,14 @@ class SoCAnalyzer:
         gate_idle: bool = False,
         sustained_fraction: float = SUSTAINED_DRAM_FRACTION,
     ) -> SoCAnalysisResult:
-        if design not in self.designs:
+        if isinstance(design, SoCDesign):
+            spec = design  # e.g. a sweep variant, not in the catalog
+        elif design in self.designs:
+            spec = self.designs[design]
+        else:
             raise KeyError(f"no SoC design {design!r}; have {sorted(self.designs)}")
         if efficiency not in self.tables:
             raise KeyError(f"no efficiency table {efficiency!r}; have {sorted(self.tables)}")
-        spec = self.designs[design]
         prof = profile if isinstance(profile, MissionProfile) else self.workload.profile(profile)
         soc = compose_soc(spec, self.library, self.nodes, node)
         table = self.tables[efficiency]

@@ -4,7 +4,8 @@
 stage runs on one *server* of it and owns that server while it runs -- the
 annex's assumption, and a lower bound until Phase 5 adds contention:
 
-* a GPU is one server: a stage launches across all its SMs;
+* a GPU or a KPU is one server: a stage launches across all its SMs, or
+  runs as a wavefront across the whole tile fabric;
 * anything else is ``count x units`` servers -- a CPU core, one DLA -- and a
   stage runs on one of them (the parent plan's "CPU clusters are N parallel
   servers"). A single-threaded view of CPU stages; multithreading is Phase 5.
@@ -110,7 +111,8 @@ def engines_of(soc: SoCInstance) -> Dict[str, Engine]:
         compute = block.template.compute
         if compute is None or block.clock_ghz is None or not compute.ops_per_clock:
             continue
-        servers = 1 if block.engine_kind == EngineKind.GPU else block.count * compute.units
+        servers = (1 if block.engine_kind in (EngineKind.GPU, EngineKind.KPU)
+                   else block.count * compute.units)
         out[block.name] = Engine(block, servers)
     return out
 

@@ -22,6 +22,7 @@ from .efficiency import (
 from .mapping import Engine, MappingFile, StageService, engines_of, find_mapping, load_mapping
 from .power import PowerReport, roll_up
 from .schedule import Schedule, schedule
+from .study import Study, SweepRow, load_study, run_study
 
 __all__ = [
     "CLASS_FLOOR",
@@ -47,4 +48,8 @@ __all__ = [
     "roll_up",
     "SoCAnalysisResult",
     "SoCAnalyzer",
+    "Study",
+    "SweepRow",
+    "load_study",
+    "run_study",
 ]

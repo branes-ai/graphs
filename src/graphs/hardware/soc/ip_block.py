@@ -160,6 +160,11 @@ class IPCompute(BaseModel):
     #: The ``architectural_energy.ArchitectureClass`` the Phase 3 power model
     #: will charge overhead by. Without it a CPU looks 10-50x too efficient.
     architecture_class: Optional[str] = None
+    #: The library the ALUs are built in, when the block's silicon has more
+    #: than one logic line (a KPU's PEs and its NoC routers). The power
+    #: roll-up prices ops in it; without it, one logic line must be the
+    #: datapath or dynamic power is a gap.
+    datapath_class: Optional[CircuitClass] = None
     dispatch_overhead_us: Optional[float] = Field(
         None, ge=0, description="Per-kernel launch cost; dominates MPC/CBF stages"
     )

@@ -184,8 +184,12 @@ class PowerReport:
 
 
 def datapath_library(block: BlockInstance) -> Optional[CircuitClass]:
-    """The one logic library a block's datapath is built in, or ``None`` when
-    it has none or several (then which one the ALU sits in is not stated)."""
+    """The logic library a block's datapath is built in: the template's
+    stated ``datapath_class``, else its one logic line; ``None`` when it has
+    none or several and does not say which holds the ALUs."""
+    compute = block.template.compute
+    if compute is not None and compute.datapath_class is not None:
+        return compute.datapath_class
     libs = {l.circuit_class for l in block.template.silicon if l.circuit_class in LOGIC_CLASSES}
     return next(iter(libs)) if len(libs) == 1 else None
 

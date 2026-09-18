@@ -1,0 +1,65 @@
+# Explicit stage-to-engine mapping for the KPU-heterogeneous design
+# (graphs#269 PR 4.3). The KPU has INT8 and FP16 but no FP32, so every stage
+# with a Class C share runs on the CPU (fail closed, P3-D6); the rest go to
+# the KPU. The H64's fixed-function SGM, VIO and ISP tiles are not engines at
+# L0 (they state no ops per clock); absorbing stages into them is #268 E3.
+design: kpu_heterogeneous_h64
+workload: branes_7tier_v1
+stages:
+  lidar:
+    engine: cpu
+    reason: Class C (FP32) voxel-hash work; the KPU has no FP32.
+  sgm:
+    engine: cpu
+    reason: 15% Class C; the KPU has no FP32. The H64's SGM tile is fixed-function and not an L0 engine.
+  radar:
+    engine: cpu
+    reason: 30% Class C; the KPU has no FP32.
+  mono:
+    engine: cpu
+    reason: Class C per-pixel front-end.
+  lio:
+    engine: cpu
+    reason: Class C iterated EKF.
+  vio:
+    engine: cpu
+    reason: 40% Class C; the H64's VIO tile is fixed-function and not an L0 engine.
+  ba:
+    engine: cpu
+    reason: Class C bundle adjustment.
+  tsdf:
+    engine: cpu
+    reason: Class C raycasting.
+  esdf:
+    engine: cpu
+    reason: Class C wavefront propagation.
+  det:
+    engine: kpu
+    reason: Class A and B only; INT8 and FP16 on the KPU.
+  vlm:
+    engine: kpu
+    reason: Class A and B only.
+  vla:
+    engine: kpu
+    reason: Class A and B only.
+  gain:
+    engine: cpu
+    reason: Class C raycasting.
+  graph:
+    engine: cpu
+    reason: Class C graph search.
+  sdfenc:
+    engine: kpu
+    reason: Class A and B only.
+  policy:
+    engine: kpu
+    reason: Class A and B only.
+  mpc:
+    engine: cpu
+    reason: Class C QP.
+  cbf:
+    engine: cpu
+    reason: Class C map sweep and QP.
+  ctrl:
+    engine: cpu
+    reason: Class C servo loops.
