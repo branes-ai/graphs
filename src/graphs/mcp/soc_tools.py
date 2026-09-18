@@ -105,7 +105,13 @@ def soc_tool_definitions() -> List[Dict[str, Any]]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "study": {"type": "string", "description": "Shipped study id; or give designs"},
+                    "study": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9_]+$",
+                        "description": "A shipped study id (see list_soc_designs). Give either "
+                                       "this or designs (with nodes / profiles / efficiency), "
+                                       "not both",
+                    },
                     "designs": {"type": "array", "items": {"type": "string"}},
                     "nodes": {"type": "array", "items": {"type": "string"}},
                     "profiles": {
@@ -177,13 +183,31 @@ def _analyze_soc(args: Dict[str, Any]) -> str:
     return json.dumps(full if detail == "full" else _summary(full), indent=2)
 
 
+def _shipped_study(study_id: Any):
+    """A study from ``soc_designs/studies/`` by id only. An MCP client must not
+    name a path: no suffix, separator or traversal, and an unknown id is
+    reported with the available ids, not with a file path."""
+    import re  # noqa: PLC0415
+
+    from graphs.estimation.soc.study import DEFAULT_STUDY_DIR, load_study  # noqa: PLC0415
+
+    available = sorted(p.stem for p in DEFAULT_STUDY_DIR.glob("*.yaml"))
+    if not isinstance(study_id, str) or not re.fullmatch(r"[a-z0-9_]+", study_id) \
+            or study_id not in available:
+        raise ValueError(f"unknown study {study_id!r}; available: {available}")
+    return load_study(DEFAULT_STUDY_DIR / f"{study_id}.yaml")
+
+
 def _sweep_soc_study(args: Dict[str, Any]) -> str:
     from graphs.estimation.soc.pareto import classify_front, union_of_regimes
-    from graphs.estimation.soc.study import Study, load_study, run_study
+    from graphs.estimation.soc.study import Study, run_study
 
     a = _analyzer()
+    adhoc = [k for k in ("designs", "nodes", "profiles", "efficiency") if args.get(k)]
+    if args.get("study") and adhoc:
+        raise ValueError(f"give either 'study' or an ad-hoc sweep, not both (got study and {adhoc})")
     if args.get("study"):
-        study = load_study(args["study"])
+        study = _shipped_study(args["study"])
     elif args.get("designs"):
         study = Study(id="adhoc", name="ad-hoc sweep", workload=a.workload.version,
                       designs=args["designs"], nodes=args.get("nodes") or [None],

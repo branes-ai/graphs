@@ -169,3 +169,32 @@ def test_sweep_soc_study_ad_hoc_and_errors():
     assert len(out["points"]) == 1 and out["points"][0]["feasible"] is False
     missing = json.loads(execute_mcp_tool("sweep_soc_study", {}))
     assert "error" in missing
+
+
+def test_sweep_soc_study_refuses_both_sources():
+    out = json.loads(execute_mcp_tool("sweep_soc_study", {
+        "study": "orin_node_scaling", "designs": ["orin_class_reference"]}))
+    assert "not both" in out["error"]
+
+
+@pytest.mark.parametrize("study", [
+    "../../etc/passwd", "/etc/passwd", "orin_node_scaling.yaml", "soc_designs/studies/orin_node_scaling",
+    "no_such_study", 42,
+])
+def test_sweep_soc_study_accepts_shipped_ids_only(study):
+    """An MCP client names a shipped study, never a path; the error lists
+    ids and carries no file path."""
+    out = json.loads(execute_mcp_tool("sweep_soc_study", {"study": study}))
+    assert "unknown study" in out["error"] and "orin_node_scaling" in out["error"]
+    assert "/home" not in out["error"] and "soc_designs/studies/" not in out["error"].replace(
+        repr(study), "")
+
+
+def test_mcp_sources_are_ascii():
+    """CLAUDE.md: no Unicode in code or output."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "src" / "graphs" / "mcp"
+    for name in ("server.py", "soc_tools.py"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert text.isascii(), name

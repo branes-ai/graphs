@@ -5,16 +5,16 @@ definitions with a JSON-string dispatcher.  No ``mcp`` pip package required.
 
 Tools
 -----
-analyze_model      – Full unified roofline + energy + memory analysis
-estimate_latency   – Roofline-based latency prediction
-estimate_energy    – Component-wise energy breakdown
-estimate_memory    – Peak memory and activation timeline
-compare_hardware   – Multi-target performance ranking
-list_hardware      – Hardware catalog discovery
-get_hardware_specs – Detailed hardware profile
-list_soc_designs   – SoC designs, nodes, studies and mission profiles
-analyze_soc        – One SoC design on one pipeline mission profile
-sweep_soc_study    – SoC design sweeps with bound-aware reports
+analyze_model      - Full unified roofline + energy + memory analysis
+estimate_latency   - Roofline-based latency prediction
+estimate_energy    - Component-wise energy breakdown
+estimate_memory    - Peak memory and activation timeline
+compare_hardware   - Multi-target performance ranking
+list_hardware      - Hardware catalog discovery
+get_hardware_specs - Detailed hardware profile
+list_soc_designs   - SoC designs, nodes, studies and mission profiles
+analyze_soc        - One SoC design on one pipeline mission profile
+sweep_soc_study    - SoC design sweeps with bound-aware reports
 
 The SoC tools live in ``soc_tools.py`` (graphs#269 PR 4.4).
 """
@@ -29,7 +29,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Lazy imports — keep startup fast; only import heavy deps on first tool call
+# Lazy imports -- keep startup fast; only import heavy deps on first tool call
 # ---------------------------------------------------------------------------
 
 _analyzer = None
