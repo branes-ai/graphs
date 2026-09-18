@@ -18,6 +18,8 @@ from .efficiency import (
     load_efficiency_tables,
     load_kernel_classes,
 )
+from .mapping import Engine, MappingFile, StageService, engines_of, find_mapping, load_mapping
+from .schedule import Schedule, schedule
 
 __all__ = [
     "CLASS_FLOOR",
@@ -31,4 +33,12 @@ __all__ = [
     "execution_format",
     "load_efficiency_tables",
     "load_kernel_classes",
+    "Engine",
+    "MappingFile",
+    "Schedule",
+    "StageService",
+    "engines_of",
+    "find_mapping",
+    "load_mapping",
+    "schedule",
 ]
