@@ -1,0 +1,15 @@
+id: orin_node_scaling
+name: Orin-class across nodes and GPU allocation
+workload: branes_7tier_v1
+designs: [orin_class_reference]
+nodes: [samsung_8lpp, tsmc_n7, tsmc_n5]
+profiles: regimes
+efficiency: [annex_v1]
+gate_idle: [false]
+overrides:
+  - target: block:gpu_sm.count
+    values: [8, 16]
+notes: >-
+  The Phase 4 smoke study. Area and DRAM are decidable where priced; compute
+  under annex_v1 is the annex's pooled machine and does not see the GPU
+  allocation, which is what this study is meant to make visible.
