@@ -187,4 +187,30 @@ figure says whether it is complete.
 | 3.1 | Kernel classes on the 19 stages; the efficiency schema; `annex_v1`; `default_v1` from the Orin calibrations plus explicit unknowns. |
 | 3.2 | `mapping.py` (explicit and greedy, one engine per stage) and `schedule.py` (utilization, shared DRAM against sustained bandwidth, constraint ratios, the reactive chain). |
 | 3.3 | `power.py`: ALU-floor dynamic, DRAM I/O, leakage and fixed terms with stated gaps; `gate_idle`; budget check; W/mm^2 per block; `to_compute_product` deferred (P3-D8). |
-| 3.4 | `SoCAnalyzer`, `SoCAnalysisResult` (JSON-first, section 5.8), `cli/analyze_soc.py`, confidence propagation. |
+| 3.4 | `SoCAnalyzer`, `SoCAnalysisResult` (JSON-first, section 5.8), `cli/analyze_soc.py`; confidence is the weakest input, and `confidence_summary.limited_by` names every gap. |
+
+## Acceptance status (PR 3.4)
+
+| Criterion | Status |
+|---|---|
+| 1. Oversubscription within 5% (`annex_v1`) | **Passes** on both regimes: far flight 16.18 vs 16.2, air superiority 16.62 vs 17.3. All 18 profiles reproduce the annex model to 1e-12. |
+| 2. Stages over match | **Passes** against the annex model on every profile. |
+| 3. Orin at 25 W vs 101.8 GOPS/W | **Open.** No op lands on a datapath under the pooled model, and 8LPP has no DRAM energy. TOPS/W is withheld (P3-D8). |
+
+A first finding the data does support: far flight's own DRAM demand
+(306 GB/s) exceeds Orin's 204.8 GB/s peak. That makes it infeasible on
+memory, whatever the compute efficiencies turn out to be.
+
+Cross-repo check before 3.4 (parent plan section 9), 2026-09-18:
+
+- **embodied-schemas.** `leakage_w_per_mm2` is keyed by the same
+  `CircuitClass` enum. `energy_per_op_pj` keys are `<library>:<format>`, and
+  no node states `fp16` or `fp64`. Class B runs in FP16 on any engine that
+  has it, so it is a dynamic-power gap everywhere. That is intended: BF16
+  is not substituted for FP16 (P3-D8). Catalog `int4` entries go unused,
+  because no workload class floors at INT4.
+- **embodied-ai-architect.** Nothing yet consumes an SoC analysis result, and
+  no `analyze_soc` / `SoCAnalysisResult` name collides. Wiring an MCP tool is
+  PR 4.4.
+- **Confidence strings** (`calibrated`, `interpolated`, `theoretical`,
+  `unknown`) are identical to `graphs.core.ConfidenceLevel`.

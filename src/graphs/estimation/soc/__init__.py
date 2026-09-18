@@ -5,6 +5,7 @@ runs a pipeline workload on the result. See
 ``docs/plans/soc-phase3-execution-plan.md``.
 """
 
+from .analyzer import SoCAnalysisResult, SoCAnalyzer
 from .efficiency import (
     CLASS_FLOOR,
     PRECISION_ORDER,
@@ -44,4 +45,6 @@ __all__ = [
     "schedule",
     "PowerReport",
     "roll_up",
+    "SoCAnalysisResult",
+    "SoCAnalyzer",
 ]
