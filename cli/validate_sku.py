@@ -259,6 +259,61 @@ def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
     return 0
 
 
+def _run_soc(args) -> int:
+    """Validate one SoC design composed at one node.
+
+    Phase 2 validates the composed ``SoCInstance`` directly; it does not
+    emit a ComputeProduct yet (soc-phase2-execution-plan.md, P2-D1). The
+    findings share the KPU path's type, renderers and exit-code rules.
+    """
+    from embodied_schemas import load_process_nodes
+
+    from graphs.hardware.soc import compose_soc, load_designs, load_ip_library
+    from graphs.hardware.soc.validators import SOC_VALIDATORS, validate_soc
+
+    designs = load_designs()
+    if args.soc not in designs:
+        print(
+            f"error: no SoC design {args.soc!r}. Available: {', '.join(sorted(designs))}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        soc = compose_soc(designs[args.soc], load_ip_library(), load_process_nodes(), args.node)
+    except (KeyError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    findings = validate_soc(soc)
+    if args.category:
+        findings = [f for f in findings if f.category == ValidatorCategory(args.category)]
+    if args.severity:
+        findings = filter_findings(findings, min_severity=Severity(args.severity))
+
+    label = f"{args.soc}@{soc.node.id}"
+    count = len(SOC_VALIDATORS)
+    fmt = detect_format(args.output)
+    if fmt == "json":
+        rendered = _render_json(findings, label, count)
+    elif fmt == "csv":
+        rendered = _render_csv(findings, label, count)
+    elif fmt == "md":
+        rendered = _render_md(findings, label, count) + "\n"
+    else:
+        rendered = _render_text(findings, label, count) + "\n"
+    if args.output:
+        with open(args.output, "w", encoding="utf-8", newline="") as fh:
+            fh.write(rendered)
+    else:
+        sys.stdout.write(rendered)
+
+    if has_errors(findings):
+        return 1
+    if args.strict and any(f.severity == Severity.WARNING for f in findings):
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run SKU validators against a KPU SKU and report findings."
@@ -279,6 +334,19 @@ def main() -> int:
         metavar="PATH",
         help="Validate a ComputeProduct YAML / JSON file instead of a "
         "catalog SKU, e.g. the output of cli/generate_kpu_sku.py.",
+    )
+    sku_group.add_argument(
+        "--soc",
+        metavar="DESIGN",
+        help="Validate an SoC design from soc_designs/designs/ (graphs#269), "
+        "composed at --node: area completeness, clock retargeting, PHY "
+        "shoreline and the reference comparison.",
+    )
+    parser.add_argument(
+        "--node",
+        metavar="NODE",
+        help="Process node to compose an --soc design at (default: the "
+        "design's own node).",
     )
     parser.add_argument(
         "--category",
@@ -308,6 +376,10 @@ def main() -> int:
     # ---- --all mode: catalog sweep ----
     if args.all:
         return _run_catalog_sweep(args, validator_count)
+
+    # ---- --soc mode: a composed SoC design (graphs#269) ----
+    if args.soc:
+        return _run_soc(args)
 
     # Build context. A --from-file SKU is not in the catalog yet, so it is
     # passed in as a one-entry catalog (graphs#268 C6): a heterogeneous
