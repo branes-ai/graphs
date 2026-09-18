@@ -5,13 +5,18 @@ definitions with a JSON-string dispatcher.  No ``mcp`` pip package required.
 
 Tools
 -----
-analyze_model      – Full unified roofline + energy + memory analysis
-estimate_latency   – Roofline-based latency prediction
-estimate_energy    – Component-wise energy breakdown
-estimate_memory    – Peak memory and activation timeline
-compare_hardware   – Multi-target performance ranking
-list_hardware      – Hardware catalog discovery
-get_hardware_specs – Detailed hardware profile
+analyze_model      - Full unified roofline + energy + memory analysis
+estimate_latency   - Roofline-based latency prediction
+estimate_energy    - Component-wise energy breakdown
+estimate_memory    - Peak memory and activation timeline
+compare_hardware   - Multi-target performance ranking
+list_hardware      - Hardware catalog discovery
+get_hardware_specs - Detailed hardware profile
+list_soc_designs   - SoC designs, nodes, studies and mission profiles
+analyze_soc        - One SoC design on one pipeline mission profile
+sweep_soc_study    - SoC design sweeps with bound-aware reports
+
+The SoC tools live in ``soc_tools.py`` (graphs#269 PR 4.4).
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Lazy imports — keep startup fast; only import heavy deps on first tool call
+# Lazy imports -- keep startup fast; only import heavy deps on first tool call
 # ---------------------------------------------------------------------------
 
 _analyzer = None
@@ -142,6 +147,12 @@ def _result_summary(result) -> dict:
 
 def get_mcp_tool_definitions() -> list[dict[str, Any]]:
     """Return MCP tool definitions for the graphs estimator engine."""
+    from graphs.mcp.soc_tools import soc_tool_definitions
+
+    return _model_tool_definitions() + soc_tool_definitions()
+
+
+def _model_tool_definitions() -> list[dict[str, Any]]:
     return [
         {
             "name": "analyze_model",
@@ -543,9 +554,17 @@ _HANDLERS: dict[str, Any] = {
 }
 
 
+def _handler(tool_name: str):
+    if tool_name in _HANDLERS:
+        return _HANDLERS[tool_name]
+    from graphs.mcp.soc_tools import SOC_HANDLERS
+
+    return SOC_HANDLERS.get(tool_name)
+
+
 def execute_mcp_tool(tool_name: str, args: dict[str, Any]) -> str:
     """Execute an MCP tool and return a JSON result string."""
-    handler = _HANDLERS.get(tool_name)
+    handler = _handler(tool_name)
     if handler is None:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
     try:

@@ -27,6 +27,9 @@ src/graphs/mcp/
 | `compare_hardware` | Multi-target ranking by latency, energy, or memory |
 | `list_hardware` | Hardware catalog with type filter and fuzzy search |
 | `get_hardware_specs` | Detailed hardware profile (FLOPS, bandwidth, TDP) |
+| `list_soc_designs` | SoC designs, nodes, efficiency tables, studies, mission profiles |
+| `analyze_soc` | One SoC design on one pipeline mission profile |
+| `sweep_soc_study` | SoC design sweeps with bound-aware Pareto and union-of-regimes reports |
 
 ### analyze_model
 
@@ -66,6 +69,44 @@ tpu, kpu, accelerator). Supports fuzzy search (e.g., "jetson", "orin").
 Detailed hardware profile: peak FLOPS by precision, memory bandwidth, total
 memory, TDP, architecture, compute units, calibration status, power profiles,
 and thermal data.
+
+### SoC tools (graphs#269)
+
+These tools run the SoC study framework: IP composition, pipeline workload
+scheduling and power.
+
+- **Every figure carries its bound.** An input with gaps (unanchored
+  silicon, an unmeasured efficiency, a missing node energy) makes area,
+  power and oversubscription lower bounds and TOPS/W an upper bound, and
+  the result flags each one.
+- **Feasibility has three states.** `feasible` is `true` only when proven,
+  `false` on a proven violation, and `null` when gaps leave it open.
+- **Read `confidence_summary.limited_by` before using a number.**
+
+The tools:
+
+- **`list_soc_designs`** lists what can be analyzed: designs (and whether
+  their silicon is fully priced), nodes, efficiency tables (`annex_v1`
+  pooled, `default_v1` per engine), shipped studies, and the workload's
+  mission profiles and regimes.
+- **`analyze_soc`** runs one design on one profile at a node. By default it
+  returns `detail: "summary"`:
+  - the verdicts and bounds;
+  - memory;
+  - the power totals;
+  - the stages that are over or unpriced.
+
+  `detail: "full"` returns the whole `SoCAnalysisResult`.
+- **`sweep_soc_study`** runs a shipped study or an ad-hoc sweep, and
+  optionally adds:
+  - `pareto` metrics, which classify points as front, dominated or
+    undecided. A lower bound never lands on a front.
+  - `union: true`, which reports the smallest design proven feasible in
+    every profile.
+
+The Embodied-AI-Architect lists these tools dynamically (`branes mcp tools`).
+Its LLM tool layer defines its own schemas, so the orchestrator's agent
+reaches them only once they are added there.
 
 ## Transport Modes
 
