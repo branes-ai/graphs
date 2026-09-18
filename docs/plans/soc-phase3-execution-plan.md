@@ -32,6 +32,13 @@ Phase 2's decisions (`soc-phase2-execution-plan.md`) carry over. Started
   whose efficiency is unknown gets no service time and is reported as a gap
   -- the same discipline as Phase 2's unanchored silicon.
 
+**Confirmed 2026-09-18: stay strict.** No THEORETICAL per-engine table is
+derived from the annex's class rates. Such a table would need an unsourced
+assumption about which engine each class ran on (A on GPU INT8, B on GPU
+FP32, C on one CPU core). It would also make the per-engine path look priced
+when it is not. The same holds for power in 3.3: node energies the catalog
+lacks at 8LPP (DRAM I/O, SRAM, NoC) are gaps, not fills.
+
 Supported / unsupported is different from efficiency and is known
 structurally. An engine without a format at or above a stage's precision
 floor cannot run it: **fail closed, never promote** (parent-plan D8).
