@@ -104,6 +104,51 @@ A first result from these: far flight's own DRAM demand (306 GB/s) exceeds
 Orin's peak before any compute is considered. Its utilization against the
 65% sustained fraction is 2.3.
 
+### P3-D8. Dynamic power is an ALU floor; the architectural overhead is not priced
+
+The parent plan prices dynamic energy as the node's per-op energy times the
+architectural overhead of the engine's class. The repo's
+`architectural_energy` models do not supply that multiplier uniformly,
+because their breakdown terms mean different things per class:
+
+- a CPU's `compute_overhead` is the register file plus the ALU;
+- a systolic array's is a signed delta from a baseline.
+
+Normalizing them would mean inventing a convention, which the strict rule
+forbids. So dynamic power is the **ALU energy** of the ops each engine runs:
+the node's `energy_per_op_pj` for the engine's datapath library, in the
+format each class runs in. It is labelled `floor_only`. Architectural
+overhead is at least 1x, so the floor is a true lower bound.
+
+Other terms and rules:
+
+- **Missing formats are gaps, not proxies.** The catalog has no FP16 energy
+  at any node (BF16 is a different format) and no FP64. A class that runs in
+  either is a gap, not billed at a neighbouring format.
+- **DRAM:** PHY I/O energy is priced only where the node states
+  `dram_io_pj_per_byte`, which excludes 8LPP and N5. DRAM device energy has
+  no source and is always a gap.
+- **Leakage:** anchored area times the library's leakage density, at nominal
+  Vdd. `--gate-idle` zeroes the leakage of idle engines.
+- **Fixed-function power is zero.** The workload has no ISP or codec
+  stages; this is stated, not assumed.
+- **Useful TOPS/W is withheld** when a stage is unscheduled or the dynamic
+  term has gaps. Dividing by leakage alone would give a vacuous "upper bound"
+  in the hundreds of TOPS/W.
+
+**Criterion 3 (Orin versus 101.8 GOPS/W) cannot be evaluated yet.** With
+the annex's pooled model no op lands on a datapath, and at 8LPP the catalog
+has no DRAM energy. It opens when a per-engine efficiency set prices Orin's
+stages.
+
+**Thermal check.** No design states a `CoolingSolutionEntry`, so power is
+checked against the profile's budget only. A lower bound over budget is a
+proven violation; under budget with gaps, the check is open.
+
+**`to_compute_product()` stays deferred (P2-D1).** A ComputeProduct's block
+area and power fields are read as values. On Orin, both would be lower
+bounds, which is the misreading that emitting it would invite.
+
 ### P3-D3. The acceptance, restated against the data that exists
 
 The parent plan's criteria assumed five regimes and complete silicon.
@@ -141,5 +186,31 @@ figure says whether it is complete.
 |---|---|
 | 3.1 | Kernel classes on the 19 stages; the efficiency schema; `annex_v1`; `default_v1` from the Orin calibrations plus explicit unknowns. |
 | 3.2 | `mapping.py` (explicit and greedy, one engine per stage) and `schedule.py` (utilization, shared DRAM against sustained bandwidth, constraint ratios, the reactive chain). |
-| 3.3 | Power and energy roll-up with `--gate-idle` and the thermal check; W/mm^2; the `to_compute_product` decision. |
-| 3.4 | `SoCAnalyzer`, `SoCAnalysisResult` (JSON-first, section 5.8), `cli/analyze_soc.py`, confidence propagation. |
+| 3.3 | `power.py`: ALU-floor dynamic, DRAM I/O, leakage and fixed terms with stated gaps; `gate_idle`; budget check; W/mm^2 per block; `to_compute_product` deferred (P3-D8). |
+| 3.4 | `SoCAnalyzer`, `SoCAnalysisResult` (JSON-first, section 5.8), `cli/analyze_soc.py`; confidence is the weakest input, and `confidence_summary.limited_by` names every gap. |
+
+## Acceptance status (PR 3.4)
+
+| Criterion | Status |
+|---|---|
+| 1. Oversubscription within 5% (`annex_v1`) | **Passes** on both regimes: far flight 16.18 vs 16.2, air superiority 16.62 vs 17.3. All 18 profiles reproduce the annex model to 1e-12. |
+| 2. Stages over match | **Passes** against the annex model on every profile. |
+| 3. Orin at 25 W vs 101.8 GOPS/W | **Open.** No op lands on a datapath under the pooled model, and 8LPP has no DRAM energy. TOPS/W is withheld (P3-D8). |
+
+A first finding the data does support: far flight's own DRAM demand
+(306 GB/s) exceeds Orin's 204.8 GB/s peak. That makes it infeasible on
+memory, whatever the compute efficiencies turn out to be.
+
+Cross-repo check before 3.4 (parent plan section 9), 2026-09-18:
+
+- **embodied-schemas.** `leakage_w_per_mm2` is keyed by the same
+  `CircuitClass` enum. `energy_per_op_pj` keys are `<library>:<format>`, and
+  no node states `fp16` or `fp64`. Class B runs in FP16 on any engine that
+  has it, so it is a dynamic-power gap everywhere. That is intended: BF16
+  is not substituted for FP16 (P3-D8). Catalog `int4` entries go unused,
+  because no workload class floors at INT4.
+- **embodied-ai-architect.** Nothing yet consumes an SoC analysis result, and
+  no `analyze_soc` / `SoCAnalysisResult` name collides. Wiring an MCP tool is
+  PR 4.4.
+- **Confidence strings** (`calibrated`, `interpolated`, `theoretical`,
+  `unknown`) are identical to `graphs.core.ConfidenceLevel`.

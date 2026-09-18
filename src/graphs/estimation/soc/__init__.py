@@ -5,6 +5,7 @@ runs a pipeline workload on the result. See
 ``docs/plans/soc-phase3-execution-plan.md``.
 """
 
+from .analyzer import SoCAnalysisResult, SoCAnalyzer
 from .efficiency import (
     CLASS_FLOOR,
     PRECISION_ORDER,
@@ -19,6 +20,7 @@ from .efficiency import (
     load_kernel_classes,
 )
 from .mapping import Engine, MappingFile, StageService, engines_of, find_mapping, load_mapping
+from .power import PowerReport, roll_up
 from .schedule import Schedule, schedule
 
 __all__ = [
@@ -41,4 +43,8 @@ __all__ = [
     "find_mapping",
     "load_mapping",
     "schedule",
+    "PowerReport",
+    "roll_up",
+    "SoCAnalysisResult",
+    "SoCAnalyzer",
 ]
