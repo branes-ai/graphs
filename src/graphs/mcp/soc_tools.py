@@ -78,7 +78,7 @@ def soc_tool_definitions() -> List[Dict[str, Any]]:
                     "mapping": {
                         "type": "string",
                         "default": "auto",
-                        "description": "auto, explicit or greedy",
+                        "description": "auto, explicit, greedy, or ilp (optimal bottleneck; needs scipy)",
                     },
                     "gate_idle": {"type": "boolean", "default": False},
                     "detail": {
