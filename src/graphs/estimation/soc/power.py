@@ -21,7 +21,8 @@ discipline as the die area (P2-D3) and the efficiency tables (P3-D1).
 * **Leakage** is anchored silicon area times the node's leakage density per
   library, at nominal Vdd. Unanchored silicon adds nothing and makes it a
   lower bound. ``gate_idle`` removes the leakage of engines the schedule
-  leaves idle, which quantifies what idle silicon costs a regime.
+  provably leaves idle -- no stage mapped to them, priced or not -- which
+  quantifies what idle silicon costs a regime.
 * **Fixed-function** power is the ISP / codec work; the autonomy workload has
   no fixed-function stages (the parent plan's D5 extension stages are not
   costed), so it is zero, stated rather than assumed.
@@ -223,6 +224,12 @@ def roll_up(
     node = soc.node
     dyn_by_engine, dyn_gaps = _dynamic(schedule, soc, workload)
     util = schedule.engine_utilization() if schedule.mapping != POOLED else {}
+    # Idle means provably idle: no stage names the engine, priced or not. A
+    # stage that is a gap on an engine leaves its utilization unknown, and a
+    # stage no engine could take might have run anywhere, so then nothing is
+    # provably idle.
+    named = {s.engine for s in schedule.services}
+    idle = set() if "" in named else {e for e in util if e not in named}
 
     blocks: List[BlockPower] = []
     leak_total, leak_gaps = 0.0, []
@@ -231,7 +238,7 @@ def roll_up(
         leak_gaps += gaps
         if block.unanchored:
             leak_gaps.append(f"{block.name}: {len(block.unanchored)} unanchored line(s) add no leakage")
-        gated = gate_idle and block.name in util and util[block.name] == 0.0
+        gated = gate_idle and block.name in idle
         if gated:
             leak = 0.0
         leak_total += leak

@@ -164,7 +164,8 @@ def test_a_lower_bound_over_budget_is_a_proven_violation():
 
 def test_gate_idle_zeroes_idle_engines_leakage_only():
     soc = _soc("tsmc_n7")
-    s = schedule(WORKLOAD, AIR, soc, _everything_known(), KERNELS, {"mpc": "cpu"})
+    everything_on_cpu = {d.stage.key: "cpu" for d in WORKLOAD.demands(AIR)}
+    s = schedule(WORKLOAD, AIR, soc, _everything_known(), KERNELS, everything_on_cpu)
     on, gated = roll_up(s, soc, WORKLOAD), roll_up(s, soc, WORKLOAD, gate_idle=True)
     by_on = {b.name: b for b in on.blocks}
     by_gated = {b.name: b for b in gated.blocks}
@@ -200,3 +201,25 @@ def test_the_report_serializes():
     assert out["total_is_lower_bound"] is True
     assert out["useful_tops_per_w"] is None
     assert out["dram_device_w"]["gaps"]
+
+
+def test_an_engine_whose_stages_are_gaps_is_not_idle():
+    """Under default_v1 every stage mapped to the GPU is a gap: its
+    utilization is unknown, not zero, so gating must leave it on."""
+    soc = _soc("tsmc_n7")
+    s = schedule(WORKLOAD, AIR, soc, TABLES["default_v1"], KERNELS, _explicit())
+    assert not s.served and s.engine_utilization()["gpu_sm"] == 0.0
+    gated = roll_up(s, soc, WORKLOAD, gate_idle=True)
+    by = {b.name: b for b in gated.blocks}
+    assert not by["gpu_sm"].gated and not by["cpu"].gated
+    assert by["dla"].gated  # nothing is mapped to the DLAs at all
+    assert gated.leakage.watts == pytest.approx(
+        roll_up(s, soc, WORKLOAD).leakage.watts - roll_up(s, soc, WORKLOAD).blocks[
+            [b.name for b in gated.blocks].index("dla")].leakage_w)
+
+
+def test_an_unmapped_stage_means_no_engine_is_provably_idle():
+    soc = _soc("tsmc_n7")
+    s = schedule(WORKLOAD, AIR, soc, TABLES["default_v1"], KERNELS, "greedy")
+    assert any(svc.engine == "" for svc in s.services)
+    assert not any(b.gated for b in roll_up(s, soc, WORKLOAD, gate_idle=True).blocks)
