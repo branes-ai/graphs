@@ -238,10 +238,8 @@ def test_a_malformed_catalog_is_an_error_not_a_traceback(monkeypatch, capsys):
     assert show_soc.main(["--list-ip"]) == 2
     assert "must match the file name" in capsys.readouterr().err
 
-    import graphs.hardware.soc as soc_pkg
-
     validate_sku = _load_cli("validate_sku")
-    monkeypatch.setattr(soc_pkg, "load_designs", _broken)
+    monkeypatch.setattr("graphs.hardware.soc.load_designs", _broken)
     monkeypatch.setattr(sys, "argv", ["validate_sku.py", "--soc", "orin_class_reference"])
     assert validate_sku.main() == 2
     assert "SoC catalog failed to load" in capsys.readouterr().err
