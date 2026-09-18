@@ -191,15 +191,19 @@ Discover and list available models from torchvision and custom sources.
 
 ---
 
-### `model_registry_tv2dot7.py`
-Model registry for torchvision 2.7 compatibility.
+### `discover_models.py`
+Lists the torchvision models that are FX-traceable and prints a `MODEL_REGISTRY`
+block to paste into `profile_graph.py`.
 
 **Usage:**
-```python
-from cli.model_registry_tv2dot7 import get_model
-
-model = get_model('resnet18')
+```bash
+python cli/discover_models.py
 ```
+
+A capture of one such run is kept at
+`docs/logs/torchvision-2.7-model-discovery.txt`. It used to sit here as
+`model_registry_tv2dot7.py`: console output with a `.py` extension, which no
+module could import and Python could not parse.
 
 ---
 
