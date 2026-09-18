@@ -167,4 +167,5 @@ def test_sweep_soc_study_ad_hoc_and_errors():
     out = json.loads(execute_mcp_tool("sweep_soc_study", {
         "designs": ["kpu_heterogeneous_h64"], "nodes": ["tsmc_n7"], "profiles": ["far flight"]}))
     assert len(out["points"]) == 1 and out["points"][0]["feasible"] is False
-    assert "error" in json.loads(execute_mcp_tool("sweep_soc_study", {}))
+    missing = json.loads(execute_mcp_tool("sweep_soc_study", {}))
+    assert "error" in missing
