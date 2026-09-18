@@ -176,12 +176,14 @@ def test_cli_text_report_leads_with_completeness():
 
 def test_cli_writes_json_and_csv(tmp_path):
     out = tmp_path / "far.json"
-    assert _run("--design", "orin_class_reference", "--regime", "far flight",
-                "-o", str(out)).returncode == 0
+    result = _run("--design", "orin_class_reference", "--regime", "far flight",
+                  "-o", str(out))
+    assert result.returncode == 0, result.stderr
     payload = json.loads(out.read_text())
     assert payload["regime"] == "far flight"
     table = tmp_path / "all.csv"
-    assert _run("--design", "orin_class_reference", "--all", "-o", str(table)).returncode == 0
+    result = _run("--design", "orin_class_reference", "--all", "-o", str(table))
+    assert result.returncode == 0, result.stderr
     rows = list(csv.DictReader(table.open(newline="")))
     assert len(rows) == 18
     assert all(r["power_is_lower_bound"] == "True" for r in rows)
@@ -189,16 +191,20 @@ def test_cli_writes_json_and_csv(tmp_path):
 
 def test_cli_markdown(tmp_path):
     out = tmp_path / "air.md"
-    assert _run("--design", "orin_class_reference", "-o", str(out), "-v").returncode == 0
+    result = _run("--design", "orin_class_reference", "-o", str(out), "-v")
+    assert result.returncode == 0, result.stderr
     text = out.read_text()
     assert text.startswith("## drone_interceptor_terminal_engagement")
     assert "| stage |" in text
 
 
 def test_cli_bad_input_exits_2():
-    assert _run("--design", "nope").returncode == 2
-    assert _run("--design", "orin_class_reference", "--efficiency", "nope").returncode == 2
-    assert _run("--design", "orin_class_reference", "--profile", "nope").returncode == 2
+    result = _run("--design", "nope")
+    assert result.returncode == 2, result.stderr
+    result = _run("--design", "orin_class_reference", "--efficiency", "nope")
+    assert result.returncode == 2, result.stderr
+    result = _run("--design", "orin_class_reference", "--profile", "nope")
+    assert result.returncode == 2, result.stderr
 
 
 def test_cli_lists_profiles():
@@ -209,12 +215,15 @@ def test_cli_lists_profiles():
 
 def test_cli_lists_profiles_in_the_requested_format(tmp_path):
     out = tmp_path / "profiles.json"
-    assert _run("--list-profiles", "-o", str(out)).returncode == 0
+    result = _run("--list-profiles", "-o", str(out))
+    assert result.returncode == 0, result.stderr
     rows = json.loads(out.read_text())
     assert len(rows) == 18 and {"profile", "regime", "budget_w", "deadline_ms"} <= set(rows[0])
     table = tmp_path / "profiles.csv"
-    assert _run("--list-profiles", "-o", str(table)).returncode == 0
+    result = _run("--list-profiles", "-o", str(table))
+    assert result.returncode == 0, result.stderr
     assert len(list(csv.DictReader(table.open(newline="")))) == 18
     md = tmp_path / "profiles.md"
-    assert _run("--list-profiles", "-o", str(md)).returncode == 0
+    result = _run("--list-profiles", "-o", str(md))
+    assert result.returncode == 0, result.stderr
     assert md.read_text().startswith("## Profiles (18)")
