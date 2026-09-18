@@ -1,0 +1,108 @@
+id: default_v1
+name: Per-engine efficiency, measured pairs only
+kind: per_engine
+notes: >-
+  Efficiency is attained throughput over the composed dense peak of the block
+  at its design clock (orin_class_reference: SM 1.3 GHz, DLA 1.6 GHz), so an
+  entry reproduces the measured throughput when the block runs at that clock.
+  Only pairs with a measurement carry a number. Every other supported pair is
+  listed with compute_eff null: the analyzer reports it as a gap and computes
+  no service time for it (decision P3-D1). Pairs not listed at all are also
+  unknown; listing the load-bearing ones says so explicitly.
+entries:
+  # ---- measured ----------------------------------------------------------
+  - kernel_class: dense_conv_gemm
+    engine_kind: gpu
+    precision: fp32
+    compute_eff: 0.338
+    eff_range: [0.280, 0.397]
+    confidence: interpolated
+    source: >-
+      Jetson AGX Orin GPU, MAXN, PyTorch 2.1 FP32 GEMM at n=2048 (the largest
+      size run), hardware_registry/gpu/jetson_orin_agx_gpu/calibrations/
+      MAXN_306MHz_pytorch_20260206T123315Z.json (2,112 GFLOPS) and
+      MAXN_408MHz_pytorch_20260202T122858Z.json (1,493 GFLOPS), over the
+      composed FP32 peak 16 SM x 256 x 1.3 GHz = 5,325 GFLOPS: 0.397 and
+      0.280, mean 0.338. The files' own sm_clock_mhz (306, 408) is an idle
+      DVFS reading, not the clock under load. GEMM stands in for convolution.
+  - kernel_class: dense_conv_gemm
+    engine_kind: npu
+    precision: int8
+    compute_eff: 0.0226
+    eff_range: [0.0131, 0.1412]
+    confidence: interpolated
+    source: >-
+      Orin DLA0 and DLA1, MAXN, TensorRT 8.5.2 INT8, the nine conv2d layers per
+      core that ran wholly on the DLA (gpu_layer_count 0),
+      hardware_registry/accelerator/nvidia_dla_orin/calibrations/
+      dla{0,1}_int8_maxn_20260201T14*.json: 343-3,702 GOPS, median 592.5,
+      over the composed per-DLA peak 16,384 x 1.6 GHz = 26,214 GOPS. These
+      are batch-1 single-layer engines, so per-launch overhead is inside the
+      figure; the 5x5 layer (3.4-3.7 TOPS) is the only one large enough to
+      approach steady state. The whole-network ResNet-18 run is not used:
+      76% of its layers fell back to the GPU.
+  # ---- supported, not measured -----------------------------------------
+  - kernel_class: dense_conv_gemm
+    engine_kind: gpu
+    precision: int8
+    confidence: unknown
+    source: >-
+      No INT8 GEMM or convolution measurement on the Orin GPU: the PyTorch
+      calibration runs FP32, FP16 and BF16 only.
+  - kernel_class: dense_conv_gemm
+    engine_kind: cpu
+    precision: int8
+    confidence: unknown
+    source: No CPU convolution or GEMM calibration for the Cortex-A78AE.
+  - kernel_class: dense_conv_gemm
+    engine_kind: cpu
+    precision: fp32
+    confidence: unknown
+    source: No CPU convolution or GEMM calibration for the Cortex-A78AE.
+  - kernel_class: attention_prefill
+    engine_kind: gpu
+    precision: int8
+    confidence: unknown
+    source: No transformer prefill measurement on Orin.
+  - kernel_class: weight_stream_decode
+    engine_kind: gpu
+    precision: int8
+    confidence: unknown
+    source: >-
+      No decode measurement on Orin. Decode is bandwidth-bound; the schedule's
+      DRAM term, not this efficiency, is expected to set its rate.
+  - kernel_class: small_dense_linalg
+    engine_kind: cpu
+    precision: fp32
+    confidence: unknown
+    source: No Cholesky / Schur / Gauss-Newton measurement on the A78AE.
+  - kernel_class: small_qp
+    engine_kind: cpu
+    precision: fp32
+    confidence: unknown
+    source: No QP-solver measurement on the A78AE.
+  - kernel_class: sparse_hash_scatter
+    engine_kind: cpu
+    precision: fp32
+    confidence: unknown
+    source: No voxel-hash measurement on the A78AE.
+  - kernel_class: raycast
+    engine_kind: gpu
+    precision: fp32
+    confidence: unknown
+    source: No raycasting (TSDF / information-gain) measurement on the Orin GPU.
+  - kernel_class: cost_volume_dp
+    engine_kind: gpu
+    precision: int8
+    confidence: unknown
+    source: No SGM measurement on the Orin GPU.
+  - kernel_class: feature_track
+    engine_kind: gpu
+    precision: int8
+    confidence: unknown
+    source: No FAST / KLT measurement on the Orin GPU.
+  - kernel_class: fft
+    engine_kind: gpu
+    precision: int8
+    confidence: unknown
+    source: No FFT measurement on the Orin GPU.
