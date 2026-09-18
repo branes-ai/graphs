@@ -36,7 +36,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from typing import List, Optional
 
@@ -56,6 +55,7 @@ from graphs.hardware.sku_validators import (
     has_errors,
     load_validators,
 )
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _render_text(
@@ -260,16 +260,6 @@ def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
     return 0
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json", "csv": "csv", "md": "md",
-        "markdown": "md", "txt": "text",
-    }.get(ext, "text")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run SKU validators against a KPU SKU and report findings."
@@ -363,7 +353,7 @@ def main() -> int:
         )
 
     # Render.
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     if fmt == "json":
         rendered = _render_json(findings, sku_id, validator_count)
     elif fmt == "csv":

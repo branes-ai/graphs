@@ -32,7 +32,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
@@ -51,6 +50,7 @@ from graphs.hardware.kpu_access import (
     kpu_block_of,
     kpu_die_of,
 )
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 @dataclass
@@ -313,15 +313,6 @@ _RENDERERS = {
 }
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "csv": "csv", "md": "md", "markdown": "md", "txt": "text"}.get(
-        ext, "text"
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="List KPU SKU entries from the embodied-schemas catalog."
@@ -383,7 +374,7 @@ def main() -> int:
     )
     rows.sort(key=_SORT_KEYS[args.sort])
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     rendered = _RENDERERS[fmt](rows)
 
     if args.output:

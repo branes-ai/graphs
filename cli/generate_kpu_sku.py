@@ -47,7 +47,6 @@ Exit codes:
 
 import argparse
 import json
-import os
 import sys
 from typing import Optional
 
@@ -73,19 +72,13 @@ from graphs.hardware.sku_validators import (
     has_errors,
     load_validators,
 )
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _load_spec(path: str) -> KPUSKUInputSpec:
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     return KPUSKUInputSpec.model_validate(data)
-
-
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "yaml"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"yaml": "yaml", "yml": "yaml", "json": "json"}.get(ext, "yaml")
 
 
 def _serialize(entry, fmt: str) -> str:
@@ -254,7 +247,7 @@ def main() -> int:
         return 2
 
     # Serialize.
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     rendered = _serialize(entry, fmt)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:

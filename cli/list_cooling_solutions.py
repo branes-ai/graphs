@@ -23,13 +23,14 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 from embodied_schemas import load_cooling_solutions
 from embodied_schemas.cooling_solution import CoolingSolutionEntry
+
+from graphs.reporting.output_format import detect_format
 
 
 @dataclass
@@ -127,15 +128,6 @@ _RENDERERS = {
 }
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "csv": "csv", "md": "md", "markdown": "md", "txt": "text"}.get(
-        ext, "text"
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="List cooling-solution entries from the embodied-schemas catalog."
@@ -158,7 +150,7 @@ def main() -> int:
         rows = [r for r in rows if r.mechanism == args.mechanism.lower()]
     rows.sort(key=lambda r: r.max_w_per_mm2)
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     rendered = _RENDERERS[fmt](rows)
 
     if args.output:
