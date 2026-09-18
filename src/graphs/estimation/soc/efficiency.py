@@ -144,6 +144,10 @@ class EfficiencyTable(BaseModel):
     id: str = Field(..., pattern=r"^[a-z0-9_]+$")
     name: str
     kind: Literal["pooled", "per_engine"]
+    #: A per-engine table can layer over another: it inherits the base's
+    #: entries and overrides those it restates (a measured table over
+    #: default_v1). Resolved by ``load_efficiency_tables``.
+    base: Optional[str] = None
     pooled: Optional[PooledThroughput] = None
     entries: List[EfficiencyEntry] = Field(default_factory=list)
     notes: str = ""
@@ -155,9 +159,13 @@ class EfficiencyTable(BaseModel):
         if self.kind == "pooled":
             if self.pooled is None or self.entries:
                 raise ValueError(f"table {self.id!r}: a pooled table has pooled rates and no entries")
+            if self.base is not None:
+                raise ValueError(f"table {self.id!r}: a pooled table cannot layer over another")
             return self
         if self.pooled is not None or not self.entries:
             raise ValueError(f"table {self.id!r}: a per-engine table has entries and no pooled rates")
+        if self.base == self.id:
+            raise ValueError(f"table {self.id!r} cannot be its own base")
         keys = [e.key for e in self.entries]
         dup = sorted({f"{k[0].value}/{k[1].value}/{k[2]}" for k in keys if keys.count(k) > 1})
         if dup:
@@ -217,8 +225,37 @@ DEFAULT_EFFICIENCY_DIR = SOC_DATA_DIR / "efficiency"
 DEFAULT_KERNEL_CLASS_PATH = SOC_DATA_DIR / "kernel_classes" / "branes_7tier_v1.yaml"
 
 
+def resolve_layers(tables: Mapping[str, EfficiencyTable]) -> Dict[str, EfficiencyTable]:
+    """Flatten every ``base:`` chain: a layered table's entries are its
+    base's, overridden key by key by its own."""
+    resolved: Dict[str, EfficiencyTable] = {}
+
+    def flatten(table_id: str, seen: Tuple[str, ...]) -> EfficiencyTable:
+        if table_id in resolved:
+            return resolved[table_id]
+        if table_id in seen:
+            raise ValueError(f"efficiency tables layer in a cycle: {' -> '.join(seen + (table_id,))}")
+        table = tables[table_id]
+        if table.base is None:
+            resolved[table_id] = table
+            return table
+        if table.base not in tables:
+            raise KeyError(f"table {table_id!r}: base {table.base!r} is not a table")
+        base = flatten(table.base, seen + (table_id,))
+        if base.kind != "per_engine":
+            raise ValueError(f"table {table_id!r}: base {base.id!r} is not per-engine")
+        own = {e.key for e in table.entries}
+        merged = [e for e in base.entries if e.key not in own] + list(table.entries)
+        resolved[table_id] = table.model_copy(update={"entries": merged})
+        return resolved[table_id]
+
+    for table_id in tables:
+        flatten(table_id, ())
+    return resolved
+
+
 def load_efficiency_tables(path: Optional[Path] = None) -> Dict[str, EfficiencyTable]:
-    """Every ``*.yaml`` table under ``path``, keyed by id."""
+    """Every ``*.yaml`` table under ``path``, keyed by id, layers resolved."""
     root = Path(path) if path else DEFAULT_EFFICIENCY_DIR
     tables: Dict[str, EfficiencyTable] = {}
     for file in sorted(root.glob("*.yaml")):
@@ -226,7 +263,7 @@ def load_efficiency_tables(path: Optional[Path] = None) -> Dict[str, EfficiencyT
         if table.id != file.stem:
             raise ValueError(f"{file.name}: id {table.id!r} must match the file name")
         tables[table.id] = table
-    return tables
+    return resolve_layers(tables)
 
 
 def load_kernel_classes(path: Optional[Path] = None) -> KernelClassMap:
@@ -247,4 +284,5 @@ __all__ = [
     "execution_format",
     "load_efficiency_tables",
     "load_kernel_classes",
+    "resolve_layers",
 ]
