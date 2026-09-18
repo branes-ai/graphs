@@ -223,3 +223,20 @@ def test_an_unmapped_stage_means_no_engine_is_provably_idle():
     s = schedule(WORKLOAD, AIR, soc, TABLES["default_v1"], KERNELS, "greedy")
     assert any(svc.engine == "" for svc in s.services)
     assert not any(b.gated for b in roll_up(s, soc, WORKLOAD, gate_idle=True).blocks)
+
+
+def test_power_carries_its_own_estimation_confidence():
+    """UNKNOWN whenever a term has gaps or is a floor, with that term as the
+    source -- not the schedule's confidence (#306 review)."""
+    soc = _soc()
+    pooled = roll_up(schedule(WORKLOAD, AIR, soc, TABLES["annex_v1"]), soc, WORKLOAD)
+    assert pooled.schedule.confidence.value == "theoretical"
+    assert pooled.estimation_confidence.level.value == "unknown"
+    assert pooled.estimation_confidence.source.startswith("power.dynamic")
+    floor = roll_up(schedule(WORKLOAD, AIR, _soc("tsmc_n7"), _everything_known(), KERNELS,
+                             _explicit()), _soc("tsmc_n7"), WORKLOAD)
+    assert not floor.dynamic.gaps
+    assert floor.estimation_confidence.level.value == "unknown"
+    assert floor.estimation_confidence.source == (
+        "power.dynamic: ALU-only floor, architectural overhead unpriced")
+    assert pooled.to_dict()["confidence"] == "unknown"

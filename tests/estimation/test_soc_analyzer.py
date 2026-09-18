@@ -205,3 +205,16 @@ def test_cli_lists_profiles():
     result = _run("--list-profiles")
     assert result.returncode == 0
     assert "far flight" in result.stdout and "air superiority" in result.stdout
+
+
+def test_cli_lists_profiles_in_the_requested_format(tmp_path):
+    out = tmp_path / "profiles.json"
+    assert _run("--list-profiles", "-o", str(out)).returncode == 0
+    rows = json.loads(out.read_text())
+    assert len(rows) == 18 and {"profile", "regime", "budget_w", "deadline_ms"} <= set(rows[0])
+    table = tmp_path / "profiles.csv"
+    assert _run("--list-profiles", "-o", str(table)).returncode == 0
+    assert len(list(csv.DictReader(table.open(newline="")))) == 18
+    md = tmp_path / "profiles.md"
+    assert _run("--list-profiles", "-o", str(md)).returncode == 0
+    assert md.read_text().startswith("## Profiles (18)")

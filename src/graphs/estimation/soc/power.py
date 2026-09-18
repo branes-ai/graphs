@@ -38,10 +38,11 @@ from typing import Dict, List, Optional, Tuple
 
 from embodied_schemas.process_node import CircuitClass
 
+from graphs.core.confidence import EstimationConfidence
 from graphs.core.pipeline_workload import CLASS_NAMES, PipelineWorkload
-from graphs.hardware.soc import BlockInstance, SoCInstance
+from graphs.hardware.soc import BlockInstance, Confidence, SoCInstance
 
-from .mapping import POOLED
+from .mapping import POOLED, estimation_confidence, weakest
 from .schedule import Schedule
 
 #: Libraries a datapath can be built in; SRAM, analog and IO lines are not the
@@ -120,6 +121,24 @@ class PowerReport:
         return self.schedule.complete and all(t.complete for t in self.terms)
 
     @property
+    def estimation_confidence(self) -> EstimationConfidence:
+        """Power's own confidence, not the schedule's. UNKNOWN whenever a
+        term has gaps or is a floor, naming the first such term; otherwise
+        the weakest of the schedule and the process-node catalog the
+        energies come from (THEORETICAL)."""
+        for term in self.terms:
+            if term.gaps:
+                return estimation_confidence(Confidence.UNKNOWN, f"power.{term.name}: {term.gaps[0]}")
+            if term.floor_only:
+                return estimation_confidence(
+                    Confidence.UNKNOWN, f"power.{term.name}: ALU-only floor, architectural overhead unpriced")
+        if not self.schedule.complete:
+            return estimation_confidence(Confidence.UNKNOWN, "power: the schedule has unpriced stages")
+        level = weakest(self.schedule.confidence, Confidence.THEORETICAL)
+        return estimation_confidence(level, "process-node catalog energies; " +
+                                     self.schedule.estimation_confidence.source)
+
+    @property
     def budget_w(self) -> float:
         return self.schedule.profile.power_budget_w
 
@@ -146,6 +165,8 @@ class PowerReport:
     def to_dict(self) -> dict:
         return {
             "complete": self.complete,
+            "confidence": self.estimation_confidence.level.value,
+            "confidence_source": self.estimation_confidence.source,
             "gate_idle": self.gate_idle,
             "dynamic_w": self.dynamic.to_dict(),
             "memory_w": self.memory.to_dict(),

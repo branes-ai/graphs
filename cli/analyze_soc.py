@@ -195,7 +195,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.list_profiles:
         rows = [{"profile": p.id, "regime": p.regime or "", "budget_w": p.power_budget_w,
                  "deadline_ms": p.deadline_ms} for p in analyzer.workload.profiles]
-        write_report(_table(rows), args.output)
+        fmt = detect_format(args.output)
+        if fmt == "json":
+            payload = json.dumps(rows, indent=2)
+        elif fmt == "csv":
+            buf = io.StringIO()
+            writer = csv_writer(buf, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+            payload = buf.getvalue()
+        elif fmt == "md":
+            payload = "\n".join([f"## Profiles ({len(rows)})", ""] + _md_table(rows)) + "\n"
+        else:
+            payload = _table(rows)
+        write_report(payload, args.output)
         return 0
     if not args.design:
         parser.error("--design is required unless --list-profiles")
