@@ -26,7 +26,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from typing import Optional
 
@@ -45,6 +44,7 @@ from graphs.hardware.kpu_access import (
     kpu_block_of,
     kpu_die_of,
 )
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _kpu_block(cp: ComputeProduct):
@@ -321,16 +321,6 @@ def _render_text(cp: ComputeProduct, node: Optional[ProcessNodeEntry]) -> str:
     return "\n".join(out)
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json", "csv": "csv", "md": "md",
-        "markdown": "md", "txt": "text",
-    }.get(ext, "text")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Show full spec of one KPU ComputeProduct."
@@ -411,7 +401,7 @@ def main() -> int:
         )
         node = None
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     if fmt == "json":
         rendered = json.dumps(cp.model_dump(mode="json"), indent=2) + "\n"
     elif fmt == "csv":

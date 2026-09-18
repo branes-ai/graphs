@@ -41,7 +41,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from typing import List, Optional
 
@@ -59,16 +58,7 @@ from graphs.hardware.kpu_tile_ladder import (
     LadderError,
     build_ladder,
 )
-
-
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json", "csv": "csv", "md": "md",
-        "markdown": "md", "txt": "text",
-    }.get(ext, "text")
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _render_text(ladders: List[Ladder], show_ops: bool) -> str:
@@ -366,7 +356,7 @@ def main() -> int:
         )
         return 1
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     renderer = _RENDERERS.get(fmt)
     rendered = renderer(ladders) if renderer else _render_text(ladders, args.show_ops)
 

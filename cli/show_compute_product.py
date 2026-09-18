@@ -38,6 +38,7 @@ from embodied_schemas.process_node import ProcessNodeEntry
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
 from graphs.hardware.kpu_access import has_kpu_block
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 # Reuse the layer renderers from sibling inspectors so the composed view
 # stays formatting-identical to the per-layer tools.
@@ -277,19 +278,6 @@ def _compose_csv(
     return buf.getvalue()
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json",
-        "csv": "csv",
-        "md": "md",
-        "markdown": "md",
-        "txt": "text",
-    }.get(ext, "text")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Show the full assembled ComputeProduct hierarchy "
@@ -333,7 +321,7 @@ def main() -> int:
     cools = {cid: sols[cid] for cid in cooling_ids if cid in sols}
     cool_unresolved = [cid for cid in cooling_ids if cid not in sols]
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     if fmt == "json":
         rendered = json.dumps(
             _compose_json(cp, node, cools, cool_unresolved), indent=2

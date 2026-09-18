@@ -47,13 +47,7 @@ from graphs.core.pipeline_workload import (  # noqa: E402
     PipelineWorkload,
     load_autonomy_workload,
 )
-
-
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    suffix = Path(output).suffix.lower()
-    return {".json": "json", ".csv": "csv", ".md": "md"}.get(suffix, "text")
+from graphs.reporting.output_format import detect_format, write_report  # noqa: E402
 
 
 def _profile_rows(summaries) -> list[dict]:
@@ -235,7 +229,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"{workload.throughput.b:.0f}/{workload.throughput.c:.0f} GOP/s."
         )
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     if fmt == "json":
         payload = json.dumps({"title": title, "rows": rows, "notes": notes}, indent=2)
     elif fmt == "csv":
@@ -245,11 +239,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         payload = _render_text(title, rows, [n for n in notes if n])
 
-    if args.output:
-        Path(args.output).write_text(payload)
-        print(f"wrote {args.output}")
-    else:
-        print(payload, end="")
+    write_report(payload, args.output)
     return 0
 
 

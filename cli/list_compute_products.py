@@ -29,7 +29,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -39,6 +38,7 @@ from embodied_schemas import load_process_nodes
 from embodied_schemas.compute_product import BlockKind, ComputeProduct
 
 from graphs.hardware.compute_product_loader import load_compute_products_unified
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _val(x) -> str:
@@ -200,15 +200,6 @@ _RENDERERS = {
 }
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "csv": "csv", "md": "md", "markdown": "md", "txt": "text"}.get(
-        ext, "text"
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="List every ComputeProduct in the embodied-schemas catalog.",
@@ -247,7 +238,7 @@ def main() -> int:
     rows = _filter_rows(rows, args.kind, args.vendor, args.market)
     rows.sort(key=_SORT_KEYS[args.sort])
 
-    fmt = args.format or _detect_format(args.output)
+    fmt = args.format or detect_format(args.output)
     rendered = _RENDERERS[fmt](rows)
 
     if args.output:

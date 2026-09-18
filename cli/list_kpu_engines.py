@@ -32,7 +32,6 @@ import argparse
 import csv
 import io
 import json
-import os
 import sys
 from typing import Dict, List, Optional, Sequence
 
@@ -52,16 +51,7 @@ from graphs.hardware.kpu_engines import (
     describe_segments,
     precision_floor_findings,
 )
-
-
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {
-        "json": "json", "csv": "csv", "md": "md",
-        "markdown": "md", "txt": "text",
-    }.get(ext, "text")
+from graphs.reporting.output_format import detect_format  # noqa: E402
 
 
 def _render_text(
@@ -405,7 +395,7 @@ def main() -> int:
     segments = describe_segments(cp)
     findings = precision_floor_findings(engines, requirements)
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     renderer = _RENDERERS.get(fmt, _render_text)
     rendered = renderer(engines, segments, findings)
 

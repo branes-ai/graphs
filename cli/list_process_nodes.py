@@ -28,13 +28,14 @@ Usage:
 import argparse
 import csv
 import json
-import os
 import sys
 from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 from embodied_schemas import load_process_nodes
 from embodied_schemas.process_node import ProcessNodeEntry
+
+from graphs.reporting.output_format import detect_format
 
 
 @dataclass
@@ -160,15 +161,6 @@ _RENDERERS = {
 }
 
 
-def _detect_format(output: Optional[str]) -> str:
-    if not output:
-        return "text"
-    ext = os.path.splitext(output)[1].lower().lstrip(".")
-    return {"json": "json", "csv": "csv", "md": "md", "markdown": "md", "txt": "text"}.get(
-        ext, "text"
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="List process-node entries from the embodied-schemas catalog.",
@@ -206,7 +198,7 @@ def main() -> int:
     rows = _filter_rows(rows, args.foundry, args.topology)
     rows.sort(key=_SORT_KEYS[args.sort])
 
-    fmt = _detect_format(args.output)
+    fmt = detect_format(args.output)
     rendered = _RENDERERS[fmt](rows)
 
     if args.output:
