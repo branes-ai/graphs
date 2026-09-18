@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PositiveFloat, model_validator
 
 from .ip_block import IPBlockTemplate
 
@@ -55,7 +55,7 @@ class Reference(BaseModel):
     die_area_mm2: Optional[float] = Field(None, gt=0)
     transistors_billion: Optional[float] = Field(None, gt=0)
     process_node: Optional[str] = None
-    peak_tops: Dict[str, float] = Field(default_factory=dict)
+    peak_tops: Dict[str, PositiveFloat] = Field(default_factory=dict)
     source: str = Field(..., min_length=1)
 
     model_config = {"extra": "forbid"}

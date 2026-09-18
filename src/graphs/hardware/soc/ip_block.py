@@ -38,7 +38,7 @@ from typing import Dict, List, Mapping, Optional
 
 import yaml
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PositiveFloat, model_validator
 
 
 class Confidence(str, Enum):
@@ -156,7 +156,7 @@ class IPCompute(BaseModel):
     unit_name: str = Field(..., description="What a unit is: core, SM, MAC array")
     #: Dense peak ops per clock per instance, by format. Sparsity-doubled
     #: vendor figures are not peaks and do not belong here.
-    ops_per_clock: Dict[str, float] = Field(default_factory=dict)
+    ops_per_clock: Dict[str, PositiveFloat] = Field(default_factory=dict)
     #: The ``architectural_energy.ArchitectureClass`` the Phase 3 power model
     #: will charge overhead by. Without it a CPU looks 10-50x too efficient.
     architecture_class: Optional[str] = None

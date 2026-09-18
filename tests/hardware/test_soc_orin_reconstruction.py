@@ -5,8 +5,8 @@ Three criteria from the parent plan, and where each stands:
 1. **Area within 15% of 455 mm^2 / 17 B -- open, by decision.** Most of the
    design's silicon has no credible public area anchor (no per-SM, per-core,
    PHY or IO figure), so those lines are declared unanchored and the
-   composition is a lower bound. The 455 / 17 target is itself one
-   third-party teardown, not an NVIDIA figure. Filling the gaps with
+   composition is a lower bound. Of the target, 17 B is NVIDIA's own figure;
+   455 mm^2 is one third-party teardown. Filling the gaps with
    estimates chosen after seeing 455 would make the check circular, so it
    stays open until anchors exist; these tests pin that the composition
    *says* it is incomplete rather than presenting a number.
@@ -62,12 +62,17 @@ def test_every_gap_says_what_is_missing():
             assert line.confidence.value == "unknown"
 
 
-def test_the_target_is_labelled_as_a_teardown_not_an_nvidia_figure():
-    """NVIDIA's documents state neither the die area nor the transistor
-    count; both trace to one third-party teardown."""
+def test_each_target_figure_carries_its_own_provenance():
+    """17 B is NVIDIA's own figure (the DRIVE AGX Orin press release, 17
+    December 2019). 455 mm^2 is not: NVIDIA never states the die area, and it
+    traces to one third-party teardown. Conflating the two -- as this design
+    first did -- overstates how weak the transistor target is and understates
+    how weak the area target is (CodeRabbit on #303)."""
     source = DESIGN.reference.source
-    assert "TechAnaLye" in source
-    assert "NOT an NVIDIA figure" in source
+    transistors, area = source.split("Die area:", 1)
+    assert "NVIDIA" in transistors and "17 billion transistors" in transistors
+    assert "17 December 2019" in transistors
+    assert "NOT an NVIDIA figure" in area and "TechAnaLye" in area
 
 
 def test_what_is_priced_is_structural_sram_from_nvidia_capacities(socs):
@@ -172,6 +177,37 @@ def test_a_published_area_round_trips_at_its_node(ip_id, node, area):
     published areas on their own nodes."""
     template = LIBRARY[ip_id]
     assert not template.unanchored_lines
-    line = template.silicon[0]
-    got = line.transistors_mtx(NODES) / NODES[node].density_for(line.circuit_class).mtx_per_mm2
+    got = sum(
+        line.transistors_mtx(NODES) / NODES[node].density_for(line.circuit_class).mtx_per_mm2
+        for line in template.silicon
+    )
     assert got == pytest.approx(area)
+
+
+def test_nvdlas_buffer_retargets_as_sram_not_logic():
+    """The Primer's 3.3 mm^2 includes the 512 KB convolution buffer. Priced as
+    one logic line, the buffer would retarget at logic density; split out, it
+    follows SRAM density (CodeRabbit on #303).
+
+    The direction depends on the node pair and is not assumed: in this
+    catalog, SRAM density rises 6.3x from N16 to N5 and balanced logic 6.1x,
+    so the split DLA comes out slightly smaller at N5 than the all-logic one.
+    What the test pins is that the two are priced differently at all."""
+    lines = {line.name: line for line in LIBRARY["nvdla_v1_large"].silicon}
+    assert lines["conv_buffer"].circuit_class == CircuitClass.SRAM_HD
+    assert lines["conv_buffer"].mtx == pytest.approx(512 * 0.052)
+    assert lines["dla_logic"].circuit_class == CircuitClass.BALANCED_LOGIC
+
+    def area_at(node, lines_):
+        return sum(
+            l.transistors_mtx(NODES) / NODES[node].density_for(l.circuit_class).mtx_per_mm2
+            for l in lines_
+        )
+    split = area_at("tsmc_n5", lines.values())
+    as_one_logic_line = 3.3 * (
+        NODES["tsmc_n16"].density_for(CircuitClass.BALANCED_LOGIC).mtx_per_mm2
+        / NODES["tsmc_n5"].density_for(CircuitClass.BALANCED_LOGIC).mtx_per_mm2
+    )
+    assert area_at("tsmc_n16", lines.values()) == pytest.approx(3.3)
+    assert split != pytest.approx(as_one_logic_line, rel=1e-3)
+    assert split < as_one_logic_line  # this catalog's N16 -> N5 densities

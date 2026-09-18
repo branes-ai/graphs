@@ -3,15 +3,23 @@ name: NVDLA v1 'large' (2048 INT8 MACs)
 vendor: NVIDIA (open source)
 engine_kind: npu
 silicon:
-- name: dla_core
+- name: dla_logic
   circuit_class: balanced_logic
-  reference_area_mm2: 3.3
+  reference_area_mm2: 2.8562666666666665
   reference_node: tsmc_n16
-  source: 'NVDLA Primer, synthesis results table (nvdla.org/primer.html): 2048-MAC configuration with
-    512 KB convolution buffer, 3.3 mm^2 at 16 nm, all memories included'
+  source: 'NVDLA Primer, synthesis results table (nvdla.org/primer.html): the 2048-MAC configuration with
+    a 512 KB convolution buffer synthesizes to 3.3 mm^2 at 16 nm, all memories included. Logic is that
+    total less the convolution buffer priced below (0.4437 mm^2 at tsmc_n16): 2.8563 mm^2.'
   confidence: theoretical
-  notes: Synthesis area, not silicon. Includes SRAM priced here as logic, so its retargeting follows logic
-    density; the buffer would scale worse.
+  notes: Synthesis area, not silicon. The Primer does not split logic from memory, so this line is the
+    total less a 6T estimate of the one large buffer; the smaller internal memories stay in it, at logic
+    density.
+- name: conv_buffer
+  circuit_class: sram_hd
+  mtx: 26.624
+  source: 512 KB convolution buffer (NVDLA Primer); 512 KiB x 0.052 Mtx/KiB, 6T cell + periphery (silicon_math.SRAM_MTX_PER_KIB)
+  confidence: theoretical
+  notes: 'Split out so it retargets at SRAM density rather than logic density (CodeRabbit on #303).'
 compute:
   engine_kind: npu
   units: 1

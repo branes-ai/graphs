@@ -258,3 +258,48 @@ def test_a_product_without_a_kpu_block_is_priced_by_the_same_code():
 def test_the_kpu_die_is_still_the_kpu_die():
     cp = load_compute_products()["kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"]
     assert sm.silicon_die(cp) is sm._kpu_die(cp)
+
+
+
+def test_silicon_die_rejects_an_ambiguous_kpu_product():
+    """kpu_die_of raises for zero KPU blocks and for more than one. Only the
+    zero case may fall back to the sole die: a product with two KPU blocks is
+    ambiguous and must not be priced as if its first die were the answer
+    (CodeRabbit on #303)."""
+    cp = load_compute_products()["kpu_t64_32x32_lp5x4_16nm_tsmc_ffp"]
+    data = cp.model_dump(mode="json")
+    die = data["dies"][0]
+    # A second KPU block, with its power domains dropped: domain ids must be
+    # unique across the product, and the duplicate is not what is under test.
+    die["blocks"] = die["blocks"] + [dict(die["blocks"][0], power_domains=None)]
+    two_kpus = type(cp).model_validate(data)
+    assert len(two_kpus.dies) == 1
+    with pytest.raises(sm.SiliconMathError):
+        sm.silicon_die(two_kpus)
+    with pytest.raises(sm.SiliconMathError):
+        sm.resolve_all_block_areas(two_kpus, NODES["tsmc_n16"])
+
+
+def test_silicon_die_refuses_several_dies_without_a_kpu_block():
+    cp = load_compute_products()["nvidia_jetson_agx_orin_64gb"]
+    data = cp.model_dump(mode="json")
+    second = dict(data["dies"][0], die_id="second")
+    data["dies"] = data["dies"] + [second]
+    two_dies = type(cp).model_validate(data)
+    with pytest.raises(sm.SiliconMathError, match="no single silicon die"):
+        sm.silicon_die(two_dies)
+    # The multi-die form still prices both.
+    by_die = sm.resolve_product_block_areas(two_dies, NODES)
+    assert {die_id for die_id, _ in by_die} == {two_dies.dies[0].die_id, "second"}
+
+
+@pytest.mark.parametrize("value", [0.0, -4096.0])
+def test_throughput_must_be_positive(value):
+    with pytest.raises(ValidationError):
+        _ip("x", [LOGIC_10MM2], engine_kind="gpu", compute={
+            "engine_kind": "gpu", "units": 1, "unit_name": "SM",
+            "ops_per_clock": {"int8": value}, "source": "s",
+        })
+    from graphs.hardware.soc import Reference
+    with pytest.raises(ValidationError):
+        Reference(peak_tops={"int8": value}, source="s")

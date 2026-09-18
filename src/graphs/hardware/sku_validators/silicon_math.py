@@ -50,7 +50,12 @@ from embodied_schemas.local_memory import LocalMemory, LocalMemoryScope
 from embodied_schemas.overlay import OverlayScope
 from embodied_schemas.process_node import CircuitClass, ProcessNodeEntry
 
-from graphs.hardware.kpu_access import KPUBlockLookupError, kpu_block_of, kpu_die_of
+from graphs.hardware.kpu_access import (
+    KPUBlockLookupError,
+    has_kpu_block,
+    kpu_block_of,
+    kpu_die_of,
+)
 
 
 class SiliconMathError(Exception):
@@ -91,15 +96,17 @@ def silicon_die(cp: ComputeProduct) -> Die:
     ``fixed`` lines), its only die. A multi-die product without a KPU block
     has no single answer: use ``resolve_product_block_areas``.
     """
-    try:
-        return kpu_die_of(cp)
-    except KPUBlockLookupError:
-        if len(cp.dies) == 1:
-            return cp.dies[0]
-        raise SiliconMathError(
-            f"{cp.id}: {len(cp.dies)} dies and no KPU block, so there is no "
-            f"single silicon die; price each with resolve_product_block_areas"
-        ) from None
+    if has_kpu_block(cp):
+        # One KPU block: its die. More than one: kpu_die_of raises, and so do
+        # we -- an ambiguous KPU product must not fall through to pricing
+        # whichever die happens to be first (CodeRabbit on #303).
+        return _kpu_die(cp)
+    if len(cp.dies) == 1:
+        return cp.dies[0]
+    raise SiliconMathError(
+        f"{cp.id}: {len(cp.dies)} dies and no KPU block, so there is no "
+        f"single silicon die; price each with resolve_product_block_areas"
+    )
 
 
 # ---------------------------------------------------------------------------

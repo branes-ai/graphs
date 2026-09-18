@@ -7,8 +7,8 @@ Tracking: branes-ai/graphs#269, Phase 2. Parent plan:
 
 1. An `orin_class_reference` design at `samsung_8lpp` lands within **15%** of
    Jetson AGX Orin's **455 mm^2 / 17 B transistors**. **Open by decision
-   (P2-D7):** not achievable from public data, and the target is one
-   third-party teardown rather than an NVIDIA figure.
+   (P2-D7):** not achievable from public data. Of the target, 17 B is
+   NVIDIA's own figure; 455 mm^2 is one third-party teardown.
 2. Its GPU and DLA peak INT8 TOPS match the datasheet.
 3. Re-run at `tsmc_n7` and `tsmc_n5`, area and energy fall monotonically, and
    IO / analog visibly scale worse than logic.
@@ -63,12 +63,19 @@ IO pads priced as 111 mm^2, while 10.3 B of the 17 B sits in one
 `other_tegra_soc_blocks` lump. The acceptance targets 455 / 17 directly, and
 the discrepancy is reported to the catalog rather than inherited.
 
-**Correction, 2026-09-18:** 455 / 17 is **not** an NVIDIA figure. NVIDIA's
-documents -- the Jetson AGX Orin Technical Brief (TB_10749-001 v1.2) and the
-datasheet -- state neither the die area nor the transistor count. Both trace to
-one third-party teardown by TechAnaLye, reported via @SkyJuice60 in June 2022.
-No second independent measurement was found; TechInsights DFR-2206-809 (paid)
-is the likely stronger source.
+**Correction, 2026-09-18 (revised the same day):** the two figures have
+different provenance.
+
+- **17 B transistors is NVIDIA's own figure.** NVIDIA's DRIVE AGX Orin press
+  release (17 December 2019) states the Orin SoC "consists of 17 billion
+  transistors"; the DRIVE and Jetson parts use the same SoC. The first
+  research pass missed this and attributed both figures to a teardown;
+  CodeRabbit caught it on #303, and the press release was checked directly.
+- **455 mm^2 is not.** NVIDIA's documents -- the Jetson AGX Orin Technical
+  Brief (TB_10749-001 v1.2), the datasheet and the press release -- do not
+  state the die area. It traces to one third-party teardown by TechAnaLye,
+  reported via @SkyJuice60 in June 2022. No second independent measurement was
+  found; TechInsights DFR-2206-809 (paid) is the likely stronger source.
 
 ### P2-D5. Peaks are dense
 
