@@ -31,6 +31,9 @@ Rules, each strict:
   as the value and the spread as ``eff_range``, at the weakest confidence.
 * Quick runs (``--quick`` shapes) are refused: they measure launch overhead,
   not the stage.
+* A CPU result counts only when the run verified it single-threaded (the
+  analyzer's CPU server is one core); a GPU FP32 result only when the run
+  locked TF32 off. Runs from before those checks are refused on both.
 
 Usage:
     python tools/ingest_soc_kernel_benchmarks.py \\
@@ -95,6 +98,14 @@ def build_table(runs: List[Tuple[str, dict]], design_id: str, node: Optional[str
             tag = f"{label}: {r['kernel_class']}/{r['engine_kind']}/{r['precision']} ({r['name']})"
             if r["status"] != "ok":
                 skipped.append(f"{tag}: {r['status']} -- {r['message']}")
+                continue
+            if r["engine_kind"] == "cpu" and r.get("single_thread") is not True:
+                why = ("the run predates the single-thread check" if r.get("single_thread") is None
+                       else f"it ran on {r.get('cpu_parallelism', 0):.1f} cores' worth of CPU time")
+                skipped.append(f"{tag}: not verified single-threaded ({why}); a CPU server is one core")
+                continue
+            if r["engine_kind"] == "gpu" and r["precision"] == "fp32" and doc.get("tf32_disabled") is not True:
+                skipped.append(f"{tag}: FP32 may have run as TF32 (the run did not lock TF32 off)")
                 continue
             candidates = by_kind.get(r["engine_kind"], [])
             if len(candidates) != 1:
