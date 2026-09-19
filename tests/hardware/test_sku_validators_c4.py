@@ -13,12 +13,10 @@ from __future__ import annotations
 import pytest
 from embodied_schemas import (
     ComputeProduct,
-    load_compute_products,
     load_cooling_solutions,
     load_process_nodes,
 )
 
-from graphs.hardware.kpu_access import has_kpu_block
 from graphs.hardware.kpu_hetero_fixture import build_heterogeneous_kpu
 from graphs.hardware.kpu_sku_generator import generate_kpu_sku, input_spec_from_compute_product
 from graphs.hardware.kpu_sku_input import KPUSKUInputSpec
@@ -170,13 +168,17 @@ def test_fixed_function_energy_plausibility():
 
 def test_datapath_energy_resolution():
     assert _run("datapath_energy_resolution", HETERO) == []
-    no_bf16 = N16.model_copy(update={
-        "energy_per_op_pj": {k: v for k, v in N16.energy_per_op_pj.items()
-                             if k != "balanced_logic:bf16"}
-    })
-    errors = _sev(_run("datapath_energy_resolution", HETERO, no_bf16), Severity.ERROR)
-    assert errors and all("'balanced_logic:bf16'" in f.message for f in errors)
-    assert {f.block for f in errors} == {"pe_int8_mac_i32", "pe_lns16_mac"}
+    # Each anchor names the classes that charge against it: BF16 only the
+    # INT8 MAC's BF16 mode; FP16 that mode's FP16 twin and the LNS MAC,
+    # whose energies are relative to an FP16 PE.
+    for anchor, blocks in (("balanced_logic:bf16", {"pe_int8_mac_i32"}),
+                           ("balanced_logic:fp16", {"pe_int8_mac_i32", "pe_lns16_mac"})):
+        lacking = N16.model_copy(update={
+            "energy_per_op_pj": {k: v for k, v in N16.energy_per_op_pj.items() if k != anchor}
+        })
+        errors = _sev(_run("datapath_energy_resolution", HETERO, lacking), Severity.ERROR)
+        assert errors and all(f"'{anchor}'" in f.message for f in errors), anchor
+        assert {f.block for f in errors} == blocks, anchor
 
     def absolute_on_unknown_node(data):
         mode = _tile(data, "systolic_int8_ws")["mac"]["modes"][0]

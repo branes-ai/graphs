@@ -188,7 +188,7 @@ class TestTDPValues:
             f"Edge DPU TDP should be 15-50W, got {tdp}W"
 
     def test_kpu_tdp_range(self):
-        """KPUs should have TDP in reasonable range (3-100W)"""
+        """KPUs' default-profile TDP should be in a reasonable range (3-100W)"""
         mappers = [
             ("T64", create_kpu_t64_mapper(), 3, 10),
             ("T256", create_kpu_t256_mapper(), 15, 50),
@@ -196,9 +196,8 @@ class TestTDPValues:
         ]
 
         for name, mapper, min_tdp, max_tdp in mappers:
-            thermal_points = mapper.resource_model.thermal_operating_points
-            profile = thermal_points.get("default") or next(iter(thermal_points.values()))
-            tdp = profile.tdp_watts
+            rm = mapper.resource_model
+            tdp = rm.thermal_operating_points[rm.default_thermal_profile].tdp_watts
 
             assert min_tdp <= tdp <= max_tdp, \
                 f"KPU-{name} TDP should be {min_tdp}-{max_tdp}W, got {tdp}W"

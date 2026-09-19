@@ -12,7 +12,13 @@ balanced SoC. Reports process node and includes a standard 1-bit
 full-adder reference energy so the numbers can be sanity-checked
 against circuit fundamentals.
 
-Exit code: 0 if all SKUs pass, 1 if any SKU is infeasible.
+For KPUs, exceeding the ALU budget is a WARNING, not infeasible: their
+power model puts PE compute at ~84% of TDP, so the balanced-SoC rule of
+thumb does not hold for a compute-dense KPU. A KPU is infeasible only when
+its ALU power exceeds the whole TDP.
+
+Exit code: 0 by default. With --fail-on-infeasible, 1 if any SKU is
+infeasible; warnings do not fail the run.
 
 Usage:
     ./cli/check_tdp_feasibility.py
@@ -86,6 +92,7 @@ class FeasibilityRow:
     alu_fraction_of_tdp: float
     feasible: bool
     overshoot: float  # alu_power_w / alu_budget_w
+    warning: bool = False  # over the ALU budget, but a warning for its category
     notes: str = ""
 
 
@@ -109,6 +116,13 @@ def _mac_energy_pj(rm, precision: Precision) -> Optional[float]:
             scale = f.energy_scaling.get(precision, 1.0) if hasattr(f, "energy_scaling") else 1.0
             return base * scale * 2.0  # * 2 for per-MAC (2 ops / MAC)
     return None
+
+
+#: Categories for which exceeding the ALU budget is a warning. The KPU
+#: power model puts PE compute at ~84% of TDP (compute-dense by design), so
+#: the 65% balanced-SoC budget is a rule of thumb it is expected to exceed;
+#: a KPU is infeasible only when its ALU power exceeds the whole TDP.
+WARN_ONLY_CATEGORIES = frozenset({"kpu"})
 
 
 def check_sku(
@@ -189,7 +203,7 @@ def check_sku(
     alu_power_w = peak_macs * (mac_energy_pj * 1e-12)
 
     alu_budget_w = alu_fraction_of_tdp * tdp
-    feasible = alu_power_w <= alu_budget_w
+    over_budget = alu_power_w > alu_budget_w
     overshoot = alu_power_w / alu_budget_w if alu_budget_w > 0 else float("inf")
 
     # Pick representative process node from the first compute fabric
@@ -209,6 +223,17 @@ def check_sku(
         # lookup is unavailable rather than failing the feasibility check.
         pass
 
+    notes = ""
+    if category in WARN_ONLY_CATEGORIES:
+        feasible = alu_power_w <= tdp
+        warning = over_budget and feasible
+        if warning:
+            notes = (f"ALU over the {alu_fraction_of_tdp:.0%} budget but within TDP; "
+                     f"a warning for {category} SKUs")
+    else:
+        feasible = not over_budget
+        warning = False
+
     return FeasibilityRow(
         sku=sku,
         category=category,
@@ -226,6 +251,8 @@ def check_sku(
         alu_fraction_of_tdp=alu_fraction_of_tdp,
         feasible=feasible,
         overshoot=overshoot,
+        warning=warning,
+        notes=notes,
     )
 
 
@@ -271,7 +298,7 @@ def format_text(rows: List[FeasibilityRow], alu_fraction: float) -> str:
     )
     out.append("-" * 118)
     for r in rows:
-        status = "PASS" if r.feasible else f"INFEASIBLE"
+        status = "INFEASIBLE" if not r.feasible else ("WARN" if r.warning else "PASS")
         fa = f"{r.full_adder_pj:.3f}"
         out.append(
             f"{r.sku:<26s}"
@@ -325,7 +352,8 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--format", choices=["text", "json"], default="text",
                     help="Output format (default: text).")
     ap.add_argument("--fail-on-infeasible", action="store_true",
-                    help="Exit code 1 if any SKU is infeasible (for CI).")
+                    help="Exit code 1 if any SKU is infeasible (for CI). "
+                         "Warnings (a KPU over the ALU budget) do not fail.")
     args = ap.parse_args(argv)
 
     skus = [_lookup_sku(s) for s in (args.hardware or DEFAULT_SKUS)]
