@@ -33,10 +33,19 @@ Exit codes:
 
 from __future__ import annotations
 
-import argparse
-import json
-import re
-import sys
+import os
+
+# One BLAS / OpenMP thread, set before anything imports torch: on aarch64 the
+# BLAS thread pool starts when the library loads, and neither
+# torch.set_num_threads(1) nor pinning afterwards reins it in. An Orin Nano
+# run "on one core" otherwise used all six (graphs#269 5.3).
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_var, "1")
+
+import argparse  # noqa: E402
+import json  # noqa: E402
+import re  # noqa: E402
+import sys  # noqa: E402
 from datetime import date
 from pathlib import Path
 from typing import List, Optional
@@ -58,9 +67,12 @@ def _table(doc: dict) -> str:
             f"{r['attained_ops_per_s'] / 1e9:.2f}" if r["attained_ops_per_s"] else "-",
             f"{clock['median_hz'] / 1e9:.3f}" if clock.get("median_hz") else "-",
             {True: "yes", False: "NO", None: "-"}[clock.get("verified")],
+            "-" if r.get("cpu_parallelism") is None else
+            f"{r['cpu_parallelism']:.1f}" + ("" if r.get("single_thread") else " WIDE"),
             r["message"][:48],
         ))
-    head = ("engine", "kernel_class", "kernel", "prec", "status", "GOP/s", "clock_GHz", "clock_ok", "note")
+    head = ("engine", "kernel_class", "kernel", "prec", "status", "GOP/s", "clock_GHz", "clock_ok",
+            "cpu_x", "note")
     widths = [max(len(str(x)) for x in col) for col in zip(head, *rows)]
     line = lambda cells: "  ".join(str(c).ljust(w) for c, w in zip(cells, widths))  # noqa: E731
     return "\n".join([line(head), line(["-" * w for w in widths]), *map(line, rows)]) + "\n"
@@ -104,6 +116,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(_table(doc))
     if args.verbose:
         print(json.dumps(doc, indent=2))
+    wide = sum(1 for r in doc["results"] if r.get("single_thread") is False)
+    if wide:
+        print(f"note: {wide} CPU kernel(s) used more than one core's CPU time (cpu_x); the ingest "
+              "refuses them -- check OMP_NUM_THREADS / OPENBLAS_NUM_THREADS", file=sys.stderr)
     unverified = sum(1 for r in doc["results"] if r["status"] == "ok" and not (r["clock"] or {}).get("verified"))
     if unverified:
         print(f"note: {unverified} kernel(s) ran with an unverified clock; lock clocks and re-run "

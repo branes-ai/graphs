@@ -130,3 +130,35 @@ def test_cli_rejects_bad_arguments(args, tmp_path):
                              "-o", str(tmp_path / "x.json")],
                             capture_output=True, text=True, cwd=REPO, timeout=300)
     assert result.returncode == 2
+
+
+def test_a_cpu_run_records_its_parallelism():
+    doc = run_suite(["cpu"], "test_box", quick=True, min_seconds=0.02, kernels=["small_qp"])
+    ok = [r for r in doc["results"] if r["status"] == "ok"]
+    assert ok and all(r["cpu_parallelism"] is not None for r in ok)
+    assert doc["tf32_disabled"] is None  # no GPU in this run
+    assert doc["environment"]["torch_threads"] >= 1
+
+
+def test_a_wide_cpu_run_is_flagged():
+    """Force a multi-threaded GEMM on several cores: the parallelism check
+    must catch it. (Earlier tests pin this process to one core, so the test
+    releases the pinning for its duration.)"""
+    import os
+
+    import torch
+
+    from graphs.benchmarks.soc_kernels import SINGLE_THREAD_LIMIT
+
+    if not hasattr(os, "sched_getaffinity") or (os.cpu_count() or 1) < 2:
+        pytest.skip("needs Linux and more than one core")
+    affinity, threads = os.sched_getaffinity(0), torch.get_num_threads()
+    os.sched_setaffinity(0, set(range(os.cpu_count())))
+    torch.set_num_threads(min(4, os.cpu_count()))
+    try:
+        spec = next(k for k in kernel_suite() if k.name == "gemm" and k.precision == "fp32")
+        result = run_kernel(spec, "cpu", min_seconds=0.3)
+    finally:
+        torch.set_num_threads(threads)
+        os.sched_setaffinity(0, affinity)
+    assert result.cpu_parallelism > SINGLE_THREAD_LIMIT and result.single_thread is False
