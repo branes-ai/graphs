@@ -56,7 +56,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 
 from graphs.core.confidence import EstimationConfidence
 from graphs.core.pipeline_workload import MissionProfile, PipelineWorkload, StageDemand
-from graphs.hardware.soc import Confidence, EngineKind, SoCInstance
+from graphs.hardware.soc import Confidence, SoCInstance
 
 from .efficiency import CLASS_NAMES, EfficiencyTable, KernelClass, KernelClassMap, execution_format
 from .mapping import (
@@ -68,10 +68,19 @@ from .mapping import (
     weakest,
 )
 
-#: Engines a stage is offered before the CPU, best dense peak first. The
-#: rule is capability, not optimality: it needs no efficiency, which is the
-#: point of this module.
-_ACCELERATOR_KINDS = (EngineKind.KPU, EngineKind.NPU, EngineKind.GPU, EngineKind.DSP)
+def _dense_seconds(stage, engine: Engine) -> Optional[float]:
+    """Seconds one call of ``stage`` takes on one server of ``engine`` at
+    100% of dense peak, or None when the engine cannot run one of its
+    classes."""
+    total = 0.0
+    for cls, share in zip(CLASS_NAMES, stage.class_split):
+        if share <= 0:
+            continue
+        fmt = execution_format(cls, engine.formats)
+        if fmt is None:
+            return None
+        total += stage.ops_per_call * share / engine.server_peak_ops_per_s(fmt)
+    return total
 
 
 @dataclass(frozen=True)
@@ -86,8 +95,9 @@ class StageRequirement:
     dense_seconds: Optional[float] = None
     #: Seconds of DRAM per call at the sustained bandwidth, owning it.
     memory_seconds: Optional[float] = None
-    #: A table's efficiency for this stage's kernel and formats, when it has one.
-    known_efficiency: Optional[float] = None
+    #: Seconds one call takes at the comparison table's own efficiencies,
+    #: or None when it does not price every format the stage uses.
+    known_seconds: Optional[float] = None
     #: Why no engine can run it, if none can.
     gap: Optional[str] = None
 
@@ -99,6 +109,14 @@ class StageRequirement:
     @property
     def memory_occupancy(self) -> Optional[float]:
         return None if self.memory_seconds is None else self.memory_seconds * self.rate_hz
+
+    @property
+    def known_efficiency(self) -> Optional[float]:
+        """The efficiency the table's figures amount to over this stage: the
+        dense time over the time they give it."""
+        if self.known_seconds is None or not self.known_seconds or self.dense_seconds is None:
+            return None
+        return self.dense_seconds / self.known_seconds
 
     @property
     def out_of_reach(self) -> bool:
@@ -114,6 +132,7 @@ class StageRequirement:
             "occupancy_at_peak": self.occupancy_at_peak,
             "memory_occupancy": self.memory_occupancy,
             "known_efficiency": self.known_efficiency,
+            "known_seconds": self.known_seconds,
             "out_of_reach": self.out_of_reach,
             "gap": self.gap,
         }
@@ -175,16 +194,22 @@ class RequiredEfficiency:
     stages: Tuple[StageRequirement, ...]
     dram_demand_gb_per_s: float
     dram_supply_gb_per_s: Optional[float]
-    comparison_table: Optional[str] = None
     #: The weakest input: the workload's unit costs, and UNKNOWN when an
     #: engine's clock is provisional at this node (its peak does not apply
     #: here, so neither does a requirement measured against it).
-    estimation_confidence: EstimationConfidence = None  # type: ignore[assignment]
+    estimation_confidence: EstimationConfidence
+    comparison_table: Optional[str] = None
 
     @property
     def unrunnable(self) -> Tuple[str, ...]:
         """Stages no engine in the design can run, whatever the efficiency."""
-        return tuple(s.stage for s in self.stages if s.gap)
+        return tuple(s.stage for s in self.stages if s.gap and not s.engine)
+
+    @property
+    def misassigned(self) -> Tuple[str, ...]:
+        """Stages the mapping put on an engine that cannot run them. Another
+        engine in the design may well be able to."""
+        return tuple(s.stage for s in self.stages if s.gap and s.engine)
 
     def to_dict(self) -> dict:
         return {
@@ -200,6 +225,7 @@ class RequiredEfficiency:
             "engines": [e.to_dict() for e in self.engines],
             "stages": [s.to_dict() for s in self.stages],
             "unrunnable": list(self.unrunnable),
+            "misassigned": list(self.misassigned),
             "memory": {
                 "dram_demand_gb_per_s": self.dram_demand_gb_per_s,
                 "dram_supply_gb_per_s": self.dram_supply_gb_per_s,
@@ -211,38 +237,38 @@ class RequiredEfficiency:
 
 def capability_mapping(demands: List[StageDemand],
                        engines: Mapping[str, Engine]) -> Dict[str, Optional[str]]:
-    """Each stage on the engine that *can* run every class it has, offering
-    accelerators before the CPU and the higher dense peak first.
+    """Each stage on the engine that *can* run every class it has and would
+    take the fewest seconds at dense peak, ties broken by name.
 
     A rule, not an optimum: it reads only the formats an engine has and its
-    peak, never an efficiency, so it works on a design nothing prices.
+    peak, never an efficiency, so it works on a design nothing prices. The
+    engine kind does not enter -- an accelerator wins because its peak is
+    higher, not because of what it is called.
     """
-    order: List[Engine] = []
-    for kind in _ACCELERATOR_KINDS:
-        order += sorted((e for e in engines.values() if e.kind == kind),
-                        key=lambda e: -max(e.formats.values(), default=0.0))
-    order += [e for e in engines.values() if e.kind not in _ACCELERATOR_KINDS]
     out: Dict[str, Optional[str]] = {}
     for demand in demands:
-        classes = [c for c, share in zip(CLASS_NAMES, demand.stage.class_split) if share > 0]
-        out[demand.stage.key] = next(
-            (e.name for e in order
-             if all(execution_format(c, e.formats) is not None for c in classes)),
-            None)
+        capable = [(seconds, name) for name, engine in engines.items()
+                   if (seconds := _dense_seconds(demand.stage, engine)) is not None]
+        out[demand.stage.key] = min(capable)[1] if capable else None
     return out
 
 
-def _known_efficiency(table: Optional[EfficiencyTable], kernels: Optional[KernelClassMap],
-                      stage: str, engine: Engine, formats: Mapping[str, str]) -> Optional[float]:
-    """The weakest efficiency the table states for this stage's formats, or
-    None when it states none for any of them."""
+def _known_seconds(table: Optional[EfficiencyTable], kernels: Optional[KernelClassMap],
+                   stage, engine: Engine, formats: Mapping[str, str]) -> Optional[float]:
+    """Seconds one call takes at the table's own efficiencies, the same
+    per-format sum the mapper uses. None unless the table prices *every*
+    format the stage runs in: one priced class does not price the stage."""
     if table is None or kernels is None or table.kind == "pooled":
         return None
-    kernel: KernelClass = kernels.of(stage)
-    values = [entry.compute_eff for entry in
-              (table.lookup(kernel, engine.kind, fmt) for fmt in formats.values())
-              if entry is not None and entry.known]
-    return min(values) if values else None
+    kernel: KernelClass = kernels.of(stage.key)
+    total = 0.0
+    for cls, fmt in formats.items():
+        entry = table.lookup(kernel, engine.kind, fmt)
+        if entry is None or not entry.known:
+            return None
+        share = stage.class_split[CLASS_NAMES.index(cls)]
+        total += stage.ops_per_call * share / (engine.server_peak_ops_per_s(fmt) * entry.compute_eff)
+    return total
 
 
 def required_efficiency(
@@ -256,15 +282,18 @@ def required_efficiency(
 ) -> RequiredEfficiency:
     """What each engine of ``soc`` must sustain to carry ``profile``.
 
-    ``mapping`` defaults to :func:`capability_mapping`. ``table`` and
-    ``kernels``, when given, put the table's own efficiency beside each
-    stage's requirement.
+    ``mapping`` names the engine for the stages it lists; a stage it leaves
+    out falls back to :func:`capability_mapping`, and a stage it maps to
+    ``None`` is reported as one nothing runs. ``table`` and ``kernels``,
+    when given, put the table's own efficiency beside each stage's
+    requirement.
     """
     if not 0 < sustained_fraction <= 1:
         raise ValueError(f"sustained_fraction must be in (0, 1], got {sustained_fraction}")
     engines = engines_of(soc)
     demands = list(workload.demands(profile))
-    assigned = dict(mapping) if mapping is not None else capability_mapping(demands, engines)
+    assigned = capability_mapping(demands, engines)
+    assigned.update(mapping or {})
     supply = (soc.dram_peak_gb_per_s * sustained_fraction) if soc.dram_peak_gb_per_s > 0 else None
 
     stages: List[StageRequirement] = []
@@ -298,7 +327,7 @@ def required_efficiency(
         stages.append(StageRequirement(
             stage.key, name, demand.rate_hz, formats=formats, dense_seconds=dense,
             memory_seconds=memory,
-            known_efficiency=_known_efficiency(table, kernels, stage.key, engine, formats)))
+            known_seconds=_known_seconds(table, kernels, stage, engine, formats)))
 
     per_engine: List[EngineRequirement] = []
     for name, engine in engines.items():
@@ -308,15 +337,15 @@ def required_efficiency(
         occupancies = [s.occupancy_at_peak for s in mine]
         total = (None if any(o is None for o in occupancies)
                  else sum(occupancies) / engine.servers)
-        priced = [s for s in mine if s.known_efficiency and s.occupancy_at_peak is not None]
-        at_known = (sum(s.occupancy_at_peak / s.known_efficiency for s in priced) / engine.servers
+        priced = [s for s in mine if s.known_seconds is not None]
+        at_known = (sum(s.known_seconds * s.rate_hz for s in priced) / engine.servers
                     if priced else None)
         per_engine.append(EngineRequirement(
             name, engine.kind.value, engine.servers, tuple(s.stage for s in mine),
             required_efficiency=total,
             out_of_reach=tuple(s.stage for s in mine if s.out_of_reach),
             utilization_at_known=at_known,
-            unpriced=tuple(s.stage for s in mine if not s.known_efficiency)))
+            unpriced=tuple(s.stage for s in mine if s.known_seconds is None)))
 
     used = [engines[e.engine] for e in per_engine]
     provisional = [e.name for e in used if not e.block.clock_is_reference]

@@ -196,7 +196,7 @@ def test_a_bad_sustained_fraction_is_an_error(kpu):
 
 
 def _cli(*args, expect=0):
-    result = subprocess.run([sys.executable, "cli/required_efficiency.py", *args],
+    result = subprocess.run([sys.executable, "cli/analyze_required_efficiency.py", *args],
                             capture_output=True, text=True, cwd=REPO, timeout=300)
     assert result.returncode == expect, result.stderr
     return result
@@ -225,3 +225,78 @@ def test_cli_json_carries_the_engine_requirements(tmp_path):
 def test_cli_rejects_an_unknown_design():
     assert "unknown design" in _cli("--design", "nope", "--regime", "far flight",
                                     expect=2).stderr
+
+
+# ---------------------------------------------------------------------------
+# What the #321 review changed
+# ---------------------------------------------------------------------------
+
+
+def test_a_mapping_that_leaves_a_stage_out_falls_back_to_capability(kpu):
+    """A split assignment names several engines, so the CLI leaves it out of
+    the single-engine mapping. The stage must still get the capability
+    engine, not become a stage nothing runs."""
+    demands = list(WORKLOAD.demands(AIR))
+    partial = {d.stage.key: "cpu" for d in demands[1:]}
+    left_out = demands[0].stage.key
+    result = required_efficiency(WORKLOAD, AIR, kpu, mapping=partial)
+    stage = next(s for s in result.stages if s.stage == left_out)
+    assert stage.engine == capability_mapping(demands, engines_of(kpu))[left_out]
+    assert not result.unrunnable
+    # An explicit None is different: that stage is one nothing runs.
+    assert required_efficiency(WORKLOAD, AIR, kpu,
+                               mapping={left_out: None}).unrunnable == (left_out,)
+
+
+def test_a_misassigned_stage_is_not_called_unrunnable(kpu):
+    """Mapped to an engine that cannot run its classes: another engine in
+    the design still can, so it is misassigned, not unrunnable."""
+    c_stage = next(d.stage.key for d in WORKLOAD.demands(AIR)
+                   if d.stage.class_split[CLASS_NAMES.index("C")] > 0)
+    result = required_efficiency(WORKLOAD, AIR, kpu, mapping={c_stage: "kpu"})
+    assert result.misassigned == (c_stage,) and result.unrunnable == ()
+    assert c_stage in result.to_dict()["misassigned"]
+
+
+def test_capability_ranks_engines_by_the_seconds_not_the_kind(socs):
+    """The rule has no kind preference: the engine that would take the
+    fewest seconds at dense peak wins."""
+    from graphs.estimation.soc.breakeven import _dense_seconds
+
+    for design, soc in socs.items():
+        engines = engines_of(soc)
+        demands = list(WORKLOAD.demands(AIR))
+        mapping = capability_mapping(demands, engines)
+        for demand in demands:
+            chosen = mapping[demand.stage.key]
+            times = {name: _dense_seconds(demand.stage, e) for name, e in engines.items()}
+            best = min(t for t in times.values() if t is not None)
+            assert times[chosen] == pytest.approx(best), (design, demand.stage.key)
+
+
+def test_one_priced_format_does_not_price_a_mixed_stage(kpu):
+    """A stage running INT8 and FP32 is unpriced unless the table prices
+    both; the old minimum-of-known rule called it priced."""
+    mixed = [d.stage for d in WORKLOAD.demands(AIR)
+             if sum(1 for share in d.stage.class_split if share > 0) > 1]
+    assert mixed, "the workload has a stage with more than one class"
+    table = TABLES["orin_nano_measured_v1"]
+    result = required_efficiency(WORKLOAD, AIR, kpu, table=table, kernels=KERNELS)
+    for stage in result.stages:
+        if stage.known_seconds is None or not stage.formats:
+            continue
+        kernel = KERNELS.of(stage.stage)
+        kind = engines_of(kpu)[stage.engine].kind
+        assert all(table.lookup(kernel, kind, fmt) is not None
+                   and table.lookup(kernel, kind, fmt).known
+                   for fmt in stage.formats.values()), stage.stage
+
+
+def test_known_efficiency_is_the_dense_time_over_the_priced_time(kpu):
+    result = required_efficiency(WORKLOAD, AIR, kpu, table=TABLES["orin_nano_measured_v1"],
+                                 kernels=KERNELS)
+    priced = [s for s in result.stages if s.known_seconds]
+    assert priced
+    for s in priced:
+        assert s.known_efficiency == pytest.approx(s.dense_seconds / s.known_seconds)
+        assert 0 < s.known_efficiency <= 1

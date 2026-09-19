@@ -8,7 +8,9 @@ kernels. This asks the question the other way round, which needs no figure
 nobody has:
 
     required efficiency = sum over the engine's stages of
-                          (ops per call / dense peak) x rate / servers
+                          rate x sum over the stage's precision classes of
+                          (share x ops per call / dense peak of that class's
+                           format), all over the engine's servers
 
 the fraction of dense peak the engine must sustain for the profile to fit.
 It is exact arithmetic on the workload's ops and the design's peaks. Above
@@ -23,10 +25,10 @@ Utilization at or under 1 is necessary, not sufficient: use
 `analyze_soc.py` for the schedule, response times and power.
 
 Usage:
-    python cli/required_efficiency.py --design kpu_heterogeneous_h64 --regime "air superiority"
-    python cli/required_efficiency.py --design orin_class_reference --all \\
+    python cli/analyze_required_efficiency.py --design kpu_heterogeneous_h64 --regime "air superiority"
+    python cli/analyze_required_efficiency.py --design orin_class_reference --all \\
         --efficiency orin_nano_measured_v1 --verbose
-    python cli/required_efficiency.py --design kpu_heterogeneous_h64 --regime "far flight" \\
+    python cli/analyze_required_efficiency.py --design kpu_heterogeneous_h64 --regime "far flight" \\
         --node tsmc_n5 --mapping capability --output need.json
 
 Exit codes:
@@ -92,6 +94,8 @@ def _summary_lines(r: RequiredEfficiency) -> List[str]:
         lines.append(line)
     if r.unrunnable:
         lines.append(f"no engine runs: {', '.join(r.unrunnable)}")
+    if r.misassigned:
+        lines.append(f"mapped to an engine that cannot run them: {', '.join(r.misassigned)}")
     lines.append(f"DRAM: demand {r.dram_demand_gb_per_s:.1f} GB/s vs sustained supply "
                  f"{_fmt(r.dram_supply_gb_per_s, '.1f')} GB/s"
                  + (f" -- utilization {mem:.2f}" if mem else ""))
@@ -210,6 +214,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise KeyError(f"unknown efficiency table {args.efficiency!r}; "
                                f"have {', '.join(sorted(tables))}")
             table = tables[args.efficiency]
+        # A mapping names the engine for the stages it lists; the rest fall
+        # back to the capability rule, including a split assignment, which
+        # names several engines where this analysis puts a stage on one.
         mapping = None
         if args.mapping != "capability":
             if args.mapping not in ("auto",):
@@ -217,9 +224,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             else:
                 shipped = find_mapping(args.design, workload.version)
             if shipped is not None:
-                # A split assignment names several engines; this analysis
-                # puts a stage on one engine, so a split is left to the
-                # capability rule rather than charged to one of its parts.
                 mapping = {stage: engine for stage, engine in shipped.assignments().items()
                            if isinstance(engine, str)}
         profiles = _profiles(workload, args)
