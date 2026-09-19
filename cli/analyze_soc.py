@@ -57,6 +57,15 @@ def _fmt(value, spec: str = ".3g", none: str = "n/a") -> str:
     return none if value is None else format(value, spec)
 
 
+def _contention(c) -> str:
+    """The upper bounds' DRAM share, when the response analysis ran."""
+    if not c or not c.get("requesters"):
+        return ""
+    share = c.get("share_gb_per_s")
+    return (f"; upper bounds share it among {c['requesters']} requesters"
+            + (f", {share:.1f} GB/s each" if share else "") + " (fair arbiter assumed)")
+
+
 def _verdict(value: Optional[bool]) -> str:
     return {True: "yes", False: "NO", None: "open"}[value]
 
@@ -82,7 +91,8 @@ def _summary_lines(result: SoCAnalysisResult) -> List[str]:
         + (f"; upper bound over deadline: {', '.join(d['schedulability']['stages_over_upper_bound'])}"
            if (d.get("schedulability") or {}).get("stages_over_upper_bound") else ""),
         f"DRAM: demand {m['dram_demand_gb_per_s']:.1f} GB/s vs sustained supply "
-        f"{_fmt(m['dram_supply_gb_per_s'], '.1f')} GB/s",
+        f"{_fmt(m['dram_supply_gb_per_s'], '.1f')} GB/s"
+        + _contention((d.get("schedulability") or {}).get("dram_contention")),
         f"power: {p['total_w']:.3g} W" + (lb if p["total_is_lower_bound"] else "")
         + f" vs budget {p['budget_w']:g} W -- within: {_verdict(p['within_budget'])}",
         f"useful TOPS/W: {_fmt(p['useful_tops_per_w'], '.3g', 'withheld (dynamic power unpriced)')}"

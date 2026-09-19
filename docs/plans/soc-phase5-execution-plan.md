@@ -73,3 +73,44 @@ to fill `default_v1`.
   measurement kept alongside it. (Orin's SM had no FP16 rate at first; it now
   carries NVIDIA's sourced dense FP16 tensor rate, so FP16 is ingested and
   only FP64 is left out.)
+
+## Infrastructure: response time and DRAM contention
+
+RM/EDF response-time analysis (`estimation/soc/response.py`) turns the
+schedule's "owns the engine" lower bound into a proven upper bound per
+stage. **DRAM contention** closes the hole that remained. Each task's
+execution time used to include its memory time with the stage owning the
+whole sustained bandwidth, so a memory-bound stage could be "proven
+schedulable" on a bus it shares.
+
+**The bound.**
+- At most `k` servers issue DRAM traffic at once: per engine, its server
+  count or its DRAM-using tasks, whichever is fewer.
+- Each server is guaranteed `supply / k`. The analysis therefore
+  multiplies each task's memory time, and a split's transfer, by `k`.
+- Compute is unchanged. A compute-bound stage stays compute-bound until
+  `k x t_memory` overtakes its compute time.
+- The schedule keeps the owns-the-bandwidth time as the lower bound, so
+  the true response lies between the two.
+
+**The assumption.**
+- The `1/k` share is guaranteed by a fair arbiter, round-robin or TDM:
+  - Akesson, Goossens & Ringhofer, "Predator", CODES+ISSS 2007;
+  - Paolieri, Quinones, Cazorla & Valero, IEEE Embedded Systems Letters
+    1(4), 2009.
+- A COTS FR-FCFS controller does not guarantee it: Kim, de Niz,
+  Andersson, Klein, Mutlu & Rajkumar, RTAS 2014. Tighter or
+  controller-specific bounds need DRAM timing parameters that no design
+  states.
+- With `k > 1` the analysis is therefore at most THEORETICAL, and its
+  confidence source names the assumed arbiter.
+- A design that states no DRAM supply leaves contention unbounded, and the
+  analysis gives no upper bounds.
+
+**Effect on the shipped profiles** (`all_known` test efficiencies,
+greedy mapping):
+- AV L2 on the Orin reference loses its schedulability proof. At `k = 7`,
+  19 GB/s each, `mono`'s upper bound passes its deadline. The verdict is
+  open, not failed: the lower bounds still hold.
+- The KPU H64's two edge-AI profiles stay proven.
+- Every other profile was already open.

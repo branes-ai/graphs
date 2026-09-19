@@ -32,6 +32,28 @@ Policies, per engine kind:
   omits the ``max`` and the ``+1`` was shown to be optimistic there.)
   ``edf`` on a non-preemptive server has no test here and is open unless
   utilization exceeds 1.
+
+**DRAM contention.** The schedule's memory time has the stage own the whole
+sustained DRAM bandwidth, which is the lower bound again: stages on other
+servers stream at the same time. The analysis therefore charges every task
+its **contended** time. At most ``k`` servers issue DRAM traffic at once:
+per engine, its server count or its DRAM-using tasks, whichever is fewer.
+Each of them is guaranteed ``supply / k``:
+
+* a stage's memory time is multiplied by ``k``, and so is a split's
+  transfer. Compute is unchanged, so a compute-bound stage stays
+  compute-bound until ``k x t_memory`` overtakes its compute time;
+* the guarantee holds for a fair arbiter (round-robin or TDM): Akesson,
+  Goossens & Ringhofer, "Predator", CODES+ISSS 2007; Paolieri, Quinones,
+  Cazorla & Valero, "An Analyzable Memory Controller for Hard Real-Time
+  CMPs", IEEE Embedded Systems Letters 1(4), 2009;
+* a COTS FR-FCFS controller does not guarantee it. Row-hit prioritization
+  can starve a requester beyond ``1/k`` (Kim, de Niz, Andersson, Klein,
+  Mutlu & Rajkumar, RTAS 2014). The bound is exact only under the stated
+  arbiter, so when ``k > 1`` the analysis is at most THEORETICAL.
+
+When the design states no DRAM supply and a stage moves bytes, contention
+cannot be bounded, and the analysis gives no upper bounds.
 """
 
 from __future__ import annotations
@@ -45,7 +67,7 @@ from graphs.core.confidence import EstimationConfidence
 from graphs.core.pipeline_workload import REACTIVE_CHAIN, MissionProfile, Stage
 from graphs.hardware.soc import Confidence, EngineKind
 
-from .mapping import POOLED, Engine, estimation_confidence
+from .mapping import POOLED, Engine, estimation_confidence, weakest
 from .schedule import Schedule
 
 POLICIES = ("rm", "edf")
@@ -141,6 +163,29 @@ def _rta_nonpreemptive(task: Task, higher: List[Task], blocking: float) -> Optio
     return None
 
 
+def dram_requesters(schedule: Schedule, engines: Mapping[str, Engine],
+                    stages: Mapping[str, Stage]) -> int:
+    """Upper bound on the servers issuing DRAM traffic at once: per engine,
+    its servers or the DRAM-using tasks mapped to it, whichever is fewer."""
+    tasks: Dict[str, int] = {}
+    for svc in schedule.served:
+        if stages[svc.stage].bytes_per_call > 0 or svc.transfer_bytes > 0:
+            for engine in svc.engine_seconds:
+                tasks[engine] = tasks.get(engine, 0) + 1
+    return sum(min(engines[e].servers, n) for e, n in tasks.items())
+
+
+def _contended(svc, k: int) -> Tuple[Dict[str, float], float]:
+    """Per-engine execution seconds per call under a ``1/k`` DRAM share, and
+    the stage-level seconds (transfer plus any memory stall) beyond them."""
+    memory = (svc.t_memory_s or 0.0) * k
+    if not svc.parts:
+        return {svc.engine: max(svc.t_compute_s + svc.t_transfer_s * k, memory)}, 0.0
+    transfer = svc.t_transfer_s * k
+    stall = max(0.0, memory - svc.t_compute_s - transfer)
+    return dict(svc.parts), transfer + stall
+
+
 def _partition(tasks: List[Task], servers: int) -> Tuple[List[List[Task]], bool]:
     """First-fit decreasing by utilization. The flag says whether every task
     fit under utilization 1; if not, the rest go to the least-loaded server."""
@@ -200,8 +245,13 @@ class ResponseAnalysis:
     job_basis: Dict[str, str] = None  # type: ignore[assignment]
     #: The weakest input: UNKNOWN when not analyzed, a partition failed or a
     #: job is unknown; else the schedule's own confidence (the analysis is
-    #: exact arithmetic on its inputs and adds no uncertainty of its own).
+    #: exact arithmetic on its inputs and adds no uncertainty of its own),
+    #: at most THEORETICAL when DRAM is shared (the arbiter is assumed).
     confidence: EstimationConfidence = None  # type: ignore[assignment]
+    #: Servers that can issue DRAM traffic at once (0: none analyzed).
+    dram_requesters: int = 0
+    #: Sustained DRAM bandwidth each requester is guaranteed, GB/s.
+    dram_share_gb_per_s: Optional[float] = None
 
     def stage_meets(self, stage: str) -> Optional[bool]:
         """Whether the stage's upper bound meets its deadline; None when the
@@ -242,6 +292,11 @@ class ResponseAnalysis:
             "stages_over_upper_bound": list(self.missing),
             "partition_failed": list(self.partition_failed),
             "reactive_chain_upper_ms": self.reactive_chain_upper_ms(),
+            "dram_contention": {
+                "requesters": self.dram_requesters,
+                "share_gb_per_s": self.dram_share_gb_per_s,
+                "arbiter": "fair (round-robin / TDM) assumed; FR-FCFS does not guarantee the share",
+            },
             "stages": [
                 {"stage": s, "job": (self.job_basis or {}).get(s, ""),
                  "deadline_ms": None if d is None else 1e3 * d,
@@ -267,6 +322,13 @@ def response_analysis(schedule: Schedule, engines: Mapping[str, Engine],
             "incomplete schedule: stages with no execution time"
         return ResponseAnalysis(policy, (), {}, {}, (), analyzed=False,
                                 confidence=estimation_confidence(Confidence.UNKNOWN, f"not analyzed: {why}"))
+    k = dram_requesters(schedule, engines, stages)
+    supply = schedule.dram_supply_gb_per_s
+    if k and not supply:
+        why = "no DRAM supply stated, so memory contention cannot be bounded"
+        return ResponseAnalysis(policy, (), {}, {}, (), analyzed=False, dram_requesters=k,
+                                confidence=estimation_confidence(Confidence.UNKNOWN, f"not analyzed: {why}"))
+    contended = {svc.stage: _contended(svc, max(k, 1)) for svc in schedule.served}
     by_engine: Dict[str, List[Task]] = {}
     jobs: Dict[str, Optional[float]] = {}
     basis: Dict[str, str] = {}
@@ -274,7 +336,7 @@ def response_analysis(schedule: Schedule, engines: Mapping[str, Engine],
         jobs[svc.stage], basis[svc.stage] = job_rate(stages[svc.stage], schedule.profile, svc.rate_hz)
         per_job = svc.rate_hz / jobs[svc.stage] if jobs[svc.stage] else 1.0
         rate = jobs[svc.stage] or svc.rate_hz  # an unknown job interferes as its calls
-        for engine, seconds in svc.engine_seconds.items():
+        for engine, seconds in contended[svc.stage][0].items():
             by_engine.setdefault(engine, []).append(
                 Task(svc.stage, engine, seconds * per_job, 1.0 / rate, judged=jobs[svc.stage] is not None))
     responses: List[TaskResponse] = []
@@ -296,11 +358,10 @@ def response_analysis(schedule: Schedule, engines: Mapping[str, Engine],
         if job is None or any(r.response_s is None for r in parts):
             stage_response[svc.stage] = None
         else:
-            # A split's parts carry compute only; any memory stall beyond
-            # compute + transfer still delays the stage, so it is added back.
+            # A split's parts carry compute only; its transfer and any memory
+            # stall beyond them (both contended) still delay the stage.
             per_job = svc.rate_hz / job
-            stall = max(0.0, svc.t_service_s - svc.t_compute_s - svc.t_transfer_s) if svc.parts else 0.0
-            stage_response[svc.stage] = sum(r.response_s for r in parts) + (svc.t_transfer_s + stall) * per_job
+            stage_response[svc.stage] = sum(r.response_s for r in parts) + contended[svc.stage][1] * per_job
     unknown_jobs = sorted(s for s, j in jobs.items() if j is None)
     if failed:
         confidence = estimation_confidence(
@@ -310,10 +371,16 @@ def response_analysis(schedule: Schedule, engines: Mapping[str, Engine],
             Confidence.UNKNOWN, f"{policy}: job size unknown for {', '.join(unknown_jobs)}")
     else:
         inputs = schedule.estimation_confidence
+        level, shared = schedule.confidence, ""
+        if k > 1:
+            level = weakest(level, Confidence.THEORETICAL)
+            shared = f", DRAM shared by {k} requesters under an assumed fair arbiter"
         confidence = estimation_confidence(
-            schedule.confidence, f"{policy} upper bounds over the schedule: {inputs.source}")
+            level, f"{policy} upper bounds over the schedule{shared}: {inputs.source}")
     return ResponseAnalysis(policy, tuple(responses), stage_response, deadlines,
-                            tuple(failed), analyzed=True, job_basis=basis, confidence=confidence)
+                            tuple(failed), analyzed=True, job_basis=basis, confidence=confidence,
+                            dram_requesters=k, dram_share_gb_per_s=supply / k if k else supply)
 
 
-__all__ = ["POLICIES", "ResponseAnalysis", "Task", "TaskResponse", "job_rate", "response_analysis"]
+__all__ = ["POLICIES", "ResponseAnalysis", "Task", "TaskResponse", "dram_requesters", "job_rate",
+           "response_analysis"]
