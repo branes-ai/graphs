@@ -220,28 +220,32 @@ class SoCAnalyzer:
         self.tables = tables if tables is not None else load_efficiency_tables()
         self.kernels = kernels if kernels is not None else load_kernel_classes()
 
-    def _mapping(self, design: SoCDesign, choice: MappingChoice) -> Tuple[Union[str, Dict[str, str]], str]:
-        """Resolve a mapping choice to what ``schedule`` takes, and say where it came from."""
+    def _mapping(self, design: SoCDesign, choice: MappingChoice):
+        """Resolve a mapping choice to what ``schedule`` takes -- the mapping,
+        where it came from, and any split transfer sizes it states."""
         if isinstance(choice, dict):
-            return choice, "caller"
+            return choice, "caller", {}
         if isinstance(choice, Path) or (isinstance(choice, str) and choice.endswith(".yaml")):
             mapping = load_mapping(Path(choice))
             if mapping.design != design.id or mapping.workload != self.workload.version:
                 raise ValueError(
                     f"mapping {choice} is for {mapping.design}/{mapping.workload}, "
                     f"not {design.id}/{self.workload.version}")
-            return mapping.assignments(), str(choice)
+            return mapping.assignments(), str(choice), mapping.transfers()
         shipped = find_mapping(design.id, self.workload.version)
         if choice == "explicit":
             if shipped is None:
                 raise ValueError(f"no explicit mapping ships for {design.id} on {self.workload.version}")
-            return shipped.assignments(), f"soc_designs/mappings/{design.id}__{self.workload.version}.yaml"
+            return (shipped.assignments(), f"soc_designs/mappings/{design.id}__{self.workload.version}.yaml",
+                    shipped.transfers())
         if choice == "auto":
             if shipped is not None:
-                return shipped.assignments(), f"soc_designs/mappings/{design.id}__{self.workload.version}.yaml"
-            return "greedy", "greedy"
+                return (shipped.assignments(),
+                        f"soc_designs/mappings/{design.id}__{self.workload.version}.yaml",
+                        shipped.transfers())
+            return "greedy", "greedy", {}
         if choice in ("greedy", "ilp"):
-            return choice, choice
+            return choice, choice, {}
         raise ValueError(f"mapping must be auto, explicit, greedy, ilp, a .yaml file or a dict; got {choice!r}")
 
     def analyze(
@@ -253,7 +257,10 @@ class SoCAnalyzer:
         mapping: MappingChoice = "auto",
         gate_idle: bool = False,
         sustained_fraction: float = SUSTAINED_DRAM_FRACTION,
+        transfers: Optional[Dict[str, float]] = None,
     ) -> SoCAnalysisResult:
+        """``transfers`` gives split stages' intermediate bytes per call when
+        ``mapping`` is a dict; a mapping file states its own."""
         if isinstance(design, SoCDesign):
             spec = design  # e.g. a sweep variant, not in the catalog
         elif design in self.designs:
@@ -265,10 +272,11 @@ class SoCAnalyzer:
         prof = profile if isinstance(profile, MissionProfile) else self.workload.profile(profile)
         soc = compose_soc(spec, self.library, self.nodes, node)
         table = self.tables[efficiency]
-        resolved, source = self._mapping(spec, mapping)
+        resolved, source, stated = self._mapping(spec, mapping)
         if table.kind == "pooled":
             source = "pooled (no mapping)"
-        sched = schedule(self.workload, prof, soc, table, self.kernels, resolved, sustained_fraction)
+        sched = schedule(self.workload, prof, soc, table, self.kernels, resolved, sustained_fraction,
+                         transfers={**stated, **(transfers or {})})
         return SoCAnalysisResult(
             soc=soc,
             schedule=sched,

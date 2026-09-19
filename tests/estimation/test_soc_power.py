@@ -240,3 +240,18 @@ def test_power_carries_its_own_estimation_confidence():
     assert floor.estimation_confidence.source == (
         "power.dynamic: ALU-only floor, architectural overhead unpriced")
     assert pooled.to_dict()["confidence"] == "unknown"
+
+
+def test_a_stages_priced_classes_count_when_another_class_is_a_gap():
+    """det on the CPU: Class A in INT8 prices, Class B in FP16 does not (no
+    node states FP16). The INT8 part still counts toward the floor; only
+    the FP16 part is the gap (#311 review)."""
+    soc = _soc()
+    s = schedule(WORKLOAD, AIR, soc, _everything_known(), KERNELS, {"det": "cpu"})
+    report = roll_up(s, soc, WORKLOAD)
+    assert any("hp_logic:fp16" in g for g in report.dynamic.gaps)
+    det = next(d.stage for d in WORKLOAD.demands(AIR) if d.stage.key == "det")
+    rate = next(svc.rate_hz for svc in s.served if svc.stage == "det")
+    pj = NODES["samsung_8lpp"].energy_per_op_pj["hp_logic:int8"]
+    expected = det.ops_per_call * det.class_split[0] * rate * pj * 1e-12
+    assert report.dynamic.watts == pytest.approx(expected)
