@@ -12,8 +12,11 @@ soc_designs/efficiency/measurements/. tools/ingest_soc_kernel_benchmarks.py
 (PR 5.2) turns it into efficiency-table entries; an entry is CALIBRATED only
 when its clock was verified (enough samples, within 5% of each other).
 
-On a Jetson, lock the clocks first so the run measures one operating point:
-    sudo nvpmodel -m 0 && sudo jetson_clocks
+Step-by-step for a Jetson (environment, power mode, running, getting the file
+back, ingesting): docs/guides/soc_kernel_benchmarks_on_jetson.md. In short,
+do not `pip install -e .` there (it can replace JetPack's CUDA torch), pick the
+top nvpmodel mode, and lock the clocks so the run measures one operating point:
+    sudo nvpmodel -m <top mode from `nvpmodel -q --verbose`> && sudo jetson_clocks
 
 CPU kernels run pinned to one core, single-threaded: the analyzer treats a
 CPU core as one server. GPU kernels use the whole GPU.
