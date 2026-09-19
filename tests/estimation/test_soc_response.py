@@ -267,12 +267,10 @@ def test_contention_withdraws_a_proof_that_owned_the_bandwidth(analyzer, monkeyp
     """AV L2 on Orin is schedulable only if each stage owns DRAM. Sharing it
     among the servers that stream at once pushes mono's upper bound past its
     deadline, so the proof is withdrawn: open, not failed."""
-    import graphs.estimation.soc.response as response
-
     shared = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy")
     assert shared.response.schedulable is None and "mono" in shared.response.missing
     assert shared.schedule.feasible() is not False  # the lower bounds still hold
-    monkeypatch.setattr(response, "dram_requesters", lambda *a: 1)
+    monkeypatch.setattr("graphs.estimation.soc.response.dram_requesters", lambda *a: 1)
     owned = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy")
     assert owned.response.schedulable is True
     for stage, upper in shared.response.stage_response_s.items():
