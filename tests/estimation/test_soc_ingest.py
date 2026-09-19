@@ -106,8 +106,8 @@ def test_several_kernels_give_a_median_and_a_range():
 
 
 def test_a_format_with_no_template_peak_is_reported_not_ingested():
-    _, skipped = _build(_run(_result(prec="fp16", attained=5e12)), _run(_result()))
-    assert any("states no fp16 peak" in s and "5000.0 GOP/s" in s for s in skipped)
+    _, skipped = _build(_run(_result(prec="fp64", attained=5e9)), _run(_result()))
+    assert any("states no fp64 peak" in s and "5.0 GOP/s" in s for s in skipped)
 
 
 def test_an_efficiency_above_one_is_refused():
@@ -161,12 +161,13 @@ def test_a_layered_table_overrides_and_inherits():
 
 
 def test_measured_gpu_int8_prices_the_detector_on_orin():
-    """The point of the measurement path: one measured pair (GPU INT8 dense
-    conv) plus default_v1's GPU FP32 entry prices `det` on Orin, which
-    default_v1 alone left a gap."""
-    measured = {"kernel_class": "dense_conv_gemm", "engine_kind": "gpu", "precision": "int8",
-                "compute_eff": 0.4, "confidence": "calibrated", "source": "test run"}
-    analyzer = SoCAnalyzer(tables=_layered([measured]))
+    """The point of the measurement path: measured GPU INT8 and FP16 dense
+    conv -- the formats det's Class A and B run in on the Orin SM -- price
+    `det` on Orin, which default_v1 alone left a gap."""
+    measured = [{"kernel_class": "dense_conv_gemm", "engine_kind": "gpu", "precision": p,
+                 "compute_eff": 0.4, "confidence": "calibrated", "source": "test run"}
+                for p in ("int8", "fp16")]
+    analyzer = SoCAnalyzer(tables=_layered(measured))
     result = analyzer.analyze("orin_class_reference", "air superiority", efficiency="t_measured")
     det = next(s for s in result.schedule.services if s.stage == "det")
     assert det.served and det.t_service_s > 0

@@ -43,7 +43,7 @@ def test_the_int8_trunk_goes_to_the_dla_the_fp16_head_to_the_gpu(analyzer):
     the DLA takes the INT8 trunk and the GPU the head."""
     result, det = _split_det(analyzer, {"det": TRANSFER})
     assert det.served and det.class_engines == {"A": "dla", "B": "gpu_sm"}
-    assert det.formats == {"A": "int8", "B": "fp32"}  # the SM template has no FP16
+    assert det.formats == {"A": "int8", "B": "fp16"}  # the SM's sourced FP16 tensor rate
     assert set(det.parts) == {"dla", "gpu_sm"}
     engines = engines_of(result.soc)
     stage = result.stages["det"]
@@ -81,7 +81,10 @@ def test_dynamic_power_prices_each_class_on_its_own_engine(analyzer):
     result, det = _split_det(analyzer, {"det": TRANSFER})
     by_block = {b.name: b for b in result.power.blocks}
     assert by_block["dla"].dynamic_w > 0  # the trunk's INT8 ops, in the DLA's library
-    assert not result.power.dynamic.gaps
+    # The head runs in FP16 on the GPU, and no node states FP16 energy: that
+    # part is a stated gap, not billed at another format.
+    det_gaps = [g for g in result.power.dynamic.gaps if g.startswith("det:")]
+    assert det_gaps and all("fp16" in g for g in det_gaps)
 
 
 # ---------------------------------------------------------------------------
