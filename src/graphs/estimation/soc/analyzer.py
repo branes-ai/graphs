@@ -50,6 +50,7 @@ from .mapping import (
     weakest,
 )
 from .power import PowerReport, roll_up
+from .response import ResponseAnalysis, response_analysis
 from .schedule import Schedule, schedule
 
 MappingChoice = Union[str, Dict[str, str], Path]
@@ -66,6 +67,8 @@ class SoCAnalysisResult:
     mapping_source: str
     #: The profile's own stage costs (a profile may override a stage's).
     stages: Mapping[str, Stage]
+    #: Upper-bound response times under a scheduling policy.
+    response: Optional[ResponseAnalysis] = None
 
     @property
     def profile(self) -> MissionProfile:
@@ -113,11 +116,15 @@ class SoCAnalysisResult:
     def feasible(self) -> Optional[bool]:
         """False on any proven violation (a stage over, an engine or DRAM over
         1, the reactive chain past its deadline, a power lower bound past the
-        budget); True only when complete and nothing fails; else None."""
+        budget). True only when complete, nothing fails, *and* the response-
+        time analysis proves every stage meets its deadline -- utilization
+        under 1 alone does not prove a non-preemptive engine schedulable.
+        Otherwise None."""
         verdicts = (self.schedule.feasible(), self.power.within_budget())
         if False in verdicts:
             return False
-        return True if all(v is True for v in verdicts) else None
+        schedulable = self.response.schedulable if self.response is not None else None
+        return True if all(v is True for v in verdicts) and schedulable is True else None
 
     def to_dict(self) -> dict:
         soc, sched, power = self.soc, self.schedule, self.power
@@ -193,7 +200,11 @@ class SoCAnalysisResult:
                 "e2e_latency_complete": sched.reactive_chain_complete,
                 "deadline_ms": self.profile.deadline_ms,
                 "useful_tops_per_w": power.useful_tops_per_w,
+                "schedulable": None if self.response is None else self.response.schedulable,
+                "reactive_chain_upper_ms": (None if self.response is None
+                                            else self.response.reactive_chain_upper_ms()),
             },
+            "schedulability": None if self.response is None else self.response.to_dict(),
         }
 
 
@@ -258,6 +269,7 @@ class SoCAnalyzer:
         gate_idle: bool = False,
         sustained_fraction: float = SUSTAINED_DRAM_FRACTION,
         transfers: Optional[Dict[str, float]] = None,
+        policy: str = "rm",
     ) -> SoCAnalysisResult:
         """``transfers`` gives split stages' intermediate bytes per call when
         ``mapping`` is a dict; a mapping file states its own."""
@@ -283,7 +295,8 @@ class SoCAnalyzer:
             power=roll_up(sched, soc, self.workload, gate_idle),
             findings=tuple(validate_soc(soc)),
             mapping_source=source,
-            stages={d.stage.key: d.stage for d in self.workload.demands(prof)},
+            stages=(stages := {d.stage.key: d.stage for d in self.workload.demands(prof)}),
+            response=response_analysis(sched, engines_of(soc), stages, policy),
         )
 
     def analyze_profiles(
