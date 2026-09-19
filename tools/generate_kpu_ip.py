@@ -53,7 +53,9 @@ IP_DIR = REPO / "soc_designs" / "ip"
 #: template id -> (ComputeProduct id, core_only)
 GENERATED: Dict[str, Tuple[str, bool]] = {
     "kpu_h64_core": ("kpu_h64_auto1_lp5x4_7nm_tsmc_hpc", True),
+    "kpu_t64_core": ("kpu_t64_32x32_lp5x4_7nm_tsmc_hpc", True),
     "kpu_t128_core": ("kpu_t128_32x32_lp5x8_7nm_tsmc_hpc", True),
+    "kpu_t256_core": ("kpu_t256_32x32_lp5x16_7nm_tsmc_hpc", True),
 }
 
 #: silicon_bin blocks that belong to a standalone chip, not to an on-die core.

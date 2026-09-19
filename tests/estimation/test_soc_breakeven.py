@@ -300,3 +300,78 @@ def test_known_efficiency_is_the_dense_time_over_the_priced_time(kpu):
     for s in priced:
         assert s.known_efficiency == pytest.approx(s.dense_seconds / s.known_seconds)
         assert 0 < s.known_efficiency <= 1
+
+
+# ---------------------------------------------------------------------------
+# The KPU x CPU ladder (Phase 6, P6-D2)
+# ---------------------------------------------------------------------------
+
+LADDER = ("kpu_uniform_t64", "kpu_uniform_t128", "kpu_uniform_t256")
+
+
+@pytest.mark.parametrize("design", LADDER)
+def test_a_uniform_kpu_rung_is_anchored_and_states_fp32(design):
+    """Unlike the H64, the T-series cores have an FP32 rate, so a Class C
+    stage can stay on the accelerator -- and every silicon line is priced,
+    so the block is not a lower bound."""
+    designs, library, nodes = load_designs(), load_ip_library(), load_process_nodes()
+    soc = compose_soc(designs[design], library, nodes, "tsmc_n7")
+    kpu = engines_of(soc)["kpu"]
+    assert {"int8", "fp16", "fp32"} <= set(kpu.formats)
+    block = next(b for b in soc.blocks if b.name == "kpu")
+    assert not block.template.unanchored_lines
+
+
+def test_the_ladder_halves_what_it_asks_of_the_kpu():
+    """Doubling the tiles halves the required efficiency: the ladder's whole
+    point, and a check that the requirement scales with the peak. Not to the
+    last digit -- the 70/20/10 tile mix rounds to 13 / 26 / 51 BF16-primary
+    tiles, so the T256's FP32 rate is 1.96x the T128's, not 2x."""
+    designs, library, nodes = load_designs(), load_ip_library(), load_process_nodes()
+    needs = []
+    for design in LADDER:
+        soc = compose_soc(designs[design], library, nodes, "tsmc_n7")
+        result = required_efficiency(WORKLOAD, AIR, soc)
+        kpu = next(e for e in result.engines if e.engine == "kpu")
+        assert len(kpu.stages) == len(list(WORKLOAD.demands(AIR)))  # FP32: it takes them all
+        needs.append(kpu.required_efficiency)
+    assert needs[1] == pytest.approx(needs[0] / 2, rel=2e-2)
+    assert needs[2] == pytest.approx(needs[1] / 2, rel=2e-2)
+    assert needs[2] < needs[1] < needs[0]
+
+
+def test_the_h64_rung_leans_on_the_cpu_and_the_cpu_count_decides_it():
+    """The H64 has no FP32, so Class C falls to the CPU. With one cluster
+    the CPU would have to run at nearly its dense peak; three clusters is
+    what makes the requirement ordinary."""
+    designs, library, nodes = load_designs(), load_ip_library(), load_process_nodes()
+    from graphs.estimation.soc import Override
+
+    base = designs["kpu_heterogeneous_h64"]
+    override = Override(target="block:cpu.count", values=[1, 3])
+    needs = {}
+    for clusters in (1, 3):
+        soc = compose_soc(override.apply(base, clusters), library, nodes, "tsmc_n7")
+        result = required_efficiency(WORKLOAD, AIR, soc)
+        needs[clusters] = next(e for e in result.engines if e.engine == "cpu").required_efficiency
+    assert needs[1] == pytest.approx(3 * needs[3], rel=1e-6)
+    assert needs[1] > 0.9 and needs[3] < 0.4
+
+
+def test_cli_sweeps_designs_and_an_override(tmp_path):
+    path = tmp_path / "ladder.csv"
+    _cli("--design", "kpu_uniform_t64", "kpu_heterogeneous_h64",
+         "--override", "block:cpu.count=1,3", "--regime", "air superiority",
+         "--node", "tsmc_n7", "--mapping", "capability", "--output", str(path))
+    import csv
+
+    rows = list(csv.DictReader(path.open()))
+    assert {r["design"] for r in rows} == {"kpu_uniform_t64", "kpu_heterogeneous_h64"}
+    h64 = [r for r in rows if r["design"] == "kpu_heterogeneous_h64" and r["engine"] == "cpu"]
+    assert {r["servers"] for r in h64} == {"4", "12"}  # 1 and 3 clusters of 4
+    assert {r["point"] for r in h64} == {"kpu x1, cpu x4", "kpu x1, cpu x12"}
+
+
+def test_cli_rejects_a_malformed_override():
+    assert "override" in _cli("--design", "kpu_uniform_t64", "--override", "block:cpu.count",
+                              "--regime", "air superiority", expect=2).stderr

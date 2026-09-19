@@ -76,7 +76,7 @@ silicon priced first (Phase 2), so they are not in this phase.
 | PR | Content |
 |---|---|
 | 6.1 | `estimation/soc/breakeven.py`, `cli/analyze_required_efficiency.py`, tests. |
-| 6.2 | The ladder: T64 / T128 / T256 cores from `generate_kpu_ip.py`, one design per KPU core, the CPU-cluster override, a study. |
+| 6.2 | The ladder: T64 / T128 / T256 cores from `generate_kpu_ip.py`, one design per KPU core, the CPU-cluster override, the `kpu_cpu_ladder` study. **Done.** |
 | 6.3 | The assessment: what the ladder decides, and the KPU efficiency each configuration would need. |
 | 6.4 | The domain-flow cost model as a THEORETICAL table, read against 6.3's requirements. |
 
@@ -105,3 +105,36 @@ the measured Nano efficiencies already miss what that profile needs.
 Read: the H64 would have to sustain about 27% of its dense peak on the
 stages it takes. Whether it can is exactly what the cost model, or silicon,
 has to answer -- and 27% is the number to answer against.
+
+## What the ladder says (PR 6.2)
+
+`soc_designs/studies/kpu_cpu_ladder.yaml` for area, power and DRAM;
+`cli/analyze_required_efficiency.py --design ... --override block:cpu.count=1,2,3`
+for what each rung would have to achieve. At N7, capability mapping:
+
+| Rung | Stages on the KPU | KPU needs (air / far) | CPU needs at 1 / 2 / 3 clusters (air) |
+|---|---|---|---|
+| H64 | 3 of 16, 4 of 18 | 26.7% / 28.0% | 98.7% / 49.3% / 32.9% |
+| T64 | all | 16.0% / 14.4% | the CPU takes nothing |
+| T128 | all | 8.0% / 7.2% | the CPU takes nothing |
+| T256 | all | 4.0% / 3.6% | the CPU takes nothing |
+
+- **FP32 is the whole story.** The H64 has none, so 13 of 16 air-superiority
+  stages fall to the CPU, and with one cluster that CPU would have to run at
+  98.7% of its dense peak. Three clusters bring it to 32.9%. The T-series
+  cores state FP32, take every stage, and leave the CPU complement free.
+- **The ladder halves the ask.** T64 16.0%, T128 8.0%, T256 4.0% in air
+  superiority. Not quite exactly: the 70/20/10 tile mix rounds to 13 / 26 /
+  51 BF16-primary tiles, so the T256's FP32 rate is 1.96x the T128's.
+- **Far flight stays out of reach on memory.** `vlm` moves more bytes per
+  call than the sustained bandwidth delivers in its period, on every rung,
+  and no efficiency changes that. It is the same finding as Phase 4's: the
+  memory system, not the datapath, decides far flight.
+- **Area** at N7 (annex_v1, lower bounds throughout): Orin 8.0 mm2, H64
+  11.8, T64 19.9, T128 33.7, T256 60.6. The T-series cores are fully
+  anchored while Orin's SM, DLA and PVA logic is not, so a larger figure
+  here is more knowledge, not more silicon. The Phase 4 caveat stands.
+
+The open question is unchanged and now quantified per rung: a T128 has to
+sustain 8% of its dense peak, a T64 16%, an H64 27% plus a 3-cluster CPU at
+33%. PR 6.4's cost model answers against these.

@@ -1,0 +1,19 @@
+id: kpu_cpu_ladder
+name: KPU x CPU ladder at N7 (Phase 6, P6-D2)
+workload: branes_7tier_v1
+designs: [orin_class_reference, kpu_heterogeneous_h64, kpu_uniform_t64, kpu_uniform_t128,
+          kpu_uniform_t256]
+nodes: [tsmc_n7]
+profiles: regimes
+efficiency: [annex_v1, orin_nano_measured_v1]
+gate_idle: [false]
+overrides:
+  - target: block:cpu.count
+    values: [1, 2, 3]
+notes: >-
+  graphs#269 P6-D2. The accelerator ladder (H64 with no FP32; T64 / T128 / T256, which have
+  it) crossed with 1, 2 and 3 clusters of 4 Cortex-A78AE, against the Orin reference. This
+  study reports area, power and DRAM, which need no KPU efficiency; what each rung would have
+  to achieve on compute is cli/analyze_required_efficiency.py, because no efficiency exists
+  for any KPU kernel class (P6-D1). Under the strict rule every compute figure here is a
+  lower bound.
