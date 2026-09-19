@@ -47,7 +47,7 @@ jobs:
 
   # Job 2: Unit Tests (Multiple Python Versions)
   test:
-    name: Tests (Python ${{ matrix.python-version }})
+    name: Tests (Python ${{ matrix.python-version }}${{ matrix.marker && ', fast' || '' }}, ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     # Required by graphs.hardware.physical_spec_loader for the 5
     # YAML-backed factories (issue #136 Phase 3.5). The env var
@@ -62,11 +62,16 @@ jobs:
         # SKU validator framework, generator, and YAML loader) declares
         # requires-python = ">=3.10".
         #
-        # Matrix is conditional to keep PR cycle time short: PRs run
-        # only the production target (3.12); pushes to main and manual
-        # dispatches run the full sweep so any version-specific
-        # breakage gets caught before release.
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.10", "3.11", "3.12"]') }}
+        # The suite (~4,400 tests, ~2 CPU-hours on a hosted runner) runs in
+        # 4 shards balanced on .test_durations (pytest-split), so the wall
+        # clock is about a quarter of the ~30 min one job took. PRs run the
+        # production target (3.12) in full, plus 3.10 -- the oldest
+        # requires-python allows -- without tests marked slow; pushes to
+        # main and manual dispatches run 3.10, 3.11 and 3.12 in full. One
+        # matrix, not two jobs, so the CI Success gate never waits on a
+        # skipped job. Refresh the durations with:
+        #   pytest tests/ -n 8 --store-durations
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.12","shard":1,"marker":""},{"python-version":"3.12","shard":2,"marker":""},{"python-version":"3.12","shard":3,"marker":""},{"python-version":"3.12","shard":4,"marker":""},{"python-version":"3.10","shard":1,"marker":"not slow"},{"python-version":"3.10","shard":2,"marker":"not slow"},{"python-version":"3.10","shard":3,"marker":"not slow"},{"python-version":"3.10","shard":4,"marker":"not slow"}]' || '[{"python-version":"3.10","shard":1,"marker":""},{"python-version":"3.10","shard":2,"marker":""},{"python-version":"3.10","shard":3,"marker":""},{"python-version":"3.10","shard":4,"marker":""},{"python-version":"3.11","shard":1,"marker":""},{"python-version":"3.11","shard":2,"marker":""},{"python-version":"3.11","shard":3,"marker":""},{"python-version":"3.11","shard":4,"marker":""},{"python-version":"3.12","shard":1,"marker":""},{"python-version":"3.12","shard":2,"marker":""},{"python-version":"3.12","shard":3,"marker":""},{"python-version":"3.12","shard":4,"marker":""}]') }}
 
     steps:
       - name: Checkout code
@@ -154,23 +159,24 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[soc]"  # scipy: the SoC ILP mapper tests
           pip install -e ./embodied-schemas
-          pip install pytest pytest-xdist
+          pip install pytest pytest-xdist pytest-split
 
-      - name: Run unit tests
-        # -n 4 fans the 2,700-test suite across the 4 vCPUs of the
-        # GitHub-hosted runner. Combined with the in-process CLI test
-        # runner in tests/conftest.py (each subprocess CLI test
-        # previously paid a ~2s torch-import tax), this drops the
-        # unit-test step from ~10 minutes serial-with-coverage to ~2
-        # minutes. Coverage is intentionally NOT collected here --
-        # pytest-cov adds 30-40% overhead. Coverage runs in the
-        # dedicated coverage.yml workflow on push to main and nightly;
-        # PRs only need the pass/fail signal.
+      - name: Run unit tests (shard ${{ matrix.shard }}/4)
+        # -n 4 fans the shard across the runner's 4 vCPUs; --splits/--group
+        # (pytest-split) picks this shard's quarter of the suite by recorded
+        # duration. Coverage is intentionally NOT collected here: pytest-cov
+        # adds 30-40% overhead, and coverage.yml runs it on push to main.
+        env:
+          MARKER: ${{ matrix.marker }}
         run: |
-          pytest tests/ -n 4 -v
+          ARGS=()
+          if [ -n "$MARKER" ]; then ARGS=(-m "$MARKER"); fi
+          pytest tests/ -n 4 --splits 4 --group ${{ matrix.shard }} "${ARGS[@]}" -v
           echo "Unit tests passed"
 
       - name: Run validation tests (smoke tests only)
+        # Once per Python version, not once per shard.
+        if: matrix.shard == 1 && matrix.marker == ''
         run: |
           # Run quick validation tests, skip slow ones
           pytest validation/hardware/ -v -k "not slow" || echo "⚠️  Some validation tests failed (non-blocking)"
@@ -462,104 +468,6 @@ jobs:
         run: |
           mypy src/graphs --ignore-missing-imports || echo "⚠️  Type checking issues (non-blocking for now)"
 
-  # Job 6: Hardware Test Suite
-  hardware-tests:
-    name: Hardware Tests
-    runs-on: ubuntu-latest
-    env:
-      EMBODIED_SCHEMAS_DATA_DIR: ${{ github.workspace }}/embodied-schemas/src/embodied_schemas/data
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Checkout embodied-schemas (PhysicalSpec data source)
-        uses: actions/checkout@v6
-        with:
-          repository: branes-ai/embodied-schemas
-          # Pinned to embodied-schemas main; bump when later schema
-          # changes need to be picked up. History:
-          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
-          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
-          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
-          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
-          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
-          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
-          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
-          #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
-          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
-          #   PR #18 (181d725) retire legacy data/kpus/; load_kpus() becomes shim
-          #   PR #19 (6edda84) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
-          #   PR #20 (cb7d8e2) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
-          #   PR #21 (4faa8a6) Jetson AGX Thor 128GB YAML + TSMC N4P process node
-          #   PR #22 (3547b5d) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
-          #   PR #24 (c57dea7) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
-          #   PR #25 (df7b87f) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
-          #   PR #26 (6080305) first NPU SKU YAML: hailo_hailo_8
-          #   PR #30 (5d99c4c) KVCacheSpec added to NPUBlock (transformer NPUs)
-          #   PR #31 (e4d1835) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
-          #   PR #32 (f5035fb) GF 28nm process node YAML (Coral Edge TPU precursor)
-          #   PR #33 (6e3aadb) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
-          #   PR #34 (fd43608) CGRABlock added to ComputeProduct (v5, additive)
-          #   PR #35 (51b8287) first CGRA SKU YAML: stanford_plasticine_v2
-          #   PR #36 (4befc41) DPUBlock added to ComputeProduct (v6, additive)
-          #   PR #37 (aa19f91) first DPU SKU YAML: xilinx_vitis_ai_b4096
-          #   PR #38 (e60989b) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
-          #   PR #39 (9bc4a7a) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
-          #   PR #61 (6778f13) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
-          #   PR #65-67 (sprint #62) AMD EPYC 9654/9754/9965 datacenter CPUs + AmpereOne A192/A128
-          #   PR #68-71 (sprint #68) Intel Xeon 8490H/8592+/Granite Rapids datacenter CPUs
-          #   PR #73-78 (sprint #72) H100 PCIe + T4 + TPU v1/v3/v5p/Edge Pro
-          #   PR #79 (c4ac073) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
-          #   PR #80 (961e779) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
-          #   PR #81 (f6ab228) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
-          #   PR #82 (61158ff) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
-          #   PR #83 (7cc12c4) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
-          #   PR #84 (34826f3) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
-          #   PR #85 (b0e3920) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
-          #   189f0c1 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
-          #   PR #86 (755405a) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
-          #   PR #87 (b2baa38) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
-          #   PR #88 (77ca00a) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
-          #   PR #89 (6d50e4f) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
-          #   PR #90 (b675957) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
-          #   PR #91 (5584d38) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
-          #   PR #92 (e8fa698) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
-          #   PR #93 (d9194f4) KPU B5: performance roll-up by tile kind (graphs #268 B5)
-          #   PR #94 (f0df37f) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
-          #   PR #95 (c00a88a) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
-          #   PR #97 (cd119f8) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
-          #   PR #98 (067bc19) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
-          #   PR #99 (6a12905) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
-          #   PR #100 (ede4f8b) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
-          #   PR #101 (3ec7aa0) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
-          ref: 3ec7aa09bbc42af05b4ccff84a1e76657d4f50cb
-          path: embodied-schemas
-          fetch-depth: 1
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      - name: Cache pip packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
-        run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e .
-          pip install -e ./embodied-schemas
-          pip install pytest
-
-      - name: Run hardware validation tests
-        run: |
-          pytest tests/hardware/ -v || echo "✅ Hardware tests completed"
-
   # Job 7: Data Hygiene (no legacy measurement reads)
   data-hygiene:
     name: Data Hygiene
@@ -788,7 +696,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [package-check, test, cli-tools, examples, lint, hardware-tests, data-hygiene, composition-check, sku-catalog-gate]
+    needs: [package-check, test, cli-tools, examples, lint, data-hygiene, composition-check, sku-catalog-gate]
     steps:
       - name: All checks passed
         run: |
@@ -798,11 +706,10 @@ jobs:
           echo ""
           echo "Summary:"
           echo "  Package installation verified"
-          echo "  Tests passed on Python 3.10, 3.11, 3.12 (single-version 3.12 on PRs)"
+          echo "  Tests passed in 4 shards: 3.10/3.11/3.12 on main; 3.12 + 3.10 (not slow) on PRs"
           echo "  CLI tools working correctly"
           echo "  Examples validated"
           echo "  Code quality checked"
-          echo "  Hardware tests completed"
           echo "  Data hygiene verified"
           echo "  Composition check passed"
           echo "  SKU catalog gate passed (Phase 6)"

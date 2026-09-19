@@ -15,6 +15,15 @@ import pytest
 CLI = Path(__file__).resolve().parents[2] / "cli" / "list_hardware_mappers.py"
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _fast_discovery(cli_memoizer):
+    """Discover the mappers once per module, not once per test."""
+    restore = cli_memoizer(CLI, ["discover_cpu_mappers", "discover_gpu_mappers",
+                                          "discover_dsp_mappers", "discover_accelerator_mappers"])
+    yield
+    restore()
+
+
 @pytest.fixture
 def _run(cli_runner):
     """Wrap the global cli_runner with this file's CLI path. Returns
