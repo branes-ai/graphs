@@ -204,25 +204,27 @@ def _dynamic(schedule: Schedule, soc: SoCInstance, workload: PipelineWorkload):
     stages = {d.stage.key: d.stage for d in workload.demands(schedule.profile)}
     table = soc.node.energy_per_op_pj
     for svc in schedule.served:
-        block = blocks[svc.engine]
-        lib = datapath_library(block)
-        if lib is None:
-            gaps.append(f"{svc.stage}: {svc.engine} states no single datapath library")
-            continue
         stage = stages[svc.stage]
-        watts = 0.0
+        watts: Dict[str, float] = {}
         for cls, share in zip(CLASS_NAMES, stage.class_split):
             if share <= 0:
+                continue
+            # A split runs each class on its own engine, priced in that
+            # engine's datapath library. A class that cannot be priced is a
+            # gap; the classes that can still count -- the term is a floor.
+            engine = svc.class_engines.get(cls, svc.engine)
+            lib = datapath_library(blocks[engine])
+            if lib is None:
+                gaps.append(f"{svc.stage}: {engine} states no single datapath library")
                 continue
             key = f"{lib.value}:{svc.formats[cls]}"
             pj = table.get(key)
             if pj is None:
                 gaps.append(f"{svc.stage}: {soc.node.id} has no energy_per_op_pj[{key}]")
-                watts = None
-                break
-            watts += stage.ops_per_call * share * svc.rate_hz * pj * 1e-12
-        if watts is not None:
-            per_engine[svc.engine] = per_engine.get(svc.engine, 0.0) + watts
+                continue
+            watts[engine] = watts.get(engine, 0.0) + stage.ops_per_call * share * svc.rate_hz * pj * 1e-12
+        for engine, w in watts.items():
+            per_engine[engine] = per_engine.get(engine, 0.0) + w
     return per_engine, tuple(gaps)
 
 
@@ -253,7 +255,9 @@ def roll_up(
     # stage that is a gap on an engine leaves its utilization unknown, and a
     # stage no engine could take might have run anywhere, so then nothing is
     # provably idle.
-    named = {s.engine for s in schedule.services}
+    named = set()
+    for svc in schedule.services:
+        named |= set(svc.class_engines.values()) if svc.class_engines else {svc.engine}
     idle = set() if "" in named else {e for e in util if e not in named}
 
     blocks: List[BlockPower] = []
