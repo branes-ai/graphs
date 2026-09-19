@@ -33,6 +33,18 @@ entries:
   - 0.5036
 - kernel_class: attention_prefill
   engine_kind: gpu
+  precision: fp16
+  compute_eff: 0.5675
+  confidence: calibrated
+  source: jetson_orin_nano_8gb 15w sdpa 16 heads x 1024 x 64 at 0.612 GHz measured = 0.5849 (jetson_orin_nano_8gb_15w_20260919.json);
+    jetson_orin_nano_8gb 25w sdpa 16 heads x 1024 x 64 at 0.918 GHz measured = 0.5675 (jetson_orin_nano_8gb_25w_20260919.json);
+    jetson_orin_nano_8gb maxn_super sdpa 16 heads x 1024 x 64 at 1.020 GHz measured = 0.5521 (jetson_orin_nano_8gb_maxn_super_20260919.json);
+    over the orin_class_reference per-server peak at the measured clock
+  eff_range:
+  - 0.5521
+  - 0.5849
+- kernel_class: attention_prefill
+  engine_kind: gpu
   precision: fp32
   compute_eff: 0.5764
   confidence: calibrated
@@ -73,6 +85,21 @@ entries:
   eff_range:
   - 0.8373
   - 0.9175
+- kernel_class: dense_conv_gemm
+  engine_kind: gpu
+  precision: fp16
+  compute_eff: 0.4848
+  confidence: calibrated
+  source: jetson_orin_nano_8gb 15w gemm 2048x2048x2048 at 0.612 GHz measured = 0.5909 (jetson_orin_nano_8gb_15w_20260919.json);
+    jetson_orin_nano_8gb 15w conv3x3 256->256 @ 80x80 at 0.612 GHz measured = 0.5469 (jetson_orin_nano_8gb_15w_20260919.json);
+    jetson_orin_nano_8gb 25w gemm 2048x2048x2048 at 0.918 GHz measured = 0.4699 (jetson_orin_nano_8gb_25w_20260919.json);
+    jetson_orin_nano_8gb 25w conv3x3 256->256 @ 80x80 at 0.918 GHz measured = 0.4996 (jetson_orin_nano_8gb_25w_20260919.json);
+    jetson_orin_nano_8gb maxn_super gemm 2048x2048x2048 at 1.020 GHz measured = 0.4248 (jetson_orin_nano_8gb_maxn_super_20260919.json);
+    jetson_orin_nano_8gb maxn_super conv3x3 256->256 @ 80x80 at 1.020 GHz measured = 0.4630 (jetson_orin_nano_8gb_maxn_super_20260919.json);
+    over the orin_class_reference per-server peak at the measured clock
+  eff_range:
+  - 0.4248
+  - 0.5909
 - kernel_class: dense_conv_gemm
   engine_kind: gpu
   precision: fp32
@@ -123,6 +150,18 @@ entries:
   eff_range:
   - 0.1148
   - 0.1241
+- kernel_class: elementwise_norm
+  engine_kind: gpu
+  precision: fp16
+  compute_eff: 0.0048
+  confidence: calibrated
+  source: jetson_orin_nano_8gb 15w layernorm 4096x4096 at 0.612 GHz measured = 0.0065 (jetson_orin_nano_8gb_15w_20260919.json);
+    jetson_orin_nano_8gb 25w layernorm 4096x4096 at 0.918 GHz measured = 0.0048 (jetson_orin_nano_8gb_25w_20260919.json);
+    jetson_orin_nano_8gb maxn_super layernorm 4096x4096 at 1.020 GHz measured = 0.0044 (jetson_orin_nano_8gb_maxn_super_20260919.json);
+    over the orin_class_reference per-server peak at the measured clock
+  eff_range:
+  - 0.0044
+  - 0.0065
 - kernel_class: elementwise_norm
   engine_kind: gpu
   precision: fp32
@@ -281,6 +320,18 @@ entries:
   eff_range:
   - 0.0528
   - 0.0637
+- kernel_class: weight_stream_decode
+  engine_kind: gpu
+  precision: fp16
+  compute_eff: 0.0039
+  confidence: calibrated
+  source: jetson_orin_nano_8gb 15w gemv 1x4096 . 4096x4096 at 0.612 GHz measured = 0.0058 (jetson_orin_nano_8gb_15w_20260919.json);
+    jetson_orin_nano_8gb 25w gemv 1x4096 . 4096x4096 at 0.918 GHz measured = 0.0039 (jetson_orin_nano_8gb_25w_20260919.json);
+    jetson_orin_nano_8gb maxn_super gemv 1x4096 . 4096x4096 at 1.020 GHz measured = 0.0034 (jetson_orin_nano_8gb_maxn_super_20260919.json);
+    over the orin_class_reference per-server peak at the measured clock
+  eff_range:
+  - 0.0034
+  - 0.0058
 - kernel_class: weight_stream_decode
   engine_kind: gpu
   precision: fp32

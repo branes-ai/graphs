@@ -140,7 +140,11 @@ def test_an_injected_table_prices_the_whole_pipeline():
         "orin_class_reference", "air superiority", node="tsmc_n7", efficiency="all_known")
     assert result.schedule.complete
     assert result.power.dynamic.floor_only
-    assert result.power.useful_tops_per_w is not None
+    # Every stage has a service time. Power is still partial: Class B runs in
+    # FP16 on the Orin SM and no node states FP16 energy, so TOPS/W is
+    # withheld rather than divided by a power that omits those ops.
+    assert all("fp16" in g for g in result.power.dynamic.gaps)
+    assert result.power.useful_tops_per_w is None
     assert not result.complete  # the die and the power floor still are not
 
 

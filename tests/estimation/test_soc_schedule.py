@@ -172,10 +172,10 @@ def test_service_time_is_ops_over_peak_times_efficiency_per_class(orin):
     svc = engine_service(demand, KernelClass.DENSE_CONV_GEMM, gpu, _everything_known(0.5), 0.0)
     a, b, _ = demand.stage.class_split
     ops = demand.stage.ops_per_call
-    # Class A in INT8; Class B in FP32 because the SM template has no FP16.
-    assert svc.formats == {"A": "int8", "B": "fp32"}
+    # Class A in INT8; Class B in FP16, the SM's sourced tensor rate.
+    assert svc.formats == {"A": "int8", "B": "fp16"}
     expected = ops * a / (gpu.server_peak_ops_per_s("int8") * 0.5) + ops * b / (
-        gpu.server_peak_ops_per_s("fp32") * 0.5)
+        gpu.server_peak_ops_per_s("fp16") * 0.5)
     assert svc.t_compute_s == pytest.approx(expected)
     assert svc.t_memory_s is None and svc.bound == "compute"
 

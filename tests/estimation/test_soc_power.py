@@ -27,7 +27,26 @@ LIBRARY = load_ip_library()
 FAR, AIR = WORKLOAD.regimes()
 
 
-def _soc(node="samsung_8lpp"):
+def _with_test_fp16_energy(node_id):
+    """A copy of the node catalog whose ``node_id`` also states FP16 energy
+    per op -- TEST DATA ONLY, set to the node's BF16 figure. The real catalog
+    states no FP16 energy, so on real data a class that runs in FP16 is a
+    power gap (see test_orin_class_b_on_the_gpu_is_an_fp16_energy_gap); these
+    tests use the copy to exercise the fully-priced path."""
+    nodes = dict(NODES)
+    node = nodes[node_id]
+    table = dict(node.energy_per_op_pj)
+    for key, value in node.energy_per_op_pj.items():
+        lib, fmt = key.split(":")
+        if fmt == "bf16":
+            table[f"{lib}:fp16"] = value
+    nodes[node_id] = node.model_copy(update={"energy_per_op_pj": table})
+    return nodes
+
+
+def _soc(node="samsung_8lpp", fp16_energy=False):
+    if fp16_energy:
+        return compose_soc(DESIGN, LIBRARY, _with_test_fp16_energy(node), node)
     return compose_soc(DESIGN, LIBRARY, NODES, node)
 
 
@@ -106,10 +125,10 @@ def test_datapath_library_is_the_one_logic_line():
 
 
 def test_dynamic_power_is_the_alu_floor_of_the_mapped_ops():
-    soc = _soc()
+    soc = _soc(fp16_energy=True)
     s = schedule(WORKLOAD, AIR, soc, _everything_known(), KERNELS, _explicit())
     report = roll_up(s, soc, WORKLOAD)
-    pj = NODES["samsung_8lpp"].energy_per_op_pj
+    pj = soc.node.energy_per_op_pj
     # The profile's own stage costs: air superiority overrides det and sgm.
     stages = {d.stage.key: d.stage for d in WORKLOAD.demands(AIR)}
     assert stages["det"].ops_per_call != WORKLOAD.stages["det"].ops_per_call
@@ -126,8 +145,21 @@ def test_dynamic_power_is_the_alu_floor_of_the_mapped_ops():
     assert sum(by_block[n].dynamic_w for n in ("gpu_sm", "cpu", "dla")) == pytest.approx(expected)
 
 
-def test_a_floor_makes_tops_per_w_an_upper_bound_not_a_result():
+def test_orin_class_b_on_the_gpu_is_an_fp16_energy_gap():
+    """The Orin SM runs Class B in FP16 (its sourced tensor rate), and no
+    node in the catalog states FP16 energy per op -- BF16 is a different
+    format. So on real data those stages' FP16 part is a dynamic-power gap,
+    the INT8 part still counts, and TOPS/W is withheld."""
     soc = _soc("tsmc_n7")
+    report = roll_up(schedule(WORKLOAD, AIR, soc, _everything_known(), KERNELS, _explicit()),
+                     soc, WORKLOAD)
+    assert report.dynamic.gaps and all("fp16" in g for g in report.dynamic.gaps)
+    assert report.dynamic.watts > 0
+    assert report.useful_tops_per_w is None
+
+
+def test_a_floor_makes_tops_per_w_an_upper_bound_not_a_result():
+    soc = _soc("tsmc_n7", fp16_energy=True)
     report = roll_up(schedule(WORKLOAD, AIR, soc, _everything_known(), KERNELS, _explicit()),
                      soc, WORKLOAD)
     assert report.useful_tops_per_w is not None
@@ -233,8 +265,9 @@ def test_power_carries_its_own_estimation_confidence():
     assert pooled.schedule.confidence.value == "theoretical"
     assert pooled.estimation_confidence.level.value == "unknown"
     assert pooled.estimation_confidence.source.startswith("power.dynamic")
-    floor = roll_up(schedule(WORKLOAD, AIR, _soc("tsmc_n7"), _everything_known(), KERNELS,
-                             _explicit()), _soc("tsmc_n7"), WORKLOAD)
+    priced = _soc("tsmc_n7", fp16_energy=True)
+    floor = roll_up(schedule(WORKLOAD, AIR, priced, _everything_known(), KERNELS,
+                             _explicit()), priced, WORKLOAD)
     assert not floor.dynamic.gaps
     assert floor.estimation_confidence.level.value == "unknown"
     assert floor.estimation_confidence.source == (
