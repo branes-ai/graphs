@@ -14,7 +14,6 @@ import pytest
 from embodied_schemas import load_compute_products, load_kpu_tile_classes, load_process_nodes
 from embodied_schemas.process_node import CircuitClass
 
-from graphs.hardware.kpu_access import has_kpu_block
 from graphs.hardware.kpu_hetero_fixture import build_heterogeneous_kpu
 from graphs.hardware.kpu_power_model import (
     ANCHOR_OPS_PER_INVOCATION,
@@ -135,11 +134,11 @@ def test_relative_datapath_energy_lns():
     profile = _profile(HETERO_SPEC, tdp_scenario=_scenario(pe_lns16_mac=1.0))
     bd = compute_heterogeneous_tdp_breakdown(HETERO_SPEC, profile, N16)
     assert bd.worst_precision == "scenario"
-    bf16 = N16.energy_per_op_pj["balanced_logic:bf16"]
+    fp16 = N16.energy_per_op_pj["balanced_logic:fp16"]
     pes = 8 * 32 * 32
-    # Modes: LNS16 1 lane at 0.45 x (2-op anchor); LNS8 2 lanes at 0.22. The
-    # class runs its worst-power mode: LNS16 (0.90 vs 0.88 anchor-ops per clock).
-    per_clock_pj = 0.45 * ANCHOR_OPS_PER_INVOCATION * bf16 * pes
+    # Modes: LNS16 1 lane at 0.45 x (2-op FP16 anchor); LNS8 2 lanes at 0.22.
+    # The class runs its worst-power mode: LNS16 (0.90 vs 0.88 anchor-ops per clock).
+    per_clock_pj = 0.45 * ANCHOR_OPS_PER_INVOCATION * fp16 * pes
     vscale = (profile.vdd_v / N16.nominal_vdd_v) ** 2
     expected = per_clock_pj * profile.clock_mhz * 1e6 * 1e-12 * vscale
     assert bd.compute_w_by_tile_class["pe_lns16_mac"] == pytest.approx(expected)
@@ -178,10 +177,12 @@ def test_scenario_scales_each_class_by_its_activity():
     assert f["systolic_int8_ws"] > 0
     assert h["ff_stereo_sgm"] == pytest.approx(0.25 * f["ff_stereo_sgm"])
     assert f["pe_lns16_mac"] == 0.0  # activity 0
-    # The uniform sweep leaves int8-only classes idle at the fp16 worst case;
-    # a scenario runs every class concurrently.
+    # The uniform sweep leaves classes without the worst-case precision idle
+    # (the LNS class has no INT8 mode); a scenario runs every class concurrently.
     uniform = compute_heterogeneous_tdp_breakdown(HETERO_SPEC, HETERO_SPEC.thermal_profiles[0], N16)
-    assert uniform.compute_w_by_tile_class["systolic_int8_ws"] == 0.0
+    assert uniform.worst_precision == "int8"
+    assert uniform.compute_w_by_tile_class["pe_lns16_mac"] == 0.0
+    assert uniform.compute_w_by_tile_class["systolic_int8_ws"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +296,8 @@ def test_fixed_function_power_does_not_make_a_zero_compute_precision_eligible():
             b for b in data["silicon_bin"]["blocks"] if b["name"] != "pe_minplus"
         ]
     spec = _spec_with(HETERO_SPEC, int8_and_isp)
-    missing = {"balanced_logic:int8", "balanced_logic:int4", "balanced_logic:bf16"}
+    missing = {"balanced_logic:int8", "balanced_logic:int4", "balanced_logic:bf16",
+               "balanced_logic:fp16"}
     node = N16.model_copy(update={
         "energy_per_op_pj": {k: v for k, v in N16.energy_per_op_pj.items() if k not in missing}
     })

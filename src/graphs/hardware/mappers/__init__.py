@@ -455,7 +455,7 @@ def _init_registry():
             "category": "kpu",
             "vendor": "Stillwater",
             "description": "Stillwater KPU T64 (64 tiles, 32x32 PE arrays, domain-flow output-stationary, TSMC N16, LPDDR5)",
-            "default_tdp_w": 6.0,
+            "default_tdp_w": 4.3,
             "memory_gb": 8.0,
         },
         "Stillwater-KPU-T128": {
@@ -463,7 +463,7 @@ def _init_registry():
             "category": "kpu",
             "vendor": "Stillwater",
             "description": "Stillwater KPU T128 (128 tiles, 32x32 PE arrays, domain-flow output-stationary, TSMC N16, LPDDR5)",
-            "default_tdp_w": 12.0,
+            "default_tdp_w": 8.5,
             "memory_gb": 16.0,
         },
         "Stillwater-KPU-T256": {
@@ -471,7 +471,7 @@ def _init_registry():
             "category": "kpu",
             "vendor": "Stillwater",
             "description": "Stillwater KPU T256 (256 tiles, 32x32 PE arrays, domain-flow output-stationary, TSMC N16, LPDDR5)",
-            "default_tdp_w": 30.0,
+            "default_tdp_w": 20.9,
             "memory_gb": 32.0,
         },
         "Stillwater-KPU-T768": {
@@ -479,7 +479,7 @@ def _init_registry():
             "category": "kpu",
             "vendor": "Stillwater",
             "description": "Stillwater KPU T768 (768 tiles, 16x8 PE arrays + 8x8 weight-stationary Matrix tiles, domain-flow, TSMC N7, HBM3)",
-            "default_tdp_w": 60.0,
+            "default_tdp_w": 41.5,
             "memory_gb": 64.0,
         },
 

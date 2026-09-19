@@ -863,9 +863,9 @@
   "power": {
    "default_thermal_profile": "30W",
    "idle_power_watts": 1.79,
-   "max_power_watts": 50.0,
-   "min_power_watts": 15.0,
-   "tdp_watts": 30.0,
+   "max_power_watts": 34.3,
+   "min_power_watts": 10.7,
+   "tdp_watts": 20.9,
    "thermal_profiles": [
     {
      "activity_factor": null,
@@ -875,7 +875,7 @@
      "efficiency_factor_by_precision": {"bf16": 0.63, "int4": 0.73, "int8": 0.68},
      "name": "15W",
      "tdp_scenario": null,
-     "tdp_watts": 15.0,
+     "tdp_watts": 10.7,
      "tile_utilization_by_precision": {"bf16": 0.88, "int4": 0.95, "int8": 0.93},
      "vdd_v": 0.623
     },
@@ -887,7 +887,7 @@
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "30W",
      "tdp_scenario": null,
-     "tdp_watts": 30.0,
+     "tdp_watts": 20.9,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.753
     },
@@ -899,16 +899,16 @@
      "efficiency_factor_by_precision": {"bf16": 0.73, "int4": 0.83, "int8": 0.78},
      "name": "50W",
      "tdp_scenario": null,
-     "tdp_watts": 50.0,
+     "tdp_watts": 34.3,
      "tile_utilization_by_precision": {"bf16": 0.92, "int4": 0.98, "int8": 0.97},
      "vdd_v": 0.887
     }
    ]
   },
   "tdp_breakdown_by_profile": {
-   "15W": {"clock_mhz": 450.0, "dram_phy_w": 0.2230972944076802, "dynamic_w": 14.33724729034752, "l2_sram_w": 0.21247361372160012, "l3_sram_w": 0.031871042058240026, "leakage_w": 0.6595649792127175, "noc_w": 0.2655920171519999, "pe_compute_w": 13.604213323007999, "profile_name": "15W", "total_tdp_w": 14.996812269560237, "worst_precision": "bf16"},
-   "30W": {"clock_mhz": 600.0, "dram_phy_w": 0.44443344798720036, "dynamic_w": 28.561315657420796, "l2_sram_w": 0.4232699504640003, "l3_sram_w": 0.06349049256960004, "leakage_w": 1.4076196022349612, "noc_w": 0.5290874380799999, "pe_compute_w": 27.101034328319994, "profile_name": "30W", "total_tdp_w": 29.96893525965576, "worst_precision": "bf16"},
-   "50W": {"clock_mhz": 700.0, "dram_phy_w": 0.7354550446387208, "dynamic_w": 47.26368768350207, "l2_sram_w": 0.7004333758464004, "l3_sram_w": 0.1050650063769601, "leakage_w": 2.7101908869643516, "noc_w": 0.8755417198079999, "pe_compute_w": 44.84719253683199, "profile_name": "50W", "total_tdp_w": 49.973878570466425, "worst_precision": "bf16"}
+   "15W": {"clock_mhz": 450.0, "dram_phy_w": 0.2408436700992003, "dynamic_w": 10.031648581684799, "l2_sram_w": 0.22937492390400016, "l3_sram_w": 0.03440623858560003, "leakage_w": 0.6595649792127175, "noc_w": 0.2867186548799999, "pe_compute_w": 9.240305094215998, "profile_name": "15W", "total_tdp_w": 10.691213560897516, "worst_precision": "fp16"},
+   "30W": {"clock_mhz": 600.0, "dram_phy_w": 0.4691241950976004, "dynamic_w": 19.540015581254394, "l2_sram_w": 0.44678494771200034, "l3_sram_w": 0.06701774215680005, "leakage_w": 1.4076196022349612, "noc_w": 0.5584811846399999, "pe_compute_w": 17.998607511647993, "profile_name": "30W", "total_tdp_w": 20.947635183489357, "worst_precision": "fp16"},
+   "50W": {"clock_mhz": 700.0, "dram_phy_w": 0.7594372743552007, "dynamic_w": 31.632169751548794, "l2_sram_w": 0.7232735946240004, "l3_sram_w": 0.10849103919360009, "leakage_w": 2.7101908869643516, "noc_w": 0.9040919932799999, "pe_compute_w": 29.136875850095993, "profile_name": "50W", "total_tdp_w": 34.34236063851314, "worst_precision": "fp16"}
   },
   "transistors_billion": 6.473
  },
@@ -1275,15 +1275,15 @@
   "lifecycle": "production",
   "market": {"is_available": false, "launch_date": "2026-Q2", "launch_msrp_usd": 1092.0, "model_tier": "high", "product_family": "Stillwater KPU", "target_market": "embodied"},
   "name": "Stillwater KPU-T256",
-  "notes": "High-performance KPU SKU for edge servers, autonomous vehicles, advanced\ndrones. 256 tiles in a 16x16 grid, 32x32 PE arrays (262,144 PEs total).\nTile microarchitecture is uniform with T64 / T128 so cost / perf curves\nacross the entry / mid / high tier are continuous. 30W default with 15W\nand 50W profiles. TSMC N16, ~315 INT8 TOPS at the default profile (600 MHz @ 0.75V; the earlier ~734 figure was from a 1400 MHz operating point retired in PR #153 when Vdd-aware DVFS replaced fixed-Vdd clocks).\n",
+  "notes": "High-performance KPU SKU for edge servers, autonomous vehicles, advanced\ndrones. 256 tiles in a 16x16 grid, 32x32 PE arrays (262,144 PEs total).\nTile microarchitecture is uniform with T64 / T128 so cost / perf curves\nacross the entry / mid / high tier are continuous. Profiles 15W / 30W (default)\n/ 50W, which compute 10.7 / 20.9 / 34.3 W. TSMC N16, ~315 INT8 TOPS at the default profile (600 MHz @ 0.75V; the earlier ~734 figure was from a 1400 MHz operating point retired in PR #153 when Vdd-aware DVFS replaced fixed-Vdd clocks).\n",
   "packaging": {"kind": "monolithic", "num_dies": 1, "package_type": "monolithic"},
   "performance": {"bf16_tflops": 157.3, "by_tile_kind": null, "fixed_function_throughput": null, "fp32_tflops": 15.67, "int4_tops": 439.9, "int8_tops": 314.6, "peak_ops_per_sec_by_precision": null},
   "power": {
    "default_thermal_profile": "30W",
    "idle_power_watts": 1.79,
-   "max_power_watts": 50.0,
-   "min_power_watts": 15.0,
-   "tdp_watts": 30.0,
+   "max_power_watts": 34.3,
+   "min_power_watts": 10.7,
+   "tdp_watts": 20.9,
    "thermal_profiles": [
     {
      "activity_factor": null,
@@ -1293,7 +1293,7 @@
      "efficiency_factor_by_precision": {"bf16": 0.63, "int4": 0.73, "int8": 0.68},
      "name": "15W",
      "tdp_scenario": null,
-     "tdp_watts": 15.0,
+     "tdp_watts": 10.7,
      "tile_utilization_by_precision": {"bf16": 0.88, "int4": 0.95, "int8": 0.93},
      "vdd_v": 0.623
     },
@@ -1305,7 +1305,7 @@
      "efficiency_factor_by_precision": {"bf16": 0.68, "int4": 0.78, "int8": 0.73},
      "name": "30W",
      "tdp_scenario": null,
-     "tdp_watts": 30.0,
+     "tdp_watts": 20.9,
      "tile_utilization_by_precision": {"bf16": 0.9, "int4": 0.97, "int8": 0.95},
      "vdd_v": 0.753
     },
@@ -1317,7 +1317,7 @@
      "efficiency_factor_by_precision": {"bf16": 0.73, "int4": 0.83, "int8": 0.78},
      "name": "50W",
      "tdp_scenario": null,
-     "tdp_watts": 50.0,
+     "tdp_watts": 34.3,
      "tile_utilization_by_precision": {"bf16": 0.92, "int4": 0.98, "int8": 0.97},
      "vdd_v": 0.887
     }
@@ -1329,16 +1329,16 @@
   "attributes": {"num_tiles": 256, "scratchpad_per_tile": 262144, "threads_per_tile": 1024},
   "map_subgraph": {
    "bf16": {
-    "conv_im2col_56x56x64": {"bottleneck": "bandwidth_bound", "compute_energy": 0.00016184770560000002, "compute_time": 3.137254901960784e-06, "compute_units_allocated": 196, "compute_units_ideal": 196, "estimated_latency": 1.5968e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 4.0878079999999996e-05, "memory_time": 1.5968e-05, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "2", "subgraph_name": "conv_im2col_56x56x64", "threads_required": 200704, "total_energy": 0.00020272578560000002, "utilization": 0.765625, "warps_required": 0},
-    "gemm_1024": {"bottleneck": "balanced", "compute_energy": 0.0015032385536, "compute_time": 2.2309368191721133e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 2.4576e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 6.291456e-05, "memory_time": 2.4576e-05, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "0", "subgraph_name": "gemm_1024", "threads_required": 262144, "total_energy": 0.0015661531136, "utilization": 1.0, "warps_required": 0},
-    "gemm_tall_8192x256": {"bottleneck": "bandwidth_bound", "compute_energy": 0.0007516192768, "compute_time": 1.1154684095860567e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 3.328e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 8.519679999999999e-05, "memory_time": 3.328e-05, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "3", "subgraph_name": "gemm_tall_8192x256", "threads_required": 262144, "total_energy": 0.0008368160768, "utilization": 1.0, "warps_required": 0},
-    "gemv_4096": {"bottleneck": "bandwidth_bound", "compute_energy": 2.34881024e-05, "compute_time": 6.917633547820506e-07, "compute_units_allocated": 129, "compute_units_ideal": 129, "estimated_latency": 0.000131136, "execution_stage": 0, "is_parallel": false, "memory_energy": 0.00033570816, "memory_time": 0.000131136, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "1", "subgraph_name": "gemv_4096", "threads_required": 132096, "total_energy": 0.0003591962624, "utilization": 0.50390625, "warps_required": 0}
+    "conv_im2col_56x56x64": {"bottleneck": "bandwidth_bound", "compute_energy": 7.190662348800001e-05, "compute_time": 3.137254901960784e-06, "compute_units_allocated": 196, "compute_units_ideal": 196, "estimated_latency": 1.5968e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 4.0878079999999996e-05, "memory_time": 1.5968e-05, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "2", "subgraph_name": "conv_im2col_56x56x64", "threads_required": 200704, "total_energy": 0.000112784703488, "utilization": 0.765625, "warps_required": 0},
+    "gemm_1024": {"bottleneck": "balanced", "compute_energy": 0.0006678674145280001, "compute_time": 2.2309368191721133e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 2.4576e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 6.291456e-05, "memory_time": 2.4576e-05, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "0", "subgraph_name": "gemm_1024", "threads_required": 262144, "total_energy": 0.0007307819745280001, "utilization": 1.0, "warps_required": 0},
+    "gemm_tall_8192x256": {"bottleneck": "bandwidth_bound", "compute_energy": 0.00033393370726400004, "compute_time": 1.1154684095860567e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 3.328e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 8.519679999999999e-05, "memory_time": 3.328e-05, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "3", "subgraph_name": "gemm_tall_8192x256", "threads_required": 262144, "total_energy": 0.00041913050726400004, "utilization": 1.0, "warps_required": 0},
+    "gemv_4096": {"bottleneck": "bandwidth_bound", "compute_energy": 1.0435428352000001e-05, "compute_time": 6.917633547820506e-07, "compute_units_allocated": 129, "compute_units_ideal": 129, "estimated_latency": 0.000131136, "execution_stage": 0, "is_parallel": false, "memory_energy": 0.00033570816, "memory_time": 0.000131136, "occupancy": 1.0, "precision": "bf16", "subgraph_id": "1", "subgraph_name": "gemv_4096", "threads_required": 132096, "total_energy": 0.000346143588352, "utilization": 0.50390625, "warps_required": 0}
    },
    "fp16": {
-    "conv_im2col_56x56x64": {"bottleneck": "bandwidth_bound", "compute_energy": 0.0001560674304, "compute_time": 2.887218045112782e-06, "compute_units_allocated": 196, "compute_units_ideal": 196, "estimated_latency": 1.5968e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 4.0878079999999996e-05, "memory_time": 1.5968e-05, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "2", "subgraph_name": "conv_im2col_56x56x64", "threads_required": 200704, "total_energy": 0.0001969455104, "utilization": 0.765625, "warps_required": 0},
-    "gemm_1024": {"bottleneck": "balanced", "compute_energy": 0.0014495514624000001, "compute_time": 2.0531328320802003e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 2.4576e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 6.291456e-05, "memory_time": 2.4576e-05, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "0", "subgraph_name": "gemm_1024", "threads_required": 262144, "total_energy": 0.0015124660224000001, "utilization": 1.0, "warps_required": 0},
-    "gemm_tall_8192x256": {"bottleneck": "bandwidth_bound", "compute_energy": 0.0007247757312000001, "compute_time": 1.0265664160401002e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 3.328e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 8.519679999999999e-05, "memory_time": 3.328e-05, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "3", "subgraph_name": "gemm_tall_8192x256", "threads_required": 262144, "total_energy": 0.0008099725312000001, "utilization": 1.0, "warps_required": 0},
-    "gemv_4096": {"bottleneck": "bandwidth_bound", "compute_energy": 2.2649241600000002e-05, "compute_time": 6.366303355287443e-07, "compute_units_allocated": 129, "compute_units_ideal": 129, "estimated_latency": 0.000131136, "execution_stage": 0, "is_parallel": false, "memory_energy": 0.00033570816, "memory_time": 0.000131136, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "1", "subgraph_name": "gemv_4096", "threads_required": 132096, "total_energy": 0.0003583574016, "utilization": 0.50390625, "warps_required": 0}
+    "conv_im2col_56x56x64": {"bottleneck": "bandwidth_bound", "compute_energy": 0.00010173284352, "compute_time": 2.887218045112782e-06, "compute_units_allocated": 196, "compute_units_ideal": 196, "estimated_latency": 1.5968e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 4.0878079999999996e-05, "memory_time": 1.5968e-05, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "2", "subgraph_name": "conv_im2col_56x56x64", "threads_required": 200704, "total_energy": 0.00014261092352, "utilization": 0.765625, "warps_required": 0},
+    "gemm_1024": {"bottleneck": "balanced", "compute_energy": 0.00094489280512, "compute_time": 2.0531328320802003e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 2.4576e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 6.291456e-05, "memory_time": 2.4576e-05, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "0", "subgraph_name": "gemm_1024", "threads_required": 262144, "total_energy": 0.00100780736512, "utilization": 1.0, "warps_required": 0},
+    "gemm_tall_8192x256": {"bottleneck": "bandwidth_bound", "compute_energy": 0.00047244640256, "compute_time": 1.0265664160401002e-05, "compute_units_allocated": 256, "compute_units_ideal": 256, "estimated_latency": 3.328e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 8.519679999999999e-05, "memory_time": 3.328e-05, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "3", "subgraph_name": "gemm_tall_8192x256", "threads_required": 262144, "total_energy": 0.0005576432025599999, "utilization": 1.0, "warps_required": 0},
+    "gemv_4096": {"bottleneck": "bandwidth_bound", "compute_energy": 1.476395008e-05, "compute_time": 6.366303355287443e-07, "compute_units_allocated": 129, "compute_units_ideal": 129, "estimated_latency": 0.000131136, "execution_stage": 0, "is_parallel": false, "memory_energy": 0.00033570816, "memory_time": 0.000131136, "occupancy": 1.0, "precision": "fp16", "subgraph_id": "1", "subgraph_name": "gemv_4096", "threads_required": 132096, "total_energy": 0.00035047211008, "utilization": 0.50390625, "warps_required": 0}
    },
    "fp32": {
     "conv_im2col_56x56x64": {"bottleneck": "balanced", "compute_energy": 0.0003121348608, "compute_time": 2.8985404688191067e-05, "compute_units_allocated": 196, "compute_units_ideal": 196, "estimated_latency": 3.1936e-05, "execution_stage": 0, "is_parallel": false, "memory_energy": 8.175615999999999e-05, "memory_time": 3.1936e-05, "occupancy": 1.0, "precision": "fp32", "subgraph_id": "2", "subgraph_name": "conv_im2col_56x56x64", "threads_required": 200704, "total_energy": 0.0003938910208, "utilization": 0.765625, "warps_required": 0},
@@ -1387,7 +1387,7 @@
     "circuit_type": "standard_cell",
     "core_frequency_hz": 600000000.0,
     "energy_per_flop_fp32": 2.7000000000000002e-12,
-    "energy_scaling": {"bf16": 0.5185185185185185, "int4": 0.06666666666666667, "int8": 0.1111111111111111},
+    "energy_scaling": {"bf16": 0.23037037037037036, "fp16": 0.3259259259259259, "int4": 0.06666666666666667, "int8": 0.1111111111111111},
     "fabric_type": "kpu_int8_primary",
     "num_units": 179,
     "ops_per_unit_per_clock": {"bf16": 1024, "fp16": 1024, "int4": 4096, "int8": 2048},
@@ -1397,7 +1397,7 @@
     "circuit_type": "standard_cell",
     "core_frequency_hz": 600000000.0,
     "energy_per_flop_fp32": 2.7000000000000002e-12,
-    "energy_scaling": {"bf16": 0.5185185185185185, "fp32": 1.0, "int8": 0.1111111111111111},
+    "energy_scaling": {"bf16": 0.23037037037037036, "fp16": 0.3259259259259259, "fp32": 1.0, "int8": 0.1111111111111111},
     "fabric_type": "kpu_bf16_primary",
     "num_units": 51,
     "ops_per_unit_per_clock": {"bf16": 1024, "fp16": 1024, "fp32": 512, "int8": 2048},
@@ -1407,7 +1407,7 @@
     "circuit_type": "standard_cell",
     "core_frequency_hz": 600000000.0,
     "energy_per_flop_fp32": 3.5e-12,
-    "energy_scaling": {"bf16": 0.5142857142857143, "int8": 0.1285714285714286},
+    "energy_scaling": {"bf16": 0.2302857142857143, "fp16": 0.3257142857142857, "int8": 0.1285714285714286},
     "fabric_type": "kpu_matrix",
     "num_units": 26,
     "ops_per_unit_per_clock": {"bf16": 1024, "fp16": 1024, "int8": 2048},
@@ -1422,7 +1422,7 @@
   "dram_access_latency_ns": null,
   "energy_per_byte": 1e-11,
   "energy_per_flop_fp32": 1.3500000000000001e-12,
-  "energy_scaling": {"bf16": 0.5185185185185185, "fp16": 0.5, "fp32": 1.0, "fp4": 0.125, "fp64": 2.0, "fp8_e4m3": 0.25, "fp8_e5m2": 0.25, "int16": 0.25, "int32": 0.5, "int4": 0.06666666666666667, "int8": 0.1111111111111111},
+  "energy_scaling": {"bf16": 0.23037037037037036, "fp16": 0.3259259259259259, "fp32": 1.0, "fp4": 0.125, "fp64": 2.0, "fp8_e4m3": 0.25, "fp8_e5m2": 0.25, "int16": 0.25, "int32": 0.5, "int4": 0.06666666666666667, "int8": 0.1111111111111111},
   "field_provenance": {
    "coherence_protocol": {"calibration_id": null, "level": "theoretical", "max_value": null, "min_value": null, "score": 0.85, "source": "Stillwater KPU-T256 M0.5 dataflow-tile abstraction; derived from embodied-schemas:kpus/stillwater/kpu_t256_32x32_lp5x16_16nm_tsmc_ffp.yaml"},
    "l1_cache_per_unit": {"calibration_id": null, "level": "theoretical", "max_value": null, "min_value": null, "score": 0.85, "source": "Stillwater KPU-T256 M0.5 dataflow-tile abstraction; derived from embodied-schemas:kpus/stillwater/kpu_t256_32x32_lp5x16_16nm_tsmc_ffp.yaml"},
@@ -1809,7 +1809,7 @@
       "tile_utilization": 0.93
      }
     },
-    "tdp_watts": 15.0
+    "tdp_watts": 10.7
    },
    "30W": {
     "cooling_solution": "active_fan",
@@ -2132,7 +2132,7 @@
       "tile_utilization": 0.95
      }
     },
-    "tdp_watts": 30.0
+    "tdp_watts": 20.9
    },
    "50W": {
     "cooling_solution": "active_fan",
@@ -2455,7 +2455,7 @@
       "tile_utilization": 0.97
      }
     },
-    "tdp_watts": 50.0
+    "tdp_watts": 34.3
    }
   },
   "threads_per_unit": 1024,
@@ -2474,9 +2474,9 @@
     "leakage_w": 0.4630635789473685,
     "name": "pe_int8",
     "peak_dynamic_w_by_profile": {
-     "15W": {"bf16": 115.47648, "fp16": 0.0, "fp32": 0.0, "int4": 59.387904, "int8": 49.48992},
-     "30W": {"bf16": 153.96864, "fp16": 0.0, "fp32": 0.0, "int4": 79.183872, "int8": 65.98656},
-     "50W": {"bf16": 179.63008, "fp16": 0.0, "fp32": 0.0, "int4": 92.381184, "int8": 76.98432}
+     "15W": {"bf16": 51.3045504, "fp16": 72.585216, "fp32": 0.0, "int4": 59.387904, "int8": 49.48992},
+     "30W": {"bf16": 68.4060672, "fp16": 96.780288, "fp32": 0.0, "int4": 79.183872, "int8": 65.98656},
+     "50W": {"bf16": 79.8070784, "fp16": 112.910336, "fp32": 0.0, "int4": 92.381184, "int8": 76.98432}
     },
     "transistors_mtx": 1099.776
    },
@@ -2487,9 +2487,9 @@
     "leakage_w": 0.26386863157894735,
     "name": "pe_bf16",
     "peak_dynamic_w_by_profile": {
-     "15W": {"bf16": 32.90112, "fp16": 0.0, "fp32": 31.726080000000003, "int4": 0.0, "int8": 14.10048},
-     "30W": {"bf16": 43.868159999999996, "fp16": 0.0, "fp32": 42.30144, "int4": 0.0, "int8": 18.80064},
-     "50W": {"bf16": 51.17952, "fp16": 0.0, "fp32": 49.35168, "int4": 0.0, "int8": 21.934079999999998}
+     "15W": {"bf16": 14.6174976, "fp16": 20.680704, "fp32": 31.726080000000003, "int4": 0.0, "int8": 14.10048},
+     "30W": {"bf16": 19.4899968, "fp16": 27.574272, "fp32": 42.30144, "int4": 0.0, "int8": 18.80064},
+     "50W": {"bf16": 22.7383296, "fp16": 32.169984, "fp32": 49.35168, "int4": 0.0, "int8": 21.934079999999998}
     },
     "transistors_mtx": 626.688
    },
@@ -2500,9 +2500,9 @@
     "leakage_w": 0.6050909090909091,
     "name": "pe_matrix",
     "peak_dynamic_w_by_profile": {
-     "15W": {"bf16": 21.56544, "fp16": 0.0, "fp32": 0.0, "int4": 0.0, "int8": 10.78272},
-     "30W": {"bf16": 28.75392, "fp16": 0.0, "fp32": 0.0, "int4": 0.0, "int8": 14.37696},
-     "50W": {"bf16": 33.54624, "fp16": 0.0, "fp32": 0.0, "int4": 0.0, "int8": 16.77312}
+     "15W": {"bf16": 9.6565248, "fp16": 13.658111999999997, "fp32": 0.0, "int4": 0.0, "int8": 10.78272},
+     "30W": {"bf16": 12.875366399999999, "fp16": 18.210816, "fp32": 0.0, "int4": 0.0, "int8": 14.37696},
+     "50W": {"bf16": 15.0212608, "fp16": 21.245952, "fp32": 0.0, "int4": 0.0, "int8": 16.77312}
     },
     "transistors_mtx": 532.48
    },
@@ -2552,9 +2552,9 @@
     "leakage_w": 0.23272727272727278,
     "name": "noc_routers",
     "peak_dynamic_w_by_profile": {
-     "15W": {"bf16": 1.5, "fp16": 1.5, "fp32": 1.5, "int4": 1.5, "int8": 1.5},
-     "30W": {"bf16": 1.5, "fp16": 1.5, "fp32": 1.5, "int4": 1.5, "int8": 1.5},
-     "50W": {"bf16": 1.5, "fp16": 1.5, "fp32": 1.5, "int4": 1.5, "int8": 1.5}
+     "15W": {"bf16": 1.045, "fp16": 1.045, "fp32": 1.045, "int4": 1.045, "int8": 1.045},
+     "30W": {"bf16": 1.045, "fp16": 1.045, "fp32": 1.045, "int4": 1.045, "int8": 1.045},
+     "50W": {"bf16": 1.045, "fp16": 1.045, "fp32": 1.045, "int4": 1.045, "int8": 1.045}
     },
     "transistors_mtx": 204.8
    },

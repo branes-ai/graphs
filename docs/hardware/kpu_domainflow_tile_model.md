@@ -95,10 +95,12 @@ nominal Vdd; an INT8 MAC requires ~8 full-adder equivalents plus
 array/register overhead, so 0.08-0.15 pJ is the aggressive-but-
 defensible range for optimized domain-flow silicon. First-principles
 TDP feasibility can be checked with
-`cli/check_tdp_feasibility.py`. Note: the 32x32 tile used by T64 and
-T128 exceeds the original 6 W / 12 W envelopes at the listed clocks,
-so those TDPs are marked "higher envelope" until the feasibility
-check is re-run and a new envelope chosen.
+`cli/check_tdp_feasibility.py`. Each KPU's declared TDP is what the
+power model computes (embodied-schemas 0.15.0), and in that model PE
+compute is ~84% of TDP. So T64 / T128 / T256 exceed the tool's 65% ALU
+budget by 1.11-1.16x. For KPUs that is reported as WARN, not
+INFEASIBLE. A KPU is infeasible only when its ALU power exceeds the
+whole TDP.
 
 **SKU parametrization rationale:**
 - T64 (32x32): larger per-tile array amortizes fill/drain across the
