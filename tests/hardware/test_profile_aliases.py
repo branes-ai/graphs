@@ -9,6 +9,8 @@ Locks in the contract:
 - Invalid profile names return ``None``, not raise
 """
 
+import pytest
+
 from graphs.hardware.mappers import (
     get_mapper_by_name,
     list_all_mappers,
@@ -130,9 +132,16 @@ class TestKwargPrecedence:
         assert m is None or m.thermal_profile != "7W"
 
 
+@pytest.fixture(scope="module")
+def all_skus():
+    """list_all_skus() builds every mapper (~11 s) and is read-only and
+    deterministic: build it once for the module, not once per test."""
+    return tuple(list_all_skus())
+
+
 class TestSkuEnumeration:
-    def test_list_all_skus_includes_silicon_and_aliases(self):
-        skus = list_all_skus()
+    def test_list_all_skus_includes_silicon_and_aliases(self, all_skus):
+        skus = list(all_skus)
         silicon = list_all_mappers()
         # Every silicon-bin name appears.
         for s in silicon:
@@ -141,8 +150,8 @@ class TestSkuEnumeration:
         # one thermal profile).
         assert len(skus) > len(silicon)
 
-    def test_list_all_skus_alias_format_uses_at_separator(self):
-        skus = list_all_skus()
+    def test_list_all_skus_alias_format_uses_at_separator(self, all_skus):
+        skus = list(all_skus)
         # Every alias entry should contain exactly one '@'. (Silicon-bin
         # names never contain '@'.)
         aliases = [s for s in skus if "@" in s]
@@ -150,7 +159,7 @@ class TestSkuEnumeration:
         for a in aliases:
             assert a.count("@") == 1
 
-    def test_list_all_skus_orin_nano_has_four_profiles(self):
+    def test_list_all_skus_orin_nano_has_four_profiles(self, all_skus):
         # Orin Nano Super resource model registers four canonical modes:
         # 7W (battery), 15W (Phase B baseline), 25W (production cap with
         # DVFS), MAXN (developer/burst, DVFS off). Anchored on the user
@@ -159,7 +168,7 @@ class TestSkuEnumeration:
         # test alongside the resource model -- the assertion is exact by
         # design to catch silent profile additions/removals.
         nano_aliases = [
-            s for s in list_all_skus() if s.startswith("Jetson-Orin-Nano-8GB@")
+            s for s in all_skus if s.startswith("Jetson-Orin-Nano-8GB@")
         ]
         profiles = sorted(s.split("@", 1)[1] for s in nano_aliases)
         assert profiles == ["15W", "25W", "7W", "MAXN"]
@@ -184,10 +193,11 @@ class TestSkuEnumeration:
         assert all("@" not in s for s in skus)
         assert sorted(skus) == sorted(list_all_mappers())
 
-    def test_every_alias_resolves(self):
+    @pytest.mark.slow  # instantiates every SKU's mapper (~70 s)
+    def test_every_alias_resolves(self, all_skus):
         # Sanity: every entry in list_all_skus() can be looked up by
         # get_mapper_by_name. Guards against alias-format drift.
-        for sku in list_all_skus():
+        for sku in all_skus:
             m = get_mapper_by_name(sku)
             assert m is not None, f"alias did not resolve: {sku}"
 

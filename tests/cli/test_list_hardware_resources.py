@@ -36,6 +36,15 @@ def _import_cli_as_module():
     return module
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _fast_discovery(cli_memoizer):
+    """Build the mapper records once per argument set for this module
+    (~10 s each) instead of once per test; rendering still runs per test."""
+    restore = cli_memoizer(CLI, ["discover_all_resources"])
+    yield
+    restore()
+
+
 @pytest.fixture
 def _run(cli_runner):
     """Wrap the global cli_runner with this file's CLI path. Returns

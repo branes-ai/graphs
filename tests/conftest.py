@@ -97,6 +97,55 @@ def _run_cli_inprocess(
     return rc, out_buf.getvalue(), err_buf.getvalue()
 
 
+def memoize_cli_functions(script: Path | str, names: list[str]):
+    """Memoize expensive functions of an in-process CLI for one test module.
+
+    Several CLIs rebuild every hardware mapper on each call (~10 s), and a
+    test file that exercises output formats calls them dozens of times with
+    the same arguments. Wrapping the cached module's functions returns the
+    first result, deep-copied, to every later call with equal arguments --
+    the CLI still parses, filters, sorts and renders on each call, so the
+    assertions test exactly what they did before. Returns a restore
+    callable; use from a module-scoped fixture::
+
+        @pytest.fixture(scope="module", autouse=True)
+        def _fast_discovery(cli_memoizer):
+            restore = cli_memoizer(CLI, ["discover_all_resources"])
+            yield
+            restore()
+    """
+    import copy
+    import functools
+
+    module = _import_cli(Path(script))
+    originals = {name: getattr(module, name) for name in names}
+
+    for name, fn in originals.items():
+        cache: dict = {}
+
+        @functools.wraps(fn)
+        def memo(*args, _fn=fn, _cache=cache, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            if key not in _cache:
+                _cache[key] = _fn(*args, **kwargs)
+            return copy.deepcopy(_cache[key])
+
+        setattr(module, name, memo)
+
+    def restore() -> None:
+        for name, fn in originals.items():
+            setattr(module, name, fn)
+
+    return restore
+
+
+@pytest.fixture(scope="session")
+def cli_memoizer():
+    """``memoize_cli_functions``, for module-scoped fixtures in test files
+    (which cannot import from conftest)."""
+    return memoize_cli_functions
+
+
 @pytest.fixture
 def cli_runner() -> Callable[..., tuple[int, str, str]]:
     """Pytest fixture exposing the in-process CLI runner.
