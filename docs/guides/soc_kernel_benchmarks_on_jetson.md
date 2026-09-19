@@ -194,8 +194,9 @@ the *measured* clock. The ingest applies these rules:
 - **Confidence.** An entry is CALIBRATED when its clock was verified, and
   INTERPOLATED otherwise.
 - **No clock samples:** no entry.
-- **No template peak for the format:** no entry. The Orin SM template has no
-  FP16 rate, so GPU FP16 results are reported but not ingested.
+- **No template peak for the format:** no entry. The Orin SM template states
+  INT8, FP16 (tensor) and FP32 peaks but no FP64, so GPU FP64 results are
+  reported but not ingested.
 - **Efficiency above 1:** refused, not clipped.
 
 Each skipped result is printed with its reason. Then use the table:

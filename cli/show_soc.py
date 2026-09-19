@@ -106,7 +106,7 @@ def _summary(soc: SoCInstance) -> List[str]:
                    else f"{soc.die_area_mm2 / ref.die_area_mm2 - 1:+.0%}")
         lines.append(f"reference: {ref.die_area_mm2:g} mm^2 / "
                      f"{ref.transistors_billion or '?'} B -- {verdict}")
-    for fmt in ("int8", "fp32"):
+    for fmt in ("int8", "fp16", "fp32"):
         tops = soc.peak_tops(fmt)
         if tops:
             lines.append(f"peak {fmt} (dense): {tops:.1f} TOPS")
@@ -185,7 +185,7 @@ def _render_json(soc: SoCInstance) -> str:
         "block_area_mm2": soc.block_area_mm2,
         "transistors_billion": soc.transistors_billion,
         "area_by_class": soc.area_by_class(),
-        "peak_tops_dense": {f: soc.peak_tops(f) for f in ("int8", "fp32") if soc.peak_tops(f)},
+        "peak_tops_dense": {f: soc.peak_tops(f) for f in ("int8", "fp16", "fp32") if soc.peak_tops(f)},
         "blocks": _block_rows(soc),
         "gaps": [{"block": b, "line": l.name, "circuit_class": l.circuit_class.value,
                   "source": l.source} for b, l in soc.gaps],

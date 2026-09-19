@@ -74,9 +74,12 @@ The peaks differ, and the difference is not small:
 - **The H64 is an automotive-class part with less than half Orin's INT8
   peak.** This is not an iso-throughput comparison. A T128-based core is
   the natural next variant (`kpu_t128_core` is generated and complete).
-- **Orin's SM template states no FP16 rate** (Phase 3 P3-D1). Its Class B
-  work therefore runs in FP32, and Orin's FP16 column reflects that gap, not
-  the silicon.
+- **Orin's SM template stated no FP16 rate when this study ran** (Phase 3
+  P3-D1). Its Class B work therefore ran in FP32, and Orin's FP16 column
+  reflects that gap, not the silicon. *Update 2026-09-19:* the template now
+  carries NVIDIA's dense FP16 tensor rate, 2,048 ops per SM per clock
+  (42.6 TFLOPS on the 16-SM design), sourced from the AGX Orin data sheet and
+  the Orin Nano Super blog.
 
 ### DRAM: the one decided result
 
