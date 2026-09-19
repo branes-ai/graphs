@@ -5,7 +5,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pytest
 
 
 def _load_tool():
@@ -51,33 +50,20 @@ class TestFullAdderReference:
 
 
 class TestKPUFeasibility:
-    def test_t256_feasible(self):
-        """T256 (32x32 tile, 30 W default profile) is TDP-feasible. T64 and
-        T128 are covered by the next test."""
+    def test_uniform_kpus_exceed_the_65pct_alu_budget(self):
+        """T64/T128/T256 declare the TDP the power model computes. Since the
+        catalog's BF16 energy was re-derived (Horowitz, 0.23 x FP32), that
+        TDP is set by FP16 and is about 30% lower, and the model puts PE
+        compute at ~84% of it. The tool's 65% ALU budget is a rule of thumb
+        for a balanced SoC, so it flags them, by 1.11-1.16x. The INT8 ALU
+        peak still fits inside the whole TDP."""
         tool = _load_tool()
-        row = tool.check_sku("Stillwater-KPU-T256")
-        assert row is not None, "T256 not found"
-        assert row.feasible, (
-            f"T256 is TDP-infeasible: ALU {row.alu_power_w:.2f} W vs "
-            f"budget {row.alu_budget_w:.2f} W "
-            f"(over by {row.overshoot:.2f}x)"
-        )
-
-    def test_t64_t128_feasible_at_32x32(self):
-        """T64/T128 moved to canonical 32x32 tile; PR #153 then dropped
-        catalog clocks and added per-profile Vdd so derived TDPs land on
-        the 6 W / 12 W targets cleanly. Both SKUs are now feasible at
-        their default operating points (xfail removed)."""
-        tool = _load_tool()
-        for sku in ("Stillwater-KPU-T64", "Stillwater-KPU-T128"):
+        for sku in ("Stillwater-KPU-T64", "Stillwater-KPU-T128", "Stillwater-KPU-T256"):
             row = tool.check_sku(sku)
             assert row is not None, f"{sku} not found"
-            assert row.feasible, (
-                f"{sku} is TDP-infeasible: "
-                f"ALU {row.alu_power_w:.2f} W vs "
-                f"budget {row.alu_budget_w:.2f} W "
-                f"(over by {row.overshoot:.2f}x)"
-            )
+            assert not row.feasible, sku
+            assert 1.0 < row.overshoot < 1.25, (sku, row.overshoot)
+            assert row.alu_power_w < row.tdp_w, sku
 
     def test_kpu_entries_report_process_node(self):
         tool = _load_tool()
@@ -98,23 +84,22 @@ class TestKPUFeasibility:
 class TestCLI:
     def test_cli_runs_default(self):
         tool = _load_tool()
-        # Tool returns 0 by default whether or not the SKU is feasible;
-        # only --fail-on-infeasible elevates the exit code (T128 is in
-        # fact feasible at its post-PR#153 12W operating point).
+        # Tool returns 0 by default whether or not the SKU is feasible
+        # (T128 is not, at the 65% budget); only --fail-on-infeasible
+        # elevates the exit code.
         rc = tool.main(["--hardware", "kpu_t128"])
         assert rc == 0
 
     def test_cli_fail_on_infeasible_flag(self):
         tool = _load_tool()
-        # PR #153 dropped catalog clocks and added per-profile Vdd; T64,
-        # T128, and T256 now derive cleanly to their 6 W / 12 W / 30 W
-        # targets and are all feasible. --fail-on-infeasible should
-        # return 0 since no infeasible SKUs are passed.
-        rc = tool.main(["--hardware", "kpu_t64", "kpu_t128", "kpu_t256",
-                        "--fail-on-infeasible"])
-        assert rc == 0
+        # T64/T128/T256 exceed the default 65% ALU budget (see
+        # test_uniform_kpus_exceed_the_65pct_alu_budget), so the flag fails
+        # the run; a budget the model's compute share fits in passes it.
+        skus = ["--hardware", "kpu_t64", "kpu_t128", "kpu_t256", "--fail-on-infeasible"]
+        assert tool.main(skus) == 1
+        assert tool.main(skus + ["--alu-fraction", "0.85"]) == 0
 
-    def test_cli_t256_alone_still_feasible(self):
+    def test_cli_t768_alone_feasible(self):
         tool = _load_tool()
-        rc = tool.main(["--hardware", "kpu_t256", "--fail-on-infeasible"])
+        rc = tool.main(["--hardware", "kpu_t768", "--fail-on-infeasible"])
         assert rc == 0

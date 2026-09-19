@@ -166,24 +166,24 @@ class TestIdlePowerCalculation:
 
     def test_idle_power_equals_half_tdp_edge(self):
         """At very low dynamic power, total power should approach 50% TDP (edge)"""
-        # Test with KPU-T64 (6W TDP)
+        # Test with KPU-T64, at its default profile's TDP
         mapper = create_kpu_t64_mapper()
-        tdp = 6.0  # KPU-T64 default TDP
+        rm = mapper.resource_model
+        tdp = rm.thermal_operating_points[rm.default_thermal_profile].tdp_watts
         latency = 0.01  # 10ms
         dynamic_energy = 0.0001  # 0.1 mJ (negligible)
 
         total_energy, avg_power = mapper.compute_energy_with_idle_power(latency, dynamic_energy)
 
-        # Expected: idle_energy = (6W × 0.5) × 0.01s = 0.03 J = 30 mJ
-        # Total: 30 + 0.1 = 30.1 mJ
-        # Avg power: 3.01W
+        # Expected: idle_energy = (TDP x 0.5) x 0.01s; the 0.1 mJ dynamic
+        # energy adds ~0.01 W to an average power of ~TDP / 2.
         expected_idle_energy = tdp * 0.5 * latency
         expected_total = expected_idle_energy + dynamic_energy
 
         assert abs(total_energy - expected_total) < 0.0001, \
             f"Expected {expected_total}J, got {total_energy}J"
-        assert abs(avg_power - 3.0) < 0.1, \
-            f"Expected ~3W, got {avg_power}W"
+        assert abs(avg_power - tdp / 2) < 0.1, \
+            f"Expected ~{tdp / 2}W, got {avg_power}W"
 
     def test_idle_power_dominates_low_utilization(self):
         """For low-utilization workloads, idle power should dominate"""

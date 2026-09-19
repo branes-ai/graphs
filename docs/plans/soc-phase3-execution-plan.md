@@ -122,9 +122,13 @@ overhead is at least 1x, so the floor is a true lower bound.
 
 Other terms and rules:
 
-- **Missing formats are gaps, not proxies.** The catalog has no FP16 energy
-  at any node (BF16 is a different format) and no FP64. A class that runs in
-  either is a gap, not billed at a neighbouring format.
+- **Missing formats are gaps, not proxies.** The catalog has no FP64 energy
+  at any node, so a class that runs in FP64 is a gap, not billed at a
+  neighbouring format. *Update 2026-09-19:* the catalog had no FP16 energy
+  either when this plan was written. Since embodied-schemas 0.15.0, every
+  node states FP16 and BF16 energy, derived from its FP32 figure by the
+  Horowitz ISSCC 2014 ratios (`embodied_schemas.fp_energy`). FP16 work is
+  now priced.
 - **DRAM:** PHY I/O energy is priced only where the node states
   `dram_io_pj_per_byte`, which excludes 8LPP and N5. DRAM device energy has
   no source and is always a gap.

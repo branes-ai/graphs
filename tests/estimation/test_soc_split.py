@@ -81,10 +81,10 @@ def test_dynamic_power_prices_each_class_on_its_own_engine(analyzer):
     result, det = _split_det(analyzer, {"det": TRANSFER})
     by_block = {b.name: b for b in result.power.blocks}
     assert by_block["dla"].dynamic_w > 0  # the trunk's INT8 ops, in the DLA's library
-    # The head runs in FP16 on the GPU, and no node states FP16 energy: that
-    # part is a stated gap, not billed at another format.
-    det_gaps = [g for g in result.power.dynamic.gaps if g.startswith("det:")]
-    assert det_gaps and all("fp16" in g for g in det_gaps)
+    # The head runs in FP16 on the GPU, priced at the node's FP16 figure in
+    # the SM's library, not at the DLA's.
+    assert by_block["gpu_sm"].dynamic_w > 0
+    assert not [g for g in result.power.dynamic.gaps if g.startswith("det:")]
 
 
 # ---------------------------------------------------------------------------
