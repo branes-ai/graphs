@@ -69,5 +69,7 @@ to fill `default_v1`.
   *at the measured clock*.
 - An entry is CALIBRATED when the clock was verified and INTERPOLATED
   otherwise.
-- A format the IP template states no peak for (Orin's SM has no FP16 rate)
-  stays a gap, with the measurement kept alongside it.
+- A format the IP template states no peak for stays a gap, with the
+  measurement kept alongside it. (Orin's SM had no FP16 rate at first; it now
+  carries NVIDIA's sourced dense FP16 tensor rate, so FP16 is ingested and
+  only FP64 is left out.)

@@ -23,7 +23,7 @@ Rules, each strict:
   samples, within 5%), INTERPOLATED when sampled but not verified. A run with
   no clock samples gives no entry.
 * **A format the IP template states no peak for** gives no entry (Orin's SM
-  template has no FP16 rate): the measurement is reported, and the pair
+  template states no FP64 rate): the measurement is reported, and the pair
   stays a gap until the template is sourced.
 * **An efficiency above 1** means the template's peak or the clock is wrong;
   it is refused, not clipped.
