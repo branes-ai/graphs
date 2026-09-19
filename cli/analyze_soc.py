@@ -75,7 +75,12 @@ def _summary_lines(result: SoCAnalysisResult) -> List[str]:
         + f";  stages over: {', '.join(s['stages_over']) or 'none'}",
         f"sense-to-act chain: {s['e2e_latency_ms']:.1f} ms"
         + ("" if s["e2e_latency_complete"] else lb)
+        + (f", at most {s['reactive_chain_upper_ms']:.1f} ms" if s.get("reactive_chain_upper_ms") else "")
         + f" vs deadline {s['deadline_ms']:g} ms",
+        f"schedulable ({(d.get('schedulability') or {}).get('policy', '-')}): "
+        f"{_verdict(s.get('schedulable'))}"
+        + (f"; upper bound over deadline: {', '.join(d['schedulability']['stages_over_upper_bound'])}"
+           if (d.get("schedulability") or {}).get("stages_over_upper_bound") else ""),
         f"DRAM: demand {m['dram_demand_gb_per_s']:.1f} GB/s vs sustained supply "
         f"{_fmt(m['dram_supply_gb_per_s'], '.1f')} GB/s",
         f"power: {p['total_w']:.3g} W" + (lb if p["total_is_lower_bound"] else "")
@@ -179,6 +184,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="auto (shipped explicit mapping, else greedy), explicit, greedy, "
                              "ilp (optimal bottleneck, needs scipy), "
                              "or a mapping .yaml file")
+    parser.add_argument("--policy", choices=["rm", "edf"], default="rm",
+                        help="Scheduling policy for response-time analysis (default rm)")
     parser.add_argument("--gate-idle", action="store_true",
                         help="Power-gate engines the schedule leaves idle (zero their leakage)")
     parser.add_argument("--sustained-fraction", type=float, default=None,
@@ -216,7 +223,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     names = args.profile or args.regime or ([] if args.all else ["air superiority"])
     kwargs = dict(node=args.node, efficiency=args.efficiency, mapping=args.mapping,
-                  gate_idle=args.gate_idle)
+                  gate_idle=args.gate_idle, policy=args.policy)
     if args.sustained_fraction is not None:
         kwargs["sustained_fraction"] = args.sustained_fraction
     try:
