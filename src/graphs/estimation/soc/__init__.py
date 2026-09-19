@@ -19,6 +19,13 @@ from .efficiency import (
     load_efficiency_tables,
     load_kernel_classes,
 )
+from .breakeven import (
+    EngineRequirement,
+    RequiredEfficiency,
+    StageRequirement,
+    capability_mapping,
+    required_efficiency,
+)
 from .mapping import Engine, MappingFile, StageService, engines_of, find_mapping, load_mapping
 from .power import PowerReport, roll_up
 from .schedule import Schedule, schedule
@@ -37,7 +44,12 @@ __all__ = [
     "load_efficiency_tables",
     "load_kernel_classes",
     "Engine",
+    "EngineRequirement",
     "MappingFile",
+    "RequiredEfficiency",
+    "StageRequirement",
+    "capability_mapping",
+    "required_efficiency",
     "Schedule",
     "StageService",
     "engines_of",
