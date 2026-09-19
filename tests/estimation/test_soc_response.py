@@ -220,3 +220,95 @@ def test_the_analysis_carries_its_estimation_confidence(analyzer):
     assert at_n7.response.confidence.level.value == "unknown"
     assert light.response.confidence.source.startswith("rm upper bounds")
     assert light.to_dict()["schedulability"]["confidence"] == "theoretical"
+
+
+# ---------------------------------------------------------------------------
+# DRAM contention: the upper bound shares the bandwidth
+# ---------------------------------------------------------------------------
+
+L2 = "autonomous_vehicle_sae_l2__l2__partial_automation"
+
+
+def test_contended_time_scales_memory_and_transfer_not_compute():
+    from graphs.estimation.soc.mapping import StageService
+    from graphs.estimation.soc.response import _contended
+
+    compute_bound = StageService("s", "gpu", 10.0, t_compute_s=4.0, t_memory_s=1.0)
+    assert _contended(compute_bound, 3) == ({"gpu": 4.0}, 0.0)  # 3 x 1 < 4: still compute
+    assert _contended(compute_bound, 5) == ({"gpu": 5.0}, 0.0)  # 5 x 1 overtakes it
+    split = StageService("s", "gpu", 10.0, t_compute_s=3.0, t_memory_s=2.0, t_transfer_s=0.5,
+                         parts={"dla": 1.0, "gpu": 2.0}, class_engines={"A": "dla", "B": "gpu"})
+    parts, beyond = _contended(split, 4)
+    # Parts keep their compute; the stage adds 4 x 0.5 of transfer and the
+    # stall left of 4 x 2 memory after compute and transfer: 8 - 3 - 2 = 3.
+    assert parts == {"dla": 1.0, "gpu": 2.0} and beyond == pytest.approx(2.0 + 3.0)
+
+
+def test_requesters_are_capped_by_servers_and_by_tasks(analyzer):
+    from graphs.estimation.soc import engines_of
+    from graphs.estimation.soc.response import dram_requesters
+
+    result = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy")
+    engines = engines_of(result.soc)
+    stages = {d.stage.key: d.stage for d in analyzer.workload.demands(result.schedule.profile)}
+    tasks = {}
+    for svc in result.schedule.served:
+        if stages[svc.stage].bytes_per_call > 0:
+            for e in svc.engine_seconds:
+                tasks[e] = tasks.get(e, 0) + 1
+    expected = sum(min(engines[e].servers, n) for e, n in tasks.items())
+    assert dram_requesters(result.schedule, engines, stages) == expected == result.response.dram_requesters
+    assert expected > 1
+    assert result.response.dram_share_gb_per_s == pytest.approx(
+        result.schedule.dram_supply_gb_per_s / expected)
+
+
+def test_contention_withdraws_a_proof_that_owned_the_bandwidth(analyzer, monkeypatch):
+    """AV L2 on Orin is schedulable only if each stage owns DRAM. Sharing it
+    among the servers that stream at once pushes mono's upper bound past its
+    deadline, so the proof is withdrawn: open, not failed."""
+    import graphs.estimation.soc.response as response
+
+    shared = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy")
+    assert shared.response.schedulable is None and "mono" in shared.response.missing
+    assert shared.schedule.feasible() is not False  # the lower bounds still hold
+    monkeypatch.setattr(response, "dram_requesters", lambda *a: 1)
+    owned = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy")
+    assert owned.response.schedulable is True
+    for stage, upper in shared.response.stage_response_s.items():
+        if upper is not None and owned.response.stage_response_s[stage] is not None:
+            assert upper >= owned.response.stage_response_s[stage] - 1e-12, stage
+
+
+def test_a_shared_bus_caps_confidence_at_theoretical(analyzer):
+    rs = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy").response
+    assert rs.dram_requesters > 1
+    assert rs.confidence.level.value in ("theoretical", "unknown")
+    assert "fair arbiter" in rs.confidence.source
+    contention = rs.to_dict()["dram_contention"]
+    assert contention["requesters"] == rs.dram_requesters and "FR-FCFS" in contention["arbiter"]
+
+
+def test_no_dram_supply_leaves_contention_unbounded(analyzer):
+    import dataclasses
+
+    from graphs.estimation.soc import engines_of
+    from graphs.estimation.soc.response import response_analysis
+
+    result = analyzer.analyze("orin_class_reference", L2, efficiency="all_known", mapping="greedy")
+    blind = dataclasses.replace(result.schedule, dram_supply_gb_per_s=None)
+    stages = {d.stage.key: d.stage for d in analyzer.workload.demands(blind.profile)}
+    rs = response_analysis(blind, engines_of(result.soc), stages)
+    assert rs.analyzed is False and rs.schedulable is None
+    assert "cannot be bounded" in rs.confidence.source
+
+
+def test_cli_states_the_dram_share_its_upper_bounds_assume():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("analyze_soc_cli", REPO / "cli" / "analyze_soc.py")
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    line = cli._contention({"requesters": 7, "share_gb_per_s": 19.02})
+    assert line == "; upper bounds share it among 7 requesters, 19.0 GB/s each (fair arbiter assumed)"
+    assert cli._contention(None) == cli._contention({"requesters": 0}) == ""
