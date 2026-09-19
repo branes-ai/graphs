@@ -1,0 +1,39 @@
+branes@Branes-Jetson:~/dev/branes/clones/graphs$ python cli/benchmark_soc_kernels.py --hardware jetson_orin_nano_8gb --power-mode 15w
+engine  kernel_class          kernel          prec  status       GOP/s    clock_GHz  clock_ok  cpu_x  note                          
+------  --------------------  --------------  ----  -----------  -------  ---------  --------  -----  ------------------------------
+cpu     dense_conv_gemm       gemm            fp32  ok           21.98    1.498      yes       1.0                                  
+cpu     dense_conv_gemm       gemm            fp16  ok           0.39     1.498      yes       1.0                                  
+cpu     dense_conv_gemm       gemm            int8  unsupported  -        -          -         -      gemm int8 has no cpu path here
+cpu     dense_conv_gemm       conv3x3         fp32  ok           20.35    1.498      yes       1.0                                  
+cpu     attention_prefill     sdpa            fp32  ok           12.07    1.498      yes       1.0                                  
+cpu     weight_stream_decode  gemv            fp32  ok           1.41     1.498      yes       1.0                                  
+cpu     elementwise_norm      layernorm       fp32  ok           2.88     1.498      yes       1.0                                  
+cpu     dense_conv_gemm       conv3x3         fp16  ok           0.45     1.498      yes       1.0                                  
+cpu     attention_prefill     sdpa            fp16  ok           1.66     1.498      yes       1.0                                  
+cpu     weight_stream_decode  gemv            fp16  ok           4.83     1.498      yes       1.0                                  
+cpu     elementwise_norm      layernorm       fp16  ok           2.56     1.498      yes       1.0                                  
+cpu     fft                   fft2            fp32  ok           4.86     1.498      yes       1.0                                  
+cpu     small_dense_linalg    cholesky_solve  fp32  ok           2.10     1.498      yes       1.0                                  
+cpu     small_qp              kkt_solve       fp32  ok           3.08     1.498      yes       1.0                                  
+cpu     small_dense_linalg    cholesky_solve  fp64  ok           1.43     1.498      yes       1.0                                  
+cpu     small_qp              kkt_solve       fp64  ok           2.18     1.498      yes       1.0                                  
+cpu     sparse_hash_scatter   index_add       fp32  ok           0.16     1.498      yes       1.0                                  
+gpu     dense_conv_gemm       gemm            fp32  ok           808.53   0.612      yes       -                                    
+gpu     dense_conv_gemm       gemm            fp16  ok           5924.74  0.612      yes       -                                    
+gpu     dense_conv_gemm       gemm            int8  ok           2439.32  0.612      yes       -                                    
+gpu     dense_conv_gemm       conv3x3         fp32  ok           1333.28  0.612      yes       -                                    
+gpu     attention_prefill     sdpa            fp32  ok           737.00   0.612      yes       -                                    
+gpu     weight_stream_decode  gemv            fp32  ok           28.23    0.612      yes       -                                    
+gpu     elementwise_norm      layernorm       fp32  ok           30.98    0.612      yes       -                                    
+gpu     dense_conv_gemm       conv3x3         fp16  ok           5484.22  0.612      yes       -                                    
+gpu     attention_prefill     sdpa            fp16  ok           5864.54  0.612      yes       -                                    
+gpu     weight_stream_decode  gemv            fp16  ok           57.66    0.612      yes       -                                    
+gpu     elementwise_norm      layernorm       fp16  ok           64.74    0.612      yes       -                                    
+gpu     fft                   fft2            fp32  ok           89.79    0.612      yes       -                                    
+gpu     small_dense_linalg    cholesky_solve  fp32  ok           9.79     0.612      yes       -                                    
+gpu     small_qp              kkt_solve       fp32  ok           2.78     0.612      yes       -                                    
+gpu     small_dense_linalg    cholesky_solve  fp64  ok           3.40     0.612      yes       -                                    
+gpu     small_qp              kkt_solve       fp64  ok           2.03     0.612      yes       -                                    
+gpu     sparse_hash_scatter   index_add       fp32  ok           1.03     0.612      yes       -                                    
+
+wrote /home/branes/dev/branes/clones/graphs/soc_designs/efficiency/measurements/jetson_orin_nano_8gb_15w_20260919.json
