@@ -77,7 +77,7 @@ silicon priced first (Phase 2), so they are not in this phase.
 |---|---|
 | 6.1 | `estimation/soc/breakeven.py`, `cli/analyze_required_efficiency.py`, tests. |
 | 6.2 | The ladder: T64 / T128 / T256 cores from `generate_kpu_ip.py`, one design per KPU core, the CPU-cluster override, the `kpu_cpu_ladder` study. **Done.** |
-| 6.3 | The assessment: what the ladder decides, and the KPU efficiency each configuration would need. |
+| 6.3 | The assessment: what the ladder decides, and the KPU efficiency each configuration would need. **Done:** `docs/assessments/soc-kpu-cpu-ladder.md`. |
 | 6.4 | The domain-flow cost model as a THEORETICAL table, read against 6.3's requirements. |
 
 ## What the requirement already says
