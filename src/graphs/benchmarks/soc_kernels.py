@@ -16,8 +16,12 @@ Two things the older calibration files got wrong, and this gets right:
   ``verified`` only when enough samples were taken and they agree within
   5%; the ingest (PR 5.2) marks an efficiency CALIBRATED only then.
 * **A CPU kernel runs on one pinned core, single-threaded,** because the
-  analyzer treats a CPU core as one server. A GPU kernel uses the whole GPU,
-  as the analyzer does.
+  analyzer treats a CPU core as one server -- and the run proves it: process
+  CPU time over wall time is recorded per kernel, and a kernel above
+  ``SINGLE_THREAD_LIMIT`` is flagged (the first Orin Nano run used all six
+  cores through the BLAS pool). A GPU kernel uses the whole GPU.
+* **FP32 means FP32.** TF32 is switched off for matmul and cuDNN before GPU
+  kernels run (``tf32_disabled`` in the document).
 
 Each kernel counts ops the way the Data Annex does: a multiply-accumulate is
 2 ops, an add or compare 1. The count is stated per kernel. Kernel classes
@@ -46,6 +50,10 @@ SCHEMA = "soc_kernel_bench/1"
 #: Clock samples must agree within this fraction to count as verified.
 CLOCK_TOLERANCE = 0.05
 MIN_CLOCK_SAMPLES = 5
+
+#: A CPU kernel is single-threaded when its process CPU time is at most this
+#: multiple of wall time (1.0 plus the clock sampler and interpreter overhead).
+SINGLE_THREAD_LIMIT = 1.25
 
 #: Kernel classes with no representative kernel in this harness yet.
 NOT_COVERED = (
@@ -351,6 +359,10 @@ class KernelResult:
     seconds_per_call: Optional[float] = None
     attained_ops_per_s: Optional[float] = None
     clock: Optional[dict] = None
+    #: CPU kernels: process CPU time over wall time during the timed loop.
+    #: About 1.0 for one thread; the core count when a BLAS pool ran wide.
+    cpu_parallelism: Optional[float] = None
+    single_thread: Optional[bool] = None
     status: str = "ok"  # ok | unsupported | error
     message: str = ""
 
@@ -379,7 +391,7 @@ def run_kernel(spec: KernelSpec, device: str, min_seconds: float = 0.5, warmup: 
         _sync(device)
         reader = gpu_clock_reader() if device == "cuda" else cpu_clock_reader(cpu_core)
         source = "gpu" if device == "cuda" else f"cpu{cpu_core}"
-        calls, start = 0, time.perf_counter()
+        calls, start, cpu_start = 0, time.perf_counter(), time.process_time()
         with ClockSampler(reader, source) as sampler:
             while True:
                 call()
@@ -390,13 +402,16 @@ def run_kernel(spec: KernelSpec, device: str, min_seconds: float = 0.5, warmup: 
                         break
             _sync(device)
         elapsed = time.perf_counter() - start
+        cpu_elapsed = time.process_time() - cpu_start
     except Exception as exc:  # noqa: BLE001 -- recorded per kernel, the run continues
         return KernelResult(**base, status="error", message=f"{type(exc).__name__}: {exc}")
     base["calls"] = calls
     per_call = elapsed / calls
+    parallelism = cpu_elapsed / elapsed if device == "cpu" and elapsed > 0 else None
     return KernelResult(**base, seconds_per_call=per_call,
                         attained_ops_per_s=spec.ops_per_call / per_call,
-                        clock=sampler.result.to_dict())
+                        clock=sampler.result.to_dict(), cpu_parallelism=parallelism,
+                        single_thread=None if parallelism is None else parallelism <= SINGLE_THREAD_LIMIT)
 
 
 def _pin_cpu(core: int) -> str:
@@ -410,12 +425,26 @@ def _pin_cpu(core: int) -> str:
         return f"not pinned ({exc}); 1 thread"
 
 
+def _lock_fp32() -> bool:
+    """Make FP32 mean FP32 on the GPU. PyTorch lets cuDNN run FP32
+    convolutions as TF32 on tensor cores by default: an Orin Nano "FP32"
+    conv measured twice the FP32 peak. Returns True once both are off."""
+    import torch  # noqa: PLC0415
+
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    return not torch.backends.cuda.matmul.allow_tf32 and not torch.backends.cudnn.allow_tf32
+
+
 def _environment() -> dict:
     import torch  # noqa: PLC0415
 
     env = {"platform": platform.platform(), "machine": platform.machine(),
            "python": platform.python_version(), "torch": torch.__version__,
-           "cuda": torch.cuda.is_available()}
+           "cuda": torch.cuda.is_available(),
+           "threads": {v: os.environ.get(v) for v in
+                       ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")},
+           "torch_threads": torch.get_num_threads()}
     if torch.cuda.is_available():
         env["gpu"] = torch.cuda.get_device_name(0)
     nvp = Path("/etc/nvpmodel.conf")
@@ -432,6 +461,7 @@ def run_suite(devices: List[str], hardware: str, power_mode: str = "", quick: bo
     notes = {}
     if "cpu" in devices:
         notes["cpu"] = _pin_cpu(cpu_core)
+    tf32_disabled = _lock_fp32() if "cuda" in devices else None
     results = [run_kernel(spec, dev, min_seconds=min_seconds, cpu_core=cpu_core)
                for dev in devices for spec in specs]
     return {
@@ -441,6 +471,8 @@ def run_suite(devices: List[str], hardware: str, power_mode: str = "", quick: bo
         "measured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "environment": _environment(),
         "cpu_threading": notes.get("cpu", ""),
+        "single_thread_limit": SINGLE_THREAD_LIMIT,
+        "tf32_disabled": tf32_disabled,
         "clock_tolerance": CLOCK_TOLERANCE,
         "not_covered": list(NOT_COVERED),
         "results": [asdict(r) for r in results],

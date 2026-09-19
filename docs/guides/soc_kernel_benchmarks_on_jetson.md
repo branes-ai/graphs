@@ -141,6 +141,7 @@ Useful options:
 | `GOP/s` | Attained throughput, with ops counted as the Data Annex counts them (a multiply-accumulate is 2). |
 | `clock_GHz` | The median clock sampled during that kernel. |
 | `clock_ok` | **Should be `yes`.** `NO` means the clock moved more than 5% during the run. Check that `jetson_clocks` is active, then re-run. |
+| `cpu_x` | CPU rows only: process CPU time over wall time. **Should be about 1.0**, because a CPU kernel is measured on one core. `WIDE` means it ran on several cores. The CLI sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1 before torch loads, so check that nothing in your shell overrides them. The ingest refuses wide rows. |
 
 A note printed after the table says how many kernels ran with an unverified
 clock.
@@ -233,6 +234,8 @@ python cli/sweep_soc.py --designs orin_class_reference,kpu_heterogeneous_h64 \
 | `clock_ok` is `NO` | The clocks were not pinned. Run `sudo jetson_clocks`, check with `--show`, and re-run. |
 | The INT8 GEMM row says `error` | The PyTorch build lacks `torch._int_mm`, or its CUDA path. Other kernels are unaffected, and the ingest reports the row as not ingested. |
 | `ModuleNotFoundError` for a module other than torch | `pip3 install <module>`. |
+| `cpu_x` shows `WIDE` | The BLAS thread pool ran on several cores. Unset any `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` in your shell (the CLI defaults them to 1) and re-run. |
+| GPU FP32 above the FP32 peak | TF32 was on. The harness now turns it off (`tf32_disabled` in the JSON). Runs made before 2026-09-19 did not, and the ingest refuses their GPU FP32 rows. |
 | The ingest says `efficiency ... > 1` | The design's peak for that engine is too low for the measured board, or the clock reading was wrong. Report it rather than editing the number. |
 
 ## Smoke test on a workstation

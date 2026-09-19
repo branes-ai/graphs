@@ -26,17 +26,20 @@ CPU_FP32_PER_CORE = 16              # A78AE: 2 FMLA x 4 lanes x 2
 
 
 def _result(kernel_class="dense_conv_gemm", engine="gpu", prec="fp32", attained=1e12,
-            clock_hz=1.3e9, verified=True, name="gemm", status="ok"):
+            clock_hz=1.3e9, verified=True, name="gemm", status="ok", parallelism=1.0):
+    cpu = engine == "cpu"
     return {"kernel_class": kernel_class, "name": name, "precision": prec, "engine_kind": engine,
-            "device": "cuda" if engine == "gpu" else "cpu", "shape": "2048^3",
+            "device": "cpu" if cpu else "cuda", "shape": "2048^3",
             "ops_per_call": 1.0, "ops_rule": "-", "calls": 10, "seconds_per_call": 1.0,
             "attained_ops_per_s": attained, "status": status, "message": "",
-            "clock": None if clock_hz is None else {"median_hz": clock_hz, "verified": verified}}
+            "clock": None if clock_hz is None else {"median_hz": clock_hz, "verified": verified},
+            "cpu_parallelism": parallelism if cpu else None,
+            "single_thread": (parallelism is not None and parallelism <= 1.25) if cpu else None}
 
 
-def _run(*results, quick=False, hardware="jetson_orin_agx_64gb"):
+def _run(*results, quick=False, hardware="jetson_orin_agx_64gb", tf32_disabled=True):
     return ("run.json", {"schema": ingest.SCHEMA, "hardware": hardware, "power_mode": "MAXN",
-                         "quick": quick, "results": list(results)})
+                         "quick": quick, "tf32_disabled": tf32_disabled, "results": list(results)})
 
 
 def _build(*runs, counts=None):
@@ -189,3 +192,32 @@ def test_a_pooled_table_cannot_layer():
         EfficiencyTable.model_validate({
             "id": "p", "name": "p", "kind": "pooled", "base": "default_v1",
             "pooled": {"a": 1, "b": 1, "c": 1, "confidence": "theoretical", "source": "x"}})
+
+
+def test_a_cpu_result_that_ran_wide_is_refused():
+    """The first Orin Nano run: FP32 GEMM 'on one core' at 5x a core's peak,
+    because the BLAS pool ran on all six. Parallelism is now measured; a
+    wide run is refused even when its efficiency would look plausible."""
+    wide = _result(kernel_class="small_dense_linalg", engine="cpu", name="cholesky_solve",
+                   attained=0.3 * CPU_FP32_PER_CORE * 1.7e9, clock_hz=1.7e9, parallelism=5.8)
+    _, skipped = _build(_run(wide, _result()))
+    assert any("not verified single-threaded" in s and "5.8 cores" in s for s in skipped)
+
+
+def test_a_run_from_before_the_thread_check_gives_no_cpu_entries():
+    old = _result(kernel_class="small_qp", engine="cpu", name="kkt_solve", clock_hz=1.7e9,
+                  attained=0.3 * CPU_FP32_PER_CORE * 1.7e9)
+    old["single_thread"] = None
+    old["cpu_parallelism"] = None
+    _, skipped = _build(_run(old, _result()))
+    assert any("predates the single-thread check" in s for s in skipped)
+
+
+def test_gpu_fp32_needs_tf32_locked_off():
+    """cuDNN runs FP32 convolutions as TF32 by default: the first Orin Nano
+    'FP32' conv measured twice the FP32 peak."""
+    _, skipped = _build(_run(_result(), tf32_disabled=None),
+                        _run(_result(prec="int8", attained=1e12), tf32_disabled=None))
+    assert any("TF32" in s for s in skipped)
+    table, _ = _build(_run(_result(prec="int8", attained=1e12), tf32_disabled=None))
+    assert table["entries"][0]["precision"] == "int8"  # other precisions are unaffected
