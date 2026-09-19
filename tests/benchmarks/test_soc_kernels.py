@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,6 +23,9 @@ from graphs.benchmarks.soc_kernels import (
 )
 
 REPO = Path(__file__).resolve().parents[2]
+
+#: The CPUs this process may use, captured before any test pins it to one.
+_INITIAL_AFFINITY = frozenset(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None
 
 
 # ---------------------------------------------------------------------------
@@ -142,20 +146,19 @@ def test_a_cpu_run_records_its_parallelism():
 
 def test_a_wide_cpu_run_is_flagged():
     """Force a multi-threaded GEMM on several cores: the parallelism check
-    must catch it. (Earlier tests pin this process to one core, so the test
-    releases the pinning for its duration.)"""
-    import os
-
+    must catch it. Earlier tests pin this process to one core, so the test
+    runs on the CPUs the process was *allowed* at import -- not cpu_count(),
+    which a cgroup can exceed -- and restores the pinning afterwards."""
     import torch
 
     from graphs.benchmarks.soc_kernels import SINGLE_THREAD_LIMIT
 
-    if not hasattr(os, "sched_getaffinity") or (os.cpu_count() or 1) < 2:
-        pytest.skip("needs Linux and more than one core")
+    if _INITIAL_AFFINITY is None or len(_INITIAL_AFFINITY) < 2:
+        pytest.skip("needs Linux affinity and more than one allowed CPU")
     affinity, threads = os.sched_getaffinity(0), torch.get_num_threads()
-    os.sched_setaffinity(0, set(range(os.cpu_count())))
-    torch.set_num_threads(min(4, os.cpu_count()))
     try:
+        os.sched_setaffinity(0, _INITIAL_AFFINITY)
+        torch.set_num_threads(min(4, len(_INITIAL_AFFINITY)))
         spec = next(k for k in kernel_suite() if k.name == "gemm" and k.precision == "fp32")
         result = run_kernel(spec, "cpu", min_seconds=0.3)
     finally:
