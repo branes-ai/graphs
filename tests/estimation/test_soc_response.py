@@ -197,3 +197,26 @@ def test_cli_reports_schedulability():
         capture_output=True, text=True, cwd=REPO, timeout=300)
     assert result.returncode == 0, result.stderr
     assert "schedulable (edf)" in result.stdout
+
+
+
+def test_the_analysis_carries_its_estimation_confidence(analyzer):
+    """UNKNOWN when not analyzed, a partition failed or a job is unknown;
+    otherwise the schedule's own level (#312 review)."""
+    pooled = analyzer.analyze("orin_class_reference", "far flight", efficiency="annex_v1").response
+    assert pooled.confidence.level.value == "unknown" and "not analyzed" in pooled.confidence.source
+    points = analyzer.analyze("orin_class_reference", "far flight", node="tsmc_n7",
+                              efficiency="all_known", mapping="ilp").response
+    assert points.confidence.level.value == "unknown"
+    assert "partition failed" in points.confidence.source or "job size unknown" in points.confidence.source
+    # At Orin's own node its clocks are the reference ones; at N7 they would be
+    # provisional, the schedule UNKNOWN, and the analysis would inherit that.
+    light = analyzer.analyze("orin_class_reference", "edge_ai_device_event_detection__classification",
+                             efficiency="all_known", mapping="ilp")
+    assert light.response.analyzed and not light.response.partition_failed
+    assert light.response.confidence.level.value == light.schedule.confidence.value == "theoretical"
+    at_n7 = analyzer.analyze("orin_class_reference", "edge_ai_device_event_detection__classification",
+                             node="tsmc_n7", efficiency="all_known", mapping="ilp")
+    assert at_n7.response.confidence.level.value == "unknown"
+    assert light.response.confidence.source.startswith("rm upper bounds")
+    assert light.to_dict()["schedulability"]["confidence"] == "theoretical"

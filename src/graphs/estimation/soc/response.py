@@ -41,10 +41,11 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Tuple
 
+from graphs.core.confidence import EstimationConfidence
 from graphs.core.pipeline_workload import REACTIVE_CHAIN, MissionProfile, Stage
-from graphs.hardware.soc import EngineKind
+from graphs.hardware.soc import Confidence, EngineKind
 
-from .mapping import POOLED, Engine
+from .mapping import POOLED, Engine, estimation_confidence
 from .schedule import Schedule
 
 POLICIES = ("rm", "edf")
@@ -197,6 +198,10 @@ class ResponseAnalysis:
     analyzed: bool                     # False for pooled or incomplete schedules
     #: How each stage's job was defined, or why it could not be.
     job_basis: Dict[str, str] = None  # type: ignore[assignment]
+    #: The weakest input: UNKNOWN when not analyzed, a partition failed or a
+    #: job is unknown; else the schedule's own confidence (the analysis is
+    #: exact arithmetic on its inputs and adds no uncertainty of its own).
+    confidence: EstimationConfidence = None  # type: ignore[assignment]
 
     def stage_meets(self, stage: str) -> Optional[bool]:
         """Whether the stage's upper bound meets its deadline; None when the
@@ -231,6 +236,8 @@ class ResponseAnalysis:
         return {
             "policy": self.policy,
             "analyzed": self.analyzed,
+            "confidence": None if self.confidence is None else self.confidence.level.value,
+            "confidence_source": None if self.confidence is None else self.confidence.source,
             "schedulable": self.schedulable,
             "stages_over_upper_bound": list(self.missing),
             "partition_failed": list(self.partition_failed),
@@ -256,7 +263,10 @@ def response_analysis(schedule: Schedule, engines: Mapping[str, Engine],
     if schedule.mapping == POOLED or not schedule.complete:
         # A pooled machine has no engines to schedule on; an incomplete
         # schedule has stages with no execution time to schedule.
-        return ResponseAnalysis(policy, (), {}, {}, (), analyzed=False)
+        why = "pooled schedule: no engines" if schedule.mapping == POOLED else \
+            "incomplete schedule: stages with no execution time"
+        return ResponseAnalysis(policy, (), {}, {}, (), analyzed=False,
+                                confidence=estimation_confidence(Confidence.UNKNOWN, f"not analyzed: {why}"))
     by_engine: Dict[str, List[Task]] = {}
     jobs: Dict[str, Optional[float]] = {}
     basis: Dict[str, str] = {}
@@ -291,8 +301,19 @@ def response_analysis(schedule: Schedule, engines: Mapping[str, Engine],
             per_job = svc.rate_hz / job
             stall = max(0.0, svc.t_service_s - svc.t_compute_s - svc.t_transfer_s) if svc.parts else 0.0
             stage_response[svc.stage] = sum(r.response_s for r in parts) + (svc.t_transfer_s + stall) * per_job
+    unknown_jobs = sorted(s for s, j in jobs.items() if j is None)
+    if failed:
+        confidence = estimation_confidence(
+            Confidence.UNKNOWN, f"{policy}: first-fit partition failed on {', '.join(failed)}")
+    elif unknown_jobs:
+        confidence = estimation_confidence(
+            Confidence.UNKNOWN, f"{policy}: job size unknown for {', '.join(unknown_jobs)}")
+    else:
+        inputs = schedule.estimation_confidence
+        confidence = estimation_confidence(
+            schedule.confidence, f"{policy} upper bounds over the schedule: {inputs.source}")
     return ResponseAnalysis(policy, tuple(responses), stage_response, deadlines,
-                            tuple(failed), analyzed=True, job_basis=basis)
+                            tuple(failed), analyzed=True, job_basis=basis, confidence=confidence)
 
 
 __all__ = ["POLICIES", "ResponseAnalysis", "Task", "TaskResponse", "job_rate", "response_analysis"]
