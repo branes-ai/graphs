@@ -26,6 +26,8 @@ Utilization at or under 1 is necessary, not sufficient: use
 
 Usage:
     python cli/analyze_required_efficiency.py --design kpu_heterogeneous_h64 --regime "air superiority"
+    python cli/analyze_required_efficiency.py --design kpu_uniform_t64 kpu_uniform_t128 \\
+        --override block:cpu.count=1,2,3 --regime "air superiority" --output ladder.csv
     python cli/analyze_required_efficiency.py --design orin_class_reference --all \\
         --efficiency orin_nano_measured_v1 --verbose
     python cli/analyze_required_efficiency.py --design kpu_heterogeneous_h64 --regime "far flight" \\
@@ -52,6 +54,7 @@ from embodied_schemas import load_process_nodes  # noqa: E402
 
 from graphs.core.pipeline_workload import load_autonomy_workload  # noqa: E402
 from graphs.estimation.soc import (  # noqa: E402
+    Override,
     RequiredEfficiency,
     find_mapping,
     load_efficiency_tables,
@@ -67,6 +70,11 @@ def _fmt(value, spec: str = ".3g", none: str = "n/a") -> str:
     return none if value is None else format(value, spec)
 
 
+def _servers(r: RequiredEfficiency) -> str:
+    """The server count of each engine, which is what an override sweeps."""
+    return ", ".join(f"{e.engine} x{e.servers}" for e in r.engines) or "no engine used"
+
+
 def _verdict(value: Optional[bool]) -> str:
     return "open" if value is None else ("yes" if value else "NO")
 
@@ -75,7 +83,7 @@ def _summary_lines(r: RequiredEfficiency) -> List[str]:
     mem = r.dram_demand_gb_per_s / r.dram_supply_gb_per_s if r.dram_supply_gb_per_s else None
     lines = [
         f"profile: {r.profile.id}  ({r.profile.regime or 'no regime'})",
-        f"design:  {r.design} at {r.node};  confidence {r.estimation_confidence.level.value}"
+        f"design:  {r.design} ({_servers(r)}) at {r.node};  confidence {r.estimation_confidence.level.value}"
         f" -- {r.estimation_confidence.source}",
     ]
     for e in r.engines:
@@ -138,7 +146,7 @@ def _render(results: List[RequiredEfficiency], fmt: str, verbose: bool) -> str:
         return json.dumps([r.to_dict() for r in results], indent=2)
     if fmt == "csv":
         rows = [{"profile": r.profile.id, "regime": r.profile.regime or "", "design": r.design,
-                 "node": r.node, "engine": e.engine, "kind": e.kind, "servers": e.servers,
+                 "point": _servers(r), "node": r.node, "engine": e.engine, "kind": e.kind, "servers": e.servers,
                  "stages": len(e.stages), "required_efficiency": e.required_efficiency,
                  "reachable": e.reachable, "utilization_at_known": e.utilization_at_known,
                  "utilization_at_known_is_lower_bound": e.known_is_lower_bound,
@@ -165,6 +173,36 @@ def _render(results: List[RequiredEfficiency], fmt: str, verbose: bool) -> str:
     return sep.join(parts)
 
 
+def _override(item: str) -> Override:
+    """``block:cpu.count=1,2,3`` -> the study's Override, which validates it."""
+    target, _, values = item.partition("=")
+    if not values:
+        raise ValueError(f"--override expects TARGET=v1,v2, got {item!r}")
+    return Override(target=target, values=[float(v) for v in values.split(",")])
+
+
+def _points(design, overrides: List[Override]) -> List:
+    """The design, then one copy per combination of the swept fields."""
+    points = [design]
+    for override in overrides:
+        points = [override.apply(point, value) for point in points for value in override.values]
+    return points
+
+
+def _mapping(args, design_id: str, workload):
+    """The shipped mapping as single-engine assignments, or None for the
+    capability rule. A stage the mapping leaves out -- a split names several
+    engines -- falls back to that rule in the analysis."""
+    if args.mapping == "capability":
+        return None
+    shipped = (load_mapping(Path(args.mapping)) if args.mapping != "auto"
+               else find_mapping(design_id, workload.version))
+    if shipped is None:
+        return None
+    return {stage: engine for stage, engine in shipped.assignments().items()
+            if isinstance(engine, str)}
+
+
 def _profiles(workload, args) -> List:
     if args.all:
         return list(workload.profiles)
@@ -182,7 +220,11 @@ def _profiles(workload, args) -> List:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="The efficiency each engine must sustain to carry a profile (graphs#269 Phase 6).")
-    parser.add_argument("--design", required=True, help="Design id from soc_designs/designs/")
+    parser.add_argument("--design", required=True, nargs="+",
+                        help="Design id(s) from soc_designs/designs/")
+    parser.add_argument("--override", action="append", default=[],
+                        help="Sweep one design field, e.g. block:cpu.count=1,2,3 "
+                             "(repeatable; the points are the cross product)")
     which = parser.add_mutually_exclusive_group()
     which.add_argument("--profile", action="append", help="Profile id or mission name (repeatable)")
     which.add_argument("--regime", action="append", help="Named regime (repeatable)")
@@ -203,9 +245,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         workload = load_autonomy_workload()
         designs, library, nodes = load_designs(), load_ip_library(), load_process_nodes()
-        if args.design not in designs:
-            raise KeyError(f"unknown design {args.design!r}; have {', '.join(sorted(designs))}")
-        soc = compose_soc(designs[args.design], library, nodes, args.node)
+        for name in args.design:
+            if name not in designs:
+                raise KeyError(f"unknown design {name!r}; have {', '.join(sorted(designs))}")
+        overrides = [_override(item) for item in args.override]
         kernels = load_kernel_classes()
         table = None
         if args.efficiency:
@@ -217,21 +260,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         # A mapping names the engine for the stages it lists; the rest fall
         # back to the capability rule, including a split assignment, which
         # names several engines where this analysis puts a stage on one.
-        mapping = None
-        if args.mapping != "capability":
-            if args.mapping not in ("auto",):
-                shipped = load_mapping(Path(args.mapping))
-            else:
-                shipped = find_mapping(args.design, workload.version)
-            if shipped is not None:
-                mapping = {stage: engine for stage, engine in shipped.assignments().items()
-                           if isinstance(engine, str)}
         profiles = _profiles(workload, args)
         kwargs = {} if args.sustained_fraction is None else {
             "sustained_fraction": args.sustained_fraction}
-        results = [required_efficiency(workload, p, soc, mapping=mapping, table=table,
-                                       kernels=kernels, **kwargs)
-                   for p in profiles]
+        results = []
+        for name in args.design:
+            for design in _points(designs[name], overrides):
+                soc = compose_soc(design, library, nodes, args.node)
+                mapping = _mapping(args, name, workload)
+                results += [required_efficiency(workload, p, soc, mapping=mapping, table=table,
+                                                kernels=kernels, **kwargs)
+                            for p in profiles]
     except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -1,0 +1,42 @@
+id: kpu_uniform_t128
+name: KPU-T128 (Orin-class platform, uniform T128 KPU in place of GPU/DLA/PVA)
+process_node: tsmc_n7
+blocks:
+- instance: kpu
+  ip: kpu_t128_core
+  count: 1
+  notes: The T128 KPU core (128 tiles of 32x32 PEs, generated from ComputeProduct kpu_t128_32x32_lp5x8_7nm_tsmc_hpc) replaces the GPU
+    SMs, GPU L2, both DLAs and the PVA. Unlike the H64 it states an FP32 rate, so a Class C
+    stage can stay on the accelerator. Every silicon line of the SKU is anchored.
+- instance: cpu
+  ip: arm_cortex_a78ae_x4
+  count: 3
+  notes: The same CPU complement as the Orin-class reference, so the comparison isolates the
+    accelerator.
+- instance: isp
+  ip: nvidia_orin_hdr_isp
+- instance: codec
+  ip: nvidia_orin_video_codec
+- instance: system_cache
+  ip: orin_system_cache
+- instance: safety_island
+  ip: orin_safety_island
+- instance: memory
+  ip: lpddr5_phy_256b
+  notes: The same 256-bit LPDDR5 as the reference; the KPU core shares the SoC memory system
+    instead of bringing its chip's own x4 PHYs.
+- instance: io
+  ip: orin_io_complex
+- instance: fabric
+  ip: orin_fabric
+layout:
+  whitespace_fraction: 0.15
+  io_ring_mm: 0.3
+  source: The reference design's layout overheads, kept equal so area differences come from the
+    blocks.
+notes: >-
+  One rung of the Phase 6 KPU x CPU ladder (graphs#269 P6-D2): the Orin-class platform with
+  its data-parallel and DLA accelerators replaced by a uniform T128 KPU. Everything but the
+  accelerator is the reference's IP, so differences across the ladder are the accelerator's and
+  the CPU complement's. The CPU cluster count is swept by the study, not by a design per
+  count.
