@@ -215,6 +215,7 @@ def test_a_small_mission_is_feasible(workload):
     assert fit.dram_ratio < 1.0
 
 
+@pytest.mark.slow  # every profile on both dies (~60 s)
 def test_every_stage_is_accounted_for(workload):
     """No stage is silently dropped: each is absorbed, programmable, or named
     as unrunnable."""
