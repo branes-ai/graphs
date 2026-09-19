@@ -132,7 +132,7 @@ def analyzer():
 
 def test_a_light_profile_is_proven_schedulable(analyzer):
     result = analyzer.analyze("orin_class_reference", "edge_ai_device_event_detection__classification",
-                              node="tsmc_n7", efficiency="all_known", mapping="ilp")
+                              node="tsmc_n7", efficiency="all_known", mapping="greedy")
     assert result.response.schedulable is True
     # Power is still a floor, so the overall verdict stays open -- never True
     # on a partial proof.
@@ -141,7 +141,7 @@ def test_a_light_profile_is_proven_schedulable(analyzer):
 
 def test_point_stages_get_no_verdict_and_leave_schedulability_open(analyzer):
     result = analyzer.analyze("orin_class_reference", "far flight", node="tsmc_n7",
-                              efficiency="all_known", mapping="ilp")
+                              efficiency="all_known", mapping="greedy")
     rs = result.response
     assert {s for s, d in rs.stage_deadline_s.items() if d is None} >= {"lidar", "lio", "tsdf"}
     assert rs.schedulable is None
@@ -152,7 +152,7 @@ def test_point_stages_get_no_verdict_and_leave_schedulability_open(analyzer):
 def test_the_upper_bound_is_never_below_the_lower_bound(analyzer):
     for profile in analyzer.workload.profiles:
         result = analyzer.analyze("orin_class_reference", profile, node="tsmc_n7",
-                                  efficiency="all_known", mapping="ilp")
+                                  efficiency="all_known", mapping="greedy")
         rs = result.response
         for svc in result.schedule.served:
             upper, deadline = rs.stage_response_s.get(svc.stage), rs.stage_deadline_s.get(svc.stage)
@@ -187,7 +187,7 @@ def test_a_split_stage_sums_its_parts_and_transfer(analyzer):
 def test_bad_policy_is_an_error(analyzer):
     with pytest.raises(ValueError, match="policy"):
         analyzer.analyze("orin_class_reference", "far flight", efficiency="all_known",
-                         node="tsmc_n7", mapping="ilp", policy="fifo")
+                         node="tsmc_n7", mapping="greedy", policy="fifo")
 
 
 def test_cli_reports_schedulability():
@@ -206,17 +206,17 @@ def test_the_analysis_carries_its_estimation_confidence(analyzer):
     pooled = analyzer.analyze("orin_class_reference", "far flight", efficiency="annex_v1").response
     assert pooled.confidence.level.value == "unknown" and "not analyzed" in pooled.confidence.source
     points = analyzer.analyze("orin_class_reference", "far flight", node="tsmc_n7",
-                              efficiency="all_known", mapping="ilp").response
+                              efficiency="all_known", mapping="greedy").response
     assert points.confidence.level.value == "unknown"
     assert "partition failed" in points.confidence.source or "job size unknown" in points.confidence.source
     # At Orin's own node its clocks are the reference ones; at N7 they would be
     # provisional, the schedule UNKNOWN, and the analysis would inherit that.
     light = analyzer.analyze("orin_class_reference", "edge_ai_device_event_detection__classification",
-                             efficiency="all_known", mapping="ilp")
+                             efficiency="all_known", mapping="greedy")
     assert light.response.analyzed and not light.response.partition_failed
     assert light.response.confidence.level.value == light.schedule.confidence.value == "theoretical"
     at_n7 = analyzer.analyze("orin_class_reference", "edge_ai_device_event_detection__classification",
-                             node="tsmc_n7", efficiency="all_known", mapping="ilp")
+                             node="tsmc_n7", efficiency="all_known", mapping="greedy")
     assert at_n7.response.confidence.level.value == "unknown"
     assert light.response.confidence.source.startswith("rm upper bounds")
     assert light.to_dict()["schedulability"]["confidence"] == "theoretical"
