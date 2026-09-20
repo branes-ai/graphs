@@ -69,8 +69,6 @@ def pipeline_graph(dossier) -> str:
 
     parts.append(f'<text class="dtitle" x="8" y="20">The pipeline, per frame at '
                  f'{dossier.frame_hz:g} Hz</text>')
-    parts.append('<text class="dsub" x="8" y="36">box = stage; the number under each arrow '
-                 'is the traffic it carries</text>')
 
     x = first_x
     # The sensors, as the source. The edge label carries the traffic, so the
@@ -152,97 +150,135 @@ def pipeline_graph(dossier) -> str:
 # 2. The configuration, as a block diagram
 # ---------------------------------------------------------------------------
 
-def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = ()) -> str:
-    """Compute blocks with X, U and E inside them; the interconnect and the
-    memory interface with bandwidths on the edges."""
+def gb(value: Optional[float]) -> str:
+    if not value:
+        return "-"
+    return f"{value / 1e9:.3g} GB/s" if value >= 1e9 else f"{value / 1e6:.3g} MB/s"
+
+
+def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
+                  ingress: Optional[Tuple[str, float]] = None,
+                  cpu_label: str = "CPU", notes: Optional[Dict[str, str]] = None) -> str:
+    """Blocks with their compute throughput, links with their data
+    throughput. Every edge carries a number."""
     provisions = list(dossier.provisions)
     if not provisions:
         return "<p>no engine to draw</p>"
-    box_w, box_h, gap = 268, 150, 34
-    width = max(940, 60 + len(provisions) * (box_w + gap) + len(idle_blocks) * 150 + 60)
-    height = 470
-    parts: List[str] = []
-    parts.append('<text class="dtitle" x="8" y="20">The configuration, as sized</text>')
-    parts.append('<text class="dsub" x="8" y="36">X = throughput one server delivers, '
-                 'U = share of wall clock it is busy, E = share of its dense peak. '
-                 'Demand = X x servers x U.</text>')
+    # Left to right in dataflow order, so the sensors feed the block that
+    # actually ingests rather than whichever engine sorted first.
+    order = {s.key: i for i, s in enumerate(dossier.stages)}
+    provisions.sort(key=lambda p: min((order.get(k, 99) for k in p.stages), default=99))
+    box_w, box_h, gap = 250, 40, 40
+    box_h = 138
+    lane = 30
+    src_w = 118 if ingress else 0
+    width = max(1000, lane + src_w + len(provisions) * (box_w + gap)
+                + len(idle_blocks) * 136 + 60)
+    bus_y, mem_y = 286, 372
+    height = 476
+    parts: List[str] = [
+        '<text class="dtitle" x="8" y="20">Block diagram, as sized</text>',
+        ('<text class="dsub" x="8" y="36">'
+         "X = throughput per server &#183; U = share of wall clock "
+         "&#183; E = share of dense peak</text>"),
+    ]
 
-    top = 60
-    x = 30
-    centres: List[Tuple[float, str]] = []
+    top = 62
+    x = lane
+    if ingress:
+        label, rate = ingress
+        parts.append(f'<rect class="source" x="{lane}" y="{top + 34}" width="{src_w - 26}" '
+                     f'height="70" rx="9"/>')
+        mid = lane + (src_w - 26) / 2
+        parts.append(f'<text class="src-t" x="{mid}" y="{top + 62}">{html.escape(label)}</text>')
+        parts.append(f'<text class="src-s" x="{mid}" y="{top + 80}">{gb(rate)}</text>')
+        parts.append(f'<line class="edge" x1="{lane + src_w - 26}" y1="{top + 69}" '
+                     f'x2="{lane + src_w - 7}" y2="{top + 69}" marker-end="url(#arrow2)"/>')
+        x = lane + src_w
     for prov in provisions:
+        name = cpu_label if prov.kind == "cpu" else prov.engine.upper()
         colour = _engine_colour(prov.kind)
-        parts.append(f'<rect class="node" x="{x}" y="{top}" width="{box_w}" height="{box_h}" '
-                     f'rx="11"/>')
+        parts.append(f'<rect class="node" x="{x}" y="{top}" width="{box_w}" '
+                     f'height="{box_h}" rx="11"/>')
         parts.append(f'<rect class="node-bar" x="{x}" y="{top}" width="5" height="{box_h}" '
                      f'style="fill:{colour}"/>')
-        label = (f"{prov.servers_provisioned} x {prov.unit}"
-                 f"{'s' if prov.servers_provisioned != 1 else ''}")
-        parts.append(f'<text class="b-title" x="{x + 16}" y="{top + 26}" style="fill:{colour}">'
-                     f'{html.escape(prov.engine.upper())}</text>')
-        parts.append(f'<text class="b-sub" x="{x + box_w - 14}" y="{top + 26}">'
-                     f'{html.escape(label)}</text>')
-        parts.append(f'<text class="b-row" x="{x + 16}" y="{top + 50}">'
-                     f'peak {si(prov.peak_ops_per_s, "OP/s")} / {prov.unit} '
+        unit = f"{prov.servers_provisioned} x {prov.unit}"
+        parts.append(f'<text class="b-title" x="{x + 16}" y="{top + 25}" '
+                     f'style="fill:{colour}">{html.escape(name)}</text>')
+        parts.append(f'<text class="b-sub" x="{x + box_w - 14}" y="{top + 25}">'
+                     f'{html.escape(unit)}{"s" if prov.servers_provisioned != 1 else ""}</text>')
+        parts.append(f'<text class="b-row" x="{x + 16}" y="{top + 45}">'
+                     f'dense peak {si(prov.peak_ops_per_s, "OP/s")} / {prov.unit} '
                      f'({html.escape(prov.peak_format)})</text>')
         for i, (key, value) in enumerate((
                 ("X", f'{si(prov.throughput_ops_per_s, "OP/s")} per {prov.unit}'),
                 ("U", f"{prov.utilization:.1%}"),
-                ("E", f"{prov.efficiency:.1%}"))):
-            yy = top + 74 + i * 20
+                ("E", f"{prov.efficiency:.1%} of peak"))):
+            yy = top + 70 + i * 21
             parts.append(f'<text class="b-k" x="{x + 16}" y="{yy}">{key}</text>')
-            parts.append(f'<text class="b-v" x="{x + 40}" y="{yy}">{html.escape(value)}</text>')
-        parts.append(f'<text class="b-note" x="{x + box_w - 14}" y="{top + 134}">'
-                     f'{html.escape(", ".join(prov.stages))} &#183; '
-                     f'{html.escape(prov.provenance)}</text>')
-        centres.append((x + box_w / 2, prov.kind))
+            parts.append(f'<text class="b-v" x="{x + 42}" y="{yy}">{html.escape(value)}</text>')
+        footnote = (notes or {}).get(prov.engine, "")
+        parts.append(f'<text class="b-note" x="{x + box_w - 14}" y="{top + 130}">'
+                     f'{html.escape(", ".join(prov.stages))}'
+                     f'{" &#183; " + html.escape(footnote) if footnote else ""}</text>')
+        # the link down to the fabric, labelled with what it carries
+        cx = x + box_w / 2
+        parts.append(f'<line class="edge" x1="{cx}" y1="{top + box_h}" x2="{cx}" '
+                     f'y2="{bus_y}" marker-end="url(#arrow2)"/>')
+        parts.append(f'<text class="link-l" x="{cx + 8}" y="{(top + box_h + bus_y) / 2 + 4}">'
+                     f'{gb(prov.bytes_per_s)}</text>')
         x += box_w + gap
 
     for name, note in idle_blocks:
-        parts.append(f'<rect class="node idle" x="{x}" y="{top + 24}" width="134" '
-                     f'height="{box_h - 48}" rx="11"/>')
-        parts.append(f'<text class="b-idle" x="{x + 67}" y="{top + 58}">{html.escape(name)}</text>')
-        parts.append(f'<text class="b-idle-s" x="{x + 67}" y="{top + 76}">'
+        parts.append(f'<rect class="node idle" x="{x}" y="{top + 22}" width="120" '
+                     f'height="{box_h - 44}" rx="11"/>')
+        parts.append(f'<text class="b-idle" x="{x + 60}" y="{top + 58}">'
+                     f'{html.escape(name)}</text>')
+        parts.append(f'<text class="b-idle-s" x="{x + 60}" y="{top + 76}">'
                      f'{html.escape(note)}</text>')
-        centres.append((x + 67, "other"))
-        x += 150
+        cx = x + 60
+        parts.append(f'<line class="edge idle-edge" x1="{cx}" y1="{top + box_h - 22}" '
+                     f'x2="{cx}" y2="{bus_y}"/>')
+        parts.append(f'<text class="link-l" x="{cx + 8}" '
+                     f'y="{(top + box_h + bus_y) / 2 + 4}">0</text>')
+        x += 136
 
-    # The fabric, then the memory interface.
-    bus_y = top + box_h + 54
-    bus_x0, bus_x1 = 30, width - 60
-    parts.append(f'<rect class="bus" x="{bus_x0}" y="{bus_y}" width="{bus_x1 - bus_x0}" '
-                 f'height="34" rx="8"/>')
-    parts.append(f'<text class="bus-l" x="{bus_x0 + 14}" y="{bus_y + 22}">'
-                 f'on-chip fabric</text>')
+    bus_x1 = width - 40
+    parts.append(f'<rect class="bus" x="{lane}" y="{bus_y}" width="{bus_x1 - lane}" '
+                 f'height="32" rx="8"/>')
+    parts.append(f'<text class="bus-l" x="{lane + 14}" y="{bus_y + 21}">on-chip fabric</text>')
+    parts.append(f'<text class="bus-r" x="{bus_x1 - 14}" y="{bus_y + 21}">'
+                 f'{gb(dossier.dram_demand_gb_per_s * 1e9)} total</text>')
+
     supply = dossier.dram_supply_gb_per_s
-    parts.append(f'<text class="bus-r" x="{bus_x1 - 14}" y="{bus_y + 22}">'
-                 f'carries {dossier.dram_demand_gb_per_s:.3g} GB/s of DRAM traffic</text>')
-    for cx, kind in centres:
-        parts.append(f'<line class="edge" x1="{cx}" y1="{top + box_h}" x2="{cx}" '
-                     f'y2="{bus_y}" marker-end="url(#arrow2)"/>')
-
-    mem_y = bus_y + 76
-    parts.append(f'<rect class="node" x="{bus_x0}" y="{mem_y}" width="{bus_x1 - bus_x0}" '
-                 f'height="74" rx="11"/>')
-    parts.append(f'<text class="b-title" x="{bus_x0 + 16}" y="{mem_y + 26}">DRAM</text>')
+    cx = (lane + bus_x1) / 2
+    parts.append(f'<line class="edge" x1="{cx}" y1="{bus_y + 32}" x2="{cx}" y2="{mem_y}" '
+                 f'marker-end="url(#arrow2)"/>')
+    parts.append(f'<text class="link-l" x="{cx + 8}" y="{(bus_y + 32 + mem_y) / 2 + 4}">'
+                 f'{gb(dossier.dram_demand_gb_per_s * 1e9)}</text>')
+    parts.append(f'<rect class="node" x="{lane}" y="{mem_y}" width="{bus_x1 - lane}" '
+                 f'height="72" rx="11"/>')
+    parts.append(f'<text class="b-title" x="{lane + 16}" y="{mem_y + 26}">DRAM</text>')
     if supply:
         used = dossier.dram_demand_gb_per_s / supply
-        parts.append(f'<text class="b-row" x="{bus_x0 + 16}" y="{mem_y + 48}">'
-                     f'peak {supply:g} GB/s &#183; demand {dossier.dram_demand_gb_per_s:.3g} GB/s '
-                     f'&#183; {used:.2%} used</text>')
-        track_x = bus_x0 + 360
-        track_w = bus_x1 - track_x - 20
-        parts.append(f'<rect class="track" x="{track_x}" y="{mem_y + 34}" width="{track_w}" '
+        parts.append(f'<text class="b-row" x="{lane + 16}" y="{mem_y + 47}">'
+                     f'{supply:g} GB/s available &#183; {dossier.dram_demand_gb_per_s:.2f} GB/s '
+                     f'used &#183; {used:.1%}</text>')
+        track_x, track_w = lane + 330, bus_x1 - lane - 360
+        parts.append(f'<rect class="track" x="{track_x}" y="{mem_y + 33}" width="{track_w}" '
                      f'height="14" rx="3"/>')
-        parts.append(f'<rect class="fill" x="{track_x}" y="{mem_y + 34}" '
-                     f'width="{max(2.0, used * track_w):.1f}" height="14" rx="3"/>')
+        # A mission can ask for more bandwidth than the interface has, so the
+        # fill is clamped to the track; past 100% the bar turns and the
+        # figure beside it carries the real number.
+        over = used > 1.0
+        parts.append(f'<rect class="fill{" over" if over else ""}" x="{track_x}" '
+                     f'y="{mem_y + 33}" '
+                     f'width="{max(2.0, min(used, 1.0) * track_w):.1f}" height="14" rx="3"/>')
     else:
-        parts.append(f'<text class="n-gap" x="{bus_x0 + 16}" y="{mem_y + 48}">'
+        parts.append(f'<text class="n-gap" x="{lane + 16}" y="{mem_y + 47}">'
                      f'no bandwidth stated</text>')
-    parts.append(f'<line class="edge" x1="{width / 2}" y1="{bus_y + 34}" x2="{width / 2}" '
-                 f'y2="{mem_y}" marker-end="url(#arrow2)"/>')
     return (f'<svg viewBox="0 0 {width} {height}" class="diagram" role="img" '
-            f'aria-label="the sized configuration as a block diagram">'
+            f'aria-label="the sized configuration, with a throughput on every link">'
             f'<defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" '
             f'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
             f'<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs>'
@@ -271,8 +307,8 @@ def sizing_diagram(dossier, alternatives: Sequence[dict] = ()) -> str:
     height = 66 + len(rows) * row_h + 18
     title = ('<text class="dtitle" x="8" y="20">'
              "What the mission needs, and what it was given</text>")
-    subtitle = ('<text class="dsub" x="8" y="36">the pale bar is what was provisioned; '
-                "the solid bar is what the demand needs</text>")
+    subtitle = ('<text class="dsub" x="8" y="36">'
+                "solid = what the demand needs &#183; pale = what was provisioned</text>")
     parts = [title, subtitle]
     y = 62
     for row in rows:
@@ -402,6 +438,7 @@ rect.source { fill:none; stroke:var(--rule); stroke-width:1; stroke-dasharray:4 
 rect.bus { fill:var(--track); }
 rect.track { fill:var(--track); }
 rect.fill { fill:var(--fill); }
+rect.fill.over { fill:var(--warn); }
 text.src-t { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--ink-2); }
 text.src-s { font-size:10.5px; text-anchor:middle; fill:var(--ink-3); }
 text.n-key { font-size:15px; font-weight:670; fill:var(--ink); }
@@ -426,6 +463,9 @@ text.b-idle { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--in
 text.b-idle-s { font-size:10px; text-anchor:middle; fill:var(--ink-3); }
 text.bus-l { font-size:11.5px; font-weight:600; fill:var(--ink-2); }
 text.bus-r { font-size:11px; fill:var(--ink-3); text-anchor:end; }
+text.link-l { font-size:11px; fill:var(--ink-2); font-variant-numeric:tabular-nums; }
+text.ingress { font-size:11px; fill:var(--ink-3); }
+line.idle-edge { stroke-dasharray:3 3; opacity:.5; }
 text.s-label { font-size:12.5px; fill:var(--ink); text-anchor:end; font-weight:600; }
 text.s-note { font-size:10.5px; fill:var(--ink-3); text-anchor:end; }
 text.s-amount { font-size:11.5px; fill:var(--ink-2); }
@@ -451,12 +491,14 @@ STYLE = (STYLE.replace("__LIGHT__", _steps_css(LIGHT_STEPS))
 
 def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, str, str, str]],
            alternatives: Sequence[dict] = (), idle_blocks: Sequence[Tuple[str, str]] = (),
-           generated: str = "") -> str:
+           generated: str = "", ingress: Optional[Tuple[str, float]] = None,
+           cpu_label: str = "CPU", notes: Optional[Dict[str, str]] = None) -> str:
     """The dossier as one standalone page."""
     legend = (
         '<div class="legend">'
-        + "".join(f'<span class="key"><span class="chip" style="background:var(--{k})">'
-                  f'</span>{html.escape(k.upper())}</span>' for k in ("cpu", "kpu"))
+        + f'<span class="key"><span class="chip" style="background:var(--cpu)"></span>'
+          f'{html.escape(cpu_label)}</span>'
+        + '<span class="key"><span class="chip" style="background:var(--kpu)"></span>KPU</span>'
         + '<span class="key"><span class="chip" style="background:var(--gap)"></span>'
           'a figure nothing states</span></div>')
     confidence = dossier.estimation_confidence
@@ -493,7 +535,7 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 
 <h2>5. The configuration</h2>
 {sections.get("configuration", "")}
-<div class="panel">{block_diagram(dossier, idle_blocks)}</div>
+<div class="panel">{block_diagram(dossier, idle_blocks, ingress, cpu_label, notes)}</div>
 {sections.get("configuration_note", "")}
 
 <h2>6. The analysis: dimensioning the engines</h2>
@@ -515,5 +557,5 @@ Every figure on this page is reproducible with the command in section 7.</p>
 
 
 __all__ = ["CLASS_FORMATS", "DARK_STEPS", "LIGHT_STEPS", "block_diagram", "demand_table",
-           "fit_table", "ms", "pipeline_graph", "render", "requirements_table", "si",
+           "fit_table", "gb", "ms", "pipeline_graph", "render", "requirements_table", "si",
            "sizing_diagram"]

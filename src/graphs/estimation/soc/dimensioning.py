@@ -145,6 +145,9 @@ class Provision:
     #: Dense peak of one server in ``peak_format``, for scale against X.
     peak_ops_per_s: float
     peak_format: str = ""
+    #: Bytes per second this engine's stages move across the fabric, which
+    #: is what its link to memory has to carry.
+    bytes_per_s: float = 0.0
 
     @property
     def aggregate_throughput_ops_per_s(self) -> float:
@@ -417,7 +420,8 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
             efficiency=weighted_eff, provenance=PROVENANCE[worst],
             stages=tuple(s.key for s in mine),
             peak_ops_per_s=(heaviest.peak_per_server if heaviest else 0.0),
-            peak_format=(heaviest.fmt if heaviest else "")))
+            peak_format=(heaviest.fmt if heaviest else ""),
+            bytes_per_s=sum(s.bytes_per_s for s in mine)))
         for stage in mine:
             fit = stage.fits[name]
             calls_per_frame = stage.calls_per_s / frame_hz if frame_hz else 1.0

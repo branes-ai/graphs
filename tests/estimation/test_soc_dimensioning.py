@@ -29,6 +29,7 @@ from graphs.hardware.soc.kpu_cores import sku_of
 from graphs.reporting.mission_dossier import (
     block_diagram,
     pipeline_graph,
+    render,
     sizing_diagram,
 )
 
@@ -221,6 +222,31 @@ def test_no_enum_repr_reaches_the_markup(dossier):
     assert "var(--kpu)" in markup and "var(--cpu)" in markup
 
 
+def test_the_dram_bar_cannot_overflow_its_track(soc, ceilings):
+    """A mission can ask for more bandwidth than the interface has. An
+    unclamped fill draws past the box and contradicts the figure printed
+    beside it."""
+    profile = next(p for p in WORKLOAD.profiles
+                   if p.id == "autonomous_vehicle_sae_l4__l5_high__full_automation")
+    heavy = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings,
+                      target_utilization=0.85, tiles_per_server=128)
+    assert heavy.dram_demand_gb_per_s > heavy.dram_supply_gb_per_s, "expected an overflow"
+    svg = block_diagram(heavy)
+    track = float(re.search(r'<rect class="track"[^>]*width="([\d.]+)"', svg).group(1))
+    fill = float(re.search(r'<rect class="fill[^"]*"[^>]*width="([\d.]+)"', svg).group(1))
+    assert fill <= track + 1e-6
+    assert 'class="fill over"' in svg          # and it says it is over
+
+
+def test_the_html_has_no_unmatched_paragraph_tags(dossier):
+    """An unmatched </p> inside an <li> makes the parser insert an empty
+    paragraph, which changes the DOM the reader gets."""
+    page = render(dossier, {"analysis": "<ul><li>a</li></ul>"}, [], (), (), "today")
+    body = page.split("<body>")[1]
+    assert body.count("</p>") == len(re.findall(r"<p[ >]", body))
+    assert "</p></li>" not in body
+
+
 def test_the_diagrams_survive_an_empty_dossier(dossier):
     empty = type(dossier)(
         mission="m", title="t", power_budget_w=1, deadline_ms=1, note="", sensors={},
@@ -274,6 +300,20 @@ def test_cli_writes_json(tmp_path):
 
 def test_cli_rejects_an_impossible_target():
     assert "target-utilization" in _cli("--target-utilization", "0", expect=2).stderr
+
+
+def test_the_projection_follows_the_configured_target_utilization(tmp_path):
+    """The 10%-efficiency projection used to hardcode 0.85, so it
+    contradicted the sizing whenever --target-utilization said otherwise."""
+    counts = {}
+    for target in ("0.85", "0.5"):
+        out = tmp_path / f"d{target}.html"
+        _cli("--target-utilization", target, "-o", str(out))
+        found = re.search(r"the part ships\s*(\d+) cores instead of (\d+)", out.read_text())
+        assert found, f"projection missing at target {target}"
+        counts[target] = tuple(int(g) for g in found.groups())
+    assert counts["0.5"][0] > counts["0.85"][0]
+    assert counts["0.5"][1] > counts["0.85"][1]
 
 
 def test_cli_rejects_an_unknown_mission():
