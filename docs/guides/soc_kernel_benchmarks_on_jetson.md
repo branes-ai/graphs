@@ -31,6 +31,10 @@ The benchmark measures these kernel classes, at stage-like shapes:
 The last six were added in graphs#269 6.5, and each is sized like the stage
 it stands for: `sgm`, `vio`, `tsdf` and `gain`, `esdf`, `graph` and `mono`.
 
+The SGM kernel is the largest: its cost volume, shifted images and
+aggregate are 708 MB at FP32 and 354 MB at FP16. That fits an 8 GB Nano
+with room to spare, but close other work first.
+
 It samples the device clock throughout every timed loop. GPU kernels use the
 whole GPU. CPU kernels run pinned to one core with one thread, because the
 analyzer treats a CPU core as one server.

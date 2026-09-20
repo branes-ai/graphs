@@ -317,15 +317,16 @@ def _sgm(width: int, height: int, disparities: int, paths: int):
             # not one per column per path, so the loop is the algorithm's
             # sequential dependence and not a launch-rate measurement.
             carry = cost[:, :, 0].expand(paths, -1, -1).contiguous()
-            total = carry.sum(dim=0)
+            total = torch.empty_like(cost)
+            total[:, :, 0] = carry.sum(dim=0)
             for x in range(1, width):
                 best = torch.minimum(
                     carry,
                     torch.minimum(torch.roll(carry, 1, dims=1),
                                   torch.roll(carry, -1, dims=1)) + penalty)
                 carry = cost[:, :, x].unsqueeze(0) + best - best.amin(dim=1, keepdim=True)
-                total = total + carry.sum(dim=0)
-            return total.argmin(dim=0)
+                total[:, :, x] = carry.sum(dim=0)
+            return total.argmin(dim=0)      # a disparity map, H x W
         return run
     return build
 
