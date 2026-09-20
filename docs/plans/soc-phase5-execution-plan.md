@@ -61,7 +61,9 @@ to fill `default_v1`.
   analyzer's one-core server.
 - Seven kernel classes have no kernel yet and are listed as not covered:
   cost volume DP, feature tracking, kNN, raycast, wavefront, graph search,
-  and pixel fixed-function.
+  and pixel fixed-function. *Update 2026-09-19 (6.5):* six of them now have
+  one, each sized like the stage it stands for; only kNN tree search is
+  left, and no stage uses it.
 
 **5.2, the ingest and table layering:**
 - The ingest turns runs into a measured table layered over `default_v1`.
