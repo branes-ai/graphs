@@ -26,8 +26,10 @@ Everything here is an upper bound, and each bound is sound on its own:
   feed. Most catalog tiles state none, and then this bound is a gap, not
   an assumption.
 
-The ceiling is the least of the bounds that have data. It is THEORETICAL
-and it is **not an efficiency**: it says what cannot be exceeded, never
+Every bound is a **time**, and the ceiling is the ideal time at dense peak
+over the longest of them, so all three share one reference: the same dense
+peak the requirement (``breakeven``) is measured against. The ceiling is
+THEORETICAL and it is **not an efficiency**: it says what cannot be exceeded, never
 what will be achieved. It is deliberately not written as an
 ``EfficiencyTable``, so no analysis can price a stage with it.
 
@@ -70,13 +72,32 @@ class Shape:
     ops_per_call: float
     #: MACs the array actually issues; equal to ops/2 for a pure GEMM.
     source: str
-    #: Ops per PE per clock this kernel can use, as a fraction of an FMA's
-    #: two. An elementwise pass uses the adder only.
-    ops_per_pe_fraction: float = 1.0
+    #: An elementwise pass instead of GEMMs: (elements, ops per element).
+    #: A PE contributes one op per clock to it, not an FMA's two.
+    elementwise: Optional[Tuple[int, float]] = None
 
     @property
     def macs(self) -> float:
         return sum(m * n * k for m, n, k in self.gemms)
+
+    def cycles(self, fabric: "Fabric") -> float:
+        """Clocks the schedule takes on ``fabric``, at best.
+
+        A PE issues one FMA every ``fabric.issue_interval`` clocks -- the
+        SKU's own rate for the format, which is 2 where a 32x32 tile states
+        512 MACs per clock -- so a pass of K steps takes K intervals.
+        """
+        if self.elementwise is not None:
+            elements, ops_per_element = self.elementwise
+            per_clock = fabric.tiles * fabric.rows * fabric.cols / fabric.issue_interval
+            return elements * ops_per_element / per_clock
+        total = 0.0
+        for m, n, k in self.gemms:
+            passes = math.ceil(m / fabric.rows) * math.ceil(n / fabric.cols)
+            total += math.ceil(passes / fabric.tiles) * (k * fabric.issue_interval
+                                                        + fabric.fill_cycles
+                                                        + fabric.drain_cycles)
+        return total
 
 
 #: The benchmark suite's shapes (``soc_kernels.kernel_suite``), structured.
@@ -98,11 +119,11 @@ SHAPES: Tuple[Shape, ...] = (
     Shape(KernelClass.WEIGHT_STREAM_DECODE, "gemv", ((1, 4096, 4096),),
           4096 * 4096 + 2 * 4096, 2.0 * 4096 * 4096,
           "soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once"),
-    Shape(KernelClass.ELEMENTWISE_NORM, "layernorm", ((4096, 4096, 1),),
+    Shape(KernelClass.ELEMENTWISE_NORM, "layernorm", (),
           2 * 4096 * 4096, 5.0 * 4096 * 4096,
           "soc_kernels layernorm 4096x4096: read and write once; the array's "
           "multiplier is idle, so a PE contributes one op per clock, not two",
-          ops_per_pe_fraction=0.5),
+          elementwise=(4096 * 4096, 5.0)),
 )
 
 #: Kernel classes this model states no schedule for, and why.
@@ -135,14 +156,26 @@ class Fabric:
     drain_cycles: int
     clock_hz: float
     ops_per_clock: float          # over the tiles that run this format
+    ops_per_tile_per_clock: float
     dram_bytes_per_s: float
-    #: Bits per clock the tile interconnect delivers to one array, when the
-    #: tile class states it; None when it does not.
-    operand_bits_per_clock: Optional[int] = None
+    #: Bits per clock a row-broadcast overlay delivers to each row, and the
+    #: mesh links to each column. None when the tile class states neither.
+    operand_row_bits: Optional[int] = None
+    operand_col_bits: Optional[int] = None
 
     @property
     def macs_per_clock(self) -> float:
         return self.ops_per_clock / OPS_PER_MAC
+
+    @property
+    def issue_interval(self) -> float:
+        """Clocks between a PE's FMAs at this format, from the SKU's rate:
+        1 where every PE issues every clock, 2 where the tile states half
+        its PE count in MACs per clock."""
+        per_tile_macs = self.ops_per_tile_per_clock / OPS_PER_MAC
+        if per_tile_macs <= 0:
+            return 1.0
+        return max(1.0, (self.rows * self.cols) / per_tile_macs)
 
     @property
     def peak_ops_per_s(self) -> float:
@@ -163,6 +196,15 @@ class Ceiling:
     source: str
     gaps: Tuple[str, ...] = ()
 
+    @property
+    def estimation_confidence(self) -> EstimationConfidence:
+        """THEORETICAL: a bound computed from the SKU's stated geometry and
+        bandwidth. A bound with no data stays a stated gap rather than
+        weakening this, because evaluating it could only lower the ceiling,
+        never raise it -- the value is an upper bound either way."""
+        return estimation_confidence(Confidence.THEORETICAL, self.source + (
+            "; " + "; ".join(self.gaps) if self.gaps else ""))
+
     def to_dict(self) -> dict:
         return {
             "kernel_class": self.kernel_class.value,
@@ -173,62 +215,72 @@ class Ceiling:
             "binding": self.binding,
             "bounds": dict(self.bounds),
             "source": self.source,
+            "confidence": self.estimation_confidence.level.value,
             "gaps": list(self.gaps),
         }
 
 
-def _wavefront_ceiling(shape: Shape, fabric: Fabric) -> float:
-    """Passes over the array, with fill and drain, spread over the tiles."""
-    cycles = 0.0
-    for m, n, k in shape.gemms:
-        passes = math.ceil(m / fabric.rows) * math.ceil(n / fabric.cols)
-        per_tile = math.ceil(passes / fabric.tiles)
-        cycles += per_tile * (k + fabric.fill_cycles + fabric.drain_cycles)
-    if cycles <= 0:
-        return 0.0
-    issued = fabric.tiles * fabric.rows * fabric.cols * shape.ops_per_pe_fraction
-    return shape.macs / (cycles * issued)
+def _wavefront_seconds(shape: Shape, fabric: Fabric) -> float:
+    """The schedule's own time: passes, fill and drain, over the tiles."""
+    return shape.cycles(fabric) / fabric.clock_hz
 
 
-def _dram_ceiling(shape: Shape, fabric: Fabric) -> float:
-    """Compute time at peak over the time the compulsory traffic takes."""
+def _dram_seconds(shape: Shape, fabric: Fabric) -> Optional[float]:
+    """Time the compulsory traffic takes. None when the SKU states no DRAM
+    bandwidth: an unstated bound is a gap, never a free pass."""
     bytes_moved = shape.compulsory_elements * BYTES[fabric.precision]
-    if bytes_moved <= 0 or fabric.dram_bytes_per_s <= 0:
-        return 1.0
-    t_dram = bytes_moved / fabric.dram_bytes_per_s
-    t_compute = shape.ops_per_call / fabric.peak_ops_per_s
-    return min(1.0, t_compute / t_dram)
+    if bytes_moved <= 0:
+        return 0.0
+    if fabric.dram_bytes_per_s <= 0:
+        return None
+    return bytes_moved / fabric.dram_bytes_per_s
 
 
-def _operand_ceiling(shape: Shape, fabric: Fabric) -> Optional[float]:
-    """MACs per clock the stated interconnect can feed, over the array's.
+def _operand_seconds(shape: Shape, fabric: Fabric) -> Optional[float]:
+    """Time the stated interconnect needs to feed the schedule.
 
     An output-stationary pass consumes one operand per row and one per
-    column per clock; the interconnect delivers ``operand_bits_per_clock``
-    to each of them.
+    column per clock. The row path is a row-broadcast overlay, the column
+    path the tile's own mesh links; both must be stated, or this bound is a
+    gap. An elementwise pass has no such schedule, so it is not bounded
+    here.
     """
-    if fabric.operand_bits_per_clock is None:
+    if shape.elementwise is not None:
         return None
-    per_operand_bits = 8 * BYTES[fabric.precision]
-    per_clock = fabric.operand_bits_per_clock / per_operand_bits  # per row, and per column
-    needed = 1.0  # one A down each row, one B across each column, per clock
-    return min(1.0, per_clock / needed)
+    if fabric.operand_row_bits is None or fabric.operand_col_bits is None:
+        return None
+    operand_bits = 8 * BYTES[fabric.precision]
+    per_clock = min(fabric.operand_row_bits, fabric.operand_col_bits) / operand_bits
+    if per_clock <= 0:
+        return None
+    # One operand per row and per column per clock is what a full pass eats;
+    # delivering fewer stretches every cycle of the schedule by that much.
+    return _wavefront_seconds(shape, fabric) / min(1.0, per_clock)
 
 
 def ceilings(fabric: Fabric, shapes: Tuple[Shape, ...] = SHAPES) -> Tuple[Ceiling, ...]:
-    """Every ceiling this fabric's format has a shape for."""
+    """Every ceiling this fabric's format has a shape for.
+
+    Each bound is a time; the ceiling is the ideal time at dense peak over
+    the longest of them, so every bound shares one reference.
+    """
     out: List[Ceiling] = []
     for shape in shapes:
-        wavefront = _wavefront_ceiling(shape, fabric)
-        dram = _dram_ceiling(shape, fabric)
-        operand = _operand_ceiling(shape, fabric)
+        ideal = shape.ops_per_call / fabric.peak_ops_per_s
+        seconds = {"wavefront": _wavefront_seconds(shape, fabric),
+                   "dram_compulsory": _dram_seconds(shape, fabric),
+                   "operand_delivery": _operand_seconds(shape, fabric)}
         bounds: Dict[str, Optional[float]] = {
-            "wavefront": wavefront, "dram_compulsory": dram, "operand_delivery": operand}
+            name: (None if t is None else min(1.0, ideal / t) if t > 0 else 1.0)
+            for name, t in seconds.items()}
         known = {k: v for k, v in bounds.items() if v is not None}
         binding = min(known, key=known.__getitem__)
-        gaps = () if operand is not None else (
-            f"{fabric.sku}: the tile class states no fabric interconnect, so operand "
-            "delivery is not bounded here",)
+        gaps = tuple(
+            f"{fabric.sku}: {reason}, so {name.replace('_', ' ')} is not bounded here"
+            for name, reason in (
+                ("dram_compulsory", "the SKU states no DRAM bandwidth"),
+                ("operand_delivery", "the tile class states no row and column operand path"))
+            if seconds[name] is None)
         out.append(Ceiling(
             kernel_class=shape.kernel_class, kernel=shape.name, precision=fabric.precision,
             sku=fabric.sku, value=known[binding], binding=binding.replace("_", " "),
@@ -265,7 +317,9 @@ class FabricCeilings:
             "fabrics": [{"precision": f.precision, "rows": f.rows, "cols": f.cols,
                          "tiles": f.tiles, "clock_mhz": f.clock_hz / 1e6,
                          "peak_tops": f.peak_ops_per_s / 1e12,
-                         "operand_bits_per_clock": f.operand_bits_per_clock}
+                         "issue_interval": f.issue_interval,
+                         "operand_row_bits": f.operand_row_bits,
+                         "operand_col_bits": f.operand_col_bits}
                         for f in self.fabrics],
             "ceilings": [c.to_dict() for c in self.entries],
             "no_schedule": dict(self.no_schedule),
@@ -301,13 +355,19 @@ def fabrics_of(spec, precisions: Tuple[str, ...] = ("int8", "fp16", "fp32")) -> 
         tiles = groups[key]
         interconnect = next((t.interconnect for t in tiles if getattr(t, "interconnect", None)),
                             None)
+        row_bits = col_bits = None
+        if interconnect is not None:
+            col_bits = interconnect.link_bits  # the mesh links a column streams on
+            row_bits = next((o.width_bits for o in (interconnect.overlays or [])
+                             if getattr(o.kind, "value", o.kind) == "row_broadcast"), None)
         out.append(Fabric(
             sku=spec.id, precision=precision, rows=rows, cols=cols,
             tiles=sum(t.num_tiles for t in tiles), fill_cycles=fill, drain_cycles=drain,
             clock_hz=clock_hz,
             ops_per_clock=sum(t.num_tiles * t.ops_per_tile_per_clock[precision] for t in tiles),
+            ops_per_tile_per_clock=min(t.ops_per_tile_per_clock[precision] for t in tiles),
             dram_bytes_per_s=dram_bytes,
-            operand_bits_per_clock=None if interconnect is None else interconnect.link_bits))
+            operand_row_bits=row_bits, operand_col_bits=col_bits))
     return tuple(out)
 
 

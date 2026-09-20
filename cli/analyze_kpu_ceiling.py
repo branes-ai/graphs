@@ -53,6 +53,7 @@ from graphs.core.pipeline_workload import load_autonomy_workload  # noqa: E402
 from graphs.estimation.soc import (  # noqa: E402
     find_mapping,
     load_kernel_classes,
+    load_mapping,
     required_efficiency,
 )
 from graphs.estimation.soc.domainflow import FabricCeilings, fabric_ceilings  # noqa: E402
@@ -96,38 +97,54 @@ def _ceiling_rows(fc: FabricCeilings) -> List[dict]:
 
 
 def _stage_rows(result, fc: FabricCeilings, kernels, engine: str) -> List[dict]:
-    """Each KPU stage: what it needs, the ceiling, and the time at it."""
+    """Each KPU stage: what it needs, the ceiling, and the time at it.
+
+    A stage's classes run in different formats and each has its own
+    ceiling, so the time at the ceiling is summed per class -- applying one
+    format's ceiling to the whole stage would overstate it.
+    """
     rows = []
     for stage in result.stages:
         if stage.engine != engine or stage.occupancy_at_peak is None:
             continue
         kernel = kernels.of(stage.stage)
-        worst = None
-        for fmt in stage.formats.values():
-            ceiling = fc.best(kernel, fmt)
-            if ceiling is None or ceiling.value is None:
-                worst = None
+        at_ceiling: Optional[float] = 0.0
+        used: List = []
+        for cls, seconds in stage.class_seconds.items():
+            ceiling = fc.best(kernel, stage.formats[cls])
+            if ceiling is None or not ceiling.value:
+                at_ceiling = None
                 break
-            worst = ceiling if worst is None or ceiling.value < worst.value else worst
-        at_ceiling = None if worst is None else stage.occupancy_at_peak / worst.value
+            used.append(ceiling)
+            at_ceiling += seconds * stage.rate_hz / ceiling.value
+        worst = min(used, key=lambda c: c.value) if used and at_ceiling is not None else None
         rows.append({
             "stage": stage.stage,
             "kernel_class": kernel.value,
-            "formats": ",".join(sorted(set(stage.formats.values()))),
-            "at_peak": f"{stage.occupancy_at_peak:.4g}",
-            "ceiling": "gap" if worst is None else f"{worst.value:.4f}",
+            "formats": ",".join(f"{c}:{f}" for c, f in sorted(stage.formats.items())),
+            "at_peak": stage.occupancy_at_peak,
+            "ceiling": None if worst is None else worst.value,
             "binding": "-" if worst is None else worst.binding,
-            "at_ceiling": "gap" if at_ceiling is None else f"{at_ceiling:.3g}",
+            "at_ceiling": at_ceiling,
             "fits": "-" if at_ceiling is None else ("yes" if at_ceiling <= 1 else "NO"),
         })
     return rows
 
 
+def _display(rows: List[dict]) -> List[dict]:
+    """The same rows, formatted for a table; the numbers stay numeric for
+    the arithmetic (a rounded total decides nothing)."""
+    return [{**row,
+             "at_peak": f"{row['at_peak']:.4g}",
+             "ceiling": "gap" if row["ceiling"] is None else f"{row['ceiling']:.4f}",
+             "at_ceiling": "gap" if row["at_ceiling"] is None else f"{row['at_ceiling']:.3g}"}
+            for row in rows]
+
+
 def _summary(design: str, node: str, sku: str, result, fc: FabricCeilings,
              engine: str, rows: List[dict]) -> List[str]:
-    priced = [r for r in rows if r["at_ceiling"] != "gap"]
-    total = sum(float(r["at_ceiling"]) for r in priced)
-    gaps = [r["stage"] for r in rows if r["at_ceiling"] == "gap"]
+    total = sum(r["at_ceiling"] for r in rows if r["at_ceiling"] is not None)
+    gaps = [r["stage"] for r in rows if r["at_ceiling"] is None]
     need = next((e.required_efficiency for e in result.engines if e.engine == engine), None)
     lines = [
         f"profile: {result.profile.id}  ({result.profile.regime or 'no regime'})",
@@ -142,6 +159,14 @@ def _summary(design: str, node: str, sku: str, result, fc: FabricCeilings,
     if over:
         lines.append(f"stages that alone exceed their period at the ceiling: {', '.join(over)}")
     return lines
+
+
+def _md_table(rows: List[dict]) -> List[str]:
+    if not rows:
+        return ["(none)"]
+    keys = list(rows[0])
+    return (["| " + " | ".join(keys) + " |", "|" + "|".join(["---"] * len(keys)) + "|"]
+            + ["| " + " | ".join(str(row[k]) for k in keys) + " |" for row in rows])
 
 
 def _table(rows: List[dict]) -> str:
@@ -160,8 +185,9 @@ def _profiles(workload, args) -> List:
     wanted = args.profile or args.regime or []
     out = []
     for name in wanted:
+        wanted_name = name.lower()
         match = [p for p in workload.profiles
-                 if name in (p.id, p.regime, p.name) or name.lower() == (p.regime or "").lower()]
+                 if wanted_name in (p.id.lower(), (p.regime or "").lower(), p.name.lower())]
         if not match:
             raise KeyError(f"no profile, regime or mission named {name!r}")
         out += [p for p in match if p not in out]
@@ -203,6 +229,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 writer.writeheader()
                 writer.writerows(rows)
                 text = buf.getvalue()
+            elif fmt == "md":
+                text = "\n".join(
+                    "\n".join([f"## {p.sku}", "",
+                                f"- confidence {p.estimation_confidence.level.value}", ""]
+                              + _md_table(_ceiling_rows(p))) + "\n"
+                    for p in payloads)
             else:
                 text = "\n".join(
                     f"{p.sku}: {p.estimation_confidence.level.value}\n" + _table(_ceiling_rows(p))
@@ -224,7 +256,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             mapping = None
             if args.mapping != "capability":
                 shipped = (find_mapping(name, workload.version) if args.mapping == "auto"
-                           else None)
+                           else load_mapping(Path(args.mapping)))
                 if shipped is not None:
                     mapping = {s: e for s, e in shipped.assignments().items()
                                if isinstance(e, str)}
@@ -234,12 +266,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 rows = _stage_rows(result, fc, kernels, engine)
                 if not rows:
                     continue
+                shown = _display(rows)
                 blocks.append((name, soc.node.id, sku, result, fc, engine, rows))
-                texts.append(_summary(name, soc.node.id, sku, result, fc, engine, rows)
-                             + ([""] + _table(rows).splitlines() if args.verbose else []))
+                summary = _summary(name, soc.node.id, sku, result, fc, engine, rows)
+                texts.append((summary, shown))
                 csv_rows += [{"design": name, "node": soc.node.id, "sku": sku,
                               "profile": profile.id, "regime": profile.regime or "",
-                              "engine": engine, **row} for row in rows]
+                              "engine": engine, **row} for row in shown]
                 payload.append({"design": name, "node": soc.node.id, "sku": sku,
                                 "profile": profile.id, "regime": profile.regime or "",
                                 "engine": engine, "stages": rows,
@@ -255,8 +288,17 @@ def main(argv: Optional[List[str]] = None) -> int:
             writer.writeheader()
             writer.writerows(csv_rows)
             text = buf.getvalue()
+        elif fmt == "md":
+            text = "\n".join(
+                "\n".join([f"## {summary[1].split('design:  ')[-1].split(';')[0].strip()}"
+                           f" -- {summary[0].split('profile: ')[-1].strip()}", ""]
+                          + [f"- {line}" for line in summary[2:]]
+                          + ([""] + _md_table(shown) if args.verbose else [])) + "\n"
+                for summary, shown in texts)
         else:
-            text = ("\n" + "=" * 72 + "\n").join("\n".join(t) + "\n" for t in texts)
+            text = ("\n" + "=" * 72 + "\n").join(
+                "\n".join(summary) + "\n" + ("\n" + _table(shown) if args.verbose else "")
+                for summary, shown in texts)
         write_report(text, args.output)
         return 0
     except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:

@@ -162,19 +162,25 @@ profile.
 
 Ceilings on the T128's fabric, at N7:
 
-| Kernel class | Kernel | Ceiling | What holds it there |
+| Kernel class | Kernel | Ceiling (FP16) | What holds it there |
 |---|---|---|---|
 | dense_conv_gemm | 2048^3 GEMM | 0.94 | compulsory DRAM traffic |
-| dense_conv_gemm | 3x3 conv, 256 to 256 at 80x80 | 0.94 | wavefront |
-| attention_prefill | 16 heads x 1024 x 64 | 0.65 | wavefront |
+| dense_conv_gemm | 3x3 conv, 256 to 256 at 80x80 | 0.95 | wavefront |
+| attention_prefill | 16 heads x 1024 x 64 | 0.71 | compulsory DRAM traffic |
 | weight_stream_decode | GEMV 1x4096 . 4096x4096 | 0.0014 | compulsory DRAM traffic |
 | elementwise_norm | layernorm 4096x4096 | 0.0017 | compulsory DRAM traffic |
+
+Every bound is a time against one reference -- the same dense peak the
+requirement is measured against -- and the ceiling is the ideal time over
+the longest of them. The schedule pays the SKU's own issue interval: a
+32x32 tile that states 512 FP16 MACs per clock issues every other clock,
+so a pass of K steps takes 2K cycles.
 
 Read against the ladder:
 
 | Rung | Air superiority | Far flight |
 |---|---|---|
-| H64 | 0.28 -- open | **51.2 -- decided no** |
+| H64 | 0.27 -- open | **51.2 -- decided no** |
 | T64 | 0.15 (LB) -- open | **58.1 (LB) -- decided no** |
 | T128 | 0.075 (LB) -- open | **29.0 (LB) -- decided no** |
 | T256 | 0.038 (LB) -- open | **14.5 (LB) -- decided no** |
@@ -189,10 +195,13 @@ Read against the ladder:
   needs 8.0% of dense peak where its dense-GEMM ceiling is 94%. Nothing
   here says it will achieve that, only that the geometry does not forbid it.
 - **Dense work is not what threatens these designs.** A 2048^3 GEMM and a
-  3x3 convolution sit at 94% of dense peak; attention pays 35% for a
-  64-deep inner dimension against 64 cycles of fill and drain. Streaming
-  work -- decode and normalization -- is two orders of magnitude below,
-  and it is bandwidth, not the array, that puts it there.
+  3x3 convolution sit at 94-95% of dense peak; attention reaches 71%, and
+  its own schedule would allow 79% -- a 64-deep inner dimension against 64
+  cycles of fill and drain. Streaming work -- decode and normalization --
+  is two orders of magnitude below, and it is bandwidth, not the array,
+  that puts it there. A layernorm's wavefront bound is exactly 0.5,
+  because an elementwise pass uses the adder and leaves the multiplier
+  idle.
 - **13 of 16 stages have no ceiling.** Their kernel classes have no
   domain-flow schedule stated (factor graphs, raycast, wavefront, graph
   search, scatter-add, FFT) or no representative kernel at all, so every
