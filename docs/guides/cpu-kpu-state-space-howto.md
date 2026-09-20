@@ -111,9 +111,10 @@ system's peak times the sustained fraction (0.65 for scattered access).
 **Datapath energy floor.** Every op charged once at the process node's
 energy per op for its engine's library and format. No efficiency enters,
 so nothing can come in under it. A `+` in the text output marks a floor
-with gaps: a T-series core's tiles span two logic libraries, so its
-template states no one datapath class and its ops cannot be charged --
-there the floor is the CPU's alone.
+with gaps -- a format the node states no figure for. A block whose tiles
+span two logic libraries, as a T-series core's do, is priced by the share
+each library issues (`datapath_mix`), so its ops are charged rather than
+skipped.
 
 ## The commands
 

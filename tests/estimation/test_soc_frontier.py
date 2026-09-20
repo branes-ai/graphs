@@ -276,3 +276,36 @@ def test_a_point_carries_its_confidence(point):
                          utilization=0.5, provenance="measured")
     assert whole.estimation_confidence.level.value == "theoretical"
     assert whole.to_dict()["confidence"] == "theoretical"
+
+
+def test_one_placement_per_stage_even_when_a_class_is_unpriced(matrix, soc, ceilings):
+    """A class the node cannot price is named on the stage's own record;
+    a second record would let a consumer count its ops twice."""
+    node = soc.node.model_copy(update={"energy_per_op_pj": {
+        k: v for k, v in soc.node.energy_per_op_pj.items() if not k.endswith(":int8")}})
+    blind = soc.__class__(**{**soc.__dict__, "node": node})
+    mapping = matrix.schedule_aware_mapping(WORKLOAD, AIR, blind, KERNELS)
+    req = required_efficiency(WORKLOAD, AIR, blind, mapping=mapping, table=TABLE, kernels=KERNELS)
+    point = mission_point(req, blind, WORKLOAD, AIR, KERNELS, TABLE, ceilings, "m", None)
+    stages = [p.stage for p in point.placements]
+    assert len(stages) == len(set(stages))
+    gapped = [p for p in point.placements if p.energy_gap]
+    assert gapped and all("int8" in p.energy_gap for p in gapped)
+    assert point.unpriced_energy_fraction > 0
+
+
+def test_the_page_says_so_when_nothing_can_be_placed():
+    from graphs.reporting.mission_frontier import render
+
+    blank = MissionPoint(mission="m", design="d", node="tsmc_n7", cpu_cores=4, memory="m",
+                         kpu_sku=None, energy_per_op_pj=0.0, unpriced_energy_fraction=1.0,
+                         utilization=0.0)
+    page = render({"m": [blank]}, {"m": "m"}, {"m": ""}, {}, "2026-09-20", "<h1>x</h1>")
+    assert "No configuration could be placed" in page
+    assert page.rstrip().endswith("</html>")
+
+
+def test_cli_takes_the_format_from_the_output_name(tmp_path):
+    out = tmp_path / "points.json"
+    _cli("--mission", "air superiority", "-o", str(out))
+    assert json.loads(out.read_text())

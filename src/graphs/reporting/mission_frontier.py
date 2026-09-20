@@ -301,6 +301,16 @@ def render(points_by_mission: Dict[str, List[MissionPoint]], titles: Dict[str, s
     """The whole page: the model, the charts, the envelope table."""
     every = [p for points in points_by_mission.values() for p in points
              if p.real_time_factor and p.energy_per_op_pj > 0]
+    if not every:
+        # Nothing could be placed: a node that prices none of the mission's
+        # formats, say. Say so rather than dividing by an empty range.
+        return (f"<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+                f"<title>Mission energy-performance frontier</title><style>{STYLE}</style>"
+                f"</head><body><main>{intro}<h2>No configuration could be placed</h2>"
+                f"<p>Every configuration was missing either an energy figure or an efficiency "
+                f"for every stage, so none has a position on the plane. The gaps are in the "
+                f"process-node catalogue and the efficiency table, not in the designs.</p>"
+                f"<p class=\"sub\">Generated {html.escape(generated)}.</p></main></body></html>\n")
     x = Scale(min(p.energy_per_op_pj for p in every) * 0.94,
               max(p.energy_per_op_pj for p in every) * 1.06,
               PAD_L, CHART_W - PAD_R)

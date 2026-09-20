@@ -231,17 +231,18 @@ def mission_point(requirement: RequiredEfficiency, soc: SoCInstance, workload: P
         else:
             unpriced.append(stage.stage)
 
-        # The energy floor: every class at its own format's price.
+        # The energy floor: every class at its own format's price. One
+        # record per stage, with any class the node cannot price named on
+        # it -- two records would let a consumer count the ops twice.
         pj_ops = 0.0
+        class_gaps: List[str] = []
         for cls, share in zip(CLASS_NAMES, demand.stage.class_split):
             if share <= 0 or cls not in stage.formats:
                 continue
             pj, why = op_energy_pj(blocks[stage.engine], soc.node, stage.formats[cls])
             class_ops = ops_per_s * share
             if pj is None:
-                placements.append(StagePlacement(
-                    stage.stage, stage.engine, kernel.value, class_ops, None, efficiency,
-                    provenance, None, why))
+                class_gaps.append(f"class {cls}: {why}")
                 continue
             pj_ops += class_ops * pj
             ops_priced += class_ops
@@ -249,7 +250,8 @@ def mission_point(requirement: RequiredEfficiency, soc: SoCInstance, workload: P
         placements.append(StagePlacement(
             stage.stage, stage.engine, kernel.value, ops_per_s,
             None if not efficiency else stage.dense_seconds / efficiency * stage.rate_hz,
-            efficiency, provenance, None if not ops_per_s else pj_ops / ops_per_s))
+            efficiency, provenance, None if not ops_per_s else pj_ops / ops_per_s,
+            "; ".join(class_gaps) or None))
 
     return MissionPoint(
         mission=profile.id, design=requirement.design, node=requirement.node,

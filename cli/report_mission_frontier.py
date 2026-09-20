@@ -177,9 +177,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Mission id, regime or name (repeatable; default all)")
     parser.add_argument("--efficiency", default="orin_nano_measured_v1",
                         help="Table the measured efficiencies come from")
-    parser.add_argument("--format", choices=["html", "json"], default="html")
+    parser.add_argument("--format", choices=["html", "json"], default=None,
+                        help="Default: from the --output suffix, else html")
     parser.add_argument("--output", "-o", help="Write here (default: stdout)")
     args = parser.parse_args(argv)
+    if args.format is None:
+        args.format = "json" if (args.output or "").lower().endswith(".json") else "html"
 
     try:
         points = collect(args.mission, args.efficiency)
