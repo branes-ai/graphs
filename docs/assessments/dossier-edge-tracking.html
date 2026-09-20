@@ -61,6 +61,9 @@ text.b-idle { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--in
 text.b-idle-s { font-size:10px; text-anchor:middle; fill:var(--ink-3); }
 text.bus-l { font-size:11.5px; font-weight:600; fill:var(--ink-2); }
 text.bus-r { font-size:11px; fill:var(--ink-3); text-anchor:end; }
+text.link-l { font-size:11px; fill:var(--ink-2); font-variant-numeric:tabular-nums; }
+text.ingress { font-size:11px; fill:var(--ink-3); }
+line.idle-edge { stroke-dasharray:3 3; opacity:.5; }
 text.s-label { font-size:12.5px; fill:var(--ink); text-anchor:end; font-weight:600; }
 text.s-note { font-size:10.5px; fill:var(--ink-3); text-anchor:end; }
 text.s-amount { font-size:11.5px; fill:var(--ink-2); }
@@ -84,241 +87,194 @@ td.gapcell { color:var(--gap); font-style:italic; font-size:12px; }
 tsmc_n7</p>
 <h1>Edge AI device: Multi-stream tracking &amp; anomaly</h1>
 
-<p class="lede">Four 1080p camera streams at 15 Hz, an open-vocabulary detector on every frame,
-and a 5 W budget. This is the whole sizing argument for that product on a CPU + KPU SoC: what
-the workload demands, what each engine delivers, and how many cores and tiles it takes before
-the demand fits.</p>
+<p class="lede">Four 1080p streams at 15 Hz, an open-vocabulary detector on every frame, 5 W.
+What has to be true of the CPU and the accelerator for that to close.</p>
 
 <div class="verdict">
-<b>The answer is 4 CPU cores and 1 KPU
-tile.</b> The detector &mdash;
-99.2% of the mission's arithmetic &mdash; needs
-0.48 of a tile. The camera light path, 0.8% of the arithmetic,
-needs 3.16 CPU cores. Neither compute engine is the binding constraint:
-DRAM runs at 2.2% of peak, the datapath draws
-113 mW against a 5 W budget, and the
-chain finishes in 21.1 ms against a 200 ms deadline.
-<b>What binds is a 4.5% efficiency on the pixel stage</b>, and that is an
-argument about the CPU, not about the accelerator.
+<b>4 CPU cores and 1 KPU
+tile.</b> The detector is
+99.2% of the arithmetic and fits in 0.48 of a
+tile. The pixel front end is 0.8% of the arithmetic and takes
+3.16 cores. Memory, energy and latency all have an order of magnitude in
+hand. <b>The CPU is the only part without margin</b>, and the reason is a
+4.5% efficiency on a per-pixel kernel &mdash; which is the question this
+partnership exists to answer.
 </div>
 
 <h2>1. The use case</h2>
 
-<p>A fixed-install edge appliance watching four camera streams &mdash; a loading bay, a retail
-floor, a perimeter. It runs an open-vocabulary detector on every frame of every stream, keeps
-identities across frames, and raises an anomaly when something does not belong. It is mains- or
-PoE-powered, fanless, and it is expected to run unattended for years.</p>
-<p>The catalogue states it as: <i>Four 1080p streams at 15 Hz, small detector plus re-identification</i>. In numbers, that is
-4 x 1920x1080 streams at 15 Hz and 60 detector inferences per second, which is one per
-frame across all four streams.</p>
-<p>Two properties of this use case drive everything that follows. First, <b>the detector is not
-latency-critical but is throughput-critical</b>: a 200 ms deadline is
-generous for a 60 Hz aggregate frame rate, but every frame must be processed, so the sizing
-question is one of sustained rate, not of tail latency. Second, <b>the pixel path and the
-detector are completely different kinds of work</b>, and the analysis in section 6 turns on
-exactly that.</p>
+<p>A fanless, mains- or PoE-powered appliance watching four camera streams: a loading bay, a
+retail floor, a perimeter. It detects, tracks and flags anomalies on every frame, unattended,
+for years.</p>
+<p>4 x 1920x1080 streams at 15 Hz, 60 detector inferences per second, one per frame
+across all four. The 200 ms deadline is loose for a
+60 Hz frame rate, so this is a throughput problem, not a latency one: every
+frame has to be processed, none may be dropped.</p>
 
 <h2>2. Product requirements</h2>
 
-<p>What the product has to do, and where each figure comes from. A requirement the catalogue
-does not state is marked <b>NOT STATED</b> rather than assumed &mdash; a missing thermal limit
-is not a satisfied thermal limit, and a page that quietly filled it in would be worse than
-useless to whoever has to build the thing.</p>
-<div class="panel"><table><thead><tr><th>requirement</th><th>figure</th><th>where it comes from</th><th>status</th></tr></thead><tbody><tr class=""><td>Detection throughput</td><td class="num">60 inferences/s</td><td class="src">mission profile rates_hz.det</td><td>met: 1 KPU tile at 48%</td></tr><tr class=""><td>Camera ingest</td><td class="num">124 Mpx/s</td><td class="src">mission profile sensors.mono</td><td>met: 4 CPU cores at 79%</td></tr><tr class=""><td>Sense-to-track latency</td><td class="num">200 ms budget</td><td class="src">mission profile deadline_ms</td><td>met: 21.1 ms, 9.5x headroom</td></tr><tr class=""><td>Power budget</td><td class="num">5 W</td><td class="src">mission profile power_budget_w</td><td>datapath floor 113 mW = 2.3%</td></tr><tr class="gap"><td>Full-SoC power</td><td class="num">-</td><td class="src">no memory, clock-tree, leakage or idle term in this model</td><td>NOT STATED</td></tr><tr class=""><td>Memory bandwidth</td><td class="num">4.43 GB/s demand</td><td class="src">sum of per-stage byte counts</td><td>met: 2.2% of 204.8 GB/s peak</td></tr><tr class="gap"><td>Thermal limit</td><td class="num">-</td><td class="src">no cooling solution attached to this design</td><td>NOT STATED</td></tr><tr class="gap"><td>Size / volume</td><td class="num">-</td><td class="src">not a field of the mission profile</td><td>NOT STATED</td></tr><tr class="gap"><td>Weight</td><td class="num">-</td><td class="src">not a field of the mission profile</td><td>NOT STATED</td></tr><tr class="gap"><td>Silicon area</td><td class="num">KPU priced, CPU not</td><td class="src">KPU from a fit over 4 catalogued cores; CPU core logic unanchored</td><td>NOT STATED</td></tr></tbody></table></div>
+<p>What the product must do, and where each figure comes from. Anything the catalogue does not
+state is marked <b>NOT STATED</b> rather than assumed.</p>
+<div class="panel"><table><thead><tr><th>requirement</th><th>figure</th><th>where it comes from</th><th>status</th></tr></thead><tbody><tr class=""><td>Detection throughput</td><td class="num">60 inferences/s</td><td class="src">mission profile rates_hz.det</td><td>met: 1 KPU tile at 48%</td></tr><tr class=""><td>Camera ingest</td><td class="num">124 Mpx/s</td><td class="src">mission profile sensors.mono</td><td>met: 4 CPU cores at 79%</td></tr><tr class=""><td>Sense-to-track latency</td><td class="num">200 ms budget</td><td class="src">mission profile deadline_ms</td><td>met: 21.1 ms, 9.5x headroom</td></tr><tr class=""><td>Power budget</td><td class="num">5 W</td><td class="src">mission profile power_budget_w</td><td>datapath floor 113 mW = 2.3%</td></tr><tr class="gap"><td>Full-SoC power</td><td class="num">-</td><td class="src">no memory, clock-tree, leakage or idle term in this model</td><td>NOT STATED</td></tr><tr class=""><td>Memory bandwidth</td><td class="num">4.43 GB/s demand</td><td class="src">sum of per-stage byte counts</td><td>met: 2.2% of 204.8 GB/s peak</td></tr><tr class="gap"><td>Thermal limit</td><td class="num">-</td><td class="src">no cooling solution attached to this design</td><td>NOT STATED</td></tr><tr class="gap"><td>Size / volume</td><td class="num">-</td><td class="src">not a field of the mission profile</td><td>NOT STATED</td></tr><tr class="gap"><td>Weight</td><td class="num">-</td><td class="src">not a field of the mission profile</td><td>NOT STATED</td></tr><tr class="gap"><td>Silicon area</td><td class="num">KPU sized, CPU open</td><td class="src">KPU from a fit over 4 catalogued cores; no absolute core area is published for the CPU baseline</td><td>NOT STATED</td></tr></tbody></table></div>
 
-<p class="note">The four gaps are real and they matter differently. <b>Thermal</b> and
-<b>SWaP</b> are product decisions that live outside this repository, and they are the customer's
-to state. <b>Full-SoC power</b> is a gap of a different kind: the
-113 mW figure is the datapath floor only &mdash; every
-arithmetic operation charged once at the process node's energy per operation, with no memory
-traffic, no clock tree, no leakage and no idle power in it. The true figure is higher, and by
-how much is not something this model states. <b>CPU core area</b> is the one gap a CPU IP
-partner could close immediately, and section 7 says why it is open.</p>
+<p class="note"><b>Thermal and SWaP</b> are yours to set; they are not in our model.
+<b>Full-SoC power</b> is a different kind of gap: 113 mW is
+arithmetic only &mdash; no memory traffic, clock tree, leakage or idle. The true figure is
+higher. <b>CPU core area</b> is the one gap you can close, and section 7 says why it is
+open.</p>
 
 <h2>3. The workload</h2>
 
-<p>The pipeline is two stages, and its shape is the reason the sizing works out the way it does.
-Raw sensor data enters the light path, which is a per-pixel fixed-function chain; the detector
-then runs once per frame on the result. Everything else a tracking product does &mdash;
-association, re-identification, the anomaly rule &mdash; is folded into the detector's per-call
-cost by the catalogue, which anchors it to a published FLOP count rather than modelling it
-separately.</p>
-<p>Each box carries what the stage demands and, underneath, what it costs on the engine it was
-sized for in section 6. The number under each arrow is the traffic that edge carries.</p>
-<div class="panel"><svg viewBox="0 0 1014 282" class="diagram" role="img" aria-label="the mission pipeline, one box per stage"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">The pipeline, per frame at 60 Hz</text><text class="dsub" x="8" y="36">box = stage; the number under each arrow is the traffic it carries</text><rect class="source" x="0" y="86" width="150" height="62" rx="9"/><text class="src-t" x="75.0" y="110">sensors</text><text class="src-s" x="75.0" y="130">4 x 1920x1080 @ 15 Hz</text><line class="edge" x1="156" y1="128.0" x2="221" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="189.0" y="118.0">498 MB/s</text><rect class="node" x="228" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="62" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="86">mono</text><text class="n-tier" x="466" y="86">T1</text><text class="n-name" x="244" y="103">Mono camera front-end</text><text class="n-kc" x="244" y="120">pixel_fixed_function</text><text class="n-row" x="244" y="139">precision 100% C</text><text class="n-row" x="244" y="155">4.98 GOP/s &#183; 40 OP/call</text><text class="n-lat" x="244" y="178" style="fill:var(--cpu)">13.1 ms on 4 cpu cores</text><line class="edge" x1="484" y1="128.0" x2="549" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="118.0">3.93 GB/s</text><rect class="node" x="556" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="62" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="572" y="86">det</text><text class="n-tier" x="794" y="86">T4</text><text class="n-name" x="572" y="103">Open-vocabulary detection</text><text class="n-kc" x="572" y="120">dense_conv_gemm</text><text class="n-row" x="572" y="139">precision 85% A, 15% B</text><text class="n-row" x="572" y="155">620 GOP/s &#183; 10.3 GOP/call</text><text class="n-lat" x="572" y="178" style="fill:var(--kpu)">7.93 ms on 1 kpu tile</text><line class="edge" x1="810" y1="128.0" x2="876" y2="128.0" marker-end="url(#arrow)"/><rect class="source" x="884" y="86" width="114" height="62" rx="9"/><text class="src-t" x="941" y="110">tracks</text><text class="src-s" x="941" y="128">60 Hz</text><line class="chain" x1="228" y1="234" x2="806" y2="234"/><text class="chain-l" x="228" y="254">sense to track: <tspan class="strong">21.1 ms</tspan> against a 200 ms deadline &#183; 9.5x headroom</text></svg></div>
-<div class="legend"><span class="key"><span class="chip" style="background:var(--cpu)"></span>CPU</span><span class="key"><span class="chip" style="background:var(--kpu)"></span>KPU</span><span class="key"><span class="chip" style="background:var(--gap)"></span>a figure nothing states</span></div>
+<p>Two stages. A per-pixel front end runs on every pixel of every stream; the detector then runs
+once per frame on the result. Association, re-identification and the anomaly rule sit inside the
+detector's per-call cost, anchored to a published FLOP count.</p>
+<p>The two could hardly be less alike. The front end does
+40 operations on each of 124 M pixels a second; the
+detector does 10.3 GOP on each of 60 frames. A trickle of
+arithmetic over a flood of pixels, then the reverse. Nothing is good at both, and that is the
+whole design problem.</p>
+<div class="panel"><svg viewBox="0 0 1014 282" class="diagram" role="img" aria-label="the mission pipeline, one box per stage"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">The pipeline, per frame at 60 Hz</text><rect class="source" x="0" y="86" width="150" height="62" rx="9"/><text class="src-t" x="75.0" y="110">sensors</text><text class="src-s" x="75.0" y="130">4 x 1920x1080 @ 15 Hz</text><line class="edge" x1="156" y1="128.0" x2="221" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="189.0" y="118.0">498 MB/s</text><rect class="node" x="228" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="62" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="86">mono</text><text class="n-tier" x="466" y="86">T1</text><text class="n-name" x="244" y="103">Mono camera front-end</text><text class="n-kc" x="244" y="120">pixel_fixed_function</text><text class="n-row" x="244" y="139">precision 100% C</text><text class="n-row" x="244" y="155">4.98 GOP/s &#183; 40 OP/call</text><text class="n-lat" x="244" y="178" style="fill:var(--cpu)">13.1 ms on 4 cpu cores</text><line class="edge" x1="484" y1="128.0" x2="549" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="118.0">3.93 GB/s</text><rect class="node" x="556" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="62" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="572" y="86">det</text><text class="n-tier" x="794" y="86">T4</text><text class="n-name" x="572" y="103">Open-vocabulary detection</text><text class="n-kc" x="572" y="120">dense_conv_gemm</text><text class="n-row" x="572" y="139">precision 85% A, 15% B</text><text class="n-row" x="572" y="155">620 GOP/s &#183; 10.3 GOP/call</text><text class="n-lat" x="572" y="178" style="fill:var(--kpu)">7.93 ms on 1 kpu tile</text><line class="edge" x1="810" y1="128.0" x2="876" y2="128.0" marker-end="url(#arrow)"/><rect class="source" x="884" y="86" width="114" height="62" rx="9"/><text class="src-t" x="941" y="110">tracks</text><text class="src-s" x="941" y="128">60 Hz</text><line class="chain" x1="228" y1="234" x2="806" y2="234"/><text class="chain-l" x="228" y="254">sense to track: <tspan class="strong">21.1 ms</tspan> against a 200 ms deadline &#183; 9.5x headroom</text></svg></div>
+<div class="legend"><span class="key"><span class="chip" style="background:var(--cpu)"></span>Andes RISC-V</span><span class="key"><span class="chip" style="background:var(--kpu)"></span>KPU</span><span class="key"><span class="chip" style="background:var(--gap)"></span>a figure nothing states</span></div>
 
-<p class="note">The chain is drawn as a serial sum, which is the pessimistic reading: the light
-path for a frame finishes before the detector starts on it. A real implementation would pipeline
-the two, so the sense-to-track latency of 21.1 ms is an upper bound on a
-configuration that already has 9.5x of margin. Note also that this
-mission's declared reactive chain contains only <code>mono</code>; the
-<code>mono</code>&#8201;&rarr;&#8201;<code>det</code> path drawn here is the
-product-meaningful latency, and is the stricter of the two.</p>
+<p class="note">Drawn as a serial sum, which is pessimistic &mdash; a real build overlaps the two
+stages. Even so, 21.1 ms against 200 ms leaves
+9.5x in hand.</p>
 
 <h2>4. What it demands</h2>
 
-<p>Per stage: the kernel class its arithmetic belongs to, the precision classes it needs as a
-share of its own operations, its rate in its own unit, and the operations and bytes that follow
-from those. The <b>kernel class</b> is the level at which hardware efficiency is a meaningful
-number, which is why the sizing in section 6 is done there and not per stage or per network.</p>
+<p>Per stage: the kernel class its arithmetic belongs to, the precision it needs, its rate, and
+the operations and bytes that follow. <b>Kernel class</b> is the level at which hardware
+efficiency is a real number, so it is the level everything is measured and sized at.</p>
 <div class="panel"><table><thead><tr><th>tier</th><th>stage</th><th>kernel class</th><th>precision</th><th>rate</th><th>OP/call</th><th>B/call</th><th>OP/s</th><th>B/s</th><th>latency/frame</th></tr></thead><tbody><tr><td>T1</td><td><b>mono</b></td><td>pixel_fixed_function</td><td>100% C</td><td class="num">124 M/s pixel</td><td class="num">40 OP</td><td class="num">4 B</td><td class="num">4.98 GOP/s</td><td class="num">498 MB/s</td><td class="num">13.1 ms</td></tr><tr><td>T4</td><td><b>det</b></td><td>dense_conv_gemm</td><td>85% A, 15% B</td><td class="num">60 /s inference</td><td class="num">10.3 GOP</td><td class="num">65.5 MB</td><td class="num">620 GOP/s</td><td class="num">3.93 GB/s</td><td class="num">7.93 ms</td></tr></tbody></table></div>
 
-<p class="note">The asymmetry in this table is the whole story. <code>det</code> is
-99.2% of the operations; <code>mono</code> is
-0.8%. If operations were the unit of cost, the light path would be a rounding
-error. It is not, and section 6 shows why: 4.98 GOP/s of
-<code>pixel_fixed_function</code> work is harder to deliver on a CPU than
-620 GOP/s of <code>dense_conv_gemm</code> is on a fabric built for it.</p>
+<p class="note">If operations were the unit of cost, the front end would be a rounding error at
+0.8% of them. Section 6 is about why it is not.</p>
 
 <h2>5. The configuration</h2>
 
-<p>The configuration is one KPU fabric, a cluster of Cortex-A78AE-class CPU cores, a shared
-on-chip fabric and one LPDDR5 interface, all at tsmc_n7. The diagram shows it <b>as
-sized</b> &mdash; the engine counts are the output of section 6, not an input.</p>
-<p>Three numbers describe each compute block, and any two of them mislead:</p>
-<ul>
-<li><b>X</b>, the throughput one server actually delivers while it is running this work.</li>
-<li><b>U</b>, the share of wall clock that server is busy &mdash; the sizing margin.</li>
-<li><b>E</b>, the share of the server's dense peak that X represents &mdash; how well the kernel
-suits the machine.</li>
-</ul>
-<p>They compose exactly: <b>demand = X &times; servers &times; U</b>. A block with high E and low
-U is oversized. A block with high U and low E is not oversized; it is badly matched, and buying
-more of it is the expensive way out.</p>
-<div class="panel"><svg viewBox="0 0 1024 470" class="diagram" role="img" aria-label="the sized configuration as a block diagram"><defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">The configuration, as sized</text><text class="dsub" x="8" y="36">X = throughput one server delivers, U = share of wall clock it is busy, E = share of its dense peak. Demand = X x servers x U.</text><rect class="node" x="30" y="60" width="268" height="150" rx="11"/><rect class="node-bar" x="30" y="60" width="5" height="150" style="fill:var(--kpu)"/><text class="b-title" x="46" y="86" style="fill:var(--kpu)">KPU</text><text class="b-sub" x="284" y="86">1 x tile</text><text class="b-row" x="46" y="110">peak 1.54 TOP/s / tile (int8)</text><text class="b-k" x="46" y="134">X</text><text class="b-v" x="70" y="134">1.3 TOP/s per tile</text><text class="b-k" x="46" y="154">U</text><text class="b-v" x="70" y="154">47.6%</text><text class="b-k" x="46" y="174">E</text><text class="b-v" x="70" y="174">97.5%</text><text class="b-note" x="284" y="194">det &#183; ceiling</text><rect class="node" x="332" y="60" width="268" height="150" rx="11"/><rect class="node-bar" x="332" y="60" width="5" height="150" style="fill:var(--cpu)"/><text class="b-title" x="348" y="86" style="fill:var(--cpu)">CPU</text><text class="b-sub" x="586" y="86">4 x cores</text><text class="b-row" x="348" y="110">peak 35.2 GOP/s / core (fp32)</text><text class="b-k" x="348" y="134">X</text><text class="b-v" x="372" y="134">1.58 GOP/s per core</text><text class="b-k" x="348" y="154">U</text><text class="b-v" x="372" y="154">78.9%</text><text class="b-k" x="348" y="174">E</text><text class="b-v" x="372" y="174">4.5%</text><text class="b-note" x="586" y="194">mono &#183; measured</text><rect class="node idle" x="634" y="84" width="134" height="102" rx="11"/><text class="b-idle" x="701" y="118">ISP</text><text class="b-idle-s" x="701" y="136">no capability stated</text><rect class="node idle" x="784" y="84" width="134" height="102" rx="11"/><text class="b-idle" x="851" y="118">codec</text><text class="b-idle-s" x="851" y="136">not used</text><rect class="bus" x="30" y="264" width="934" height="34" rx="8"/><text class="bus-l" x="44" y="286">on-chip fabric</text><text class="bus-r" x="950" y="286">carries 4.43 GB/s of DRAM traffic</text><line class="edge" x1="164.0" y1="210" x2="164.0" y2="264" marker-end="url(#arrow2)"/><line class="edge" x1="466.0" y1="210" x2="466.0" y2="264" marker-end="url(#arrow2)"/><line class="edge" x1="701" y1="210" x2="701" y2="264" marker-end="url(#arrow2)"/><line class="edge" x1="851" y1="210" x2="851" y2="264" marker-end="url(#arrow2)"/><rect class="node" x="30" y="340" width="934" height="74" rx="11"/><text class="b-title" x="46" y="366">DRAM</text><text class="b-row" x="46" y="388">peak 204.8 GB/s &#183; demand 4.43 GB/s &#183; 2.16% used</text><rect class="track" x="390" y="374" width="554" height="14" rx="3"/><rect class="fill" x="390" y="374" width="12.0" height="14" rx="3"/><line class="edge" x1="512.0" y1="298" x2="512.0" y2="340" marker-end="url(#arrow2)"/></svg></div>
+<p>One KPU fabric, a cluster of Andes RISC-V cores, a shared fabric and one LPDDR5 interface at
+tsmc_n7. Engine counts are the <i>output</i> of section 6, not an input.</p>
+<p class="note">The CPU block carries <b>baseline</b> figures: we have measured an Arm
+Cortex-A78AE, not an Andes core. They stand in for the socket until you replace them, which is
+what section 6 asks for. Nothing here is a claim about Andes silicon.</p>
+<p>Three numbers per compute block, because any two mislead: <b>X</b>, the throughput one server
+actually delivers; <b>U</b>, the share of wall clock it is busy; <b>E</b>, the share of its dense
+peak that X represents. They compose exactly &mdash; <b>demand = X &times; servers &times;
+U</b>. High E with low U means oversized. High U with low E means badly matched, and buying more
+of it is the expensive fix.</p>
+<div class="panel"><svg viewBox="0 0 1060 476" class="diagram" role="img" aria-label="the sized configuration, with a throughput on every link"><defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">Block diagram, as sized</text><text class="dsub" x="8" y="36">X = throughput per server &#183; U = share of wall clock &#183; E = share of dense peak</text><rect class="source" x="30" y="96" width="92" height="70" rx="9"/><text class="src-t" x="76.0" y="124">sensors</text><text class="src-s" x="76.0" y="142">498 MB/s</text><line class="edge" x1="122" y1="131" x2="141" y2="131" marker-end="url(#arrow2)"/><rect class="node" x="148" y="62" width="250" height="138" rx="11"/><rect class="node-bar" x="148" y="62" width="5" height="138" style="fill:var(--cpu)"/><text class="b-title" x="164" y="87" style="fill:var(--cpu)">Andes RISC-V</text><text class="b-sub" x="384" y="87">4 x cores</text><text class="b-row" x="164" y="107">dense peak 35.2 GOP/s / core (fp32)</text><text class="b-k" x="164" y="132">X</text><text class="b-v" x="190" y="132">1.58 GOP/s per core</text><text class="b-k" x="164" y="153">U</text><text class="b-v" x="190" y="153">78.9%</text><text class="b-k" x="164" y="174">E</text><text class="b-v" x="190" y="174">4.5% of peak</text><text class="b-note" x="384" y="192">mono &#183; X, U and E from the A78AE baseline</text><line class="edge" x1="273.0" y1="200" x2="273.0" y2="286" marker-end="url(#arrow2)"/><text class="link-l" x="281.0" y="247.0">498 MB/s</text><rect class="node" x="438" y="62" width="250" height="138" rx="11"/><rect class="node-bar" x="438" y="62" width="5" height="138" style="fill:var(--kpu)"/><text class="b-title" x="454" y="87" style="fill:var(--kpu)">KPU</text><text class="b-sub" x="674" y="87">1 x tile</text><text class="b-row" x="454" y="107">dense peak 1.54 TOP/s / tile (int8)</text><text class="b-k" x="454" y="132">X</text><text class="b-v" x="480" y="132">1.3 TOP/s per tile</text><text class="b-k" x="454" y="153">U</text><text class="b-v" x="480" y="153">47.6%</text><text class="b-k" x="454" y="174">E</text><text class="b-v" x="480" y="174">97.5% of peak</text><text class="b-note" x="674" y="192">det</text><line class="edge" x1="563.0" y1="200" x2="563.0" y2="286" marker-end="url(#arrow2)"/><text class="link-l" x="571.0" y="247.0">3.93 GB/s</text><rect class="node idle" x="728" y="84" width="120" height="94" rx="11"/><text class="b-idle" x="788" y="120">ISP</text><text class="b-idle-s" x="788" y="138">no capability stated</text><line class="edge idle-edge" x1="788" y1="178" x2="788" y2="286"/><text class="link-l" x="796" y="247.0">0</text><rect class="node idle" x="864" y="84" width="120" height="94" rx="11"/><text class="b-idle" x="924" y="120">codec</text><text class="b-idle-s" x="924" y="138">not used</text><line class="edge idle-edge" x1="924" y1="178" x2="924" y2="286"/><text class="link-l" x="932" y="247.0">0</text><rect class="bus" x="30" y="286" width="990" height="32" rx="8"/><text class="bus-l" x="44" y="307">on-chip fabric</text><text class="bus-r" x="1006" y="307">4.43 GB/s total</text><line class="edge" x1="525.0" y1="318" x2="525.0" y2="372" marker-end="url(#arrow2)"/><text class="link-l" x="533.0" y="349.0">4.43 GB/s</text><rect class="node" x="30" y="372" width="990" height="72" rx="11"/><text class="b-title" x="46" y="398">DRAM</text><text class="b-row" x="46" y="419">204.8 GB/s available &#183; 4.43 GB/s used &#183; 2.2%</text><rect class="track" x="360" y="405" width="630" height="14" rx="3"/><rect class="fill" x="360" y="405" width="13.6" height="14" rx="3"/></svg></div>
 
-<p class="note">Read the two compute blocks against each other. The KPU delivers
-1.3 TOP/s per tile at <b>E = 97.5%</b> of its dense
-peak. The CPU delivers 1.58 GOP/s per core at
-<b>E = 4.5%</b>. That is a factor of
-22 in how well each engine is suited to the work it was given
-&mdash; and the engine doing badly is the one carrying less than one percent of the operations.</p>
+<p class="note">The KPU delivers 1.3 TOP/s per tile at
+<b>E = 97.5%</b>. The CPU delivers 1.58 GOP/s per core
+at <b>E = 4.5%</b> &mdash; a factor of
+22 apart, with the badly-matched engine carrying under one
+percent of the operations.</p>
 
 <h2>6. The analysis: dimensioning the engines</h2>
 
-<h3>Step 1: each stage has exactly one engine that can take it</h3>
-<p>Before any sizing, the mapping is forced. A precision class runs in the narrowest format the
-engine offers at or above the class's floor, and the efficiency of that (kernel class, engine,
-format) triple has to come from somewhere &mdash; a measurement, or the domain-flow ceiling.
-Where it does not exist, the stage does not get a number, and nothing is substituted for it.</p>
+<h3>1. Neither placement is a choice</h3>
+<p>A precision class runs in the narrowest format the engine offers at or above its floor, and
+that (kernel class, engine, format) triple needs an efficiency from somewhere &mdash; a
+measurement or the domain-flow ceiling. Where there is none, there is no number, and we do not
+invent one.</p>
 <ul>
-<li><code>mono</code> is <code>pixel_fixed_function</code>, entirely class C, so it runs in
-FP32. <b>On the KPU there is no fit</b>: the domain-flow model has no schedule for that kernel
-class on a regular wavefront fabric, so there is no ceiling to quote and nothing has measured
-one. It goes to the CPU, where FP32 is measured.</li>
-<li><code>det</code> is <code>dense_conv_gemm</code>, 85%
-class A and 15% class B. On the CPU, class A binds to INT8 &mdash; the
-narrowest format the CPU offers at or above A's floor &mdash; and <b>nothing measures INT8
-dense_conv_gemm on a CPU</b>, so there is no fit. It goes to the KPU, where the domain-flow
-model does have a schedule.</li>
+<li><code>mono</code> is <code>pixel_fixed_function</code>, FP32 throughout. <b>No fit on
+the KPU</b>: the domain-flow model has no schedule for that kernel class on a regular wavefront
+fabric. It goes to the CPU.</li>
+<li><code>det</code> is <code>dense_conv_gemm</code>,
+85% INT8 and 15% FP16. <b>No fit on the
+CPU</b>: nothing measures INT8 dense_conv_gemm on a CPU. It goes to the KPU.</li>
 </ul>
-<p>Neither placement is a preference. The table below is the whole of it: two stages, two
-engines, and exactly one number in each row.</p>
 <div class="panel"><table><thead><tr><th>stage</th><th>kernel class</th><th>on the cpu</th><th>on the kpu</th></tr></thead><tbody><tr><td><b>mono</b></td><td>pixel_fixed_function</td><td class="num"><b>3.156</b> cores<br><span class="src">fp32 100%: E=0.0448 -&gt; 3.156</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>det</b></td><td>dense_conv_gemm</td><td class="gapcell">class A in int8: no int8 figure</td><td class="num"><b>0.476</b> tiles<br><span class="src">int8 85%: E=0.973 -&gt; 0.353; fp16 15%: E=0.986 -&gt; 0.123</span></td></tr></tbody></table></div>
 
-<h3>Step 2: size each engine to its own stage</h3>
-<p><b>The detector.</b> At a ceiling efficiency of 97.5%, one tile delivers
-1.3 TOP/s. The detector asks for
-620 GOP/s, so it needs <b>0.476 of a tile</b>. One tile
-covers it at 47.6% utilization. Because that efficiency is a ceiling rather than
-a measurement, the honest reading is <i>no fewer than</i> 0.48 tiles.</p>
-<p><b>The light path.</b> At a measured efficiency of 4.48%, one core delivers
-1.58 GOP/s against a 35.2 GOP/s FP32 peak. The
-light path asks for 4.98 GOP/s, so it needs
-<b>3.156 cores</b>. Four cores cover it at 78.9%.</p>
+<h3>2. Size each engine</h3>
+<p><b>Detector.</b> One tile delivers 1.3 TOP/s at a ceiling
+efficiency of 97.5%. The detector wants 620 GOP/s:
+<b>0.476 of a tile</b>, so one tile at 47.6%. That efficiency
+is a ceiling, so read it as <i>no fewer than</i> 0.48 tiles.</p>
+<p><b>Front end.</b> One core delivers 1.58 GOP/s against a
+35.2 GOP/s FP32 peak &mdash; 4.48%. The front end wants
+4.98 GOP/s: <b>3.156 cores</b>, so four at
+78.9%.</p>
 
-<h3>Step 3: check what is not the constraint</h3>
-<p>Three candidates fail to bind, and it is worth being explicit about each:</p>
+<h3>3. Nothing else binds</h3>
 <ul>
-<li><b>Memory bandwidth.</b> 4.43 GB/s of compulsory traffic
-against 204.8 GB/s of peak &mdash; 2.2%. The narrowest
-interface in the catalogue is roughly 46x oversized for this mission.</li>
-<li><b>Energy.</b> The datapath floor is 113 mW against a
-5 W budget: 2.3%. Even if the rest
-of the SoC costs an order of magnitude more than its arithmetic, the budget holds.</li>
-<li><b>Latency.</b> 21.1 ms serial against 200 ms:
-9.5x of margin, before pipelining the two stages.</li>
+<li><b>Memory.</b> 4.43 GB/s against
+204.8 GB/s &mdash; 2.2%. The narrowest interface we
+catalogue is 46x oversized here.</li>
+<li><b>Energy.</b> 113 mW of arithmetic against
+5 W: 2.3%.</li>
+<li><b>Latency.</b> 21.1 ms against 200 ms.</li>
 </ul>
 
-<h3>Step 4: what the KPU is worth here</h3>
-<p>The detector has no fit on the CPU because nobody has measured INT8
-<code>dense_conv_gemm</code> there. But class A is <i>INT8 or wider</i>, so the CPU could
-run the detector in FP32 &mdash; a different operating point, fully measured, and therefore
-quotable. At E = 88.8% in FP32, one core delivers
-31.3 GOP/s, and the detector would need
-<b>19.9 CPU cores</b> and 869 mW of datapath power
-&mdash; against 0.48 of a tile and
-106 mW.</p>
-<p>That is the accelerator's case, in the only terms that matter to a silicon budget:
-<b>42 CPU cores' worth of work per KPU tile</b>,
-at 8.2x less datapath energy. It is also
-the case for <i>one</i> tile rather than a large fabric: the catalogued
-T128 N7 part has
-128 tiles, which is
-<b>269x</b> more fabric than this mission can use. The
-accelerator earns its place here at a scale of one tile; the rest of that part is being bought
-for some other mission.</p>
-<div class="panel"><svg viewBox="0 0 980 240" class="diagram" role="img" aria-label="engine sizing, needed against provisioned"><text class="dtitle" x="8" y="20">What the mission needs, and what it was given</text><text class="dsub" x="8" y="36">the pale bar is what was provisioned; the solid bar is what the demand needs</text><text class="s-label" x="268" y="82">KPU: det</text><rect class="track" x="284" y="68" width="23.3" height="20" rx="3"/><rect x="284" y="68" width="11.1" height="20" rx="3" style="fill:var(--kpu)"/><text class="s-amount" x="319.3333333333333" y="82">0.48 of 1 tile</text><text class="s-note" x="268" y="100">U 48% - E 97.5% - ceiling</text><text class="s-label" x="268" y="134">CPU: mono</text><rect class="track" x="284" y="120" width="93.3" height="20" rx="3"/><rect x="284" y="120" width="73.6" height="20" rx="3" style="fill:var(--cpu)"/><text class="s-amount" x="389.3333333333333" y="134">3.16 of 4 cores</text><text class="s-note" x="268" y="152">U 79% - E 4.5% - measured</text><text class="s-label" x="268" y="186">CPU: det in FP32 (rejected)</text><rect class="track" x="284" y="172" width="560.0" height="20" rx="3"/><rect x="284" y="172" width="463.2" height="20" rx="3" style="fill:var(--cpu)" opacity="0.55"/><text class="s-amount" x="856.0" y="186">19.85 of 24 cores</text><text class="s-note" x="268" y="204">E 88.8% - measured - 869 mW of datapath</text></svg></div>
+<h3>4. What the accelerator is worth</h3>
+<p>The detector has no measured INT8 figure on a CPU, but its INT8 class may run in any wider
+format, and FP32 <i>is</i> measured. At E = 88.8% one core delivers
+31.3 GOP/s, so the detector would need
+<b>19.9 CPU cores</b> and 869 mW &mdash; against
+0.48 of a tile and
+106 mW. That is
+<b>42 cores of work per tile</b> at
+8.2x less energy.</p>
+<p>It is equally an argument for <i>one</i> tile. The catalogued
+T128 N7 part has 128
+tiles: 269x more fabric than this mission can use.</p>
+<div class="panel"><svg viewBox="0 0 980 240" class="diagram" role="img" aria-label="engine sizing, needed against provisioned"><text class="dtitle" x="8" y="20">What the mission needs, and what it was given</text><text class="dsub" x="8" y="36">solid = what the demand needs &#183; pale = what was provisioned</text><text class="s-label" x="268" y="82">KPU: det</text><rect class="track" x="284" y="68" width="23.3" height="20" rx="3"/><rect x="284" y="68" width="11.1" height="20" rx="3" style="fill:var(--kpu)"/><text class="s-amount" x="319.3333333333333" y="82">0.48 of 1 tile</text><text class="s-note" x="268" y="100">U 48% - E 97.5% - ceiling</text><text class="s-label" x="268" y="134">CPU: mono</text><rect class="track" x="284" y="120" width="93.3" height="20" rx="3"/><rect x="284" y="120" width="73.6" height="20" rx="3" style="fill:var(--cpu)"/><text class="s-amount" x="389.3333333333333" y="134">3.16 of 4 cores</text><text class="s-note" x="268" y="152">U 79% - E 4.5% - measured</text><text class="s-label" x="268" y="186">CPU: det in FP32 (rejected)</text><rect class="track" x="284" y="172" width="560.0" height="20" rx="3"/><rect x="284" y="172" width="463.2" height="20" rx="3" style="fill:var(--cpu)" opacity="0.55"/><text class="s-amount" x="856.0" y="186">19.85 of 24 cores</text><text class="s-note" x="268" y="204">E 88.8% - measured - 869 mW of datapath</text></svg></div>
 
-<h3>Step 5: what actually binds, and what to do about it</h3>
-<p>The sized configuration is 4 CPU cores and
-1 KPU tile. The CPU is at 79% and the KPU at
-48%, so <b>the CPU is the part with no margin</b> &mdash; and it is carrying
-0.8% of the mission's operations to do it.</p>
-<p>The cause is the 4.48% efficiency, not the core count. A per-pixel
-fixed-function chain on a general-purpose core spends its time on loads, stores and address
-arithmetic rather than on the 40 operations per pixel that the model counts.
-Three things would move it, in descending order of leverage:</p>
+<h3>5. The CPU is the ask</h3>
+<p>4 cores at 79%, one tile at
+48%. The CPU has no margin, and it is carrying 0.8% of the
+operations to get there. The cause is 4.48% efficiency, not core count: a
+per-pixel chain on a general-purpose core spends its time on loads, stores and address
+arithmetic, not on the 40 operations per pixel we count.</p>
+<p>So the question for an Andes core is not how fast it is in the abstract. It is:</p>
+<blockquote><b>What does it take to sustain 4.98 GOP/s of FP32 per-pixel work
+&mdash; 40 operations on each of 124 M pixels a second
+&mdash; inside a 5 W envelope?</b></blockquote>
+<p>Three ways to get there, in order of leverage:</p>
 <ol>
-<li><b>Put the light path in fixed-function silicon.</b> The composed SoC already contains an ISP
-block, and this stage's own configuration note says demosaic and denoise are assumed to happen
-in the sensor ISP &mdash; what remains on the CPU is the 40 op/pixel light
-path after that. The catalogue states no capability or area for the on-die ISP, so this analysis
-cannot price the move; it can only say that the block is there and idle.</li>
-<li><b>Widen the CPU's vector path or fix its memory behaviour.</b> Going from
-4.48% to a still-modest 10% would take the light path from
-3.16 cores to 1.41, and the part
-would need 2 cores
-instead of 4.</li>
-<li><b>Give the fabric a schedule for it.</b> <code>pixel_fixed_function</code> is one of eleven
-kernel classes the domain-flow model declares unschedulable on a regular mesh. If that is wrong
-&mdash; and a per-pixel chain is about as regular as work gets &mdash; then the KPU tile at
-48% has room to absorb it and the CPU count falls out of the design.</li>
+<li><b>Vector width and memory behaviour.</b> At 4.48% we need
+3.16 cores. At a still-unambitious 10% we need 1.41, and the part ships
+2 cores instead of 4. This is where
+an RVV-capable core should win, and it is the number we would like to replace with a measurement
+on your silicon.</li>
+<li><b>Move the front end off the CPU entirely.</b> The SoC already carries an ISP block, and
+this stage assumes demosaic and denoise already happened in the sensor. The
+40 op/pixel that remain are a fixed-function candidate. We state no
+capability or area for the on-die ISP, so we cannot price the move &mdash; only note the block is
+there and idle.</li>
+<li><b>Schedule it on the fabric.</b> <code>pixel_fixed_function</code> is one of eleven classes
+our domain-flow model calls unschedulable on a regular mesh. A per-pixel chain is about as
+regular as work gets, so that may be our limitation rather than the fabric's. The tile at
+48% has room.</p></li>
 </ol>
-<p>Each of those is a different team's work, which is the point of stating the sizing this way:
-the number that binds names the owner.</p>
 
 <h2>7. What this rests on</h2>
 
-<p>Every figure on this page is one of four things, and the page says which:</p>
+<p>Four kinds of figure, and the page says which each is:</p>
 <ul>
-<li><b>Catalogue data.</b> The mission profile, its rates, its per-call operation and byte
-counts, the SoC composition and the process node's energy per operation.</li>
-<li><b>A measurement.</b> The CPU efficiencies come from the
-<code>orin_nano_measured_v1</code> table &mdash; real silicon, with the run that produced each figure
-cited in the table. The FP32 counterfactual in section 6 is drawn from
-<code>orin_nano_measured_v1</code>, named separately because it is a different operating
-point rather than part of the sizing.</li>
-<li><b>A ceiling.</b> The KPU efficiency is the domain-flow model's upper bound, taken from the
-smallest catalogued core with a stated schedule (kpu_t64_core) so that the bound does not carry
-a DRAM constraint belonging to a much larger fabric. A ceiling bounds; it does not predict. The
-tile count derived from it is therefore a <i>lower</i> bound: no fewer than
-0.48 tiles.</li>
-<li><b>A gap.</b> Named as such, never filled.</li>
+<li><b>Catalogue.</b> The mission, its rates, per-call operation and byte counts, the SoC
+composition, the node's energy per operation.</li>
+<li><b>Measured.</b> CPU efficiencies from <code>orin_nano_measured_v1</code>, with the run behind each
+figure cited in the table. <b>These are measured on Arm Cortex-A78AE cores in a Jetson Orin
+Nano</b> &mdash; our reference baseline, not a claim about any other core. They are the reason
+the CPU requirement above is stated as a throughput target rather than a core count.</li>
+<li><b>Ceiling.</b> The KPU efficiency is our domain-flow upper bound, taken from the smallest
+core with a stated schedule (kpu_t64_core) so it carries no DRAM constraint from a larger
+fabric. A ceiling bounds, it does not predict, so the tile count is a <i>lower</i> bound: no
+fewer than 0.48.</li>
+<li><b>Gap.</b> Named, never filled.</li>
 </ul>
 
-<p><b>Silicon area.</b> The KPU side can be priced: a least-squares line through the four
-catalogued N7 cores gives 0.1665 mm&sup2; per tile plus
+<p><b>Area.</b> A least-squares line through our four catalogued N7 cores gives
+0.1665 mm&sup2; per tile plus
 0.287 mm&sup2; fixed, so a one-tile fabric is about
-0.45 mm&sup2;. That is an <i>extrapolation</i> one step below the smallest catalogued SKU
-(64 tiles) and is labelled THEORETICAL for that reason. The CPU side
-cannot be priced at all: the repository states cache areas for the cluster but marks core logic
-<b>unanchored</b>, because no trustworthy absolute Cortex-A78AE core area is public. Arm
-discloses only relative figures. <b>This is the one number in the whole dossier that a CPU IP
-partner could close immediately</b>, and closing it would turn the area column from a gap into
-an answer.</p>
-<p>Reproduce this page with:</p>
+0.45 mm&sup2; &mdash; an extrapolation one step below our smallest SKU
+(64 tiles), and labelled THEORETICAL for it. The CPU side we cannot
+price at all: we anchor the cluster's caches but not its core logic, because no absolute core
+area is published for the baseline. <b>An Andes core area would close that column
+outright.</b></p>
+<p>Reproduce with:</p>
 <p><code>python cli/report_mission_dossier.py --mission edge_ai_device_multi_stream_tracking__anomaly \<br>
 &nbsp;&nbsp;&nbsp;&nbsp;--design kpu_t128_n7 --efficiency orin_nano_measured_v1 \<br>
 &nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-edge-tracking.html</code></p>
