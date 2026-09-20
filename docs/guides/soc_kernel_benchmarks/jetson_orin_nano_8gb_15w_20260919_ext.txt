@@ -1,0 +1,58 @@
+branes@Branes-Jetson:~/dev/branes/clones/graphs$ python cli/benchmark_soc_kernels.py --hardware jetson_orin_nano_8gb --power-mode 15w
+engine  kernel_class          kernel          prec  status       GOP/s    clock_GHz  clock_ok  cpu_x  note                                            
+------  --------------------  --------------  ----  -----------  -------  ---------  --------  -----  ------------------------------------------------
+cpu     dense_conv_gemm       gemm            fp32  ok           22.02    1.498      yes       1.0                                                    
+cpu     dense_conv_gemm       gemm            fp16  ok           0.38     1.498      yes       1.0                                                    
+cpu     dense_conv_gemm       gemm            int8  unsupported  -        -          -         -      gemm int8 has no cpu path here                  
+cpu     dense_conv_gemm       conv3x3         fp32  ok           20.37    1.498      yes       1.0                                                    
+cpu     attention_prefill     sdpa            fp32  ok           11.08    1.498      yes       0.9                                                    
+cpu     weight_stream_decode  gemv            fp32  ok           1.38     1.498      yes       1.0                                                    
+cpu     elementwise_norm      layernorm       fp32  ok           2.79     1.498      yes       1.0                                                    
+cpu     dense_conv_gemm       conv3x3         fp16  ok           0.44     1.498      yes       1.0                                                    
+cpu     attention_prefill     sdpa            fp16  ok           1.59     1.498      yes       1.0                                                    
+cpu     weight_stream_decode  gemv            fp16  ok           4.75     1.498      yes       1.0                                                    
+cpu     elementwise_norm      layernorm       fp16  ok           2.50     1.498      yes       1.0                                                    
+cpu     fft                   fft2            fp32  ok           4.80     1.498      yes       1.0                                                    
+cpu     small_dense_linalg    cholesky_solve  fp32  ok           1.98     1.498      yes       1.0                                                    
+cpu     small_qp              kkt_solve       fp32  ok           3.01     1.498      yes       1.0                                                    
+cpu     small_dense_linalg    cholesky_solve  fp64  ok           1.38     1.498      yes       1.0                                                    
+cpu     small_qp              kkt_solve       fp64  ok           2.12     1.498      yes       1.0                                                    
+cpu     sparse_hash_scatter   index_add       fp32  ok           0.16     1.498      yes       1.0                                                    
+cpu     cost_volume_dp        sgm             fp32  ok           0.24     1.498      yes       1.0                                                    
+cpu     cost_volume_dp        sgm             fp16  ok           0.12     1.498      yes       1.0                                                    
+cpu     feature_track         klt             fp32  ok           0.52     1.498      yes       1.0                                                    
+cpu     raycast               tsdf_raycast    fp32  ok           0.08     1.498      yes       1.0                                                    
+cpu     raycast               tsdf_raycast    fp16  error        -        -          -         -      RuntimeError: "grid_sampler3d_cpu" not implement
+cpu     wavefront             esdf_propagate  fp32  ok           0.60     1.498      yes       1.0                                                    
+cpu     graph_search          frontier_relax  fp32  ok           0.23     1.498      yes       1.0                                                    
+cpu     pixel_fixed_function  isp_pipeline    fp32  ok           1.07     1.498      yes       1.0                                                    
+cpu     pixel_fixed_function  isp_pipeline    fp16  ok           0.57     1.498      yes       1.0                                                    
+gpu     dense_conv_gemm       gemm            fp32  ok           799.96   0.612      yes       -                                                      
+gpu     dense_conv_gemm       gemm            fp16  ok           5901.12  0.612      yes       -                                                      
+gpu     dense_conv_gemm       gemm            int8  ok           2414.43  0.612      yes       -                                                      
+gpu     dense_conv_gemm       conv3x3         fp32  ok           1321.06  0.612      yes       -                                                      
+gpu     attention_prefill     sdpa            fp32  ok           738.34   0.612      yes       -                                                      
+gpu     weight_stream_decode  gemv            fp32  ok           28.36    0.612      yes       -                                                      
+gpu     elementwise_norm      layernorm       fp32  ok           30.49    0.612      yes       -                                                      
+gpu     dense_conv_gemm       conv3x3         fp16  ok           5410.91  0.612      yes       -                                                      
+gpu     attention_prefill     sdpa            fp16  ok           5809.36  0.612      yes       -                                                      
+gpu     weight_stream_decode  gemv            fp16  ok           57.41    0.612      yes       -                                                      
+gpu     elementwise_norm      layernorm       fp16  ok           64.13    0.612      yes       -                                                      
+gpu     fft                   fft2            fp32  ok           86.50    0.612      yes       -                                                      
+gpu     small_dense_linalg    cholesky_solve  fp32  ok           9.44     0.612      yes       -                                                      
+gpu     small_qp              kkt_solve       fp32  ok           2.55     0.612      yes       -                                                      
+gpu     small_dense_linalg    cholesky_solve  fp64  ok           3.24     0.612      yes       -                                                      
+gpu     small_qp              kkt_solve       fp64  ok           1.99     0.612      yes       -                                                      
+gpu     sparse_hash_scatter   index_add       fp32  ok           1.02     0.612      yes       -                                                      
+gpu     cost_volume_dp        sgm             fp32  ok           1.33     0.612      yes       -                                                      
+gpu     cost_volume_dp        sgm             fp16  ok           2.40     0.612      yes       -                                                      
+gpu     feature_track         klt             fp32  ok           0.60     0.612      yes       -                                                      
+gpu     raycast               tsdf_raycast    fp32  ok           2.96     0.612      yes       -                                                      
+gpu     raycast               tsdf_raycast    fp16  ok           3.38     0.612      yes       -                                                      
+gpu     wavefront             esdf_propagate  fp32  ok           3.35     0.612      yes       -                                                      
+gpu     graph_search          frontier_relax  fp32  ok           1.20     0.612      yes       -                                                      
+gpu     pixel_fixed_function  isp_pipeline    fp32  ok           15.80    0.612      yes       -                                                      
+gpu     pixel_fixed_function  isp_pipeline    fp16  ok           9.13     0.612      yes       -                                                      
+
+wrote /home/branes/dev/branes/clones/graphs/soc_designs/efficiency/measurements/jetson_orin_nano_8gb_15w_20260919.json
+
