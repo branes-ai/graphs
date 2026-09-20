@@ -26,6 +26,13 @@ from .breakeven import (
     capability_mapping,
     required_efficiency,
 )
+from .domainflow import (
+    Ceiling,
+    Fabric,
+    FabricCeilings,
+    fabric_ceilings,
+    fabrics_of,
+)
 from .mapping import Engine, MappingFile, StageService, engines_of, find_mapping, load_mapping
 from .power import PowerReport, roll_up
 from .schedule import Schedule, schedule
@@ -43,8 +50,13 @@ __all__ = [
     "execution_format",
     "load_efficiency_tables",
     "load_kernel_classes",
+    "Ceiling",
     "Engine",
     "EngineRequirement",
+    "Fabric",
+    "FabricCeilings",
+    "fabric_ceilings",
+    "fabrics_of",
     "MappingFile",
     "RequiredEfficiency",
     "StageRequirement",

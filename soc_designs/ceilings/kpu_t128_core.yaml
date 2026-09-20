@@ -1,0 +1,279 @@
+sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+confidence: theoretical
+confidence_source: domain-flow wavefront and compulsory-traffic bounds over the SKU's stated geometry,
+  clock and DRAM bandwidth; shapes from graphs.benchmarks.soc_kernels
+fabrics:
+- precision: int8
+  rows: 32
+  cols: 32
+  tiles: 128
+  clock_mhz: 750.0
+  peak_tops: 196.608
+  operand_bits_per_clock: null
+- precision: fp16
+  rows: 32
+  cols: 32
+  tiles: 128
+  clock_mhz: 750.0
+  peak_tops: 98.304
+  operand_bits_per_clock: null
+- precision: fp32
+  rows: 32
+  cols: 32
+  tiles: 26
+  clock_mhz: 750.0
+  peak_tops: 9.984
+  operand_bits_per_clock: null
+ceilings:
+- kernel_class: dense_conv_gemm
+  kernel: gemm
+  precision: int8
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.9444444444444443
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.9696969696969697
+    dram_compulsory: 0.9444444444444443
+    operand_delivery: null
+  source: soc_kernels gemm 2048x2048x2048; operands A, B and C cross DRAM once; 32x32 PEs x 128 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 136 GB/s
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: conv3x3
+  precision: int8
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.9355509355509356
+  binding: wavefront
+  bounds:
+    wavefront: 0.9355509355509356
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels conv3x3 256->256 at 80x80, lowered to a GEMM: M = H x W, N = Cout, K = Cin x 9;
+    input, weights and output cross DRAM once; 32x32 PEs x 128 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: attention_prefill
+  kernel: sdpa
+  precision: int8
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.6530612244897959
+  binding: wavefront
+  bounds:
+    wavefront: 0.6530612244897959
+    dram_compulsory: 0.7083333333333334
+    operand_delivery: null
+  source: 'soc_kernels sdpa 16 heads x 1024 x 64: scores then context, two GEMMs; Q, K, V and the output
+    cross DRAM once and the scores stay on chip; 32x32 PEs x 128 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: weight_stream_decode
+  kernel: gemv
+  precision: int8
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.0013827883520416463
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.03076923076923077
+    dram_compulsory: 0.0013827883520416463
+    operand_delivery: null
+  source: 'soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once; 32x32 PEs x 128 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: elementwise_norm
+  kernel: layernorm
+  precision: int8
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.0017293294270833335
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.03076923076923077
+    dram_compulsory: 0.0017293294270833335
+    operand_delivery: null
+  source: 'soc_kernels layernorm 4096x4096: read and write once; the array''s multiplier is idle, so a
+    PE contributes one op per clock, not two; 32x32 PEs x 128 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: gemm
+  precision: fp16
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.9444444444444443
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.9696969696969697
+    dram_compulsory: 0.9444444444444443
+    operand_delivery: null
+  source: soc_kernels gemm 2048x2048x2048; operands A, B and C cross DRAM once; 32x32 PEs x 128 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 136 GB/s
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: conv3x3
+  precision: fp16
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.9355509355509356
+  binding: wavefront
+  bounds:
+    wavefront: 0.9355509355509356
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels conv3x3 256->256 at 80x80, lowered to a GEMM: M = H x W, N = Cout, K = Cin x 9;
+    input, weights and output cross DRAM once; 32x32 PEs x 128 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: attention_prefill
+  kernel: sdpa
+  precision: fp16
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.6530612244897959
+  binding: wavefront
+  bounds:
+    wavefront: 0.6530612244897959
+    dram_compulsory: 0.7083333333333334
+    operand_delivery: null
+  source: 'soc_kernels sdpa 16 heads x 1024 x 64: scores then context, two GEMMs; Q, K, V and the output
+    cross DRAM once and the scores stay on chip; 32x32 PEs x 128 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: weight_stream_decode
+  kernel: gemv
+  precision: fp16
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.0013827883520416463
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.03076923076923077
+    dram_compulsory: 0.0013827883520416463
+    operand_delivery: null
+  source: 'soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once; 32x32 PEs x 128 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: elementwise_norm
+  kernel: layernorm
+  precision: fp16
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.0017293294270833335
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.03076923076923077
+    dram_compulsory: 0.0017293294270833335
+    operand_delivery: null
+  source: 'soc_kernels layernorm 4096x4096: read and write once; the array''s multiplier is idle, so a
+    PE contributes one op per clock, not two; 32x32 PEs x 128 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: gemm
+  precision: fp32
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.9668643592694226
+  binding: wavefront
+  bounds:
+    wavefront: 0.9668643592694226
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: soc_kernels gemm 2048x2048x2048; operands A, B and C cross DRAM once; 32x32 PEs x 26 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 136 GB/s
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: conv3x3
+  precision: fp32
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.9657299979880625
+  binding: wavefront
+  bounds:
+    wavefront: 0.9657299979880625
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels conv3x3 256->256 at 80x80, lowered to a GEMM: M = H x W, N = Cout, K = Cin x 9;
+    input, weights and output cross DRAM once; 32x32 PEs x 26 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: attention_prefill
+  kernel: sdpa
+  precision: fp32
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.6489740949061238
+  binding: wavefront
+  bounds:
+    wavefront: 0.6489740949061238
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels sdpa 16 heads x 1024 x 64: scores then context, two GEMMs; Q, K, V and the output
+    cross DRAM once and the scores stay on chip; 32x32 PEs x 26 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: weight_stream_decode
+  kernel: gemv
+  precision: fp32
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.006807573425435797
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.03029585798816568
+    dram_compulsory: 0.006807573425435797
+    operand_delivery: null
+  source: 'soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once; 32x32 PEs x 26 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+- kernel_class: elementwise_norm
+  kernel: layernorm
+  precision: fp32
+  sku: kpu_t128_32x32_lp5x8_7nm_tsmc_hpc
+  ceiling: 0.008513621794871794
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.03072797006723619
+    dram_compulsory: 0.008513621794871794
+    operand_delivery: null
+  source: 'soc_kernels layernorm 4096x4096: read and write once; the array''s multiplier is idle, so a
+    PE contributes one op per clock, not two; 32x32 PEs x 26 tile(s), fill 32 drain 32 cycles at 750 MHz,
+    DRAM 136 GB/s'
+  gaps:
+  - 'kpu_t128_32x32_lp5x8_7nm_tsmc_hpc: the tile class states no fabric interconnect, so operand delivery
+    is not bounded here'
+no_schedule:
+  fft: a radix-2 FFT is not a polyhedral GEMM schedule on this fabric
+  small_dense_linalg: a Cholesky factorization's dependences are triangular, not a rectangular wavefront
+  small_qp: an LU on a KKT system is triangular, as above
+  sparse_hash_scatter: scatter-add is addressing, not a wavefront
+  cost_volume_dp: no representative kernel exists yet
+  feature_track: no representative kernel exists yet
+  knn_tree: no representative kernel exists yet
+  raycast: no representative kernel exists yet
+  wavefront: no representative kernel exists yet
+  graph_search: no representative kernel exists yet
+  pixel_fixed_function: a fixed-function tile, not the PE fabric
+kind: kpu_domainflow_ceilings/1
+notes: 'Generated by tools/generate_kpu_ceilings.py; do not edit by hand. Each value is an UPPER BOUND
+  on what the fabric could sustain on that kernel: the least of the wavefront schedule, the compulsory
+  DRAM traffic and, where the tile class states an interconnect, operand delivery. A ceiling is not an
+  efficiency -- it says what cannot be exceeded, never what will be achieved -- so this is not an efficiency
+  table and no analysis prices a stage with it.'
