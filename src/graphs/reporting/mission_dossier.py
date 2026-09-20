@@ -53,89 +53,112 @@ def _engine_colour(kind) -> str:
 NODE_W, NODE_H, NODE_GAP = 250, 132, 78
 
 
-def pipeline_graph(dossier) -> str:
-    """One box per stage, left to right, with what it demands and what it
-    costs on the engine it was sized for."""
+#: Widest the pipeline may run before it wraps onto another row. A
+#: 2-stage pipeline reads as one line; an 18-stage one has to fold, or it
+#: scales down to an illegible strip.
+MAX_ROW_W = 1480
+
+
+def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
+    """One box per stage, in pipeline order, with what it demands and what
+    it costs on the engine it was sized for.
+
+    ``latency_per_frame`` only makes sense when the stages share a cadence.
+    A pipeline whose rates span 1 Hz to 110 MHz has no common frame, so the
+    caller ties this to whether a chain total is computable at all: the
+    per-node latency and the chain figure appear together or not at all.
+    """
     stages = list(dossier.stages)
     if not stages:
         return "<p>no stage to draw</p>"
     placements = {p.stage: p for p in dossier.placements}
-    source_w = 150
+    source_w, row_gap = 150, 40
     first_x = source_w + NODE_GAP          # the arrow needs the whole gap to itself
-    width = first_x + len(stages) * (NODE_W + NODE_GAP) + 130
-    height = NODE_H + 150
+    per_row = max(1, int((MAX_ROW_W - first_x - 130) // (NODE_W + NODE_GAP)))
+    rows = [stages[i:i + per_row] for i in range(0, len(stages), per_row)]
+    width = min(MAX_ROW_W,
+                first_x + max(len(r) for r in rows) * (NODE_W + NODE_GAP) + 130)
     top = 62
-    parts: List[str] = []
+    row_h = NODE_H + row_gap
+    height = top + len(rows) * row_h + 66
+    parts: List[str] = [
+        f'<text class="dtitle" x="8" y="20">The pipeline: {len(stages)} stages, '
+        f'{sum(1 for s in stages if s.on_reactive_chain)} on the sense-to-act chain</text>']
 
-    parts.append(f'<text class="dtitle" x="8" y="20">The pipeline, per frame at '
-                 f'{dossier.frame_hz:g} Hz</text>')
-
-    x = first_x
-    # The sensors, as the source. The edge label carries the traffic, so the
-    # box itself only says what the sensors are.
-    parts.append(f'<rect class="source" x="0" y="{top + 24}" width="{source_w}" '
-                 f'height="62" rx="9"/>')
-    mid = source_w / 2
-    parts.append(f'<text class="src-t" x="{mid}" y="{top + 48}">sensors</text>')
-    cams = dossier.sensors.get("mono")
-    if isinstance(cams, (list, tuple)) and len(cams) == 4:
-        parts.append(f'<text class="src-s" x="{mid}" y="{top + 68}">'
-                     f'{cams[0]} x {cams[1]}x{cams[2]} @ {cams[3]} Hz</text>')
-
-    for index, stage in enumerate(stages):
-        place = placements.get(stage.key)
-        kind = place.engine if place else "other"
-        colour = _engine_colour(kind)
-        # the arrow into this stage
-        parts.append(f'<line class="edge" x1="{x - NODE_GAP + 6}" y1="{top + NODE_H / 2}" '
-                     f'x2="{x - 7}" y2="{top + NODE_H / 2}" marker-end="url(#arrow)"/>')
-        parts.append(f'<text class="edge-l" x="{x - NODE_GAP / 2}" '
-                     f'y="{top + NODE_H / 2 - 10}">{si(stage.bytes_per_s, "B/s")}</text>')
-
-        parts.append(f'<rect class="node" x="{x}" y="{top}" width="{NODE_W}" '
-                     f'height="{NODE_H}" rx="10"/>')
-        parts.append(f'<rect class="node-bar" x="{x}" y="{top}" width="5" '
-                     f'height="{NODE_H}" style="fill:{colour}"/>')
-        parts.append(f'<text class="n-key" x="{x + 16}" y="{top + 24}">'
-                     f'{html.escape(stage.key)}</text>')
-        parts.append(f'<text class="n-tier" x="{x + NODE_W - 12}" y="{top + 24}">'
-                     f'{html.escape(stage.tier)}</text>')
-        parts.append(f'<text class="n-name" x="{x + 16}" y="{top + 41}">'
-                     f'{html.escape(stage.name)}</text>')
-        parts.append(f'<text class="n-kc" x="{x + 16}" y="{top + 58}">'
-                     f'{html.escape(stage.kernel_class)}</text>')
-        split = ", ".join(f"{share:.0%} {cls}" for cls, share in stage.class_split.items()
-                          if share > 0)
-        parts.append(f'<text class="n-row" x="{x + 16}" y="{top + 77}">'
-                     f'precision {html.escape(split)}</text>')
-        parts.append(f'<text class="n-row" x="{x + 16}" y="{top + 93}">'
-                     f'{si(stage.ops_per_s, "OP/s")} &#183; '
-                     f'{si(stage.ops_per_call, "OP")}/call</text>')
-        if place:
-            parts.append(f'<text class="n-lat" x="{x + 16}" y="{top + 116}" '
-                         f'style="fill:{colour}">{ms(place.seconds_per_frame)} on '
-                         f'{place.servers} {html.escape(kind)} '
-                         f'{"tile" if kind == "kpu" else "core"}'
-                         f'{"s" if place.servers != 1 else ""}</text>')
+    index = 0
+    for row_i, row in enumerate(rows):
+        y = top + row_i * row_h
+        x = first_x
+        if row_i == 0:
+            parts.append(f'<rect class="source" x="0" y="{y + 34}" width="{source_w}" '
+                         f'height="62" rx="9"/>')
+            mid = source_w / 2
+            parts.append(f'<text class="src-t" x="{mid}" y="{y + 58}">sensors</text>')
+            cams = dossier.sensors.get("mono")
+            if isinstance(cams, (list, tuple)) and len(cams) == 4:
+                parts.append(f'<text class="src-s" x="{mid}" y="{y + 78}">'
+                             f'{cams[0]} x {cams[1]}x{cams[2]} @ {cams[3]} Hz</text>')
         else:
-            parts.append(f'<text class="n-gap" x="{x + 16}" y="{top + 116}">'
-                         f'no engine can be sized for it</text>')
-        x += NODE_W + NODE_GAP
-
-    parts.append(f'<line class="edge" x1="{x - NODE_GAP + 4}" y1="{top + NODE_H / 2}" '
-                 f'x2="{x - 8}" y2="{top + NODE_H / 2}" marker-end="url(#arrow)"/>')
-    parts.append(f'<rect class="source" x="{x}" y="{top + 24}" width="114" height="62" rx="9"/>')
-    parts.append(f'<text class="src-t" x="{x + 57}" y="{top + 48}">tracks</text>')
-    parts.append(f'<text class="src-s" x="{x + 57}" y="{top + 66}">'
-                 f'{dossier.frame_hz:g} Hz</text>')
+            parts.append(f'<text class="src-s" x="{first_x - 22}" y="{y + NODE_H / 2 + 4}" '
+                         f'style="text-anchor:end">&#8627;</text>')
+        for stage in row:
+            place = placements.get(stage.key)
+            kind = place.engine if place else "other"
+            colour = _engine_colour(kind)
+            if stage is not row[0] or row_i == 0:
+                parts.append(f'<line class="edge" x1="{x - NODE_GAP + 6}" '
+                             f'y1="{y + NODE_H / 2}" x2="{x - 7}" y2="{y + NODE_H / 2}" '
+                             f'marker-end="url(#arrow)"/>')
+                parts.append(f'<text class="edge-l" x="{x - NODE_GAP / 2}" '
+                             f'y="{y + NODE_H / 2 - 10}">'
+                             f'{si(stage.bytes_per_s, "B/s")}</text>')
+            parts.append(f'<rect class="node" x="{x}" y="{y}" width="{NODE_W}" '
+                         f'height="{NODE_H}" rx="10"/>')
+            parts.append(f'<rect class="node-bar" x="{x}" y="{y}" width="5" '
+                         f'height="{NODE_H}" style="fill:{colour}"/>')
+            parts.append(f'<text class="n-key" x="{x + 16}" y="{y + 24}">'
+                         f'{html.escape(stage.key)}</text>')
+            parts.append(f'<text class="n-tier" x="{x + NODE_W - 12}" y="{y + 24}">'
+                         f'{html.escape(stage.tier)}'
+                         f'{" &#9679;" if stage.on_reactive_chain else ""}</text>')
+            parts.append(f'<text class="n-name" x="{x + 16}" y="{y + 41}">'
+                         f'{html.escape(stage.name[:34])}</text>')
+            parts.append(f'<text class="n-kc" x="{x + 16}" y="{y + 58}">'
+                         f'{html.escape(stage.kernel_class)}</text>')
+            split = ", ".join(f"{share:.0%} {cls}"
+                              for cls, share in stage.class_split.items() if share > 0)
+            parts.append(f'<text class="n-row" x="{x + 16}" y="{y + 77}">'
+                         f'precision {html.escape(split)}</text>')
+            parts.append(f'<text class="n-row" x="{x + 16}" y="{y + 93}">'
+                         f'{si(stage.ops_per_s, "OP/s")} &#183; '
+                         f'{si(stage.bytes_per_s, "B/s")}</text>')
+            if place:
+                fit = stage.fits.get(kind)
+                unit = "tile" if kind == "kpu" else "core"
+                need = "" if fit is None or not fit.fits else (
+                    f"needs {fit.servers_needed:.3g} {unit}"
+                    f"{'s' if fit.servers_needed != 1 else ''}")
+                if latency_per_frame:
+                    need += f" &#183; {ms(place.seconds_per_frame)}/frame"
+                parts.append(f'<text class="n-lat" x="{x + 16}" y="{y + 116}" '
+                             f'style="fill:{colour}">{need}</text>')
+            else:
+                parts.append(f'<text class="n-gap" x="{x + 16}" y="{y + 116}">'
+                             f'nothing prices it on either engine</text>')
+            x += NODE_W + NODE_GAP
+            index += 1
+        if row_i == len(rows) - 1:
+            parts.append(f'<line class="edge" x1="{x - NODE_GAP + 6}" '
+                         f'y1="{y + NODE_H / 2}" x2="{x - 7}" y2="{y + NODE_H / 2}" '
+                         f'marker-end="url(#arrow)"/>')
+            parts.append(f'<text class="src-s" x="{x + 26}" y="{y + NODE_H / 2 + 4}" '
+                         f'style="text-anchor:start">out</text>')
 
     chain = dossier.chain_seconds
     if chain is not None:
-        y = top + NODE_H + 40
-        parts.append(f'<line class="chain" x1="{first_x}" y1="{y}" '
-                     f'x2="{x - NODE_GAP}" y2="{y}"/>')
-        parts.append(f'<text class="chain-l" x="{first_x}" y="{y + 20}">'
-                     f'sense to track: <tspan class="strong">{ms(chain)}</tspan> '
+        y = top + len(rows) * row_h + 4
+        parts.append(f'<text class="chain-l" x="{first_x}" y="{y + 16}">'
+                     f'sense to act: <tspan class="strong">{ms(chain)}</tspan> '
                      f'against a {dossier.deadline_ms:g} ms deadline'
                      f' &#183; {dossier.deadline_headroom:.1f}x headroom</text>')
     return (f'<svg viewBox="0 0 {width} {height}" class="diagram" role="img" '
@@ -145,10 +168,6 @@ def pipeline_graph(dossier) -> str:
             f'<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs>'
             + "".join(parts) + "</svg>")
 
-
-# ---------------------------------------------------------------------------
-# 2. The configuration, as a block diagram
-# ---------------------------------------------------------------------------
 
 def gb(value: Optional[float]) -> str:
     if not value:
@@ -290,47 +309,55 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
 # ---------------------------------------------------------------------------
 
 def sizing_diagram(dossier, alternatives: Sequence[dict] = ()) -> str:
-    """One bar per engine: what the mission needs against what was
-    provisioned, with any rejected alternative drawn to the same scale."""
+    """One bar per engine, drawn as a share of what that engine has.
+
+    Tiles and cores are different units and must not share a scale. Every
+    row is therefore ``needed / provisioned``: a full bar is exactly the
+    capacity, and past that the bar clamps and turns, with the true ratio
+    in the label.
+    """
     rows: List[dict] = [
-        {"label": f"{p.engine.upper()}: {p.stages[0] if len(p.stages) == 1 else 'stages'}",
+        {"label": f"{p.engine.upper()}: {len(p.stages)} stage"
+                  f"{'s' if len(p.stages) != 1 else ''}",
          "unit": p.unit, "needed": p.servers_needed, "provisioned": p.servers_provisioned,
-         "kind": p.kind, "note": f"U {p.utilization:.0%} - E {p.efficiency:.1%}"
-                                 f" - {p.provenance}"}
+         "kind": p.kind,
+         "note": f"U {p.utilization:.0%} - E {p.efficiency:.1%} - {p.provenance}"}
         for p in dossier.provisions]
     rows += [dict(a) for a in alternatives]
     if not rows:
         return "<p>nothing to size</p>"
-    biggest = max(max(r["provisioned"], r["needed"]) for r in rows)
-    scale = 560 / max(biggest, 1e-9)
-    width, row_h = 980, 52
+    full, width, row_h = 520, 1180, 52
     height = 66 + len(rows) * row_h + 18
     title = ('<text class="dtitle" x="8" y="20">'
-             "What the mission needs, and what it was given</text>")
+             "What the mission needs, against what the design has</text>")
     subtitle = ('<text class="dsub" x="8" y="36">'
-                "solid = what the demand needs &#183; pale = what was provisioned</text>")
+                "a full bar is exactly the capacity; past it the bar clamps and the "
+                "number carries the overshoot</text>")
     parts = [title, subtitle]
     y = 62
     for row in rows:
         colour = _engine_colour(row["kind"])
+        ratio = (row["needed"] / row["provisioned"]) if row["provisioned"] else 0.0
+        over = ratio > 1.0
         parts.append(f'<text class="s-label" x="268" y="{y + 20}">'
                      f'{html.escape(row["label"])}</text>')
-        parts.append(f'<rect class="track" x="284" y="{y + 6}" '
-                     f'width="{row["provisioned"] * scale:.1f}" height="20" rx="3"/>')
-        # Quoted, always: an unquoted attribute value swallows the closing
-        # slash and everything after it nests inside this rect.
+        parts.append(f'<rect class="track" x="284" y="{y + 6}" width="{full}" '
+                     f'height="20" rx="3"/>')
         faded = ' opacity="0.55"' if row.get("rejected") else ""
-        parts.append(f'<rect x="284" y="{y + 6}" width="{max(2.0, row["needed"] * scale):.1f}" '
-                     f'height="20" rx="3" style="fill:{colour}"{faded}/>')
-        amount = (f'{row["needed"]:.2f} of {row["provisioned"]:g} '
-                  f'{row["unit"]}{"s" if row["provisioned"] != 1 else ""}')
-        parts.append(f'<text class="s-amount" x="{284 + max(row["provisioned"], row["needed"]) * scale + 12}" '
+        fill = "var(--warn)" if over else colour
+        parts.append(f'<rect x="284" y="{y + 6}" '
+                     f'width="{max(2.0, min(ratio, 1.0) * full):.1f}" '
+                     f'height="20" rx="3" style="fill:{fill}"{faded}/>')
+        amount = (f'{row["needed"]:.3g} of {row["provisioned"]:g} '
+                  f'{row["unit"]}{"s" if row["provisioned"] != 1 else ""}'
+                  f'{f" - {ratio:.0f}x over" if over else ""}')
+        parts.append(f'<text class="s-amount{" over" if over else ""}" x="{284 + full + 12}" '
                      f'y="{y + 20}">{html.escape(amount)}</text>')
         parts.append(f'<text class="s-note" x="268" y="{y + 38}">'
                      f'{html.escape(row.get("note", ""))}</text>')
         y += row_h
     return (f'<svg viewBox="0 0 {width} {height}" class="diagram" role="img" '
-            f'aria-label="engine sizing, needed against provisioned">'
+            f'aria-label="engine sizing, needed against what the design has">'
             + "".join(parts) + "</svg>")
 
 
@@ -352,7 +379,7 @@ def requirements_table(rows: Sequence[Tuple[str, str, str, str]]) -> str:
             f'<th>status</th></tr></thead><tbody>{body}</tbody></table>')
 
 
-def demand_table(dossier) -> str:
+def demand_table(dossier, latency_per_frame: bool = True) -> str:
     placements = {p.stage: p for p in dossier.placements}
     body = []
     for stage in dossier.stages:
@@ -368,11 +395,14 @@ def demand_table(dossier) -> str:
             f'<td class="num">{si(stage.bytes_per_call, "B")}</td>'
             f'<td class="num">{si(stage.ops_per_s, "OP/s")}</td>'
             f'<td class="num">{si(stage.bytes_per_s, "B/s")}</td>'
-            f'<td class="num">{ms(place.seconds_per_frame) if place else "-"}</td></tr>')
+            + (f'<td class="num">{ms(place.seconds_per_frame) if place else "-"}</td>'
+               if latency_per_frame else "")
+            + '</tr>')
     return ('<table><thead><tr><th>tier</th><th>stage</th><th>kernel class</th>'
             '<th>precision</th><th>rate</th><th>OP/call</th><th>B/call</th>'
-            '<th>OP/s</th><th>B/s</th><th>latency/frame</th></tr></thead>'
-            f'<tbody>{"".join(body)}</tbody></table>')
+            '<th>OP/s</th><th>B/s</th>'
+            + ('<th>latency/frame</th>' if latency_per_frame else '')
+            + f'</tr></thead><tbody>{"".join(body)}</tbody></table>')
 
 
 def fit_table(dossier) -> str:
@@ -469,6 +499,7 @@ line.idle-edge { stroke-dasharray:3 3; opacity:.5; }
 text.s-label { font-size:12.5px; fill:var(--ink); text-anchor:end; font-weight:600; }
 text.s-note { font-size:10.5px; fill:var(--ink-3); text-anchor:end; }
 text.s-amount { font-size:11.5px; fill:var(--ink-2); }
+text.s-amount.over { fill:var(--warn); font-weight:650; }
 table { border-collapse:collapse; margin-top:12px; font-size:13px; width:100%; }
 th, td { text-align:left; padding:7px 12px 7px 0; border-bottom:1px solid var(--rule);
   color:var(--ink-2); vertical-align:top; }
@@ -524,13 +555,13 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 
 <h2>3. The workload</h2>
 {sections.get("workload", "")}
-<div class="panel">{pipeline_graph(dossier)}</div>
+<div class="panel">{pipeline_graph(dossier, dossier.chain_seconds is not None)}</div>
 {legend}
 {sections.get("workload_note", "")}
 
 <h2>4. What it demands</h2>
 {sections.get("demand", "")}
-<div class="panel">{demand_table(dossier)}</div>
+<div class="panel">{demand_table(dossier, dossier.chain_seconds is not None)}</div>
 {sections.get("demand_note", "")}
 
 <h2>5. The configuration</h2>

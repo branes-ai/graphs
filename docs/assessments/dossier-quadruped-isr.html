@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quadruped: ISR (dismounted, comms-denied) - sizing a CPU + KPU SoC</title>
+<style>
+:root { color-scheme: light dark; --surface:#fcfcfb; --panel:#ffffff; --ink:#0b0b0b;
+  --ink-2:#52514e; --ink-3:#78766f; --rule:#e2e1dc; --track:#eceae5; --soft:#f7f6f3;
+  --cpu:#256abf; --kpu:#eb6834; --other:#7f7e76; --fill:#256abf; --warn:#c93434; --gap:#8a8880; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --surface:#1a1a19; --panel:#232322; --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
+  --rule:#34342f; --track:#2c2c29; --soft:#1f1f1e; --cpu:#3987e5; --kpu:#d95926; --other:#a3a199; --fill:#3987e5; --warn:#e66767; --gap:#9a9890; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--surface); color:var(--ink);
+  font:15.5px/1.65 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+main { max-width:1180px; margin:0 auto; padding:34px 18px 90px; }
+h1 { font-size:29px; margin:0 0 8px; letter-spacing:-0.015em; line-height:1.2; }
+h2 { font-size:21px; margin:44px 0 6px; letter-spacing:-0.01em;
+  padding-top:14px; border-top:1px solid var(--rule); }
+h3 { font-size:16px; margin:26px 0 6px; }
+p, li { color:var(--ink-2); max-width:76ch; }
+.lede { font-size:17.5px; color:var(--ink); max-width:70ch; }
+.eyebrow { font-size:12px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-3); margin:0 0 6px; }
+.verdict { margin:22px 0 6px; padding:16px 18px; border:1px solid var(--rule);
+  border-left:4px solid var(--fill); border-radius:10px; background:var(--panel);
+  font-size:16px; color:var(--ink); max-width:none; }
+.verdict b { font-weight:650; }
+.panel { background:var(--panel); border:1px solid var(--rule); border-radius:12px;
+  padding:16px 14px; margin-top:14px; overflow-x:auto; }
+svg.diagram { width:100%; height:auto; display:block; min-width:900px; }
+text { font-size:12px; fill:var(--ink); }
+text.dtitle { font-size:13px; font-weight:650; fill:var(--ink); }
+text.dsub { font-size:11px; fill:var(--ink-3); }
+rect.node { fill:var(--soft); stroke:var(--rule); stroke-width:1; }
+rect.node.idle { fill:none; stroke-dasharray:4 3; }
+rect.source { fill:none; stroke:var(--rule); stroke-width:1; stroke-dasharray:4 3; }
+rect.bus { fill:var(--track); }
+rect.track { fill:var(--track); }
+rect.fill { fill:var(--fill); }
+rect.fill.over { fill:var(--warn); }
+text.src-t { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--ink-2); }
+text.src-s { font-size:10.5px; text-anchor:middle; fill:var(--ink-3); }
+text.n-key { font-size:15px; font-weight:670; fill:var(--ink); }
+text.n-name { font-size:11.5px; fill:var(--ink-2); }
+text.n-kc { font-size:11px; fill:var(--ink-3); font-family:ui-monospace,monospace; }
+text.n-tier { font-size:10px; fill:var(--ink-3); text-anchor:end; }
+text.n-row { font-size:11px; fill:var(--ink-2); }
+text.n-lat { font-size:12.5px; font-weight:640; }
+text.n-gap { font-size:11px; fill:var(--gap); font-style:italic; }
+line.edge { stroke:var(--ink-3); stroke-width:1.4; }
+text.edge-l { font-size:10px; fill:var(--ink-3); text-anchor:middle; }
+line.chain { stroke:var(--ink-3); stroke-width:1; stroke-dasharray:3 3; }
+text.chain-l { font-size:12px; fill:var(--ink-2); }
+text.chain-l .strong, tspan.strong { font-weight:680; fill:var(--ink); }
+text.b-title { font-size:14px; font-weight:680; }
+text.b-sub { font-size:11.5px; fill:var(--ink-2); text-anchor:end; }
+text.b-row { font-size:11px; fill:var(--ink-3); }
+text.b-k { font-size:12px; font-weight:700; fill:var(--ink-3); }
+text.b-v { font-size:12.5px; fill:var(--ink); }
+text.b-note { font-size:10px; fill:var(--ink-3); text-anchor:end; }
+text.b-idle { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--ink-3); }
+text.b-idle-s { font-size:10px; text-anchor:middle; fill:var(--ink-3); }
+text.bus-l { font-size:11.5px; font-weight:600; fill:var(--ink-2); }
+text.bus-r { font-size:11px; fill:var(--ink-3); text-anchor:end; }
+text.link-l { font-size:11px; fill:var(--ink-2); font-variant-numeric:tabular-nums; }
+text.ingress { font-size:11px; fill:var(--ink-3); }
+line.idle-edge { stroke-dasharray:3 3; opacity:.5; }
+text.s-label { font-size:12.5px; fill:var(--ink); text-anchor:end; font-weight:600; }
+text.s-note { font-size:10.5px; fill:var(--ink-3); text-anchor:end; }
+text.s-amount { font-size:11.5px; fill:var(--ink-2); }
+text.s-amount.over { fill:var(--warn); font-weight:650; }
+table { border-collapse:collapse; margin-top:12px; font-size:13px; width:100%; }
+th, td { text-align:left; padding:7px 12px 7px 0; border-bottom:1px solid var(--rule);
+  color:var(--ink-2); vertical-align:top; }
+th { color:var(--ink); font-weight:650; font-size:12px; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+td.src, span.src { font-size:11px; color:var(--ink-3); }
+tr.gap td { color:var(--gap); }
+td.gapcell { color:var(--gap); font-style:italic; font-size:12px; }
+.legend { display:flex; flex-wrap:wrap; gap:16px; align-items:center; font-size:12.5px;
+  color:var(--ink-2); margin-top:12px; }
+.key { display:inline-flex; align-items:center; gap:6px; }
+.chip { width:20px; height:11px; border-radius:2px; display:inline-block; }
+.note { font-size:13px; color:var(--ink-3); border-left:2px solid var(--rule);
+  padding-left:12px; margin:14px 0; max-width:72ch; }
+</style></head>
+<body><main>
+<p class="eyebrow">Mission dossier &#183; kpu_t128_n7 on
+tsmc_n7</p>
+<h1>Quadruped: ISR (dismounted, comms-denied)</h1>
+
+<p class="lede">Unstructured terrain, onboard 2 B VLM, no datalink assumption. 18 stages,
+60 W, 150 ms. What has to be true of the CPU and the
+accelerator for that to close.</p>
+
+<div class="verdict warn">
+<b>Nothing in this parts list serves this mission.</b> It needs
+36 CPU cores against the 12 the design has, and
+1862 KPU tiles against 128 &mdash; and it asks
+198 GB/s of a 204.8 GB/s memory
+interface, 97% of it.
+3 stages cannot be priced at all, so every one of those figures is a
+floor.<br><br>
+That is not one problem but three, and they have different owners:
+<b>vlm</b> is 99.7% of the
+accelerator demand, <b>tsdf</b> is
+51% of the CPU demand, and
+<b>vlm</b> alone is
+64% of the memory interface.
+</div>
+
+<h2>1. The use case</h2>
+
+<p>A legged robot carrying ISR for a dismounted team, over unstructured terrain, with no
+datalink to lean on. Everything runs on the animal: stereo and lidar for terrain it has never
+seen, visual-inertial odometry because GPS is not assumed, a detector and a 2-billion-parameter
+vision-language model for what it is looking at, and a full reactive control stack so it stays
+upright while doing all of it.</p>
+<p>Comms-denied is the whole constraint. There is no cloud to hand the VLM to, no operator in
+the loop, and a 60 W budget that has to cover the compute alongside the actuators.</p>
+<p>4 x 1280x720 streams at 30 Hz. 18 stages over
+7 tiers, 11
+of them on the sense-to-act chain that the 150 ms deadline applies to.</p>
+
+<h2>2. Product requirements</h2>
+
+<p>What the product must do, and where each figure comes from. Anything the catalogue does not
+state is marked <b>NOT STATED</b> rather than assumed.</p>
+<div class="panel"><table><thead><tr><th>requirement</th><th>figure</th><th>where it comes from</th><th>status</th></tr></thead><tbody><tr class=""><td>Camera ingest</td><td class="num">111 Mpx/s</td><td class="src">mission profile rates_hz.mono</td><td>NOT MET: 12 cores at 301%</td></tr><tr class=""><td>Detection throughput</td><td class="num">70 inferences/s</td><td class="src">mission profile rates_hz.det</td><td>NOT MET: 128 tiles at 1455%</td></tr><tr class=""><td>Sense-to-act latency</td><td class="num">150 ms budget</td><td class="src">mission profile deadline_ms</td><td>NOT CHECKED: 3 stage(s) unpriced, so a chain total would omit them</td></tr><tr class=""><td>Power budget</td><td class="num">60 W</td><td class="src">mission profile power_budget_w</td><td>met: datapath floor 1941 mW = 3.2%</td></tr><tr class="gap"><td>Full-SoC power</td><td class="num">-</td><td class="src">no memory, clock-tree, leakage or idle term in this model</td><td>NOT STATED</td></tr><tr class=""><td>Memory bandwidth</td><td class="num">198.46 GB/s demand</td><td class="src">sum of per-stage byte counts</td><td>met: 96.9% of 204.8 GB/s peak -- and a floor, with unpriced stages left out</td></tr><tr class="gap"><td>Thermal limit</td><td class="num">-</td><td class="src">no cooling solution attached to this design</td><td>NOT STATED</td></tr><tr class="gap"><td>Size / volume</td><td class="num">-</td><td class="src">not a field of the mission profile</td><td>NOT STATED</td></tr><tr class="gap"><td>Weight</td><td class="num">-</td><td class="src">not a field of the mission profile</td><td>NOT STATED</td></tr><tr class="gap"><td>Silicon area</td><td class="num">KPU sized, CPU open</td><td class="src">KPU from a fit over 4 catalogued cores; no absolute core area is published for the CPU baseline</td><td>NOT STATED</td></tr></tbody></table></div>
+
+<p class="note"><b>Thermal and SWaP</b> are yours to set; they are not in our model.
+<b>Full-SoC power</b> is a different kind of gap: 1941 mW is
+arithmetic only &mdash; no memory traffic, clock tree, leakage or idle. On a mission moving
+198 GB/s the memory term alone will dwarf it. <b>CPU core
+area</b> is the one gap you can close, and section 7 says why it is open.</p>
+
+<h2>3. The workload</h2>
+
+<p>18 stages, from the sensor front end through state estimation, mapping and
+semantics to reactive control and actuation. They do not run at one rate: from
+1 /s to
+111 M/s in their own units, which is why each box
+carries what it demands of an engine rather than a share of some common frame.</p>
+<p>The arithmetic is concentrated. <code>det</code> alone is
+60% of the operations. The bytes are concentrated somewhere
+else: <code>vlm</code> is
+66% of the traffic.
+Those two facts pull the design in different directions, and section 6 is about which one
+wins.</p>
+<div class="panel"><svg viewBox="0 0 1342 1160" class="diagram" role="img" aria-label="the mission pipeline, one box per stage"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">The pipeline: 18 stages, 11 on the sense-to-act chain</text><rect class="source" x="0" y="96" width="150" height="62" rx="9"/><text class="src-t" x="75.0" y="120">sensors</text><text class="src-s" x="75.0" y="140">4 x 1280x720 @ 30 Hz</text><line class="edge" x1="156" y1="128.0" x2="221" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="189.0" y="118.0">128 MB/s</text><rect class="node" x="228" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="62" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="86">lidar</text><text class="n-tier" x="466" y="86">T1 &#9679;</text><text class="n-name" x="244" y="103">LiDAR deskew + voxel downsample</text><text class="n-kc" x="244" y="120">sparse_hash_scatter</text><text class="n-row" x="244" y="139">precision 100% C</text><text class="n-row" x="244" y="155">102 MOP/s &#183; 128 MB/s</text><text class="n-lat" x="244" y="178" style="fill:var(--cpu)">needs 0.439 cores</text><line class="edge" x1="484" y1="128.0" x2="549" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="118.0">48.8 GB/s</text><rect class="node" x="556" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="62" width="5" height="132" style="fill:var(--other)"/><text class="n-key" x="572" y="86">sgm</text><text class="n-tier" x="794" y="86">T1 &#9679;</text><text class="n-name" x="572" y="103">Stereo rectify + SGM disparity</text><text class="n-kc" x="572" y="120">cost_volume_dp</text><text class="n-row" x="572" y="139">precision 85% A, 15% C</text><text class="n-row" x="572" y="155">192 GOP/s &#183; 48.8 GB/s</text><text class="n-gap" x="572" y="178">nothing prices it on either engine</text><line class="edge" x1="812" y1="128.0" x2="877" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="845.0" y="118.0">286 MB/s</text><rect class="node" x="884" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="884" y="62" width="5" height="132" style="fill:var(--other)"/><text class="n-key" x="900" y="86">radar</text><text class="n-tier" x="1122" y="86">T1</text><text class="n-name" x="900" y="103">Radar FMCW post-processing</text><text class="n-kc" x="900" y="120">fft</text><text class="n-row" x="900" y="139">precision 70% A, 30% C</text><text class="n-row" x="900" y="155">834 MOP/s &#183; 286 MB/s</text><text class="n-gap" x="900" y="178">nothing prices it on either engine</text><text class="src-s" x="206" y="304.0" style="text-anchor:end">&#8627;</text><rect class="node" x="228" y="234" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="234" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="258">mono</text><text class="n-tier" x="466" y="258">T1 &#9679;</text><text class="n-name" x="244" y="275">Mono camera front-end</text><text class="n-kc" x="244" y="292">pixel_fixed_function</text><text class="n-row" x="244" y="311">precision 100% C</text><text class="n-row" x="244" y="327">4.42 GOP/s &#183; 442 MB/s</text><text class="n-lat" x="244" y="350" style="fill:var(--cpu)">needs 2.81 cores</text><line class="edge" x1="484" y1="300.0" x2="549" y2="300.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="290.0">629 MB/s</text><rect class="node" x="556" y="234" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="234" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="572" y="258">lio</text><text class="n-tier" x="794" y="258">T2 &#9679;</text><text class="n-name" x="572" y="275">LiDAR-inertial odometry</text><text class="n-kc" x="572" y="292">small_dense_linalg</text><text class="n-row" x="572" y="311">precision 100% C</text><text class="n-row" x="572" y="327">3.69 GOP/s &#183; 629 MB/s</text><text class="n-lat" x="572" y="350" style="fill:var(--cpu)">needs 1.23 cores</text><line class="edge" x1="812" y1="300.0" x2="877" y2="300.0" marker-end="url(#arrow)"/><text class="edge-l" x="845.0" y="290.0">1.64 GB/s</text><rect class="node" x="884" y="234" width="250" height="132" rx="10"/><rect class="node-bar" x="884" y="234" width="5" height="132" style="fill:var(--other)"/><text class="n-key" x="900" y="258">vio</text><text class="n-tier" x="1122" y="258">T2 &#9679;</text><text class="n-name" x="900" y="275">Visual front-end (per camera)</text><text class="n-kc" x="900" y="292">feature_track</text><text class="n-row" x="900" y="311">precision 60% A, 40% C</text><text class="n-row" x="900" y="327">11.6 GOP/s &#183; 1.64 GB/s</text><text class="n-gap" x="900" y="350">nothing prices it on either engine</text><text class="src-s" x="206" y="476.0" style="text-anchor:end">&#8627;</text><rect class="node" x="228" y="406" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="406" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="430">ba</text><text class="n-tier" x="466" y="430">T2</text><text class="n-name" x="244" y="447">Windowed bundle adjustment</text><text class="n-kc" x="244" y="464">small_dense_linalg</text><text class="n-row" x="244" y="483">precision 100% C</text><text class="n-row" x="244" y="499">3.38 GOP/s &#183; 76 MB/s</text><text class="n-lat" x="244" y="522" style="fill:var(--cpu)">needs 1.13 cores</text><line class="edge" x1="484" y1="472.0" x2="549" y2="472.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="462.0">716 MB/s</text><rect class="node" x="556" y="406" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="406" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="572" y="430">tsdf</text><text class="n-tier" x="794" y="430">T3</text><text class="n-name" x="572" y="447">TSDF integration</text><text class="n-kc" x="572" y="464">raycast</text><text class="n-row" x="572" y="483">precision 100% C</text><text class="n-row" x="572" y="499">2.22 GOP/s &#183; 716 MB/s</text><text class="n-lat" x="572" y="522" style="fill:var(--cpu)">needs 18.6 cores</text><line class="edge" x1="812" y1="472.0" x2="877" y2="472.0" marker-end="url(#arrow)"/><text class="edge-l" x="845.0" y="462.0">127 MB/s</text><rect class="node" x="884" y="406" width="250" height="132" rx="10"/><rect class="node-bar" x="884" y="406" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="900" y="430">esdf</text><text class="n-tier" x="1122" y="430">T3 &#9679;</text><text class="n-name" x="900" y="447">ESDF propagation</text><text class="n-kc" x="900" y="464">wavefront</text><text class="n-row" x="900" y="483">precision 100% C</text><text class="n-row" x="900" y="499">6.24 GOP/s &#183; 127 MB/s</text><text class="n-lat" x="900" y="522" style="fill:var(--cpu)">needs 5.97 cores</text><text class="src-s" x="206" y="648.0" style="text-anchor:end">&#8627;</text><rect class="node" x="228" y="578" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="578" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="244" y="602">det</text><text class="n-tier" x="466" y="602">T4</text><text class="n-name" x="244" y="619">Open-vocabulary detection</text><text class="n-kc" x="244" y="636">dense_conv_gemm</text><text class="n-row" x="244" y="655">precision 85% A, 15% B</text><text class="n-row" x="244" y="671">6.32 TOP/s &#183; 11.9 GB/s</text><text class="n-lat" x="244" y="694" style="fill:var(--kpu)">needs 4.85 tiles</text><line class="edge" x1="484" y1="644.0" x2="549" y2="644.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="634.0">130 GB/s</text><rect class="node" x="556" y="578" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="578" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="572" y="602">vlm</text><text class="n-tier" x="794" y="602">T4</text><text class="n-name" x="572" y="619">Onboard vision-language reasoning</text><text class="n-kc" x="572" y="636">weight_stream_decode</text><text class="n-row" x="572" y="655">precision 60% A, 40% B</text><text class="n-row" x="572" y="671">2.82 TOP/s &#183; 130 GB/s</text><text class="n-lat" x="572" y="694" style="fill:var(--kpu)">needs 1.86e+03 tiles</text><line class="edge" x1="812" y1="644.0" x2="877" y2="644.0" marker-end="url(#arrow)"/><text class="edge-l" x="845.0" y="634.0">346 MB/s</text><rect class="node" x="884" y="578" width="250" height="132" rx="10"/><rect class="node-bar" x="884" y="578" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="900" y="602">gain</text><text class="n-tier" x="1122" y="602">T5</text><text class="n-name" x="900" y="619">Volumetric information-gain evalua</text><text class="n-kc" x="900" y="636">raycast</text><text class="n-row" x="900" y="655">precision 100% C</text><text class="n-row" x="900" y="671">651 MOP/s &#183; 346 MB/s</text><text class="n-lat" x="900" y="694" style="fill:var(--cpu)">needs 5.44 cores</text><text class="src-s" x="206" y="820.0" style="text-anchor:end">&#8627;</text><rect class="node" x="228" y="750" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="750" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="774">graph</text><text class="n-tier" x="466" y="774">T5</text><text class="n-name" x="244" y="791">Sampling-based graph + collision c</text><text class="n-kc" x="244" y="808">graph_search</text><text class="n-row" x="244" y="827">precision 100% C</text><text class="n-row" x="244" y="843">48 MOP/s &#183; 30.7 MB/s</text><text class="n-lat" x="244" y="866" style="fill:var(--cpu)">needs 0.144 cores</text><line class="edge" x1="484" y1="816.0" x2="549" y2="816.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="806.0">1.63 GB/s</text><rect class="node" x="556" y="750" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="750" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="572" y="774">sdfenc</text><text class="n-tier" x="794" y="774">T6 &#9679;</text><text class="n-name" x="572" y="791">Learned SDF encoder (neural SDF-MP</text><text class="n-kc" x="572" y="808">dense_conv_gemm</text><text class="n-row" x="572" y="827">precision 85% A, 15% B</text><text class="n-row" x="572" y="843">661 GOP/s &#183; 1.63 GB/s</text><text class="n-lat" x="572" y="866" style="fill:var(--kpu)">needs 0.507 tiles</text><line class="edge" x1="812" y1="816.0" x2="877" y2="816.0" marker-end="url(#arrow)"/><text class="edge-l" x="845.0" y="806.0">1.38 GB/s</text><rect class="node" x="884" y="750" width="250" height="132" rx="10"/><rect class="node-bar" x="884" y="750" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="900" y="774">policy</text><text class="n-tier" x="1122" y="774">T6 &#9679;</text><text class="n-name" x="900" y="791">Learned navigation policy (DRL)</text><text class="n-kc" x="900" y="808">dense_conv_gemm</text><text class="n-row" x="900" y="827">precision 85% A, 15% B</text><text class="n-row" x="900" y="843">453 GOP/s &#183; 1.38 GB/s</text><text class="n-lat" x="900" y="866" style="fill:var(--kpu)">needs 0.347 tiles</text><text class="src-s" x="206" y="992.0" style="text-anchor:end">&#8627;</text><rect class="node" x="228" y="922" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="922" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="946">mpc</text><text class="n-tier" x="466" y="946">T6 &#9679;</text><text class="n-name" x="244" y="963">Nonlinear MPC solve (quadrotor, 4 </text><text class="n-kc" x="244" y="980">small_qp</text><text class="n-row" x="244" y="999">precision 100% C</text><text class="n-row" x="244" y="1015">1.69 GOP/s &#183; 117 MB/s</text><text class="n-lat" x="244" y="1038" style="fill:var(--cpu)">needs 0.372 cores</text><line class="edge" x1="484" y1="988.0" x2="549" y2="988.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="978.0">2.28 MB/s</text><rect class="node" x="556" y="922" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="922" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="572" y="946">cbf</text><text class="n-tier" x="794" y="946">T6 &#9679;</text><text class="n-name" x="572" y="963">Composite CBF safety filter</text><text class="n-kc" x="572" y="980">sparse_hash_scatter</text><text class="n-row" x="572" y="999">precision 100% C</text><text class="n-row" x="572" y="1015">7.97 MOP/s &#183; 2.28 MB/s</text><text class="n-lat" x="572" y="1038" style="fill:var(--cpu)">needs 0.0343 cores</text><line class="edge" x1="812" y1="988.0" x2="877" y2="988.0" marker-end="url(#arrow)"/><text class="edge-l" x="845.0" y="978.0">1.15 MB/s</text><rect class="node" x="884" y="922" width="250" height="132" rx="10"/><rect class="node-bar" x="884" y="922" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="900" y="946">ctrl</text><text class="n-tier" x="1122" y="946">T7 &#9679;</text><text class="n-name" x="900" y="963">Attitude / rate or joint servo con</text><text class="n-kc" x="900" y="980">small_dense_linalg</text><text class="n-row" x="900" y="999">precision 100% C</text><text class="n-row" x="900" y="1015">5.28 MOP/s &#183; 1.15 MB/s</text><text class="n-lat" x="900" y="1038" style="fill:var(--cpu)">needs 0.00177 cores</text><line class="edge" x1="1140" y1="988.0" x2="1205" y2="988.0" marker-end="url(#arrow)"/><text class="src-s" x="1238" y="992.0" style="text-anchor:start">out</text></svg></div>
+<div class="legend"><span class="key"><span class="chip" style="background:var(--cpu)"></span>Andes RISC-V</span><span class="key"><span class="chip" style="background:var(--kpu)"></span>KPU</span><span class="key"><span class="chip" style="background:var(--gap)"></span>a figure nothing states</span></div>
+
+<p class="note">No end-to-end latency is quoted. 3 stage(s) on this
+pipeline have no efficiency figure on either engine, so any chain total would silently omit
+them. The deadline cannot be checked until those are measured.</p>
+
+<h2>4. What it demands</h2>
+
+<p>Per stage: the kernel class its arithmetic belongs to, the precision it needs, its rate, and
+the operations and bytes that follow. <b>Kernel class</b> is the level at which hardware
+efficiency is a real number, so it is the level everything is measured and sized at.</p>
+<div class="panel"><table><thead><tr><th>tier</th><th>stage</th><th>kernel class</th><th>precision</th><th>rate</th><th>OP/call</th><th>B/call</th><th>OP/s</th><th>B/s</th></tr></thead><tbody><tr><td>T1</td><td><b>lidar</b></td><td>sparse_hash_scatter</td><td>100% C</td><td class="num">600 k/s input point</td><td class="num">170 OP</td><td class="num">214 B</td><td class="num">102 MOP/s</td><td class="num">128 MB/s</td></tr><tr><td>T1</td><td><b>sgm</b></td><td>cost_volume_dp</td><td>85% A, 15% C</td><td class="num">30 /s stereo frame-pair</td><td class="num">6.39 GOP</td><td class="num">1.63 GB</td><td class="num">192 GOP/s</td><td class="num">48.8 GB/s</td></tr><tr><td>T1</td><td><b>radar</b></td><td>fft</td><td>70% A, 30% C</td><td class="num">10 /s radar scan</td><td class="num">83.4 MOP</td><td class="num">28.6 MB</td><td class="num">834 MOP/s</td><td class="num">286 MB/s</td></tr><tr><td>T1</td><td><b>mono</b></td><td>pixel_fixed_function</td><td>100% C</td><td class="num">111 M/s pixel</td><td class="num">40 OP</td><td class="num">4 B</td><td class="num">4.42 GOP/s</td><td class="num">442 MB/s</td></tr><tr><td>T2</td><td><b>lio</b></td><td>small_dense_linalg</td><td>100% C</td><td class="num">600 k/s input point</td><td class="num">6.14 kOP</td><td class="num">1.05 kB</td><td class="num">3.69 GOP/s</td><td class="num">629 MB/s</td></tr><tr><td>T2</td><td><b>vio</b></td><td>feature_track</td><td>60% A, 40% C</td><td class="num">93.3 M/s pixel</td><td class="num">124 OP</td><td class="num">17.6 B</td><td class="num">11.6 GOP/s</td><td class="num">1.64 GB/s</td></tr><tr><td>T2</td><td><b>ba</b></td><td>small_dense_linalg</td><td>100% C</td><td class="num">20 /s solve</td><td class="num">169 MOP</td><td class="num">3.8 MB</td><td class="num">3.38 GOP/s</td><td class="num">76 MB/s</td></tr><tr><td>T3</td><td><b>tsdf</b></td><td>raycast</td><td>100% C</td><td class="num">600 k/s measured point</td><td class="num">3.71 kOP</td><td class="num">1.19 kB</td><td class="num">2.22 GOP/s</td><td class="num">716 MB/s</td></tr><tr><td>T3</td><td><b>esdf</b></td><td>wavefront</td><td>100% C</td><td class="num">8 /s map update</td><td class="num">780 MOP</td><td class="num">15.8 MB</td><td class="num">6.24 GOP/s</td><td class="num">127 MB/s</td></tr><tr><td>T4</td><td><b>det</b></td><td>dense_conv_gemm</td><td>85% A, 15% B</td><td class="num">70 /s inference</td><td class="num">90.3 GOP</td><td class="num">170 MB</td><td class="num">6.32 TOP/s</td><td class="num">11.9 GB/s</td></tr><tr><td>T4</td><td><b>vlm</b></td><td>weight_stream_decode</td><td>60% A, 40% B</td><td class="num">1 /s query</td><td class="num">2.82 TOP</td><td class="num">130 GB</td><td class="num">2.82 TOP/s</td><td class="num">130 GB/s</td></tr><tr><td>T5</td><td><b>gain</b></td><td>raycast</td><td>100% C</td><td class="num">1.5 k/s candidate viewpoint</td><td class="num">434 kOP</td><td class="num">230 kB</td><td class="num">651 MOP/s</td><td class="num">346 MB/s</td></tr><tr><td>T5</td><td><b>graph</b></td><td>graph_search</td><td>100% C</td><td class="num">3 /s replan</td><td class="num">16 MOP</td><td class="num">10.2 MB</td><td class="num">48 MOP/s</td><td class="num">30.7 MB/s</td></tr><tr><td>T6</td><td><b>sdfenc</b></td><td>dense_conv_gemm</td><td>85% A, 15% B</td><td class="num">30 /s call</td><td class="num">22 GOP</td><td class="num">54.2 MB</td><td class="num">661 GOP/s</td><td class="num">1.63 GB/s</td></tr><tr><td>T6</td><td><b>policy</b></td><td>dense_conv_gemm</td><td>85% A, 15% B</td><td class="num">50 /s call</td><td class="num">9.05 GOP</td><td class="num">27.6 MB</td><td class="num">453 GOP/s</td><td class="num">1.38 GB/s</td></tr><tr><td>T6</td><td><b>mpc</b></td><td>small_qp</td><td>100% C</td><td class="num">250 /s solve</td><td class="num">6.76 MOP</td><td class="num">468 kB</td><td class="num">1.69 GOP/s</td><td class="num">117 MB/s</td></tr><tr><td>T6</td><td><b>cbf</b></td><td>sparse_hash_scatter</td><td>100% C</td><td class="num">250 /s solve</td><td class="num">31.9 kOP</td><td class="num">9.13 kB</td><td class="num">7.97 MOP/s</td><td class="num">2.28 MB/s</td></tr><tr><td>T7</td><td><b>ctrl</b></td><td>small_dense_linalg</td><td>100% C</td><td class="num">12 k/s update per DoF</td><td class="num">440 OP</td><td class="num">96 B</td><td class="num">5.28 MOP/s</td><td class="num">1.15 MB/s</td></tr></tbody></table></div>
+
+<p class="note"><b>3 stages cannot be priced on either engine:</b>
+<code>sgm</code>, <code>radar</code>, <code>vio</code>. Between them they are
+1.9% of the operations but
+26% of the
+bytes. Every compute and bandwidth figure below therefore understates the mission.</p>
+
+<h2>5. The configuration</h2>
+
+<p>One KPU fabric, a cluster of Andes RISC-V cores, a shared fabric and one LPDDR5 interface at
+tsmc_n7. Engine counts are the <i>output</i> of section 6, not an input.</p>
+<p class="note">The CPU block carries <b>baseline</b> figures: we have measured an Arm
+Cortex-A78AE, not an Andes core. They stand in for the socket until you replace them, which is
+what section 6 asks for. Nothing here is a claim about Andes silicon.</p>
+<p>Three numbers per compute block, because any two mislead: <b>X</b>, the throughput one server
+actually delivers; <b>U</b>, the share of wall clock it is busy; <b>E</b>, the share of its dense
+peak that X represents. They compose exactly &mdash; <b>demand = X &times; servers &times;
+U</b>.</p>
+<div class="panel"><svg viewBox="0 0 1060 476" class="diagram" role="img" aria-label="the sized configuration, with a throughput on every link"><defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">Block diagram, as sized</text><text class="dsub" x="8" y="36">X = throughput per server &#183; U = share of wall clock &#183; E = share of dense peak</text><rect class="source" x="30" y="96" width="92" height="70" rx="9"/><text class="src-t" x="76.0" y="124">sensors</text><text class="src-s" x="76.0" y="142">128 MB/s</text><line class="edge" x1="122" y1="131" x2="141" y2="131" marker-end="url(#arrow2)"/><rect class="node" x="148" y="62" width="250" height="138" rx="11"/><rect class="node-bar" x="148" y="62" width="5" height="138" style="fill:var(--cpu)"/><text class="b-title" x="164" y="87" style="fill:var(--cpu)">Andes RISC-V</text><text class="b-sub" x="384" y="87">12 x cores</text><text class="b-row" x="164" y="107">dense peak 35.2 GOP/s / core (fp32)</text><text class="b-k" x="164" y="132">X</text><text class="b-v" x="190" y="132">621 MOP/s per core</text><text class="b-k" x="164" y="153">U</text><text class="b-v" x="190" y="153">301.3%</text><text class="b-k" x="164" y="174">E</text><text class="b-v" x="190" y="174">5.4% of peak</text><text class="b-note" x="384" y="192">lidar, mono, lio, ba, tsdf, esdf, gain, graph, mpc, cbf, ctrl &#183; X, U and E from the A78AE baseline</text><line class="edge" x1="273.0" y1="200" x2="273.0" y2="286" marker-end="url(#arrow2)"/><text class="link-l" x="281.0" y="247.0">2.61 GB/s</text><rect class="node" x="438" y="62" width="250" height="138" rx="11"/><rect class="node-bar" x="438" y="62" width="5" height="138" style="fill:var(--kpu)"/><text class="b-title" x="454" y="87" style="fill:var(--kpu)">KPU</text><text class="b-sub" x="674" y="87">128 x tiles</text><text class="b-row" x="454" y="107">dense peak 1.54 TOP/s / tile (int8)</text><text class="b-k" x="454" y="132">X</text><text class="b-v" x="480" y="132">5.51 GOP/s per tile</text><text class="b-k" x="454" y="153">U</text><text class="b-v" x="480" y="153">1454.6%</text><text class="b-k" x="454" y="174">E</text><text class="b-v" x="480" y="174">70.8% of peak</text><text class="b-note" x="674" y="192">det, vlm, sdfenc, policy</text><line class="edge" x1="563.0" y1="200" x2="563.0" y2="286" marker-end="url(#arrow2)"/><text class="link-l" x="571.0" y="247.0">145 GB/s</text><rect class="node idle" x="728" y="84" width="120" height="94" rx="11"/><text class="b-idle" x="788" y="120">ISP</text><text class="b-idle-s" x="788" y="138">no capability stated</text><line class="edge idle-edge" x1="788" y1="178" x2="788" y2="286"/><text class="link-l" x="796" y="247.0">0</text><rect class="node idle" x="864" y="84" width="120" height="94" rx="11"/><text class="b-idle" x="924" y="120">codec</text><text class="b-idle-s" x="924" y="138">not used</text><line class="edge idle-edge" x1="924" y1="178" x2="924" y2="286"/><text class="link-l" x="932" y="247.0">0</text><rect class="bus" x="30" y="286" width="990" height="32" rx="8"/><text class="bus-l" x="44" y="307">on-chip fabric</text><text class="bus-r" x="1006" y="307">198 GB/s total</text><line class="edge" x1="525.0" y1="318" x2="525.0" y2="372" marker-end="url(#arrow2)"/><text class="link-l" x="533.0" y="349.0">198 GB/s</text><rect class="node" x="30" y="372" width="990" height="72" rx="11"/><text class="b-title" x="46" y="398">DRAM</text><text class="b-row" x="46" y="419">204.8 GB/s available &#183; 198.46 GB/s used &#183; 96.9%</text><rect class="track" x="360" y="405" width="630" height="14" rx="3"/><rect class="fill" x="360" y="405" width="610.5" height="14" rx="3"/></svg></div>
+
+<p class="note">A U above 100% is not a sizing. It is the design being asked for more than it
+has, and the figure beside it says by how much.</p>
+
+<h2>6. The analysis: dimensioning the engines</h2>
+
+<h3>1. The mapping is forced, not chosen</h3>
+<p>A precision class runs in the narrowest format the engine offers at or above its floor, and
+that (kernel class, engine, format) triple needs an efficiency from somewhere &mdash; a
+measurement or the domain-flow ceiling. Where there is none, there is no number, and we do not
+invent one.</p>
+<ul><li><b>4 stage(s) go to the KPU</b>, headed by <code>vlm</code>. On the CPU they have no fit: <i>class A in int8: no int8 figure</i>.</li><li><b>11 stage(s) go to the CPU</b>, headed by <code>tsdf</code>. On the KPU they have no fit: <i>class C in fp32: no fp32 figure and no domain-flow schedule</i>.</li><li><b>3 stage(s) go nowhere:</b> <code>sgm</code>, <code>radar</code>, <code>vio</code>. Neither engine has a figure for every precision class they need, so they are left out of the sizing rather than guessed at.</li></ul>
+<div class="panel"><table><thead><tr><th>stage</th><th>kernel class</th><th>on the cpu</th><th>on the kpu</th></tr></thead><tbody><tr><td><b>lidar</b></td><td>sparse_hash_scatter</td><td class="num"><b>0.439</b> cores<br><span class="src">fp32 100%: E=0.0066 -&gt; 0.439</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>sgm</b></td><td>cost_volume_dp</td><td class="gapcell">class A in int8: no int8 figure</td><td class="gapcell">class A in int8: no int8 figure and no domain-flow schedule</td></tr><tr><td><b>radar</b></td><td>fft</td><td class="gapcell">class A in int8: no int8 figure</td><td class="gapcell">class A in int8: no int8 figure and no domain-flow schedule</td></tr><tr><td><b>mono</b></td><td>pixel_fixed_function</td><td class="num"><b>2.805</b> cores<br><span class="src">fp32 100%: E=0.0448 -&gt; 2.805</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>lio</b></td><td>small_dense_linalg</td><td class="num"><b>1.235</b> cores<br><span class="src">fp32 100%: E=0.0848 -&gt; 1.235</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>vio</b></td><td>feature_track</td><td class="gapcell">class A in int8: no int8 figure</td><td class="gapcell">class A in int8: no int8 figure and no domain-flow schedule</td></tr><tr><td><b>ba</b></td><td>small_dense_linalg</td><td class="num"><b>1.131</b> cores<br><span class="src">fp32 100%: E=0.0848 -&gt; 1.131</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>tsdf</b></td><td>raycast</td><td class="num"><b>18.590</b> cores<br><span class="src">fp32 100%: E=0.0034 -&gt; 18.590</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>esdf</b></td><td>wavefront</td><td class="num"><b>5.969</b> cores<br><span class="src">fp32 100%: E=0.0297 -&gt; 5.969</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>det</b></td><td>dense_conv_gemm</td><td class="gapcell">class A in int8: no int8 figure</td><td class="num"><b>4.849</b> tiles<br><span class="src">int8 85%: E=0.973 -&gt; 3.597; fp16 15%: E=0.986 -&gt; 1.252</span></td></tr><tr><td><b>vlm</b></td><td>weight_stream_decode</td><td class="gapcell">class A in int8: no int8 figure</td><td class="num"><b>1856.153</b> tiles<br><span class="src">int8 60%: E=0.00138 -&gt; 795.494; fp16 40%: E=0.00138 -&gt; 1060.659</span></td></tr><tr><td><b>gain</b></td><td>raycast</td><td class="num"><b>5.440</b> cores<br><span class="src">fp32 100%: E=0.0034 -&gt; 5.440</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>graph</b></td><td>graph_search</td><td class="num"><b>0.144</b> cores<br><span class="src">fp32 100%: E=0.0095 -&gt; 0.144</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>sdfenc</b></td><td>dense_conv_gemm</td><td class="gapcell">class A in int8: no int8 figure</td><td class="num"><b>0.507</b> tiles<br><span class="src">int8 85%: E=0.973 -&gt; 0.376; fp16 15%: E=0.986 -&gt; 0.131</span></td></tr><tr><td><b>policy</b></td><td>dense_conv_gemm</td><td class="gapcell">class A in int8: no int8 figure</td><td class="num"><b>0.347</b> tiles<br><span class="src">int8 85%: E=0.973 -&gt; 0.257; fp16 15%: E=0.986 -&gt; 0.090</span></td></tr><tr><td><b>mpc</b></td><td>small_qp</td><td class="num"><b>0.372</b> cores<br><span class="src">fp32 100%: E=0.129 -&gt; 0.372</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>cbf</b></td><td>sparse_hash_scatter</td><td class="num"><b>0.034</b> cores<br><span class="src">fp32 100%: E=0.0066 -&gt; 0.034</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr><tr><td><b>ctrl</b></td><td>small_dense_linalg</td><td class="num"><b>0.002</b> cores<br><span class="src">fp32 100%: E=0.0848 -&gt; 0.002</span></td><td class="gapcell">class C in fp32: no fp32 figure and no domain-flow schedule</td></tr></tbody></table></div>
+<h3>2. Size each engine</h3><p><b>KPU.</b> 4 stages need <b>1.86e+03 tiles</b> between them, against the 128 this design has. <code>vlm</code> alone is 99.7% of that, at an efficiency of 0.14%.</p><p><b>CPU.</b> 11 stages need <b>36.2 cores</b> between them, against the 12 this design has. <code>tsdf</code> alone is 51.4% of that, at an efficiency of 0.34%.</p><h3>3. What binds</h3><ul><li><b>the KPU:</b> 1455% &mdash; <b>over capacity</b>.</li><li><b>the CPU:</b> 301% &mdash; <b>over capacity</b>.</li><li><b>memory bandwidth:</b> 97% of what is there.</li><li><b>power:</b> 3% of what is there.</li></ul><p>Memory is worth spelling out. The interface carries 198 GB/s of compulsory traffic against 204.8 GB/s of peak, and <code>vlm</code> is 64% of the interface on its own &mdash; at 1 Hz. That is a 130 GB working set pulled through DRAM on every call.</p>
+<div class="panel"><svg viewBox="0 0 1180 240" class="diagram" role="img" aria-label="engine sizing, needed against what the design has"><text class="dtitle" x="8" y="20">What the mission needs, against what the design has</text><text class="dsub" x="8" y="36">a full bar is exactly the capacity; past it the bar clamps and the number carries the overshoot</text><text class="s-label" x="268" y="82">KPU: 4 stages</text><rect class="track" x="284" y="68" width="520" height="20" rx="3"/><rect x="284" y="68" width="520.0" height="20" rx="3" style="fill:var(--warn)"/><text class="s-amount over" x="816" y="82">1.86e+03 of 128 tiles - 15x over</text><text class="s-note" x="268" y="100">U 1455% - E 70.8% - ceiling</text><text class="s-label" x="268" y="134">CPU: 11 stages</text><rect class="track" x="284" y="120" width="520" height="20" rx="3"/><rect x="284" y="120" width="520.0" height="20" rx="3" style="fill:var(--warn)"/><text class="s-amount over" x="816" y="134">36.2 of 12 cores - 3x over</text><text class="s-note" x="268" y="152">U 301% - E 5.4% - measured</text><text class="s-label" x="268" y="186">if det ran on the CPU instead</text><rect class="track" x="284" y="172" width="520" height="20" rx="3"/><rect x="284" y="172" width="520.0" height="20" rx="3" style="fill:var(--warn)" opacity="0.55"/><text class="s-amount over" x="816" y="186">202 of 12 cores - 17x over</text><text class="s-note" x="268" y="204">FP32 at E 88.8% - measured - 8853 mW of datapath</text></svg></div>
+<h3>4. The CPU ask</h3><p>The CPU needs <b>36.2 cores</b> and the design has 12. The gap is not spread evenly: three stages are 83% of it.</p><ul><li><code>tsdf</code> (<code>raycast</code>): <b>18.6 cores</b> at <b>0.34%</b> of FP32 peak.</li><li><code>esdf</code> (<code>wavefront</code>): <b>5.97 cores</b> at <b>2.97%</b> of FP32 peak.</li><li><code>gain</code> (<code>raycast</code>): <b>5.44 cores</b> at <b>0.34%</b> of FP32 peak.</li></ul><p>Grouped by kernel class, the answer is blunter still: <code>raycast</code> is <b>24 of the 36.2 cores</b> (66%) at 0.34% of peak. So the question for an Andes core is not a general one:</p><blockquote><b>What does it take to run 2.88 GOP/s of <code>raycast</code> in FP32 at materially better than 0.34% of peak?</b></blockquote><p>The leverage is enormous because the baseline is so low. At 10% of peak instead of 0.34%, that class falls from 24 cores to 0.82, and the whole CPU requirement from 36.2 to 12.9 &mdash; 16 cores provisioned instead of 12.</p><h3>5. The accelerator ask is a memory ask</h3><p><code>vlm</code> is 99.7% of the 1862-tile requirement, and it is not because it is the biggest arithmetic: it is 27% of the operations. It is because its domain-flow ceiling is <b>0.14%</b>. The fabric is not computing, it is waiting: 130 GB of weights crossing DRAM once a second.</p><p>Take it out and the rest of the accelerator work &mdash; detection, the SDF encoder, the policy &mdash; needs <b>5.7 tiles</b>. That is the shape of the decision: this is not a mission that needs a 1862-tile fabric, it is a mission with a weight-streaming problem bolted to a 5.7-tile one. Quantisation, weight caching in on-die SRAM, a smaller model or a wider memory interface are all attacks on the same number; more tiles is not.</p>
+
+<h2>7. What this rests on</h2>
+
+<p>Four kinds of figure, and the page says which each is:</p>
+<ul>
+<li><b>Catalogue.</b> The mission, its rates, per-call operation and byte counts, the SoC
+composition, the node's energy per operation.</li>
+<li><b>Measured.</b> CPU efficiencies from <code>orin_nano_measured_v1</code>, with the run behind each
+figure cited in the table. <b>These are measured on Arm Cortex-A78AE cores in a Jetson Orin
+Nano</b> &mdash; our reference baseline, not a claim about any other core. They are why the CPU
+requirement is stated as a throughput target rather than a core count.</li>
+<li><b>Ceiling.</b> KPU efficiencies are our domain-flow upper bound, taken from the smallest
+core with a stated schedule (kpu_t64_core). A ceiling bounds, it does not predict, so every
+tile count is a <i>lower</i> bound.</li>
+<li><b>Gap.</b> Named, never filled.</li>
+</ul>
+
+<p><b>Area.</b> A least-squares line through our four catalogued N7 cores gives
+0.1665 mm&sup2; per tile plus
+0.287 mm&sup2; fixed, so a one-tile fabric is about
+0.45 mm&sup2;. The CPU side we cannot price at all: we anchor the cluster's caches but not
+its core logic, because no absolute core area is published for the baseline. <b>An Andes core
+area would close that column outright.</b></p>
+<p>Reproduce with:</p>
+<p><code>python cli/report_mission_dossier.py --mission quadruped_isr_dismounted_comms_denied \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;--design kpu_t128_n7 --efficiency orin_nano_measured_v1 \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-quadruped-isr.html</code></p>
+<p class="note"><b>Confidence: UNKNOWN.</b>
+3 stage(s) no engine can be sized for: sgm, radar, vio</p>
+<p class="note">Generated 2026-09-20 from
+<code>kpu_t128_n7</code> at <code>tsmc_n7</code>.
+Every figure on this page is reproducible with the command in section 7.</p>
+</main></body></html>
