@@ -5,6 +5,35 @@ For discussion with CPU silicon IP partners. Stillwater Supercomputing,
 ships in; every figure is reproducible with the commands in
 `docs/guides/cpu-kpu-state-space-howto.md`.
 
+## Start with the picture
+
+`mission-frontier.html`, beside this file, is the same analysis as charts:
+one per mission, energy per operation across, real-time factor up, with the
+envelope over the catalogue and the band a configuration is already proven
+short of. Open it first -- it carries the model and the shape of the trade
+in a way a table of 3,672 rows cannot.
+
+```bash
+python cli/report_mission_frontier.py -o docs/assessments/mission-frontier.html
+```
+
+Two things that page shows and this one cannot:
+
+- **For most missions there is no trade to make.** One configuration is
+  cheaper *and* no slower than every other, so the envelope is a single
+  point. The process node moves energy per operation; the busiest engine --
+  almost always the CPU -- decides the rate, and the node does not move
+  that.
+- **Where a trade does exist it is vertical.** In edge-AI supervisory
+  control, the same 0.2 pJ per operation buys anything from 0.23x to 1.59x
+  real time depending on the fabric and the cores. Energy is not what is
+  being spent to get performance there; silicon area is.
+
+Still missing, and the reason this document is not yet the whole story: a
+picture of each pipeline showing what every stage demands and what each
+engine gives it, and an interactive filter over the state space. Both are
+planned on top of the same data.
+
 ## The question, and the short answer
 
 > Which KPU fabric, with how many CPU cores, on which memory system, in

@@ -108,10 +108,23 @@ def build(template_id: str, product_id: str, core_only: bool) -> dict:
     compute_libraries = {_library(t) for t in kpu.tiles
                          if t.ops_per_tile_per_clock and _library(t)}
     ops: Dict[str, float] = {}
+    by_library: Dict[str, Dict[str, float]] = {}
     for tile in kpu.tiles:
         for fmt, per_tile in (tile.ops_per_tile_per_clock or {}).items():
-            if fmt in MODELED_FORMATS:
-                ops[fmt] = ops.get(fmt, 0.0) + tile.num_tiles * per_tile
+            if fmt not in MODELED_FORMATS:
+                continue
+            ops[fmt] = ops.get(fmt, 0.0) + tile.num_tiles * per_tile
+            library = _library(tile)
+            if library:
+                share = by_library.setdefault(fmt, {})
+                share[library] = share.get(library, 0.0) + tile.num_tiles * per_tile
+    # The share of each format's ops each library issues, so the block's ops
+    # can be priced where its tiles span more than one -- a T-series fabric
+    # runs INT8 on balanced-logic PE tiles and an hp-logic systolic tile.
+    mix = {fmt: {lib: round(count / sum(shares.values()), 6)
+                 for lib, count in sorted(shares.items())}
+           for fmt, shares in by_library.items()
+           if ops.get(fmt) and abs(sum(shares.values()) - ops[fmt]) < 1e-6}
     clock_ghz = die.clocks.boost_clock_mhz / 1e3
     template = {
         "id": template_id,
@@ -127,6 +140,7 @@ def build(template_id: str, product_id: str, core_only: bool) -> dict:
             "architecture_class": "domain_flow",
             **({"datapath_class": next(iter(compute_libraries))}
                if len(compute_libraries) == 1 else {}),
+            **({"datapath_mix": mix} if mix and len(compute_libraries) > 1 else {}),
             "source": f"{origin}: sum over tile classes of num_tiles x ops_per_tile_per_clock; "
                       "BF16, INT4 and LNS rates are not counted as any modeled format",
         },
