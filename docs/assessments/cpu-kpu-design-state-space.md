@@ -66,6 +66,37 @@ that call for different work: *no INT8 figure (FP32 measured)* is a
 benchmark run nobody has done, and *no FP32 figure, no schedule* is a
 kernel class the domain-flow model cannot place on the fabric at all.
 
+## And the space as one picture
+
+`state-space.html`, beside this file, is the whole thing at once: all 18
+mission capabilities down, all 153 configurations across, one cell per
+pair. Columns are grouped by CPU core count and ordered by design within
+each group, so a pattern that follows one dimension is a pattern you can
+see.
+
+```bash
+python cli/report_state_space.py -o docs/assessments/state-space.html
+```
+
+Three shapes carry the argument:
+
+- **Thirteen of the eighteen missions have no cell that clears the bar.**
+  Nothing in this parts list serves them, whatever the accelerator.
+- **AMR warehousing and SAE L2 are served by exactly the 51 twelve-core
+  configurations** -- every design, every node, every memory among them.
+  Their surviving cells are the right-hand third of the grid and nothing
+  else. That is a CPU problem, stated as a shape.
+- **Edge-AI supervisory control is served only by the two T512 designs**,
+  in all three core counts. Its surviving cells are three narrow stripes.
+  That is a fabric problem, and it is the one mission in the catalogue
+  where the accelerator is what decides.
+
+Dragging across the columns selects a slab of the space and reports what
+its members share and how many missions survive inside it; the headroom
+control raises the bar from bare real time to a multiple of it. At 2x --
+a modest ask, given that every figure here already flatters its
+configuration -- only the two edge-AI detection missions are left.
+
 Still missing, and the reason this document is not yet the whole story: a
 picture of each pipeline showing what every stage demands and what each
 engine gives it, and an interactive filter over the state space. Both are
