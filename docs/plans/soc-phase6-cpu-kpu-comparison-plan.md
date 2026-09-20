@@ -46,12 +46,15 @@ efficiency changes.
 
 Implemented in `estimation/soc/breakeven.py`, with `cli/analyze_required_efficiency.py`.
 
-**2. The domain-flow cost model (later).** A SURE/SARE wavefront model gives
-KPU service times directly. It is research-scale, and it is model output:
-THEORETICAL, in its own efficiency table, never merged into `default_v1`
-(P5-D1 stands). The break-even figures are the yardstick its outputs are
-read against -- a model that lands above the requirement says the
-configuration does not work, and one that lands below says by how much.
+**2. The domain-flow model (PR 6.4, done).** A SURE/SARE wavefront model
+could give KPU service times directly, but a service time is a claim about
+what the silicon *will* do, and nothing supports one. So 6.4 produces
+**ceilings** instead: the least of the wavefront schedule, the compulsory
+DRAM traffic and operand delivery, each an upper bound sound on its own.
+A ceiling below the requirement is a decided no; above it, the verdict
+stays open. The ceilings are deliberately not an `EfficiencyTable` and do
+not live in `soc_designs/efficiency/`, so no analysis can price a stage
+with them (P5-D1 stands).
 
 ## P6-D2, decided 2026-09-19: the first configuration space
 
@@ -78,7 +81,7 @@ silicon priced first (Phase 2), so they are not in this phase.
 | 6.1 | `estimation/soc/breakeven.py`, `cli/analyze_required_efficiency.py`, tests. |
 | 6.2 | The ladder: T64 / T128 / T256 cores from `generate_kpu_ip.py`, one design per KPU core, the CPU-cluster override, the `kpu_cpu_ladder` study. **Done.** |
 | 6.3 | The assessment: what the ladder decides, and the KPU efficiency each configuration would need. **Done:** `docs/assessments/soc-kpu-cpu-ladder.md`. |
-| 6.4 | The domain-flow cost model as a THEORETICAL table, read against 6.3's requirements. |
+| 6.4 | The domain-flow model, as **ceilings** read against 6.3's requirements (not an efficiency table: a ceiling is not an efficiency). **Done:** `estimation/soc/domainflow.py`, `soc_designs/ceilings/`, `cli/analyze_kpu_ceiling.py`. |
 
 ## What the requirement already says
 
