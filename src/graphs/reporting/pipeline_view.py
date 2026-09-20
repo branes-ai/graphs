@@ -54,7 +54,6 @@ ROW_H = 26
 LABEL_W = 210
 DEMAND_W = 150
 ENGINE_W = 190
-GAP = 16
 
 
 @dataclass(frozen=True)
