@@ -165,12 +165,31 @@ class IPCompute(BaseModel):
     #: roll-up prices ops in it; without it, one logic line must be the
     #: datapath or dynamic power is a gap.
     datapath_class: Optional[CircuitClass] = None
+    #: For a block whose datapath spans several libraries, the share of each
+    #: format's ops that each library issues: ``{format: {library: share}}``.
+    #: A KPU's tile classes do this -- a T-series fabric runs INT8 on
+    #: balanced-logic PE tiles and on an hp-logic systolic tile -- and
+    #: without it the block's ops cannot be priced at all. Shares sum to 1
+    #: per format.
+    datapath_mix: Dict[str, Dict[CircuitClass, float]] = Field(default_factory=dict)
     dispatch_overhead_us: Optional[float] = Field(
         None, ge=0, description="Per-kernel launch cost; dominates MPC/CBF stages"
     )
     source: str = Field(..., min_length=1)
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def _mix_is_a_share_of_the_stated_formats(self) -> "IPCompute":
+        for fmt, mix in self.datapath_mix.items():
+            if fmt not in self.ops_per_clock:
+                raise ValueError(f"datapath_mix names {fmt!r}, which ops_per_clock does not")
+            total = sum(mix.values())
+            if not mix or abs(total - 1.0) > 1e-6:
+                raise ValueError(f"datapath_mix[{fmt!r}] shares sum to {total}, not 1")
+            if any(v < 0 for v in mix.values()):
+                raise ValueError(f"datapath_mix[{fmt!r}] has a negative share")
+        return self
 
     @model_validator(mode="after")
     def _known_architecture_class(self) -> "IPCompute":

@@ -111,11 +111,35 @@ system's peak times the sustained fraction (0.65 for scattered access).
 **Datapath energy floor.** Every op charged once at the process node's
 energy per op for its engine's library and format. No efficiency enters,
 so nothing can come in under it. A `+` in the text output marks a floor
-with gaps: a T-series core's tiles span two logic libraries, so its
-template states no one datapath class and its ops cannot be charged --
-there the floor is the CPU's alone.
+with gaps -- a format the node states no figure for. A block whose tiles
+span two logic libraries, as a T-series core's do, is priced by the share
+each library issues (`datapath_mix`), so its ops are charged rather than
+skipped.
 
 ## The commands
+
+### The charts
+
+```bash
+python cli/report_mission_frontier.py -o docs/assessments/mission-frontier.html
+python cli/report_mission_frontier.py --mission "air superiority" -o one.html
+python cli/report_mission_frontier.py --format json -o points.json
+```
+
+One chart per mission on the energy-performance plane. **Energy per
+operation** is the mission's own arithmetic at the node's energy per op,
+weighted over each stage's formats and each engine's libraries -- a floor,
+because no efficiency and no overhead enter it. **Real-time factor** is the
+share of the mission's required rate the configuration could carry, using a
+measurement where one exists and the domain-flow ceiling otherwise -- a
+ceiling, so a point below 1.0 is proven short. The **envelope** is the
+staircase over the points: nothing in the catalogue sits above or left of
+it.
+
+A block whose datapath spans several libraries states the share each issues
+(`datapath_mix`, generated from the SKU's tile classes), so a T-series
+fabric's INT8 op is priced as 89.8% balanced-logic and 10.2% hp-logic
+rather than being charged wholly to either, or left a gap.
 
 ### The whole state space, as a spreadsheet
 

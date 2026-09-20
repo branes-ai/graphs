@@ -194,6 +194,38 @@ def datapath_library(block: BlockInstance) -> Optional[CircuitClass]:
     return next(iter(libs)) if len(libs) == 1 else None
 
 
+def op_energy_pj(block: BlockInstance, node, fmt: str) -> Tuple[Optional[float], Optional[str]]:
+    """Energy of one op of ``fmt`` on ``block``, in pJ, and why there is none.
+
+    A block whose datapath spans several libraries states the share each one
+    issues (``datapath_mix``), and the op is priced as that weighted sum: a
+    T-series KPU runs INT8 on balanced-logic PE tiles and on an hp-logic
+    systolic tile, and charging it wholly to either would be wrong. With one
+    library the mix is unnecessary and the block's own class is used.
+    """
+    compute = block.template.compute
+    mix = (compute.datapath_mix or {}).get(fmt) if compute is not None else None
+    if mix:
+        total, missing = 0.0, []
+        for library, share in mix.items():
+            key = f"{library.value}:{fmt}"
+            pj = node.energy_per_op_pj.get(key)
+            if pj is None:
+                missing.append(key)
+                continue
+            total += share * pj
+        if missing:
+            return None, f"{node.id} has no energy_per_op_pj[{', '.join(sorted(missing))}]"
+        return total, None
+    library = datapath_library(block)
+    if library is None:
+        return None, (f"{block.name} states no single datapath library and no "
+                      f"datapath_mix for {fmt}")
+    key = f"{library.value}:{fmt}"
+    pj = node.energy_per_op_pj.get(key)
+    return (pj, None) if pj is not None else (None, f"{node.id} has no energy_per_op_pj[{key}]")
+
+
 def _dynamic(schedule: Schedule, soc: SoCInstance, workload: PipelineWorkload):
     """ALU-floor dynamic watts per engine, and the gaps."""
     per_engine: Dict[str, float] = {}
@@ -202,7 +234,6 @@ def _dynamic(schedule: Schedule, soc: SoCInstance, workload: PipelineWorkload):
         return per_engine, ("pooled schedule: no op is attributed to an engine",)
     blocks = {b.name: b for b in soc.blocks}
     stages = {d.stage.key: d.stage for d in workload.demands(schedule.profile)}
-    table = soc.node.energy_per_op_pj
     for svc in schedule.served:
         stage = stages[svc.stage]
         watts: Dict[str, float] = {}
@@ -213,14 +244,9 @@ def _dynamic(schedule: Schedule, soc: SoCInstance, workload: PipelineWorkload):
             # engine's datapath library. A class that cannot be priced is a
             # gap; the classes that can still count -- the term is a floor.
             engine = svc.class_engines.get(cls, svc.engine)
-            lib = datapath_library(blocks[engine])
-            if lib is None:
-                gaps.append(f"{svc.stage}: {engine} states no single datapath library")
-                continue
-            key = f"{lib.value}:{svc.formats[cls]}"
-            pj = table.get(key)
+            pj, why = op_energy_pj(blocks[engine], soc.node, svc.formats[cls])
             if pj is None:
-                gaps.append(f"{svc.stage}: {soc.node.id} has no energy_per_op_pj[{key}]")
+                gaps.append(f"{svc.stage}: {why}")
                 continue
             watts[engine] = watts.get(engine, 0.0) + stage.ops_per_call * share * svc.rate_hz * pj * 1e-12
         for engine, w in watts.items():
