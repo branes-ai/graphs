@@ -178,9 +178,9 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
     height = 476
     parts: List[str] = [
         '<text class="dtitle" x="8" y="20">Block diagram, as sized</text>',
-        '<text class="dsub" x="8" y="36">'
-        "X = throughput per server &#183; U = share of wall clock &#183; E = share of dense "
-        "peak</text>",
+        ('<text class="dsub" x="8" y="36">'
+         "X = throughput per server &#183; U = share of wall clock "
+         "&#183; E = share of dense peak</text>"),
     ]
 
     top = 62
@@ -267,8 +267,13 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
         track_x, track_w = lane + 330, bus_x1 - lane - 360
         parts.append(f'<rect class="track" x="{track_x}" y="{mem_y + 33}" width="{track_w}" '
                      f'height="14" rx="3"/>')
-        parts.append(f'<rect class="fill" x="{track_x}" y="{mem_y + 33}" '
-                     f'width="{max(2.0, used * track_w):.1f}" height="14" rx="3"/>')
+        # A mission can ask for more bandwidth than the interface has, so the
+        # fill is clamped to the track; past 100% the bar turns and the
+        # figure beside it carries the real number.
+        over = used > 1.0
+        parts.append(f'<rect class="fill{" over" if over else ""}" x="{track_x}" '
+                     f'y="{mem_y + 33}" '
+                     f'width="{max(2.0, min(used, 1.0) * track_w):.1f}" height="14" rx="3"/>')
     else:
         parts.append(f'<text class="n-gap" x="{lane + 16}" y="{mem_y + 47}">'
                      f'no bandwidth stated</text>')
@@ -433,6 +438,7 @@ rect.source { fill:none; stroke:var(--rule); stroke-width:1; stroke-dasharray:4 
 rect.bus { fill:var(--track); }
 rect.track { fill:var(--track); }
 rect.fill { fill:var(--fill); }
+rect.fill.over { fill:var(--warn); }
 text.src-t { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--ink-2); }
 text.src-s { font-size:10.5px; text-anchor:middle; fill:var(--ink-3); }
 text.n-key { font-size:15px; font-weight:670; fill:var(--ink); }

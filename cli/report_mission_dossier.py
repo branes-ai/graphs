@@ -152,7 +152,7 @@ def tile_area_fit():
 
 
 def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0,
-             efficiency: str = "") -> dict:
+             efficiency: str = "", target_utilization: float = 0.85) -> dict:
     """The argument. Every number is interpolated from the dossier, so the
     prose cannot drift from the analysis it describes."""
     kpu = next((p for p in dossier.provisions if p.kind == "kpu"), None)
@@ -313,7 +313,7 @@ arithmetic, not on the {light.ops_per_call:g} operations per pixel we count.</p>
 <ol>
 <li><b>Vector width and memory behaviour.</b> At {cpu.efficiency:.2%} we need
 {cpu.servers_needed:.2f} cores. At a still-unambitious 10% we need {ten:.2f}, and the part ships
-{max(1, round(ten / 0.85 + 0.49)):g} cores instead of {cpu.servers_provisioned}. This is where
+{provision(ten, target_utilization):g} cores instead of {cpu.servers_provisioned}. This is where
 an RVV-capable core should win, and it is the number we would like to replace with a measurement
 on your silicon.</li>
 <li><b>Move the front end off the CPU entirely.</b> The SoC already carries an ISP block, and
@@ -324,7 +324,7 @@ there and idle.</li>
 <li><b>Schedule it on the fabric.</b> <code>{light.kernel_class}</code> is one of eleven classes
 our domain-flow model calls unschedulable on a regular mesh. A per-pixel chain is about as
 regular as work gets, so that may be our limitation rather than the fabric's. The tile at
-{kpu.utilization:.0%} has room.</p></li>
+{kpu.utilization:.0%} has room.</li>
 </ol>"""
 
     fit_note = ""
@@ -494,7 +494,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     idle = [("ISP", "no capability stated"), ("codec", "not used")]
     first = dossier.stages[0] if dossier.stages else None
     ingress = ("sensors", first.bytes_per_s) if first else None
-    write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency),
+    write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
+                                 args.target_utilization),
                         requirements_rows(dossier, alt), alternatives, idle,
                         date.today().isoformat(), ingress, args.cpu_label,
                         {"cpu": args.cpu_baseline}), args.output)
