@@ -222,3 +222,21 @@ def test_gpu_fp32_needs_tf32_locked_off():
     assert any("TF32" in s for s in skipped)
     table, _ = _build(_run(_result(prec="int8", attained=1e12), tf32_disabled=None))
     assert table["entries"][0]["precision"] == "int8"  # other precisions are unaffected
+
+
+def test_a_newly_covered_class_ingests_like_any_other():
+    """The six classes that gained a kernel in 6.5 are ordinary rows: the
+    ingest neither special-cases nor refuses them."""
+    attained = 0.25 * CPU_FP32_PER_CORE * 2.0e9
+    rows = [_result(kernel_class=cls, engine="cpu", prec="fp32", attained=attained,
+                    clock_hz=2.0e9, name=name)
+            for cls, name in (("cost_volume_dp", "sgm"), ("feature_track", "klt"),
+                              ("raycast", "tsdf_raycast"), ("wavefront", "esdf_propagate"),
+                              ("graph_search", "frontier_relax"),
+                              ("pixel_fixed_function", "isp_pipeline"))]
+    table, skipped = _build(_run(*rows))
+    entries = {e["kernel_class"]: e for e in table["entries"]}
+    assert set(entries) == {r["kernel_class"] for r in rows}, skipped
+    for entry in entries.values():
+        assert entry["compute_eff"] == pytest.approx(0.25)
+        assert entry["confidence"] == "calibrated" and entry["engine_kind"] == "cpu"

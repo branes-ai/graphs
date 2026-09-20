@@ -165,3 +165,58 @@ def test_a_wide_cpu_run_is_flagged():
         torch.set_num_threads(threads)
         os.sched_setaffinity(0, affinity)
     assert result.cpu_parallelism > SINGLE_THREAD_LIMIT and result.single_thread is False
+
+
+# ---------------------------------------------------------------------------
+# The classes that had no kernel before (graphs#269 6.5)
+# ---------------------------------------------------------------------------
+
+NEW_CLASSES = ("cost_volume_dp", "feature_track", "raycast", "wavefront", "graph_search",
+               "pixel_fixed_function")
+
+
+def test_every_class_a_stage_uses_now_has_a_kernel():
+    """knn_tree is the only class left without one, and no stage of the
+    workload uses it."""
+    from graphs.estimation.soc import load_kernel_classes
+
+    used = {k.value for k in load_kernel_classes().stages.values()
+            for k in [k.kernel_class]}
+    measured = {k.kernel_class for k in kernel_suite()}
+    assert used <= measured
+    assert set(NOT_COVERED) == {"knn_tree"} and "knn_tree" not in used
+
+
+@pytest.mark.parametrize("kernel_class", NEW_CLASSES)
+def test_the_new_kernels_state_their_shape_and_ops_rule(kernel_class):
+    specs = [k for k in kernel_suite() if k.kernel_class == kernel_class]
+    assert specs, kernel_class
+    for spec in specs:
+        assert spec.ops_per_call > 0
+        assert len(spec.ops_rule) > 20, spec.ops_rule  # a rule, not a word
+        assert spec.shape and any(ch.isdigit() for ch in spec.shape)
+
+
+def test_the_new_ops_counts_follow_their_rules():
+    specs = {(k.name, k.precision): k for k in kernel_suite()}
+    # SGM: the cost volume, then 7 per element per path per column.
+    assert specs[("sgm", "fp32")].ops_per_call == 64 * 720 * 1280 + 4 * 64 * 720 * 1279 * 7
+    # The raycast's 24 ops per trilinear sample.
+    assert specs[("tsdf_raycast", "fp32")].ops_per_call == 65536 * 64 * 24
+    # The wavefront's 6 neighbours, add and min, per sweep.
+    assert specs[("esdf_propagate", "fp32")].ops_per_call == 8 * 6 * 160 ** 3 * 2
+    # One add and one min per edge per relaxation.
+    assert specs[("frontier_relax", "fp32")].ops_per_call == 30 * 32768 * 8 * 2
+    # 84 ops per pixel through the ISP chain.
+    assert specs[("isp_pipeline", "fp16")].ops_per_call == 1920 * 1080 * 84
+
+
+@pytest.mark.parametrize("kernel_class", NEW_CLASSES)
+def test_each_new_kernel_runs_on_the_cpu(kernel_class):
+    """The quick shapes, so the test is cheap; a real run uses the full
+    ones. Every kernel must produce a throughput, not an error."""
+    spec = next(k for k in kernel_suite(quick=True) if k.kernel_class == kernel_class)
+    result = run_kernel(spec, "cpu", min_seconds=0.02, warmup=1)
+    assert result.status == "ok", result.message
+    assert result.attained_ops_per_s > 0
+    assert result.calls >= 1 and result.seconds_per_call > 0

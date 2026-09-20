@@ -21,6 +21,15 @@ The benchmark measures these kernel classes, at stage-like shapes:
 - batched Cholesky
 - KKT solves
 - scatter-add
+- SGM cost volume and min-plus path aggregation (FP32, FP16)
+- KLT feature tracking
+- TSDF raycasting (FP32, FP16)
+- ESDF wavefront propagation
+- graph frontier relaxation
+- an ISP pixel pipeline (FP32, FP16)
+
+The last six were added in graphs#269 6.5, and each is sized like the stage
+it stands for: `sgm`, `vio`, `tsdf` and `gain`, `esdf`, `graph` and `mono`.
 
 It samples the device clock throughout every timed loop. GPU kernels use the
 whole GPU. CPU kernels run pinned to one core with one thread, because the
@@ -112,7 +121,9 @@ python3 cli/benchmark_soc_kernels.py --hardware jetson_orin_agx_64gb --power-mod
 ```
 
 The run measures CPU and GPU kernels (every available device) and takes a few
-minutes; the FP32 GEMM on one CPU core is the slowest. It writes the file named
+minutes; the FP32 GEMM on one CPU core is the slowest. The six kernels added
+in 6.5 add about half a minute of GPU work and a few minutes on one CPU core
+(32 s of it on a 4.9 GHz desktop core, so scale by your clock). It writes the file named
 below and prints a table.
 
 ```
@@ -213,16 +224,18 @@ python cli/sweep_soc.py --designs orin_class_reference,kpu_heterogeneous_h64 \
 
 - **The DLA.** DLA kernels need TensorRT. `default_v1` keeps its DLA INT8 entry
   from the 2026-02 TensorRT runs.
-- **Seven kernel classes that have no representative kernel yet:**
-  - cost-volume DP
-  - feature tracking
-  - kNN
-  - raycast
-  - wavefront
-  - graph search
-  - pixel fixed-function
+- **kNN tree search.** It is the one kernel class still without a kernel:
+  no stage of `branes_7tier_v1` uses it, and a kd-tree search is
+  pointer-chasing that no torch kernel does faithfully. A brute-force
+  distance matrix is a different algorithm, not this class, so it is not
+  offered as one. The JSON lists it under `not_covered` and it stays a gap.
 
-  The JSON lists them under `not_covered`, and they stay gaps.
+- **What an optimized library would do.** Each kernel measures *this*
+  implementation on the engine. NVIDIA's VPI has a hardware SGM path and a
+  fixed-function ISP, and an optimized CUDA raycaster would beat
+  `grid_sample`; those are different numbers for the same stage. The entry
+  records the kernel and shape it came from, as the INT8 `_int_mm` entry
+  already does.
 - **INT8 on the CPU.** The harness has no CPU INT8 path.
 - **Multi-threaded CPU throughput.** By design, the analyzer's CPU server is
   one core.
