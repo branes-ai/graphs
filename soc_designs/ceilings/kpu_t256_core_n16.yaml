@@ -1,0 +1,300 @@
+sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+confidence: theoretical
+confidence_source: domain-flow wavefront and compulsory-traffic bounds over the SKU's stated geometry,
+  clock and DRAM bandwidth; shapes from graphs.benchmarks.soc_kernels
+fabrics:
+- precision: int8
+  rows: 32
+  cols: 32
+  tiles: 256
+  clock_mhz: 750.0
+  peak_tops: 393.216
+  issue_interval: 1.0
+  operand_row_bits: null
+  operand_col_bits: null
+- precision: fp16
+  rows: 32
+  cols: 32
+  tiles: 256
+  clock_mhz: 750.0
+  peak_tops: 196.608
+  issue_interval: 2.0
+  operand_row_bits: null
+  operand_col_bits: null
+- precision: fp32
+  rows: 32
+  cols: 32
+  tiles: 51
+  clock_mhz: 750.0
+  peak_tops: 19.584
+  issue_interval: 4.0
+  operand_row_bits: null
+  operand_col_bits: null
+ceilings:
+- kernel_class: dense_conv_gemm
+  kernel: gemm
+  precision: int8
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.8888888888888888
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.9696969696969697
+    dram_compulsory: 0.8888888888888888
+    operand_delivery: null
+  source: soc_kernels gemm 2048x2048x2048; operands A, B and C cross DRAM once; 32x32 PEs x 256 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 256 GB/s
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: conv3x3
+  precision: int8
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.8687258687258687
+  binding: wavefront
+  bounds:
+    wavefront: 0.8687258687258687
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels conv3x3 256->256 at 80x80, lowered to a GEMM: M = H x W, N = Cout, K = Cin x 9;
+    input, weights and output cross DRAM once; 32x32 PEs x 256 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: attention_prefill
+  kernel: sdpa
+  precision: int8
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.6530612244897959
+  binding: wavefront
+  bounds:
+    wavefront: 0.6530612244897959
+    dram_compulsory: 0.6666666666666666
+    operand_delivery: null
+  source: 'soc_kernels sdpa 16 heads x 1024 x 64: scores then context, two GEMMs; Q, K, V and the output
+    cross DRAM once and the scores stay on chip; 32x32 PEs x 256 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: weight_stream_decode
+  kernel: gemv
+  precision: int8
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.0013014478607450788
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.015384615384615385
+    dram_compulsory: 0.0013014478607450788
+    operand_delivery: null
+  source: 'soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once; 32x32 PEs x 256 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: elementwise_norm
+  kernel: layernorm
+  precision: int8
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.0016276041666666665
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.5
+    dram_compulsory: 0.0016276041666666665
+    operand_delivery: null
+  source: 'soc_kernels layernorm 4096x4096: read and write once; the array''s multiplier is idle, so a
+    PE contributes one op per clock, not two; 32x32 PEs x 256 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: gemm
+  precision: fp16
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.8888888888888888
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.9846153846153847
+    dram_compulsory: 0.8888888888888888
+    operand_delivery: null
+  source: soc_kernels gemm 2048x2048x2048; operands A, B and C cross DRAM once; 32x32 PEs x 256 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 256 GB/s
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: conv3x3
+  precision: fp16
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.8806262230919765
+  binding: wavefront
+  bounds:
+    wavefront: 0.8806262230919765
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels conv3x3 256->256 at 80x80, lowered to a GEMM: M = H x W, N = Cout, K = Cin x 9;
+    input, weights and output cross DRAM once; 32x32 PEs x 256 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: attention_prefill
+  kernel: sdpa
+  precision: fp16
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.6666666666666666
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.7901234567901234
+    dram_compulsory: 0.6666666666666666
+    operand_delivery: null
+  source: 'soc_kernels sdpa 16 heads x 1024 x 64: scores then context, two GEMMs; Q, K, V and the output
+    cross DRAM once and the scores stay on chip; 32x32 PEs x 256 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: weight_stream_decode
+  kernel: gemv
+  precision: fp16
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.0013014478607450788
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.015503875968992248
+    dram_compulsory: 0.0013014478607450788
+    operand_delivery: null
+  source: 'soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once; 32x32 PEs x 256 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: elementwise_norm
+  kernel: layernorm
+  precision: fp16
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.0016276041666666665
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.5
+    dram_compulsory: 0.0016276041666666665
+    operand_delivery: null
+  source: 'soc_kernels layernorm 4096x4096: read and write once; the array''s multiplier is idle, so a
+    PE contributes one op per clock, not two; 32x32 PEs x 256 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: gemm
+  precision: fp32
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.9838412156900276
+  binding: wavefront
+  bounds:
+    wavefront: 0.9838412156900276
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: soc_kernels gemm 2048x2048x2048; operands A, B and C cross DRAM once; 32x32 PEs x 51 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 256 GB/s
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: dense_conv_gemm
+  kernel: conv3x3
+  precision: fp32
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.9736308316430019
+  binding: wavefront
+  bounds:
+    wavefront: 0.9736308316430019
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels conv3x3 256->256 at 80x80, lowered to a GEMM: M = H x W, N = Cout, K = Cin x 9;
+    input, weights and output cross DRAM once; 32x32 PEs x 51 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: attention_prefill
+  kernel: sdpa
+  precision: fp32
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.8638787279617728
+  binding: wavefront
+  bounds:
+    wavefront: 0.8638787279617728
+    dram_compulsory: 1.0
+    operand_delivery: null
+  source: 'soc_kernels sdpa 16 heads x 1024 x 64: scores then context, two GEMMs; Q, K, V and the output
+    cross DRAM once and the scores stay on chip; 32x32 PEs x 51 tile(s), fill 32 drain 32 cycles at 750
+    MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: weight_stream_decode
+  kernel: gemv
+  precision: fp32
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.006532757889230199
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.02604206403702856
+    dram_compulsory: 0.006532757889230199
+    operand_delivery: null
+  source: 'soc_kernels gemv 1x4096 . 4096x4096: the weight matrix crosses DRAM once; 32x32 PEs x 51 tile(s),
+    fill 32 drain 32 cycles at 750 MHz, DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+- kernel_class: elementwise_norm
+  kernel: layernorm
+  precision: fp32
+  sku: kpu_t256_32x32_lp5x16_16nm_tsmc_ffp
+  ceiling: 0.008169934640522875
+  binding: dram compulsory
+  bounds:
+    wavefront: 0.5
+    dram_compulsory: 0.008169934640522875
+    operand_delivery: null
+  source: 'soc_kernels layernorm 4096x4096: read and write once; the array''s multiplier is idle, so a
+    PE contributes one op per clock, not two; 32x32 PEs x 51 tile(s), fill 32 drain 32 cycles at 750 MHz,
+    DRAM 256 GB/s'
+  confidence: theoretical
+  gaps:
+  - 'kpu_t256_32x32_lp5x16_16nm_tsmc_ffp: the tile class states no row and column operand path, so operand
+    delivery is not bounded here'
+no_schedule:
+  fft: a radix-2 FFT is not a polyhedral GEMM schedule on this fabric
+  small_dense_linalg: a Cholesky factorization's dependences are triangular, not a rectangular wavefront
+  small_qp: an LU on a KKT system is triangular, as above
+  sparse_hash_scatter: scatter-add is addressing, not a wavefront
+  cost_volume_dp: no representative kernel exists yet
+  feature_track: no representative kernel exists yet
+  knn_tree: no representative kernel exists yet
+  raycast: no representative kernel exists yet
+  wavefront: no representative kernel exists yet
+  graph_search: no representative kernel exists yet
+  pixel_fixed_function: a fixed-function tile, not the PE fabric
+kind: kpu_domainflow_ceilings/1
+notes: 'Generated by tools/generate_kpu_ceilings.py; do not edit by hand. Each value is an UPPER BOUND
+  on what the fabric could sustain on that kernel: the least of the wavefront schedule, the compulsory
+  DRAM traffic and, where the tile class states an interconnect, operand delivery. A ceiling is not an
+  efficiency -- it says what cannot be exceeded, never what will be achieved -- so this is not an efficiency
+  table and no analysis prices a stage with it.'

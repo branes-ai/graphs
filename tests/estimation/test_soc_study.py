@@ -78,6 +78,10 @@ def test_the_pooled_annex_model_does_not_see_the_allocation(analyzer):
     ("layout.die_mm", [1.0], "expected block"),
     ("block:gpu_sm.count", [1.5], "positive integers"),
     ("block:gpu_sm.count", [0], "positive integers"),
+    ("block:gpu_sm.count", ["four"], "takes numbers"),
+    ("layout.io_ring_mm", ["wide"], "takes numbers"),
+    ("block:memory.ip", [256.0], "ip takes IP template ids"),
+    ("block:memory.ip", [""], "ip takes IP template ids"),
 ])
 def test_bad_overrides_are_rejected(target, values, match):
     with pytest.raises(ValidationError, match=match):
@@ -194,3 +198,49 @@ def test_rows_carry_the_estimation_confidence(analyzer):
     (row,) = [r.to_row() for r in run_study(_study(profiles=["far flight"]), analyzer)]
     assert row["estimation_confidence"]["level"] == row["confidence"] == "unknown"
     assert row["estimation_confidence"]["source"]
+
+
+# ---------------------------------------------------------------------------
+# Swapping a block's IP (graphs#269 Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def test_an_ip_override_swaps_the_template(analyzer):
+    """The memory system is an axis, so a state space costs one design
+    rather than one design per combination."""
+    from embodied_schemas import load_process_nodes
+
+    from graphs.hardware.soc import compose_soc, load_designs, load_ip_library
+
+    design = load_designs()["kpu_t256_n7"]
+    override = Override(target="block:memory.ip",
+                        values=["lpddr5_phy_256b", "lpddr5x_phy_512b", "hbm3_1stack"])
+    library, nodes = load_ip_library(), load_process_nodes()
+    bandwidths = [compose_soc(override.apply(design, v), library, nodes, None).dram_peak_gb_per_s
+                  for v in override.values]
+    assert bandwidths == pytest.approx([204.8, 546.1, 819.2])
+    # Nothing else moved: the KPU block is the design's still.
+    swapped = override.apply(design, "hbm3_1stack")
+    assert [b.ip for b in swapped.blocks if b.instance != "memory"] == \
+        [b.ip for b in design.blocks if b.instance != "memory"]
+
+
+def test_an_ip_override_labels_its_point(analyzer):
+    study = _study(designs=["kpu_t256_n7"], profiles=["far flight"],
+                   overrides=[{"target": "block:memory.ip",
+                               "values": ["lpddr5_phy_256b", "hbm3_1stack"]}])
+    labels = {point.variant_label for point, _design in expand(study, analyzer)}
+    assert labels == {"memory.ip=lpddr5_phy_256b", "memory.ip=hbm3_1stack"}
+
+
+def test_wider_memory_is_what_far_flight_needs(analyzer):
+    """Far flight asks 305.9 GB/s of a 204.8 GB/s part and no accelerator
+    changes that; the axis exists so the study can say what does."""
+    study = _study(designs=["kpu_t256_n7"], profiles=["far flight"],
+                   overrides=[{"target": "block:memory.ip",
+                               "values": ["lpddr5_phy_256b", "lpddr5x_phy_512b", "hbm3_1stack"]}])
+    utilization = {r.point.variant_label: r.result.schedule.dram_utilization
+                   for r in run_study(study, analyzer)}
+    assert utilization["memory.ip=lpddr5_phy_256b"] == pytest.approx(2.30, abs=0.01)
+    assert utilization["memory.ip=lpddr5x_phy_512b"] == pytest.approx(0.86, abs=0.01)
+    assert utilization["memory.ip=hbm3_1stack"] < utilization["memory.ip=lpddr5x_phy_512b"]
