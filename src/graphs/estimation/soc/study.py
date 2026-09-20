@@ -32,15 +32,16 @@ from graphs.hardware.soc import SoCDesign
 
 from .analyzer import SoCAnalysisResult, SoCAnalyzer
 
-_TARGET = re.compile(r"^(?:block:(?P<instance>[a-z0-9_]+)\.(?P<field>count|clock_ghz)"
+_TARGET = re.compile(r"^(?:block:(?P<instance>[a-z0-9_]+)\.(?P<field>count|clock_ghz|ip)"
                      r"|layout\.(?P<layout>whitespace_fraction|io_ring_mm))$")
 
 
 class Override(BaseModel):
     """One design field and the values a study sweeps it over."""
 
-    target: str = Field(..., description="block:<instance>.count|clock_ghz or layout.<field>")
-    values: List[float] = Field(..., min_length=1)
+    target: str = Field(..., description="block:<instance>.count|clock_ghz|ip or layout.<field>")
+    #: Numbers for every field but ``ip``, which takes IP template ids.
+    values: List[Union[float, str]] = Field(..., min_length=1)
 
     model_config = {"extra": "forbid"}
 
@@ -51,11 +52,17 @@ class Override(BaseModel):
             raise ValueError(
                 f"override target {self.target!r}: expected block:<instance>.count, "
                 "block:<instance>.clock_ghz, layout.whitespace_fraction or layout.io_ring_mm")
+        if m["field"] == "ip":
+            if any(not isinstance(v, str) or not v for v in self.values):
+                raise ValueError(f"{self.target}: ip takes IP template ids, got {self.values}")
+            return self
+        if any(isinstance(v, str) for v in self.values):
+            raise ValueError(f"{self.target}: takes numbers, got {self.values}")
         if m["field"] == "count" and any(v != int(v) or v < 1 for v in self.values):
             raise ValueError(f"{self.target}: counts must be positive integers, got {self.values}")
         return self
 
-    def apply(self, design: SoCDesign, value: float) -> SoCDesign:
+    def apply(self, design: SoCDesign, value: Union[float, str]) -> SoCDesign:
         """A copy of ``design`` with this field set to ``value``."""
         m = _TARGET.match(self.target)
         if m["layout"]:
@@ -116,7 +123,7 @@ def load_study(path: Union[str, Path]) -> Study:
 @dataclass(frozen=True)
 class SweepPoint:
     design: str
-    variant: Tuple[Tuple[str, float], ...]  # (target, value), in override order
+    variant: Tuple[Tuple[str, Union[float, str]], ...]  # (target, value), in override order
     node: Optional[str]
     profile: str
     efficiency: str
@@ -124,7 +131,8 @@ class SweepPoint:
 
     @property
     def variant_label(self) -> str:
-        return ",".join(f"{t.split(':')[-1]}={v:g}" for t, v in self.variant) or "base"
+        return ",".join(f"{t.split(':')[-1]}={v if isinstance(v, str) else format(v, 'g')}"
+                        for t, v in self.variant) or "base"
 
 
 @dataclass(frozen=True)

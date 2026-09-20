@@ -1,0 +1,20 @@
+id: hbm3_1stack
+name: HBM3 controller + PHY, one stack
+vendor: ''
+silicon:
+- name: phy
+  circuit_class: analog
+  unanchored: true
+  source: One HBM3 stack's PHY. Area is in vendor IP datasheets behind account walls; not retrieved. An
+    HBM stack also needs an interposer, which this SoC model does not cost.
+  confidence: unknown
+- name: controller
+  circuit_class: balanced_logic
+  unanchored: true
+  source: Memory-controller logic for one HBM3 stack; no public figure.
+  confidence: unknown
+memory_interface:
+  peak_gb_per_s: 819.2
+  source: 'JEDEC JESD238 HBM3: 6.4 Gb/s per pin on a 1024-bit stack gives 6.4e9 x 128 = 819.2 GB/s. For
+    comparison the Stillwater T768 SKU states 4096 bits of HBM3 at 1638 GB/s, which is 3.2 Gb/s per pin
+    -- half the JESD238 maximum -- over four stacks.'
