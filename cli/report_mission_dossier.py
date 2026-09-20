@@ -152,259 +152,211 @@ def tile_area_fit():
 
 
 def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0,
-             efficiency: str = "") -> dict:
+             efficiency: str = "", target_utilization: float = 0.85) -> dict:
     """The argument. Every number is interpolated from the dossier, so the
     prose cannot drift from the analysis it describes."""
     kpu = next((p for p in dossier.provisions if p.kind == "kpu"), None)
     cpu = next((p for p in dossier.provisions if p.kind == "cpu"), None)
     total_ops = sum(s.ops_per_s for s in dossier.stages)
     by_key = {s.key: s for s in dossier.stages}
-
-    light = by_key.get("mono")
-    heavy = by_key.get("det")
+    light, heavy = by_key.get("mono"), by_key.get("det")
     light_share = (light.ops_per_s / total_ops) if light and total_ops else 0.0
     dram_used = (dossier.dram_demand_gb_per_s / dossier.dram_supply_gb_per_s
                  if dossier.dram_supply_gb_per_s else None)
 
     out = {}
     out["lede"] = """
-<p class="lede">Four 1080p camera streams at 15 Hz, an open-vocabulary detector on every frame,
-and a 5 W budget. This is the whole sizing argument for that product on a CPU + KPU SoC: what
-the workload demands, what each engine delivers, and how many cores and tiles it takes before
-the demand fits.</p>"""
+<p class="lede">Four 1080p streams at 15 Hz, an open-vocabulary detector on every frame, 5 W.
+What has to be true of the CPU and the accelerator for that to close.</p>"""
 
     if kpu and cpu:
         out["verdict"] = f"""
 <div class="verdict">
-<b>The answer is {cpu.servers_provisioned} CPU cores and {kpu.servers_provisioned} KPU
-tile{'s' if kpu.servers_provisioned != 1 else ''}.</b> The detector &mdash;
-{heavy.ops_per_s / total_ops:.1%} of the mission's arithmetic &mdash; needs
-{kpu.servers_needed:.2f} of a tile. The camera light path, {light_share:.1%} of the arithmetic,
-needs {cpu.servers_needed:.2f} CPU cores. Neither compute engine is the binding constraint:
-DRAM runs at {dram_used:.1%} of peak, the datapath draws
-{dossier.datapath_total_w * 1e3:.0f} mW against a {dossier.power_budget_w:g} W budget, and the
-chain finishes in {ms(dossier.chain_seconds)} against a {dossier.deadline_ms:g} ms deadline.
-<b>What binds is a {cpu.efficiency:.1%} efficiency on the pixel stage</b>, and that is an
-argument about the CPU, not about the accelerator.
+<b>{cpu.servers_provisioned} CPU cores and {kpu.servers_provisioned} KPU
+tile{'s' if kpu.servers_provisioned != 1 else ''}.</b> The detector is
+{heavy.ops_per_s / total_ops:.1%} of the arithmetic and fits in {kpu.servers_needed:.2f} of a
+tile. The pixel front end is {light_share:.1%} of the arithmetic and takes
+{cpu.servers_needed:.2f} cores. Memory, energy and latency all have an order of magnitude in
+hand. <b>The CPU is the only part without margin</b>, and the reason is a
+{cpu.efficiency:.1%} efficiency on a per-pixel kernel &mdash; which is the question this
+partnership exists to answer.
 </div>"""
 
     out["use_case"] = f"""
-<p>A fixed-install edge appliance watching four camera streams &mdash; a loading bay, a retail
-floor, a perimeter. It runs an open-vocabulary detector on every frame of every stream, keeps
-identities across frames, and raises an anomaly when something does not belong. It is mains- or
-PoE-powered, fanless, and it is expected to run unattended for years.</p>
-<p>The catalogue states it as: <i>{html_escape(dossier.note)}</i>. In numbers, that is
-{_cams(dossier)} and {by_key['det'].rate_hz:g} detector inferences per second, which is one per
-frame across all four streams.</p>
-<p>Two properties of this use case drive everything that follows. First, <b>the detector is not
-latency-critical but is throughput-critical</b>: a {dossier.deadline_ms:g} ms deadline is
-generous for a 60 Hz aggregate frame rate, but every frame must be processed, so the sizing
-question is one of sustained rate, not of tail latency. Second, <b>the pixel path and the
-detector are completely different kinds of work</b>, and the analysis in section 6 turns on
-exactly that.</p>"""
+<p>A fanless, mains- or PoE-powered appliance watching four camera streams: a loading bay, a
+retail floor, a perimeter. It detects, tracks and flags anomalies on every frame, unattended,
+for years.</p>
+<p>{_cams(dossier)}, {by_key['det'].rate_hz:g} detector inferences per second, one per frame
+across all four. The {dossier.deadline_ms:g} ms deadline is loose for a
+{dossier.frame_hz:g} Hz frame rate, so this is a throughput problem, not a latency one: every
+frame has to be processed, none may be dropped.</p>"""
 
     out["requirements_intro"] = """
-<p>What the product has to do, and where each figure comes from. A requirement the catalogue
-does not state is marked <b>NOT STATED</b> rather than assumed &mdash; a missing thermal limit
-is not a satisfied thermal limit, and a page that quietly filled it in would be worse than
-useless to whoever has to build the thing.</p>"""
+<p>What the product must do, and where each figure comes from. Anything the catalogue does not
+state is marked <b>NOT STATED</b> rather than assumed.</p>"""
 
     out["requirements_note"] = f"""
-<p class="note">The four gaps are real and they matter differently. <b>Thermal</b> and
-<b>SWaP</b> are product decisions that live outside this repository, and they are the customer's
-to state. <b>Full-SoC power</b> is a gap of a different kind: the
-{dossier.datapath_total_w * 1e3:.0f} mW figure is the datapath floor only &mdash; every
-arithmetic operation charged once at the process node's energy per operation, with no memory
-traffic, no clock tree, no leakage and no idle power in it. The true figure is higher, and by
-how much is not something this model states. <b>CPU core area</b> is the one gap a CPU IP
-partner could close immediately, and section 7 says why it is open.</p>"""
+<p class="note"><b>Thermal and SWaP</b> are yours to set; they are not in our model.
+<b>Full-SoC power</b> is a different kind of gap: {dossier.datapath_total_w * 1e3:.0f} mW is
+arithmetic only &mdash; no memory traffic, clock tree, leakage or idle. The true figure is
+higher. <b>CPU core area</b> is the one gap you can close, and section 7 says why it is
+open.</p>"""
 
-    out["workload"] = """
-<p>The pipeline is two stages, and its shape is the reason the sizing works out the way it does.
-Raw sensor data enters the light path, which is a per-pixel fixed-function chain; the detector
-then runs once per frame on the result. Everything else a tracking product does &mdash;
-association, re-identification, the anomaly rule &mdash; is folded into the detector's per-call
-cost by the catalogue, which anchors it to a published FLOP count rather than modelling it
-separately.</p>
-<p>Each box carries what the stage demands and, underneath, what it costs on the engine it was
-sized for in section 6. The number under each arrow is the traffic that edge carries.</p>"""
+    out["workload"] = f"""
+<p>Two stages. A per-pixel front end runs on every pixel of every stream; the detector then runs
+once per frame on the result. Association, re-identification and the anomaly rule sit inside the
+detector's per-call cost, anchored to a published FLOP count.</p>
+<p>The two could hardly be less alike. The front end does
+{light.ops_per_call:g} operations on each of {si(light.rate_hz, '')} pixels a second; the
+detector does {si(heavy.ops_per_call, 'OP')} on each of {heavy.rate_hz:g} frames. A trickle of
+arithmetic over a flood of pixels, then the reverse. Nothing is good at both, and that is the
+whole design problem.</p>"""
 
     out["workload_note"] = f"""
-<p class="note">The chain is drawn as a serial sum, which is the pessimistic reading: the light
-path for a frame finishes before the detector starts on it. A real implementation would pipeline
-the two, so the sense-to-track latency of {ms(dossier.chain_seconds)} is an upper bound on a
-configuration that already has {dossier.deadline_headroom:.1f}x of margin. Note also that this
-mission's declared reactive chain contains only <code>{light.key}</code>; the
-<code>{light.key}</code>&#8201;&rarr;&#8201;<code>{heavy.key}</code> path drawn here is the
-product-meaningful latency, and is the stricter of the two.</p>"""
+<p class="note">Drawn as a serial sum, which is pessimistic &mdash; a real build overlaps the two
+stages. Even so, {ms(dossier.chain_seconds)} against {dossier.deadline_ms:g} ms leaves
+{dossier.deadline_headroom:.1f}x in hand.</p>"""
 
     out["demand"] = """
-<p>Per stage: the kernel class its arithmetic belongs to, the precision classes it needs as a
-share of its own operations, its rate in its own unit, and the operations and bytes that follow
-from those. The <b>kernel class</b> is the level at which hardware efficiency is a meaningful
-number, which is why the sizing in section 6 is done there and not per stage or per network.</p>"""
+<p>Per stage: the kernel class its arithmetic belongs to, the precision it needs, its rate, and
+the operations and bytes that follow. <b>Kernel class</b> is the level at which hardware
+efficiency is a real number, so it is the level everything is measured and sized at.</p>"""
 
     out["demand_note"] = f"""
-<p class="note">The asymmetry in this table is the whole story. <code>{heavy.key}</code> is
-{heavy.ops_per_s / total_ops:.1%} of the operations; <code>{light.key}</code> is
-{light_share:.1%}. If operations were the unit of cost, the light path would be a rounding
-error. It is not, and section 6 shows why: {si(light.ops_per_s, 'OP/s')} of
-<code>{light.kernel_class}</code> work is harder to deliver on a CPU than
-{si(heavy.ops_per_s, 'OP/s')} of <code>{heavy.kernel_class}</code> is on a fabric built for it.</p>"""
+<p class="note">If operations were the unit of cost, the front end would be a rounding error at
+{light_share:.1%} of them. Section 6 is about why it is not.</p>"""
 
     out["configuration"] = f"""
-<p>The configuration is one KPU fabric, a cluster of Cortex-A78AE-class CPU cores, a shared
-on-chip fabric and one LPDDR5 interface, all at {dossier.node}. The diagram shows it <b>as
-sized</b> &mdash; the engine counts are the output of section 6, not an input.</p>
-<p>Three numbers describe each compute block, and any two of them mislead:</p>
-<ul>
-<li><b>X</b>, the throughput one server actually delivers while it is running this work.</li>
-<li><b>U</b>, the share of wall clock that server is busy &mdash; the sizing margin.</li>
-<li><b>E</b>, the share of the server's dense peak that X represents &mdash; how well the kernel
-suits the machine.</li>
-</ul>
-<p>They compose exactly: <b>demand = X &times; servers &times; U</b>. A block with high E and low
-U is oversized. A block with high U and low E is not oversized; it is badly matched, and buying
-more of it is the expensive way out.</p>"""
+<p>One KPU fabric, a cluster of Andes RISC-V cores, a shared fabric and one LPDDR5 interface at
+{dossier.node}. Engine counts are the <i>output</i> of section 6, not an input.</p>
+<p class="note">The CPU block carries <b>baseline</b> figures: we have measured an Arm
+Cortex-A78AE, not an Andes core. They stand in for the socket until you replace them, which is
+what section 6 asks for. Nothing here is a claim about Andes silicon.</p>
+<p>Three numbers per compute block, because any two mislead: <b>X</b>, the throughput one server
+actually delivers; <b>U</b>, the share of wall clock it is busy; <b>E</b>, the share of its dense
+peak that X represents. They compose exactly &mdash; <b>demand = X &times; servers &times;
+U</b>. High E with low U means oversized. High U with low E means badly matched, and buying more
+of it is the expensive fix.</p>"""
 
     if kpu and cpu:
         out["configuration_note"] = f"""
-<p class="note">Read the two compute blocks against each other. The KPU delivers
-{si(kpu.throughput_ops_per_s, 'OP/s')} per tile at <b>E = {kpu.efficiency:.1%}</b> of its dense
-peak. The CPU delivers {si(cpu.throughput_ops_per_s, 'OP/s')} per core at
-<b>E = {cpu.efficiency:.1%}</b>. That is a factor of
-{kpu.efficiency / cpu.efficiency:.0f} in how well each engine is suited to the work it was given
-&mdash; and the engine doing badly is the one carrying less than one percent of the operations.</p>"""
+<p class="note">The KPU delivers {si(kpu.throughput_ops_per_s, 'OP/s')} per tile at
+<b>E = {kpu.efficiency:.1%}</b>. The CPU delivers {si(cpu.throughput_ops_per_s, 'OP/s')} per core
+at <b>E = {cpu.efficiency:.1%}</b> &mdash; a factor of
+{kpu.efficiency / cpu.efficiency:.0f} apart, with the badly-matched engine carrying under one
+percent of the operations.</p>"""
 
     out["analysis"] = f"""
-<h3>Step 1: each stage has exactly one engine that can take it</h3>
-<p>Before any sizing, the mapping is forced. A precision class runs in the narrowest format the
-engine offers at or above the class's floor, and the efficiency of that (kernel class, engine,
-format) triple has to come from somewhere &mdash; a measurement, or the domain-flow ceiling.
-Where it does not exist, the stage does not get a number, and nothing is substituted for it.</p>
+<h3>1. Neither placement is a choice</h3>
+<p>A precision class runs in the narrowest format the engine offers at or above its floor, and
+that (kernel class, engine, format) triple needs an efficiency from somewhere &mdash; a
+measurement or the domain-flow ceiling. Where there is none, there is no number, and we do not
+invent one.</p>
 <ul>
-<li><code>{light.key}</code> is <code>{light.kernel_class}</code>, entirely class C, so it runs in
-FP32. <b>On the KPU there is no fit</b>: the domain-flow model has no schedule for that kernel
-class on a regular wavefront fabric, so there is no ceiling to quote and nothing has measured
-one. It goes to the CPU, where FP32 is measured.</li>
-<li><code>{heavy.key}</code> is <code>{heavy.kernel_class}</code>, {heavy.class_split['A']:.0%}
-class A and {heavy.class_split['B']:.0%} class B. On the CPU, class A binds to INT8 &mdash; the
-narrowest format the CPU offers at or above A's floor &mdash; and <b>nothing measures INT8
-{heavy.kernel_class} on a CPU</b>, so there is no fit. It goes to the KPU, where the domain-flow
-model does have a schedule.</li>
-</ul>
-<p>Neither placement is a preference. The table below is the whole of it: two stages, two
-engines, and exactly one number in each row.</p>"""
+<li><code>{light.key}</code> is <code>{light.kernel_class}</code>, FP32 throughout. <b>No fit on
+the KPU</b>: the domain-flow model has no schedule for that kernel class on a regular wavefront
+fabric. It goes to the CPU.</li>
+<li><code>{heavy.key}</code> is <code>{heavy.kernel_class}</code>,
+{heavy.class_split['A']:.0%} INT8 and {heavy.class_split['B']:.0%} FP16. <b>No fit on the
+CPU</b>: nothing measures INT8 {heavy.kernel_class} on a CPU. It goes to the KPU.</li>
+</ul>"""
 
     if kpu and cpu:
         out["analysis_2"] = f"""
-<h3>Step 2: size each engine to its own stage</h3>
-<p><b>The detector.</b> At a ceiling efficiency of {kpu.efficiency:.1%}, one tile delivers
-{si(kpu.throughput_ops_per_s, 'OP/s')}. The detector asks for
-{si(heavy.ops_per_s, 'OP/s')}, so it needs <b>{kpu.servers_needed:.3f} of a tile</b>. One tile
-covers it at {kpu.utilization:.1%} utilization. Because that efficiency is a ceiling rather than
-a measurement, the honest reading is <i>no fewer than</i> {kpu.servers_needed:.2f} tiles.</p>
-<p><b>The light path.</b> At a measured efficiency of {cpu.efficiency:.2%}, one core delivers
-{si(cpu.throughput_ops_per_s, 'OP/s')} against a {si(cpu.peak_ops_per_s, 'OP/s')} FP32 peak. The
-light path asks for {si(light.ops_per_s, 'OP/s')}, so it needs
-<b>{cpu.servers_needed:.3f} cores</b>. Four cores cover it at {cpu.utilization:.1%}.</p>
+<h3>2. Size each engine</h3>
+<p><b>Detector.</b> One tile delivers {si(kpu.throughput_ops_per_s, 'OP/s')} at a ceiling
+efficiency of {kpu.efficiency:.1%}. The detector wants {si(heavy.ops_per_s, 'OP/s')}:
+<b>{kpu.servers_needed:.3f} of a tile</b>, so one tile at {kpu.utilization:.1%}. That efficiency
+is a ceiling, so read it as <i>no fewer than</i> {kpu.servers_needed:.2f} tiles.</p>
+<p><b>Front end.</b> One core delivers {si(cpu.throughput_ops_per_s, 'OP/s')} against a
+{si(cpu.peak_ops_per_s, 'OP/s')} FP32 peak &mdash; {cpu.efficiency:.2%}. The front end wants
+{si(light.ops_per_s, 'OP/s')}: <b>{cpu.servers_needed:.3f} cores</b>, so four at
+{cpu.utilization:.1%}.</p>
 
-<h3>Step 3: check what is not the constraint</h3>
-<p>Three candidates fail to bind, and it is worth being explicit about each:</p>
+<h3>3. Nothing else binds</h3>
 <ul>
-<li><b>Memory bandwidth.</b> {dossier.dram_demand_gb_per_s:.2f} GB/s of compulsory traffic
-against {dossier.dram_supply_gb_per_s:g} GB/s of peak &mdash; {dram_used:.1%}. The narrowest
-interface in the catalogue is roughly {1 / dram_used:.0f}x oversized for this mission.</li>
-<li><b>Energy.</b> The datapath floor is {dossier.datapath_total_w * 1e3:.0f} mW against a
-{dossier.power_budget_w:g} W budget: {dossier.power_budget_fraction_used:.1%}. Even if the rest
-of the SoC costs an order of magnitude more than its arithmetic, the budget holds.</li>
-<li><b>Latency.</b> {ms(dossier.chain_seconds)} serial against {dossier.deadline_ms:g} ms:
-{dossier.deadline_headroom:.1f}x of margin, before pipelining the two stages.</li>
+<li><b>Memory.</b> {dossier.dram_demand_gb_per_s:.2f} GB/s against
+{dossier.dram_supply_gb_per_s:g} GB/s &mdash; {dram_used:.1%}. The narrowest interface we
+catalogue is {1 / dram_used:.0f}x oversized here.</li>
+<li><b>Energy.</b> {dossier.datapath_total_w * 1e3:.0f} mW of arithmetic against
+{dossier.power_budget_w:g} W: {dossier.power_budget_fraction_used:.1%}.</li>
+<li><b>Latency.</b> {ms(dossier.chain_seconds)} against {dossier.deadline_ms:g} ms.</li>
 </ul>
 
-<h3>Step 4: what the KPU is worth here</h3>
-<p>The detector has no fit on the CPU because nobody has measured INT8
-<code>{heavy.kernel_class}</code> there. But class A is <i>INT8 or wider</i>, so the CPU could
-run the detector in FP32 &mdash; a different operating point, fully measured, and therefore
-quotable. At E = {alt['efficiency']:.1%} in FP32, one core delivers
-{si(alt['throughput_per_server'], 'OP/s')}, and the detector would need
-<b>{alt['servers_needed']:.1f} CPU cores</b> and {alt['watts'] * 1e3:.0f} mW of datapath power
-&mdash; against {kpu.servers_needed:.2f} of a tile and
-{dossier.datapath_watts.get('kpu', 0) * 1e3:.0f} mW.</p>
-<p>That is the accelerator's case, in the only terms that matter to a silicon budget:
-<b>{alt['servers_needed'] / kpu.servers_needed:.0f} CPU cores' worth of work per KPU tile</b>,
-at {alt['watts'] / dossier.datapath_watts.get('kpu', 1):.1f}x less datapath energy. It is also
-the case for <i>one</i> tile rather than a large fabric: the catalogued
-{dossier.design.replace('kpu_', '').replace('_', ' ').upper()} part has
-{catalogued_tiles} tiles, which is
-<b>{catalogued_tiles / kpu.servers_needed:.0f}x</b> more fabric than this mission can use. The
-accelerator earns its place here at a scale of one tile; the rest of that part is being bought
-for some other mission.</p>"""
+<h3>4. What the accelerator is worth</h3>
+<p>The detector has no measured INT8 figure on a CPU, but its INT8 class may run in any wider
+format, and FP32 <i>is</i> measured. At E = {alt['efficiency']:.1%} one core delivers
+{si(alt['throughput_per_server'], 'OP/s')}, so the detector would need
+<b>{alt['servers_needed']:.1f} CPU cores</b> and {alt['watts'] * 1e3:.0f} mW &mdash; against
+{kpu.servers_needed:.2f} of a tile and
+{dossier.datapath_watts.get('kpu', 0) * 1e3:.0f} mW. That is
+<b>{alt['servers_needed'] / kpu.servers_needed:.0f} cores of work per tile</b> at
+{alt['watts'] / dossier.datapath_watts.get('kpu', 1):.1f}x less energy.</p>
+<p>It is equally an argument for <i>one</i> tile. The catalogued
+{dossier.design.replace('kpu_', '').replace('_', ' ').upper()} part has {catalogued_tiles}
+tiles: {catalogued_tiles / kpu.servers_needed:.0f}x more fabric than this mission can use.</p>"""
 
     if kpu and cpu:
+        ten = cpu.servers_needed * cpu.efficiency / 0.10
         out["analysis_3"] = f"""
-<h3>Step 5: what actually binds, and what to do about it</h3>
-<p>The sized configuration is {cpu.servers_provisioned} CPU cores and
-{kpu.servers_provisioned} KPU tile. The CPU is at {cpu.utilization:.0%} and the KPU at
-{kpu.utilization:.0%}, so <b>the CPU is the part with no margin</b> &mdash; and it is carrying
-{light_share:.1%} of the mission's operations to do it.</p>
-<p>The cause is the {cpu.efficiency:.2%} efficiency, not the core count. A per-pixel
-fixed-function chain on a general-purpose core spends its time on loads, stores and address
-arithmetic rather than on the {light.ops_per_call:g} operations per pixel that the model counts.
-Three things would move it, in descending order of leverage:</p>
+<h3>5. The CPU is the ask</h3>
+<p>{cpu.servers_provisioned} cores at {cpu.utilization:.0%}, one tile at
+{kpu.utilization:.0%}. The CPU has no margin, and it is carrying {light_share:.1%} of the
+operations to get there. The cause is {cpu.efficiency:.2%} efficiency, not core count: a
+per-pixel chain on a general-purpose core spends its time on loads, stores and address
+arithmetic, not on the {light.ops_per_call:g} operations per pixel we count.</p>
+<p>So the question for an Andes core is not how fast it is in the abstract. It is:</p>
+<blockquote><b>What does it take to sustain {si(light.ops_per_s, 'OP/s')} of FP32 per-pixel work
+&mdash; {light.ops_per_call:g} operations on each of {si(light.rate_hz, '')} pixels a second
+&mdash; inside a {dossier.power_budget_w:g} W envelope?</b></blockquote>
+<p>Three ways to get there, in order of leverage:</p>
 <ol>
-<li><b>Put the light path in fixed-function silicon.</b> The composed SoC already contains an ISP
-block, and this stage's own configuration note says demosaic and denoise are assumed to happen
-in the sensor ISP &mdash; what remains on the CPU is the {light.ops_per_call:g} op/pixel light
-path after that. The catalogue states no capability or area for the on-die ISP, so this analysis
-cannot price the move; it can only say that the block is there and idle.</li>
-<li><b>Widen the CPU's vector path or fix its memory behaviour.</b> Going from
-{cpu.efficiency:.2%} to a still-modest 10% would take the light path from
-{cpu.servers_needed:.2f} cores to {cpu.servers_needed * cpu.efficiency / 0.10:.2f}, and the part
-would need {max(1, round(cpu.servers_needed * cpu.efficiency / 0.10 / 0.85 + 0.49)):g} cores
-instead of {cpu.servers_provisioned}.</li>
-<li><b>Give the fabric a schedule for it.</b> <code>{light.kernel_class}</code> is one of eleven
-kernel classes the domain-flow model declares unschedulable on a regular mesh. If that is wrong
-&mdash; and a per-pixel chain is about as regular as work gets &mdash; then the KPU tile at
-{kpu.utilization:.0%} has room to absorb it and the CPU count falls out of the design.</li>
-</ol>
-<p>Each of those is a different team's work, which is the point of stating the sizing this way:
-the number that binds names the owner.</p>"""
+<li><b>Vector width and memory behaviour.</b> At {cpu.efficiency:.2%} we need
+{cpu.servers_needed:.2f} cores. At a still-unambitious 10% we need {ten:.2f}, and the part ships
+{provision(ten, target_utilization):g} cores instead of {cpu.servers_provisioned}. This is where
+an RVV-capable core should win, and it is the number we would like to replace with a measurement
+on your silicon.</li>
+<li><b>Move the front end off the CPU entirely.</b> The SoC already carries an ISP block, and
+this stage assumes demosaic and denoise already happened in the sensor. The
+{light.ops_per_call:g} op/pixel that remain are a fixed-function candidate. We state no
+capability or area for the on-die ISP, so we cannot price the move &mdash; only note the block is
+there and idle.</li>
+<li><b>Schedule it on the fabric.</b> <code>{light.kernel_class}</code> is one of eleven classes
+our domain-flow model calls unschedulable on a regular mesh. A per-pixel chain is about as
+regular as work gets, so that may be our limitation rather than the fabric's. The tile at
+{kpu.utilization:.0%} has room.</li>
+</ol>"""
 
     fit_note = ""
     if area_fit:
         one = area_fit["slope_mm2_per_tile"] + area_fit["intercept_mm2"]
         fit_note = f"""
-<p><b>Silicon area.</b> The KPU side can be priced: a least-squares line through the four
-catalogued N7 cores gives {area_fit['slope_mm2_per_tile']:.4f} mm&sup2; per tile plus
+<p><b>Area.</b> A least-squares line through our four catalogued N7 cores gives
+{area_fit['slope_mm2_per_tile']:.4f} mm&sup2; per tile plus
 {area_fit['intercept_mm2']:.3f} mm&sup2; fixed, so a one-tile fabric is about
-{one:.2f} mm&sup2;. That is an <i>extrapolation</i> one step below the smallest catalogued SKU
-({area_fit['points'][0][0]} tiles) and is labelled THEORETICAL for that reason. The CPU side
-cannot be priced at all: the repository states cache areas for the cluster but marks core logic
-<b>unanchored</b>, because no trustworthy absolute Cortex-A78AE core area is public. Arm
-discloses only relative figures. <b>This is the one number in the whole dossier that a CPU IP
-partner could close immediately</b>, and closing it would turn the area column from a gap into
-an answer.</p>"""
+{one:.2f} mm&sup2; &mdash; an extrapolation one step below our smallest SKU
+({area_fit['points'][0][0]} tiles), and labelled THEORETICAL for it. The CPU side we cannot
+price at all: we anchor the cluster's caches but not its core logic, because no absolute core
+area is published for the baseline. <b>An Andes core area would close that column
+outright.</b></p>"""
 
     out["provenance"] = f"""
-<p>Every figure on this page is one of four things, and the page says which:</p>
+<p>Four kinds of figure, and the page says which each is:</p>
 <ul>
-<li><b>Catalogue data.</b> The mission profile, its rates, its per-call operation and byte
-counts, the SoC composition and the process node's energy per operation.</li>
-<li><b>A measurement.</b> The CPU efficiencies come from the
-<code>{efficiency}</code> table &mdash; real silicon, with the run that produced each figure
-cited in the table. The FP32 counterfactual in section 6 is drawn from
-<code>{COUNTERFACTUAL_TABLE}</code>, named separately because it is a different operating
-point rather than part of the sizing.</li>
-<li><b>A ceiling.</b> The KPU efficiency is the domain-flow model's upper bound, taken from the
-smallest catalogued core with a stated schedule ({CEILING_CORE}) so that the bound does not carry
-a DRAM constraint belonging to a much larger fabric. A ceiling bounds; it does not predict. The
-tile count derived from it is therefore a <i>lower</i> bound: no fewer than
-{next((p.servers_needed for p in dossier.provisions if p.kind == 'kpu'), 0):.2f} tiles.</li>
-<li><b>A gap.</b> Named as such, never filled.</li>
+<li><b>Catalogue.</b> The mission, its rates, per-call operation and byte counts, the SoC
+composition, the node's energy per operation.</li>
+<li><b>Measured.</b> CPU efficiencies from <code>{efficiency}</code>, with the run behind each
+figure cited in the table. <b>These are measured on Arm Cortex-A78AE cores in a Jetson Orin
+Nano</b> &mdash; our reference baseline, not a claim about any other core. They are the reason
+the CPU requirement above is stated as a throughput target rather than a core count.</li>
+<li><b>Ceiling.</b> The KPU efficiency is our domain-flow upper bound, taken from the smallest
+core with a stated schedule ({CEILING_CORE}) so it carries no DRAM constraint from a larger
+fabric. A ceiling bounds, it does not predict, so the tile count is a <i>lower</i> bound: no
+fewer than {next((p.servers_needed for p in dossier.provisions if p.kind == 'kpu'), 0):.2f}.</li>
+<li><b>Gap.</b> Named, never filled.</li>
 </ul>
 {fit_note}
-<p>Reproduce this page with:</p>
+<p>Reproduce with:</p>
 <p><code>python cli/report_mission_dossier.py --mission {dossier.mission} \\<br>
 &nbsp;&nbsp;&nbsp;&nbsp;--design {dossier.design} --efficiency {efficiency} \\<br>
 &nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-edge-tracking.html</code></p>"""
@@ -460,8 +412,9 @@ def requirements_rows(dossier, alt):
     rows.append(("Thermal limit", "-", "no cooling solution attached to this design", "gap"))
     rows.append(("Size / volume", "-", "not a field of the mission profile", "gap"))
     rows.append(("Weight", "-", "not a field of the mission profile", "gap"))
-    rows.append(("Silicon area", "KPU priced, CPU not",
-                 "KPU from a fit over 4 catalogued cores; CPU core logic unanchored", "gap"))
+    rows.append(("Silicon area", "KPU sized, CPU open",
+                 "KPU from a fit over 4 catalogued cores; no absolute core area is published "
+                 "for the CPU baseline", "gap"))
     return rows
 
 
@@ -475,6 +428,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Size each engine to at most this utilization (default 0.85)")
     parser.add_argument("--format", choices=["html", "json"], default=None,
                         help="Default: from the --output suffix, else html")
+    parser.add_argument("--cpu-label", default="Andes RISC-V",
+                        help="What to call the CPU complex in the diagrams")
+    parser.add_argument("--cpu-baseline", default="X, U and E from the A78AE baseline",
+                        help="Whose figures the CPU block is showing, said on the block")
     parser.add_argument("--output", "-o", help="Write here (default: stdout)")
     args = parser.parse_args(argv)
     if args.format is None:
@@ -535,9 +492,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                     f"{alt['watts'] * 1e3:.0f} mW of datapath",
         })
     idle = [("ISP", "no capability stated"), ("codec", "not used")]
-    write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency),
+    first = dossier.stages[0] if dossier.stages else None
+    ingress = ("sensors", first.bytes_per_s) if first else None
+    write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
+                                 args.target_utilization),
                         requirements_rows(dossier, alt), alternatives, idle,
-                        date.today().isoformat()), args.output)
+                        date.today().isoformat(), ingress, args.cpu_label,
+                        {"cpu": args.cpu_baseline}), args.output)
     return 0
 
 
