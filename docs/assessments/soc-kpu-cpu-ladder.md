@@ -92,7 +92,9 @@ different coverage, not an area ratio.
 ## What measured data already decides
 
 `orin_nano_measured_v1` prices GPU and CPU kernels only (27 CALIBRATED
-entries from the Orin Nano). Utilization at those figures, air superiority:
+entries from the Orin Nano when this section was written; 40 after PR 6.5,
+which the section above reads). Utilization at those figures, air
+superiority:
 
 | Rung | Engine | Needs | At measured efficiencies | Priced |
 |---|---|---|---|---|
@@ -148,6 +150,43 @@ partial figure and a more partial figure.
 SM, DLA and PVA logic is not, so a larger figure here is more knowledge, not
 more silicon. The bound-aware Pareto classifies every pair as `undecided`
 (P4-D2), which is correct.
+
+## What the measured kernels decide (PR 6.5)
+
+The six classes that had no kernel were measured on the Orin Nano on
+2026-09-19 (three power modes, clocks verified, CPU rows single-threaded).
+`orin_nano_measured_v1` now has 44 entries, 40 of them CALIBRATED, and
+prices 13 of the 16 air-superiority stages instead of 3.
+
+That turns two open verdicts into decided ones. Utilization at the measured
+efficiencies, air superiority at N7, capability mapping:
+
+| Rung | Engine | Needs | Measured, 3 stages priced (6.3) | Measured, 13 priced (6.5) |
+|---|---|---|---|---|
+| Orin | GPU | 18.2% | 1.55 (LB) | **2.64 (LB)** |
+| H64, 3 clusters | CPU | 32.9% | 0.46 (LB) | **3.81 (LB)** |
+| T64 / T128 / T256 | KPU | 16.0 / 8.0 / 4.0% | nothing prices a KPU kernel | unchanged |
+
+- **The H64 rung is now decided against**, at every cluster count in the
+  ladder. Its CPU carries 13 stages and needs 3.81 times the cores it has,
+  on six of them alone. At one cluster that figure is 11.4.
+- **Orin's margin got worse, not better**: 2.64 against 1.55, because the
+  newly measured stages are the expensive ones.
+- **The T-series rungs are untouched.** Nothing measures a KPU kernel, so
+  their verdicts still rest on the requirement and the ceiling.
+
+**One stage does most of it.** `tsdf` -- raycasting a TSDF volume --
+measures 0.34% of dense peak on an A78AE core and 0.23% on the Nano's GPU,
+and it alone asks for 31 cores' worth of the H64's CPU. `esdf` (wavefront
+propagation) asks 7.5 more. Neither is a datapath problem: both are
+pointer-light but memory-heavy passes over a volume, and both are stages
+the KPU cannot take without FP32.
+
+**Three stages are still unpriced, and the strict rule is why.** `sgm`,
+`radar` and `vio` each run an INT8 class as well as an FP32 one, and the
+benchmark has no INT8 variant of their kernels, so the table prices only
+part of each stage and the analysis counts none of it. An INT8 SGM, FFT and
+KLT would close that.
 
 ## What the ceilings decide (PR 6.4)
 
