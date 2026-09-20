@@ -178,9 +178,9 @@ an estimate to make a number come out.
 
 - **No KPU kernel has been measured.** No silicon has run them. Every KPU
   figure here is either a requirement (what it would have to sustain) or a
-  ceiling from geometry and bandwidth (what it could not exceed). The 180
-  points ruled out on the KPU side are ruled out by the ceiling, which is
-  sound; nothing here claims the fabric achieves anything.
+  ceiling from geometry and bandwidth (what it could not exceed). The 996
+  points where the ceiling contributes are ruled out by that bound, which
+  is sound; nothing here claims the fabric achieves anything.
 - **Three stages are still unpriced on the CPU.** SGM, radar FFT and the
   visual front-end each run an INT8 class we have no INT8 kernel for, so
   the measured column omits them, and every CPU utilization above is a

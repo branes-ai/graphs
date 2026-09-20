@@ -38,12 +38,10 @@ from graphs.hardware.soc.kpu_cores import CORE_NODES, KPU_CORES  # noqa: E402
 
 DESIGN_DIR = REPO / "soc_designs" / "designs"
 
-#: The Phase 6 ladder's designs, which name their rungs by hand and are not
-#: regenerated here.
-HAND_WRITTEN = {"kpu_heterogeneous_h64", "kpu_uniform_t64", "kpu_uniform_t128",
-                "kpu_uniform_t256"}
-
-#: Short names for the nodes, for design ids.
+#: Short names for the nodes, for design ids. ``design_id`` always writes
+#: ``kpu_<fabric>_<suffix>``, which is a namespace of its own: the Phase 6
+#: ladder's hand-written designs (kpu_heterogeneous_h64, kpu_uniform_*)
+#: cannot collide with it and are never touched here.
 NODE_SUFFIX = {"tsmc_n7": "n7", "tsmc_n16": "n16", "gf_12fdx": "12fdx"}
 
 
@@ -101,8 +99,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     status = 0
     for core in sorted(KPU_CORES):
         payload = document(core)
-        if payload["id"] in HAND_WRITTEN:
-            continue
         out = DESIGN_DIR / f"{payload['id']}.yaml"
         if args.check:
             if not out.exists() or yaml.safe_load(out.read_text()) != payload:

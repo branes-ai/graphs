@@ -258,7 +258,7 @@ def _row(point: Point, req: RequiredEfficiency, soc, ceilings, kernels, profile,
         "cpu_measured_utilization": cpu_row.get("measured_utilization"),
         "datapath_floor_w": floor_w,
         "datapath_floor_is_lower_bound": bool(floor_gaps),
-        "power_budget_headroom": None if not budget else floor_w / budget,
+        "power_budget_fraction_used": None if not budget else floor_w / budget,
         "verdict": "no" if reasons else "open",
         "why": "; ".join(reasons),
         "confidence": req.estimation_confidence.level.value,
@@ -266,9 +266,11 @@ def _row(point: Point, req: RequiredEfficiency, soc, ceilings, kernels, profile,
 
 
 def _points(args, designs) -> List[Point]:
-    chosen = args.design or sorted(
-        d for d in designs
-        if any(b.ip in KPU_CORES for b in designs[d].blocks)) if args.state_space else args.design
+    if args.state_space:
+        chosen = sorted(d for d in designs
+                        if any(b.ip in KPU_CORES for b in designs[d].blocks))
+    else:
+        chosen = list(args.design or ())
     if not chosen:
         raise KeyError("no design chosen: pass --design or --state-space")
     out = []
