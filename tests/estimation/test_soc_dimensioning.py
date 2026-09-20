@@ -9,6 +9,7 @@ produce an honest blank.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import subprocess
@@ -166,6 +167,29 @@ def test_energy_is_a_floor_over_the_placed_stages(dossier):
     assert set(dossier.datapath_watts) == {"cpu", "kpu"}
 
 
+def test_a_design_too_small_is_a_gap_not_a_sizing(soc, ceilings):
+    """Capping servers at what the design has would report a utilization
+    above 1 as though the configuration had been sized. The module's
+    contract is that a figure it cannot support is named. The humanoid
+    cobot needs far more CPU than this design has, and the state-space
+    page independently rules it out."""
+    profile = next(p for p in WORKLOAD.profiles
+                   if p.id == "humanoid_cobot_human_adjacent_contact_rich")
+    heavy = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings,
+                      target_utilization=0.85, tiles_per_server=128)
+    assert heavy.oversubscribed and not heavy.fits
+    assert any(o.startswith("cpu:") for o in heavy.oversubscribed)
+    assert heavy.estimation_confidence.level.value == "unknown"
+    # The provision is still reported, capped, and says so through U > 1.
+    cpu = next(p for p in heavy.provisions if p.engine == "cpu")
+    assert cpu.servers_provisioned == 12 and cpu.utilization > 1.0
+
+
+def test_a_design_that_fits_reports_no_oversubscription(dossier):
+    assert not dossier.oversubscribed and dossier.fits
+    assert all(p.utilization <= 1.0 for p in dossier.provisions)
+
+
 # ---------------------------------------------------------------------------
 # Drawing
 # ---------------------------------------------------------------------------
@@ -254,3 +278,43 @@ def test_cli_rejects_an_impossible_target():
 
 def test_cli_rejects_an_unknown_mission():
     assert "unknown mission" in _cli("--mission", "nope", expect=2).stderr
+
+
+def test_cli_rejects_a_pooled_table_with_its_documented_exit_code():
+    """A pooled table maps no stage to an engine, so there is nothing to
+    size. Letting it through raised a TypeError from deeper in and exited
+    1 instead of the documented 2."""
+    result = _cli("--efficiency", "annex_v1", expect=2)
+    assert "per-engine" in result.stderr and "Traceback" not in result.stderr
+
+
+def test_the_area_fit_is_least_squares_over_every_catalogued_core():
+    """The page claims a least-squares line through four cores; a two-point
+    slope through the endpoints would make that claim false."""
+    spec = importlib.util.spec_from_file_location(
+        "dossier_cli", REPO / "cli" / "report_mission_dossier.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    fit = module.tile_area_fit()
+    assert len(fit["points"]) == 4
+    slope, intercept = fit["slope_mm2_per_tile"], fit["intercept_mm2"]
+    # A least-squares line has residuals summing to zero; the two-point
+    # slope through the endpoints does not.
+    residuals = [area - (slope * tiles + intercept) for tiles, area in fit["points"]]
+    assert sum(residuals) == pytest.approx(0.0, abs=1e-9)
+    assert max(abs(r) for r in residuals) < 0.1
+
+
+def test_the_page_names_the_table_it_was_built_from(tmp_path):
+    out = tmp_path / "d.json"
+    _cli("-o", str(out))
+    data = json.loads(out.read_text())
+    assert data["efficiency_table"] == "orin_nano_measured_v1"
+    assert data["counterfactual_table"] == "orin_nano_measured_v1"
+    page = tmp_path / "d.html"
+    _cli("-o", str(page))
+    text = page.read_text()
+    # The reproduction command has to carry the table, or it reproduces
+    # something else.
+    assert "--efficiency orin_nano_measured_v1" in text

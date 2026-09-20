@@ -202,6 +202,9 @@ class Dossier:
     area_mm2: Dict[str, Optional[float]] = field(default_factory=dict)
     area_gaps: Tuple[str, ...] = ()
     unplaced: Tuple[str, ...] = ()
+    #: Engines the design cannot supply enough servers for. The provision
+    #: is still reported, capped, with a utilization above 1.
+    oversubscribed: Tuple[str, ...] = ()
 
     @property
     def datapath_total_w(self) -> float:
@@ -231,12 +234,22 @@ class Dossier:
         return self.datapath_total_w / self.power_budget_w
 
     @property
+    def fits(self) -> bool:
+        """False when the demand does not fit the design at all."""
+        return not self.unplaced and not self.oversubscribed
+
+    @property
     def estimation_confidence(self) -> EstimationConfidence:
         if self.unplaced:
             return estimation_confidence(
                 Confidence.UNKNOWN,
                 f"{len(self.unplaced)} stage(s) no engine can be sized for: "
                 + ", ".join(self.unplaced))
+        if self.oversubscribed:
+            return estimation_confidence(
+                Confidence.UNKNOWN,
+                "the design cannot supply what the mission needs: "
+                + "; ".join(self.oversubscribed))
         if any(p.provenance == "ceiling" for p in self.provisions):
             return estimation_confidence(
                 Confidence.THEORETICAL,
@@ -370,6 +383,7 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
 
     provisions: List[Provision] = []
     placements: List[Placement] = []
+    oversubscribed: List[str] = []
     for name, engine in engines.items():
         mine = [s for s in stages if placement.get(s.key) == name]
         if not mine:
@@ -377,7 +391,14 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
         needed = sum(s.fits[name].servers_needed for s in mine)
         unit = tiles_per_server if engine.kind == "kpu" else 1
         maximum = (engine.servers * unit) if engine.kind == "kpu" else engine.servers
+        # The design caps how many servers exist. Asking for more is not a
+        # sizing, it is a gap: capping it silently would report U > 1 as
+        # though the configuration had been sized.
+        unit_name = "tile" if engine.kind == "kpu" else "core"
         servers = min(provision(needed, target_utilization), maximum)
+        if needed > maximum:
+            oversubscribed.append(
+                f"{name}: needs {needed:.3f} {unit_name}s but the design has {maximum}")
         worst = max(PROVENANCE.index(s.fits[name].provenance) for s in mine)
         # X, U and E for the sized engine, over the ops it actually carries.
         ops = sum(s.ops_per_s for s in mine)
@@ -436,7 +457,7 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
         dram_demand_gb_per_s=sum(s.bytes_per_s for s in stages) / 1e9,
         dram_supply_gb_per_s=soc.dram_peak_gb_per_s or None,
         datapath_watts=watts, energy_gaps=tuple(energy_gaps),
-        unplaced=tuple(unplaced))
+        unplaced=tuple(unplaced), oversubscribed=tuple(oversubscribed))
 
 
 class _Scaled:

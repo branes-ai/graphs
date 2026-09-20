@@ -48,6 +48,10 @@ from graphs.reporting.output_format import write_report  # noqa: E402
 #: much larger fabric.
 CEILING_CORE = "kpu_t64_core"
 
+#: The counterfactual in section 6 is a measured FP32 operating point, and
+#: comes from this table whatever ``--efficiency`` selects for the sizing.
+COUNTERFACTUAL_TABLE = "orin_nano_measured_v1"
+
 
 def build(mission: str, design_id: str, efficiency: str, target_utilization: float):
     workload = load_autonomy_workload()
@@ -55,6 +59,14 @@ def build(mission: str, design_id: str, efficiency: str, target_utilization: flo
     tables = load_efficiency_tables()
     if efficiency not in tables:
         raise KeyError(f"unknown efficiency table {efficiency!r}")
+    # A pooled table states one efficiency for the whole machine and maps no
+    # stage to an engine, so there is nothing to size per engine. Rejecting
+    # it here keeps the documented exit code instead of a TypeError from
+    # deeper in.
+    if tables[efficiency].kind != "per_engine":
+        raise ValueError(
+            f"efficiency table {efficiency!r} is {tables[efficiency].kind}; sizing needs a "
+            f"per-engine table, because a pooled one maps no stage to an engine")
     designs = load_designs()
     if design_id not in designs:
         raise KeyError(f"unknown design {design_id!r}")
@@ -83,7 +95,7 @@ def counterfactual(dossier, soc, stage_key: str, engine: str, fmt: str):
     substitute for the missing figure."""
     from graphs.estimation.soc import engines_of, load_efficiency_tables as _tables
 
-    table = _tables()["orin_nano_measured_v1"]
+    table = _tables()[COUNTERFACTUAL_TABLE]
     stage = next((s for s in dossier.stages if s.key == stage_key), None)
     eng = engines_of(soc).get(engine)
     if stage is None or eng is None:
@@ -128,13 +140,19 @@ def tile_area_fit():
     if len(points) < 2:
         return None
     points.sort()
-    (t0, a0), (t1, a1) = points[0], points[-1]
-    slope = (a1 - a0) / (t1 - t0)
-    return {"slope_mm2_per_tile": slope, "intercept_mm2": a0 - slope * t0,
+    count = len(points)
+    mean_t = sum(t for t, _ in points) / count
+    mean_a = sum(a for _, a in points) / count
+    variance = sum((t - mean_t) ** 2 for t, _ in points)
+    if variance == 0:
+        return None
+    slope = sum((t - mean_t) * (a - mean_a) for t, a in points) / variance
+    return {"slope_mm2_per_tile": slope, "intercept_mm2": mean_a - slope * mean_t,
             "points": points}
 
 
-def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0) -> dict:
+def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0,
+             efficiency: str = "") -> dict:
     """The argument. Every number is interpolated from the dossier, so the
     prose cannot drift from the analysis it describes."""
     kpu = next((p for p in dossier.provisions if p.kind == "kpu"), None)
@@ -374,8 +392,10 @@ an answer.</p>"""
 <li><b>Catalogue data.</b> The mission profile, its rates, its per-call operation and byte
 counts, the SoC composition and the process node's energy per operation.</li>
 <li><b>A measurement.</b> The CPU efficiencies come from the
-<code>orin_nano_measured_v1</code> table &mdash; real silicon, with the run that produced each
-figure cited in the table.</li>
+<code>{efficiency}</code> table &mdash; real silicon, with the run that produced each figure
+cited in the table. The FP32 counterfactual in section 6 is drawn from
+<code>{COUNTERFACTUAL_TABLE}</code>, named separately because it is a different operating
+point rather than part of the sizing.</li>
 <li><b>A ceiling.</b> The KPU efficiency is the domain-flow model's upper bound, taken from the
 smallest catalogued core with a stated schedule ({CEILING_CORE}) so that the bound does not carry
 a DRAM constraint belonging to a much larger fabric. A ceiling bounds; it does not predict. The
@@ -386,7 +406,8 @@ tile count derived from it is therefore a <i>lower</i> bound: no fewer than
 {fit_note}
 <p>Reproduce this page with:</p>
 <p><code>python cli/report_mission_dossier.py --mission {dossier.mission} \\<br>
-&nbsp;&nbsp;&nbsp;&nbsp;--design {dossier.design} -o docs/assessments/dossier-edge-tracking.html</code></p>"""
+&nbsp;&nbsp;&nbsp;&nbsp;--design {dossier.design} --efficiency {efficiency} \\<br>
+&nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-edge-tracking.html</code></p>"""
     return out
 
 
@@ -495,6 +516,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             "dram_supply_gb_per_s": dossier.dram_supply_gb_per_s,
             "datapath_watts": dossier.datapath_watts,
             "counterfactual": alt, "tile_area_fit": fit,
+            "efficiency_table": args.efficiency,
+            "counterfactual_table": COUNTERFACTUAL_TABLE,
+            "oversubscribed": list(dossier.oversubscribed),
+            "unplaced": list(dossier.unplaced),
             "confidence": dossier.estimation_confidence.level.value,
         }, indent=2), args.output)
         return 0
@@ -510,7 +535,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     f"{alt['watts'] * 1e3:.0f} mW of datapath",
         })
     idle = [("ISP", "no capability stated"), ("codec", "not used")]
-    write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n),
+    write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency),
                         requirements_rows(dossier, alt), alternatives, idle,
                         date.today().isoformat()), args.output)
     return 0

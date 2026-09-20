@@ -269,10 +269,11 @@ def sizing_diagram(dossier, alternatives: Sequence[dict] = ()) -> str:
     scale = 560 / max(biggest, 1e-9)
     width, row_h = 980, 52
     height = 66 + len(rows) * row_h + 18
-    parts = ['<text class="dtitle" x="8" y="20">What the mission needs, and what it '
-             'was given</text>',
-             '<text class="dsub" x="8" y="36">the pale bar is what was provisioned; '
-             'the solid bar is what the demand needs</text>']
+    title = ('<text class="dtitle" x="8" y="20">'
+             "What the mission needs, and what it was given</text>")
+    subtitle = ('<text class="dsub" x="8" y="36">the pale bar is what was provisioned; '
+                "the solid bar is what the demand needs</text>")
+    parts = [title, subtitle]
     y = 62
     for row in rows:
         colour = _engine_colour(row["kind"])

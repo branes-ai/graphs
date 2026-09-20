@@ -296,8 +296,10 @@ the number that binds names the owner.</p>
 <li><b>Catalogue data.</b> The mission profile, its rates, its per-call operation and byte
 counts, the SoC composition and the process node's energy per operation.</li>
 <li><b>A measurement.</b> The CPU efficiencies come from the
-<code>orin_nano_measured_v1</code> table &mdash; real silicon, with the run that produced each
-figure cited in the table.</li>
+<code>orin_nano_measured_v1</code> table &mdash; real silicon, with the run that produced each figure
+cited in the table. The FP32 counterfactual in section 6 is drawn from
+<code>orin_nano_measured_v1</code>, named separately because it is a different operating
+point rather than part of the sizing.</li>
 <li><b>A ceiling.</b> The KPU efficiency is the domain-flow model's upper bound, taken from the
 smallest catalogued core with a stated schedule (kpu_t64_core) so that the bound does not carry
 a DRAM constraint belonging to a much larger fabric. A ceiling bounds; it does not predict. The
@@ -308,8 +310,8 @@ tile count derived from it is therefore a <i>lower</i> bound: no fewer than
 
 <p><b>Silicon area.</b> The KPU side can be priced: a least-squares line through the four
 catalogued N7 cores gives 0.1665 mm&sup2; per tile plus
-0.335 mm&sup2; fixed, so a one-tile fabric is about
-0.50 mm&sup2;. That is an <i>extrapolation</i> one step below the smallest catalogued SKU
+0.287 mm&sup2; fixed, so a one-tile fabric is about
+0.45 mm&sup2;. That is an <i>extrapolation</i> one step below the smallest catalogued SKU
 (64 tiles) and is labelled THEORETICAL for that reason. The CPU side
 cannot be priced at all: the repository states cache areas for the cluster but marks core logic
 <b>unanchored</b>, because no trustworthy absolute Cortex-A78AE core area is public. Arm
@@ -318,7 +320,8 @@ partner could close immediately</b>, and closing it would turn the area column f
 an answer.</p>
 <p>Reproduce this page with:</p>
 <p><code>python cli/report_mission_dossier.py --mission edge_ai_device_multi_stream_tracking__anomaly \<br>
-&nbsp;&nbsp;&nbsp;&nbsp;--design kpu_t128_n7 -o docs/assessments/dossier-edge-tracking.html</code></p>
+&nbsp;&nbsp;&nbsp;&nbsp;--design kpu_t128_n7 --efficiency orin_nano_measured_v1 \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-edge-tracking.html</code></p>
 <p class="note"><b>Confidence: THEORETICAL.</b>
 at least one engine is sized on a domain-flow ceiling, which bounds rather than predicts: the engine needed is no smaller than stated</p>
 <p class="note">Generated 2026-09-20 from
