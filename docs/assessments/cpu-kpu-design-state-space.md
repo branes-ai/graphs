@@ -29,6 +29,43 @@ Two things that page shows and this one cannot:
   real time depending on the fabric and the cores. Energy is not what is
   being spent to get performance there; silicon area is.
 
+## Then look one level down
+
+A configuration's position on that plane is decided one stage at a time.
+`pipeline-demand.html`, also beside this file, is that level: one row per
+pipeline stage, in pipeline order and banded by tier, with what the stage
+demands per second of mission -- operations, bytes, and the precision
+classes it needs -- and then, for **every** engine and not only the one the
+schedule picked, the share of that engine one second of mission would
+consume there.
+
+```bash
+python cli/report_pipeline.py -o docs/assessments/pipeline-demand.html
+```
+
+It is where the headline of this document becomes legible. For the humanoid
+cobot on a T128 core at N7 with twelve Cortex-A78AE cores:
+
+| stage | class | on the CPU | on the KPU |
+|---|---|---|---|
+| `tsdf` | raycast | **1.03x one core** | no schedule |
+| `esdf` | wavefront | 93% of one core | no schedule |
+| `mpc` | small QP | 92% of one core | no schedule |
+| `det` | dense conv/GEMM | no INT8 figure | 5.2% (ceiling) |
+| `vla` | attention prefill | no INT8 figure | 8.2% (ceiling) |
+
+Three CPU stages at or near a whole core each, while the accelerator sits
+near idle: that is the same conclusion the matrix reaches as "the CPU is
+the sole reason in 2,108 of 3,104 decided points", stated in a form a
+silicon architect can act on. The work to be done is not a larger fabric.
+It is a domain-flow schedule for `raycast`, `wavefront` and `small_qp`, or
+CPU cores that run them faster.
+
+A cell with no bar says which figure is missing and why, in the two forms
+that call for different work: *no INT8 figure (FP32 measured)* is a
+benchmark run nobody has done, and *no FP32 figure, no schedule* is a
+kernel class the domain-flow model cannot place on the fabric at all.
+
 Still missing, and the reason this document is not yet the whole story: a
 picture of each pipeline showing what every stage demands and what each
 engine gives it, and an interactive filter over the state space. Both are

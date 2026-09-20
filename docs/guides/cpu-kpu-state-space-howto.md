@@ -126,6 +126,28 @@ python cli/report_mission_frontier.py --mission "air superiority" -o one.html
 python cli/report_mission_frontier.py --format json -o points.json
 ```
 
+```bash
+python cli/report_pipeline.py -o docs/assessments/pipeline-demand.html
+python cli/report_pipeline.py --design kpu_t256_n7 --cpu-clusters 3
+python cli/report_pipeline.py --mission humanoid_cobot_human_adjacent_contact_rich -o one.html
+```
+
+One row per pipeline stage for the chosen mission, banded by tier, showing
+what the stage demands per second of mission and what each engine gives it.
+Every stage is costed on **every** engine, not only the one the schedule
+picked, so the division of labour can be argued with rather than assumed:
+the page states what the CPU would have cost for a stage the KPU took, and
+what the KPU would have given for one the CPU kept.
+
+Bars are shaded by provenance -- a measurement, or the domain-flow ceiling
+-- and a bar past the full mark, in red, is a stage that alone needs more
+than one whole engine, before anything else is scheduled beside it. A cell
+with no bar names the missing figure: *no INT8 figure (FP32 measured)*
+means the benchmark run exists for one format and not the other, while *no
+FP32 figure, no schedule* means the domain-flow model has no schedule for
+that kernel class on the fabric. Every figure is repeated in a table under
+each chart.
+
 One chart per mission on the energy-performance plane. **Energy per
 operation** is the mission's own arithmetic at the node's energy per op,
 weighted over each stage's formats and each engine's libraries -- a floor,
