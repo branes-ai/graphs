@@ -247,6 +247,82 @@ def test_the_html_has_no_unmatched_paragraph_tags(dossier):
     assert "</p></li>" not in body
 
 
+QUADRUPED = "quadruped_isr_dismounted_comms_denied"
+
+
+@pytest.fixture(scope="module")
+def unfittable(soc, ceilings):
+    """A mission no configuration in the catalogue serves, which exercises
+    every branch the fitting mission does not."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == QUADRUPED)
+    return dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings,
+                     target_utilization=0.85, tiles_per_server=128)
+
+
+def test_a_requirement_is_never_reported_met_when_it_is_not(tmp_path):
+    """The first cut said "met: 128 KPU tile at 1455%". A partner document
+    that claims a requirement is met because a number exists is worse than
+    no document."""
+    spec = importlib.util.spec_from_file_location(
+        "dossier_cli_rows", REPO / "cli" / "report_mission_dossier.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    for mission, expect_met in ((QUADRUPED, False), (MISSION, True)):
+        dossier, _soc, _t = module.build(mission, "kpu_t128_n7",
+                                         "orin_nano_measured_v1", 0.85)
+        rows = module.requirements_rows(dossier, None)
+        throughput = [r for r in rows if r[0].endswith("throughput")]
+        assert throughput, mission
+        for _name, _figure, _source, status in throughput:
+            assert status.startswith("met:") is expect_met, (mission, status)
+        # Every engine that carries stages gets a row -- the first cut
+        # reported only two named stages and silently dropped the rest.
+        assert len(throughput) == len(dossier.provisions), mission
+
+
+def test_a_pipeline_with_no_common_cadence_quotes_no_latency(unfittable, dossier):
+    """mono runs at 110 MHz and the VLM at 1 Hz; a "per frame" latency
+    across that is meaningless, so it is not drawn at all."""
+    assert unfittable.chain_seconds is None
+    svg = pipeline_graph(unfittable, latency_per_frame=False)
+    assert "/frame" not in svg
+    assert "needs 18.6 cores" in svg          # the demand carries the meaning instead
+    # ...and the mission that does have a common cadence still shows it.
+    assert "/frame" in pipeline_graph(dossier, latency_per_frame=True)
+
+
+def test_the_pipeline_wraps_rather_than_shrinking(unfittable, dossier):
+    """18 boxes on one line scale down to an illegible strip."""
+    wide = pipeline_graph(unfittable, latency_per_frame=False)
+    box = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', wide)
+    width, height = float(box.group(1)), float(box.group(2))
+    assert width <= 1500, "the 18-stage pipeline should wrap, not stretch"
+    assert height > 600, "wrapping should cost height"
+    assert wide.count('class="node"') == len(unfittable.stages)
+    # A short pipeline still fits on one row.
+    short = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"',
+                      pipeline_graph(dossier, latency_per_frame=True))
+    assert float(short.group(2)) < height
+
+
+def test_each_sizing_bar_is_a_share_of_its_own_engine(unfittable):
+    """Tiles and cores are different units and must not share a scale. A
+    full bar is that engine's capacity, whatever the unit."""
+    svg = sizing_diagram(unfittable)
+    widths = [float(w) for w in re.findall(
+        r'<rect x="284"[^>]*width="([\d.]+)"', svg)]
+    tracks = [float(w) for w in re.findall(
+        r'<rect class="track"[^>]*width="([\d.]+)"', svg)]
+    assert widths and len(widths) == len(tracks)
+    for fill, track in zip(widths, tracks):
+        assert fill <= track + 1e-6
+    # Both engines are over capacity here, so both bars are full and red.
+    assert svg.count("var(--warn)") >= 2
+    # The ratio keeps its precision: 14.5x, not a rounded 15x.
+    assert re.search(r"14\.\dx over", svg) and re.search(r"3\.\d+x over", svg)
+
+
 def test_the_diagrams_survive_an_empty_dossier(dossier):
     empty = type(dossier)(
         mission="m", title="t", power_budget_w=1, deadline_ms=1, note="", sensors={},
@@ -309,9 +385,11 @@ def test_the_projection_follows_the_configured_target_utilization(tmp_path):
     for target in ("0.85", "0.5"):
         out = tmp_path / f"d{target}.html"
         _cli("--target-utilization", target, "-o", str(out))
-        found = re.search(r"the part ships\s*(\d+) cores instead of (\d+)", out.read_text())
+        found = re.search(r"(\d+) cores provisioned instead of (\d+)", out.read_text())
         assert found, f"projection missing at target {target}"
         counts[target] = tuple(int(g) for g in found.groups())
+    # A lower target buys headroom, so both the projected and the actual
+    # core count rise with it.
     assert counts["0.5"][0] > counts["0.85"][0]
     assert counts["0.5"][1] > counts["0.85"][1]
 
