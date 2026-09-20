@@ -46,11 +46,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from graphs.core.confidence import EstimationConfidence
 from graphs.core.pipeline_workload import CLASS_NAMES, MissionProfile, PipelineWorkload
-from graphs.hardware.soc import SoCInstance
+from graphs.hardware.soc import Confidence, SoCInstance
 
 from .breakeven import RequiredEfficiency, StageRequirement
 from .efficiency import EfficiencyTable, KernelClassMap
+from .mapping import estimation_confidence
 from .power import op_energy_pj
 
 #: How a stage's efficiency was known, weakest last.
@@ -108,6 +110,24 @@ class MissionPoint:
     placements: Tuple[StagePlacement, ...] = ()
 
     @property
+    def estimation_confidence(self) -> EstimationConfidence:
+        """UNKNOWN when a stage is unpriced, because the figures then omit
+        work; otherwise THEORETICAL -- the energy per op is derived and the
+        rate rests on a ceiling wherever nothing has measured the engine.
+        A measured efficiency does not lift it, since the energy side is
+        derived in every case."""
+        if self.unpriced_stages or self.unpriced_energy_fraction > 0:
+            return estimation_confidence(
+                Confidence.UNKNOWN,
+                f"{len(self.unpriced_stages)} stage(s) unpriced and "
+                f"{self.unpriced_energy_fraction:.0%} of the ops unpriced for energy; "
+                f"both figures omit them")
+        return estimation_confidence(
+            Confidence.THEORETICAL,
+            f"energy derived from the node's energy per op; rate from {self.provenance} "
+            f"efficiencies, which bound rather than predict")
+
+    @property
     def real_time_factor(self) -> Optional[float]:
         """Mission rate the configuration could carry, as a multiple of what
         the mission needs. A ceiling: the true factor is no higher."""
@@ -143,6 +163,8 @@ class MissionPoint:
             "provenance": self.provenance,
             "unpriced_stages": list(self.unpriced_stages),
             "figures_are_partial": self.figures_are_partial,
+            "confidence": self.estimation_confidence.level.value,
+            "confidence_source": self.estimation_confidence.source,
         }
 
 

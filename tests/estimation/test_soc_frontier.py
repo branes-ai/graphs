@@ -264,3 +264,15 @@ def test_cli_writes_the_points_as_json(tmp_path):
 
 def test_cli_rejects_an_unknown_mission():
     assert "no mission matches" in _cli("--mission", "nope", expect=2).stderr
+
+
+def test_a_point_carries_its_confidence(point):
+    """Unpriced work makes it UNKNOWN; otherwise THEORETICAL, because the
+    energy side is derived whatever the rate side rests on."""
+    assert point.estimation_confidence.level.value == "unknown"
+    assert "unpriced" in point.estimation_confidence.source
+    whole = MissionPoint(mission="m", design="d", node="tsmc_n7", cpu_cores=12, memory="m",
+                         kpu_sku=None, energy_per_op_pj=0.2, unpriced_energy_fraction=0.0,
+                         utilization=0.5, provenance="measured")
+    assert whole.estimation_confidence.level.value == "theoretical"
+    assert whole.to_dict()["confidence"] == "theoretical"
