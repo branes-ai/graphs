@@ -148,6 +148,27 @@ FP32 figure, no schedule* means the domain-flow model has no schedule for
 that kernel class on the fabric. Every figure is repeated in a table under
 each chart.
 
+```bash
+python cli/report_state_space.py -o docs/assessments/state-space.html
+python cli/report_state_space.py --headroom 2 -o with-margin.html
+python cli/report_state_space.py --format json -o space.json
+```
+
+Every mission down, every configuration across, one cell per pair, shaded
+by real-time factor. Because that factor uses the best efficiency anything
+states -- a measurement where one exists, the domain-flow ceiling otherwise
+-- a cell short of the bar is **proven short** and a cell that clears it is
+only **not ruled out**. The legend says "still standing" for that reason
+and never "feasible".
+
+Columns are grouped by CPU core count and ordered by design within each
+group, so a pattern that follows one dimension reads as a shape: survivors
+filling the right-hand third mean the core count decided it, survivors in
+narrow repeated stripes mean the design did. Dragging across the columns
+selects a slab and reports what it shares and how many missions survive in
+it; `--headroom` (and the control on the page) raises the bar from bare
+real time to a multiple of it.
+
 One chart per mission on the energy-performance plane. **Energy per
 operation** is the mission's own arithmetic at the node's energy per op,
 weighted over each stage's formats and each engine's libraries -- a floor,
