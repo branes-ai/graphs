@@ -28,6 +28,11 @@ Each kernel counts ops the way the Data Annex does: a multiply-accumulate is
 without a representative kernel here are listed in ``NOT_COVERED`` and stay
 gaps.
 
+A kernel measures *this* implementation of a class on the engine, not the
+best one: NVIDIA's VPI has a hardware SGM path and a fixed-function ISP, and
+an optimized CUDA raycaster would beat ``grid_sample``. The ingest records
+the kernel and shape behind every entry for that reason.
+
 The output is a JSON document (schema ``soc_kernel_bench/1``); nothing here
 computes an efficiency, because that needs the composed block's peak, which
 the ingest owns.
@@ -56,10 +61,11 @@ MIN_CLOCK_SAMPLES = 5
 SINGLE_THREAD_LIMIT = 1.25
 
 #: Kernel classes with no representative kernel in this harness yet.
-NOT_COVERED = (
-    "cost_volume_dp", "feature_track", "knn_tree", "raycast", "wavefront",
-    "graph_search", "pixel_fixed_function",
-)
+#: Kernel classes with no representative kernel here, and why. ``knn_tree``
+#: is the only one left: no stage of ``branes_7tier_v1`` uses it, and a
+#: kd-tree search is pointer-chasing that no torch kernel does faithfully --
+#: a brute-force distance matrix is a different algorithm, not this class.
+NOT_COVERED = ("knn_tree",)
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +296,139 @@ def _scatter_add(points: int, bins: int):
     return build
 
 
+def _sgm(width: int, height: int, disparities: int, paths: int):
+    """Semi-global matching: a cost volume, then min-plus path aggregation.
+
+    The aggregation is sequential along the scan direction -- that is what
+    makes SGM SGM -- so each step is a vectorized (D x H) update and the
+    scan is a Python loop, as an unfused implementation must be.
+    """
+    def build(device, dtype):
+        import torch  # noqa: PLC0415
+
+        left = torch.rand(height, width, device=device, dtype=dtype)
+        right = torch.rand(height, width, device=device, dtype=dtype)
+        penalty = torch.tensor(0.5, device=device, dtype=dtype)
+
+        def run():
+            shifted = torch.stack([torch.roll(right, d, dims=1) for d in range(disparities)])
+            cost = (left.unsqueeze(0) - shifted).abs()          # D x H x W
+            # The paths run as a batch dimension: one Python step per column,
+            # not one per column per path, so the loop is the algorithm's
+            # sequential dependence and not a launch-rate measurement.
+            carry = cost[:, :, 0].expand(paths, -1, -1).contiguous()
+            total = carry.sum(dim=0)
+            for x in range(1, width):
+                best = torch.minimum(
+                    carry,
+                    torch.minimum(torch.roll(carry, 1, dims=1),
+                                  torch.roll(carry, -1, dims=1)) + penalty)
+                carry = cost[:, :, x].unsqueeze(0) + best - best.amin(dim=1, keepdim=True)
+                total = total + carry.sum(dim=0)
+            return total.argmin(dim=0)
+        return run
+    return build
+
+
+def _klt(features: int, patch: int, iterations: int):
+    """KLT feature tracking: patch gradients and a 2x2 solve per iteration."""
+    def build(device, dtype):
+        import torch  # noqa: PLC0415
+
+        patches = torch.rand(features, patch, patch, device=device, dtype=dtype)
+        target = torch.rand(features, patch, patch, device=device, dtype=dtype)
+        eye = torch.eye(2, device=device, dtype=dtype) * 1e-3
+
+        def run():
+            flow = torch.zeros(features, 2, 1, device=device, dtype=dtype)
+            gx = patches[:, :, 1:] - patches[:, :, :-1]
+            gy = patches[:, 1:, :] - patches[:, :-1, :]
+            gx, gy = gx[:, :-1, :], gy[:, :, :-1]
+            g = torch.stack([gx.reshape(features, -1), gy.reshape(features, -1)], dim=2)
+            hessian = g.transpose(1, 2) @ g + eye                 # N x 2 x 2
+            for _ in range(iterations):
+                residual = (target[:, :-1, :-1] - patches[:, :-1, :-1]).reshape(features, -1, 1)
+                rhs = g.transpose(1, 2) @ residual
+                flow = flow + torch.linalg.solve(hessian, rhs)
+            return flow
+        return run
+    return build
+
+
+def _raycast(rays: int, steps: int, volume: int):
+    """Marching rays through a TSDF volume, trilinear at every step."""
+    def build(device, dtype):
+        import torch  # noqa: PLC0415
+
+        vol = torch.rand(1, 1, volume, volume, volume, device=device, dtype=dtype)
+        grid = torch.rand(1, 1, rays, steps, 3, device=device, dtype=dtype) * 2 - 1
+
+        def run():
+            sampled = torch.nn.functional.grid_sample(
+                vol, grid, mode="bilinear", align_corners=False)      # trilinear in 3D
+            return sampled.clamp_(-1, 1).mean()
+        return run
+    return build
+
+
+def _wavefront(size: int, iterations: int):
+    """ESDF propagation: min-plus relaxation over a 3D grid's 6 neighbours."""
+    def build(device, dtype):
+        import torch  # noqa: PLC0415
+
+        field = torch.rand(size, size, size, device=device, dtype=dtype) * size
+        step = torch.tensor(1.0, device=device, dtype=dtype)
+
+        def run():
+            out = field.clone()
+            for _ in range(iterations):
+                for dim in (0, 1, 2):
+                    out = torch.minimum(out, torch.roll(out, 1, dims=dim) + step)
+                    out = torch.minimum(out, torch.roll(out, -1, dims=dim) + step)
+            return out
+        return run
+    return build
+
+
+def _graph_search(nodes: int, degree: int, iterations: int):
+    """Frontier relaxation over a sampled graph: the data-parallel form of
+    a shortest-path search, with a collision cost on every edge."""
+    def build(device, dtype):
+        import torch  # noqa: PLC0415
+
+        src = torch.arange(nodes, device=device).repeat_interleave(degree)
+        dst = torch.randint(0, nodes, (nodes * degree,), device=device)
+        weight = torch.rand(nodes * degree, device=device, dtype=dtype)
+
+        def run():
+            dist = torch.full((nodes,), float("inf"), device=device, dtype=dtype)
+            dist[0] = 0
+            for _ in range(iterations):
+                dist = dist.scatter_reduce(0, dst, dist[src] + weight, reduce="amin")
+            return dist
+        return run
+    return build
+
+
+def _isp(width: int, height: int):
+    """A mono front-end's pixel pipeline: demosaic, white balance, colour
+    matrix and gamma, as a programmable engine runs it."""
+    def build(device, dtype):
+        import torch  # noqa: PLC0415
+
+        bayer = torch.rand(1, 1, height, width, device=device, dtype=dtype)
+        demosaic = torch.rand(3, 1, 3, 3, device=device, dtype=dtype)
+        gains = torch.tensor([1.9, 1.0, 1.6], device=device, dtype=dtype).view(1, 3, 1, 1)
+        ccm = torch.rand(3, 3, device=device, dtype=dtype)
+
+        def run():
+            rgb = torch.nn.functional.conv2d(bayer, demosaic, padding=1) * gains
+            corrected = torch.einsum("ij,bjhw->bihw", ccm, rgb)
+            return corrected.clamp_(1e-6, 1.0).pow(1 / 2.2)
+        return run
+    return build
+
+
 def _cubic_lu(n: int) -> float:
     return 2.0 * n ** 3 / 3.0
 
@@ -337,6 +476,53 @@ def kernel_suite(quick: bool = False) -> List[KernelSpec]:
     specs.append(KernelSpec(
         "sparse_hash_scatter", "index_add", "fp32", f"{1_000_000 // s} pts -> 262144 bins",
         float(1_000_000 // s), "1 add per point", _scatter_add(1_000_000 // s, 262144)))
+
+    # The classes the 2026-09 suite left uncovered (graphs#269 5.1), each
+    # sized like the stage it stands for.
+    sw, sh, disp, sgm_paths = 1280 // s, 720 // s, 64 // s, 4
+    for prec in ("fp32", "fp16"):
+        specs.append(KernelSpec(
+            "cost_volume_dp", "sgm", prec, f"{sw}x{sh} x {disp} disp x {sgm_paths} paths",
+            disp * sh * sw + sgm_paths * disp * sh * (sw - 1) * 7.0,
+            "1 per cost-volume element (D x H x W), then 7 per element per path per column "
+            "for the min-plus scan (2 compares, penalty, cost, row min, subtract, sum)",
+            _sgm(sw, sh, disp, sgm_paths)))
+    feats, patch, klt_iters = 1024 // s, 15, 5
+    m = (patch - 1) ** 2
+    specs.append(KernelSpec(
+        "feature_track", "klt", "fp32", f"{feats} features x {patch}x{patch} x {klt_iters} iters",
+        feats * m * 10.0 + klt_iters * (feats * m * 5.0 + feats * 12.0),
+        "2 per pixel for the gradients and 8 for the Hessian, then per iteration 1 for the "
+        "residual, 4 for G^T r and 12 per feature for the 2x2 solve",
+        _klt(feats, patch, klt_iters)))
+    rays, ray_steps, vol = 65536 // s, 64, 128
+    for prec in ("fp32", "fp16"):
+        specs.append(KernelSpec(
+            "raycast", "tsdf_raycast", prec, f"{rays} rays x {ray_steps} steps in {vol}^3",
+            rays * ray_steps * 24.0,
+            "24 per sample: 8 trilinear weights (14 multiplies, 7 adds) and the clamp",
+            _raycast(rays, ray_steps, vol)))
+    grid, sweeps = 160 // s, 8
+    specs.append(KernelSpec(
+        "wavefront", "esdf_propagate", "fp32", f"{grid}^3 x {sweeps} sweeps",
+        sweeps * 6.0 * grid ** 3 * 2.0,
+        "6 neighbours per sweep, 2 per neighbour per voxel (add and min)",
+        _wavefront(grid, sweeps)))
+    nodes, degree, relax = 32768 // s, 8, 30
+    specs.append(KernelSpec(
+        "graph_search", "frontier_relax", "fp32",
+        f"{nodes} nodes x degree {degree} x {relax} relaxations",
+        relax * nodes * degree * 2.0,
+        "1 add and 1 min per edge per relaxation",
+        _graph_search(nodes, degree, relax)))
+    iw, ih = 1920 // s, 1080 // s
+    for prec in ("fp32", "fp16"):
+        specs.append(KernelSpec(
+            "pixel_fixed_function", "isp_pipeline", prec, f"{iw}x{ih}",
+            iw * ih * 84.0,
+            "per pixel: 54 for a 3x3 demosaic to 3 channels, 3 white balance, 18 for the "
+            "3x3 colour matrix, 1 clamp and 8 for the gamma",
+            _isp(iw, ih)))
     return specs
 
 
