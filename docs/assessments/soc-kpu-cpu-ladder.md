@@ -25,15 +25,20 @@ What the ladder gives instead is **what each configuration would have to
 achieve**, which is exact arithmetic on the workload's ops and each design's
 dense peaks, and that turns out to separate the rungs cleanly.
 
-Two verdicts are decided, both against measured data:
+Two rungs are decided against, both on measured data (PR 6.5, 13 of 16
+air-superiority stages priced):
 
 - **Orin misses air superiority on its own measured efficiencies.** Its GPU
-  needs 18.2% of dense peak; the Nano's measured figures put utilization at
-  1.55 on the three stages they price. A lower bound above 1 is a proven
-  violation, and the seven unpriced stages only add to it.
-- **The H64 rung with one CPU cluster misses it too.** Its CPU needs 98.7%
-  of dense peak, and at measured efficiencies utilization is 1.37 on six of
-  thirteen stages.
+  needs 18.2% of dense peak and the Nano's figures put utilization at
+  **2.64**. A lower bound above 1 is a proven violation, and the three
+  unpriced stages only add to it.
+- **The H64 rung misses it at every cluster count in the ladder:**
+  utilization **11.43 / 5.72 / 3.81** at 1 / 2 / 3 clusters of four
+  A78AE cores. Its CPU carries the 13 stages the KPU cannot take for want
+  of FP32, and one of them -- `tsdf` -- asks for 31 cores on its own.
+- **The T-series rungs stay open.** Nothing measures a KPU kernel, so their
+  verdicts rest on the requirement (16.0 / 8.0 / 4.0% of dense peak) and
+  the domain-flow ceiling, not on data.
 
 ## The rungs
 
@@ -91,27 +96,30 @@ different coverage, not an area ratio.
 
 ## What measured data already decides
 
-`orin_nano_measured_v1` prices GPU and CPU kernels only (27 CALIBRATED
-entries from the Orin Nano when this section was written; 40 after PR 6.5,
-which the section above reads). Utilization at those figures, air
-superiority:
+`orin_nano_measured_v1` prices GPU and CPU kernels only: 44 entries from
+the Orin Nano, 40 CALIBRATED, after PR 6.5 measured the six classes that
+had none. Utilization at those figures, air superiority:
 
-| Rung | Engine | Needs | At measured efficiencies | Priced |
-|---|---|---|---|---|
-| Orin | GPU | 18.2% | **1.55** | 3 of 16 stages |
-| H64, 1 cluster | CPU | 98.7% | **1.37** | 6 of 13 |
-| H64, 2 clusters | CPU | 49.3% | 0.68 | 6 of 13 |
-| H64, 3 clusters | CPU | 32.9% | 0.46 | 6 of 13 |
-| T64 / T128 / T256 | KPU | 16.0 / 8.0 / 4.0% | nothing prices a KPU kernel | 0 |
+| Rung | Engine | Needs | At measured efficiencies | Priced | Was, before 6.5 |
+|---|---|---|---|---|---|
+| Orin | GPU | 18.2% | **2.64** | 13 of 16 stages | 1.55 on 3 |
+| H64, 1 cluster | CPU | 98.7% | **11.43** | 10 of 13 | 1.37 on 6 |
+| H64, 2 clusters | CPU | 49.3% | **5.72** | 10 of 13 | 0.68 on 6 |
+| H64, 3 clusters | CPU | 32.9% | **3.81** | 10 of 13 | 0.46 on 6 |
+| T64 / T128 / T256 | KPU | 16.0 / 8.0 / 4.0% | nothing prices a KPU kernel | 0 | unchanged |
 
-Every figure omits the stages nothing prices, so each is a lower bound: the
-two above 1 are proven violations, and the others are open.
+Every figure omits the stages nothing prices, so each is a lower bound.
+All four above are proven violations; the KPU rungs stay open.
 
-**Two stages are over on one core in every rung.** `lio` and `ba` exceed
+The last column is why measuring mattered: three of the four figures were
+under 1 before, and the stages that were missing are the expensive ones.
+
+**Some stages are over on one core in every rung.** `lio` and `ba` exceed
 their period on a single A78AE core at the measured efficiencies, whatever
-the accelerator is, so every configuration reports `feasible: NO` on the
-measured table for that reason alone. They need more cores, a different
-mapping or a faster implementation, not a better accelerator.
+the accelerator is, and after 6.5 `tsdf` and `esdf` join them. Every
+configuration reports `feasible: NO` on the measured table for that reason
+alone. They need more cores, a different mapping or a faster
+implementation, not a better accelerator.
 
 ## Far flight is a memory problem on every rung
 
@@ -142,9 +150,10 @@ of leakage.)
 
 **Do not read the KPU rungs as lower-power.** Their power is lower on the
 measured table only because their stages are gaps: no op lands on a
-datapath, so no dynamic energy is charged. Orin's 3.24 W is higher precisely
-because three of its stages *are* priced. The comparison is between a
-partial figure and a more partial figure.
+datapath, so no dynamic energy is charged. Orin's figure is higher
+precisely because its stages *are* priced, and it rose again with 6.5 for
+the same reason. The comparison is between a partial figure and a more
+partial figure.
 
 **Nor as smaller dies.** The T-series cores are fully anchored while Orin's
 SM, DLA and PVA logic is not, so a larger figure here is more knowledge, not
