@@ -231,26 +231,42 @@ of memory, compute and power is {html_escape(worst_name)} at {worst_ratio:.0%}. 
 argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was given.
 </div>"""
     else:
-        cpu_rows = f["by_engine"].get("cpu", [])
-        kpu_rows = f["by_engine"].get("kpu", [])
-        cpu_top, cpu_fit = _worst(cpu_rows)
-        kpu_top, kpu_fit = _worst(kpu_rows)
+        # Every one of these can be absent: an engine with no placed stage
+        # has no provision, a provision can need zero servers, and the
+        # memory supply can be unstated.
+        bits = []
+        for prov in dossier.provisions:
+            bits.append(f"{_amount(prov.servers_needed)} {prov.unit}"
+                        f"{'s' if prov.servers_needed != 1 else ''} against the "
+                        f"{prov.servers_provisioned} this design has")
+        supply = dossier.dram_supply_gb_per_s
+        memory = (f" It asks {dossier.dram_demand_gb_per_s:.3g} GB/s of a {supply:g} GB/s "
+                  f"memory interface, {dossier.dram_demand_gb_per_s / supply:.0%} of it."
+                  if supply else " Its memory demand cannot be checked: no interface "
+                                 "bandwidth is stated.")
+        owners = []
+        for prov in dossier.provisions:
+            rows = f["by_engine"].get(prov.engine, [])
+            if not rows or not prov.servers_needed:
+                continue
+            top, top_fit = rows[0]
+            owners.append(f"<b>{html_escape(top.key)}</b> is "
+                          f"{(top_fit.servers_needed or 0) / prov.servers_needed:.1%} of the "
+                          f"{prov.engine.upper()} demand")
+        byte_top, byte_supply = f["bytes_top"], f["bytes_supply"]
+        if byte_top is not None and byte_supply:
+            owners.append(f"<b>{html_escape(byte_top.key)}</b> alone is "
+                          f"{byte_top.bytes_per_s / byte_supply:.0%} of the memory interface")
+        unpriced_note = (f" {_count(len(dossier.unplaced)).capitalize()} stage"
+                         f"{'s' if len(dossier.unplaced) != 1 else ''} cannot be priced at "
+                         f"all, so every one of those figures is a floor."
+                         if dossier.unplaced else "")
         out["verdict"] = f"""
 <div class="verdict warn">
-<b>Nothing in this parts list serves this mission.</b> It needs
-{cpu.servers_needed:.0f} CPU cores against the {cpu.servers_provisioned} the design has, and
-{kpu.servers_needed:.0f} KPU tiles against {kpu.servers_provisioned} &mdash; and it asks
-{dossier.dram_demand_gb_per_s:.0f} GB/s of a {dossier.dram_supply_gb_per_s:g} GB/s memory
-interface, {dossier.dram_demand_gb_per_s / dossier.dram_supply_gb_per_s:.0%} of it.
-{len(dossier.unplaced)} stages cannot be priced at all, so every one of those figures is a
-floor.<br><br>
-That is not one problem but three, and they have different owners:
-<b>{html_escape(kpu_top.key)}</b> is {kpu_fit.servers_needed / kpu.servers_needed:.1%} of the
-accelerator demand, <b>{html_escape(cpu_top.key)}</b> is
-{cpu_fit.servers_needed / cpu.servers_needed:.0%} of the CPU demand, and
-<b>{html_escape(f['bytes_top'].key)}</b> alone is
-{f['bytes_top'].bytes_per_s / f['bytes_supply']:.0%} of the memory interface.
-</div>"""
+<b>Nothing in this parts list serves this mission.</b> It needs {'; '.join(bits)}.{memory}
+{unpriced_note}""" + (f"""<br><br>
+That is not one problem but {_count(len(owners))}, and they have different owners:
+{', '.join(owners)}.</div>""" if owners else "</div>")
 
     blurb = USE_CASES.get(dossier.mission, f"<p>{html_escape(dossier.note)}</p>")
     out["use_case"] = blurb.format(budget=dossier.power_budget_w) + f"""
@@ -328,7 +344,8 @@ has, and the figure beside it says by how much.</p>"""
 
     out["analysis"] = _analysis(dossier, f, kpu, cpu)
     out["analysis_2"] = _sizing_steps(dossier, f, kpu, cpu, alt, catalogued_tiles)
-    out["analysis_3"] = _the_ask(dossier, f, kpu, cpu, target_utilization)
+    out["analysis_3"] = _the_ask(dossier, f, kpu, cpu, target_utilization,
+                                 alt, catalogued_tiles)
 
     fit_note = ""
     if area_fit:
@@ -361,6 +378,21 @@ tile count is a <i>lower</i> bound.</li>
 &nbsp;&nbsp;&nbsp;&nbsp;--design {dossier.design} --efficiency {efficiency} \\<br>
 &nbsp;&nbsp;&nbsp;&nbsp;-o {output or "dossier.html"}</code></p>"""
     return out
+
+
+def _amount(value: float) -> str:
+    """Engine counts a reader can say out loud: 1,862 rather than
+    1.86e+03, and 0.476 rather than 0."""
+    if value >= 1000:
+        return f"{value:,.0f}"
+    if value >= 10:
+        return f"{value:.0f}"
+    return f"{value:.3g}"
+
+
+def _count(n: int) -> str:
+    """Small counts read better as words, and must match the list below."""
+    return {1: "one", 2: "two", 3: "three"}.get(n, str(n))
 
 
 def _times(rate_hz: float) -> str:
@@ -412,7 +444,7 @@ def _sizing_steps(dossier, f, kpu, cpu, alt, catalogued_tiles: int) -> str:
                       default=None)
         parts.append(
             f"<p><b>{prov.engine.upper()}.</b> {len(rows)} stages need "
-            f"<b>{prov.servers_needed:.3g} {prov.unit}s</b> between them, against the "
+            f"<b>{_amount(prov.servers_needed)} {prov.unit}s</b> between them, against the "
             f"{prov.servers_provisioned} this design has. "
             + (f"<code>{html_escape(top.key)}</code> alone is {share:.1%} of that"
                + (f", at an efficiency of {min((c.efficiency for c in top_fit.classes if c.efficiency), default=0):.2%}"
@@ -440,7 +472,8 @@ def _sizing_steps(dossier, f, kpu, cpu, alt, catalogued_tiles: int) -> str:
     return "".join(parts)
 
 
-def _the_ask(dossier, f, kpu, cpu, target_utilization: float) -> str:
+def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
+             catalogued_tiles: int = 0) -> str:
     """Steps 4 and 5: what the accelerator is worth, and the CPU ask."""
     parts = []
     if cpu and cpu.servers_needed:
@@ -452,14 +485,16 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float) -> str:
         covered = sum(r[1].servers_needed for r in top) / cpu.servers_needed
         parts.append("<h3>4. The CPU ask</h3>")
         parts.append(
-            f"<p>The CPU needs <b>{cpu.servers_needed:.3g} cores</b> and the design has "
-            f"{cpu.servers_provisioned}. The gap is not spread evenly: three stages are "
-            f"{covered:.0%} of it.</p><ul>")
+            f"<p>The CPU needs <b>{_amount(cpu.servers_needed)} cores</b> and the design has "
+            f"{cpu.servers_provisioned}. "
+            + (f"The gap is not spread evenly: {_count(len(top))} of the {len(worst)} stages "
+               f"on it are {covered:.0%} of the demand.</p><ul>"
+               if len(top) < len(worst) else "</p><ul>"))
         for stage, fit, eff in top:
             parts.append(
                 f"<li><code>{html_escape(stage.key)}</code> "
                 f"(<code>{html_escape(stage.kernel_class)}</code>): "
-                f"<b>{fit.servers_needed:.3g} cores</b> at <b>{eff:.2%}</b> of FP32 peak.</li>")
+                f"<b>{_amount(fit.servers_needed)} cores</b> at <b>{eff:.2%}</b> of FP32 peak.</li>")
         parts.append("</ul>")
         by_class = {}
         for stage, fit, eff in worst:
@@ -470,7 +505,7 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float) -> str:
         parts.append(
             f"<p>Grouped by kernel class, the answer is blunter still: "
             f"<code>{html_escape(lead)}</code> is "
-            f"<b>{lead_cores:.3g} of the {cpu.servers_needed:.3g} cores</b> "
+            f"<b>{_amount(lead_cores)} of the {_amount(cpu.servers_needed)} cores</b> "
             f"({lead_cores / cpu.servers_needed:.0%}) at {lead_eff:.2%} of peak. "
             f"So the question for an Andes core is not a general one:</p>")
         total_lead_ops = sum(s.ops_per_s for s, _fit, _e in worst
@@ -482,9 +517,9 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float) -> str:
         ten = lead_cores * lead_eff / 0.10
         parts.append(
             f"<p>The leverage is enormous because the baseline is so low. At 10% of peak "
-            f"instead of {lead_eff:.2%}, that class falls from {lead_cores:.3g} cores to "
-            f"{ten:.2g}, and the whole CPU requirement from {cpu.servers_needed:.3g} to "
-            f"{cpu.servers_needed - lead_cores + ten:.3g} &mdash; "
+            f"instead of {lead_eff:.2%}, that class falls from {_amount(lead_cores)} cores to "
+            f"{_amount(ten)}, and the whole CPU requirement from {_amount(cpu.servers_needed)} to "
+            f"{_amount(cpu.servers_needed - lead_cores + ten)} &mdash; "
             f"{provision(cpu.servers_needed - lead_cores + ten, target_utilization):g} cores "
             f"provisioned instead of {cpu.servers_provisioned}.</p>")
     if kpu and kpu.servers_needed:
@@ -492,24 +527,51 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float) -> str:
         rows.sort(key=lambda r: -(r[1].servers_needed or 0))
         top, top_fit = rows[0]
         eff = min((c.efficiency for c in top_fit.classes if c.efficiency), default=0)
-        share = top_fit.servers_needed / kpu.servers_needed
-        parts.append("<h3>5. The accelerator ask is a memory ask</h3>")
-        parts.append(
-            f"<p><code>{html_escape(top.key)}</code> is {share:.1%} of the "
-            f"{kpu.servers_needed:.0f}-tile requirement, and it is not because it is the "
-            f"biggest arithmetic: it is {top.ops_per_s / f['total_ops']:.0%} of the operations. "
-            f"It is because its domain-flow ceiling is <b>{eff:.2%}</b>. The fabric is not "
-            f"computing, it is waiting: {si(top.bytes_per_call, 'B')} of weights crossing DRAM "
-            f"{_times(top.rate_hz)}.</p>")
-        others = sum(r[1].servers_needed for r in rows[1:])
-        parts.append(
-            f"<p>Take it out and the rest of the accelerator work &mdash; detection, the SDF "
-            f"encoder, the policy &mdash; needs <b>{others:.2g} tiles</b>. That is the shape of "
-            f"the decision: this is not a mission that needs a {kpu.servers_needed:.0f}-tile "
-            f"fabric, it is a mission with a weight-streaming problem bolted to a "
-            f"{others:.2g}-tile one. Quantisation, weight caching in on-die SRAM, a smaller "
-            f"model or a wider memory interface are all attacks on the same number; more tiles "
-            f"is not.</p>")
+        share = (top_fit.servers_needed or 0) / kpu.servers_needed
+        others = sum(r[1].servers_needed or 0 for r in rows[1:])
+        # One stage dominating the fabric at a low ceiling is a bandwidth
+        # story. Anything else is the ordinary "what is the accelerator
+        # worth" story. They are different arguments, so the data picks.
+        if share > 0.5 and eff < 0.10 and len(rows) > 1:
+            rest = ", ".join(f"<code>{html_escape(r[0].key)}</code>" for r in rows[1:])
+            parts.append("<h3>5. The accelerator ask is a memory ask</h3>")
+            parts.append(
+                f"<p><code>{html_escape(top.key)}</code> is {share:.1%} of the "
+                f"{_amount(kpu.servers_needed)}-tile requirement, and not because it is the "
+                f"biggest arithmetic: it is {top.ops_per_s / f['total_ops']:.0%} of the "
+                f"operations. It is because its domain-flow ceiling is <b>{eff:.2%}</b>. The "
+                f"fabric is not computing, it is waiting: {si(top.bytes_per_call, 'B')} of "
+                f"weights crossing DRAM {_times(top.rate_hz)}.</p>")
+            parts.append(
+                f"<p>Take it out and the rest of the accelerator work &mdash; {rest} &mdash; "
+                f"needs <b>{_amount(others)} tile{'s' if others != 1 else ''}</b>. That is the "
+                f"shape of the decision: this is not a mission that needs a "
+                f"{_amount(kpu.servers_needed)}-tile fabric, it is a mission with a "
+                f"weight-streaming problem bolted to a {_amount(others)}-tile one. "
+                f"Quantisation, weight caching in on-die SRAM, a smaller model or a wider "
+                f"memory interface are all attacks on the same number; more tiles is not.</p>")
+        elif alt and alt.get("servers_needed"):
+            mine = next((r for r in rows if r[0].key == alt["stage"]), None)
+            on_kpu = (mine[1].servers_needed or 0) if mine else kpu.servers_needed
+            watts = dossier.datapath_watts.get("kpu", 0.0)
+            parts.append("<h3>5. What the accelerator is worth</h3>")
+            parts.append(
+                f"<p><code>{html_escape(alt['stage'])}</code> has no measured INT8 figure on a "
+                f"CPU, but its INT8 class may run in any wider format and FP32 <i>is</i> "
+                f"measured. At E = {alt['efficiency']:.1%} one core delivers "
+                f"{si(alt['throughput_per_server'], 'OP/s')}, so it would need "
+                f"<b>{_amount(alt['servers_needed'])} CPU cores</b> and "
+                f"{alt['watts'] * 1e3:.0f} mW &mdash; against {_amount(on_kpu)} of a tile and "
+                f"{watts * 1e3:.0f} mW. That is "
+                f"<b>{alt['servers_needed'] / max(on_kpu, 1e-9):.0f} cores of work per "
+                f"tile</b>"
+                + (f" at {alt['watts'] / watts:.1f}x less energy.</p>" if watts else ".</p>"))
+            if catalogued_tiles:
+                parts.append(
+                    f"<p>It is equally an argument for <i>one</i> tile: the catalogued part has "
+                    f"{catalogued_tiles} tiles, "
+                    f"{catalogued_tiles / kpu.servers_needed:.0f}x more fabric than this "
+                    f"mission can use.</p>")
     return "".join(parts)
 
 
@@ -535,25 +597,34 @@ def _status(ok: Optional[bool], text: str) -> str:
 
 
 def requirements_rows(dossier, alt):
-    """(requirement, figure, source, status). "gap" means the catalogue does
-    not state it -- which is not the same as a requirement that is met."""
+    """(requirement, figure, source, status).
+
+    Product-level rather than per-stage: one row per engine covering every
+    stage placed on it, so nothing a mission demands goes unreported. The
+    per-stage detail is the fit table in section 6.
+    """
     rows = []
-    by_kind = {p.kind: p for p in dossier.provisions}
-    for stage in dossier.stages:
-        place = next((p for p in dossier.placements if p.stage == stage.key), None)
-        if place is None or stage.key not in ("det", "mono"):
-            continue
-        prov = by_kind.get("kpu" if place.engine == "kpu" else "cpu")
-        if prov is None:
-            continue
-        ok = prov.utilization <= 1.0
-        label = ("Detection throughput" if stage.key == "det" else "Camera ingest")
-        figure = (f"{stage.rate_hz:g} inferences/s" if stage.key == "det"
-                  else si(stage.rate_hz, "px/s"))
-        rows.append((label, figure, f"mission profile rates_hz.{stage.key}",
-                     _status(ok, f"{prov.servers_provisioned} {prov.unit}"
-                                 f"{'s' if prov.servers_provisioned != 1 else ''} at "
-                                 f"{prov.utilization:.0%}")))
+    first = dossier.stages[0] if dossier.stages else None
+    if first is not None:
+        rows.append(("Sensor ingest", si(first.bytes_per_s, "B/s"),
+                     "mission profile sensors, first pipeline stage",
+                     _status(True, f"{_cams(dossier)}")))
+    for prov in dossier.provisions:
+        ops = sum(s.ops_per_s for s in dossier.stages if s.key in prov.stages)
+        rows.append((f"{prov.engine.upper()} throughput",
+                     f"{si(ops, 'OP/s')} over {len(prov.stages)} stage"
+                     f"{'s' if len(prov.stages) != 1 else ''}",
+                     "per-stage operation counts at the mission's rates",
+                     _status(prov.utilization <= 1.0,
+                             f"{_amount(prov.servers_needed)} of "
+                             f"{prov.servers_provisioned} {prov.unit}"
+                             f"{'s' if prov.servers_provisioned != 1 else ''} "
+                             f"({prov.utilization:.0%})")))
+    if dossier.unplaced:
+        rows.append(("Stages with no engine", f"{len(dossier.unplaced)} of "
+                     f"{len(dossier.stages)}",
+                     "no efficiency figure for a precision class they need",
+                     _status(False, ", ".join(dossier.unplaced))))
     if dossier.chain_seconds is not None:
         rows.append(("Sense-to-act latency", f"{dossier.deadline_ms:g} ms budget",
                      "mission profile deadline_ms",
@@ -567,9 +638,10 @@ def requirements_rows(dossier, alt):
                                    f"total would omit them")))
     rows.append(("Power budget", f"{dossier.power_budget_w:g} W",
                  "mission profile power_budget_w",
-                 _status(dossier.power_budget_fraction_used <= 1.0,
+                 _status(dossier.power_budget_fraction_used is not None
+                         and dossier.power_budget_fraction_used <= 1.0,
                          f"datapath floor {dossier.datapath_total_w * 1e3:.0f} mW = "
-                         f"{dossier.power_budget_fraction_used:.1%}")))
+                         f"{(dossier.power_budget_fraction_used or 0):.1%}")))
     rows.append(("Full-SoC power", "-",
                  "no memory, clock-tree, leakage or idle term in this model", "gap"))
     if dossier.dram_supply_gb_per_s:
@@ -579,6 +651,9 @@ def requirements_rows(dossier, alt):
                    if dossier.unplaced else ""))
         rows.append(("Memory bandwidth", f"{dossier.dram_demand_gb_per_s:.2f} GB/s demand",
                      "sum of per-stage byte counts", _status(used <= 1.0, note)))
+    else:
+        rows.append(("Memory bandwidth", f"{dossier.dram_demand_gb_per_s:.2f} GB/s demand",
+                     "sum of per-stage byte counts", "gap"))
     rows.append(("Thermal limit", "-", "no cooling solution attached to this design", "gap"))
     rows.append(("Size / volume", "-", "not a field of the mission profile", "gap"))
     rows.append(("Weight", "-", "not a field of the mission profile", "gap"))

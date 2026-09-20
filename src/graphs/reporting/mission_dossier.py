@@ -350,7 +350,7 @@ def sizing_diagram(dossier, alternatives: Sequence[dict] = ()) -> str:
                      f'height="20" rx="3" style="fill:{fill}"{faded}/>')
         amount = (f'{row["needed"]:.3g} of {row["provisioned"]:g} '
                   f'{row["unit"]}{"s" if row["provisioned"] != 1 else ""}'
-                  f'{f" - {ratio:.0f}x over" if over else ""}')
+                  f'{f" - {ratio:.3g}x over" if over else ""}')
         parts.append(f'<text class="s-amount{" over" if over else ""}" x="{284 + full + 12}" '
                      f'y="{y + 20}">{html.escape(amount)}</text>')
         parts.append(f'<text class="s-note" x="268" y="{y + 38}">'

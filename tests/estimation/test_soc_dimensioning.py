@@ -272,10 +272,13 @@ def test_a_requirement_is_never_reported_met_when_it_is_not(tmp_path):
         dossier, _soc, _t = module.build(mission, "kpu_t128_n7",
                                          "orin_nano_measured_v1", 0.85)
         rows = module.requirements_rows(dossier, None)
-        throughput = [r for r in rows if r[0] in ("Detection throughput", "Camera ingest")]
+        throughput = [r for r in rows if r[0].endswith("throughput")]
         assert throughput, mission
         for _name, _figure, _source, status in throughput:
             assert status.startswith("met:") is expect_met, (mission, status)
+        # Every engine that carries stages gets a row -- the first cut
+        # reported only two named stages and silently dropped the rest.
+        assert len(throughput) == len(dossier.provisions), mission
 
 
 def test_a_pipeline_with_no_common_cadence_quotes_no_latency(unfittable, dossier):
@@ -316,7 +319,8 @@ def test_each_sizing_bar_is_a_share_of_its_own_engine(unfittable):
         assert fill <= track + 1e-6
     # Both engines are over capacity here, so both bars are full and red.
     assert svg.count("var(--warn)") >= 2
-    assert "15x over" in svg and "3x over" in svg
+    # The ratio keeps its precision: 14.5x, not a rounded 15x.
+    assert re.search(r"14\.\dx over", svg) and re.search(r"3\.\d+x over", svg)
 
 
 def test_the_diagrams_survive_an_empty_dossier(dossier):
