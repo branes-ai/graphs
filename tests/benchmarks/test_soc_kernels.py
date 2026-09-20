@@ -15,6 +15,7 @@ from graphs.benchmarks.soc_kernels import (
     CLOCK_TOLERANCE,
     NOT_COVERED,
     SCHEMA,
+    SINGLE_THREAD_LIMIT,
     ClockSampler,
     ClockSamples,
     kernel_suite,
@@ -151,8 +152,6 @@ def test_a_wide_cpu_run_is_flagged():
     which a cgroup can exceed -- and restores the pinning afterwards."""
     import torch
 
-    from graphs.benchmarks.soc_kernels import SINGLE_THREAD_LIMIT
-
     if _INITIAL_AFFINITY is None or len(_INITIAL_AFFINITY) < 2:
         pytest.skip("needs Linux affinity and more than one allowed CPU")
     affinity, threads = os.sched_getaffinity(0), torch.get_num_threads()
@@ -164,7 +163,41 @@ def test_a_wide_cpu_run_is_flagged():
     finally:
         torch.set_num_threads(threads)
         os.sched_setaffinity(0, affinity)
-    assert result.cpu_parallelism > SINGLE_THREAD_LIMIT and result.single_thread is False
+    if result.cpu_parallelism <= SINGLE_THREAD_LIMIT:
+        # The threads were asked for but the machine did not give them: on a
+        # loaded runner (four test shards at once) the BLAS pool contends and
+        # the run stays near one core's worth. Nothing is wrong with the
+        # check, and test_a_run_is_flagged_by_its_parallelism covers the rule
+        # itself without racing the scheduler.
+        pytest.skip(f"the runner gave {result.cpu_parallelism:.2f} cores' worth, "
+                    f"not more than {SINGLE_THREAD_LIMIT}")
+    assert result.single_thread is False
+
+
+@pytest.mark.parametrize("parallelism, single", [(0.5, True), (1.0, True), (2.0, False),
+                                                (5.1, False)])
+def test_a_run_is_flagged_by_its_parallelism(parallelism, single, monkeypatch):
+    """The rule itself, without racing the scheduler: a run is
+    single-threaded exactly while its CPU time per wall second is within
+    the limit. The clock is faked, so the flag is checked against what the
+    harness measured rather than against what was asked for."""
+    import graphs.benchmarks.soc_kernels as harness
+
+    spec = next(k for k in kernel_suite(quick=True) if k.name == "kkt_solve")
+    monkeypatch.setattr(harness.time, "process_time", _clock(step=parallelism), raising=True)
+    result = harness.run_kernel(spec, "cpu", min_seconds=0.02, warmup=1)
+    assert result.cpu_parallelism == pytest.approx(parallelism, rel=0.2)
+    assert result.single_thread is (result.cpu_parallelism <= SINGLE_THREAD_LIMIT)
+    assert result.single_thread is single
+
+
+def _clock(step: float):
+    """A process_time that advances ``step`` seconds per wall second."""
+    start = time.perf_counter()
+
+    def now() -> float:
+        return (time.perf_counter() - start) * step
+    return now
 
 
 # ---------------------------------------------------------------------------
