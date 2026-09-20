@@ -149,6 +149,64 @@ SM, DLA and PVA logic is not, so a larger figure here is more knowledge, not
 more silicon. The bound-aware Pareto classifies every pair as `undecided`
 (P4-D2), which is correct.
 
+## What the ceilings decide (PR 6.4)
+
+`cli/analyze_kpu_ceiling.py` puts the domain-flow ceilings
+(`soc_designs/ceilings/`, from `graphs.estimation.soc.domainflow`) against
+these requirements. A ceiling is the least of three upper bounds, each
+sound on its own: the output-stationary wavefront's passes, fill and drain;
+the compulsory DRAM traffic; and, where a tile class states its
+interconnect, operand delivery. **Utilization at the ceiling above 1 is a
+decided no** -- not even a flawless schedule on that silicon carries the
+profile.
+
+Ceilings on the T128's fabric, at N7:
+
+| Kernel class | Kernel | Ceiling (FP16) | What holds it there |
+|---|---|---|---|
+| dense_conv_gemm | 2048^3 GEMM | 0.94 | compulsory DRAM traffic |
+| dense_conv_gemm | 3x3 conv, 256 to 256 at 80x80 | 0.95 | wavefront |
+| attention_prefill | 16 heads x 1024 x 64 | 0.71 | compulsory DRAM traffic |
+| weight_stream_decode | GEMV 1x4096 . 4096x4096 | 0.0014 | compulsory DRAM traffic |
+| elementwise_norm | layernorm 4096x4096 | 0.0017 | compulsory DRAM traffic |
+
+Every bound is a time against one reference -- the same dense peak the
+requirement is measured against -- and the ceiling is the ideal time over
+the longest of them. The schedule pays the SKU's own issue interval: a
+32x32 tile that states 512 FP16 MACs per clock issues every other clock,
+so a pass of K steps takes 2K cycles.
+
+Read against the ladder:
+
+| Rung | Air superiority | Far flight |
+|---|---|---|
+| H64 | 0.27 -- open | **51.2 -- decided no** |
+| T64 | 0.15 (LB) -- open | **58.1 (LB) -- decided no** |
+| T128 | 0.075 (LB) -- open | **29.0 (LB) -- decided no** |
+| T256 | 0.038 (LB) -- open | **14.5 (LB) -- decided no** |
+
+- **Far flight is decided against every KPU rung**, and one stage does it:
+  `vlm` streams its weights, so its ceiling is 0.14% of dense peak and it
+  needs 58 times its period on a T64 even at that ceiling. Doubling the
+  tiles halves the figure and never reaches 1: the fabric grows, the DRAM
+  does not. This is the Phase 4 memory finding again, now attributed to a
+  kernel class rather than an aggregate.
+- **Air superiority stays open on every rung**, and comfortably: a T128
+  needs 8.0% of dense peak where its dense-GEMM ceiling is 94%. Nothing
+  here says it will achieve that, only that the geometry does not forbid it.
+- **Dense work is not what threatens these designs.** A 2048^3 GEMM and a
+  3x3 convolution sit at 94-95% of dense peak; attention reaches 71%, and
+  its own schedule would allow 79% -- a 64-deep inner dimension against 64
+  cycles of fill and drain. Streaming work -- decode and normalization --
+  is two orders of magnitude below, and it is bandwidth, not the array,
+  that puts it there. A layernorm's wavefront bound is exactly 0.5,
+  because an elementwise pass uses the adder and leaves the multiplier
+  idle.
+- **13 of 16 stages have no ceiling.** Their kernel classes have no
+  domain-flow schedule stated (factor graphs, raycast, wavefront, graph
+  search, scatter-add, FFT) or no representative kernel at all, so every
+  "open" verdict above is a lower bound.
+
 ## What the ladder does not decide
 
 1. **Whether any KPU rung actually meets its requirement.** Nothing measures
@@ -166,10 +224,11 @@ more silicon. The bound-aware Pareto classifies every pair as `undecided`
 
 In order of leverage:
 
-1. **KPU service times.** The domain-flow cost model (PR 6.4), as a
-   THEORETICAL table read against these requirements, or silicon. A T128
-   that sustains more than 8% of dense peak carries air superiority's
-   compute; one that does not, does not.
+1. **KPU service times.** PR 6.4's ceilings say the geometry allows a T128
+   to carry air superiority's compute (8.0% needed against a 94% dense
+   ceiling) but they cannot say it will: a ceiling is not an efficiency.
+   That still needs silicon, or a scheduler that produces service times
+   rather than bounds.
 2. **A memory system for far flight**, or less traffic. 471 GB/s of peak
    DRAM, or keeping the TSDF/ESDF working set on chip.
 3. **`lio` and `ba` off a single core.** They are the reason every rung

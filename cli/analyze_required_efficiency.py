@@ -209,8 +209,9 @@ def _profiles(workload, args) -> List:
     wanted = args.profile or args.regime or []
     out = []
     for name in wanted:
+        wanted_name = name.lower()
         match = [p for p in workload.profiles
-                 if name in (p.id, p.regime, p.name) or name.lower() == (p.regime or "").lower()]
+                 if wanted_name in (p.id.lower(), (p.regime or "").lower(), p.name.lower())]
         if not match:
             raise KeyError(f"no profile, regime or mission named {name!r}")
         out += [p for p in match if p not in out]

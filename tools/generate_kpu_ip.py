@@ -47,16 +47,13 @@ from graphs.hardware.sku_validators.silicon_math import (  # noqa: E402
     resolve_block_transistors,
     silicon_die,
 )
+from graphs.hardware.soc.kpu_cores import KPU_CORES  # noqa: E402
 
 IP_DIR = REPO / "soc_designs" / "ip"
 
-#: template id -> (ComputeProduct id, core_only)
-GENERATED: Dict[str, Tuple[str, bool]] = {
-    "kpu_h64_core": ("kpu_h64_auto1_lp5x4_7nm_tsmc_hpc", True),
-    "kpu_t64_core": ("kpu_t64_32x32_lp5x4_7nm_tsmc_hpc", True),
-    "kpu_t128_core": ("kpu_t128_32x32_lp5x8_7nm_tsmc_hpc", True),
-    "kpu_t256_core": ("kpu_t256_32x32_lp5x16_7nm_tsmc_hpc", True),
-}
+#: template id -> (ComputeProduct id, core_only), from the package so that
+#: analyses can resolve the SKU behind a design's KPU block too.
+GENERATED: Dict[str, Tuple[str, bool]] = dict(KPU_CORES)
 
 #: silicon_bin blocks that belong to a standalone chip, not to an on-die core.
 CHIP_ONLY = {"memory_phys", "io_pads"}

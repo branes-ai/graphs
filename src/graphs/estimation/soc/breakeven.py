@@ -93,6 +93,10 @@ class StageRequirement:
     formats: Dict[str, str] = field(default_factory=dict)
     #: Seconds one call needs at 100% of dense peak, on one server.
     dense_seconds: Optional[float] = None
+    #: That time split by precision class, since each runs in its own
+    #: format: a consumer with a per-format figure must not apply one of
+    #: them to the whole stage.
+    class_seconds: Dict[str, float] = field(default_factory=dict)
     #: Seconds of DRAM per call at the sustained bandwidth, owning it.
     memory_seconds: Optional[float] = None
     #: Seconds one call takes at the comparison table's own efficiencies,
@@ -130,6 +134,8 @@ class StageRequirement:
             "rate_hz": self.rate_hz,
             "formats": dict(self.formats),
             "occupancy_at_peak": self.occupancy_at_peak,
+            "class_occupancy_at_peak": {c: t * self.rate_hz
+                                        for c, t in self.class_seconds.items()},
             "memory_occupancy": self.memory_occupancy,
             "known_efficiency": self.known_efficiency,
             "known_seconds": self.known_seconds,
@@ -309,6 +315,7 @@ def required_efficiency(
             continue
         engine = engines[name]
         formats: Dict[str, str] = {}
+        per_class: Dict[str, float] = {}
         dense = 0.0
         for cls, share in zip(CLASS_NAMES, stage.class_split):
             if share <= 0:
@@ -318,7 +325,8 @@ def required_efficiency(
                 dense = None  # type: ignore[assignment]
                 break
             formats[cls] = fmt
-            dense += stage.ops_per_call * share / engine.server_peak_ops_per_s(fmt)
+            per_class[cls] = stage.ops_per_call * share / engine.server_peak_ops_per_s(fmt)
+            dense += per_class[cls]
         if dense is None:
             stages.append(StageRequirement(
                 stage.key, name, demand.rate_hz, formats=formats, memory_seconds=memory,
@@ -326,7 +334,7 @@ def required_efficiency(
             continue
         stages.append(StageRequirement(
             stage.key, name, demand.rate_hz, formats=formats, dense_seconds=dense,
-            memory_seconds=memory,
+            class_seconds=per_class, memory_seconds=memory,
             known_seconds=_known_seconds(table, kernels, stage, engine, formats)))
 
     per_engine: List[EngineRequirement] = []
