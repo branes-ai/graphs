@@ -208,6 +208,10 @@ class Dossier:
     #: Engines the design cannot supply enough servers for. The provision
     #: is still reported, capped, with a utilization above 1.
     oversubscribed: Tuple[str, ...] = ()
+    #: Figures an external document publishes for this mission, if any.
+    #: They describe the workload on a pooled reference machine, never
+    #: this SoC, and are carried for cross-checking the demand model.
+    published: Dict[str, float] = field(default_factory=dict)
 
     @property
     def datapath_total_w(self) -> float:
@@ -455,6 +459,7 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
         mission=profile.id, title=f"{profile.form_factor}: {profile.name}",
         power_budget_w=profile.power_budget_w, deadline_ms=profile.deadline_ms,
         note=profile.note or "", sensors=dict(profile.sensors or {}),
+        published=dict(profile.published or {}),
         design=soc.design.id if hasattr(soc, "design") else "", node=soc.node.id,
         frame_hz=frame_hz, stages=tuple(stages), provisions=tuple(provisions),
         placements=tuple(placements),
