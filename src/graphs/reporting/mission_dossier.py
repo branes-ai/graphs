@@ -576,6 +576,8 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 <div class="panel">{sizing_diagram(dossier, alternatives)}</div>
 {sections.get("analysis_3", "")}
 
+{sections.get("crosscheck", "")}
+
 <h2>7. What this rests on</h2>
 {sections.get("provenance", "")}
 <p class="note"><b>Confidence: {html.escape(confidence.level.value.upper())}.</b>

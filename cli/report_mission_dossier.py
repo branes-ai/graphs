@@ -122,6 +122,26 @@ def _kernel_of(name: str):
     return KernelClass(name)
 
 
+def pooled_figures(mission: str) -> Optional[dict]:
+    """The workload's own pooled summary, in the same quantities the annex
+    publishes, so the two can be compared without either being recomputed
+    from the other."""
+    workload = load_autonomy_workload()
+    profile = next((p for p in workload.profiles if p.id == mission), None)
+    if profile is None or not profile.published:
+        return None
+    summary = workload.summary(profile)
+    shares = summary.class_shares()
+    out = {"tops": summary.ops_per_s / 1e12,
+           "class_a_share": shares.get("A", 0.0),
+           "class_c_share": shares.get("C", 0.0),
+           "oversubscription": summary.oversubscription}
+    dram = getattr(summary, "dram_gb_per_s", None)
+    if dram is not None:
+        out["dram_gb_per_s"] = dram
+    return out
+
+
 def tile_area_fit():
     """Marginal area per tile, fitted over the catalogued N7 cores. Used to
     price a fabric smaller than any SKU in the catalogue, which is an
@@ -158,6 +178,14 @@ USE_CASES: Dict[str, str] = {
 <p>A fanless, mains- or PoE-powered appliance watching four camera streams: a loading bay, a
 retail floor, a perimeter. It detects, tracks and flags anomalies on every frame, unattended,
 for years.</p>""",
+    "drone_interceptor_terminal_engagement": """
+<p>A small interceptor flying the terminal phase of an engagement: closing at 150-250 m/s on a
+manoeuvring target, with the whole sense-decide-act loop onboard. No VLM, no operator, no second
+look. At that closure the {deadline:g} ms deadline is {metres_lo:.0f}-{metres_hi:.0f} m of
+travel, so a late frame is not a dropped frame, it is a miss.</p>
+<p>Everything else follows from the closure rate: stereo and lidar at high rate because the
+scene changes fast, detection and the whole reactive stack at {det_hz:g} Hz, and
+{budget:g} W to do it in on an airframe that also has to fly.</p>""",
     "quadruped_isr_dismounted_comms_denied": """
 <p>A legged robot carrying ISR for a dismounted team, over unstructured terrain, with no
 datalink to lean on. Everything runs on the animal: stereo and lidar for terrain it has never
@@ -206,7 +234,7 @@ def _worst(rows):
 
 def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0,
              efficiency: str = "", target_utilization: float = 0.85,
-             output: str = "") -> dict:
+             output: str = "", crosscheck: Optional[dict] = None) -> dict:
     """The argument. Every number is interpolated from the dossier, so the
     prose cannot drift from the analysis it describes."""
     f = _facts(dossier, alt)
@@ -231,21 +259,53 @@ of memory, compute and power is {html_escape(worst_name)} at {worst_ratio:.0%}. 
 argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was given.
 </div>"""
     else:
-        # Every one of these can be absent: an engine with no placed stage
-        # has no provision, a provision can need zero servers, and the
-        # memory supply can be unstated.
-        bits = []
+        # Say what is over and what is not. Listing an engine that fits
+        # among the reasons a mission fails is simply wrong, and this page
+        # had it wrong: 9.31 of 11 tiles is not a shortfall.
+        # Three bands, because "enough" and "nearly out" are not the same
+        # claim -- especially when unpriced stages make the figure a floor.
+        TIGHT = 0.85
+        over, tight, ok = [], [], []
         for prov in dossier.provisions:
-            bits.append(f"{_amount(prov.servers_needed)} {prov.unit}"
-                        f"{'s' if prov.servers_needed != 1 else ''} against the "
-                        f"{prov.servers_provisioned} this design has")
+            phrase = (f"{_amount(prov.servers_needed)} {prov.unit}"
+                      f"{'s' if prov.servers_needed != 1 else ''} against "
+                      f"{prov.servers_provisioned}")
+            bucket = (over if prov.utilization > 1.0
+                      else tight if prov.utilization > TIGHT else ok)
+            bucket.append((prov, phrase))
         supply = dossier.dram_supply_gb_per_s
-        memory = (f" It asks {dossier.dram_demand_gb_per_s:.3g} GB/s of a {supply:g} GB/s "
-                  f"memory interface, {dossier.dram_demand_gb_per_s / supply:.0%} of it."
-                  if supply else " Its memory demand cannot be checked: no interface "
-                                 "bandwidth is stated.")
+        dram_ratio = (dossier.dram_demand_gb_per_s / supply) if supply else None
+        if dram_ratio is not None:
+            memory = f"memory at {dram_ratio:.0%} of the interface"
+            if dram_ratio > 1.0:
+                over.append((None, f"{dossier.dram_demand_gb_per_s:.3g} GB/s of memory "
+                                   f"bandwidth against {supply:g}"))
+            elif dram_ratio > TIGHT:
+                tight.append((None, memory))
+            else:
+                ok.append((None, memory))
+
+        headline = ("<b>This design does not serve this mission.</b> "
+                    if over else
+                    "<b>This mission is not sized: stages remain that no engine can take.</b> ")
+        shortfall = (f"It is short of {_join(p for _x, p in over)}. "
+                     if over else "")
+        fitting = (f"What it has is enough elsewhere: {_join(p for _x, p in ok)}. "
+                   if ok else "")
+        margins = (f"With no margin left: {_join(p for _x, p in tight)}. "
+                   if tight else "")
+        # Compute sizing and datapath power omit unplaced stages; memory
+        # traffic does not, because it is summed from every stage's byte
+        # count whether or not an engine can run it.
+        unpriced_note = (f"{_count(len(dossier.unplaced)).capitalize()} stage"
+                         f"{'s' if len(dossier.unplaced) != 1 else ''} cannot be priced at "
+                         f"all, so the engine and power figures here are floors -- the "
+                         f"memory figure is not, since it counts every stage's bytes. "
+                         if dossier.unplaced else "")
         owners = []
-        for prov in dossier.provisions:
+        for prov, _phrase in over:
+            if prov is None:
+                continue
             rows = f["by_engine"].get(prov.engine, [])
             if not rows or not prov.servers_needed:
                 continue
@@ -253,23 +313,25 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
             owners.append(f"<b>{html_escape(top.key)}</b> is "
                           f"{(top_fit.servers_needed or 0) / prov.servers_needed:.1%} of the "
                           f"{prov.engine.upper()} demand")
-        byte_top, byte_supply = f["bytes_top"], f["bytes_supply"]
-        if byte_top is not None and byte_supply:
-            owners.append(f"<b>{html_escape(byte_top.key)}</b> alone is "
-                          f"{byte_top.bytes_per_s / byte_supply:.0%} of the memory interface")
-        unpriced_note = (f" {_count(len(dossier.unplaced)).capitalize()} stage"
-                         f"{'s' if len(dossier.unplaced) != 1 else ''} cannot be priced at "
-                         f"all, so every one of those figures is a floor."
-                         if dossier.unplaced else "")
+        tail = (f"<br><br>The shortfall has {_count(len(owners))} owner"
+                f"{'s' if len(owners) != 1 else ''}: {_join(owners)}."
+                if owners else "")
         out["verdict"] = f"""
 <div class="verdict warn">
-<b>Nothing in this parts list serves this mission.</b> It needs {'; '.join(bits)}.{memory}
-{unpriced_note}""" + (f"""<br><br>
-That is not one problem but {_count(len(owners))}, and they have different owners:
-{', '.join(owners)}.</div>""" if owners else "</div>")
+{headline}{shortfall}{fitting}{margins}{unpriced_note}{tail}</div>"""
 
     blurb = USE_CASES.get(dossier.mission, f"<p>{html_escape(dossier.note)}</p>")
-    out["use_case"] = blurb.format(budget=dossier.power_budget_w) + f"""
+    det = next((s for s in dossier.stages if s.key == "det"), None)
+    context = {
+        "budget": dossier.power_budget_w,
+        "deadline": dossier.deadline_ms,
+        "det_hz": det.rate_hz if det else 0.0,
+        # The note states a closure range, so both ends are carried rather
+        # than a midpoint nobody published.
+        "metres_lo": 150.0 * dossier.deadline_ms / 1000.0,
+        "metres_hi": 250.0 * dossier.deadline_ms / 1000.0,
+    }
+    out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
 {len({s.tier for s in dossier.stages})} tiers, {sum(1 for s in dossier.stages if s.on_reactive_chain)}
 of them on the sense-to-act chain that the {dossier.deadline_ms:g} ms deadline applies to.</p>"""
@@ -281,8 +343,9 @@ state is marked <b>NOT STATED</b> rather than assumed.</p>"""
     out["requirements_note"] = f"""
 <p class="note"><b>Thermal and SWaP</b> are yours to set; they are not in our model.
 <b>Full-SoC power</b> is a different kind of gap: {dossier.datapath_total_w * 1e3:.0f} mW is
-arithmetic only &mdash; no memory traffic, clock tree, leakage or idle. On a mission moving
-{dossier.dram_demand_gb_per_s:.0f} GB/s the memory term alone will dwarf it. <b>CPU core
+arithmetic only &mdash; no memory traffic, clock tree, leakage or idle, and it omits any stage
+no engine can take. On a mission moving {dossier.dram_demand_gb_per_s:.0f} GB/s the memory term
+alone will dwarf it. <b>CPU core
 area</b> is the one gap you can close, and section 7 says why it is open.</p>"""
 
     heaviest = max(dossier.stages, key=lambda s: s.ops_per_s)
@@ -358,6 +421,7 @@ has, and the figure beside it says by how much.</p>"""
 its core logic, because no absolute core area is published for the baseline. <b>An Andes core
 area would close that column outright.</b></p>"""
 
+    out["crosscheck"] = _crosscheck(dossier, crosscheck)
     out["provenance"] = f"""
 <p>Four kinds of figure, and the page says which each is:</p>
 <ul>
@@ -390,6 +454,14 @@ def _amount(value: float) -> str:
     return f"{value:.3g}"
 
 
+def _join(items) -> str:
+    """Oxford-free list: a, b and c."""
+    items = list(items)
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def _count(n: int) -> str:
     """Small counts read better as words, and must match the list below."""
     return {1: "one", 2: "two", 3: "three"}.get(n, str(n))
@@ -402,6 +474,53 @@ def _times(rate_hz: float) -> str:
     if rate_hz < 1:
         return f"every {1 / rate_hz:.3g} seconds"
     return f"on each of its {si(rate_hz, '')} calls a second"
+
+
+def _crosscheck(dossier, derived) -> str:
+    """Our demand model against an external document's published figures.
+
+    This checks the *workload*, not the sizing: the published numbers are
+    for a pooled reference machine with its own assumed throughputs, so
+    they say nothing about this SoC. Agreement means our operation counts
+    and precision mix are not invented.
+    """
+    published = dossier.published
+    if not published or not derived:
+        return ""
+    derived = dict(derived)
+    # The same quantity by the same definition: the sum of per-stage byte
+    # counts at the mission's rates.
+    derived.setdefault("dram_gb_per_s", dossier.dram_demand_gb_per_s)
+    rows, deltas = [], []
+    for label, key, fmt in (("Total arithmetic", "tops", "{:.2f} TOP/s"),
+                            ("Class A (INT8) share", "class_a_share", "{:.3f}"),
+                            ("Class C (FP32) share", "class_c_share", "{:.3f}"),
+                            ("Compute oversubscription", "oversubscription", "{:.2f}x"),
+                            ("Memory traffic", "dram_gb_per_s", "{:.1f} GB/s")):
+        if key not in published or key not in derived:
+            continue
+        ours, theirs = derived[key], published[key]
+        delta = abs(ours - theirs) / theirs if theirs else 0.0
+        deltas.append((delta, label))
+        rows.append(f"<tr><td>{html_escape(label)}</td>"
+                    f"<td class=\"num\">{fmt.format(ours)}</td>"
+                    f"<td class=\"num\">{fmt.format(theirs)}</td>"
+                    f"<td class=\"num\">{delta:.1%}</td></tr>")
+    if not rows:
+        return ""
+    worst_delta, worst_label = max(deltas)
+    return f"""
+<h2>Cross-check against the published annex</h2>
+<p>This mission is one of two the companion annex publishes figures for. Ours are derived
+independently from per-stage operation and byte counts; theirs come from
+<i>BranesAI-Autonomy-Compute-Requirements</i> section 4.</p>
+<div class="panel"><table><thead><tr><th>quantity</th><th>ours</th><th>published</th>
+<th>difference</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<p class="note">{len(rows)} independent quantities, and the largest disagreement is
+{worst_delta:.1%} ({html_escape(worst_label.lower())}). <b>This validates the demand model, not
+the sizing.</b> The published oversubscription is against the annex's own pooled
+machine &mdash; one throughput figure per precision class, no engines &mdash; so it is not
+comparable to the per-engine utilizations in section 6, and we do not treat it as if it were.</p>"""
 
 
 def _analysis(dossier, f, kpu, cpu) -> str:
@@ -646,9 +765,9 @@ def requirements_rows(dossier, alt):
                  "no memory, clock-tree, leakage or idle term in this model", "gap"))
     if dossier.dram_supply_gb_per_s:
         used = dossier.dram_demand_gb_per_s / dossier.dram_supply_gb_per_s
-        note = (f"{used:.1%} of {dossier.dram_supply_gb_per_s:g} GB/s peak"
-                + (" -- and a floor, with unpriced stages left out"
-                   if dossier.unplaced else ""))
+        # Every stage's bytes are counted, placed or not, so this one is
+        # not understated the way the engine figures are.
+        note = f"{used:.1%} of {dossier.dram_supply_gb_per_s:g} GB/s peak"
         rows.append(("Memory bandwidth", f"{dossier.dram_demand_gb_per_s:.2f} GB/s demand",
                      "sum of per-stage byte counts", _status(used <= 1.0, note)))
     else:
@@ -689,6 +808,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                                        args.target_utilization)
         alt = counterfactual(dossier, soc, "det", "cpu", "fp32")
         fit = tile_area_fit()
+        crosscheck = pooled_figures(args.mission)
     except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -718,6 +838,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "dram_supply_gb_per_s": dossier.dram_supply_gb_per_s,
             "datapath_watts": dossier.datapath_watts,
             "counterfactual": alt, "tile_area_fit": fit,
+            "published": dict(dossier.published),
+            "crosscheck": crosscheck,
             "efficiency_table": args.efficiency,
             "counterfactual_table": COUNTERFACTUAL_TABLE,
             "oversubscribed": list(dossier.oversubscribed),
@@ -744,7 +866,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     first = dossier.stages[0] if dossier.stages else None
     ingress = ("sensors", first.bytes_per_s) if first else None
     write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
-                                 args.target_utilization, args.output or ""),
+                                 args.target_utilization, args.output or "",
+                                 crosscheck),
                         requirements_rows(dossier, alt), alternatives, idle,
                         date.today().isoformat(), ingress, args.cpu_label,
                         {"cpu": args.cpu_baseline}), args.output)
