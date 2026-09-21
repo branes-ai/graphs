@@ -251,6 +251,16 @@ QUADRUPED = "quadruped_isr_dismounted_comms_denied"
 
 
 @pytest.fixture(scope="module")
+def cli():
+    spec = importlib.util.spec_from_file_location(
+        "dossier_cli_mod", REPO / "cli" / "report_mission_dossier.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
 def unfittable(soc, ceilings):
     """A mission no configuration in the catalogue serves, which exercises
     every branch the fitting mission does not."""
@@ -321,6 +331,60 @@ def test_each_sizing_bar_is_a_share_of_its_own_engine(unfittable):
     assert svg.count("var(--warn)") >= 2
     # The ratio keeps its precision: 14.5x, not a rounded 15x.
     assert re.search(r"14\.\dx over", svg) and re.search(r"3\.\d+x over", svg)
+
+
+INTERCEPTOR = "drone_interceptor_terminal_engagement"
+
+
+@pytest.fixture(scope="module")
+def interceptor(soc, ceilings):
+    """A mission where the accelerator fits and only the CPU is short --
+    the case that catches a verdict which lumps every engine together."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == INTERCEPTOR)
+    return dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings,
+                     target_utilization=0.85, tiles_per_server=128)
+
+
+def test_an_engine_that_fits_is_not_listed_as_a_shortfall(interceptor, cli):
+    """9.31 of 11 tiles is not a shortfall, and the first cut said it was:
+    it listed every provision as evidence the mission failed."""
+    kpu = next(p for p in interceptor.provisions if p.kind == "kpu")
+    cpu = next(p for p in interceptor.provisions if p.kind == "cpu")
+    assert kpu.utilization <= 1.0 < cpu.utilization
+    text = cli.sections(interceptor, None, None, None)["verdict"]
+    short = text.split("enough elsewhere")[0]
+    assert "cores against" in short and "tiles against" not in short
+    assert "tiles against" in text                 # ...but it is still reported
+    assert "one owner" in text                     # only the CPU has one
+
+
+def test_the_published_cross_check_is_about_the_workload_not_the_soc(interceptor, cli):
+    """The annex's oversubscription is against a pooled machine, so it must
+    not be read as a verdict on this SoC."""
+    derived = cli.pooled_figures(INTERCEPTOR)
+    assert derived and interceptor.published
+    block = " ".join(cli._crosscheck(interceptor, derived).split())
+    assert "validates the demand model, not the sizing" in block
+    assert "pooled machine" in block
+    assert "not comparable to the per-engine utilizations" in block
+    for key in ("tops", "class_a_share", "oversubscription"):
+        ours, theirs = derived[key], interceptor.published[key]
+        assert abs(ours - theirs) / theirs < 0.10, key
+
+
+def test_a_mission_with_no_published_figures_gets_no_cross_check(dossier, cli):
+    assert not dossier.published
+    assert cli._crosscheck(dossier, cli.pooled_figures(MISSION)) == ""
+
+
+def test_every_use_case_blurb_renders(cli):
+    """A blurb with a placeholder the context does not supply raises at
+    render time, which is a broken page rather than a failed build."""
+    for mission in cli.USE_CASES:
+        dossier, soc, tiles = cli.build(mission, "kpu_t128_n7",
+                                        "orin_nano_measured_v1", 0.85)
+        text = cli.sections(dossier, soc, None, None, tiles)["use_case"]
+        assert "{" not in text and "}" not in text, mission
 
 
 def test_the_diagrams_survive_an_empty_dossier(dossier):
