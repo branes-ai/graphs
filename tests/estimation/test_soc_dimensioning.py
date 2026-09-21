@@ -372,6 +372,28 @@ def test_the_published_cross_check_is_about_the_workload_not_the_soc(interceptor
         assert abs(ours - theirs) / theirs < 0.10, key
 
 
+def test_memory_demand_counts_unplaced_stages_so_it_is_not_a_floor(unfittable):
+    """Engine sizing and datapath power omit stages no engine can take;
+    memory traffic does not, because it is summed from every stage's byte
+    count. Calling all three floors understates the distinction."""
+    assert unfittable.unplaced
+    counted = sum(s.bytes_per_s for s in unfittable.stages) / 1e9
+    assert unfittable.dram_demand_gb_per_s == pytest.approx(counted)
+    unplaced_bytes = sum(s.bytes_per_s for s in unfittable.stages
+                         if s.key in unfittable.unplaced) / 1e9
+    assert unplaced_bytes > 0, "this mission should have unplaced stages carrying bytes"
+    # ...and those bytes are already inside the reported figure.
+    assert unfittable.dram_demand_gb_per_s > counted - unplaced_bytes
+
+
+def test_the_verdict_does_not_deny_what_does_serve_the_mission(interceptor, cli):
+    """One resource over capacity does not mean nothing serves the
+    mission: here the KPU and the memory interface both do."""
+    text = cli.sections(interceptor, None, None, None)["verdict"]
+    assert "Nothing in this parts list" not in text
+    assert "This design does not serve this mission" in text
+
+
 def test_a_mission_with_no_published_figures_gets_no_cross_check(dossier, cli):
     assert not dossier.published
     assert cli._crosscheck(dossier, cli.pooled_figures(MISSION)) == ""
@@ -426,6 +448,18 @@ def test_the_page_states_its_gaps_rather_than_filling_them(tmp_path):
     page = out.read_text()
     assert page.count("NOT STATED") >= 4          # thermal, SWaP, full-SoC power, area
     assert "Thermal limit" in page and "Weight" in page
+
+
+def test_cli_json_carries_the_cross_check(tmp_path):
+    """A caller on --format json could not reach the published comparison
+    at all: the HTML path had it and the JSON path dropped it."""
+    out = tmp_path / "i.json"
+    _cli("--mission", INTERCEPTOR, "-o", str(out))
+    data = json.loads(out.read_text())
+    assert data["published"]["tops"] > 0
+    assert data["crosscheck"]["tops"] > 0
+    assert abs(data["crosscheck"]["tops"] - data["published"]["tops"]) \
+        / data["published"]["tops"] < 0.10
 
 
 def test_cli_writes_json(tmp_path):

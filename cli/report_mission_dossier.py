@@ -285,7 +285,7 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
             else:
                 ok.append((None, memory))
 
-        headline = ("<b>Nothing in this parts list serves this mission.</b> "
+        headline = ("<b>This design does not serve this mission.</b> "
                     if over else
                     "<b>This mission is not sized: stages remain that no engine can take.</b> ")
         shortfall = (f"It is short of {_join(p for _x, p in over)}. "
@@ -294,9 +294,13 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
                    if ok else "")
         margins = (f"With no margin left: {_join(p for _x, p in tight)}. "
                    if tight else "")
+        # Compute sizing and datapath power omit unplaced stages; memory
+        # traffic does not, because it is summed from every stage's byte
+        # count whether or not an engine can run it.
         unpriced_note = (f"{_count(len(dossier.unplaced)).capitalize()} stage"
                          f"{'s' if len(dossier.unplaced) != 1 else ''} cannot be priced at "
-                         f"all, so every figure here is a floor. "
+                         f"all, so the engine and power figures here are floors -- the "
+                         f"memory figure is not, since it counts every stage's bytes. "
                          if dossier.unplaced else "")
         owners = []
         for prov, _phrase in over:
@@ -339,8 +343,9 @@ state is marked <b>NOT STATED</b> rather than assumed.</p>"""
     out["requirements_note"] = f"""
 <p class="note"><b>Thermal and SWaP</b> are yours to set; they are not in our model.
 <b>Full-SoC power</b> is a different kind of gap: {dossier.datapath_total_w * 1e3:.0f} mW is
-arithmetic only &mdash; no memory traffic, clock tree, leakage or idle. On a mission moving
-{dossier.dram_demand_gb_per_s:.0f} GB/s the memory term alone will dwarf it. <b>CPU core
+arithmetic only &mdash; no memory traffic, clock tree, leakage or idle, and it omits any stage
+no engine can take. On a mission moving {dossier.dram_demand_gb_per_s:.0f} GB/s the memory term
+alone will dwarf it. <b>CPU core
 area</b> is the one gap you can close, and section 7 says why it is open.</p>"""
 
     heaviest = max(dossier.stages, key=lambda s: s.ops_per_s)
@@ -760,9 +765,9 @@ def requirements_rows(dossier, alt):
                  "no memory, clock-tree, leakage or idle term in this model", "gap"))
     if dossier.dram_supply_gb_per_s:
         used = dossier.dram_demand_gb_per_s / dossier.dram_supply_gb_per_s
-        note = (f"{used:.1%} of {dossier.dram_supply_gb_per_s:g} GB/s peak"
-                + (" -- and a floor, with unpriced stages left out"
-                   if dossier.unplaced else ""))
+        # Every stage's bytes are counted, placed or not, so this one is
+        # not understated the way the engine figures are.
+        note = f"{used:.1%} of {dossier.dram_supply_gb_per_s:g} GB/s peak"
         rows.append(("Memory bandwidth", f"{dossier.dram_demand_gb_per_s:.2f} GB/s demand",
                      "sum of per-stage byte counts", _status(used <= 1.0, note)))
     else:
@@ -833,6 +838,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "dram_supply_gb_per_s": dossier.dram_supply_gb_per_s,
             "datapath_watts": dossier.datapath_watts,
             "counterfactual": alt, "tile_area_fit": fit,
+            "published": dict(dossier.published),
+            "crosscheck": crosscheck,
             "efficiency_table": args.efficiency,
             "counterfactual_table": COUNTERFACTUAL_TABLE,
             "oversubscribed": list(dossier.oversubscribed),
