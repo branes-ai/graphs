@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 #: One hue per engine, validated all-pairs in both modes.
 LIGHT_STEPS: Dict[str, str] = {
     "cpu": "#256abf", "kpu": "#eb6834", "other": "#7f7e76",
-    "fill": "#256abf", "warn": "#c93434", "gap": "#8a8880",
+    "fill": "#256abf", "warn": "#c93434", "gap": "#726f68",
 }
 DARK_STEPS: Dict[str, str] = {
     "cpu": "#3987e5", "kpu": "#d95926", "other": "#a3a199",
@@ -41,6 +41,28 @@ def ms(seconds: Optional[float]) -> str:
     return "-" if seconds is None else f"{seconds * 1e3:.3g} ms"
 
 
+def wrap(text: str, width: int, lines: int = 2) -> List[str]:
+    """Break on word boundaries, never mid-word. The last line is elided
+    with a single character rather than losing half a word."""
+    words, out, current = text.split(), [], ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) <= width:
+            current = candidate
+            continue
+        if current:
+            out.append(current)
+        current = word
+        if len(out) == lines - 1 and len(words) > len(" ".join(out).split()) + 1:
+            break
+    if current and len(out) < lines:
+        out.append(current)
+    joined = " ".join(out)
+    if len(joined.split()) < len(words):
+        out[-1] = out[-1][:width - 1].rstrip() + "\u2026"
+    return out[:lines]
+
+
 def _engine_colour(kind) -> str:
     name = getattr(kind, "value", kind)
     return f"var(--{name})" if name in ("cpu", "kpu") else "var(--other)"
@@ -50,7 +72,7 @@ def _engine_colour(kind) -> str:
 # 1. The workload, as a pipeline graph
 # ---------------------------------------------------------------------------
 
-NODE_W, NODE_H, NODE_GAP = 250, 132, 78
+NODE_W, NODE_H, NODE_GAP = 250, 142, 78
 
 
 #: Widest the pipeline may run before it wraps onto another row. A
@@ -121,9 +143,10 @@ def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
             parts.append(f'<text class="n-tier" x="{x + NODE_W - 12}" y="{y + 24}">'
                          f'{html.escape(stage.tier)}'
                          f'{" &#9679;" if stage.on_reactive_chain else ""}</text>')
-            parts.append(f'<text class="n-name" x="{x + 16}" y="{y + 41}">'
-                         f'{html.escape(stage.name[:34])}</text>')
-            parts.append(f'<text class="n-kc" x="{x + 16}" y="{y + 58}">'
+            for i, line in enumerate(wrap(stage.name, 33, 2)):
+                parts.append(f'<text class="n-name" x="{x + 16}" y="{y + 41 + i * 13}">'
+                             f'{html.escape(line)}</text>')
+            parts.append(f'<text class="n-kc" x="{x + 16}" y="{y + 66}">'
                          f'{html.escape(stage.kernel_class)}</text>')
             split = ", ".join(f"{share:.0%} {cls}"
                               for cls, share in stage.class_split.items() if share > 0)
@@ -435,7 +458,7 @@ def _steps_css(steps: Dict[str, str]) -> str:
 
 STYLE = """
 :root { color-scheme: light dark; --surface:#fcfcfb; --panel:#ffffff; --ink:#0b0b0b;
-  --ink-2:#52514e; --ink-3:#78766f; --rule:#e2e1dc; --track:#eceae5; --soft:#f7f6f3;
+  --ink-2:#52514e; --ink-3:#6e6c66; --rule:#e2e1dc; --track:#eceae5; --soft:#f7f6f3;
   __LIGHT__ }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --surface:#1a1a19; --panel:#232322; --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
@@ -576,9 +599,11 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 <div class="panel">{sizing_diagram(dossier, alternatives)}</div>
 {sections.get("analysis_3", "")}
 
+{sections.get("comparison", "")}
+
 {sections.get("crosscheck", "")}
 
-<h2>7. What this rests on</h2>
+<h2>What this rests on</h2>
 {sections.get("provenance", "")}
 <p class="note"><b>Confidence: {html.escape(confidence.level.value.upper())}.</b>
 {html.escape(confidence.source)}</p>
@@ -590,5 +615,5 @@ Every figure on this page is reproducible with the command in section 7.</p>
 
 
 __all__ = ["CLASS_FORMATS", "DARK_STEPS", "LIGHT_STEPS", "block_diagram", "demand_table",
-           "fit_table", "gb", "ms", "pipeline_graph", "render", "requirements_table", "si",
+           "fit_table", "gb", "ms", "pipeline_graph", "wrap", "render", "requirements_table", "si",
            "sizing_diagram"]

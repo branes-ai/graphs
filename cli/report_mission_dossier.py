@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -178,6 +179,11 @@ USE_CASES: Dict[str, str] = {
 <p>A fanless, mains- or PoE-powered appliance watching four camera streams: a loading bay, a
 retail floor, a perimeter. It detects, tracks and flags anomalies on every frame, unattended,
 for years.</p>""",
+    "amr_logistics_mixed__dynamic_yard": """
+<p>A logistics AMR working a mixed yard: indoor-outdoor transitions, humans and vehicles moving
+around it, no fiducials to lean on, {speed:g} m/s. The same vehicle class as a warehouse AMR and
+very nearly the same pipeline &mdash; what differs is that nothing about the environment is known
+in advance.</p>""",
     "drone_interceptor_terminal_engagement": """
 <p>A small interceptor flying the terminal phase of an engagement: closing at 150-250 m/s on a
 manoeuvring target, with the whole sense-decide-act loop onboard. No VLM, no operator, no second
@@ -234,7 +240,8 @@ def _worst(rows):
 
 def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0,
              efficiency: str = "", target_utilization: float = 0.85,
-             output: str = "", crosscheck: Optional[dict] = None) -> dict:
+             output: str = "", crosscheck: Optional[dict] = None,
+             compare=None) -> dict:
     """The argument. Every number is interpolated from the dossier, so the
     prose cannot drift from the analysis it describes."""
     f = _facts(dossier, alt)
@@ -330,6 +337,8 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         # than a midpoint nobody published.
         "metres_lo": 150.0 * dossier.deadline_ms / 1000.0,
         "metres_hi": 250.0 * dossier.deadline_ms / 1000.0,
+        # From the profile note, which states it; not inferred.
+        "speed": _speed_from_note(dossier.note),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -346,7 +355,7 @@ state is marked <b>NOT STATED</b> rather than assumed.</p>"""
 arithmetic only &mdash; no memory traffic, clock tree, leakage or idle, and it omits any stage
 no engine can take. On a mission moving {dossier.dram_demand_gb_per_s:.0f} GB/s the memory term
 alone will dwarf it. <b>CPU core
-area</b> is the one gap you can close, and section 7 says why it is open.</p>"""
+area</b> is the one gap you can close, and the closing section says why it is open.</p>"""
 
     heaviest = max(dossier.stages, key=lambda s: s.ops_per_s)
     out["workload"] = f"""
@@ -421,6 +430,7 @@ has, and the figure beside it says by how much.</p>"""
 its core logic, because no absolute core area is published for the baseline. <b>An Andes core
 area would close that column outright.</b></p>"""
 
+    out["comparison"] = _comparison(dossier, compare)
     out["crosscheck"] = _crosscheck(dossier, crosscheck)
     out["provenance"] = f"""
 <p>Four kinds of figure, and the page says which each is:</p>
@@ -454,6 +464,14 @@ def _amount(value: float) -> str:
     return f"{value:.3g}"
 
 
+def _speed_from_note(note: str) -> float:
+    """The speed a mission note states, in m/s. Zero when it states none,
+    so a blurb that wants it can only be written for a mission that has
+    it."""
+    found = re.search(r"([\d.]+)\s*m/s", note or "")
+    return float(found.group(1)) if found else 0.0
+
+
 def _join(items) -> str:
     """Oxford-free list: a, b and c."""
     items = list(items)
@@ -474,6 +492,103 @@ def _times(rate_hz: float) -> str:
     if rate_hz < 1:
         return f"every {1 / rate_hz:.3g} seconds"
     return f"on each of its {si(rate_hz, '')} calls a second"
+
+
+def _comparison_data(dossier, other) -> Optional[dict]:
+    """The comparison as data, so a JSON consumer gets what the page has."""
+    if other is None:
+        return None
+    ours = {p.engine: p for p in dossier.provisions}
+    theirs = {p.engine: p for p in other.provisions}
+    engines = {}
+    for name in sorted(set(ours) | set(theirs)):
+        a, b = theirs.get(name), ours.get(name)
+        if a is None or b is None:
+            continue
+        engines[name] = {
+            "unit": b.unit, "other_needed": a.servers_needed, "needed": b.servers_needed,
+            "ratio": (b.servers_needed / a.servers_needed) if a.servers_needed else None,
+        }
+    theirs_stage = {st.key: st for st in other.stages}
+    changed, added = {}, []
+    for st in dossier.stages:
+        was = theirs_stage.get(st.key)
+        if was is None or not was.ops_per_s:
+            added.append(st.key)
+            continue
+        changed[st.key] = {"other_ops_per_s": was.ops_per_s, "ops_per_s": st.ops_per_s,
+                           "ratio": st.ops_per_s / was.ops_per_s,
+                           "other_rate_hz": was.rate_hz, "rate_hz": st.rate_hz}
+    return {
+        "mission": dossier.mission, "other_mission": other.mission,
+        "note": dossier.note, "other_note": other.note,
+        "engines": engines, "stages": changed,
+        "added_stages": added,
+        "removed_stages": sorted(set(theirs_stage) - {st.key for st in dossier.stages}),
+    }
+
+
+def _comparison(dossier, other) -> str:
+    """One mission against another on the same design.
+
+    Two profiles of the same vehicle class differ only in what the world
+    is allowed to do, so the difference between their silicon is the price
+    of that freedom, stated in cores and tiles.
+    """
+    if other is None:
+        return ""
+    ours = {p.engine: p for p in dossier.provisions}
+    theirs = {p.engine: p for p in other.provisions}
+    rows = []
+    for name in sorted(set(ours) | set(theirs)):
+        a, b = theirs.get(name), ours.get(name)
+        if a is None or b is None:
+            continue
+        ratio = (b.servers_needed / a.servers_needed) if a.servers_needed else 0.0
+        rows.append(
+            f"<tr><td>{html_escape(name.upper())}</td>"
+            f"<td class=\"num\">{_amount(a.servers_needed)} {a.unit}s</td>"
+            f"<td class=\"num\">{_amount(b.servers_needed)} {b.unit}s</td>"
+            f"<td class=\"num\">{ratio:.2g}x</td></tr>")
+    ours_stage = {st.key: st for st in dossier.stages}
+    theirs_stage = {st.key: st for st in other.stages}
+    movers, added = [], []
+    for key, st in ours_stage.items():
+        was = theirs_stage.get(key)
+        if was is None or not was.ops_per_s:
+            added.append(key)
+            continue
+        ratio = st.ops_per_s / was.ops_per_s
+        if ratio >= 2.0:
+            movers.append((ratio, key, was.rate_hz, st.rate_hz))
+    movers.sort(reverse=True)
+    if not rows:
+        return ""
+    driver = ""
+    if movers:
+        top = ", ".join(f"<code>{html_escape(k)}</code> {r:.2g}x" for r, k, _a, _b in movers[:6])
+        driver += f"<p>Stages whose arithmetic at least doubles: {top}.</p>"
+    if added:
+        # Rendered independently: a comparison can add stages without any
+        # existing stage moving, and the guard used to hide that entirely.
+        names = ", ".join(f"<code>{html_escape(a)}</code>" for a in sorted(added))
+        driver += (f"<p>Stages present only in {html_escape(dossier.title)}: {names}.</p>")
+    # No claim about vehicle class or ordering: --compare takes any two
+    # missions, so the notes carry the difference and the page does not
+    # assert a cause.
+    notes = (f"<p>What each states: <i>{html_escape(other.note)}</i> against "
+             f"<i>{html_escape(dossier.note)}</i>.</p>")
+    return f"""
+<h2>Against {html_escape(other.title)}</h2>
+<p>Both missions sized on the same design, the same efficiency table and the same target
+utilization, so the engine demands differ only where the workloads do.</p>
+{notes}
+<div class="panel"><table><thead><tr><th>engine</th>
+<th>{html_escape(other.title)}</th><th>{html_escape(dossier.title)}</th><th>factor</th>
+</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+{driver}
+<p class="note">Neither figure is a budget: both are what the demand needs, and both omit the
+stages no engine can price. The ratio is what a product decision turns on.</p>"""
 
 
 def _crosscheck(dossier, derived) -> str:
@@ -792,6 +907,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Size each engine to at most this utilization (default 0.85)")
     parser.add_argument("--format", choices=["html", "json"], default=None,
                         help="Default: from the --output suffix, else html")
+    parser.add_argument("--compare", help="Another mission id to size on the same design and "
+                                          "show the difference against")
     parser.add_argument("--cpu-label", default="Andes RISC-V",
                         help="What to call the CPU complex in the diagrams")
     parser.add_argument("--cpu-baseline", default="X, U and E from the A78AE baseline",
@@ -809,6 +926,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         alt = counterfactual(dossier, soc, "det", "cpu", "fp32")
         fit = tile_area_fit()
         crosscheck = pooled_figures(args.mission)
+        compare = None
+        if args.compare:
+            compare, _soc2, _t2 = build(args.compare, args.design, args.efficiency,
+                                        args.target_utilization)
     except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -840,6 +961,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "counterfactual": alt, "tile_area_fit": fit,
             "published": dict(dossier.published),
             "crosscheck": crosscheck,
+            "comparison": _comparison_data(dossier, compare),
             "efficiency_table": args.efficiency,
             "counterfactual_table": COUNTERFACTUAL_TABLE,
             "oversubscribed": list(dossier.oversubscribed),
@@ -867,7 +989,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ingress = ("sensors", first.bytes_per_s) if first else None
     write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
                                  args.target_utilization, args.output or "",
-                                 crosscheck),
+                                 crosscheck, compare),
                         requirements_rows(dossier, alt), alternatives, idle,
                         date.today().isoformat(), ingress, args.cpu_label,
                         {"cpu": args.cpu_baseline}), args.output)
