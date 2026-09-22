@@ -494,6 +494,40 @@ def _times(rate_hz: float) -> str:
     return f"on each of its {si(rate_hz, '')} calls a second"
 
 
+def _comparison_data(dossier, other) -> Optional[dict]:
+    """The comparison as data, so a JSON consumer gets what the page has."""
+    if other is None:
+        return None
+    ours = {p.engine: p for p in dossier.provisions}
+    theirs = {p.engine: p for p in other.provisions}
+    engines = {}
+    for name in sorted(set(ours) | set(theirs)):
+        a, b = theirs.get(name), ours.get(name)
+        if a is None or b is None:
+            continue
+        engines[name] = {
+            "unit": b.unit, "other_needed": a.servers_needed, "needed": b.servers_needed,
+            "ratio": (b.servers_needed / a.servers_needed) if a.servers_needed else None,
+        }
+    theirs_stage = {st.key: st for st in other.stages}
+    changed, added = {}, []
+    for st in dossier.stages:
+        was = theirs_stage.get(st.key)
+        if was is None or not was.ops_per_s:
+            added.append(st.key)
+            continue
+        changed[st.key] = {"other_ops_per_s": was.ops_per_s, "ops_per_s": st.ops_per_s,
+                           "ratio": st.ops_per_s / was.ops_per_s,
+                           "other_rate_hz": was.rate_hz, "rate_hz": st.rate_hz}
+    return {
+        "mission": dossier.mission, "other_mission": other.mission,
+        "note": dossier.note, "other_note": other.note,
+        "engines": engines, "stages": changed,
+        "added_stages": added,
+        "removed_stages": sorted(set(theirs_stage) - {st.key for st in dossier.stages}),
+    }
+
+
 def _comparison(dossier, other) -> str:
     """One mission against another on the same design.
 
@@ -533,27 +567,28 @@ def _comparison(dossier, other) -> str:
     driver = ""
     if movers:
         top = ", ".join(f"<code>{html_escape(k)}</code> {r:.2g}x" for r, k, _a, _b in movers[:6])
-        driver = (f"<p>The stages that moved: {top}"
-                  + (f", and <code>{'</code>, <code>'.join(html_escape(a) for a in added)}</code> "
-                     f"appear{'s' if len(added) == 1 else ''} only here"
-                     if added else "") + ".</p>")
-    # The notes already carry the speeds where they state them, so no
-    # clause is appended that would repeat them.
-    speed_line = (f"<p>The stated difference is the environment: "
-                  f"<i>{html_escape(other.note)}</i> against "
-                  f"<i>{html_escape(dossier.note)}</i>.</p>")
+        driver += f"<p>Stages whose arithmetic at least doubles: {top}.</p>"
+    if added:
+        # Rendered independently: a comparison can add stages without any
+        # existing stage moving, and the guard used to hide that entirely.
+        names = ", ".join(f"<code>{html_escape(a)}</code>" for a in sorted(added))
+        driver += (f"<p>Stages present only in {html_escape(dossier.title)}: {names}.</p>")
+    # No claim about vehicle class or ordering: --compare takes any two
+    # missions, so the notes carry the difference and the page does not
+    # assert a cause.
+    notes = (f"<p>What each states: <i>{html_escape(other.note)}</i> against "
+             f"<i>{html_escape(dossier.note)}</i>.</p>")
     return f"""
-<h2>The price of a harder environment</h2>
-<p>{html_escape(other.title)} runs the same pipeline on the same design. It is the nearest thing
-we have to a controlled comparison: what the silicon costs when the world stops being known.</p>
-{speed_line}
+<h2>Against {html_escape(other.title)}</h2>
+<p>Both missions sized on the same design, the same efficiency table and the same target
+utilization, so the engine demands differ only where the workloads do.</p>
+{notes}
 <div class="panel"><table><thead><tr><th>engine</th>
 <th>{html_escape(other.title)}</th><th>{html_escape(dossier.title)}</th><th>factor</th>
 </tr></thead><tbody>{''.join(rows)}</tbody></table></div>
 {driver}
 <p class="note">Neither figure is a budget: both are what the demand needs, and both omit the
-stages no engine can price. The <i>ratio</i> is the point, and it is the part a product decision
-turns on &mdash; it is the same robot, and the same pipeline, doing a harder job.</p>"""
+stages no engine can price. The ratio is what a product decision turns on.</p>"""
 
 
 def _crosscheck(dossier, derived) -> str:
@@ -926,7 +961,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "counterfactual": alt, "tile_area_fit": fit,
             "published": dict(dossier.published),
             "crosscheck": crosscheck,
-            "compared_with": args.compare,
+            "comparison": _comparison_data(dossier, compare),
             "efficiency_table": args.efficiency,
             "counterfactual_table": COUNTERFACTUAL_TABLE,
             "oversubscribed": list(dossier.oversubscribed),
