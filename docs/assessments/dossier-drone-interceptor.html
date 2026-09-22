@@ -120,7 +120,7 @@ state is marked <b>NOT STATED</b> rather than assumed.</p>
 arithmetic only &mdash; no memory traffic, clock tree, leakage or idle, and it omits any stage
 no engine can take. On a mission moving 102 GB/s the memory term
 alone will dwarf it. <b>CPU core
-area</b> is the one gap you can close, and section 7 says why it is open.</p>
+area</b> is the one gap you can close, and the closing section says why it is open.</p>
 
 <h2>3. The workload</h2>
 
@@ -185,6 +185,8 @@ invent one.</p>
 <h3>4. The CPU ask</h3><p>The CPU needs <b>46 cores</b> and the design has 12. The gap is not spread evenly: three of the 10 stages on it are 90% of the demand.</p><ul><li><code>tsdf</code> (<code>raycast</code>): <b>31 cores</b> at <b>0.34%</b> of FP32 peak.</li><li><code>esdf</code> (<code>wavefront</code>): <b>7.46 cores</b> at <b>2.97%</b> of FP32 peak.</li><li><code>ba</code> (<code>small_dense_linalg</code>): <b>2.83 cores</b> at <b>8.48%</b> of FP32 peak.</li></ul><p>Grouped by kernel class, the answer is blunter still: <code>raycast</code> is <b>31 of the 46 cores</b> (68%) at 0.34% of peak. So the question for an Andes core is not a general one:</p><blockquote><b>What does it take to run 3.71 GOP/s of <code>raycast</code> in FP32 at materially better than 0.34% of peak?</b></blockquote><p>The leverage is enormous because the baseline is so low. At 10% of peak instead of 0.34%, that class falls from 31 cores to 1.05, and the whole CPU requirement from 46 to 16 &mdash; 19 cores provisioned instead of 12.</p><h3>5. What the accelerator is worth</h3><p><code>det</code> has no measured INT8 figure on a CPU, but its INT8 class may run in any wider format and FP32 <i>is</i> measured. At E = 88.8% one core delivers 31.3 GOP/s, so it would need <b>289 CPU cores</b> and 12648 mW &mdash; against 6.93 of a tile and 2066 mW. That is <b>42 cores of work per tile</b> at 6.1x less energy.</p><p>It is equally an argument for <i>one</i> tile: the catalogued part has 128 tiles, 14x more fabric than this mission can use.</p>
 
 
+
+
 <h2>Cross-check against the published annex</h2>
 <p>This mission is one of two the companion annex publishes figures for. Ours are derived
 independently from per-stage operation and byte counts; theirs come from
@@ -197,7 +199,7 @@ the sizing.</b> The published oversubscription is against the annex's own pooled
 machine &mdash; one throughput figure per precision class, no engines &mdash; so it is not
 comparable to the per-engine utilizations in section 6, and we do not treat it as if it were.</p>
 
-<h2>7. What this rests on</h2>
+<h2>What this rests on</h2>
 
 <p>Four kinds of figure, and the page says which each is:</p>
 <ul>
@@ -225,7 +227,7 @@ area would close that column outright.</b></p>
 &nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-drone-interceptor.html</code></p>
 <p class="note"><b>Confidence: UNKNOWN.</b>
 3 stage(s) no engine can be sized for: sgm, radar, vio</p>
-<p class="note">Generated 2026-09-20 from
+<p class="note">Generated 2026-09-22 from
 <code>kpu_t128_n7</code> at <code>tsmc_n7</code>.
 Every figure on this page is reproducible with the command in section 7.</p>
 </main></body></html>

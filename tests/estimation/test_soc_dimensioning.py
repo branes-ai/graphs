@@ -9,6 +9,7 @@ produce an honest blank.
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import re
@@ -392,6 +393,33 @@ def test_the_verdict_does_not_deny_what_does_serve_the_mission(interceptor, cli)
     text = cli.sections(interceptor, None, None, None)["verdict"]
     assert "Nothing in this parts list" not in text
     assert "This design does not serve this mission" in text
+
+
+AMR_HARD = "amr_logistics_mixed__dynamic_yard"
+AMR_EASY = "amr_warehousing_structured_aisles"
+
+
+def test_two_missions_on_one_design_compare_as_a_ratio(cli):
+    """The same vehicle and pipeline in a harder environment: the point of
+    the section is the ratio, so both sides must be sized identically."""
+    hard, _s1, _t1 = cli.build(AMR_HARD, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    easy, _s2, _t2 = cli.build(AMR_EASY, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    block = " ".join(cli._comparison(hard, easy).split())
+    assert "price of a harder environment" in block
+    for engine in ("CPU", "KPU"):
+        assert f">{engine}</td>" in cli._comparison(hard, easy)
+    # Both notes are quoted, so a reader sees what actually differs.
+    assert html.escape(easy.note) in cli._comparison(hard, easy)
+    assert html.escape(hard.note) in cli._comparison(hard, easy)
+    # The harder mission needs strictly more of both engines.
+    for kind in ("cpu", "kpu"):
+        a = next(p for p in easy.provisions if p.kind == kind)
+        b = next(p for p in hard.provisions if p.kind == kind)
+        assert b.servers_needed > a.servers_needed, kind
+
+
+def test_no_comparison_section_without_a_second_mission(dossier, cli):
+    assert cli._comparison(dossier, None) == ""
 
 
 def test_a_mission_with_no_published_figures_gets_no_cross_check(dossier, cli):
