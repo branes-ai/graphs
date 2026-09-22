@@ -9,6 +9,7 @@ produce an honest blank.
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import re
@@ -21,6 +22,8 @@ from embodied_schemas import load_compute_products, load_process_nodes
 
 from graphs.core.pipeline_workload import load_autonomy_workload
 from graphs.estimation.soc import load_efficiency_tables, load_kernel_classes
+from dataclasses import replace
+
 from graphs.estimation.soc.dimensioning import dimension, provision
 from graphs.estimation.soc.domainflow import fabric_ceilings
 from graphs.hardware.kpu_sku_generator import input_spec_from_compute_product
@@ -392,6 +395,70 @@ def test_the_verdict_does_not_deny_what_does_serve_the_mission(interceptor, cli)
     text = cli.sections(interceptor, None, None, None)["verdict"]
     assert "Nothing in this parts list" not in text
     assert "This design does not serve this mission" in text
+
+
+AMR_HARD = "amr_logistics_mixed__dynamic_yard"
+AMR_EASY = "amr_warehousing_structured_aisles"
+
+
+def test_two_missions_on_one_design_compare_as_a_ratio(cli):
+    """The same vehicle and pipeline in a harder environment: the point of
+    the section is the ratio, so both sides must be sized identically."""
+    hard, _s1, _t1 = cli.build(AMR_HARD, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    easy, _s2, _t2 = cli.build(AMR_EASY, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    block = " ".join(cli._comparison(hard, easy).split())
+    assert "Against AMR: Warehousing" in block
+    for engine in ("CPU", "KPU"):
+        assert f">{engine}</td>" in cli._comparison(hard, easy)
+    # Both notes are quoted, so a reader sees what actually differs.
+    assert html.escape(easy.note) in cli._comparison(hard, easy)
+    assert html.escape(hard.note) in cli._comparison(hard, easy)
+    # The harder mission needs strictly more of both engines.
+    for kind in ("cpu", "kpu"):
+        a = next(p for p in easy.provisions if p.kind == kind)
+        b = next(p for p in hard.provisions if p.kind == kind)
+        assert b.servers_needed > a.servers_needed, kind
+
+
+def test_added_stages_render_even_when_nothing_moves(cli):
+    """The added-stage line used to sit behind an `if movers` guard, so a
+    comparison that adds a stage without moving any existing one showed
+    nothing at all."""
+    hard, _s, _t = cli.build(AMR_HARD, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    trimmed = replace(hard, stages=tuple(
+        st for st in hard.stages if st.key in ("det", "gain", "radar")))
+    other = replace(trimmed, stages=tuple(
+        st for st in trimmed.stages if st.key == "det"), mission="other", title="Other")
+    block = cli._comparison(trimmed, other)
+    assert "present only in" in block
+    assert "<code>gain</code>" in block and "<code>radar</code>" in block
+
+
+def test_the_comparison_claims_no_shared_vehicle_class(cli):
+    """--compare takes any two missions, so the page must not describe
+    every pair as the same robot doing a harder job."""
+    hard, _s1, _t1 = cli.build(AMR_HARD, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    easy, _s2, _t2 = cli.build(AMR_EASY, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    block = " ".join(cli._comparison(hard, easy).split())
+    for claim in ("same robot", "same pipeline", "same vehicle", "harder job"):
+        assert claim not in block, claim
+    assert "same design" in block          # what is actually shared is stated
+
+
+def test_the_comparison_is_also_data(cli):
+    hard, _s1, _t1 = cli.build(AMR_HARD, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    easy, _s2, _t2 = cli.build(AMR_EASY, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    data = cli._comparison_data(hard, easy)
+    assert set(data["engines"]) == {"cpu", "kpu"}
+    assert all(v["ratio"] > 1 for v in data["engines"].values())
+    assert set(data["added_stages"]) == {"gain", "radar"}
+    assert data["note"] and data["other_note"]
+    assert data["stages"]["det"]["ratio"] > 4
+    assert cli._comparison_data(hard, None) is None
+
+
+def test_no_comparison_section_without_a_second_mission(dossier, cli):
+    assert cli._comparison(dossier, None) == ""
 
 
 def test_a_mission_with_no_published_figures_gets_no_cross_check(dossier, cli):

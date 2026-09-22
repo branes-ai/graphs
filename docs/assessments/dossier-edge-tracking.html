@@ -4,8 +4,8 @@
 <title>Edge AI device: Multi-stream tracking &amp; anomaly - sizing a CPU + KPU SoC</title>
 <style>
 :root { color-scheme: light dark; --surface:#fcfcfb; --panel:#ffffff; --ink:#0b0b0b;
-  --ink-2:#52514e; --ink-3:#78766f; --rule:#e2e1dc; --track:#eceae5; --soft:#f7f6f3;
-  --cpu:#256abf; --kpu:#eb6834; --other:#7f7e76; --fill:#256abf; --warn:#c93434; --gap:#8a8880; }
+  --ink-2:#52514e; --ink-3:#6e6c66; --rule:#e2e1dc; --track:#eceae5; --soft:#f7f6f3;
+  --cpu:#256abf; --kpu:#eb6834; --other:#7f7e76; --fill:#256abf; --warn:#c93434; --gap:#726f68; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --surface:#1a1a19; --panel:#232322; --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
   --rule:#34342f; --track:#2c2c29; --soft:#1f1f1e; --cpu:#3987e5; --kpu:#d95926; --other:#a3a199; --fill:#3987e5; --warn:#e66767; --gap:#9a9890; } }
@@ -120,7 +120,7 @@ state is marked <b>NOT STATED</b> rather than assumed.</p>
 arithmetic only &mdash; no memory traffic, clock tree, leakage or idle, and it omits any stage
 no engine can take. On a mission moving 4 GB/s the memory term
 alone will dwarf it. <b>CPU core
-area</b> is the one gap you can close, and section 7 says why it is open.</p>
+area</b> is the one gap you can close, and the closing section says why it is open.</p>
 
 <h2>3. The workload</h2>
 
@@ -135,7 +135,7 @@ else: <code>det</code> is
 89% of the traffic.
 Those two facts pull the design in different directions, and section 6 is about which one
 wins.</p>
-<div class="panel"><svg viewBox="0 0 1014 300" class="diagram" role="img" aria-label="the mission pipeline, one box per stage"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">The pipeline: 2 stages, 1 on the sense-to-act chain</text><rect class="source" x="0" y="96" width="150" height="62" rx="9"/><text class="src-t" x="75.0" y="120">sensors</text><text class="src-s" x="75.0" y="140">4 x 1920x1080 @ 15 Hz</text><line class="edge" x1="156" y1="128.0" x2="221" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="189.0" y="118.0">498 MB/s</text><rect class="node" x="228" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="228" y="62" width="5" height="132" style="fill:var(--cpu)"/><text class="n-key" x="244" y="86">mono</text><text class="n-tier" x="466" y="86">T1 &#9679;</text><text class="n-name" x="244" y="103">Mono camera front-end</text><text class="n-kc" x="244" y="120">pixel_fixed_function</text><text class="n-row" x="244" y="139">precision 100% C</text><text class="n-row" x="244" y="155">4.98 GOP/s &#183; 498 MB/s</text><text class="n-lat" x="244" y="178" style="fill:var(--cpu)">needs 3.16 cores &#183; 13.1 ms/frame</text><line class="edge" x1="484" y1="128.0" x2="549" y2="128.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="118.0">3.93 GB/s</text><rect class="node" x="556" y="62" width="250" height="132" rx="10"/><rect class="node-bar" x="556" y="62" width="5" height="132" style="fill:var(--kpu)"/><text class="n-key" x="572" y="86">det</text><text class="n-tier" x="794" y="86">T4</text><text class="n-name" x="572" y="103">Open-vocabulary detection</text><text class="n-kc" x="572" y="120">dense_conv_gemm</text><text class="n-row" x="572" y="139">precision 85% A, 15% B</text><text class="n-row" x="572" y="155">620 GOP/s &#183; 3.93 GB/s</text><text class="n-lat" x="572" y="178" style="fill:var(--kpu)">needs 0.476 tiles &#183; 7.93 ms/frame</text><line class="edge" x1="812" y1="128.0" x2="877" y2="128.0" marker-end="url(#arrow)"/><text class="src-s" x="910" y="132.0" style="text-anchor:start">out</text><text class="chain-l" x="228" y="254">sense to act: <tspan class="strong">21.1 ms</tspan> against a 200 ms deadline &#183; 9.5x headroom</text></svg></div>
+<div class="panel"><svg viewBox="0 0 1014 310" class="diagram" role="img" aria-label="the mission pipeline, one box per stage"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-3)"/></marker></defs><text class="dtitle" x="8" y="20">The pipeline: 2 stages, 1 on the sense-to-act chain</text><rect class="source" x="0" y="96" width="150" height="62" rx="9"/><text class="src-t" x="75.0" y="120">sensors</text><text class="src-s" x="75.0" y="140">4 x 1920x1080 @ 15 Hz</text><line class="edge" x1="156" y1="133.0" x2="221" y2="133.0" marker-end="url(#arrow)"/><text class="edge-l" x="189.0" y="123.0">498 MB/s</text><rect class="node" x="228" y="62" width="250" height="142" rx="10"/><rect class="node-bar" x="228" y="62" width="5" height="142" style="fill:var(--cpu)"/><text class="n-key" x="244" y="86">mono</text><text class="n-tier" x="466" y="86">T1 &#9679;</text><text class="n-name" x="244" y="103">Mono camera front-end</text><text class="n-kc" x="244" y="128">pixel_fixed_function</text><text class="n-row" x="244" y="139">precision 100% C</text><text class="n-row" x="244" y="155">4.98 GOP/s &#183; 498 MB/s</text><text class="n-lat" x="244" y="178" style="fill:var(--cpu)">needs 3.16 cores &#183; 13.1 ms/frame</text><line class="edge" x1="484" y1="133.0" x2="549" y2="133.0" marker-end="url(#arrow)"/><text class="edge-l" x="517.0" y="123.0">3.93 GB/s</text><rect class="node" x="556" y="62" width="250" height="142" rx="10"/><rect class="node-bar" x="556" y="62" width="5" height="142" style="fill:var(--kpu)"/><text class="n-key" x="572" y="86">det</text><text class="n-tier" x="794" y="86">T4</text><text class="n-name" x="572" y="103">Open-vocabulary detection</text><text class="n-kc" x="572" y="128">dense_conv_gemm</text><text class="n-row" x="572" y="139">precision 85% A, 15% B</text><text class="n-row" x="572" y="155">620 GOP/s &#183; 3.93 GB/s</text><text class="n-lat" x="572" y="178" style="fill:var(--kpu)">needs 0.476 tiles &#183; 7.93 ms/frame</text><line class="edge" x1="812" y1="133.0" x2="877" y2="133.0" marker-end="url(#arrow)"/><text class="src-s" x="910" y="137.0" style="text-anchor:start">out</text><text class="chain-l" x="228" y="264">sense to act: <tspan class="strong">21.1 ms</tspan> against a 200 ms deadline &#183; 9.5x headroom</text></svg></div>
 <div class="legend"><span class="key"><span class="chip" style="background:var(--cpu)"></span>Andes RISC-V</span><span class="key"><span class="chip" style="background:var(--kpu)"></span>KPU</span><span class="key"><span class="chip" style="background:var(--gap)"></span>a figure nothing states</span></div>
 
 <p class="note">Drawn as a serial sum, which is pessimistic &mdash; a real build overlaps the
@@ -182,7 +182,9 @@ invent one.</p>
 
 
 
-<h2>7. What this rests on</h2>
+
+
+<h2>What this rests on</h2>
 
 <p>Four kinds of figure, and the page says which each is:</p>
 <ul>
@@ -210,7 +212,7 @@ area would close that column outright.</b></p>
 &nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-edge-tracking.html</code></p>
 <p class="note"><b>Confidence: THEORETICAL.</b>
 at least one engine is sized on a domain-flow ceiling, which bounds rather than predicts: the engine needed is no smaller than stated</p>
-<p class="note">Generated 2026-09-20 from
+<p class="note">Generated 2026-09-22 from
 <code>kpu_t128_n7</code> at <code>tsmc_n7</code>.
 Every figure on this page is reproducible with the command in section 7.</p>
 </main></body></html>
