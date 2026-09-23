@@ -543,6 +543,52 @@ def test_a_mission_with_no_reactive_chain_gets_no_safety_section(cli, soc, ceili
     assert cli._safety(flat, soc) == ""
 
 
+AV_L45 = "autonomous_vehicle_sae_l4__l5_high__full_automation"
+
+
+def test_a_memory_shortfall_names_the_interfaces_that_carry_it(cli, soc, ceilings):
+    """The only mission where memory itself is over. Unlike the engines,
+    that has a part-number answer, and the page should say which part."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert d.dram_demand_gb_per_s > d.dram_supply_gb_per_s
+    options = cli._memory_options(d.dram_demand_gb_per_s)
+    assert options, "the catalogue should hold an interface wide enough"
+    assert all(peak >= d.dram_demand_gb_per_s for _name, peak in options)
+    assert options == sorted(options, key=lambda kv: kv[1])
+    block = cli._sizing_steps(d, cli._facts(d, None),
+                              next(p for p in d.provisions if p.kind == "kpu"),
+                              next(p for p in d.provisions if p.kind == "cpu"), None, 128)
+    for name, _peak in options:
+        assert name in block
+    assert "part-number change" in block
+
+
+def test_no_memory_options_line_when_memory_is_not_over(cli, soc, ceilings):
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert d.dram_demand_gb_per_s < d.dram_supply_gb_per_s
+    block = cli._sizing_steps(d, cli._facts(d, None),
+                              next(p for p in d.provisions if p.kind == "kpu"),
+                              next(p for p in d.provisions if p.kind == "cpu"), None, 128)
+    assert "part-number change" not in block
+
+
+def test_unpriced_stages_bytes_are_called_out_when_they_dominate(cli, soc, ceilings):
+    """Memory counts every stage's bytes; the engine figures omit the
+    unpriced ones. Where the unpriced stages carry most of the traffic,
+    that difference is the finding."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    unpriced = sum(st.bytes_per_s for st in d.stages if st.key in d.unplaced)
+    assert unpriced / (d.dram_demand_gb_per_s * 1e9) > 0.5
+    block = cli._sizing_steps(d, cli._facts(d, None),
+                              next(p for p in d.provisions if p.kind == "kpu"),
+                              next(p for p in d.provisions if p.kind == "cpu"), None, 128)
+    assert "no engine can price" in block
+    assert "complete where the engine figures are floors" in block
+
+
 AMR_HARD = "amr_logistics_mixed__dynamic_yard"
 AMR_EASY = "amr_warehousing_structured_aisles"
 

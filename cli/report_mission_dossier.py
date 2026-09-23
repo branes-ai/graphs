@@ -179,6 +179,13 @@ USE_CASES: Dict[str, str] = {
 <p>A fanless, mains- or PoE-powered appliance watching four camera streams: a loading bay, a
 retail floor, a perimeter. It detects, tracks and flags anomalies on every frame, unattended,
 for years.</p>""",
+    "autonomous_vehicle_sae_l4__l5_high__full_automation": """
+<p>A vehicle with no fallback driver. Not a driver-assist system with a human watching it &mdash;
+the stack is the driver, and there is nobody to hand back to. The sensor suite says as much:
+{cameras:g} cameras, {radars:g} radars, lidar, and a dual-redundant stack behind them.</p>
+<p>That is the whole difference from the level below. L3 assumes a human who takes over when
+the system gives up; L4/L5 removes that human, and everything the human was implicitly covering
+has to be computed instead.</p>""",
     "humanoid_cobot_human_adjacent_contact_rich": """
 <p>A {dof:g}-degree-of-freedom humanoid working alongside people and touching things: predicting
 human pose and intent, scheduling contact, and running a {cbf_hz:g} Hz safety filter over
@@ -351,6 +358,8 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         "dof": float(dossier.sensors.get("dof") or 0),
         "cbf_hz": float(dossier.sensors.get("cbf_hz") or 0),
         "cbf_haz": float(dossier.sensors.get("cbf_haz") or 0),
+        "cameras": float((dossier.sensors.get("mono") or [0])[0]),
+        "radars": float((dossier.sensors.get("radar") or [0])[0]),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -712,7 +721,7 @@ def _comparison(dossier, other) -> str:
             f"<tr><td>{html_escape(name.upper())}</td>"
             f"<td class=\"num\">{_amount(a.servers_needed)} {a.unit}s</td>"
             f"<td class=\"num\">{_amount(b.servers_needed)} {b.unit}s</td>"
-            f"<td class=\"num\">{ratio:.2g}x</td></tr>")
+            f"<td class=\"num\">{_amount(ratio)}x</td></tr>")
     ours_stage = {st.key: st for st in dossier.stages}
     theirs_stage = {st.key: st for st in other.stages}
     movers, added = [], []
@@ -752,6 +761,18 @@ utilization, so the engine demands differ only where the workloads do.</p>
 {driver}
 <p class="note">Neither figure is a budget: both are what the demand needs, and both omit the
 stages no engine can price. The ratio is what a product decision turns on.</p>"""
+
+
+def _memory_options(demand_gb_per_s: float):
+    """Catalogued memory interfaces that carry a demand, widest last."""
+    library = load_ip_library()
+    out = []
+    for name, template in library.items():
+        interface = getattr(template, "memory_interface", None)
+        peak = getattr(interface, "peak_gb_per_s", None) if interface else None
+        if peak and peak >= demand_gb_per_s:
+            out.append((name, peak))
+    return sorted(out, key=lambda kv: kv[1])
 
 
 def _crosscheck(dossier, derived) -> str:
@@ -856,16 +877,55 @@ def _sizing_steps(dossier, f, kpu, cpu, alt, catalogued_tiles: int) -> str:
                      f'{"&mdash; <b>over capacity</b>" if verdict == "over" else "of what is there"}'
                      f'.</li>')
     parts.append("</ul>")
+    if supply and dossier.dram_demand_gb_per_s > (dossier.dram_supply_gb_per_s or 0):
+        options = _memory_options(dossier.dram_demand_gb_per_s)
+        if options:
+            parts.append(
+                "<p><b>Memory is the one constraint here with a catalogued answer.</b> The "
+                f"mission asks {dossier.dram_demand_gb_per_s:.0f} GB/s and this design supplies "
+                f"{dossier.dram_supply_gb_per_s:g}. Of the interfaces in the parts list, "
+                + _join(f"<code>{html_escape(name)}</code> at {peak:g} GB/s carries it at "
+                        f"{dossier.dram_demand_gb_per_s / peak:.0%}"
+                        for name, peak in options)
+                + ". That is a part-number change, which is not true of either engine.</p>")
+        else:
+            parts.append(
+                "<p><b>No interface in the parts list carries this mission's memory "
+                f"traffic.</b> It asks {dossier.dram_demand_gb_per_s:.0f} GB/s and the widest "
+                "we catalogue is short of it.</p>")
+    unpriced_bytes = sum(st.bytes_per_s for st in dossier.stages
+                         if st.key in dossier.unplaced)
+    if unpriced_bytes and dossier.dram_demand_gb_per_s:
+        share = unpriced_bytes / (dossier.dram_demand_gb_per_s * 1e9)
+        if share > 0.2:
+            parts.append(
+                f"<p>Note what that traffic is made of: <b>{share:.0%} of it comes from stages "
+                f"no engine can price</b> &mdash; "
+                + _join(f"<code>{html_escape(k)}</code>" for k in dossier.unplaced)
+                + ". Bytes are counted whether or not an engine can run the work, so the memory "
+                  "figure is complete where the engine figures are floors. On this mission the "
+                  "majority of the memory demand comes from the stages the compute numbers leave "
+                  "out.</p>")
     if supply and byte_top:
-        parts.append(
-            f"<p>Memory is worth spelling out. The interface carries "
-            f"{dossier.dram_demand_gb_per_s:.0f} GB/s of compulsory traffic against "
-            f"{dossier.dram_supply_gb_per_s:g} GB/s of peak, and "
-            f"<code>{html_escape(byte_top.key)}</code> is "
-            f"{byte_top.bytes_per_s / supply:.0%} of the interface on its own "
-            f"&mdash; at {byte_top.rate_hz:g} Hz. That is a "
-            f"{si(byte_top.bytes_per_call, 'B')} working set pulled through DRAM on every "
-            f"call.</p>")
+        over_memory = dossier.dram_demand_gb_per_s > (dossier.dram_supply_gb_per_s or 0)
+        top_share = byte_top.bytes_per_s / (dossier.dram_demand_gb_per_s * 1e9)
+        detail = (f"at {byte_top.rate_hz:g} Hz, a {si(byte_top.bytes_per_call, 'B')} working "
+                  f"set pulled through DRAM on every call")
+        if over_memory:
+            # The paragraphs above already give demand against supply, so
+            # this one says only what the traffic is made of.
+            lead = ("Most of it is one stage: " if top_share >= 0.5
+                    else "The largest single contributor is ")
+            parts.append(
+                f"<p>{lead}<code>{html_escape(byte_top.key)}</code> at {top_share:.0%} of the "
+                f"traffic &mdash; {detail}.</p>")
+        else:
+            parts.append(
+                f"<p>Memory is worth spelling out. The interface carries "
+                f"{dossier.dram_demand_gb_per_s:.0f} GB/s of compulsory traffic against "
+                f"{dossier.dram_supply_gb_per_s:g} GB/s of peak, and "
+                f"<code>{html_escape(byte_top.key)}</code> is {top_share:.0%} of it on its own "
+                f"&mdash; {detail}.</p>")
     return "".join(parts)
 
 
