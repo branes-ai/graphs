@@ -411,19 +411,24 @@ efficiency is a real number, so it is the level everything is measured and sized
 {', '.join('<code>' + html_escape(s.key) + '</code>' for s in unpriced)}. Between them they are
 {sum(s.ops_per_s for s in unpriced) / total_ops:.1%} of the operations but
 {sum(s.bytes_per_s for s in unpriced) / sum(s.bytes_per_s for s in dossier.stages):.0%} of the
-bytes. Every compute and bandwidth figure below therefore understates the mission.</p>"""
+bytes. The compute and datapath-power figures below therefore understate the mission; the memory
+figure does not, because it counts every stage's bytes whether or not an engine can run it.</p>"""
         if unpriced else "")
 
     out["configuration"] = f"""
 <p>One KPU fabric, a cluster of Andes RISC-V cores, a shared fabric and one LPDDR5 interface at
-{dossier.node}. Engine counts are the <i>output</i> of section 6, not an input.</p>
+{dossier.node}. The <i>capacities</i> below &mdash; how many cores and tiles exist &mdash; come
+from the selected design and are an input. What section 6 produces is how many the mission
+<i>needs</i>, which is the number to compare them against.</p>
 <p class="note">The CPU block carries <b>baseline</b> figures: we have measured an Arm
 Cortex-A78AE, not an Andes core. They stand in for the socket until you replace them, which is
 what section 6 asks for. Nothing here is a claim about Andes silicon.</p>
 <p>Three numbers per compute block, because any two mislead: <b>X</b>, the throughput one server
-actually delivers; <b>U</b>, the share of wall clock it is busy; <b>E</b>, the share of its dense
-peak that X represents. They compose exactly &mdash; <b>demand = X &times; servers &times;
-U</b>.</p>"""
+actually delivers; <b>U</b>, the share of wall clock it is busy; <b>E</b>, the ops-weighted mean of the
+per-class efficiencies it runs at. X and U compose exactly &mdash; <b>demand = X &times; servers
+&times; U</b> &mdash; while E says how well the kernels suit the machine. Where a stage needs
+many servers at a low ceiling and another needs few at a high one, E and X/peak diverge, and E
+is the one that describes the kernels rather than the sizing.</p>"""
 
     if kpu and cpu and not fits:
         out["configuration_note"] = """
@@ -661,9 +666,11 @@ no contention, no interrupt latency, no scheduler.</li>
 transition time.</b> The catalogue carries none of these, so this page makes no claim about
 any standard, and its numbers cannot be cited towards one.</li>
 </ul>
-<p class="note">Read the table as a necessary condition, not a sufficient one: a loop that
-does not close here will not close on real silicon, but a loop that closes here has only passed
-the easiest of the tests it has to pass.</p>"""
+<p class="note">Read the table as a necessary condition, not a sufficient one, and read it
+against the efficiencies in it. A loop that does not close here does not close <i>at these
+efficiencies</i> &mdash; a faster implementation of the same kernel could close it, which is
+exactly what section 6 asks for. A loop that closes here has passed only the easiest of the
+tests it has to pass.</p>"""
 
 
 def _comparison_data(dossier, other) -> Optional[dict]:
@@ -881,13 +888,18 @@ def _sizing_steps(dossier, f, kpu, cpu, alt, catalogued_tiles: int) -> str:
         options = _memory_options(dossier.dram_demand_gb_per_s)
         if options:
             parts.append(
-                "<p><b>Memory is the one constraint here with a catalogued answer.</b> The "
+                "<p><b>Memory is the one constraint here the parts list can answer.</b> The "
                 f"mission asks {dossier.dram_demand_gb_per_s:.0f} GB/s and this design supplies "
-                f"{dossier.dram_supply_gb_per_s:g}. Of the interfaces in the parts list, "
-                + _join(f"<code>{html_escape(name)}</code> at {peak:g} GB/s carries it at "
+                f"{dossier.dram_supply_gb_per_s:g}. On bandwidth alone, "
+                + _join(f"<code>{html_escape(name)}</code> at {peak:g} GB/s would carry it at "
                         f"{dossier.dram_demand_gb_per_s / peak:.0%}"
                         for name, peak in options)
-                + ". That is a part-number change, which is not true of either engine.</p>")
+                + ". These are bandwidth-qualified candidates and nothing more: a wider LPDDR "
+                  "interface changes the PHY and the floorplan, and an HBM stack changes the "
+                  "controller, the package and the thermal design as well. Whether either is "
+                  "compatible with this SoC is a question this model does not answer. What it "
+                  "does say is that the shortfall is within reach of parts we already "
+                  "catalogue, which is not true of either engine.</p>")
         else:
             parts.append(
                 "<p><b>No interface in the parts list carries this mission's memory "
@@ -903,9 +915,12 @@ def _sizing_steps(dossier, f, kpu, cpu, alt, catalogued_tiles: int) -> str:
                 f"no engine can price</b> &mdash; "
                 + _join(f"<code>{html_escape(k)}</code>" for k in dossier.unplaced)
                 + ". Bytes are counted whether or not an engine can run the work, so the memory "
-                  "figure is complete where the engine figures are floors. On this mission the "
-                  "majority of the memory demand comes from the stages the compute numbers leave "
-                  "out.</p>")
+                  "figure is complete where the engine figures are floors"
+                + (", and on this mission the majority of the memory demand comes from the "
+                   "stages the compute numbers leave out." if share > 0.5
+                   else f", and {share:.0%} of the memory demand comes from stages the compute "
+                        f"numbers leave out.")
+                + "</p>")
     if supply and byte_top:
         over_memory = dossier.dram_demand_gb_per_s > (dossier.dram_supply_gb_per_s or 0)
         top_share = byte_top.bytes_per_s / (dossier.dram_demand_gb_per_s * 1e9)
@@ -1061,11 +1076,22 @@ def requirements_rows(dossier, alt):
     per-stage detail is the fit table in section 6.
     """
     rows = []
-    first = dossier.stages[0] if dossier.stages else None
-    if first is not None:
-        rows.append(("Sensor ingest", si(first.bytes_per_s, "B/s"),
-                     "mission profile sensors, first pipeline stage",
-                     _status(True, f"{_cams(dossier)}")))
+    # Camera ingest is the camera stage's own traffic. Taking the first
+    # pipeline stage instead reported a lidar byte rate under a camera
+    # heading.
+    camera = next((st for st in dossier.stages if st.key == "mono"), None)
+    if camera is not None:
+        rows.append(("Camera ingest", si(camera.bytes_per_s, "B/s"),
+                     f"mission profile sensors.mono, stage {camera.key}",
+                     _status(True, _cams(dossier))))
+    sensing = [st for st in dossier.stages if st.tier == "T1"]
+    if sensing:
+        rows.append(("Sensor front end, all paths",
+                     si(sum(st.bytes_per_s for st in sensing), "B/s"),
+                     f"{len(sensing)} tier-1 stages: "
+                     + ", ".join(st.key for st in sensing),
+                     _status(None, "sums the tier-1 paths; whether the interface "
+                                   "carries them is the memory row below")))
     for prov in dossier.provisions:
         ops = sum(s.ops_per_s for s in dossier.stages if s.key in prov.stages)
         rows.append((f"{prov.engine.upper()} throughput",
@@ -1093,12 +1119,14 @@ def requirements_rows(dossier, alt):
                      "mission profile deadline_ms",
                      _status(None, f"{len(dossier.unplaced)} stage(s) unpriced, so a chain "
                                    f"total would omit them")))
+    # A datapath floor under budget does not mean the budget is met: the
+    # model carries no memory, clock-tree, leakage or idle term.
     rows.append(("Power budget", f"{dossier.power_budget_w:g} W",
                  "mission profile power_budget_w",
-                 _status(dossier.power_budget_fraction_used is not None
-                         and dossier.power_budget_fraction_used <= 1.0,
+                 _status(None,
                          f"datapath floor {dossier.datapath_total_w * 1e3:.0f} mW = "
-                         f"{(dossier.power_budget_fraction_used or 0):.1%}")))
+                         f"{(dossier.power_budget_fraction_used or 0):.1%} of budget, with "
+                         f"no memory, clock-tree, leakage or idle term in it")))
     rows.append(("Full-SoC power", "-",
                  "no memory, clock-tree, leakage or idle term in this model", "gap"))
     if dossier.dram_supply_gb_per_s:

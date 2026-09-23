@@ -15,12 +15,16 @@ import html
 from typing import Dict, List, Optional, Sequence, Tuple
 
 #: One hue per engine, validated all-pairs in both modes.
+#: Marks and text are different jobs. A bar clears at 3:1 as a graphical
+#: object; a label on it has to clear 4.5:1, and the mark hues do not.
 LIGHT_STEPS: Dict[str, str] = {
     "cpu": "#256abf", "kpu": "#eb6834", "other": "#7f7e76",
+    "cpu-text": "#256abf", "kpu-text": "#b8401a", "other-text": "#6e6c66",
     "fill": "#256abf", "warn": "#c93434", "gap": "#726f68",
 }
 DARK_STEPS: Dict[str, str] = {
     "cpu": "#3987e5", "kpu": "#d95926", "other": "#a3a199",
+    "cpu-text": "#5ba0ef", "kpu-text": "#f0713c", "other-text": "#a3a199",
     "fill": "#3987e5", "warn": "#e66767", "gap": "#9a9890",
 }
 
@@ -64,8 +68,16 @@ def wrap(text: str, width: int, lines: int = 2) -> List[str]:
 
 
 def _engine_colour(kind) -> str:
+    """The mark colour for an engine."""
     name = getattr(kind, "value", kind)
     return f"var(--{name})" if name in ("cpu", "kpu") else "var(--other)"
+
+
+def _engine_ink(kind) -> str:
+    """The text colour for an engine, which needs 4.5:1 where the mark
+    only needs 3:1."""
+    name = getattr(kind, "value", kind)
+    return f"var(--{name}-text)" if name in ("cpu", "kpu") else "var(--other-text)"
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +176,7 @@ def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
                 if latency_per_frame:
                     need += f" &#183; {ms(place.seconds_per_frame)}/frame"
                 parts.append(f'<text class="n-lat" x="{x + 16}" y="{y + 116}" '
-                             f'style="fill:{colour}">{need}</text>')
+                             f'style="fill:{_engine_ink(kind)}">{need}</text>')
             else:
                 parts.append(f'<text class="n-gap" x="{x + 16}" y="{y + 116}">'
                              f'nothing prices it on either engine</text>')
@@ -215,14 +227,14 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
     lane = 30
     src_w = 118 if ingress else 0
     width = max(1000, lane + src_w + len(provisions) * (box_w + gap)
-                + len(idle_blocks) * 136 + 60)
+                + len(idle_blocks) * 136 + 260)
     bus_y, mem_y = 286, 372
     height = 476
     parts: List[str] = [
         '<text class="dtitle" x="8" y="20">Block diagram, as sized</text>',
         ('<text class="dsub" x="8" y="36">'
-         "X = throughput per server &#183; U = share of wall clock "
-         "&#183; E = share of dense peak</text>"),
+         "X = throughput per server &#183; U = share of wall clock &#183; "
+         "E = ops-weighted mean of the per-class efficiencies</text>"),
     ]
 
     top = 62
@@ -246,7 +258,7 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
                      f'style="fill:{colour}"/>')
         unit = f"{prov.servers_provisioned} x {prov.unit}"
         parts.append(f'<text class="b-title" x="{x + 16}" y="{top + 25}" '
-                     f'style="fill:{colour}">{html.escape(name)}</text>')
+                     f'style="fill:{_engine_ink(prov.kind)}">{html.escape(name)}</text>')
         parts.append(f'<text class="b-sub" x="{x + box_w - 14}" y="{top + 25}">'
                      f'{html.escape(unit)}{"s" if prov.servers_provisioned != 1 else ""}</text>')
         parts.append(f'<text class="b-row" x="{x + 16}" y="{top + 45}">'
@@ -255,7 +267,7 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
         for i, (key, value) in enumerate((
                 ("X", f'{si(prov.throughput_ops_per_s, "OP/s")} per {prov.unit}'),
                 ("U", f"{prov.utilization:.1%}"),
-                ("E", f"{prov.efficiency:.1%} of peak"))):
+                ("E", f"{prov.efficiency:.1%} weighted"))):
             yy = top + 70 + i * 21
             parts.append(f'<text class="b-k" x="{x + 16}" y="{yy}">{key}</text>')
             parts.append(f'<text class="b-v" x="{x + 42}" y="{yy}">{html.escape(value)}</text>')
@@ -289,6 +301,25 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
     parts.append(f'<rect class="bus" x="{lane}" y="{bus_y}" width="{bus_x1 - lane}" '
                  f'height="32" rx="8"/>')
     parts.append(f'<text class="bus-l" x="{lane + 14}" y="{bus_y + 21}">on-chip fabric</text>')
+    # Traffic from stages no engine carries still crosses the fabric. If
+    # only the engine links were drawn, the total would not add up and the
+    # diagram would imply the engines supply it.
+    placed_bytes = sum(p.bytes_per_s for p in provisions)
+    unplaced_bytes = max(0.0, dossier.dram_demand_gb_per_s * 1e9 - placed_bytes)
+    if unplaced_bytes > 0.005 * dossier.dram_demand_gb_per_s * 1e9:
+        ux = bus_x1 - 190
+        parts.append(f'<rect class="node idle" x="{ux}" y="{top + 22}" width="170" '
+                     f'height="{box_h - 44}" rx="11"/>')
+        parts.append(f'<text class="b-idle" x="{ux + 85}" y="{top + 54}">'
+                     f'unplaced stages</text>')
+        parts.append(f'<text class="b-idle-s" x="{ux + 85}" y="{top + 72}">'
+                     f'no engine prices them</text>')
+        parts.append(f'<text class="b-idle-s" x="{ux + 85}" y="{top + 88}">'
+                     f'traffic still crosses</text>')
+        parts.append(f'<line class="edge idle-edge" x1="{ux + 85}" y1="{top + box_h - 22}" '
+                     f'x2="{ux + 85}" y2="{bus_y}"/>')
+        parts.append(f'<text class="link-l" x="{ux + 93}" '
+                     f'y="{(top + box_h + bus_y) / 2 + 4}">{gb(unplaced_bytes)}</text>')
     parts.append(f'<text class="bus-r" x="{bus_x1 - 14}" y="{bus_y + 21}">'
                  f'{gb(dossier.dram_demand_gb_per_s * 1e9)} total</text>')
 

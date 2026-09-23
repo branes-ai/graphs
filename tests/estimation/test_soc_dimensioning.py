@@ -546,47 +546,65 @@ def test_a_mission_with_no_reactive_chain_gets_no_safety_section(cli, soc, ceili
 AV_L45 = "autonomous_vehicle_sae_l4__l5_high__full_automation"
 
 
+#: The marker for the memory-alternatives paragraph, so its absence can
+#: be asserted as directly as its presence.
+MEMORY_OPTIONS_MARKER = "On bandwidth alone"
+
+
+def _steps(cli, d):
+    return cli._sizing_steps(d, cli._facts(d, None),
+                             next(p for p in d.provisions if p.kind == "kpu"),
+                             next(p for p in d.provisions if p.kind == "cpu"), None, 128)
+
+
 def test_a_memory_shortfall_names_the_interfaces_that_carry_it(cli, soc, ceilings):
     """The only mission where memory itself is over. Unlike the engines,
-    that has a part-number answer, and the page should say which part."""
+    the parts list holds interfaces wide enough, and the page should name
+    every one of them."""
     profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
     d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
     assert d.dram_demand_gb_per_s > d.dram_supply_gb_per_s
     options = cli._memory_options(d.dram_demand_gb_per_s)
-    assert options, "the catalogue should hold an interface wide enough"
+    names = {name for name, _peak in options}
+    assert {"lpddr5x_phy_512b", "hbm3_1stack"} <= names, names
     assert all(peak >= d.dram_demand_gb_per_s for _name, peak in options)
     assert options == sorted(options, key=lambda kv: kv[1])
-    block = cli._sizing_steps(d, cli._facts(d, None),
-                              next(p for p in d.provisions if p.kind == "kpu"),
-                              next(p for p in d.provisions if p.kind == "cpu"), None, 128)
+    block = _steps(cli, d)
+    assert MEMORY_OPTIONS_MARKER in block
     for name, _peak in options:
-        assert name in block
-    assert "part-number change" in block
+        assert name in block, name
+    # Offered on bandwidth only: HBM is not a part-number substitution.
+    assert "compatible with this SoC is a question this model does not answer" in block
 
 
 def test_no_memory_options_line_when_memory_is_not_over(cli, soc, ceilings):
     profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
     d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
     assert d.dram_demand_gb_per_s < d.dram_supply_gb_per_s
-    block = cli._sizing_steps(d, cli._facts(d, None),
-                              next(p for p in d.provisions if p.kind == "kpu"),
-                              next(p for p in d.provisions if p.kind == "cpu"), None, 128)
-    assert "part-number change" not in block
+    block = _steps(cli, d)
+    assert MEMORY_OPTIONS_MARKER not in block
+    for name, _peak in cli._memory_options(d.dram_demand_gb_per_s):
+        assert name not in block, name
 
 
-def test_unpriced_stages_bytes_are_called_out_when_they_dominate(cli, soc, ceilings):
-    """Memory counts every stage's bytes; the engine figures omit the
-    unpriced ones. Where the unpriced stages carry most of the traffic,
-    that difference is the finding."""
-    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
-    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
-    unpriced = sum(st.bytes_per_s for st in d.stages if st.key in d.unplaced)
-    assert unpriced / (d.dram_demand_gb_per_s * 1e9) > 0.5
-    block = cli._sizing_steps(d, cli._facts(d, None),
-                              next(p for p in d.provisions if p.kind == "kpu"),
-                              next(p for p in d.provisions if p.kind == "cpu"), None, 128)
-    assert "no engine can price" in block
-    assert "complete where the engine figures are floors" in block
+def test_the_unpriced_bytes_callout_follows_its_own_threshold(cli, soc, ceilings):
+    """The callout fires above 20% of traffic and says "majority" only
+    above 50%. Both boundaries are asserted from missions on either side
+    rather than from the one it was written for."""
+    shares = {}
+    for mission in (AV_L45, COBOT, MISSION):
+        profile = next(p for p in WORKLOAD.profiles if p.id == mission)
+        d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+        unpriced = sum(st.bytes_per_s for st in d.stages if st.key in d.unplaced)
+        share = unpriced / (d.dram_demand_gb_per_s * 1e9) if d.dram_demand_gb_per_s else 0.0
+        block = _steps(cli, d)
+        shares[mission] = share
+        assert ("no engine can price" in block) is (share > 0.2), (mission, share)
+        # "majority" is a claim about more than half, not about 21%.
+        assert ("majority of the memory demand" in block) is (share > 0.5), (mission, share)
+    # The three missions straddle both thresholds, so neither is vacuous.
+    assert shares[AV_L45] > 0.5 and 0.2 < shares[COBOT] <= 0.5
+    assert shares[MISSION] <= 0.2
 
 
 AMR_HARD = "amr_logistics_mixed__dynamic_yard"
