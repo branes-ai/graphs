@@ -566,10 +566,13 @@ def _safety(dossier, soc) -> str:
                 f"{filt_pl.period_s * 1e3:.3g} ms period and needs "
                 f"{_amount(fit.servers_needed)} of a core. That part is comfortable. What is "
                 f"not is {names}.</p>")
-            # The ESDF link, only when the ESDF is actually one of the
-            # broken stages and the filter's config says it reads one.
+            # The ESDF link, only when the ESDF is one of the broken
+            # stages *and* the filter's own configuration says it reads
+            # one. Both halves are checked; neither is assumed.
             esdf = next((b for b in broken if b.stage == "esdf"), None)
-            if esdf is not None:
+            reads_esdf = any("esdf" in str(k).lower() or "esdf" in str(v).lower()
+                             for k, v in (filt.config or {}).items())
+            if esdf is not None and reads_esdf:
                 finding += (
                     f"<p><code>{html_escape(filt.key)}</code> reads its hazards out of the "
                     f"ESDF, so at these rates it is correct arithmetic over a distance field "

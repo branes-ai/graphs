@@ -113,6 +113,9 @@ class StageDemand:
     class_split: Dict[str, float]
     on_reactive_chain: bool
     basis: str
+    #: The stage's own configuration from the catalogue, so a claim about
+    #: what it reads can be checked rather than assumed.
+    config: Dict[str, str] = field(default_factory=dict)
     fits: Dict[str, EngineFit] = field(default_factory=dict)
 
     @property
@@ -436,7 +439,7 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
             bytes_per_s=stage.bytes_per_call * demand.rate_hz,
             class_split=dict(zip(CLASS_NAMES, stage.class_split)),
             on_reactive_chain=stage.key in REACTIVE_CHAIN,
-            basis=stage.basis or "", fits=fits))
+            basis=stage.basis or "", config=dict(stage.config or {}), fits=fits))
 
     # Place each stage on the engine that can carry it. Where more than one
     # can, the fewest servers wins; where none can, it is an explicit gap.

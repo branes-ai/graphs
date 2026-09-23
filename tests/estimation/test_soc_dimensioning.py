@@ -495,6 +495,24 @@ def test_the_safety_section_says_nothing_mission_specific(cli, soc, ceilings):
             assert "out of date" not in block, mission
 
 
+def test_the_esdf_claim_is_checked_against_the_filter_config(cobot, soc, cli):
+    """The sentence says cbf reads its hazards out of the ESDF. That is a
+    claim about the stage's configuration, so it is read from the
+    configuration -- a comment promising the check is not the check."""
+    cbf = next(st for st in cobot.stages if st.key == "cbf")
+    assert any("esdf" in k.lower() for k in cbf.config), cbf.config
+    assert "out of date" in cli._safety(cobot, soc)
+    # Strip the ESDF out of the filter's config and the claim goes with it.
+    blind = replace(cobot, stages=tuple(
+        replace(st, config={k: v for k, v in st.config.items()
+                            if "esdf" not in k.lower()})
+        if st.key == "cbf" else st for st in cobot.stages))
+    block = cli._safety(blind, soc)
+    assert "out of date" not in block
+    # ...while the rest of the finding survives.
+    assert "The filter closes" in block
+
+
 def test_the_safety_section_names_no_standard_and_promises_nothing(cobot, soc, cli):
     """A throughput model must not read as a safety case."""
     block = " ".join(cli._safety(cobot, soc).split())
