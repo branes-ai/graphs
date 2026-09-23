@@ -266,6 +266,22 @@ class Dossier:
             return None
         return self.datapath_total_w / self.power_budget_w
 
+    def chain_stages_over_deadline(self, stages) -> Tuple[Placement, ...]:
+        """Placed chain stages whose *single call* outlasts the whole
+        deadline.
+
+        A necessary condition, and one that survives unpriced stages: if
+        one stage on the chain cannot finish inside the budget, no sum
+        over the rest can rescue it, whatever the stages nobody prices
+        would have added.
+        """
+        if self.deadline_ms <= 0:
+            return ()
+        budget = self.deadline_ms / 1000.0
+        on_chain = {st.key for st in stages if st.on_reactive_chain}
+        return tuple(p for p in self.placements
+                     if p.stage in on_chain and p.seconds_per_call > budget)
+
     @property
     def overlapping(self) -> Tuple[Placement, ...]:
         """Placed stages whose single call outlasts its own period."""

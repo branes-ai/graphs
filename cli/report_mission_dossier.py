@@ -240,7 +240,8 @@ def _facts(dossier, alt):
         pressure.append((f"the {prov.engine.upper()}",
                          prov.servers_needed / max(prov.servers_provisioned, 1)))
     if dossier.power_budget_w:
-        pressure.append(("power", dossier.datapath_total_w / dossier.power_budget_w))
+        pressure.append(("datapath power (arithmetic only)",
+                         dossier.datapath_total_w / dossier.power_budget_w))
     pressure.sort(key=lambda kv: -kv[1])
     return {
         "total_ops": total_ops, "by_engine": by_engine,
@@ -1108,7 +1109,17 @@ def requirements_rows(dossier, alt):
                      f"{len(dossier.stages)}",
                      "no efficiency figure for a precision class they need",
                      _status(False, ", ".join(dossier.unplaced))))
-    if dossier.chain_seconds is not None:
+    # One chain stage that cannot finish inside the whole budget settles
+    # the question, whatever the unpriced stages would have added.
+    busted = dossier.chain_stages_over_deadline(dossier.stages)
+    if busted:
+        worst = max(busted, key=lambda p: p.seconds_per_call)
+        rows.append(("Sense-to-act latency", f"{dossier.deadline_ms:g} ms budget",
+                     "mission profile deadline_ms",
+                     _status(False, f"{worst.stage} alone takes "
+                                    f"{ms(worst.seconds_per_call)} per call, at the modelled "
+                                    f"efficiencies")))
+    elif dossier.chain_seconds is not None:
         rows.append(("Sense-to-act latency", f"{dossier.deadline_ms:g} ms budget",
                      "mission profile deadline_ms",
                      _status(dossier.deadline_headroom >= 1.0,
@@ -1121,12 +1132,16 @@ def requirements_rows(dossier, alt):
                                    f"total would omit them")))
     # A datapath floor under budget does not mean the budget is met: the
     # model carries no memory, clock-tree, leakage or idle term.
+    used = dossier.power_budget_fraction_used
+    # A floor above budget already proves the budget is missed; a floor
+    # under it proves nothing, because the terms it omits only add.
     rows.append(("Power budget", f"{dossier.power_budget_w:g} W",
                  "mission profile power_budget_w",
-                 _status(None,
+                 _status(False if (used is not None and used > 1.0) else None,
                          f"datapath floor {dossier.datapath_total_w * 1e3:.0f} mW = "
-                         f"{(dossier.power_budget_fraction_used or 0):.1%} of budget, with "
-                         f"no memory, clock-tree, leakage or idle term in it")))
+                         f"{(used or 0):.1%} of budget"
+                         + (", and the floor alone is over" if used and used > 1.0 else
+                            ", with no memory, clock-tree, leakage or idle term in it"))))
     rows.append(("Full-SoC power", "-",
                  "no memory, clock-tree, leakage or idle term in this model", "gap"))
     if dossier.dram_supply_gb_per_s:

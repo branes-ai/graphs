@@ -546,6 +546,54 @@ def test_a_mission_with_no_reactive_chain_gets_no_safety_section(cli, soc, ceili
 AV_L45 = "autonomous_vehicle_sae_l4__l5_high__full_automation"
 
 
+def test_one_chain_stage_over_the_budget_settles_the_deadline(cli, soc, ceilings):
+    """Unpriced stages make the chain total unknown, but a single chain
+    stage that cannot finish inside the whole budget settles it anyway:
+    no sum over the rest can rescue it."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert d.unplaced and d.chain_seconds is None
+    busted = d.chain_stages_over_deadline(d.stages)
+    assert busted, "esdf alone should exceed the 100 ms budget"
+    assert all(p.seconds_per_call > d.deadline_ms / 1000.0 for p in busted)
+    row = next(r for r in cli.requirements_rows(d, None)
+               if r[0] == "Sense-to-act latency")
+    assert row[3].startswith("NOT MET"), row[3]
+    assert "at the modelled efficiencies" in row[3]
+
+
+def test_a_deadline_with_no_busted_stage_is_not_claimed_missed(cli, soc, ceilings):
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert not d.chain_stages_over_deadline(d.stages)
+    row = next(r for r in cli.requirements_rows(d, None)
+               if r[0] == "Sense-to-act latency")
+    assert row[3].startswith("met:"), row[3]
+
+
+def test_a_power_floor_over_budget_is_a_proven_miss(cli, soc, ceilings):
+    """A floor under budget proves nothing, because the terms it omits
+    only add. A floor over budget proves the budget is missed."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    under = next(r for r in cli.requirements_rows(d, None) if r[0] == "Power budget")
+    assert under[3].startswith("NOT CHECKED"), under[3]
+    starved = replace(d, power_budget_w=d.datapath_total_w / 2)
+    over = next(r for r in cli.requirements_rows(starved, None) if r[0] == "Power budget")
+    assert over[3].startswith("NOT MET"), over[3]
+    assert "the floor alone is over" in over[3]
+
+
+def test_the_power_pressure_is_labelled_as_the_datapath_floor(cli, soc, ceilings):
+    """The ratio comes from datapath watts only, so it must not read as
+    full-SoC headroom."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    names = [name for name, _ratio in cli._facts(d, None)["pressure"]]
+    assert "datapath power (arithmetic only)" in names
+    assert "power" not in names
+
+
 #: The marker for the memory-alternatives paragraph, so its absence can
 #: be asserted as directly as its presence.
 MEMORY_OPTIONS_MARKER = "On bandwidth alone"
