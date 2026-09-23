@@ -546,6 +546,27 @@ def test_a_mission_with_no_reactive_chain_gets_no_safety_section(cli, soc, ceili
 AV_L45 = "autonomous_vehicle_sae_l4__l5_high__full_automation"
 
 
+def test_a_profile_covering_two_levels_says_so(cli, soc, ceilings):
+    """The catalogue has one profile for SAE L4 and L5. They differ by
+    whether an operational design domain bounds the problem at all, so a
+    page that presents one figure for both must say which it describes."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    row = next((r for r in cli.requirements_rows(d, None)
+                if r[0] == "Scope of this profile"), None)
+    assert row is not None, "the conflation should be an explicit gap"
+    assert row[3] == "gap"
+    assert "lower bound for L5" in row[2]
+    blurb = cli.sections(d, soc, None, None)["use_case"]
+    assert "L4 and L5 together" in blurb
+    assert "lower bound for L5" in blurb
+    # Missions with no such caveat get no such row.
+    other = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    plain = dimension(WORKLOAD, other, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert not any(r[0] == "Scope of this profile"
+                   for r in cli.requirements_rows(plain, None))
+
+
 def test_one_chain_stage_over_the_budget_settles_the_deadline(cli, soc, ceilings):
     """Unpriced stages make the chain total unknown, but a single chain
     stage that cannot finish inside the whole budget settles it anyway:

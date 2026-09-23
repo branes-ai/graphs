@@ -172,6 +172,15 @@ def tile_area_fit():
             "points": points}
 
 
+#: Where a catalogued profile covers more than one thing, what it does
+#: and does not describe. Rendered as an explicit gap in the requirements
+#: table so the scope of the page is stated with its other limits.
+SCOPE_CAVEATS: Dict[str, str] = {
+    "autonomous_vehicle_sae_l4__l5_high__full_automation":
+        "one profile for both levels; the stated suite is an L4-class build, so these "
+        "figures are a lower bound for L5",
+}
+
 #: The human framing of a mission, which is domain knowledge and not in
 #: the catalogue. Anything else on the page is derived from the data.
 USE_CASES: Dict[str, str] = {
@@ -184,8 +193,15 @@ for years.</p>""",
 the stack is the driver, and there is nobody to hand back to. The sensor suite says as much:
 {cameras:g} cameras, {radars:g} radars, lidar, and a dual-redundant stack behind them.</p>
 <p>That is the whole difference from the level below. L3 assumes a human who takes over when
-the system gives up; L4/L5 removes that human, and everything the human was implicitly covering
-has to be computed instead.</p>""",
+the system gives up; this removes that human, and everything the human was implicitly covering
+has to be computed instead.</p>
+<p class="note"><b>This profile covers L4 and L5 together, and they are not the same
+problem.</b> L4 is bounded by an operational design domain &mdash; a geofence, a weather
+envelope, a road class &mdash; and everything outside it is a reason to stop rather than a case
+to handle. L5 has no such boundary. The sensor suite and rates stated here describe an
+L4-class build, so <b>every figure on this page is a lower bound for L5</b>, and the
+catalogue does not state by how much. Separating the two needs an L5 workload with sourced
+rates, which we do not have.</p>""",
     "humanoid_cobot_human_adjacent_contact_rich": """
 <p>A {dof:g}-degree-of-freedom humanoid working alongside people and touching things: predicting
 human pose and intent, scheduling contact, and running a {cbf_hz:g} Hz safety filter over
@@ -1154,6 +1170,9 @@ def requirements_rows(dossier, alt):
     else:
         rows.append(("Memory bandwidth", f"{dossier.dram_demand_gb_per_s:.2f} GB/s demand",
                      "sum of per-stage byte counts", "gap"))
+    caveat = SCOPE_CAVEATS.get(dossier.mission)
+    if caveat:
+        rows.append(("Scope of this profile", "L4 and L5 together", caveat, "gap"))
     rows.append(("Thermal limit", "-", "no cooling solution attached to this design", "gap"))
     rows.append(("Size / volume", "-", "not a field of the mission profile", "gap"))
     rows.append(("Weight", "-", "not a field of the mission profile", "gap"))
