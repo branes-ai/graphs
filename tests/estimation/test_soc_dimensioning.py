@@ -583,6 +583,29 @@ def test_one_chain_stage_over_the_budget_settles_the_deadline(cli, soc, ceilings
     assert "at the modelled efficiencies" in row[3]
 
 
+def test_servers_do_not_shorten_a_call_in_the_chain_total(dossier):
+    """Two sequential chain stages at 60 ms per call, each on two
+    servers, take 120 ms serially. Dividing each by its server count
+    would report 60 ms and call a 100 ms deadline met."""
+    placements = tuple(
+        replace(p, servers=2, seconds_per_call=0.060, period_s=0.060,
+                calls_per_frame=1.0, seconds_per_frame=0.030)
+        for p in dossier.placements[:1]) + tuple(
+        replace(p, servers=2, seconds_per_call=0.060, period_s=0.060,
+                calls_per_frame=1.0, seconds_per_frame=0.030)
+        for p in dossier.placements[1:2])
+    stages = tuple(replace(st, unit="per solve", on_reactive_chain=True)
+                   for st in dossier.stages[:2])
+    serial = replace(dossier, placements=placements, stages=stages,
+                     unplaced=(), deadline_ms=100.0)
+    assert serial.chain_seconds == pytest.approx(0.120)
+    assert serial.deadline_headroom < 1.0
+    # The same two stages element-wise do split across servers.
+    parallel = replace(serial, stages=tuple(
+        replace(st, unit="per pixel") for st in stages))
+    assert parallel.chain_seconds == pytest.approx(0.060)
+
+
 def test_a_deadline_with_no_busted_stage_is_not_claimed_missed(cli, soc, ceilings):
     profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
     d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)

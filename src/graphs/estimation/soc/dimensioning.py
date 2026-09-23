@@ -246,12 +246,27 @@ class Dossier:
     @property
     def chain_seconds(self) -> Optional[float]:
         """Sense-to-act latency for one frame: every placed stage in
-        pipeline order, each on the engine it was sized for. A serial sum,
-        which is the honest reading for a pipeline whose stages feed one
-        another within a frame."""
+        pipeline order, each on the engine it was sized for.
+
+        Servers shorten a *rate*, not a call. A stage whose unit names an
+        element of a batch -- a pixel, a point -- splits that batch across
+        servers, so its frame really does take ``seconds / servers``.
+        Anything else is a call that runs start to finish on one server,
+        and its contribution is the serial time of the calls it owes per
+        frame however many servers exist.
+        """
         if self.unplaced:
             return None
-        return sum(p.seconds_per_frame for p in self.placements)
+        by_key = {st.key: st for st in self.stages}
+        total = 0.0
+        for placement in self.placements:
+            stage = by_key.get(placement.stage)
+            unit = stage.unit if stage is not None else ""
+            if overlap_concern(unit) == "independent":
+                total += placement.seconds_per_frame
+            else:
+                total += placement.calls_per_frame * placement.seconds_per_call
+        return total
 
     @property
     def deadline_headroom(self) -> Optional[float]:
