@@ -186,24 +186,13 @@ invent one.</p>
 
 
 <h2>The safety path</h2>
-<p>This mission is human-adjacent and contact-rich, so the interesting question is not whether
-the arithmetic fits on average but whether each loop on the sense-to-act chain closes inside its
-own period. Sizing answers a rate; a safety argument needs a deadline. These are not the same
-question and this page answers only the first.</p>
+<p>Sizing answers a rate: can the machine do this much work per second. A safety argument needs
+a deadline: does each loop on the sense-to-act chain close inside its own period. Those are
+different questions, and this page answers only the first. The table below is the closest it
+gets to the second.</p>
 <div class="panel"><table><thead><tr><th>stage</th><th>unit</th><th>rate</th><th>period</th>
 <th>one call</th><th>verdict</th></tr></thead><tbody><tr><td><b>lidar</b></td><td>per input point</td><td class="num">1e+06 Hz</td><td class="num">0.001 ms</td><td class="num">0.000732 ms</td><td>closes &#183; independent</td></tr><tr class="gap"><td><b>sgm</b></td><td>per stereo frame-pair</td><td class="num">40 Hz</td><td class="num">-</td><td class="num">-</td><td>no engine prices it</td></tr><tr><td><b>mono</b></td><td>per pixel</td><td class="num">6.2208e+07 Hz</td><td class="num">1.61e-05 ms</td><td class="num">2.54e-05 ms</td><td>1.58x in flight &#183; independent</td></tr><tr><td><b>lio</b></td><td>per input point</td><td class="num">1e+06 Hz</td><td class="num">0.001 ms</td><td class="num">0.00206 ms</td><td>2.06x in flight &#183; independent</td></tr><tr class="gap"><td><b>vio</b></td><td>per pixel</td><td class="num">1.24416e+08 Hz</td><td class="num">-</td><td class="num">-</td><td>no engine prices it</td></tr><tr><td><b>esdf</b></td><td>per map update</td><td class="num">10 Hz</td><td class="num">100 ms</td><td class="num">746 ms</td><td><b>7.46x over</b> &#183; sequential</td></tr><tr><td><b>sdfenc</b></td><td>per call</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">16.9 ms</td><td>1.69x in flight &#183; pipelined</td></tr><tr><td><b>policy</b></td><td>per call</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">6.94 ms</td><td>closes &#183; pipelined</td></tr><tr><td><b>mpc</b></td><td>per solve</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">0.247 ms</td><td>closes &#183; sequential</td></tr><tr><td><b>cbf</b></td><td>per solve</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">0.125 ms</td><td>closes &#183; sequential</td></tr><tr><td><b>ctrl</b></td><td>per update per DoF</td><td class="num">1600 Hz</td><td class="num">0.625 ms</td><td class="num">0.000147 ms</td><td>closes &#183; pipelined</td></tr></tbody></table></div>
-
-<p><b>The filter closes; its inputs do not.</b> The
-100 Hz <code>cbf</code> filter takes
-125 us of its 10 ms period and needs
-0.0125 of a core. That part is comfortable. What is not
-is <code>esdf</code> at 7.46x its period. Both are on the sense-to-act chain, and
-<code>cbf</code>'s own configuration reads its hazards out of the ESDF
-&mdash; so at these rates the filter is correct arithmetic over a distance field that is
-7.46x out of date.</p>
-<p>A server count does not fix either one. Their units are a solve and a map update: the call
-<i>is</i> the loop iteration, so k servers carry k overlapping iterations rather than one faster
-one. That is a latency result, not a throughput result, and it is the one that matters here.</p><p><b>Two stages on the chain have no figure at all:</b> <code>sgm</code> and <code>vio</code>. Nothing prices them on either engine, so they contribute no time to the table above. The chain's true latency is longer than anything here by an unknown amount, which is the reason this page quotes no end-to-end number.</p>
+<p><b>The filter closes; an input it reads does not.</b> The 100 Hz <code>cbf</code> filter takes 125 us of its 10 ms period and needs 0.0125 of a core. That part is comfortable. What is not is <code>esdf</code> at 7.46x its period.</p><p><code>cbf</code> reads its hazards out of the ESDF, so at these rates it is correct arithmetic over a distance field that is 7.46x out of date.</p><p>A server count does not fix it. Its unit is per map update: the call <i>is</i> the loop iteration, so k servers carry k overlapping iterations rather than one faster one. That is a latency result, not a throughput result.</p><p><b>Two stages on the chain have no figure at all:</b> <code>sgm</code> and <code>vio</code>. Nothing prices them on either engine, so they contribute no time to the table above. The chain's true latency is longer than anything here by an unknown amount, which is why this page quotes no end-to-end number.</p>
 <h3>What this model cannot tell you</h3>
 <p>Everything below is required for a safety case and absent here. None of it is a gap we can
 close by computing harder; each needs evidence this repository does not hold.</p>
@@ -212,7 +201,7 @@ close by computing harder; each needs evidence this repository does not hold.</p
 throughput. A deadline is met or missed in the tail, and we model no tail: no cache behaviour,
 no contention, no interrupt latency, no scheduler.</li>
 <li><b>Freedom from interference.</b> The chain shares one memory interface with everything else, and the largest other consumers are <code>det</code> at 17.1 GB/s and <code>radar</code> at 6.06 GB/s &mdash; 11% of the interface between them. Nothing here bounds what that contention does to a period on the chain.</li>
-<li><b>The safety island cannot be sized.</b> The design carries one (island_sram anchored, lockstep_r52_cores not), but the catalogue states no compute capability for it, so no stage can be placed on it and this page cannot tell you whether the filter could run there instead.</li>
+<li><b>The safety island cannot be sized.</b> The design carries one (island_sram anchored, lockstep_r52_cores not), but the catalogue states no compute capability for it, so no stage can be placed on it and this page cannot tell you what could run there instead.</li>
 <li><b>Integrity level, fault coverage, diagnostic coverage, FIT rates and safe-state
 transition time.</b> The catalogue carries none of these, so this page makes no claim about
 any standard, and its numbers cannot be cited towards one.</li>

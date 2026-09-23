@@ -182,10 +182,10 @@ invent one.</p>
 
 
 <h2>The safety path</h2>
-<p>This mission is human-adjacent and contact-rich, so the interesting question is not whether
-the arithmetic fits on average but whether each loop on the sense-to-act chain closes inside its
-own period. Sizing answers a rate; a safety argument needs a deadline. These are not the same
-question and this page answers only the first.</p>
+<p>Sizing answers a rate: can the machine do this much work per second. A safety argument needs
+a deadline: does each loop on the sense-to-act chain close inside its own period. Those are
+different questions, and this page answers only the first. The table below is the closest it
+gets to the second.</p>
 <div class="panel"><table><thead><tr><th>stage</th><th>unit</th><th>rate</th><th>period</th>
 <th>one call</th><th>verdict</th></tr></thead><tbody><tr><td><b>mono</b></td><td>per pixel</td><td class="num">1.24416e+08 Hz</td><td class="num">8.04e-06 ms</td><td class="num">2.54e-05 ms</td><td>3.16x in flight &#183; independent</td></tr></tbody></table></div>
 
@@ -196,8 +196,8 @@ close by computing harder; each needs evidence this repository does not hold.</p
 <li><b>Worst-case execution time.</b> Every figure on this page is a mean rate from measured
 throughput. A deadline is met or missed in the tail, and we model no tail: no cache behaviour,
 no contention, no interrupt latency, no scheduler.</li>
-<li><b>Freedom from interference.</b> The chain shares one memory interface with everything else, and the largest other consumers are <code>det</code> at 3.93 GB/s &mdash; 2% of the interface between them. Nothing here bounds what that contention does to a period on the chain.</li>
-<li><b>The safety island cannot be sized.</b> The design carries one (island_sram anchored, lockstep_r52_cores not), but the catalogue states no compute capability for it, so no stage can be placed on it and this page cannot tell you whether the filter could run there instead.</li>
+<li><b>Freedom from interference.</b> The chain shares one memory interface with everything else, and the largest other consumer is <code>det</code> at 3.93 GB/s &mdash; 2% of the interface. Nothing here bounds what that contention does to a period on the chain.</li>
+<li><b>The safety island cannot be sized.</b> The design carries one (island_sram anchored, lockstep_r52_cores not), but the catalogue states no compute capability for it, so no stage can be placed on it and this page cannot tell you what could run there instead.</li>
 <li><b>Integrity level, fault coverage, diagnostic coverage, FIT rates and safe-state
 transition time.</b> The catalogue carries none of these, so this page makes no claim about
 any standard, and its numbers cannot be cited towards one.</li>

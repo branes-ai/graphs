@@ -510,10 +510,10 @@ def _times(rate_hz: float) -> str:
 def _safety(dossier, soc) -> str:
     """What the model can and cannot say about the safety path.
 
-    Deliberately two halves. The first is arithmetic we stand behind; the
-    second is everything a functional-safety argument needs that this
-    model does not produce, named so nobody mistakes a throughput result
-    for a safety case.
+    Nothing here is written for a particular mission: the stages, the
+    counts, the plurals and the named blocks are all read from the
+    dossier, because this section renders for every mission with a
+    reactive chain and a sentence true of one is false of the others.
     """
     from graphs.estimation.soc.dimensioning import overlap_concern
 
@@ -548,47 +548,58 @@ def _safety(dossier, soc) -> str:
     broken = [pl for pl in dossier.overlapping
               if pl.stage in by_key and by_key[pl.stage].on_reactive_chain
               and overlap_concern(by_key[pl.stage].unit) == "sequential"]
-    filters = [st for st in chain if "solve" in (st.unit or "") and st.key == "cbf"]
-
     finding = ""
-    if filters and broken:
-        filt = filters[0]
-        pl = placed.get(filt.key)
+    if broken:
+        units = sorted({by_key[b.stage].unit for b in broken})
         names = _join(f"<code>{html_escape(b.stage)}</code> at "
                       f"{b.calls_in_flight:.3g}x its period" for b in broken)
-        finding = f"""
-<p><b>The filter closes; its inputs do not.</b> The
-{filt.rate_hz:g} Hz <code>{html_escape(filt.key)}</code> filter takes
-{pl.seconds_per_call * 1e6:.0f} us of its {pl.period_s * 1e3:.3g} ms period and needs
-{_amount(filt.fits[pl.engine].servers_needed)} of a core. That part is comfortable. What is not
-is {names}. Both are on the sense-to-act chain, and
-<code>{html_escape(filt.key)}</code>'s own configuration reads its hazards out of the ESDF
-&mdash; so at these rates the filter is correct arithmetic over a distance field that is
-{max(b.calls_in_flight for b in broken):.3g}x out of date.</p>
-<p>A server count does not fix either one. Their units are a solve and a map update: the call
-<i>is</i> the loop iteration, so k servers carry k overlapping iterations rather than one faster
-one. That is a latency result, not a throughput result, and it is the one that matters here.</p>"""
-    elif broken:
-        names = _join(f"<code>{html_escape(b.stage)}</code> at {b.calls_in_flight:.3g}x"
-                      for b in broken)
-        finding = (f"<p><b>Stages on the sense-to-act chain that cannot close their loop:</b> "
-                   f"{names}. Their units are a solve or a map update, so the call is the loop "
-                   f"iteration and no server count shortens it.</p>")
+        # A filter sentence only where a placed filter exists, and only
+        # where its own configuration names what it reads.
+        filt = by_key.get("cbf")
+        filt_pl = placed.get("cbf") if filt is not None else None
+        if filt_pl is not None and not filt_pl.calls_overlap:
+            fit = filt.fits[filt_pl.engine]
+            finding += (
+                f"<p><b>The filter closes; {'its inputs do' if len(broken) > 1 else 'an input it reads does'}"
+                f" not.</b> The {filt.rate_hz:g} Hz <code>{html_escape(filt.key)}</code> filter "
+                f"takes {filt_pl.seconds_per_call * 1e6:.0f} us of its "
+                f"{filt_pl.period_s * 1e3:.3g} ms period and needs "
+                f"{_amount(fit.servers_needed)} of a core. That part is comfortable. What is "
+                f"not is {names}.</p>")
+            # The ESDF link, only when the ESDF is actually one of the
+            # broken stages and the filter's config says it reads one.
+            esdf = next((b for b in broken if b.stage == "esdf"), None)
+            if esdf is not None:
+                finding += (
+                    f"<p><code>{html_escape(filt.key)}</code> reads its hazards out of the "
+                    f"ESDF, so at these rates it is correct arithmetic over a distance field "
+                    f"that is {esdf.calls_in_flight:.3g}x out of date.</p>")
+        else:
+            finding += (f"<p><b>{_count(len(broken)).capitalize()} stage"
+                        f"{'s' if len(broken) != 1 else ''} on the sense-to-act chain cannot "
+                        f"close {'their' if len(broken) != 1 else 'its'} loop:</b> "
+                        f"{names}.</p>")
+        finding += (
+            f"<p>A server count does not fix "
+            f"{'any of them' if len(broken) > 2 else 'either one' if len(broken) == 2 else 'it'}. "
+            f"{'Their units are' if len(broken) != 1 else 'Its unit is'} "
+            f"{_join(html_escape(u) for u in units)}: the call <i>is</i> the loop iteration, so "
+            f"k servers carry k overlapping iterations rather than one faster one. That is a "
+            f"latency result, not a throughput result.</p>")
 
-    # Who the chain shares memory with, named from this mission's own
-    # traffic rather than from whichever mission was in front of me.
     off_chain = sorted((st for st in dossier.stages if not st.on_reactive_chain),
                        key=lambda st: -st.bytes_per_s)[:2]
-    if off_chain and dossier.dram_supply_gb_per_s:
+    if off_chain and dossier.dram_supply_gb_per_s and off_chain[0].bytes_per_s:
         share = sum(st.bytes_per_s for st in off_chain) / (
             dossier.dram_supply_gb_per_s * 1e9)
         interference = (
-            "The chain shares one memory interface with everything else, and the largest "
-            "other consumers are "
+            "The chain shares one memory interface with everything else, and the largest other "
+            + ("consumers are " if len(off_chain) > 1 else "consumer is ")
             + _join(f"<code>{html_escape(st.key)}</code> at {gb(st.bytes_per_s)}"
                     for st in off_chain)
-            + f" &mdash; {share:.0%} of the interface between them. Nothing here bounds what "
-              f"that contention does to a period on the chain.")
+            + f" &mdash; {share:.0%} of the interface"
+            + (" between them" if len(off_chain) > 1 else "")
+            + ". Nothing here bounds what that contention does to a period on the chain.")
     else:
         interference = ("The chain shares one memory interface with every other stage, and "
                         "nothing here bounds what that contention does to a period on it.")
@@ -602,7 +613,7 @@ one. That is a latency result, not a throughput result, and it is the one that m
             + _join(f"<code>{html_escape(k)}</code>" for k in unpriced_chain)
             + ". Nothing prices them on either engine, so they contribute no time to the "
               "table above. The chain's true latency is longer than anything here by an "
-              "unknown amount, which is the reason this page quotes no end-to-end number.</p>")
+              "unknown amount, which is why this page quotes no end-to-end number.</p>")
 
     island = next((b for b in soc.blocks if b.name == "safety_island"), None) if soc else None
     island_line = ""
@@ -610,18 +621,18 @@ one. That is a latency result, not a throughput result, and it is the one that m
         anchored = [ln.name for ln in island.lines if ln.anchored]
         unanchored = [ln.name for ln in island.lines if not ln.anchored]
         island_line = (
-            f"<li><b>The safety island cannot be sized.</b> The design carries one "
-            f"({', '.join(html_escape(a) for a in anchored)} anchored, "
-            f"{', '.join(html_escape(u) for u in unanchored)} not), but the catalogue states "
-            f"no compute capability for it, so no stage can be placed on it and this page "
-            f"cannot tell you whether the filter could run there instead.</li>")
+            "<li><b>The safety island cannot be sized.</b> The design carries one ("
+            + _join(html_escape(a) for a in anchored) + " anchored"
+            + (", " + _join(html_escape(u) for u in unanchored) + " not" if unanchored else "")
+            + "), but the catalogue states no compute capability for it, so no stage can be "
+              "placed on it and this page cannot tell you what could run there instead.</li>")
 
     return f"""
 <h2>The safety path</h2>
-<p>This mission is human-adjacent and contact-rich, so the interesting question is not whether
-the arithmetic fits on average but whether each loop on the sense-to-act chain closes inside its
-own period. Sizing answers a rate; a safety argument needs a deadline. These are not the same
-question and this page answers only the first.</p>
+<p>Sizing answers a rate: can the machine do this much work per second. A safety argument needs
+a deadline: does each loop on the sense-to-act chain close inside its own period. Those are
+different questions, and this page answers only the first. The table below is the closest it
+gets to the second.</p>
 <div class="panel"><table><thead><tr><th>stage</th><th>unit</th><th>rate</th><th>period</th>
 <th>one call</th><th>verdict</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
 {finding}

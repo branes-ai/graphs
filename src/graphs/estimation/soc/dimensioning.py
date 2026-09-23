@@ -492,9 +492,9 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
             calls_per_frame = stage.calls_per_s / frame_hz if frame_hz else 1.0
             seconds = sum(c.ops_per_s / c.throughput_per_server
                           for c in fit.classes if c.throughput_per_server)
-            per_call = (sum(c.ops_per_s / c.throughput_per_server
-                            for c in fit.classes if c.throughput_per_server)
-                        / stage.rate_hz) if stage.rate_hz else 0.0
+            # Same sum as `seconds`, divided once: two copies of the
+            # expression would drift apart under a later edit.
+            per_call = (seconds / stage.rate_hz) if stage.rate_hz else 0.0
             placements.append(Placement(
                 stage=stage.key, engine=name, servers=servers,
                 calls_per_frame=calls_per_frame,

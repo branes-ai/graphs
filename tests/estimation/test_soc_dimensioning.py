@@ -462,11 +462,37 @@ def test_the_safety_section_covers_the_whole_chain(cobot, soc, cli):
         assert f"<b>{key}</b>" in block, key
     # The filter closes and its inputs do not: that is the finding.
     assert "The filter closes; its inputs do not" in block
-    assert "11.2x its period" in block or "11.2x" in block
+    assert "11.2x its period" in block
     # Chain stages nothing prices are named rather than silently omitted.
     for key in cobot.unplaced:
         if key in chain:
             assert key in block
+
+
+def test_the_safety_section_says_nothing_mission_specific(cli, soc, ceilings):
+    """It renders for every mission with a reactive chain, so a sentence
+    true of one must not be asserted of the others. Four pages shipped
+    claiming to be "human-adjacent and contact-rich"."""
+    for mission in (MISSION, INTERCEPTOR, AMR_HARD, COBOT):
+        profile = next(p for p in WORKLOAD.profiles if p.id == mission)
+        d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+        block = " ".join(cli._safety(d, soc).split())
+        if not block:
+            continue
+        assert "human-adjacent" not in block, mission
+        assert "contact-rich" not in block, mission
+        by_key = {st.key: st for st in d.stages}
+        from graphs.estimation.soc.dimensioning import overlap_concern as _oc
+        broken = [p for p in d.overlapping
+                  if p.stage in by_key and by_key[p.stage].on_reactive_chain
+                  and _oc(by_key[p.stage].unit) == "sequential"]
+        # Plurals follow the count rather than the mission I wrote it for.
+        if len(broken) == 1:
+            assert "Both are" not in block, mission
+            assert "either one" not in block, mission
+        # The ESDF claim only where the ESDF is actually broken.
+        if not any(p.stage == "esdf" for p in broken):
+            assert "out of date" not in block, mission
 
 
 def test_the_safety_section_names_no_standard_and_promises_nothing(cobot, soc, cli):
