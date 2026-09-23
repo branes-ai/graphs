@@ -198,10 +198,15 @@ has to be computed instead.</p>
 <p class="note"><b>This profile covers L4 and L5 together, and they are not the same
 problem.</b> L4 is bounded by an operational design domain &mdash; a geofence, a weather
 envelope, a road class &mdash; and everything outside it is a reason to stop rather than a case
-to handle. L5 has no such boundary. The sensor suite and rates stated here describe an
-L4-class build, so <b>every figure on this page is a lower bound for L5</b>, and the
-catalogue does not state by how much. Separating the two needs an L5 workload with sourced
-rates, which we do not have.</p>""",
+to handle. L5 has no such boundary.</p>
+<p class="note">The sensor suite and rates stated here describe an L4-class build, so read the
+page in three parts. The <b>demand</b> figures &mdash; operations, bytes, cores and tiles needed
+&mdash; are a <b>lower bound for L5</b>, by an amount the catalogue does not state. The
+<b>deadline and power budget</b> are this profile's own targets and are not L5 requirements;
+whether an L5 platform's envelope differs at all is not something we hold. The <b>engine
+capacities</b> are inputs from the selected design and say nothing about either level.
+Separating the two needs an L5 workload with sourced rates, which we do not have
+(graphs#339).</p>""",
     "humanoid_cobot_human_adjacent_contact_rich": """
 <p>A {dof:g}-degree-of-freedom humanoid working alongside people and touching things: predicting
 human pose and intent, scheduling contact, and running a {cbf_hz:g} Hz safety filter over
@@ -1103,12 +1108,20 @@ def requirements_rows(dossier, alt):
                      _status(True, _cams(dossier))))
     sensing = [st for st in dossier.stages if st.tier == "T1"]
     if sensing:
-        rows.append(("Sensor front end, all paths",
-                     si(sum(st.bytes_per_s for st in sensing), "B/s"),
+        front_end = sum(st.bytes_per_s for st in sensing)
+        supply = (dossier.dram_supply_gb_per_s or 0) * 1e9
+        # A subset over the interface settles it on its own. A subset
+        # under it settles nothing, because every other stage shares the
+        # same interface.
+        over = bool(supply) and front_end > supply
+        rows.append(("Sensor front end, all paths", si(front_end, "B/s"),
                      f"{len(sensing)} tier-1 stages: "
                      + ", ".join(st.key for st in sensing),
-                     _status(None, "sums the tier-1 paths; whether the interface "
-                                   "carries them is the memory row below")))
+                     _status(False if over else None,
+                             f"the tier-1 paths alone exceed the "
+                             f"{dossier.dram_supply_gb_per_s:g} GB/s interface" if over
+                             else "sums the tier-1 paths; whether the interface carries "
+                                  "them is the memory row below")))
     for prov in dossier.provisions:
         ops = sum(s.ops_per_s for s in dossier.stages if s.key in prov.stages)
         rows.append((f"{prov.engine.upper()} throughput",

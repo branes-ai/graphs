@@ -567,6 +567,41 @@ def test_a_profile_covering_two_levels_says_so(cli, soc, ceilings):
                    for r in cli.requirements_rows(plain, None))
 
 
+def test_a_sensor_subset_over_the_interface_settles_it(cli, soc, ceilings):
+    """A subset of the traffic that already exceeds the interface proves
+    the interface is short. A subset under it proves nothing, because
+    every other stage shares the same interface."""
+    heavy = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, heavy, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    front = sum(st.bytes_per_s for st in d.stages if st.tier == "T1")
+    assert front > d.dram_supply_gb_per_s * 1e9
+    row = next(r for r in cli.requirements_rows(d, None)
+               if r[0].startswith("Sensor front end"))
+    assert row[3].startswith("NOT MET"), row[3]
+
+    light = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    e = dimension(WORKLOAD, light, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert sum(st.bytes_per_s for st in e.stages if st.tier == "T1") < e.dram_supply_gb_per_s * 1e9
+    row = next(r for r in cli.requirements_rows(e, None)
+               if r[0].startswith("Sensor front end"))
+    assert row[3].startswith("NOT CHECKED"), row[3]
+
+
+def test_the_l5_caveat_claims_only_the_demand_figures(cli, soc, ceilings):
+    """Capacities are design inputs and the deadline and budget are this
+    profile's own targets. Neither is a lower bound for L5, and the
+    caveat must not say they are."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    raw = cli.sections(d, soc, None, None)["use_case"]
+    blurb = " ".join(re.sub(r"<[^>]+>", "", raw).split())
+    assert "every figure on this page is a lower bound" not in blurb
+    assert "are a lower bound for L5" in blurb
+    for phrase in ("deadline and power budget", "are inputs from the selected design"):
+        assert phrase in blurb, phrase
+    assert "graphs#339" in blurb
+
+
 def test_one_chain_stage_over_the_budget_settles_the_deadline(cli, soc, ceilings):
     """Unpriced stages make the chain total unknown, but a single chain
     stage that cannot finish inside the whole budget settles it anyway:
