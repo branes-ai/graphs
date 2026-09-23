@@ -543,6 +543,197 @@ def test_a_mission_with_no_reactive_chain_gets_no_safety_section(cli, soc, ceili
     assert cli._safety(flat, soc) == ""
 
 
+AV_L45 = "autonomous_vehicle_sae_l4__l5_high__full_automation"
+
+
+def test_a_profile_covering_two_levels_says_so(cli, soc, ceilings):
+    """The catalogue has one profile for SAE L4 and L5. They differ by
+    whether an operational design domain bounds the problem at all, so a
+    page that presents one figure for both must say which it describes."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    row = next((r for r in cli.requirements_rows(d, None)
+                if r[0] == "Scope of this profile"), None)
+    assert row is not None, "the conflation should be an explicit gap"
+    assert row[3] == "gap"
+    assert "lower bound for L5" in row[2]
+    blurb = cli.sections(d, soc, None, None)["use_case"]
+    assert "L4 and L5 together" in blurb
+    assert "lower bound for L5" in blurb
+    # Missions with no such caveat get no such row.
+    other = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    plain = dimension(WORKLOAD, other, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert not any(r[0] == "Scope of this profile"
+                   for r in cli.requirements_rows(plain, None))
+
+
+def test_a_sensor_subset_over_the_interface_settles_it(cli, soc, ceilings):
+    """A subset of the traffic that already exceeds the interface proves
+    the interface is short. A subset under it proves nothing, because
+    every other stage shares the same interface."""
+    heavy = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, heavy, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    front = sum(st.bytes_per_s for st in d.stages if st.tier == "T1")
+    assert front > d.dram_supply_gb_per_s * 1e9
+    row = next(r for r in cli.requirements_rows(d, None)
+               if r[0].startswith("Sensor front end"))
+    assert row[3].startswith("NOT MET"), row[3]
+
+    light = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    e = dimension(WORKLOAD, light, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert sum(st.bytes_per_s for st in e.stages if st.tier == "T1") < e.dram_supply_gb_per_s * 1e9
+    row = next(r for r in cli.requirements_rows(e, None)
+               if r[0].startswith("Sensor front end"))
+    assert row[3].startswith("NOT CHECKED"), row[3]
+
+
+def test_the_l5_caveat_claims_only_the_demand_figures(cli, soc, ceilings):
+    """Capacities are design inputs and the deadline and budget are this
+    profile's own targets. Neither is a lower bound for L5, and the
+    caveat must not say they are."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    raw = cli.sections(d, soc, None, None)["use_case"]
+    blurb = " ".join(re.sub(r"<[^>]+>", "", raw).split())
+    assert "every figure on this page is a lower bound" not in blurb
+    assert "are a lower bound for L5" in blurb
+    for phrase in ("deadline and power budget", "are inputs from the selected design"):
+        assert phrase in blurb, phrase
+    assert "graphs#339" in blurb
+
+
+def test_one_chain_stage_over_the_budget_settles_the_deadline(cli, soc, ceilings):
+    """Unpriced stages make the chain total unknown, but a single chain
+    stage that cannot finish inside the whole budget settles it anyway:
+    no sum over the rest can rescue it."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert d.unplaced and d.chain_seconds is None
+    busted = d.chain_stages_over_deadline(d.stages)
+    assert busted, "esdf alone should exceed the 100 ms budget"
+    assert all(p.seconds_per_call > d.deadline_ms / 1000.0 for p in busted)
+    row = next(r for r in cli.requirements_rows(d, None)
+               if r[0] == "Sense-to-act latency")
+    assert row[3].startswith("NOT MET"), row[3]
+    assert "at the modelled efficiencies" in row[3]
+
+
+def test_servers_do_not_shorten_a_call_in_the_chain_total(dossier):
+    """Two sequential chain stages at 60 ms per call, each on two
+    servers, take 120 ms serially. Dividing each by its server count
+    would report 60 ms and call a 100 ms deadline met."""
+    placements = tuple(
+        replace(p, servers=2, seconds_per_call=0.060, period_s=0.060,
+                calls_per_frame=1.0, seconds_per_frame=0.030)
+        for p in dossier.placements[:1]) + tuple(
+        replace(p, servers=2, seconds_per_call=0.060, period_s=0.060,
+                calls_per_frame=1.0, seconds_per_frame=0.030)
+        for p in dossier.placements[1:2])
+    stages = tuple(replace(st, unit="per solve", on_reactive_chain=True)
+                   for st in dossier.stages[:2])
+    serial = replace(dossier, placements=placements, stages=stages,
+                     unplaced=(), deadline_ms=100.0)
+    assert serial.chain_seconds == pytest.approx(0.120)
+    assert serial.deadline_headroom < 1.0
+    # The same two stages element-wise do split across servers.
+    parallel = replace(serial, stages=tuple(
+        replace(st, unit="per pixel") for st in stages))
+    assert parallel.chain_seconds == pytest.approx(0.060)
+
+
+def test_a_deadline_with_no_busted_stage_is_not_claimed_missed(cli, soc, ceilings):
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert not d.chain_stages_over_deadline(d.stages)
+    row = next(r for r in cli.requirements_rows(d, None)
+               if r[0] == "Sense-to-act latency")
+    assert row[3].startswith("met:"), row[3]
+
+
+def test_a_power_floor_over_budget_is_a_proven_miss(cli, soc, ceilings):
+    """A floor under budget proves nothing, because the terms it omits
+    only add. A floor over budget proves the budget is missed."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    under = next(r for r in cli.requirements_rows(d, None) if r[0] == "Power budget")
+    assert under[3].startswith("NOT CHECKED"), under[3]
+    starved = replace(d, power_budget_w=d.datapath_total_w / 2)
+    over = next(r for r in cli.requirements_rows(starved, None) if r[0] == "Power budget")
+    assert over[3].startswith("NOT MET"), over[3]
+    assert "the floor alone is over" in over[3]
+
+
+def test_the_power_pressure_is_labelled_as_the_datapath_floor(cli, soc, ceilings):
+    """The ratio comes from datapath watts only, so it must not read as
+    full-SoC headroom."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    names = [name for name, _ratio in cli._facts(d, None)["pressure"]]
+    assert "datapath power (arithmetic only)" in names
+    assert "power" not in names
+
+
+#: The marker for the memory-alternatives paragraph, so its absence can
+#: be asserted as directly as its presence.
+MEMORY_OPTIONS_MARKER = "On bandwidth alone"
+
+
+def _steps(cli, d):
+    return cli._sizing_steps(d, cli._facts(d, None),
+                             next(p for p in d.provisions if p.kind == "kpu"),
+                             next(p for p in d.provisions if p.kind == "cpu"), None, 128)
+
+
+def test_a_memory_shortfall_names_the_interfaces_that_carry_it(cli, soc, ceilings):
+    """The only mission where memory itself is over. Unlike the engines,
+    the parts list holds interfaces wide enough, and the page should name
+    every one of them."""
+    profile = next(p for p in WORKLOAD.profiles if p.id == AV_L45)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert d.dram_demand_gb_per_s > d.dram_supply_gb_per_s
+    options = cli._memory_options(d.dram_demand_gb_per_s)
+    names = {name for name, _peak in options}
+    assert {"lpddr5x_phy_512b", "hbm3_1stack"} <= names, names
+    assert all(peak >= d.dram_demand_gb_per_s for _name, peak in options)
+    assert options == sorted(options, key=lambda kv: kv[1])
+    block = _steps(cli, d)
+    assert MEMORY_OPTIONS_MARKER in block
+    for name, _peak in options:
+        assert name in block, name
+    # Offered on bandwidth only: HBM is not a part-number substitution.
+    assert "compatible with this SoC is a question this model does not answer" in block
+
+
+def test_no_memory_options_line_when_memory_is_not_over(cli, soc, ceilings):
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    assert d.dram_demand_gb_per_s < d.dram_supply_gb_per_s
+    block = _steps(cli, d)
+    assert MEMORY_OPTIONS_MARKER not in block
+    for name, _peak in cli._memory_options(d.dram_demand_gb_per_s):
+        assert name not in block, name
+
+
+def test_the_unpriced_bytes_callout_follows_its_own_threshold(cli, soc, ceilings):
+    """The callout fires above 20% of traffic and says "majority" only
+    above 50%. Both boundaries are asserted from missions on either side
+    rather than from the one it was written for."""
+    shares = {}
+    for mission in (AV_L45, COBOT, MISSION):
+        profile = next(p for p in WORKLOAD.profiles if p.id == mission)
+        d = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+        unpriced = sum(st.bytes_per_s for st in d.stages if st.key in d.unplaced)
+        share = unpriced / (d.dram_demand_gb_per_s * 1e9) if d.dram_demand_gb_per_s else 0.0
+        block = _steps(cli, d)
+        shares[mission] = share
+        assert ("no engine can price" in block) is (share > 0.2), (mission, share)
+        # "majority" is a claim about more than half, not about 21%.
+        assert ("majority of the memory demand" in block) is (share > 0.5), (mission, share)
+    # The three missions straddle both thresholds, so neither is vacuous.
+    assert shares[AV_L45] > 0.5 and 0.2 < shares[COBOT] <= 0.5
+    assert shares[MISSION] <= 0.2
+
+
 AMR_HARD = "amr_logistics_mixed__dynamic_yard"
 AMR_EASY = "amr_warehousing_structured_aisles"
 
