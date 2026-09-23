@@ -185,6 +185,32 @@ invent one.</p>
 <h3>4. The CPU ask</h3><p>The CPU needs <b>46 cores</b> and the design has 12. The gap is not spread evenly: three of the 10 stages on it are 90% of the demand.</p><ul><li><code>tsdf</code> (<code>raycast</code>): <b>31 cores</b> at <b>0.34%</b> of FP32 peak.</li><li><code>esdf</code> (<code>wavefront</code>): <b>7.46 cores</b> at <b>2.97%</b> of FP32 peak.</li><li><code>ba</code> (<code>small_dense_linalg</code>): <b>2.83 cores</b> at <b>8.48%</b> of FP32 peak.</li></ul><p>Grouped by kernel class, the answer is blunter still: <code>raycast</code> is <b>31 of the 46 cores</b> (68%) at 0.34% of peak. So the question for an Andes core is not a general one:</p><blockquote><b>What does it take to run 3.71 GOP/s of <code>raycast</code> in FP32 at materially better than 0.34% of peak?</b></blockquote><p>The leverage is enormous because the baseline is so low. At 10% of peak instead of 0.34%, that class falls from 31 cores to 1.05, and the whole CPU requirement from 46 to 16 &mdash; 19 cores provisioned instead of 12.</p><h3>5. What the accelerator is worth</h3><p><code>det</code> has no measured INT8 figure on a CPU, but its INT8 class may run in any wider format and FP32 <i>is</i> measured. At E = 88.8% one core delivers 31.3 GOP/s, so it would need <b>289 CPU cores</b> and 12648 mW &mdash; against 6.93 of a tile and 2066 mW. That is <b>42 cores of work per tile</b> at 6.1x less energy.</p><p>It is equally an argument for <i>one</i> tile: the catalogued part has 128 tiles, 14x more fabric than this mission can use.</p>
 
 
+<h2>The safety path</h2>
+<p>Sizing answers a rate: can the machine do this much work per second. A safety argument needs
+a deadline: does each loop on the sense-to-act chain close inside its own period. Those are
+different questions, and this page answers only the first. The table below is the closest it
+gets to the second.</p>
+<div class="panel"><table><thead><tr><th>stage</th><th>unit</th><th>rate</th><th>period</th>
+<th>one call</th><th>verdict</th></tr></thead><tbody><tr><td><b>lidar</b></td><td>per input point</td><td class="num">1e+06 Hz</td><td class="num">0.001 ms</td><td class="num">0.000732 ms</td><td>closes &#183; independent</td></tr><tr class="gap"><td><b>sgm</b></td><td>per stereo frame-pair</td><td class="num">40 Hz</td><td class="num">-</td><td class="num">-</td><td>no engine prices it</td></tr><tr><td><b>mono</b></td><td>per pixel</td><td class="num">6.2208e+07 Hz</td><td class="num">1.61e-05 ms</td><td class="num">2.54e-05 ms</td><td>1.58x in flight &#183; independent</td></tr><tr><td><b>lio</b></td><td>per input point</td><td class="num">1e+06 Hz</td><td class="num">0.001 ms</td><td class="num">0.00206 ms</td><td>2.06x in flight &#183; independent</td></tr><tr class="gap"><td><b>vio</b></td><td>per pixel</td><td class="num">1.24416e+08 Hz</td><td class="num">-</td><td class="num">-</td><td>no engine prices it</td></tr><tr><td><b>esdf</b></td><td>per map update</td><td class="num">10 Hz</td><td class="num">100 ms</td><td class="num">746 ms</td><td><b>7.46x over</b> &#183; sequential</td></tr><tr><td><b>sdfenc</b></td><td>per call</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">16.9 ms</td><td>1.69x in flight &#183; pipelined</td></tr><tr><td><b>policy</b></td><td>per call</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">6.94 ms</td><td>closes &#183; pipelined</td></tr><tr><td><b>mpc</b></td><td>per solve</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">0.247 ms</td><td>closes &#183; sequential</td></tr><tr><td><b>cbf</b></td><td>per solve</td><td class="num">100 Hz</td><td class="num">10 ms</td><td class="num">0.125 ms</td><td>closes &#183; sequential</td></tr><tr><td><b>ctrl</b></td><td>per update per DoF</td><td class="num">1600 Hz</td><td class="num">0.625 ms</td><td class="num">0.000147 ms</td><td>closes &#183; pipelined</td></tr></tbody></table></div>
+<p><b>The filter closes; an input it reads does not.</b> The 100 Hz <code>cbf</code> filter takes 125 us of its 10 ms period and needs 0.0125 of a core. That part is comfortable. What is not is <code>esdf</code> at 7.46x its period.</p><p><code>cbf</code> reads its hazards out of the ESDF, so at these rates it is correct arithmetic over a distance field that is 7.46x out of date.</p><p>A server count does not fix it. Its unit is per map update: the call <i>is</i> the loop iteration, so k servers carry k overlapping iterations rather than one faster one. That is a latency result, not a throughput result.</p><p><b>Two stages on the chain have no figure at all:</b> <code>sgm</code> and <code>vio</code>. Nothing prices them on either engine, so they contribute no time to the table above. The chain's true latency is longer than anything here by an unknown amount, which is why this page quotes no end-to-end number.</p>
+<h3>What this model cannot tell you</h3>
+<p>Everything below is required for a safety case and absent here. None of it is a gap we can
+close by computing harder; each needs evidence this repository does not hold.</p>
+<ul>
+<li><b>Worst-case execution time.</b> Every figure on this page is a mean rate from measured
+throughput. A deadline is met or missed in the tail, and we model no tail: no cache behaviour,
+no contention, no interrupt latency, no scheduler.</li>
+<li><b>Freedom from interference.</b> The chain shares one memory interface with everything else, and the largest other consumers are <code>det</code> at 17.1 GB/s and <code>radar</code> at 6.06 GB/s &mdash; 11% of the interface between them. Nothing here bounds what that contention does to a period on the chain.</li>
+<li><b>The safety island cannot be sized.</b> The design carries one (island_sram anchored, lockstep_r52_cores not), but the catalogue states no compute capability for it, so no stage can be placed on it and this page cannot tell you what could run there instead.</li>
+<li><b>Integrity level, fault coverage, diagnostic coverage, FIT rates and safe-state
+transition time.</b> The catalogue carries none of these, so this page makes no claim about
+any standard, and its numbers cannot be cited towards one.</li>
+</ul>
+<p class="note">Read the table as a necessary condition, not a sufficient one: a loop that
+does not close here will not close on real silicon, but a loop that closes here has only passed
+the easiest of the tests it has to pass.</p>
+
+
 
 
 <h2>Cross-check against the published annex</h2>
@@ -227,7 +253,7 @@ area would close that column outright.</b></p>
 &nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-drone-interceptor.html</code></p>
 <p class="note"><b>Confidence: UNKNOWN.</b>
 3 stage(s) no engine can be sized for: sgm, radar, vio</p>
-<p class="note">Generated 2026-09-22 from
+<p class="note">Generated 2026-09-23 from
 <code>kpu_t128_n7</code> at <code>tsmc_n7</code>.
 Every figure on this page is reproducible with the command in section 7.</p>
 </main></body></html>

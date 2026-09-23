@@ -599,6 +599,8 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 <div class="panel">{sizing_diagram(dossier, alternatives)}</div>
 {sections.get("analysis_3", "")}
 
+{sections.get("safety", "")}
+
 {sections.get("comparison", "")}
 
 {sections.get("crosscheck", "")}
