@@ -178,7 +178,7 @@ def tile_area_fit():
 SCOPE_CAVEATS: Dict[str, str] = {
     "autonomous_vehicle_sae_l4__l5_high__full_automation":
         "one profile for both levels; the stated suite is an L4-class build, so these "
-        "figures are a lower bound for L5",
+        "figures are a lower bound for L5 (graphs#339)",
 }
 
 #: The human framing of a mission, which is domain knowledge and not in
