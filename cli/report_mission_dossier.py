@@ -41,7 +41,7 @@ from graphs.estimation.soc.power import op_energy_pj  # noqa: E402
 from graphs.hardware.kpu_sku_generator import input_spec_from_compute_product  # noqa: E402
 from graphs.hardware.soc import compose_soc, load_designs, load_ip_library  # noqa: E402
 from graphs.hardware.soc.kpu_cores import KPU_CORES, sku_of  # noqa: E402
-from graphs.reporting.mission_dossier import ms, render, si  # noqa: E402
+from graphs.reporting.mission_dossier import gb, ms, render, si  # noqa: E402
 from graphs.reporting.output_format import write_report  # noqa: E402
 
 #: The smallest catalogued core with a stated domain-flow schedule. Sizing
@@ -179,6 +179,15 @@ USE_CASES: Dict[str, str] = {
 <p>A fanless, mains- or PoE-powered appliance watching four camera streams: a loading bay, a
 retail floor, a perimeter. It detects, tracks and flags anomalies on every frame, unattended,
 for years.</p>""",
+    "humanoid_cobot_human_adjacent_contact_rich": """
+<p>A {dof:g}-degree-of-freedom humanoid working alongside people and touching things: predicting
+human pose and intent, scheduling contact, and running a {cbf_hz:g} Hz safety filter over
+{cbf_haz:g} tracked hazards. There is no cage and no light curtain &mdash; the separation
+between the robot and a person is maintained in software, on this SoC, every millisecond.</p>
+<p>That makes it the one mission in the catalogue where latency is not a performance property.
+A late frame on a warehouse AMR is a slower robot; a late frame here is a person struck by a
+{dof:g}-joint arm. The {deadline:g} ms deadline on the sense-to-act chain is the whole
+specification.</p>""",
     "amr_logistics_mixed__dynamic_yard": """
 <p>A logistics AMR working a mixed yard: indoor-outdoor transitions, humans and vehicles moving
 around it, no fiducials to lean on, {speed:g} m/s. The same vehicle class as a warehouse AMR and
@@ -339,6 +348,9 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         "metres_hi": 250.0 * dossier.deadline_ms / 1000.0,
         # From the profile note, which states it; not inferred.
         "speed": _speed_from_note(dossier.note),
+        "dof": float(dossier.sensors.get("dof") or 0),
+        "cbf_hz": float(dossier.sensors.get("cbf_hz") or 0),
+        "cbf_haz": float(dossier.sensors.get("cbf_haz") or 0),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -430,6 +442,7 @@ has, and the figure beside it says by how much.</p>"""
 its core logic, because no absolute core area is published for the baseline. <b>An Andes core
 area would close that column outright.</b></p>"""
 
+    out["safety"] = _safety(dossier, soc)
     out["comparison"] = _comparison(dossier, compare)
     out["crosscheck"] = _crosscheck(dossier, crosscheck)
     out["provenance"] = f"""
@@ -492,6 +505,142 @@ def _times(rate_hz: float) -> str:
     if rate_hz < 1:
         return f"every {1 / rate_hz:.3g} seconds"
     return f"on each of its {si(rate_hz, '')} calls a second"
+
+
+def _safety(dossier, soc) -> str:
+    """What the model can and cannot say about the safety path.
+
+    Deliberately two halves. The first is arithmetic we stand behind; the
+    second is everything a functional-safety argument needs that this
+    model does not produce, named so nobody mistakes a throughput result
+    for a safety case.
+    """
+    from graphs.estimation.soc.dimensioning import overlap_concern
+
+    by_key = {st.key: st for st in dossier.stages}
+    chain = [st for st in dossier.stages if st.on_reactive_chain]
+    if not chain:
+        return ""
+    placed = {pl.stage: pl for pl in dossier.placements}
+
+    rows = []
+    for st in chain:
+        pl = placed.get(st.key)
+        if pl is None:
+            rows.append(f"<tr class=\"gap\"><td><b>{html_escape(st.key)}</b></td>"
+                        f"<td>{html_escape(st.unit)}</td>"
+                        f"<td class=\"num\">{st.rate_hz:g} Hz</td>"
+                        f"<td class=\"num\">-</td><td class=\"num\">-</td>"
+                        f"<td>no engine prices it</td></tr>")
+            continue
+        concern = overlap_concern(st.unit)
+        verdict = ("closes" if not pl.calls_overlap else
+                   f"<b>{pl.calls_in_flight:.3g}x over</b>" if concern == "sequential"
+                   else f"{pl.calls_in_flight:.3g}x in flight")
+        rows.append(
+            f"<tr><td><b>{html_escape(st.key)}</b></td>"
+            f"<td>{html_escape(st.unit)}</td>"
+            f"<td class=\"num\">{st.rate_hz:g} Hz</td>"
+            f"<td class=\"num\">{pl.period_s * 1e3:.3g} ms</td>"
+            f"<td class=\"num\">{pl.seconds_per_call * 1e3:.3g} ms</td>"
+            f"<td>{verdict} &#183; {html_escape(concern)}</td></tr>")
+
+    broken = [pl for pl in dossier.overlapping
+              if pl.stage in by_key and by_key[pl.stage].on_reactive_chain
+              and overlap_concern(by_key[pl.stage].unit) == "sequential"]
+    filters = [st for st in chain if "solve" in (st.unit or "") and st.key == "cbf"]
+
+    finding = ""
+    if filters and broken:
+        filt = filters[0]
+        pl = placed.get(filt.key)
+        names = _join(f"<code>{html_escape(b.stage)}</code> at "
+                      f"{b.calls_in_flight:.3g}x its period" for b in broken)
+        finding = f"""
+<p><b>The filter closes; its inputs do not.</b> The
+{filt.rate_hz:g} Hz <code>{html_escape(filt.key)}</code> filter takes
+{pl.seconds_per_call * 1e6:.0f} us of its {pl.period_s * 1e3:.3g} ms period and needs
+{_amount(filt.fits[pl.engine].servers_needed)} of a core. That part is comfortable. What is not
+is {names}. Both are on the sense-to-act chain, and
+<code>{html_escape(filt.key)}</code>'s own configuration reads its hazards out of the ESDF
+&mdash; so at these rates the filter is correct arithmetic over a distance field that is
+{max(b.calls_in_flight for b in broken):.3g}x out of date.</p>
+<p>A server count does not fix either one. Their units are a solve and a map update: the call
+<i>is</i> the loop iteration, so k servers carry k overlapping iterations rather than one faster
+one. That is a latency result, not a throughput result, and it is the one that matters here.</p>"""
+    elif broken:
+        names = _join(f"<code>{html_escape(b.stage)}</code> at {b.calls_in_flight:.3g}x"
+                      for b in broken)
+        finding = (f"<p><b>Stages on the sense-to-act chain that cannot close their loop:</b> "
+                   f"{names}. Their units are a solve or a map update, so the call is the loop "
+                   f"iteration and no server count shortens it.</p>")
+
+    # Who the chain shares memory with, named from this mission's own
+    # traffic rather than from whichever mission was in front of me.
+    off_chain = sorted((st for st in dossier.stages if not st.on_reactive_chain),
+                       key=lambda st: -st.bytes_per_s)[:2]
+    if off_chain and dossier.dram_supply_gb_per_s:
+        share = sum(st.bytes_per_s for st in off_chain) / (
+            dossier.dram_supply_gb_per_s * 1e9)
+        interference = (
+            "The chain shares one memory interface with everything else, and the largest "
+            "other consumers are "
+            + _join(f"<code>{html_escape(st.key)}</code> at {gb(st.bytes_per_s)}"
+                    for st in off_chain)
+            + f" &mdash; {share:.0%} of the interface between them. Nothing here bounds what "
+              f"that contention does to a period on the chain.")
+    else:
+        interference = ("The chain shares one memory interface with every other stage, and "
+                        "nothing here bounds what that contention does to a period on it.")
+
+    unpriced_chain = [st.key for st in chain if st.key not in placed]
+    if unpriced_chain:
+        finding += (
+            f"<p><b>{_count(len(unpriced_chain)).capitalize()} stage"
+            f"{'s' if len(unpriced_chain) != 1 else ''} on the chain "
+            f"{'have' if len(unpriced_chain) != 1 else 'has'} no figure at all:</b> "
+            + _join(f"<code>{html_escape(k)}</code>" for k in unpriced_chain)
+            + ". Nothing prices them on either engine, so they contribute no time to the "
+              "table above. The chain's true latency is longer than anything here by an "
+              "unknown amount, which is the reason this page quotes no end-to-end number.</p>")
+
+    island = next((b for b in soc.blocks if b.name == "safety_island"), None) if soc else None
+    island_line = ""
+    if island is not None:
+        anchored = [ln.name for ln in island.lines if ln.anchored]
+        unanchored = [ln.name for ln in island.lines if not ln.anchored]
+        island_line = (
+            f"<li><b>The safety island cannot be sized.</b> The design carries one "
+            f"({', '.join(html_escape(a) for a in anchored)} anchored, "
+            f"{', '.join(html_escape(u) for u in unanchored)} not), but the catalogue states "
+            f"no compute capability for it, so no stage can be placed on it and this page "
+            f"cannot tell you whether the filter could run there instead.</li>")
+
+    return f"""
+<h2>The safety path</h2>
+<p>This mission is human-adjacent and contact-rich, so the interesting question is not whether
+the arithmetic fits on average but whether each loop on the sense-to-act chain closes inside its
+own period. Sizing answers a rate; a safety argument needs a deadline. These are not the same
+question and this page answers only the first.</p>
+<div class="panel"><table><thead><tr><th>stage</th><th>unit</th><th>rate</th><th>period</th>
+<th>one call</th><th>verdict</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+{finding}
+<h3>What this model cannot tell you</h3>
+<p>Everything below is required for a safety case and absent here. None of it is a gap we can
+close by computing harder; each needs evidence this repository does not hold.</p>
+<ul>
+<li><b>Worst-case execution time.</b> Every figure on this page is a mean rate from measured
+throughput. A deadline is met or missed in the tail, and we model no tail: no cache behaviour,
+no contention, no interrupt latency, no scheduler.</li>
+<li><b>Freedom from interference.</b> {interference}</li>
+{island_line}
+<li><b>Integrity level, fault coverage, diagnostic coverage, FIT rates and safe-state
+transition time.</b> The catalogue carries none of these, so this page makes no claim about
+any standard, and its numbers cannot be cited towards one.</li>
+</ul>
+<p class="note">Read the table as a necessary condition, not a sufficient one: a loop that
+does not close here will not close on real silicon, but a loop that closes here has only passed
+the easiest of the tests it has to pass.</p>"""
 
 
 def _comparison_data(dossier, other) -> Optional[dict]:

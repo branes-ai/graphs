@@ -24,7 +24,11 @@ from graphs.core.pipeline_workload import load_autonomy_workload
 from graphs.estimation.soc import load_efficiency_tables, load_kernel_classes
 from dataclasses import replace
 
-from graphs.estimation.soc.dimensioning import dimension, provision
+from graphs.estimation.soc.dimensioning import (
+    dimension,
+    overlap_concern,
+    provision,
+)
 from graphs.estimation.soc.domainflow import fabric_ceilings
 from graphs.hardware.kpu_sku_generator import input_spec_from_compute_product
 from graphs.hardware.soc import compose_soc, load_designs, load_ip_library
@@ -395,6 +399,104 @@ def test_the_verdict_does_not_deny_what_does_serve_the_mission(interceptor, cli)
     text = cli.sections(interceptor, None, None, None)["verdict"]
     assert "Nothing in this parts list" not in text
     assert "This design does not serve this mission" in text
+
+
+COBOT = "humanoid_cobot_human_adjacent_contact_rich"
+
+
+@pytest.fixture(scope="module")
+def cobot(soc, ceilings):
+    profile = next(p for p in WORKLOAD.profiles if p.id == COBOT)
+    return dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings,
+                     target_utilization=0.85, tiles_per_server=128)
+
+
+def test_a_call_that_outlasts_its_period_is_detected(cobot):
+    """Sizing adds servers to meet a rate. It says nothing about whether
+    one call finishes before the next is due, and for a control loop that
+    is the only question that matters."""
+    by_stage = {p.stage: p for p in cobot.placements}
+    mpc = by_stage["mpc"]
+    assert mpc.period_s == pytest.approx(1 / 500)
+    assert mpc.seconds_per_call > mpc.period_s
+    assert mpc.calls_in_flight == pytest.approx(
+        mpc.seconds_per_call / mpc.period_s)
+    assert mpc.calls_overlap
+    # The 1 kHz safety filter itself closes comfortably.
+    cbf = by_stage["cbf"]
+    assert not cbf.calls_overlap
+    assert cbf.seconds_per_call < cbf.period_s / 5
+
+
+def test_overlap_is_read_through_the_stage_unit(cobot):
+    """A pixel overlapping is parallelism; a solve overlapping is a loop
+    that cannot close. The unit the catalogue states is what separates
+    them -- not a judgement about the algorithm."""
+    assert overlap_concern("per pixel") == "independent"
+    assert overlap_concern("per measured point") == "independent"
+    assert overlap_concern("per solve") == "sequential"
+    assert overlap_concern("per map update") == "sequential"
+    assert overlap_concern("per inference") == "pipelined"
+    by_key = {st.key: st for st in cobot.stages}
+    sequential = [p.stage for p in cobot.overlapping
+                  if overlap_concern(by_key[p.stage].unit) == "sequential"]
+    assert "mpc" in sequential and "esdf" in sequential
+    # ...and the point-wise stages are not counted as violations.
+    assert "tsdf" not in sequential and "mono" not in sequential
+
+
+def test_overlap_does_not_change_whether_the_design_fits(cobot):
+    """Overlap is a latency statement, not a server-count one, and the two
+    are reported separately."""
+    assert cobot.overlapping
+    assert cobot.oversubscribed          # this mission is short of CPU too
+    trimmed = replace(cobot, oversubscribed=(), unplaced=())
+    assert trimmed.fits and trimmed.overlapping
+
+
+def test_the_safety_section_covers_the_whole_chain(cobot, soc, cli):
+    block = cli._safety(cobot, soc)
+    chain = [st.key for st in cobot.stages if st.on_reactive_chain]
+    assert chain
+    for key in chain:
+        assert f"<b>{key}</b>" in block, key
+    # The filter closes and its inputs do not: that is the finding.
+    assert "The filter closes; its inputs do not" in block
+    assert "11.2x its period" in block or "11.2x" in block
+    # Chain stages nothing prices are named rather than silently omitted.
+    for key in cobot.unplaced:
+        if key in chain:
+            assert key in block
+
+
+def test_the_safety_section_names_no_standard_and_promises_nothing(cobot, soc, cli):
+    """A throughput model must not read as a safety case."""
+    block = " ".join(cli._safety(cobot, soc).split())
+    assert "makes no claim about any standard" in block
+    assert "Worst-case execution time" in block
+    assert "necessary condition, not a sufficient one" in block
+    for word in ("certified", "compliant", "SIL ", "PL d", "guarantee"):
+        assert word not in block, word
+
+
+def test_the_interference_note_names_this_mission_s_own_traffic(cobot, soc, cli):
+    """Hardcoding "the detector and the VLA" would be wrong for a mission
+    that has neither."""
+    block = cli._safety(cobot, soc)
+    off_chain = sorted((st for st in cobot.stages if not st.on_reactive_chain),
+                       key=lambda st: -st.bytes_per_s)[:2]
+    for st in off_chain:
+        assert f"<code>{st.key}</code>" in block
+
+
+def test_a_mission_with_no_reactive_chain_gets_no_safety_section(cli, soc, ceilings):
+    from dataclasses import replace as _replace
+
+    profile = next(p for p in WORKLOAD.profiles if p.id == MISSION)
+    base = dimension(WORKLOAD, profile, soc, KERNELS, TABLE, ceilings, 0.85, 128)
+    flat = _replace(base, stages=tuple(
+        _replace(st, on_reactive_chain=False) for st in base.stages))
+    assert cli._safety(flat, soc) == ""
 
 
 AMR_HARD = "amr_logistics_mixed__dynamic_yard"

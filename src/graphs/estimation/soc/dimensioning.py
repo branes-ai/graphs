@@ -177,6 +177,29 @@ class Placement:
     #: Share of the sized engine this stage alone consumes.
     utilization: float
     provenance: str
+    #: Seconds one call takes on a single server. Sizing adds servers to
+    #: meet a *rate*; this is what one call costs, and no number of
+    #: servers shortens it unless the call itself parallelises -- which
+    #: this model does not represent.
+    seconds_per_call: float = 0.0
+    #: Seconds between calls at the stage's own rate.
+    period_s: float = 0.0
+
+    @property
+    def calls_overlap(self) -> bool:
+        """True when one call outlasts the interval to the next.
+
+        Throughput sizing still reports a fit, because k servers can carry
+        k calls at once. For an iterative loop -- a controller solving from
+        the previous solution -- that is not a fit at all, and the page
+        must not let a server count imply otherwise.
+        """
+        return self.period_s > 0 and self.seconds_per_call > self.period_s
+
+    @property
+    def calls_in_flight(self) -> float:
+        """How many calls are open at once when they overlap."""
+        return 0.0 if self.period_s <= 0 else self.seconds_per_call / self.period_s
 
 
 @dataclass(frozen=True)
@@ -241,8 +264,18 @@ class Dossier:
         return self.datapath_total_w / self.power_budget_w
 
     @property
+    def overlapping(self) -> Tuple[Placement, ...]:
+        """Placed stages whose single call outlasts its own period."""
+        return tuple(p for p in self.placements if p.calls_overlap)
+
+    @property
     def fits(self) -> bool:
-        """False when the demand does not fit the design at all."""
+        """False when the demand does not fit the design at all.
+
+        Overlap is deliberately not folded in here: it is a statement
+        about one stage's latency, not about whether the machine has
+        enough servers, and the two are reported separately.
+        """
         return not self.unplaced and not self.oversubscribed
 
     @property
@@ -320,6 +353,34 @@ def fit_stage(stage, rate_hz: float, kernel, engine, table: Optional[EfficiencyT
     return EngineFit(engine=engine.name if hasattr(engine, "name") else "",
                      kind=_kind(engine), classes=tuple(classes), servers_needed=total,
                      provenance=PROVENANCE[worst], gap=gap)
+
+
+#: What a stage's own unit says about whether its calls may overlap.
+#: Sourced from the unit strings the workload catalogue uses, not from a
+#: judgement about the algorithm.
+ELEMENT_UNITS = ("per pixel", "per input point", "per measured point",
+                 "per candidate viewpoint")
+ITERATE_UNITS = ("per solve", "per map update", "per replan")
+
+
+def overlap_concern(unit: str) -> str:
+    """Whether one call outlasting its period is a defect.
+
+    * ``independent`` -- the unit names an element of a batch (a pixel, a
+      point). Calls do not depend on one another, so overlap is simply
+      parallelism.
+    * ``sequential`` -- the unit names a solve or an update of shared
+      state. The call *is* the loop iteration, so overlap means the loop
+      cannot close at its stated rate, and no server count fixes it.
+    * ``pipelined`` -- an inference, a query, a frame. Instances can
+      overlap, at the cost of end-to-end latency rather than rate.
+    """
+    unit = (unit or "").strip().lower()
+    if unit in ELEMENT_UNITS:
+        return "independent"
+    if unit in ITERATE_UNITS:
+        return "sequential"
+    return "pipelined"
 
 
 def _kind(engine) -> str:
@@ -431,12 +492,17 @@ def dimension(workload: PipelineWorkload, profile: MissionProfile, soc: SoCInsta
             calls_per_frame = stage.calls_per_s / frame_hz if frame_hz else 1.0
             seconds = sum(c.ops_per_s / c.throughput_per_server
                           for c in fit.classes if c.throughput_per_server)
+            per_call = (sum(c.ops_per_s / c.throughput_per_server
+                            for c in fit.classes if c.throughput_per_server)
+                        / stage.rate_hz) if stage.rate_hz else 0.0
             placements.append(Placement(
                 stage=stage.key, engine=name, servers=servers,
                 calls_per_frame=calls_per_frame,
                 seconds_per_frame=seconds / servers / frame_hz if frame_hz else 0.0,
                 utilization=fit.servers_needed / servers if servers else 0.0,
-                provenance=fit.provenance))
+                provenance=fit.provenance,
+                seconds_per_call=per_call,
+                period_s=1.0 / stage.rate_hz if stage.rate_hz else 0.0))
 
     watts: Dict[str, float] = {}
     energy_gaps: List[str] = []
@@ -481,5 +547,6 @@ class _Scaled:
         return self._engine.server_peak_ops_per_s(fmt) / self._divisor
 
 
-__all__ = ["ClassFit", "Dossier", "EngineFit", "PROVENANCE", "Placement", "Provision",
-           "StageDemand", "dimension", "fit_stage", "provision"]
+__all__ = ["ClassFit", "Dossier", "ELEMENT_UNITS", "EngineFit", "ITERATE_UNITS", "PROVENANCE",
+           "Placement", "Provision", "StageDemand", "dimension", "fit_stage",
+           "overlap_concern", "provision"]
