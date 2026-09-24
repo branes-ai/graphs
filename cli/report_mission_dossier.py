@@ -1314,8 +1314,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     idle = [("ISP", "no capability stated"), ("codec", "not used")]
     # Attach the sensor path to the stage that actually consumes it, not
     # to whichever stage happens to sort first.
+    # Named for the stage it measures: a mission with a stereo pair has
+    # camera traffic this path does not carry.
     camera = next((st for st in dossier.stages if st.key == "mono"), None)
-    ingress = ("cameras", camera.bytes_per_s) if camera else None
+    ingress = ("mono cameras", camera.bytes_per_s) if camera else None
     write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
                                  args.target_utilization, args.output or "",
                                  crosscheck, compare),

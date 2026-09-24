@@ -309,6 +309,44 @@ def test_a_pipeline_with_no_common_cadence_quotes_no_latency(unfittable, dossier
     assert "/frame" in pipeline_graph(dossier, latency_per_frame=True)
 
 
+def test_the_pipeline_draws_no_dependency_it_was_not_given(unfittable, dossier):
+    """The workload states a demand per stage and no dependency between
+    stages. Connecting adjacent boxes and labelling each edge with the
+    destination's own byte demand invented a dataflow."""
+    for d in (unfittable, dossier):
+        svg = pipeline_graph(d, latency_per_frame=False)
+        assert "url(#arrow)" not in svg
+        assert 'class="edge-l"' not in svg
+        assert "dependency between stages" in svg
+    # Each box still carries its own demand, so nothing real was lost.
+    svg = pipeline_graph(dossier, latency_per_frame=False)
+    assert svg.count('class="n-row"') >= 2 * len(dossier.stages)
+
+
+def test_a_tier_band_only_labels_a_row_of_one_tier(unfittable, dossier):
+    """A wrapped row can span tiers; naming it after its first stage
+    would be wrong about the rest."""
+    for d in (unfittable, dossier):
+        svg = pipeline_graph(d, latency_per_frame=False)
+        bands = re.findall(r'class="tier-band"[^>]*>([^<]*)', svg)
+        tiers = {st.tier for st in d.stages}
+        assert len(bands) <= len(tiers)
+    # The two-stage mission spans T1 and T4 on one row, so it gets none.
+    assert not re.findall(r'class="tier-band"',
+                          pipeline_graph(dossier, latency_per_frame=False))
+
+
+def test_the_pipeline_subtitle_fits_its_own_viewbox(dossier, unfittable):
+    """SVG text does not wrap, so a one-line explanation overflowed the
+    narrow layouts and was clipped."""
+    for d in (dossier, unfittable):
+        svg = pipeline_graph(d, latency_per_frame=False)
+        width = float(re.search(r'viewBox="0 0 ([\d.]+)', svg).group(1))
+        for line in re.findall(r'class="dsub"[^>]*>([^<]*)', svg):
+            # 11px text, conservatively ~5.2 units per character.
+            assert len(line) * 5.2 < width, (len(line), width)
+
+
 def test_the_pipeline_wraps_rather_than_shrinking(unfittable, dossier):
     """18 boxes on one line scale down to an illegible strip."""
     wide = pipeline_graph(unfittable, latency_per_frame=False)
