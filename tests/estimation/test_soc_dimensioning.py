@@ -33,10 +33,15 @@ from graphs.estimation.soc.domainflow import fabric_ceilings
 from graphs.hardware.kpu_sku_generator import input_spec_from_compute_product
 from graphs.hardware.soc import compose_soc, load_designs, load_ip_library
 from graphs.hardware.soc.kpu_cores import sku_of
+from graphs.hardware.soc.floorplan import compose_resources
 from graphs.reporting.mission_dossier import (
     block_diagram,
+    density_table,
+    floorplan_diagram,
     pipeline_graph,
     render,
+    scaling_table,
+    silicon_table,
     sizing_diagram,
 )
 
@@ -203,17 +208,23 @@ def test_a_design_that_fits_reports_no_oversubscription(dossier):
 # ---------------------------------------------------------------------------
 
 
-def _all_svgs(dossier) -> str:
+@pytest.fixture(scope="module")
+def composition(soc):
+    return compose_resources(soc)
+
+
+def _all_svgs(dossier, composition=None) -> str:
     return (pipeline_graph(dossier) + block_diagram(dossier, [("ISP", "idle")])
             + sizing_diagram(dossier, [{"label": "alt", "unit": "core", "needed": 19.9,
                                         "provisioned": 24, "kind": "cpu", "rejected": True,
-                                        "note": "n"}]))
+                                        "note": "n"}])
+            + ("" if composition is None else floorplan_diagram(composition, "Andes RISC-V")))
 
 
-def test_every_shape_closes_its_own_tag(dossier):
+def test_every_shape_closes_its_own_tag(dossier, composition):
     """An unquoted attribute value swallows the closing slash; the element
     never self-closes and every later sibling nests inside it and vanishes."""
-    markup = _all_svgs(dossier)
+    markup = _all_svgs(dossier, composition)
     for tag in re.findall(r"<(?:rect|line|circle|path)\b[^>]*>", markup):
         assert tag.endswith("/>"), tag
     for attribute in re.findall(r'\s[a-z-]+=(?!")[^\s>]+', markup):
@@ -970,7 +981,7 @@ def test_cli_writes_a_standalone_page(tmp_path):
     page = out.read_text()
     assert page.startswith("<!DOCTYPE html>") and page.rstrip().endswith("</html>")
     assert "<script" not in page and "<link" not in page
-    assert page.count('class="diagram"') == 3
+    assert page.count('class="diagram"') == 4
     for heading in ("The use case", "Product requirements", "The workload",
                     "The configuration", "dimensioning the engines", "What this rests on"):
         assert heading in page
@@ -1068,3 +1079,152 @@ def test_the_page_names_the_table_it_was_built_from(tmp_path):
     # The reproduction command has to carry the table, or it reproduces
     # something else.
     assert "--efficiency orin_nano_measured_v1" in text
+
+
+# ---------------------------------------------------------------------------
+# Section 7: the floorplan, and what the silicon is made of
+# ---------------------------------------------------------------------------
+
+
+def test_the_floorplan_places_exactly_the_area_it_claims(composition):
+    """A treemap that does not tile its rectangle is a picture of areas
+    nobody has. Every cell must be inside the core square, and the cells
+    together must be the core square."""
+    from graphs.reporting.mission_dossier import DIE_PX, _squarify
+
+    cells = [(b.name, b.area_mm2) for b in composition.blocks if b.area_mm2 > 0]
+    cells.append(("whitespace", composition.whitespace_mm2))
+    cells.sort(key=lambda r: -r[1])
+    ring = DIE_PX * (composition.io_ring_mm / composition.die_side_mm)
+    core = DIE_PX - 2 * ring
+    placed = _squarify(cells, ring, ring, core, core)
+    assert len(placed) == len(cells)
+    assert sum(w * h for _k, _x, _y, w, h in placed) == pytest.approx(core * core)
+    for key, x, y, w, h in placed:
+        assert x >= ring - 1e-6 and y >= ring - 1e-6, key
+        assert x + w <= ring + core + 1e-6, key
+        assert y + h <= ring + core + 1e-6, key
+        # ...and in proportion: each cell's share of the square is its
+        # share of the core area.
+        share = dict(cells)[key] / composition.core_area_mm2
+        assert (w * h) / (core * core) == pytest.approx(share, rel=1e-6), key
+
+
+def test_a_block_with_no_figure_is_not_drawn_as_though_it_had_one(composition):
+    """Five blocks on this design price at nothing. Giving them a cell
+    would be inventing an area; leaving them out silently would make the
+    drawing read as a complete die."""
+    svg = floorplan_diagram(composition, "Andes RISC-V")
+    assert composition.gap_blocks
+    for block in composition.gap_blocks:
+        assert f">{block.name}<" in svg
+    assert "nothing states a size" in svg
+    assert "floor" in svg
+    # The cell colours are engine hues and the gap outline; no block with
+    # no area gets a filled cell.
+    filled = re.findall(r'<rect[^>]*fill="var\(--(cpu|kpu|other)\)"', svg)
+    assert len(filled) == 2 * (len([b for b in composition.blocks if b.area_mm2 > 0]))
+
+
+def test_the_page_says_a_gate_count_is_a_convention_not_a_figure(cli, dossier,
+                                                                 composition):
+    """Nothing in this repository carries a gate count. A gates column on
+    a partner document that does not say so is a fabricated figure."""
+    assert "gates (M, NAND2)" in silicon_table(composition, "Andes RISC-V")
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    law = cli.scaling_law_for("kpu_t128_n7")
+    out = cli._floorplan(composition, law, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+    note = out["silicon_note"]
+    assert "convention" in note
+    assert "2-input NAND" in note
+    assert "not as a synthesis result" in note
+
+
+def test_the_page_claims_no_cost_model_it_does_not_have(cli, dossier, composition):
+    """Area is the proxy. There is no wafer price, no defect density and
+    no yield model anywhere in this repository, so no figure here may be
+    a cost."""
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    law = cli.scaling_law_for("kpu_t128_n7")
+    out = cli._floorplan(composition, law, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+    costing = " ".join(out["costing"].split())
+    assert "Nothing here carries a wafer price, a defect density or a yield model" in costing
+    assert "is not a cost ratio" in costing
+    for page in out.values():
+        assert "$" not in page
+        assert "cost per" not in page
+
+
+def test_the_worked_example_names_the_block_its_line_belongs_to(cli, dossier,
+                                                               composition):
+    """The first cut called every line "the fabric's", including ones that
+    were not. A worked example that misattributes its own figure is worse
+    than none."""
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    law = cli.scaling_law_for("kpu_t128_n7")
+    out = cli._floorplan(composition, law, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+    intro = out["floorplan"]
+    assert "The fabric's" not in intro
+    logic = max((ln for b in composition.blocks for ln in b.lines if ln.gates_m),
+                key=lambda ln: ln.transistors_mtx)
+    assert f"{logic.block}'s <code>{logic.name}</code>" in intro
+    # ...and the division it quotes is the one that produced the area.
+    assert f"{logic.mtx_per_mm2:,.0f} Mtx/mm&sup2;" in intro
+    assert f"{logic.area_mm2:.3f} mm&sup2;" in intro
+
+
+def test_the_floorplan_says_nothing_about_the_mission_but_its_sizing(cli, composition):
+    """The recurring defect on this page: prose written against one
+    mission carried to the next with a claim that only held for the
+    first. Section 7 describes a die, so only the sizing paragraph may
+    differ between two missions on the same design."""
+    law = cli.scaling_law_for("kpu_t128_n7")
+    built = {}
+    for mission in (MISSION, QUADRUPED):
+        dossier, _soc, _t = cli.build(mission, "kpu_t128_n7",
+                                      "orin_nano_measured_v1", 0.85)
+        kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+        cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+        built[mission] = cli._floorplan(composition, law, dossier, kpu, cpu, 0.85,
+                                        "Andes RISC-V", 128)
+    one, two = built[MISSION], built[QUADRUPED]
+    assert set(one) == set(two)
+    for key in one:
+        if key == "scaling":
+            assert one[key] != two[key]
+            continue
+        assert one[key] == two[key], key
+    # The two missions size very differently, and the sizing paragraph is
+    # where that shows.
+    sized = {m: " ".join(built[m]["scaling"].split()) for m in built}
+    assert "1 tile and 4 cores provisioned" in sized[MISSION]
+    assert "1 tile and 4 cores provisioned" not in sized[QUADRUPED]
+
+
+def test_a_die_the_catalogue_does_not_contain_is_labelled_an_extrapolation(cli,
+                                                                          composition,
+                                                                          dossier):
+    """The line was fitted between 64 and 512 tiles. Pricing a one-tile
+    fabric with it is arithmetic off the end of the evidence."""
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    law = cli.scaling_law_for("kpu_t128_n7")
+    out = cli._floorplan(composition, law, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+    assert "fitted between 64 and 512 tiles" in out["scaling"]
+    assert "extrapolation" in out["scaling"]
+    table = scaling_table(law, 1, 4, "Andes RISC-V")
+    assert "1 tile<" in table and "1 tiles" not in table
+    assert f"{law.die_area_mm2(1, 4):.3f}" in table
+
+
+def test_the_density_table_cites_the_library_every_area_was_divided_by(composition):
+    """An area is a division, and the page owes the reader the divisor and
+    where it came from."""
+    table = density_table(composition)
+    for entry in composition.classes:
+        assert entry.library in table
+        assert entry.density_source in table
+        assert f"{entry.mtx_per_mm2:,.0f}" in table
