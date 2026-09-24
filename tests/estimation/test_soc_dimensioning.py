@@ -794,6 +794,37 @@ def test_the_comparison_is_also_data(cli):
     assert cli._comparison_data(hard, None) is None
 
 
+DRONE_ENDURANCE = "drone_isr_endurance__wide_area_search"
+
+
+def test_a_comparison_reports_falls_as_well_as_rises(cli):
+    """The endurance drone needs less of almost everything than the
+    interceptor and 399x the accelerator. Reporting only the increases
+    would make that pair look as though nothing moved."""
+    hard, _s1, _t1 = cli.build(DRONE_ENDURANCE, "kpu_t128_n7",
+                               "orin_nano_measured_v1", 0.85)
+    other, _s2, _t2 = cli.build(INTERCEPTOR, "kpu_t128_n7",
+                                "orin_nano_measured_v1", 0.85)
+    block = cli._comparison(hard, other)
+    assert "at least halves" in block
+    assert "<code>det</code>" in block.split("at least halves")[1]
+    data = cli._comparison_data(hard, other)
+    assert data["engines"]["kpu"]["ratio"] > 100
+    assert data["engines"]["cpu"]["ratio"] < 1
+    assert "vlm" in data["added_stages"]
+
+
+def test_a_tiny_quantity_qualifies_its_own_disagreement(cli):
+    """A 23.8% difference on a share that is 0.3% of the workload says
+    less than the number suggests; the page says so rather than quoting
+    it bare."""
+    d, _soc, _t = cli.build(DRONE_ENDURANCE, "kpu_t128_n7",
+                            "orin_nano_measured_v1", 0.85)
+    block = " ".join(cli._crosscheck(d, cli.pooled_figures(DRONE_ENDURANCE)).split())
+    assert "largest disagreement" in block
+    assert "of the workload, where the published figure carries one significant figure" in block
+
+
 def test_no_comparison_section_without_a_second_mission(dossier, cli):
     assert cli._comparison(dossier, None) == ""
 

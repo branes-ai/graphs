@@ -221,6 +221,15 @@ specification.</p>""",
 around it, no fiducials to lean on, {speed:g} m/s. The same vehicle class as a warehouse AMR and
 very nearly the same pipeline &mdash; what differs is that nothing about the environment is known
 in advance.</p>""",
+    "drone_isr_endurance__wide_area_search": """
+<p>A small drone searching wide areas for a long time, emissions-restricted: it cannot radio
+home for help, so whatever interprets what it sees has to run on the airframe. That is why
+there is a 2-billion-parameter vision-language model in the loop at {vlm_qps:g} queries a
+second, and it is the whole reason this mission looks the way it does.</p>
+<p>Everything else is modest. {cameras:g} cameras at 20 Hz, one stereo pair, one radar, a
+{deadline:g} ms deadline that is generous for the speeds involved, and {budget:g} W to fly on.
+The interesting comparison is the interceptor: the same airframe class and the same power
+budget, flown at the opposite time constant, with no VLM aboard.</p>""",
     "drone_interceptor_terminal_engagement": """
 <p>A small interceptor flying the terminal phase of an engagement: closing at 150-250 m/s on a
 manoeuvring target, with the whole sense-decide-act loop onboard. No VLM, no operator, no second
@@ -382,6 +391,7 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         "cbf_haz": float(dossier.sensors.get("cbf_haz") or 0),
         "cameras": float((dossier.sensors.get("mono") or [0])[0]),
         "radars": float((dossier.sensors.get("radar") or [0])[0]),
+        "vlm_qps": float(dossier.sensors.get("vlm_qps") or 0),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -753,7 +763,7 @@ def _comparison(dossier, other) -> str:
             f"<td class=\"num\">{_amount(ratio)}x</td></tr>")
     ours_stage = {st.key: st for st in dossier.stages}
     theirs_stage = {st.key: st for st in other.stages}
-    movers, added = [], []
+    movers, fallers, added = [], [], []
     for key, st in ours_stage.items():
         was = theirs_stage.get(key)
         if was is None or not was.ops_per_s:
@@ -762,13 +772,21 @@ def _comparison(dossier, other) -> str:
         ratio = st.ops_per_s / was.ops_per_s
         if ratio >= 2.0:
             movers.append((ratio, key, was.rate_hz, st.rate_hz))
+        elif ratio <= 0.5:
+            fallers.append((ratio, key, was.rate_hz, st.rate_hz))
     movers.sort(reverse=True)
+    fallers.sort()
     if not rows:
         return ""
     driver = ""
     if movers:
         top = ", ".join(f"<code>{html_escape(k)}</code> {r:.2g}x" for r, k, _a, _b in movers[:6])
         driver += f"<p>Stages whose arithmetic at least doubles: {top}.</p>"
+    if fallers:
+        # A comparison can run the easier way, and reporting only the
+        # increases would make such a pair look as if nothing moved.
+        low = ", ".join(f"<code>{html_escape(k)}</code> {r:.2g}x" for r, k, _a, _b in fallers[:6])
+        driver += f"<p>Stages whose arithmetic at least halves: {low}.</p>"
     if added:
         # Rendered independently: a comparison can add stages without any
         # existing stage moving, and the guard used to hide that entirely.
@@ -829,14 +847,20 @@ def _crosscheck(dossier, derived) -> str:
             continue
         ours, theirs = derived[key], published[key]
         delta = abs(ours - theirs) / theirs if theirs else 0.0
-        deltas.append((delta, label))
+        deltas.append((delta, label, key, theirs))
         rows.append(f"<tr><td>{html_escape(label)}</td>"
                     f"<td class=\"num\">{fmt.format(ours)}</td>"
                     f"<td class=\"num\">{fmt.format(theirs)}</td>"
                     f"<td class=\"num\">{delta:.1%}</td></tr>")
     if not rows:
         return ""
-    worst_delta, worst_label = max(deltas)
+    worst_delta, worst_label, worst_key, worst_value = max(deltas)
+    # A large relative difference on a quantity that is a fraction of a
+    # percent says less than the number suggests, and saying so is more
+    # honest than quoting it bare or quietly dropping it.
+    tiny = worst_key.endswith("_share") and worst_value < 0.05
+    qualifier = (f" &mdash; a quantity that is {worst_value:.1%} of the workload, where the "
+                 f"published figure carries one significant figure" if tiny else "")
     return f"""
 <h2>Cross-check against the published annex</h2>
 <p>This mission is one of two the companion annex publishes figures for. Ours are derived
@@ -845,8 +869,8 @@ independently from per-stage operation and byte counts; theirs come from
 <div class="panel"><table><thead><tr><th>quantity</th><th>ours</th><th>published</th>
 <th>difference</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
 <p class="note">{len(rows)} independent quantities, and the largest disagreement is
-{worst_delta:.1%} ({html_escape(worst_label.lower())}). <b>This validates the demand model, not
-the sizing.</b> The published oversubscription is against the annex's own pooled
+{worst_delta:.1%} ({html_escape(worst_label.lower())}){qualifier}. <b>This validates the demand
+model, not the sizing.</b> The published oversubscription is against the annex's own pooled
 machine &mdash; one throughput figure per precision class, no engines &mdash; so it is not
 comparable to the per-engine utilizations in section 6, and we do not treat it as if it were.</p>"""
 
