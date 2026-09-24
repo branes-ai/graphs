@@ -492,7 +492,7 @@ def test_the_safety_section_says_nothing_mission_specific(cli, soc, ceilings):
             assert "either one" not in block, mission
         # The ESDF claim only where the ESDF is actually broken.
         if not any(p.stage == "esdf" for p in broken):
-            assert "out of date" not in block, mission
+            assert "reads its hazards out of the" not in block, mission
 
 
 def test_the_esdf_claim_is_checked_against_the_filter_config(cobot, soc, cli):
@@ -501,14 +501,19 @@ def test_the_esdf_claim_is_checked_against_the_filter_config(cobot, soc, cli):
     configuration -- a comment promising the check is not the check."""
     cbf = next(st for st in cobot.stages if st.key == "cbf")
     assert any("esdf" in k.lower() for k in cbf.config), cbf.config
-    assert "out of date" in cli._safety(cobot, soc)
+    block_on = cli._safety(cobot, soc)
+    assert "reads its hazards out of the" in block_on
+    # The ratio is service time over period, never asserted as the age of
+    # the data: late updates may queue, so the age is unbounded.
+    assert "service-time-to-period ratio, not the age of the data" in " ".join(block_on.split())
+    assert "the age is unbounded here" in " ".join(block_on.split())
     # Strip the ESDF out of the filter's config and the claim goes with it.
     blind = replace(cobot, stages=tuple(
         replace(st, config={k: v for k, v in st.config.items()
                             if "esdf" not in k.lower()})
         if st.key == "cbf" else st for st in cobot.stages))
     block = cli._safety(blind, soc)
-    assert "out of date" not in block
+    assert "reads its hazards out of the" not in block
     # ...while the rest of the finding survives.
     assert "The filter closes" in block
 

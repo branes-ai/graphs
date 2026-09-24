@@ -621,8 +621,13 @@ def _safety(dossier, soc) -> str:
             if esdf is not None and reads_esdf:
                 finding += (
                     f"<p><code>{html_escape(filt.key)}</code> reads its hazards out of the "
-                    f"ESDF, so at these rates it is correct arithmetic over a distance field "
-                    f"that is {esdf.calls_in_flight:.3g}x out of date.</p>")
+                    f"ESDF, so the filter is correct arithmetic over a distance field the "
+                    f"machine cannot refresh at the rate the mission asks for. One update "
+                    f"takes {esdf.calls_in_flight:.3g}x its own period &mdash; that is a "
+                    f"service-time-to-period ratio, not the age of the data. How old the "
+                    f"hazards actually are depends on whether late updates queue or are "
+                    f"dropped, which is a scheduling policy this model does not carry, so "
+                    f"the age is unbounded here rather than {esdf.calls_in_flight:.3g}x.</p>")
         else:
             finding += (f"<p><b>{_count(len(broken)).capitalize()} stage"
                         f"{'s' if len(broken) != 1 else ''} on the sense-to-act chain cannot "
@@ -1307,8 +1312,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                     f"{alt['watts'] * 1e3:.0f} mW of datapath",
         })
     idle = [("ISP", "no capability stated"), ("codec", "not used")]
-    first = dossier.stages[0] if dossier.stages else None
-    ingress = ("sensors", first.bytes_per_s) if first else None
+    # Attach the sensor path to the stage that actually consumes it, not
+    # to whichever stage happens to sort first.
+    camera = next((st for st in dossier.stages if st.key == "mono"), None)
+    ingress = ("cameras", camera.bytes_per_s) if camera else None
     write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
                                  args.target_utilization, args.output or "",
                                  crosscheck, compare),
