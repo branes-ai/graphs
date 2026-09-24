@@ -881,6 +881,14 @@ def test_the_comparison_is_phrased_from_the_true_side(cli):
         next(p for p in d.provisions if p.kind == "cpu"), 0.85, None, tiles)
     block = " ".join(re.sub(r"<[^>]+>", "", raw).split())
     assert "vlm does only" in block and "more tiles" in block
+    # Every pair that follows names its subjects in the lead's order.
+    pair = re.search(r"intensity[^\d]*([\d.]+) operations per byte against[^\d]*([\d.]+)",
+                     block)
+    assert pair, block[:200]
+    assert float(pair.group(1)) < float(pair.group(2))   # vlm is the less intense
+    ceilings = re.search(r"ceiling of ([\d.]+)% against ([\d.]+)%", block)
+    assert ceilings, block[:200]
+    assert float(ceilings.group(1)) < float(ceilings.group(2))  # vlm's comes first
     # The figures follow the subject: the bigger tile count comes first.
     tail = block.split("more tiles:")[1]
     first = float(tail.split("against")[0].strip().replace(",", ""))

@@ -1090,7 +1090,10 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                 tiles_ratio = (top_fit.servers_needed or 0) / (other_fit.servers_needed or 1)
                 # Say it from whichever side makes the sentence true: the
                 # comparand does not always do more arithmetic.
-                if other.ops_per_s >= top.ops_per_s:
+                # Whichever stage the lead names first, the pairs that
+                # follow name in the same order.
+                other_first = other.ops_per_s >= top.ops_per_s
+                if other_first:
                     lead = (f"<code>{html_escape(other.key)}</code> does "
                             f"{other.ops_per_s / top.ops_per_s:.2g}x the arithmetic of "
                             f"<code>{html_escape(top.key)}</code> &mdash; "
@@ -1113,16 +1116,19 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                            if top.bytes_per_call else None)
                 theirs_ai = (other.ops_per_call / other.bytes_per_call
                              if other.bytes_per_call else None)
-                intensity = ""
+                first_ai, second_ai = ((theirs_ai, ours_ai) if other_first
+                                       else (ours_ai, theirs_ai))
+                first_eff, second_eff = ((other_eff, eff) if other_first
+                                         else (eff, other_eff))
                 if ours_ai and theirs_ai:
                     intensity = (f" What separates them is arithmetic intensity &mdash; "
-                                 f"{theirs_ai:.3g} operations per byte against "
-                                 f"{ours_ai:.3g} &mdash; and what the domain-flow model "
-                                 f"makes of it: a ceiling of {other_eff:.1%} against "
-                                 f"{eff:.2%}.")
+                                 f"{first_ai:.3g} operations per byte against "
+                                 f"{second_ai:.3g} &mdash; and what the domain-flow model "
+                                 f"makes of it: a ceiling of {first_eff:.2%} against "
+                                 f"{second_eff:.2%}.")
                 else:
-                    intensity = (f" Their domain-flow ceilings are {other_eff:.1%} and "
-                                 f"{eff:.2%}.")
+                    intensity = (f" Their domain-flow ceilings are {first_eff:.2%} and "
+                                 f"{second_eff:.2%}.")
                 parts.append(
                     f"<p><b>The comparison is on this page.</b> {lead}. "
                     f"Same fabric, same second.{intensity}</p>")
