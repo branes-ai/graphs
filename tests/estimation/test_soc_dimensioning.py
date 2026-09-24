@@ -840,6 +840,48 @@ def test_the_comparison_is_also_data(cli):
 
 
 DRONE_ENDURANCE = "drone_isr_endurance__wide_area_search"
+HOUSE_WORK = "humanoid_house_work_open_world_long_horizon"
+
+
+def test_two_models_on_one_fabric_are_compared_directly(cli):
+    """House work carries both a VLA and a VLM, so the weight-streaming
+    cost can be shown within one mission instead of across two."""
+    d, soc, tiles = cli.build(HOUSE_WORK, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    raw = cli._the_ask(
+        d, cli._facts(d, None),
+        next(p for p in d.provisions if p.kind == "kpu"),
+        next(p for p in d.provisions if p.kind == "cpu"), 0.85, None, tiles)
+    block = " ".join(re.sub(r"<[^>]+>", "", raw).split())
+    assert "comparison is on this page" in block
+    # The comparand is the biggest other arithmetic load, not the best
+    # ceiling: "the stage doing the most work needs the fewest tiles".
+    assert "vla does" in block and "of vlm" in block
+    assert "fewer tiles" in block
+    assert "most worth challenging" in block
+    by = {st.key: st for st in d.stages}
+    assert by["vla"].ops_per_s > by["vlm"].ops_per_s
+    vla_fit = by["vla"].fits["kpu"]
+    vlm_fit = by["vlm"].fits["kpu"]
+    assert vlm_fit.servers_needed > 100 * vla_fit.servers_needed
+
+
+def test_the_comparison_is_phrased_from_the_true_side(cli):
+    """On the endurance drone the dominant stage does *more* arithmetic
+    than its comparand, so "does 0.72x the arithmetic" would be a
+    contortion."""
+    d, _soc, tiles = cli.build(DRONE_ENDURANCE, "kpu_t128_n7",
+                               "orin_nano_measured_v1", 0.85)
+    raw = cli._the_ask(
+        d, cli._facts(d, None),
+        next(p for p in d.provisions if p.kind == "kpu"),
+        next(p for p in d.provisions if p.kind == "cpu"), 0.85, None, tiles)
+    block = " ".join(re.sub(r"<[^>]+>", "", raw).split())
+    assert "vlm does only" in block and "more tiles" in block
+    # The figures follow the subject: the bigger tile count comes first.
+    tail = block.split("more tiles:")[1]
+    first = float(tail.split("against")[0].strip().replace(",", ""))
+    second = float(tail.split("against")[1].split(".")[0].strip().replace(",", ""))
+    assert first > second
 
 
 def test_a_comparison_reports_falls_as_well_as_rises(cli):

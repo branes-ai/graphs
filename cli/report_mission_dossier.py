@@ -207,6 +207,13 @@ whether an L5 platform's envelope differs at all is not something we hold. The <
 capacities</b> are inputs from the selected design and say nothing about either level.
 Separating the two needs an L5 workload with sourced rates, which we do not have
 (graphs#339).</p>""",
+    "humanoid_house_work_open_world_long_horizon": """
+<p>A {dof:g}-degree-of-freedom humanoid doing household work it was not programmed for: open
+vocabulary tasking, a 3 B vision-language-action policy producing motion at {vla_hz:g} Hz, and a
+2 B vision-language model planning what to do next. Long-horizon, because the task is "tidy the
+kitchen" rather than a trajectory, and open-world, because the kitchen is not a fixture.</p>
+<p>It is the only mission in the catalogue carrying <b>both</b> a VLA and a VLM, which makes it
+the one place the two can be compared on the same fabric in the same second.</p>""",
     "humanoid_cobot_human_adjacent_contact_rich": """
 <p>A {dof:g}-degree-of-freedom humanoid working alongside people and touching things: predicting
 human pose and intent, scheduling contact, and running a {cbf_hz:g} Hz safety filter over
@@ -392,6 +399,7 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         "cameras": float((dossier.sensors.get("mono") or [0])[0]),
         "radars": float((dossier.sensors.get("radar") or [0])[0]),
         "vlm_qps": float(dossier.sensors.get("vlm_qps") or 0),
+        "vla_hz": float(dossier.sensors.get("vla_hz") or 0),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -1065,6 +1073,59 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                 f"operations. It is because its domain-flow ceiling is <b>{eff:.2%}</b>. The "
                 f"fabric is not computing, it is waiting: {si(top.bytes_per_call, 'B')} of "
                 f"weights crossing DRAM {_times(top.rate_hz)}.</p>")
+            # Where another stage on the same engine runs at a wildly
+            # better ceiling, the pair says more than either alone: it is
+            # the same fabric, the same second, and the difference is
+            # what the kernel does with its weights.
+            priced = [(r[0], r[1], min((cl.efficiency for cl in r[1].classes
+                                        if cl.efficiency), default=0.0))
+                      for r in rows[1:]]
+            # The biggest other arithmetic load, not the highest ceiling:
+            # "the stage doing the most work needs the fewest tiles" is
+            # the statement worth making, and it is the stronger one.
+            best = max((r for r in priced if r[2] > 0),
+                       key=lambda r: r[0].ops_per_s, default=None)
+            if best is not None and best[2] > 10 * eff and top.bytes_per_call:
+                other, other_fit, other_eff = best
+                ours_ai = top.ops_per_call / top.bytes_per_call
+                theirs_ai = (other.ops_per_call / other.bytes_per_call
+                             if other.bytes_per_call else 0.0)
+                tiles_ratio = (top_fit.servers_needed or 0) / (other_fit.servers_needed or 1)
+                # Say it from whichever side makes the sentence true: the
+                # comparand does not always do more arithmetic.
+                if other.ops_per_s >= top.ops_per_s:
+                    lead = (f"<code>{html_escape(other.key)}</code> does "
+                            f"{other.ops_per_s / top.ops_per_s:.2g}x the arithmetic of "
+                            f"<code>{html_escape(top.key)}</code> &mdash; "
+                            f"{si(other.ops_per_s, 'OP/s')} against "
+                            f"{si(top.ops_per_s, 'OP/s')} &mdash; and needs "
+                            f"{tiles_ratio:.0f}x <i>fewer</i> tiles: "
+                            f"{_amount(other_fit.servers_needed or 0)} against "
+                            f"{_amount(top_fit.servers_needed or 0)}")
+                else:
+                    lead = (f"<code>{html_escape(top.key)}</code> does only "
+                            f"{top.ops_per_s / other.ops_per_s:.2g}x the arithmetic of "
+                            f"<code>{html_escape(other.key)}</code> &mdash; "
+                            f"{si(top.ops_per_s, 'OP/s')} against "
+                            f"{si(other.ops_per_s, 'OP/s')} &mdash; and needs "
+                            f"{tiles_ratio:.0f}x <i>more</i> tiles: "
+                            f"{_amount(top_fit.servers_needed or 0)} against "
+                            f"{_amount(other_fit.servers_needed or 0)}")
+                parts.append(
+                    f"<p><b>The comparison is on this page.</b> {lead}. "
+                    f"Same fabric, same second. What "
+                    f"separates them is arithmetic intensity &mdash; {theirs_ai:.3g} operations "
+                    f"per byte against {ours_ai:.3g} &mdash; and what the domain-flow model "
+                    f"makes of it: a ceiling of {other_eff:.1%} against {eff:.2%}.</p>"
+                    f"<p class=\"note\">Those two ceilings are the widest gap in this study "
+                    f"and the number most worth challenging. An intensity ratio of "
+                    f"{theirs_ai / ours_ai:.2g}x produces an efficiency ratio of "
+                    f"{other_eff / eff:.0f}x, which is the model saying a wavefront fabric "
+                    f"handles a decode stream far worse than its byte count alone implies. "
+                    f"Nobody has measured either. Both are ceilings, so both tile counts are "
+                    f"lower bounds &mdash; but the "
+                    f"<code>{html_escape(top.key)}</code> figure carries most of the risk in "
+                    f"this dossier, and one measurement would settle it.</p>")
             parts.append(
                 f"<p>Take it out and the rest of the accelerator work &mdash; {rest} &mdash; "
                 f"needs <b>{_amount(others)} tile{'s' if others != 1 else ''}</b>. That is the "
