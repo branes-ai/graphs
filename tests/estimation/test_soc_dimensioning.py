@@ -857,7 +857,11 @@ def test_two_models_on_one_fabric_are_compared_directly(cli):
     # ceiling: "the stage doing the most work needs the fewest tiles".
     assert "vla does" in block and "of vlm" in block
     assert "fewer tiles" in block
-    assert "most worth challenging" in block
+    # The caveat is derived, not a fixed superlative: it names the
+    # dominant stage's own kernel class and its share of the requirement.
+    assert "Neither ceiling has been measured" in block
+    assert "weight_stream_decode" in block
+    assert "widest gap in this study" not in block
     by = {st.key: st for st in d.stages}
     assert by["vla"].ops_per_s > by["vlm"].ops_per_s
     vla_fit = by["vla"].fits["kpu"]

@@ -1085,11 +1085,8 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
             # the statement worth making, and it is the stronger one.
             best = max((r for r in priced if r[2] > 0),
                        key=lambda r: r[0].ops_per_s, default=None)
-            if best is not None and best[2] > 10 * eff and top.bytes_per_call:
+            if best is not None and best[2] > 10 * eff:
                 other, other_fit, other_eff = best
-                ours_ai = top.ops_per_call / top.bytes_per_call
-                theirs_ai = (other.ops_per_call / other.bytes_per_call
-                             if other.bytes_per_call else 0.0)
                 tiles_ratio = (top_fit.servers_needed or 0) / (other_fit.servers_needed or 1)
                 # Say it from whichever side makes the sentence true: the
                 # comparand does not always do more arithmetic.
@@ -1111,21 +1108,41 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                             f"{tiles_ratio:.0f}x <i>more</i> tiles: "
                             f"{_amount(top_fit.servers_needed or 0)} against "
                             f"{_amount(other_fit.servers_needed or 0)}")
+                # Arithmetic intensity only where both stages state bytes.
+                ours_ai = (top.ops_per_call / top.bytes_per_call
+                           if top.bytes_per_call else None)
+                theirs_ai = (other.ops_per_call / other.bytes_per_call
+                             if other.bytes_per_call else None)
+                intensity = ""
+                if ours_ai and theirs_ai:
+                    intensity = (f" What separates them is arithmetic intensity &mdash; "
+                                 f"{theirs_ai:.3g} operations per byte against "
+                                 f"{ours_ai:.3g} &mdash; and what the domain-flow model "
+                                 f"makes of it: a ceiling of {other_eff:.1%} against "
+                                 f"{eff:.2%}.")
+                else:
+                    intensity = (f" Their domain-flow ceilings are {other_eff:.1%} and "
+                                 f"{eff:.2%}.")
                 parts.append(
                     f"<p><b>The comparison is on this page.</b> {lead}. "
-                    f"Same fabric, same second. What "
-                    f"separates them is arithmetic intensity &mdash; {theirs_ai:.3g} operations "
-                    f"per byte against {ours_ai:.3g} &mdash; and what the domain-flow model "
-                    f"makes of it: a ceiling of {other_eff:.1%} against {eff:.2%}.</p>"
-                    f"<p class=\"note\">Those two ceilings are the widest gap in this study "
-                    f"and the number most worth challenging. An intensity ratio of "
-                    f"{theirs_ai / ours_ai:.2g}x produces an efficiency ratio of "
-                    f"{other_eff / eff:.0f}x, which is the model saying a wavefront fabric "
-                    f"handles a decode stream far worse than its byte count alone implies. "
-                    f"Nobody has measured either. Both are ceilings, so both tile counts are "
-                    f"lower bounds &mdash; but the "
-                    f"<code>{html_escape(top.key)}</code> figure carries most of the risk in "
-                    f"this dossier, and one measurement would settle it.</p>")
+                    f"Same fabric, same second.{intensity}</p>")
+                # The "worse than its bytes imply" reading only holds when
+                # the dominant stage is the less intense of the two.
+                caveat = (
+                    f"<p class=\"note\">Neither ceiling has been measured. Both are upper "
+                    f"bounds, so both tile counts are lower bounds &mdash; and the "
+                    f"<code>{html_escape(top.key)}</code> figure carries most of the risk on "
+                    f"this page, because it sets {share:.0%} of the requirement. One "
+                    f"measurement of <code>{html_escape(top.kernel_class)}</code> on this "
+                    f"fabric would settle it.")
+                if ours_ai and theirs_ai and theirs_ai > ours_ai:
+                    caveat += (
+                        f" Note the shape of the claim: an intensity ratio of "
+                        f"{theirs_ai / ours_ai:.2g}x produces an efficiency ratio of "
+                        f"{other_eff / eff:.0f}x, so the model is saying a wavefront fabric "
+                        f"handles <code>{html_escape(top.kernel_class)}</code> far worse than "
+                        f"its byte count alone implies.")
+                parts.append(caveat + "</p>")
             parts.append(
                 f"<p>Take it out and the rest of the accelerator work &mdash; {rest} &mdash; "
                 f"needs <b>{_amount(others)} tile{'s' if others != 1 else ''}</b>. That is the "
