@@ -207,6 +207,13 @@ whether an L5 platform's envelope differs at all is not something we hold. The <
 capacities</b> are inputs from the selected design and say nothing about either level.
 Separating the two needs an L5 workload with sourced rates, which we do not have
 (graphs#339).</p>""",
+    "humanoid_house_work_open_world_long_horizon": """
+<p>A {dof:g}-degree-of-freedom humanoid doing household work it was not programmed for: open
+vocabulary tasking, a 3 B vision-language-action policy producing motion at {vla_hz:g} Hz, and a
+2 B vision-language model planning what to do next. Long-horizon, because the task is "tidy the
+kitchen" rather than a trajectory, and open-world, because the kitchen is not a fixture.</p>
+<p>It is the only mission in the catalogue carrying <b>both</b> a VLA and a VLM, which makes it
+the one place the two can be compared on the same fabric in the same second.</p>""",
     "humanoid_cobot_human_adjacent_contact_rich": """
 <p>A {dof:g}-degree-of-freedom humanoid working alongside people and touching things: predicting
 human pose and intent, scheduling contact, and running a {cbf_hz:g} Hz safety filter over
@@ -392,6 +399,7 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         "cameras": float((dossier.sensors.get("mono") or [0])[0]),
         "radars": float((dossier.sensors.get("radar") or [0])[0]),
         "vlm_qps": float(dossier.sensors.get("vlm_qps") or 0),
+        "vla_hz": float(dossier.sensors.get("vla_hz") or 0),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -1065,6 +1073,82 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                 f"operations. It is because its domain-flow ceiling is <b>{eff:.2%}</b>. The "
                 f"fabric is not computing, it is waiting: {si(top.bytes_per_call, 'B')} of "
                 f"weights crossing DRAM {_times(top.rate_hz)}.</p>")
+            # Where another stage on the same engine runs at a wildly
+            # better ceiling, the pair says more than either alone: it is
+            # the same fabric, the same second, and the difference is
+            # what the kernel does with its weights.
+            priced = [(r[0], r[1], min((cl.efficiency for cl in r[1].classes
+                                        if cl.efficiency), default=0.0))
+                      for r in rows[1:]]
+            # The biggest other arithmetic load, not the highest ceiling:
+            # "the stage doing the most work needs the fewest tiles" is
+            # the statement worth making, and it is the stronger one.
+            best = max((r for r in priced if r[2] > 0),
+                       key=lambda r: r[0].ops_per_s, default=None)
+            if best is not None and best[2] > 10 * eff:
+                other, other_fit, other_eff = best
+                tiles_ratio = (top_fit.servers_needed or 0) / (other_fit.servers_needed or 1)
+                # Say it from whichever side makes the sentence true: the
+                # comparand does not always do more arithmetic.
+                # Whichever stage the lead names first, the pairs that
+                # follow name in the same order.
+                other_first = other.ops_per_s >= top.ops_per_s
+                if other_first:
+                    lead = (f"<code>{html_escape(other.key)}</code> does "
+                            f"{other.ops_per_s / top.ops_per_s:.2g}x the arithmetic of "
+                            f"<code>{html_escape(top.key)}</code> &mdash; "
+                            f"{si(other.ops_per_s, 'OP/s')} against "
+                            f"{si(top.ops_per_s, 'OP/s')} &mdash; and needs "
+                            f"{tiles_ratio:.0f}x <i>fewer</i> tiles: "
+                            f"{_amount(other_fit.servers_needed or 0)} against "
+                            f"{_amount(top_fit.servers_needed or 0)}")
+                else:
+                    lead = (f"<code>{html_escape(top.key)}</code> does only "
+                            f"{top.ops_per_s / other.ops_per_s:.2g}x the arithmetic of "
+                            f"<code>{html_escape(other.key)}</code> &mdash; "
+                            f"{si(top.ops_per_s, 'OP/s')} against "
+                            f"{si(other.ops_per_s, 'OP/s')} &mdash; and needs "
+                            f"{tiles_ratio:.0f}x <i>more</i> tiles: "
+                            f"{_amount(top_fit.servers_needed or 0)} against "
+                            f"{_amount(other_fit.servers_needed or 0)}")
+                # Arithmetic intensity only where both stages state bytes.
+                ours_ai = (top.ops_per_call / top.bytes_per_call
+                           if top.bytes_per_call else None)
+                theirs_ai = (other.ops_per_call / other.bytes_per_call
+                             if other.bytes_per_call else None)
+                first_ai, second_ai = ((theirs_ai, ours_ai) if other_first
+                                       else (ours_ai, theirs_ai))
+                first_eff, second_eff = ((other_eff, eff) if other_first
+                                         else (eff, other_eff))
+                if ours_ai and theirs_ai:
+                    intensity = (f" What separates them is arithmetic intensity &mdash; "
+                                 f"{first_ai:.3g} operations per byte against "
+                                 f"{second_ai:.3g} &mdash; and what the domain-flow model "
+                                 f"makes of it: a ceiling of {first_eff:.2%} against "
+                                 f"{second_eff:.2%}.")
+                else:
+                    intensity = (f" Their domain-flow ceilings are {first_eff:.2%} and "
+                                 f"{second_eff:.2%}.")
+                parts.append(
+                    f"<p><b>The comparison is on this page.</b> {lead}. "
+                    f"Same fabric, same second.{intensity}</p>")
+                # The "worse than its bytes imply" reading only holds when
+                # the dominant stage is the less intense of the two.
+                caveat = (
+                    f"<p class=\"note\">Neither ceiling has been measured. Both are upper "
+                    f"bounds, so both tile counts are lower bounds &mdash; and the "
+                    f"<code>{html_escape(top.key)}</code> figure carries most of the risk on "
+                    f"this page, because it sets {share:.0%} of the requirement. One "
+                    f"measurement of <code>{html_escape(top.kernel_class)}</code> on this "
+                    f"fabric would settle it.")
+                if ours_ai and theirs_ai and theirs_ai > ours_ai:
+                    caveat += (
+                        f" Note the shape of the claim: an intensity ratio of "
+                        f"{theirs_ai / ours_ai:.2g}x produces an efficiency ratio of "
+                        f"{other_eff / eff:.0f}x, so the model is saying a wavefront fabric "
+                        f"handles <code>{html_escape(top.kernel_class)}</code> far worse than "
+                        f"its byte count alone implies.")
+                parts.append(caveat + "</p>")
             parts.append(
                 f"<p>Take it out and the rest of the accelerator work &mdash; {rest} &mdash; "
                 f"needs <b>{_amount(others)} tile{'s' if others != 1 else ''}</b>. That is the "
