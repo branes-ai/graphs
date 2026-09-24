@@ -309,6 +309,46 @@ def test_a_pipeline_with_no_common_cadence_quotes_no_latency(unfittable, dossier
     assert "/frame" in pipeline_graph(dossier, latency_per_frame=True)
 
 
+def test_the_pipeline_draws_no_dependency_it_was_not_given(unfittable, dossier):
+    """Connecting adjacent boxes and labelling each edge with the
+    destination's own byte demand invented a dataflow. Some stage
+    configurations do name what they read -- cbf names the ESDF -- so the
+    page claims an incomplete dependency graph, not an absent one."""
+    for d in (unfittable, dossier):
+        svg = pipeline_graph(d, latency_per_frame=False)
+        assert "url(#arrow)" not in svg
+        assert 'class="edge-l"' not in svg
+        assert "no complete dependency graph" in svg
+        assert "no dependency between stages" not in svg
+    # Each box still carries its own demand, so nothing real was lost.
+    svg = pipeline_graph(dossier, latency_per_frame=False)
+    assert svg.count('class="n-row"') >= 2 * len(dossier.stages)
+
+
+def test_a_tier_band_only_labels_a_row_of_one_tier(unfittable, dossier):
+    """A wrapped row can span tiers; naming it after its first stage
+    would be wrong about the rest."""
+    for d in (unfittable, dossier):
+        svg = pipeline_graph(d, latency_per_frame=False)
+        bands = re.findall(r'class="tier-band"[^>]*>([^<]*)', svg)
+        tiers = {st.tier for st in d.stages}
+        assert len(bands) <= len(tiers)
+    # The two-stage mission spans T1 and T4 on one row, so it gets none.
+    assert not re.findall(r'class="tier-band"',
+                          pipeline_graph(dossier, latency_per_frame=False))
+
+
+def test_the_pipeline_subtitle_fits_its_own_viewbox(dossier, unfittable):
+    """SVG text does not wrap, so a one-line explanation overflowed the
+    narrow layouts and was clipped."""
+    for d in (dossier, unfittable):
+        svg = pipeline_graph(d, latency_per_frame=False)
+        width = float(re.search(r'viewBox="0 0 ([\d.]+)', svg).group(1))
+        for line in re.findall(r'class="dsub"[^>]*>([^<]*)', svg):
+            # 11px text, conservatively ~5.2 units per character.
+            assert len(line) * 5.2 < width, (len(line), width)
+
+
 def test_the_pipeline_wraps_rather_than_shrinking(unfittable, dossier):
     """18 boxes on one line scale down to an illegible strip."""
     wide = pipeline_graph(unfittable, latency_per_frame=False)
@@ -492,7 +532,7 @@ def test_the_safety_section_says_nothing_mission_specific(cli, soc, ceilings):
             assert "either one" not in block, mission
         # The ESDF claim only where the ESDF is actually broken.
         if not any(p.stage == "esdf" for p in broken):
-            assert "out of date" not in block, mission
+            assert "reads its hazards out of the" not in block, mission
 
 
 def test_the_esdf_claim_is_checked_against_the_filter_config(cobot, soc, cli):
@@ -501,14 +541,19 @@ def test_the_esdf_claim_is_checked_against_the_filter_config(cobot, soc, cli):
     configuration -- a comment promising the check is not the check."""
     cbf = next(st for st in cobot.stages if st.key == "cbf")
     assert any("esdf" in k.lower() for k in cbf.config), cbf.config
-    assert "out of date" in cli._safety(cobot, soc)
+    block_on = cli._safety(cobot, soc)
+    assert "reads its hazards out of the" in block_on
+    # The ratio is service time over period, never asserted as the age of
+    # the data: late updates may queue, so the age is unbounded.
+    assert "service-time-to-period ratio, not the age of the data" in " ".join(block_on.split())
+    assert "the age is unbounded here" in " ".join(block_on.split())
     # Strip the ESDF out of the filter's config and the claim goes with it.
     blind = replace(cobot, stages=tuple(
         replace(st, config={k: v for k, v in st.config.items()
                             if "esdf" not in k.lower()})
         if st.key == "cbf" else st for st in cobot.stages))
     block = cli._safety(blind, soc)
-    assert "out of date" not in block
+    assert "reads its hazards out of the" not in block
     # ...while the rest of the finding survives.
     assert "The filter closes" in block
 
@@ -792,6 +837,37 @@ def test_the_comparison_is_also_data(cli):
     assert data["note"] and data["other_note"]
     assert data["stages"]["det"]["ratio"] > 4
     assert cli._comparison_data(hard, None) is None
+
+
+DRONE_ENDURANCE = "drone_isr_endurance__wide_area_search"
+
+
+def test_a_comparison_reports_falls_as_well_as_rises(cli):
+    """The endurance drone needs less of almost everything than the
+    interceptor and 399x the accelerator. Reporting only the increases
+    would make that pair look as though nothing moved."""
+    hard, _s1, _t1 = cli.build(DRONE_ENDURANCE, "kpu_t128_n7",
+                               "orin_nano_measured_v1", 0.85)
+    other, _s2, _t2 = cli.build(INTERCEPTOR, "kpu_t128_n7",
+                                "orin_nano_measured_v1", 0.85)
+    block = cli._comparison(hard, other)
+    assert "at least halves" in block
+    assert "<code>det</code>" in block.split("at least halves")[1]
+    data = cli._comparison_data(hard, other)
+    assert data["engines"]["kpu"]["ratio"] > 100
+    assert data["engines"]["cpu"]["ratio"] < 1
+    assert "vlm" in data["added_stages"]
+
+
+def test_a_tiny_quantity_qualifies_its_own_disagreement(cli):
+    """A 23.8% difference on a share that is 0.3% of the workload says
+    less than the number suggests; the page says so rather than quoting
+    it bare."""
+    d, _soc, _t = cli.build(DRONE_ENDURANCE, "kpu_t128_n7",
+                            "orin_nano_measured_v1", 0.85)
+    block = " ".join(cli._crosscheck(d, cli.pooled_figures(DRONE_ENDURANCE)).split())
+    assert "largest disagreement" in block
+    assert "of the workload, where the published figure carries one significant figure" in block
 
 
 def test_no_comparison_section_without_a_second_mission(dossier, cli):

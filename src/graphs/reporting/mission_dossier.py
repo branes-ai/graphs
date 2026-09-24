@@ -84,7 +84,7 @@ def _engine_ink(kind) -> str:
 # 1. The workload, as a pipeline graph
 # ---------------------------------------------------------------------------
 
-NODE_W, NODE_H, NODE_GAP = 250, 142, 78
+NODE_W, NODE_H, NODE_GAP = 250, 150, 78
 
 
 #: Widest the pipeline may run before it wraps onto another row. A
@@ -106,46 +106,45 @@ def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
     if not stages:
         return "<p>no stage to draw</p>"
     placements = {p.stage: p for p in dossier.placements}
-    source_w, row_gap = 150, 40
-    first_x = source_w + NODE_GAP          # the arrow needs the whole gap to itself
+    row_gap = 40
+    first_x = 34                           # room for the tier label
     per_row = max(1, int((MAX_ROW_W - first_x - 130) // (NODE_W + NODE_GAP)))
     rows = [stages[i:i + per_row] for i in range(0, len(stages), per_row)]
     width = min(MAX_ROW_W,
                 first_x + max(len(r) for r in rows) * (NODE_W + NODE_GAP) + 130)
-    top = 62
+    top = 86
     row_h = NODE_H + row_gap
     height = top + len(rows) * row_h + 66
     parts: List[str] = [
         f'<text class="dtitle" x="8" y="20">The pipeline: {len(stages)} stages, '
-        f'{sum(1 for s in stages if s.on_reactive_chain)} on the sense-to-act chain</text>']
+        f'{sum(1 for s in stages if s.on_reactive_chain)} on the sense-to-act chain</text>',
+        # Not "no dependencies": some stage configurations do name what
+        # they read -- the safety section uses one. What is missing is a
+        # complete graph, which is what drawing edges would need.
+        ('<text class="dsub" x="8" y="34">'
+         "in pipeline-tier order. The workload gives each stage's own demand but"
+         "</text>"),
+        ('<text class="dsub" x="8" y="48">'
+         "no complete dependency graph, so no edges are drawn: a box's bytes are"
+         "</text>"),
+        ('<text class="dsub" x="8" y="62">'
+         "its DRAM traffic, not a transfer to its neighbour.</text>")]
 
     index = 0
     for row_i, row in enumerate(rows):
         y = top + row_i * row_h
         x = first_x
-        if row_i == 0:
-            parts.append(f'<rect class="source" x="0" y="{y + 34}" width="{source_w}" '
-                         f'height="62" rx="9"/>')
-            mid = source_w / 2
-            parts.append(f'<text class="src-t" x="{mid}" y="{y + 58}">sensors</text>')
-            cams = dossier.sensors.get("mono")
-            if isinstance(cams, (list, tuple)) and len(cams) == 4:
-                parts.append(f'<text class="src-s" x="{mid}" y="{y + 78}">'
-                             f'{cams[0]} x {cams[1]}x{cams[2]} @ {cams[3]} Hz</text>')
-        else:
-            parts.append(f'<text class="src-s" x="{first_x - 22}" y="{y + NODE_H / 2 + 4}" '
-                         f'style="text-anchor:end">&#8627;</text>')
+        # Only when the row is one tier. A row that spans tiers has each
+        # box's own tier in its corner, and a band naming the first would
+        # be wrong about the rest.
+        tiers = {st.tier for st in row}
+        if len(tiers) == 1:
+            parts.append(f'<text class="tier-band" x="0" y="{y + NODE_H / 2 + 4}">'
+                         f'{html.escape(row[0].tier)}</text>')
         for stage in row:
             place = placements.get(stage.key)
             kind = place.engine if place else "other"
             colour = _engine_colour(kind)
-            if stage is not row[0] or row_i == 0:
-                parts.append(f'<line class="edge" x1="{x - NODE_GAP + 6}" '
-                             f'y1="{y + NODE_H / 2}" x2="{x - 7}" y2="{y + NODE_H / 2}" '
-                             f'marker-end="url(#arrow)"/>')
-                parts.append(f'<text class="edge-l" x="{x - NODE_GAP / 2}" '
-                             f'y="{y + NODE_H / 2 - 10}">'
-                             f'{si(stage.bytes_per_s, "B/s")}</text>')
             parts.append(f'<rect class="node" x="{x}" y="{y}" width="{NODE_W}" '
                          f'height="{NODE_H}" rx="10"/>')
             parts.append(f'<rect class="node-bar" x="{x}" y="{y}" width="5" '
@@ -158,13 +157,13 @@ def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
             for i, line in enumerate(wrap(stage.name, 33, 2)):
                 parts.append(f'<text class="n-name" x="{x + 16}" y="{y + 41 + i * 13}">'
                              f'{html.escape(line)}</text>')
-            parts.append(f'<text class="n-kc" x="{x + 16}" y="{y + 66}">'
+            parts.append(f'<text class="n-kc" x="{x + 16}" y="{y + 70}">'
                          f'{html.escape(stage.kernel_class)}</text>')
             split = ", ".join(f"{share:.0%} {cls}"
                               for cls, share in stage.class_split.items() if share > 0)
-            parts.append(f'<text class="n-row" x="{x + 16}" y="{y + 77}">'
+            parts.append(f'<text class="n-row" x="{x + 16}" y="{y + 88}">'
                          f'precision {html.escape(split)}</text>')
-            parts.append(f'<text class="n-row" x="{x + 16}" y="{y + 93}">'
+            parts.append(f'<text class="n-row" x="{x + 16}" y="{y + 105}">'
                          f'{si(stage.ops_per_s, "OP/s")} &#183; '
                          f'{si(stage.bytes_per_s, "B/s")}</text>')
             if place:
@@ -175,19 +174,13 @@ def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
                     f"{'s' if fit.servers_needed != 1 else ''}")
                 if latency_per_frame:
                     need += f" &#183; {ms(place.seconds_per_frame)}/frame"
-                parts.append(f'<text class="n-lat" x="{x + 16}" y="{y + 116}" '
+                parts.append(f'<text class="n-lat" x="{x + 16}" y="{y + 128}" '
                              f'style="fill:{_engine_ink(kind)}">{need}</text>')
             else:
-                parts.append(f'<text class="n-gap" x="{x + 16}" y="{y + 116}">'
+                parts.append(f'<text class="n-gap" x="{x + 16}" y="{y + 128}">'
                              f'nothing prices it on either engine</text>')
             x += NODE_W + NODE_GAP
             index += 1
-        if row_i == len(rows) - 1:
-            parts.append(f'<line class="edge" x1="{x - NODE_GAP + 6}" '
-                         f'y1="{y + NODE_H / 2}" x2="{x - 7}" y2="{y + NODE_H / 2}" '
-                         f'marker-end="url(#arrow)"/>')
-            parts.append(f'<text class="src-s" x="{x + 26}" y="{y + NODE_H / 2 + 4}" '
-                         f'style="text-anchor:start">out</text>')
 
     chain = dossier.chain_seconds
     if chain is not None:
@@ -237,7 +230,7 @@ def block_diagram(dossier, idle_blocks: Sequence[Tuple[str, str]] = (),
          "E = ops-weighted mean of the per-class efficiencies</text>"),
     ]
 
-    top = 62
+    top = 86
     x = lane
     if ingress:
         label, rate = ingress
@@ -524,6 +517,7 @@ rect.track { fill:var(--track); }
 rect.fill { fill:var(--fill); }
 rect.fill.over { fill:var(--warn); }
 text.src-t { font-size:12px; font-weight:600; text-anchor:middle; fill:var(--ink-2); }
+text.tier-band { font-size:11px; font-weight:650; fill:var(--ink-3); }
 text.src-s { font-size:10.5px; text-anchor:middle; fill:var(--ink-3); }
 text.n-key { font-size:15px; font-weight:670; fill:var(--ink); }
 text.n-name { font-size:11.5px; fill:var(--ink-2); }
