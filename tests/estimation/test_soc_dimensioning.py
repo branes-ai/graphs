@@ -310,14 +310,16 @@ def test_a_pipeline_with_no_common_cadence_quotes_no_latency(unfittable, dossier
 
 
 def test_the_pipeline_draws_no_dependency_it_was_not_given(unfittable, dossier):
-    """The workload states a demand per stage and no dependency between
-    stages. Connecting adjacent boxes and labelling each edge with the
-    destination's own byte demand invented a dataflow."""
+    """Connecting adjacent boxes and labelling each edge with the
+    destination's own byte demand invented a dataflow. Some stage
+    configurations do name what they read -- cbf names the ESDF -- so the
+    page claims an incomplete dependency graph, not an absent one."""
     for d in (unfittable, dossier):
         svg = pipeline_graph(d, latency_per_frame=False)
         assert "url(#arrow)" not in svg
         assert 'class="edge-l"' not in svg
-        assert "dependency between stages" in svg
+        assert "no complete dependency graph" in svg
+        assert "no dependency between stages" not in svg
     # Each box still carries its own demand, so nothing real was lost.
     svg = pipeline_graph(dossier, latency_per_frame=False)
     assert svg.count('class="n-row"') >= 2 * len(dossier.stages)

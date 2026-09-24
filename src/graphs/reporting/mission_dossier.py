@@ -118,14 +118,17 @@ def pipeline_graph(dossier, latency_per_frame: bool = True) -> str:
     parts: List[str] = [
         f'<text class="dtitle" x="8" y="20">The pipeline: {len(stages)} stages, '
         f'{sum(1 for s in stages if s.on_reactive_chain)} on the sense-to-act chain</text>',
+        # Not "no dependencies": some stage configurations do name what
+        # they read -- the safety section uses one. What is missing is a
+        # complete graph, which is what drawing edges would need.
         ('<text class="dsub" x="8" y="34">'
-         "in pipeline-tier order. The workload states each stage's own demand and no"
+         "in pipeline-tier order. The workload gives each stage's own demand but"
          "</text>"),
         ('<text class="dsub" x="8" y="48">'
-         "dependency between stages, so no edges are drawn: a box's bytes are its"
+         "no complete dependency graph, so no edges are drawn: a box's bytes are"
          "</text>"),
         ('<text class="dsub" x="8" y="62">'
-         "DRAM traffic, not a transfer to its neighbour.</text>")]
+         "its DRAM traffic, not a transfer to its neighbour.</text>")]
 
     index = 0
     for row_i, row in enumerate(rows):
