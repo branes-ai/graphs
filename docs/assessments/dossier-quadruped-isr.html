@@ -190,6 +190,83 @@ invent one.</p>
 <div class="panel"><svg viewBox="0 0 1180 240" class="diagram" role="img" aria-label="engine sizing, needed against what the design has"><text class="dtitle" x="8" y="20">What the mission needs, against what the design has</text><text class="dsub" x="8" y="36">a full bar is exactly the capacity; past it the bar clamps and the number carries the overshoot</text><text class="s-label" x="268" y="82">KPU: 4 stages</text><rect class="track" x="284" y="68" width="520" height="20" rx="3"/><rect x="284" y="68" width="520.0" height="20" rx="3" style="fill:var(--warn)"/><text class="s-amount over" x="816" y="82">1.86e+03 of 128 tiles - 14.5x over</text><text class="s-note" x="268" y="100">U 1455% - E 70.8% - ceiling</text><text class="s-label" x="268" y="134">CPU: 11 stages</text><rect class="track" x="284" y="120" width="520" height="20" rx="3"/><rect x="284" y="120" width="520.0" height="20" rx="3" style="fill:var(--warn)"/><text class="s-amount over" x="816" y="134">36.2 of 12 cores - 3.01x over</text><text class="s-note" x="268" y="152">U 301% - E 5.4% - measured</text><text class="s-label" x="268" y="186">if det ran on the CPU instead</text><rect class="track" x="284" y="172" width="520" height="20" rx="3"/><rect x="284" y="172" width="520.0" height="20" rx="3" style="fill:var(--warn)" opacity="0.55"/><text class="s-amount over" x="816" y="186">202 of 12 cores - 16.9x over</text><text class="s-note" x="268" y="204">FP32 at E 88.8% - measured - 8853 mW of datapath</text></svg></div>
 <h3>4. The CPU ask</h3><p>The CPU needs <b>36 cores</b> and the design has 12. The gap is not spread evenly: three of the 11 stages on it are 83% of the demand.</p><ul><li><code>tsdf</code> (<code>raycast</code>): <b>19 cores</b> at <b>0.34%</b> of FP32 peak.</li><li><code>esdf</code> (<code>wavefront</code>): <b>5.97 cores</b> at <b>2.97%</b> of FP32 peak.</li><li><code>gain</code> (<code>raycast</code>): <b>5.44 cores</b> at <b>0.34%</b> of FP32 peak.</li></ul><p>Grouped by kernel class, the answer is blunter still: <code>raycast</code> is <b>24 of the 36 cores</b> (66%) at 0.34% of peak. So the question for an Andes core is not a general one:</p><blockquote><b>What does it take to run 2.88 GOP/s of <code>raycast</code> in FP32 at materially better than 0.34% of peak?</b></blockquote><p>The leverage is enormous because the baseline is so low. At 10% of peak instead of 0.34%, that class falls from 24 cores to 0.817, and the whole CPU requirement from 36 to 13 &mdash; 16 cores provisioned instead of 12.</p><h3>5. The accelerator ask is a memory ask</h3><p><code>vlm</code> is 99.7% of the 1,862-tile requirement, and not because it is the biggest arithmetic: it is 27% of the operations. It is because its domain-flow ceiling is <b>0.14%</b>. The fabric is not computing, it is waiting: 130 GB of weights crossing DRAM once a second.</p><p><b>The comparison is on this page.</b> <code>det</code> does 2.2x the arithmetic of <code>vlm</code> &mdash; 6.32 TOP/s against 2.82 TOP/s &mdash; and needs 383x <i>fewer</i> tiles: 4.85 against 1,856. Same fabric, same second. What separates them is arithmetic intensity &mdash; 530 operations per byte against 21.6 &mdash; and what the domain-flow model makes of it: a ceiling of 97.30% against 0.14%.</p><p class="note">Neither ceiling has been measured. Both are upper bounds, so both tile counts are lower bounds &mdash; and the <code>vlm</code> figure carries most of the risk on this page, because it sets 100% of the requirement. One measurement of <code>weight_stream_decode</code> on this fabric would settle it. Note the shape of the claim: an intensity ratio of 24x produces an efficiency ratio of 704x, so the model is saying a wavefront fabric handles <code>weight_stream_decode</code> far worse than its byte count alone implies.</p><p>Take it out and the rest of the accelerator work &mdash; <code>det</code>, <code>sdfenc</code>, <code>policy</code> &mdash; needs <b>5.7 tiles</b>. That is the shape of the decision: this is not a mission that needs a 1,862-tile fabric, it is a mission with a weight-streaming problem bolted to a 5.7-tile one. Quantisation, weight caching in on-die SRAM, a smaller model or a wider memory interface are all attacks on the same number; more tiles is not.</p>
 
+<h2>7. The floorplan: where the area goes</h2>
+
+<p>An area here is arithmetic, not a drawing. Every block declares its silicon one line at a
+time: a transistor count and the circuit class it is built in. The node states a density for
+that class &mdash; a named library, a figure in Mtx/mm&sup2;, and a source &mdash; and the
+area is the division. The largest logic line on this die is kpu's <code>pe_int8</code>: it is 547 Mtx of <code>balanced_logic</code>, and tsmc_n7 puts N7 7.5T HD at 91 Mtx/mm&sup2;, so it takes 6.009 mm&sup2;. The largest SRAM line, kpu's <code>l3_sram</code>, is 1,704 Mtx of <code>sram_hd</code> at 280 Mtx/mm&sup2;, which is 6.085 mm&sup2; &mdash; and, at 0.052 Mtx per KiB, 32 MiB of storage.</p>
+<p>The blocks then roll up the same way on every design.
+24.90 mm&sup2; of blocks, plus
+15% for placement and routing whitespace, is
+28.64 mm&sup2; of core; a square core is
+5.35 mm a side, and a 0.3 mm pad ring on each
+side makes the die 5.95 mm a side and
+35.4 mm&sup2;. The whitespace fraction and the ring depth are the
+design's layout record rather than any block's silicon&nbsp;&mdash;
+The reference design&#x27;s layout overheads, kept equal across the state space so area differences come from the blocks.</p>
+<div class="panel"><svg class="diagram" viewBox="0 0 990 758" role="img" aria-label="Die floorplan to scale"><text class="dtitle" x="8" y="22">The die at tsmc_n7: 5.95 mm a side, 35.4 mm&sup2;</text><text class="dsub" x="8" y="42">Every cell is in proportion to its area. 24.9 mm&sup2; of blocks, 3.7 mm&sup2; of placement and routing whitespace (15%), and a 0.3 mm pad ring (6.8 mm&sup2;) around all of it.</text><text class="dsub" x="8" y="60">Areas are a <tspan class="strong">floor</tspan>: 10 silicon lines have no figure and take no space here.</text><rect class="node" x="8.0" y="96.0" width="520" height="520" rx="3"/><rect class="node" x="34.2" y="122.2" width="467.6" height="467.6" rx="2"/><rect x="34.2" y="122.2" width="350.2" height="465.6" rx="2" fill="var(--kpu)" fill-opacity="0.22" stroke="var(--kpu)" stroke-width="1.4"/><text class="n-row" x="41.2" y="141.2">kpu</text><text class="n-row" x="41.2" y="157.2">21.57 mm&sup2;</text><rect class="source" x="386.5" y="122.2" width="113.3" height="245.3" rx="2"/><text class="n-row" x="393.5" y="141.2">whitespace</text><text class="n-row" x="393.5" y="157.2">3.74 mm&sup2;</text><rect x="386.5" y="369.5" width="113.3" height="130.2" rx="2" fill="var(--cpu)" fill-opacity="0.22" stroke="var(--cpu)" stroke-width="1.4"/><text class="n-row" x="393.5" y="388.5">Andes RISC-V</text><text class="n-row" x="393.5" y="404.5">2.00 mm&sup2;</text><rect x="386.5" y="501.7" width="63.9" height="86.1" rx="2" fill="var(--other)" fill-opacity="0.22" stroke="var(--other)" stroke-width="1.4"/><text class="n-gap" x="391.5" y="516.7">system_ca&#8230;</text><rect x="452.4" y="501.7" width="47.4" height="86.1" rx="2" fill="var(--other)" fill-opacity="0.22" stroke="var(--other)" stroke-width="1.4"/><text class="n-gap" x="457.4" y="516.7">safety&#8230;</text><text class="b-title" x="562" y="112">What takes the area</text><rect x="562.0" y="129.0" width="16.0" height="11.0" rx="2" fill="var(--kpu)" fill-opacity="0.22" stroke="var(--kpu)" stroke-width="1.4"/><text class="n-row" x="586" y="138">kpu</text><text class="link-l" x="862" y="138" text-anchor="end">21.57 mm&sup2; (61%)</text><rect class="source" x="562.0" y="151.0" width="16.0" height="11.0" rx="2"/><text class="n-row" x="586" y="160">whitespace</text><text class="link-l" x="862" y="160" text-anchor="end">3.74 mm&sup2; (11%)</text><rect x="562.0" y="173.0" width="16.0" height="11.0" rx="2" fill="var(--cpu)" fill-opacity="0.22" stroke="var(--cpu)" stroke-width="1.4"/><text class="n-row" x="586" y="182">Andes RISC-V</text><text class="link-l" x="862" y="182" text-anchor="end">2.00 mm&sup2; (6%)</text><rect x="562.0" y="195.0" width="16.0" height="11.0" rx="2" fill="var(--other)" fill-opacity="0.22" stroke="var(--other)" stroke-width="1.4"/><text class="n-row" x="586" y="204">system_cache</text><text class="link-l" x="862" y="204" text-anchor="end">0.76 mm&sup2; (2%)</text><rect x="562.0" y="217.0" width="16.0" height="11.0" rx="2" fill="var(--other)" fill-opacity="0.22" stroke="var(--other)" stroke-width="1.4"/><text class="n-row" x="586" y="226">safety_island</text><text class="link-l" x="862" y="226" text-anchor="end">0.57 mm&sup2; (2%)</text><rect x="562" y="239" width="16" height="11" rx="2" fill="none" stroke="var(--rule)" stroke-width="1.2"/><text class="n-row" x="586" y="248">pad ring</text><text class="link-l" x="862" y="248" text-anchor="end">6.78 mm&sup2; (19%)</text><text class="b-title" x="8" y="650">Placed nowhere, because nothing states a size</text><rect class="source chip" x="8" y="664" width="150" height="40" rx="3"/><text class="n-gap" x="18" y="683">isp</text><text class="n-gap" x="18" y="698">1 line, no figure</text><rect class="source chip" x="170" y="664" width="150" height="40" rx="3"/><text class="n-gap" x="180" y="683">codec</text><text class="n-gap" x="180" y="698">1 line, no figure</text><rect class="source chip" x="332" y="664" width="150" height="40" rx="3"/><text class="n-gap" x="342" y="683">memory</text><text class="n-gap" x="342" y="698">2 lines, no figure</text><rect class="source chip" x="494" y="664" width="150" height="40" rx="3"/><text class="n-gap" x="504" y="683">io</text><text class="n-gap" x="504" y="698">2 lines, no figure</text><rect class="source chip" x="656" y="664" width="150" height="40" rx="3"/><text class="n-gap" x="666" y="683">fabric</text><text class="n-gap" x="666" y="698">1 line, no figure</text></svg></div>
+
+<p class="note"><b>Every area on this page is a floor.</b>
+10 silicon lines have no
+figure. 5 blocks &mdash; isp, codec, memory, io and fabric &mdash; have no anchored line at all, so they occupy nothing in the drawing above; Andes RISC-V, system_cache and safety_island are anchored in part, with <code>core_logic</code>, <code>slc_control</code> and <code>lockstep_r52_cores</code> missing. Nothing is filled in to close
+them.</p>
+<h3>Block by block</h3>
+<div class="panel"><table><thead><tr><th>block</th><th>area (mm&sup2;)</th><th>of die</th><th>transistors (Mtx)</th><th>gates (M, NAND2)</th><th>SRAM</th><th>no figure for</th></tr></thead><tbody><tr class=""><td><b>kpu</b><br><span class="src">kpu_t128_core</span></td><td class="num">21.574</td><td class="num">60.9%</td><td class="num">3,196.5</td><td class="num">313.2</td><td class="num">36.5 MiB</td><td class="gapcell"></td></tr><tr class=""><td><b>Andes RISC-V</b> &times;3<br><span class="src">arm_cortex_a78ae_x4</span></td><td class="num">1.997</td><td class="num">5.6%</td><td class="num">559.1</td><td class="num">-</td><td class="num">10.5 MiB</td><td class="gapcell">core_logic</td></tr><tr class=""><td><b>system_cache</b><br><span class="src">orin_system_cache</span></td><td class="num">0.761</td><td class="num">2.1%</td><td class="num">213.0</td><td class="num">-</td><td class="num">4 MiB</td><td class="gapcell">slc_control</td></tr><tr class=""><td><b>safety_island</b><br><span class="src">orin_safety_island</span></td><td class="num">0.571</td><td class="num">1.6%</td><td class="num">159.7</td><td class="num">-</td><td class="num">3 MiB</td><td class="gapcell">lockstep_r52_cores</td></tr><tr class="gap"><td><b>isp</b><br><span class="src">nvidia_orin_hdr_isp</span></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="gapcell">isp_pipeline</td></tr><tr class="gap"><td><b>codec</b><br><span class="src">nvidia_orin_video_codec</span></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="gapcell">codec_engines</td></tr><tr class="gap"><td><b>memory</b><br><span class="src">lpddr5_phy_256b</span></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="gapcell">phy, controller</td></tr><tr class="gap"><td><b>io</b><br><span class="src">orin_io_complex</span></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="gapcell">serdes_and_phys, pads</td></tr><tr class="gap"><td><b>fabric</b><br><span class="src">orin_fabric</span></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="gapcell">noc</td></tr><tr><td><b>all blocks</b></td><td class="num"><b>24.902</b></td><td class="num">70.3%</td><td class="num"><b>4,128.3</b></td><td class="num"><b>313.2</b></td><td class="num"><b>54 MiB</b></td><td class="gapcell">10 lines</td></tr><tr><td>whitespace and pad ring</td><td class="num">10.517</td><td class="num">29.7%</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="src">layout record, not silicon</td></tr><tr><td><b>die</b></td><td class="num"><b>35.419</b></td><td class="num">100%</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="src">a floor</td></tr></tbody></table></div>
+
+<p class="note"><b>Two columns are conventions, and the page owes you which.</b> Nothing in
+this catalogue carries a gate count. The gate column divides the transistor figure by
+4, the transistors in a 2-input NAND in a standard CMOS cell, which is the
+usual gate-equivalent; read it as the transistor figure restated in the unit an RTL team
+works in, not as a synthesis result. The SRAM column is a division the catalogue itself
+makes, run backwards: an SRAM line is built at 0.052 Mtx
+per KiB &mdash; a 6T bitcell plus about 6% periphery &mdash; so the capacity comes back out
+of the transistors.</p>
+<h3>What the transistors are</h3>
+<div class="panel"><table><thead><tr><th>circuit class</th><th>library</th><th>Mtx/mm&sup2;</th><th>transistors (Mtx)</th><th>area (mm&sup2;)</th><th>of blocks</th><th>what it holds</th><th>density from</th></tr></thead><tbody><tr><td><b>sram_hd</b></td><td>N7 HD-SRAM (0.027 um^2 bitcell)</td><td class="num">280</td><td class="num">2,875.4</td><td class="num">10.269</td><td class="num">41.2%</td><td class="num">54 MiB</td><td class="src">TSMC ISSCC 2018 -- 0.027 um^2 6T bitcell</td></tr><tr><td><b>balanced_logic</b></td><td>N7 7.5T HD</td><td class="num">91</td><td class="num">884.3</td><td class="num">9.718</td><td class="num">39.0%</td><td class="num">221.1 M gates</td><td class="src">TSMC ISSCC 2018 (96.5 Mtx/mm^2 logic peak)</td></tr><tr><td><b>hp_logic</b></td><td>N7 HPC</td><td class="num">75</td><td class="num">368.6</td><td class="num">4.915</td><td class="num">19.7%</td><td class="num">92.2 M gates</td><td class="src">Wikichip TSMC 7nm; AMD Zen2 die-shot analysis</td></tr></tbody></table></div>
+
+<p>41% of the block area on this die is SRAM: that is what
+54 MiB of on-chip storage costs at tsmc_n7. The other
+59% is logic.</p>
+<p class="note">Every density above is <b>THEORETICAL</b>: a
+published library figure for the node, not a measurement of this design placed and routed. A
+density is also a single number standing in for a whole block's mix of cells, utilization and
+routing, so treat the third decimal of any area on this page as arithmetic rather than
+signal.</p>
+
+<h3>What section 6's sizing would take</h3>
+<p>The die above is <code>kpu_t128_n7</code>, and its size is an input: it
+has 128 tiles and 12 cores whatever the mission asks for.
+Section 6 asked for 1,862 tiles and
+36 cores &mdash; 2,191 tiles and
+43 cores provisioned at 85%. Pricing that means separating the part of the die that
+moves with the fabric from the part that does not.</p>
+<p>4 catalogued cores in this family
+(<code>kpu_t64_n7</code>, <code>kpu_t128_n7</code>, <code>kpu_t256_n7</code> and <code>kpu_t512_n7</code>) hold the CPU cluster
+and every other block fixed and vary only the fabric, so a least-squares line through them
+separates the two: <b>0.1665 mm&sup2; a tile</b> plus
+0.287 mm&sup2; the fabric carries at any size. The CPU side is
+0.1664 mm&sup2; a core, which is its caches and nothing else: no absolute core
+area is published for the baseline, so that term is itself a floor. Everything
+else&nbsp;&mdash; 1.331 mm&sup2;&nbsp;&mdash; moves with neither.</p>
+<div class="panel"><table><thead><tr><th>term</th><th>how it scales</th><th>sized for</th><th>area (mm&sup2;)</th></tr></thead><tbody><tr><td><b>KPU fabric</b></td><td class="src">0.287 mm&sup2; + 0.1665 mm&sup2; &times; tiles</td><td class="num">2,191 tiles</td><td class="num">365.149</td></tr><tr><td><b>Andes RISC-V cores</b></td><td class="src">0.1664 mm&sup2; &times; cores (caches only)</td><td class="num">43 cores</td><td class="num">7.155</td></tr><tr><td><b>everything else</b></td><td class="src">fixed: it does not move with either</td><td class="num">-</td><td class="num">1.331</td></tr><tr><td><b>blocks</b></td><td class="src">the three terms above</td><td class="num">-</td><td class="num"><b>373.635</b></td></tr><tr><td><b>die</b></td><td class="src">+15% whitespace, +0.3 mm pad ring a side</td><td class="num">20.73 mm core side</td><td class="num"><b>454.915</b></td></tr></tbody></table></div>
+<p class="note">The line was fitted between 64 and 512 tiles, and 2,191 is
+above the 512 of the largest core in it. A line is not evidence outside the points that made it, so this die is an extrapolation on top of a floor.</p>
+
+<h3>What this says about cost, and what it does not</h3>
+<p>Area is the proxy, and on this page it is the only one. Nothing here carries a wafer price,
+a defect density or a yield model, so no figure converts mm&sup2; into money &mdash; and a die
+area ratio is not a cost ratio, because yield falls with area and a die twice the size costs
+more than twice as much. What the area does support is the comparison a wafer price would not
+change the sign of: two configurations at tsmc_n7, priced the same way.</p>
+
+<p>The floor also leans one way. The blocks nothing prices &mdash;
+isp, codec, memory, io and fabric &mdash; are exactly the ones that do not
+shrink when the fabric does. They are fixed area, so the smaller the fabric, the larger the
+share of the die this page is missing. Missing blocks only ever add area, so at these
+densities every die here is smaller than the design it describes, and the fixed term is the
+part that is understated.</p>
+
 
 <h2>The safety path</h2>
 <p>Sizing answers a rate: can the machine do this much work per second. A safety argument needs
@@ -238,19 +315,19 @@ tile count is a <i>lower</i> bound.</li>
 <li><b>Gap.</b> Named, never filled.</li>
 </ul>
 
-<p><b>Area.</b> A least-squares line through our four catalogued N7 cores gives
-0.1665 mm&sup2; per tile plus
-0.287 mm&sup2; fixed, so a one-tile fabric is about
-0.45 mm&sup2;. The CPU side we cannot price at all: we anchor the cluster's caches but not
-its core logic, because no absolute core area is published for the baseline. <b>An Andes core
-area would close that column outright.</b></p>
+<p><b>Area.</b> Section 7 takes the die apart: transistors from the IP templates, densities
+from the node's libraries, and a least-squares line over the catalogued family for how the
+fabric scales (0.1665 mm&sup2; a tile plus
+0.287 mm&sup2;). One column there is open. We anchor the CPU
+cluster's caches but not its core logic, because no absolute core area is published for the
+baseline. <b>An Andes core area would close it outright.</b></p>
 <p>Reproduce with:</p>
 <p><code>python cli/report_mission_dossier.py --mission quadruped_isr_dismounted_comms_denied \<br>
 &nbsp;&nbsp;&nbsp;&nbsp;--design kpu_t128_n7 --efficiency orin_nano_measured_v1 \<br>
 &nbsp;&nbsp;&nbsp;&nbsp;-o docs/assessments/dossier-quadruped-isr.html</code></p>
 <p class="note"><b>Confidence: UNKNOWN.</b>
 3 stage(s) no engine can be sized for: sgm, radar, vio</p>
-<p class="note">Generated 2026-09-24 from
+<p class="note">Generated 2026-09-25 from
 <code>kpu_t128_n7</code> at <code>tsmc_n7</code>.
-Every figure on this page is reproducible with the command in section 7.</p>
+Every figure on this page is reproducible with the command above.</p>
 </main></body></html>

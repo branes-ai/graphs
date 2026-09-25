@@ -12,6 +12,7 @@ provisioned.
 from __future__ import annotations
 
 import html
+import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 #: One hue per engine, validated all-pairs in both modes.
@@ -476,6 +477,321 @@ def fit_table(dossier) -> str:
             f'{heads}</tr></thead><tbody>{"".join(body)}</tbody></table>')
 
 
+# ---------------------------------------------------------------------------
+# 4. The floorplan, to scale
+# ---------------------------------------------------------------------------
+
+
+def mm2(value: Optional[float], digits: int = 3) -> str:
+    return "-" if value is None else f"{value:.{digits}g} mm&sup2;"
+
+
+def kib(value: Optional[float]) -> str:
+    """SRAM capacity a reader can check against a datasheet."""
+    if not value:
+        return "-"
+    if value >= 1024:
+        return f"{value / 1024:,.3g} MiB"
+    return f"{value:,.0f} KiB"
+
+
+def _squarify(items: Sequence[Tuple[str, float]], x: float, y: float,
+              width: float, height: float) -> List[Tuple[str, float, float, float, float]]:
+    """Squarified treemap: areas in proportion, cells as square as they go.
+
+    ``items`` are (key, value) with values already sorted descending. The
+    cells returned tile the rectangle exactly, so the drawing cannot claim
+    an area the totals do not have.
+    """
+    total = sum(v for _, v in items if v > 0)
+    if total <= 0 or width <= 0 or height <= 0:
+        return []
+    out: List[Tuple[str, float, float, float, float]] = []
+    remaining = [(k, v) for k, v in items if v > 0]
+    scale = (width * height) / total
+
+    def worst(row: List[float], side: float) -> float:
+        area = sum(row)
+        if area <= 0 or side <= 0:
+            return float("inf")
+        big, small = max(row), min(row)
+        return max(side * side * big / (area * area), area * area / (side * side * small))
+
+    while remaining:
+        side = min(width, height)
+        row: List[Tuple[str, float]] = []
+        while remaining:
+            candidate = row + [remaining[0]]
+            if row and worst([v * scale for _, v in candidate], side) > \
+                    worst([v * scale for _, v in row], side):
+                break
+            row = candidate
+            remaining.pop(0)
+        row_area = sum(v for _, v in row) * scale
+        thickness = row_area / side if side else 0.0
+        offset = 0.0
+        for key, value in row:
+            length = (value * scale) / thickness if thickness else 0.0
+            if width >= height:
+                out.append((key, x, y + offset, thickness, length))
+            else:
+                out.append((key, x + offset, y, length, thickness))
+            offset += length
+        if width >= height:
+            x += thickness
+            width -= thickness
+        else:
+            y += thickness
+            height -= thickness
+    return out
+
+
+#: The die drawing's edge, in pixels. Everything inside is in proportion
+#: to it, so one page's die cannot be compared with another's by eye
+#: unless both state the same side length -- which the caption does.
+DIE_PX = 520
+
+#: A chip for a block that could not be placed, and the pitch it repeats
+#: at across and down.
+CHIP_W, CHIP_PITCH, CHIP_ROW_H = 150, 162, 54
+
+
+def _cell(key: str, kind: str, x: float, y: float, w: float, h: float,
+          label: bool = True) -> str:
+    """One floorplan cell. Whitespace is not silicon and is not drawn as
+    though it were: it carries the dashed outline this page already uses
+    for something that is there but is not a block."""
+    if kind == "gap":
+        return (f'<rect class="source" x="{x:.1f}" y="{y:.1f}" '
+                f'width="{max(w - 2, 0):.1f}" height="{max(h - 2, 0):.1f}" rx="2"/>')
+    colour = _engine_colour(kind)
+    return (f'<rect x="{x:.1f}" y="{y:.1f}" width="{max(w - 2, 0):.1f}" '
+            f'height="{max(h - 2, 0):.1f}" rx="2" fill="{colour}" fill-opacity="0.22" '
+            f'stroke="{colour}" stroke-width="1.4"/>')
+
+
+def floorplan_diagram(comp, cpu_label: str = "CPU") -> str:
+    """The composed die at scale: pad ring, whitespace, and one cell per
+    block in proportion to its area.
+
+    A block with no area figure cannot be placed. Those are drawn beneath
+    the die as outlines with no size, because a floorplan that quietly
+    omitted them would read as a complete one.
+    """
+    placed = sorted(((b.name, b.area_mm2, b.engine_kind) for b in comp.blocks
+                     if b.area_mm2 > 0), key=lambda r: -r[1])
+    if not placed:
+        return "<p>no block on this die carries an area figure</p>"
+    kinds = {name: kind for name, _, kind in placed}
+    cells = list(placed)
+    if comp.whitespace_mm2 > 0:
+        cells.append(("whitespace", comp.whitespace_mm2, "gap"))
+        kinds["whitespace"] = "gap"
+    cells.sort(key=lambda r: -r[1])
+
+    ring_px = DIE_PX * (comp.io_ring_mm / comp.die_side_mm)
+    core_px = DIE_PX - 2 * ring_px
+    left, top = 8.0, 96.0
+    gaps = comp.gap_blocks
+    width = DIE_PX + 470
+    # A chip past the right edge is clipped, which omits the block as
+    # surely as not drawing it. Wrap instead, and grow for the rows.
+    per_chip_row = max(1, int((width - 2 * left) // CHIP_PITCH))
+    chip_rows = -(-len(gaps) // per_chip_row) if gaps else 0
+    gap_row_h = (42 + CHIP_ROW_H * chip_rows) if gaps else 0
+    height = top + DIE_PX + gap_row_h + 46
+
+    parts: List[str] = [
+        f'<text class="dtitle" x="8" y="22">The die at {html.escape(comp.node_id)}: '
+        f'{comp.die_side_mm:.2f} mm a side, {comp.die_area_mm2:.1f} mm&sup2;</text>',
+        f'<text class="dsub" x="8" y="42">Every cell is in proportion to its area. '
+        f'{comp.block_area_mm2:.1f} mm&sup2; of blocks, '
+        f'{comp.whitespace_mm2:.1f} mm&sup2; of placement and routing whitespace '
+        f'({comp.whitespace_fraction:.0%}), and a {comp.io_ring_mm:g} mm pad ring '
+        f'({comp.io_ring_area_mm2:.1f} mm&sup2;) around all of it.</text>',
+        # Not "across N blocks": the blocks with no figure at all are not
+        # the only blocks missing a line, and the drawing below shows only
+        # the former.
+        (f'<text class="dsub" x="8" y="60">Areas are a <tspan class="strong">floor</tspan>: '
+         f'{len(comp.gaps)} silicon line{"s" if len(comp.gaps) != 1 else ""} '
+         f'ha{"ve" if len(comp.gaps) != 1 else "s"} no figure and take'
+         f'{"" if len(comp.gaps) != 1 else "s"} no space here.</text>'
+         if comp.gaps else
+         '<text class="dsub" x="8" y="60">Every line of silicon on this design carries a '
+         'figure.</text>'),
+        f'<rect class="node" x="{left:.1f}" y="{top:.1f}" '
+        f'width="{DIE_PX}" height="{DIE_PX}" rx="3"/>',
+        f'<rect class="node" x="{left + ring_px:.1f}" y="{top + ring_px:.1f}" '
+        f'width="{core_px:.1f}" height="{core_px:.1f}" rx="2"/>',
+    ]
+    for key, x, y, w, h in _squarify([(k, v) for k, v, _ in cells],
+                                     left + ring_px, top + ring_px, core_px, core_px):
+        kind = kinds[key]
+        parts.append(_cell(key, kind, x, y, w, h))
+        area = next(v for k, v, _ in cells if k == key)
+        label = cpu_label if key == "cpu" else key
+        # Two grey blocks side by side are not identified by grey. A cell
+        # wide enough for a name gets one even when it has no room for the
+        # figure as well; the key beside the die carries the rest.
+        if w >= 76 and h >= 34:
+            parts.append(f'<text class="n-row" x="{x + 7:.1f}" y="{y + 19:.1f}">'
+                         f'{html.escape(label)}</text>')
+            parts.append(f'<text class="n-row" x="{x + 7:.1f}" y="{y + 35:.1f}">'
+                         f'{area:.2f} mm&sup2;</text>')
+        elif w >= 46 and h >= 18:
+            # wrap() never breaks a single long word, and two block names
+            # running into each other is worse than two clipped ones.
+            room = max(3, int((w - 12) / 5.6))
+            for i, line in enumerate(wrap(label, room, 2)):
+                clipped = html.escape(line[:room]) + ("&#8230;" if len(line) > room else "")
+                parts.append(f'<text class="n-gap" x="{x + 5:.1f}" '
+                             f'y="{y + 15 + i * 12:.1f}">{clipped}</text>')
+
+    key_x = left + DIE_PX + 34
+    parts.append(f'<text class="b-title" x="{key_x:.0f}" y="{top + 16:.0f}">'
+                 f'What takes the area</text>')
+    row_y = top + 42
+    for key, area, kind in cells:
+        label = key if key != "cpu" else cpu_label
+        parts.append(_cell(key, kind, key_x, row_y - 9, 18, 13, label=False))
+        parts.append(f'<text class="n-row" x="{key_x + 24:.0f}" y="{row_y:.0f}">'
+                     f'{html.escape(label)}</text>')
+        parts.append(f'<text class="link-l" x="{key_x + 300:.0f}" y="{row_y:.0f}" '
+                     f'text-anchor="end">{area:.2f} mm&sup2; '
+                     f'({area / comp.die_area_mm2:.0%})</text>')
+        row_y += 22
+    parts.append(f'<rect x="{key_x:.0f}" y="{row_y - 9:.0f}" width="16" height="11" rx="2" '
+                 f'fill="none" stroke="var(--rule)" stroke-width="1.2"/>')
+    parts.append(f'<text class="n-row" x="{key_x + 24:.0f}" y="{row_y:.0f}">pad ring</text>')
+    parts.append(f'<text class="link-l" x="{key_x + 300:.0f}" y="{row_y:.0f}" '
+                 f'text-anchor="end">{comp.io_ring_area_mm2:.2f} mm&sup2; '
+                 f'({comp.io_ring_area_mm2 / comp.die_area_mm2:.0%})</text>')
+
+    if gaps:
+        gap_y = top + DIE_PX + 34
+        parts.append(f'<text class="b-title" x="8" y="{gap_y:.0f}">'
+                     f'Placed nowhere, because nothing states a size</text>')
+        for i, block in enumerate(gaps):
+            chip_x = left + (i % per_chip_row) * CHIP_PITCH
+            chip_y = gap_y + 14 + (i // per_chip_row) * CHIP_ROW_H
+            parts.append(f'<rect class="source chip" x="{chip_x:.0f}" y="{chip_y:.0f}" '
+                         f'width="{CHIP_W:.0f}" height="40" rx="3"/>')
+            parts.append(f'<text class="n-gap" x="{chip_x + 10:.0f}" y="{chip_y + 19:.0f}">'
+                         f'{html.escape(block.name)}</text>')
+            parts.append(f'<text class="n-gap" x="{chip_x + 10:.0f}" y="{chip_y + 34:.0f}">'
+                         f'{len(block.gaps)} line'
+                         f'{"s" if len(block.gaps) != 1 else ""}, no figure</text>')
+    return (f'<svg class="diagram" viewBox="0 0 {width:.0f} {height:.0f}" '
+            f'role="img" aria-label="Die floorplan to scale">{"".join(parts)}</svg>')
+
+
+def silicon_table(comp, cpu_label: str = "CPU") -> str:
+    """Block by block: area, what it is built from, and what is missing."""
+    body = []
+    for block in sorted(comp.blocks, key=lambda b: -b.area_mm2):
+        label = cpu_label if block.name == "cpu" else block.name
+        missing = ", ".join(ln.name for ln in block.gaps)
+        # A block nothing prices is unknown, not zero. Printing 0.000 mm2
+        # in a column of real areas reads as a figure.
+        blank = block.area_mm2 == 0.0
+        body.append(
+            f'<tr class="{"gap" if blank else ""}">'
+            f'<td><b>{html.escape(label)}</b>'
+            f'{f" &times;{block.count}" if block.count != 1 else ""}'
+            f'<br><span class="src">{html.escape(block.ip)}</span></td>'
+            f'<td class="num">{"-" if blank else f"{block.area_mm2:.3f}"}</td>'
+            f'<td class="num">'
+            f'{"-" if blank else f"{block.area_mm2 / comp.die_area_mm2:.1%}"}</td>'
+            f'<td class="num">{"-" if blank else f"{block.transistors_mtx:,.1f}"}</td>'
+            f'<td class="num">{f"{block.gates_m:,.1f}" if block.gates_m else "-"}</td>'
+            f'<td class="num">{kib(block.sram_kib)}</td>'
+            f'<td class="gapcell">{html.escape(missing) if missing else ""}</td></tr>')
+    body.append(
+        f'<tr><td><b>all blocks</b></td>'
+        f'<td class="num"><b>{comp.block_area_mm2:.3f}</b></td>'
+        f'<td class="num">{comp.block_area_mm2 / comp.die_area_mm2:.1%}</td>'
+        f'<td class="num"><b>{comp.transistors_mtx:,.1f}</b></td>'
+        f'<td class="num"><b>{comp.gates_m:,.1f}</b></td>'
+        f'<td class="num"><b>{kib(comp.sram_kib)}</b></td>'
+        f'<td class="gapcell">'
+        f'{f"{len(comp.gaps)} lines" if comp.gaps else ""}</td></tr>')
+    body.append(
+        f'<tr><td>whitespace and pad ring</td>'
+        f'<td class="num">{comp.whitespace_mm2 + comp.io_ring_area_mm2:.3f}</td>'
+        f'<td class="num">'
+        f'{(comp.whitespace_mm2 + comp.io_ring_area_mm2) / comp.die_area_mm2:.1%}</td>'
+        f'<td class="num">-</td><td class="num">-</td><td class="num">-</td>'
+        f'<td class="src">layout record, not silicon</td></tr>')
+    body.append(
+        f'<tr><td><b>die</b></td><td class="num"><b>{comp.die_area_mm2:.3f}</b></td>'
+        f'<td class="num">100%</td><td class="num">-</td><td class="num">-</td>'
+        f'<td class="num">-</td>'
+        f'<td class="src">{"a floor" if comp.gaps else ""}</td></tr>')
+    return ('<table><thead><tr><th>block</th><th>area (mm&sup2;)</th><th>of die</th>'
+            '<th>transistors (Mtx)</th><th>gates (M, NAND2)</th><th>SRAM</th>'
+            f'<th>no figure for</th></tr></thead><tbody>{"".join(body)}</tbody></table>')
+
+
+def density_table(comp) -> str:
+    """One row per library: the density every area on the die was divided
+    by, and where that density comes from."""
+    body = []
+    for entry in comp.classes:
+        holds = kib(entry.sram_kib) if entry.sram_kib else (
+            f"{entry.gates_m:,.1f} M gates" if entry.gates_m else "-")
+        body.append(
+            f'<tr><td><b>{html.escape(entry.circuit_class.value)}</b></td>'
+            f'<td>{html.escape(entry.library)}</td>'
+            f'<td class="num">{entry.mtx_per_mm2:,.0f}</td>'
+            f'<td class="num">{entry.transistors_mtx:,.1f}</td>'
+            f'<td class="num">{entry.area_mm2:.3f}</td>'
+            f'<td class="num">{entry.area_mm2 / comp.block_area_mm2:.1%}</td>'
+            f'<td class="num">{holds}</td>'
+            f'<td class="src">{html.escape(entry.density_source)}</td></tr>')
+    return ('<table><thead><tr><th>circuit class</th><th>library</th>'
+            '<th>Mtx/mm&sup2;</th><th>transistors (Mtx)</th><th>area (mm&sup2;)</th>'
+            '<th>of blocks</th><th>what it holds</th><th>density from</th>'
+            f'</tr></thead><tbody>{"".join(body)}</tbody></table>')
+
+
+def scaling_table(law, tiles: float, cores: float, cpu_label: str = "CPU") -> str:
+    """The three terms of the die, and what the sized counts make of them.
+
+    ``tiles`` and ``cores`` are what the mission was sized for, so the
+    last column is a die this catalogue does not contain.
+    """
+    fabric = law.fabric_mm2(tiles)
+    cpu = law.cpu_mm2(cores)
+    rows = [
+        ("KPU fabric", f"{law.fabric_fixed_mm2:.3f} mm&sup2; + "
+                       f"{law.per_tile_mm2:.4f} mm&sup2; &times; tiles",
+         f"{tiles:,.0f} tile{'s' if tiles != 1 else ''}", fabric),
+        (f"{cpu_label} cores", f"{law.per_core_mm2:.4f} mm&sup2; &times; cores "
+                               f"(caches only)",
+         f"{cores:,.0f} core{'s' if cores != 1 else ''}", cpu),
+        ("everything else", "fixed: it does not move with either",
+         "-", law.other_fixed_mm2),
+    ]
+    body = "".join(
+        f'<tr><td><b>{html.escape(name)}</b></td><td class="src">{how}</td>'
+        f'<td class="num">{html.escape(count)}</td>'
+        f'<td class="num">{area:.3f}</td></tr>'
+        for name, how, count, area in rows)
+    block = law.block_area_mm2(tiles, cores)
+    die = law.die_area_mm2(tiles, cores)
+    body += (f'<tr><td><b>blocks</b></td>'
+             f'<td class="src">the three terms above</td><td class="num">-</td>'
+             f'<td class="num"><b>{block:.3f}</b></td></tr>')
+    body += (f'<tr><td><b>die</b></td>'
+             f'<td class="src">+{law.whitespace_fraction:.0%} whitespace, '
+             f'+{law.io_ring_mm:g} mm pad ring a side</td>'
+             f'<td class="num">{math.sqrt(block * (1 + law.whitespace_fraction)):.2f} mm '
+             f'core side</td>'
+             f'<td class="num"><b>{die:.3f}</b></td></tr>')
+    return ('<table><thead><tr><th>term</th><th>how it scales</th><th>sized for</th>'
+            f'<th>area (mm&sup2;)</th></tr></thead><tbody>{body}</tbody></table>')
+
+
 def _steps_css(steps: Dict[str, str]) -> str:
     return " ".join(f"--{name}:{value};" for name, value in steps.items())
 
@@ -571,7 +887,8 @@ STYLE = (STYLE.replace("__LIGHT__", _steps_css(LIGHT_STEPS))
 def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, str, str, str]],
            alternatives: Sequence[dict] = (), idle_blocks: Sequence[Tuple[str, str]] = (),
            generated: str = "", ingress: Optional[Tuple[str, float]] = None,
-           cpu_label: str = "CPU", notes: Optional[Dict[str, str]] = None) -> str:
+           cpu_label: str = "CPU", notes: Optional[Dict[str, str]] = None,
+           composition=None) -> str:
     """The dossier as one standalone page."""
     legend = (
         '<div class="legend">'
@@ -581,6 +898,19 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
         + '<span class="key"><span class="chip" style="background:var(--gap)"></span>'
           'a figure nothing states</span></div>')
     confidence = dossier.estimation_confidence
+    floorplan = "" if composition is None else f"""
+<h2>7. The floorplan: where the area goes</h2>
+{sections.get("floorplan", "")}
+<div class="panel">{floorplan_diagram(composition, cpu_label)}</div>
+{sections.get("floorplan_note", "")}
+<h3>Block by block</h3>
+<div class="panel">{silicon_table(composition, cpu_label)}</div>
+{sections.get("silicon_note", "")}
+<h3>What the transistors are</h3>
+<div class="panel">{density_table(composition)}</div>
+{sections.get("density_note", "")}
+{sections.get("scaling", "")}
+{sections.get("costing", "")}"""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -623,6 +953,7 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 {sections.get("analysis_2", "")}
 <div class="panel">{sizing_diagram(dossier, alternatives)}</div>
 {sections.get("analysis_3", "")}
+{floorplan}
 
 {sections.get("safety", "")}
 
@@ -636,11 +967,12 @@ def render(dossier, sections: Dict[str, str], requirements: Sequence[Tuple[str, 
 {html.escape(confidence.source)}</p>
 <p class="note">Generated {html.escape(generated)} from
 <code>{html.escape(dossier.design)}</code> at <code>{html.escape(dossier.node)}</code>.
-Every figure on this page is reproducible with the command in section 7.</p>
+Every figure on this page is reproducible with the command above.</p>
 </main></body></html>
 """
 
 
-__all__ = ["CLASS_FORMATS", "DARK_STEPS", "LIGHT_STEPS", "block_diagram", "demand_table",
-           "fit_table", "gb", "ms", "pipeline_graph", "wrap", "render", "requirements_table", "si",
-           "sizing_diagram"]
+__all__ = ["CLASS_FORMATS", "DARK_STEPS", "DIE_PX", "LIGHT_STEPS", "block_diagram",
+           "demand_table", "density_table", "fit_table", "floorplan_diagram", "gb", "kib",
+           "mm2", "ms", "pipeline_graph", "wrap", "render", "requirements_table",
+           "scaling_table", "si", "silicon_table", "sizing_diagram"]
