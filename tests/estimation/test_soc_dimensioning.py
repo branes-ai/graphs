@@ -1406,6 +1406,41 @@ def test_the_small_fabric_argument_quotes_the_mission_it_is_on(cli):
         assert f"sizes to {want:g} tile{'s' if want != 1 else ''}" in text, mission
 
 
+def test_excess_fabric_is_only_claimed_when_the_catalogue_has_it(cli):
+    """"26x more than it can use" is a claim about the catalogued part,
+    so it is tested against the raw demand the ratio divides -- not
+    against the provisioned count, which carries utilization headroom on
+    top of it. Five catalogued tiles exceed a 4.93-tile demand while
+    falling short of the six the mission provisions."""
+    dossier, soc, tiles = cli.build(SURVEILLANCE, "kpu_t128_n7",
+                                    "orin_nano_measured_v1", 0.85)
+    facts = cli._facts(dossier, None)
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    alt = cli.counterfactual(dossier, soc, "det", "cpu", "fp32")
+    needed = kpu.servers_needed
+    want = cli.provision(needed, 0.85)
+    assert needed < 5 < want, (needed, want)
+
+    def ask(catalogued):
+        return " ".join(
+            cli._the_ask(dossier, facts, kpu, cpu, 0.85, alt, catalogued).split())
+
+    # The catalogue really does have more: the claim stands.
+    assert "more than it can use" in ask(tiles)
+    # Fewer tiles than the demand: no excess to claim, either way round.
+    for short in (1, 4):
+        text = ask(short)
+        assert "more than it can use" not in text, short
+        assert "smaller</i> fabric" not in text, short
+        assert "small</i> fabric" not in text, short
+    # Between the demand and what the mission provisions: more than the
+    # demand, but not by an order of magnitude, so it is stated plainly.
+    text = ask(5)
+    assert "more than it can use" not in text
+    assert "sizes to 6 tiles against the 5 the catalogued part has" in text
+
+
 def test_the_surveillance_profile_states_the_capability_it_does_not_cost(cli):
     """The note promises re-identification and day/night; the pipeline
     builds one detector, no re-ID stage and no infrared sensor. The page

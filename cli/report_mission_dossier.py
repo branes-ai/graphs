@@ -1420,16 +1420,26 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                 f"<b>{alt['servers_needed'] / max(on_kpu, 1e-9):.0f} cores of work per "
                 f"tile</b>"
                 + (f" at {alt['watts'] / watts:.1f}x less energy.</p>" if watts else ".</p>"))
-            if catalogued_tiles and kpu.servers_needed:
+            # Only when the catalogue really does have more fabric than the
+            # demand. "want" carries utilization headroom on top of that
+            # demand, so it is the wrong thing to test the claim against:
+            # five catalogued tiles exceed a 4.93-tile demand while falling
+            # short of the six this mission provisions.
+            if catalogued_tiles > kpu.servers_needed:
                 # How small a fabric, from the mission's own sizing. Saying
                 # "one tile" on a mission that needs five is the same
                 # defect as any other sentence written against one page.
                 want = provision(kpu.servers_needed, target_utilization)
+                excess = catalogued_tiles / kpu.servers_needed
                 parts.append(
                     f"<p>It is equally an argument for a <i>small</i> fabric: this mission "
                     f"sizes to {want:g} tile{'s' if want != 1 else ''}, and the catalogued "
                     f"part has {catalogued_tiles} &mdash; "
-                    f"{catalogued_tiles / kpu.servers_needed:.0f}x more than it can use.</p>")
+                    f"{excess:,.0f}x more than it can use.</p>"
+                    if excess >= 10 else
+                    f"<p>It is equally an argument for a <i>smaller</i> fabric: this mission "
+                    f"sizes to {want:g} tile{'s' if want != 1 else ''} against the "
+                    f"{catalogued_tiles} the catalogued part has.</p>")
     return "".join(parts)
 
 
