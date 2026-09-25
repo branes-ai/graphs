@@ -25,7 +25,7 @@ import re
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
@@ -201,10 +201,17 @@ def tile_area_fit(design_id: str = "kpu_t128_n7", law=None):
 #: Where a catalogued profile covers more than one thing, what it does
 #: and does not describe. Rendered as an explicit gap in the requirements
 #: table so the scope of the page is stated with its other limits.
-SCOPE_CAVEATS: Dict[str, str] = {
-    "autonomous_vehicle_sae_l4__l5_high__full_automation":
+#: ``mission -> (what the row shows, why it is a gap)``.
+SCOPE_CAVEATS: Dict[str, Tuple[str, str]] = {
+    "autonomous_vehicle_sae_l4__l5_high__full_automation": (
+        "L4 and L5 together",
         "one profile for both levels; the stated suite is an L4-class build, so these "
-        "figures are a lower bound for L5 (graphs#339)",
+        "figures are a lower bound for L5 (graphs#339)"),
+    "quadruped_surveillance_persistent_patrol": (
+        "re-identification and day/night not costed",
+        "the profile note states person re-identification and day/night operation; the "
+        "pipeline builds neither a re-ID stage nor an infrared sensor, so the detector is "
+        "the whole appearance model here and these figures are a lower bound (graphs#343)"),
 }
 
 #: The human framing of a mission, which is domain knowledge and not in
@@ -271,6 +278,23 @@ travel, so a late frame is not a dropped frame, it is a miss.</p>
 <p>Everything else follows from the closure rate: stereo and lidar at high rate because the
 scene changes fast, detection and the whole reactive stack at {det_hz:g} Hz, and
 {budget:g} W to do it in on an airframe that also has to fly.</p>""",
+    "quadruped_surveillance_persistent_patrol": """
+<p>A legged robot walking a perimeter, over and over, on {budget:g} W. A {cameras:g}-camera
+ring, a stereo pair and a lidar; it looks for people at {det_hz:g} Hz and keeps itself upright
+on {dof:g} joints while it does it. No operator, no end to the patrol &mdash; the job is
+repetitive on purpose, and the machine has to be cheap enough to leave running.</p>
+<p>It is worth costing beside the ISR quadruped because it is that robot with two stages taken
+out: the 2-billion-parameter vision-language model, and the radar. The remaining sixteen stages
+are the same ones at somewhat lower rates. So the pair answers a question the other dossiers can
+only gesture at &mdash; how much of a robot's compute problem is the language model, and how
+much is the robot.</p>
+<p class="note"><b>The note promises more than the pipeline costs.</b> It says "person
+detection and re-identification, day/night", and the catalogue builds one detector, no re-ID
+stage and no infrared sensor. Re-identification is not the same work as detection &mdash; an
+embedding over each detection's crop, and a gallery search whose cost grows over a patrol
+&mdash; and nothing here carries either. No figure has been invented for it, so the demand on
+this page is a <b>lower bound</b> by an amount the catalogue does not state
+(graphs#343).</p>""",
     "quadruped_isr_dismounted_comms_denied": """
 <p>A legged robot carrying ISR for a dismounted team, over unstructured terrain, with no
 datalink to lean on. Everything runs on the animal: stereo and lidar for terrain it has never
@@ -930,6 +954,18 @@ def _comparison_data(dossier, other) -> Optional[dict]:
     }
 
 
+def _factor(ratio: float) -> str:
+    """A ratio a reader can hold. Past an order of magnitude either way,
+    "0.00265x" is arithmetic nobody reads correctly."""
+    if ratio <= 0:
+        return "-"
+    if ratio < 0.1:
+        return f"{1 / ratio:,.0f}x less"
+    if ratio > 10:
+        return f"{ratio:,.0f}x more"
+    return f"{_amount(ratio)}x"
+
+
 def _comparison(dossier, other) -> str:
     """One mission against another on the same design.
 
@@ -951,7 +987,7 @@ def _comparison(dossier, other) -> str:
             f"<tr><td>{html_escape(name.upper())}</td>"
             f"<td class=\"num\">{_amount(a.servers_needed)} {a.unit}s</td>"
             f"<td class=\"num\">{_amount(b.servers_needed)} {b.unit}s</td>"
-            f"<td class=\"num\">{_amount(ratio)}x</td></tr>")
+            f"<td class=\"num\">{_factor(ratio)}</td></tr>")
     ours_stage = {st.key: st for st in dossier.stages}
     theirs_stage = {st.key: st for st in other.stages}
     movers, fallers, added = [], [], []
@@ -983,6 +1019,29 @@ def _comparison(dossier, other) -> str:
         # existing stage moving, and the guard used to hide that entirely.
         names = ", ".join(f"<code>{html_escape(a)}</code>" for a in sorted(added))
         driver += (f"<p>Stages present only in {html_escape(dossier.title)}: {names}.</p>")
+    # ...and the same the other way. A stage the other mission has and
+    # this one does not is invisible in a ratio, and it can be most of
+    # the difference between the two columns above, so it is named with
+    # what it cost over there.
+    dropped = []
+    their_place = {p.stage: p.engine for p in other.placements}
+    for key, st in theirs_stage.items():
+        if ours_stage.get(key) is not None and ours_stage[key].ops_per_s:
+            continue
+        engine = their_place.get(key)
+        fit = st.fits.get(engine) if engine else None
+        dropped.append((key, engine, fit.servers_needed if fit and fit.fits else None))
+    if dropped:
+        parts = []
+        for key, engine, needed in sorted(dropped):
+            prov = next((p for p in other.provisions if p.engine == engine), None)
+            cost = ("no engine prices it there" if needed is None else
+                    f"{_amount(needed)} of that mission's "
+                    f"{_amount(prov.servers_needed)} {prov.unit}s" if prov else
+                    f"{_amount(needed)} {engine}")
+            parts.append(f"<code>{html_escape(key)}</code> ({cost})")
+        driver += (f"<p>Stages present only in {html_escape(other.title)}: "
+                   f"{_join(parts)}.</p>")
     # No claim about vehicle class or ordering: --compare takes any two
     # missions, so the notes carry the difference and the page does not
     # assert a cause.
@@ -1224,13 +1283,23 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
             f"{si(total_lead_ops, 'OP/s')} of <code>{html_escape(lead)}</code> "
             f"in FP32 at materially better than {lead_eff:.2%} of peak?</b></blockquote>")
         ten = lead_cores * lead_eff / 0.10
+        after = provision(cpu.servers_needed - lead_cores + ten, target_utilization)
+        # Whether that lands inside the design is the finding, and "N
+        # instead of N" is not a sentence. Three cases, and the data picks.
+        if after < cpu.servers_provisioned:
+            lands = (f"<b>{after:g} cores provisioned instead of "
+                     f"{cpu.servers_provisioned}</b>")
+        elif after == cpu.servers_provisioned:
+            lands = (f"<b>{after:g} cores provisioned &mdash; exactly what this design "
+                     f"already has</b>. One kernel class is the whole shortfall")
+        else:
+            lands = (f"{after:g} cores provisioned, still past the "
+                     f"{cpu.servers_provisioned} this design has")
         parts.append(
             f"<p>The leverage is enormous because the baseline is so low. At 10% of peak "
             f"instead of {lead_eff:.2%}, that class falls from {_amount(lead_cores)} cores to "
             f"{_amount(ten)}, and the whole CPU requirement from {_amount(cpu.servers_needed)} to "
-            f"{_amount(cpu.servers_needed - lead_cores + ten)} &mdash; "
-            f"{provision(cpu.servers_needed - lead_cores + ten, target_utilization):g} cores "
-            f"provisioned instead of {cpu.servers_provisioned}.</p>")
+            f"{_amount(cpu.servers_needed - lead_cores + ten)} &mdash; {lands}.</p>")
     if kpu and kpu.servers_needed:
         rows = f["by_engine"].get("kpu", [])
         rows.sort(key=lambda r: -(r[1].servers_needed or 0))
@@ -1351,12 +1420,16 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                 f"<b>{alt['servers_needed'] / max(on_kpu, 1e-9):.0f} cores of work per "
                 f"tile</b>"
                 + (f" at {alt['watts'] / watts:.1f}x less energy.</p>" if watts else ".</p>"))
-            if catalogued_tiles:
+            if catalogued_tiles and kpu.servers_needed:
+                # How small a fabric, from the mission's own sizing. Saying
+                # "one tile" on a mission that needs five is the same
+                # defect as any other sentence written against one page.
+                want = provision(kpu.servers_needed, target_utilization)
                 parts.append(
-                    f"<p>It is equally an argument for <i>one</i> tile: the catalogued part has "
-                    f"{catalogued_tiles} tiles, "
-                    f"{catalogued_tiles / kpu.servers_needed:.0f}x more fabric than this "
-                    f"mission can use.</p>")
+                    f"<p>It is equally an argument for a <i>small</i> fabric: this mission "
+                    f"sizes to {want:g} tile{'s' if want != 1 else ''}, and the catalogued "
+                    f"part has {catalogued_tiles} &mdash; "
+                    f"{catalogued_tiles / kpu.servers_needed:.0f}x more than it can use.</p>")
     return "".join(parts)
 
 
@@ -1476,7 +1549,8 @@ def requirements_rows(dossier, alt):
                      "sum of per-stage byte counts", "gap"))
     caveat = SCOPE_CAVEATS.get(dossier.mission)
     if caveat:
-        rows.append(("Scope of this profile", "L4 and L5 together", caveat, "gap"))
+        figure, why = caveat
+        rows.append(("Scope of this profile", figure, why, "gap"))
     rows.append(("Thermal limit", "-", "no cooling solution attached to this design", "gap"))
     rows.append(("Size / volume", "-", "not a field of the mission profile", "gap"))
     rows.append(("Weight", "-", "not a field of the mission profile", "gap"))
