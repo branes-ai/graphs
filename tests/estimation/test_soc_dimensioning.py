@@ -1228,3 +1228,111 @@ def test_the_density_table_cites_the_library_every_area_was_divided_by(compositi
         assert entry.library in table
         assert entry.density_source in table
         assert f"{entry.mtx_per_mm2:,.0f}" in table
+
+
+def _trim(comp, keep, drop_gaps=()):
+    """The same composition with a chosen set of blocks, so the page can
+    be asked what it says about a die the catalogue does not contain."""
+    from dataclasses import replace
+
+    blocks = []
+    for block in comp.blocks:
+        if block.name not in keep:
+            continue
+        lines = tuple(ln for ln in block.lines
+                      if ln.anchored or ln.name not in drop_gaps)
+        blocks.append(replace(block, lines=lines))
+    return replace(comp, blocks=tuple(blocks))
+
+
+def test_the_gap_note_follows_its_own_counts(cli, dossier, composition):
+    """The paragraph was written against one design's five-and-three. On
+    a die with one missing line it read "1 silicon line have no figure",
+    and on a complete one it claimed a floor it did not have."""
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    law = cli.scaling_law_for("kpu_t128_n7")
+
+    def note(comp):
+        out = cli._floorplan(comp, law, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+        return " ".join(out["floorplan_note"].split())
+
+    # One line missing, in a block that is otherwise anchored.
+    one = _trim(composition, {"kpu", "cpu"})
+    assert len(one.gaps) == 1
+    text = note(one)
+    assert "1 silicon line has no figure" in text
+    assert "line have" not in text
+    assert "Andes RISC-V is anchored in part" in text
+    assert "close it." in text
+
+    # Nothing missing: there is no floor to claim, so there is no note.
+    whole = _trim(composition, {"kpu"})
+    assert whole.complete
+    assert note(whole) == ""
+    svg = floorplan_diagram(whole, "Andes RISC-V")
+    assert "Areas are a" not in svg
+    assert "nothing states a size" not in svg
+    assert "Every line of silicon on this design carries a figure." in svg
+    table = silicon_table(whole, "Andes RISC-V")
+    assert "a floor" not in table
+    assert "lines</td>" not in table
+
+
+def test_the_costing_paragraph_needs_blocks_to_point_at(cli, dossier, composition):
+    """"The blocks nothing prices --  -- are exactly the ones..." is not
+    a sentence. A law with nothing unpriced drops the clause."""
+    from dataclasses import replace
+
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    law = cli.scaling_law_for("kpu_t128_n7")
+    full = cli._floorplan(composition, law, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+    assert "The floor also leans one way" in full["costing"]
+
+    priced = replace(law, unpriced_blocks=())
+    out = cli._floorplan(composition, priced, dossier, kpu, cpu, 0.85, "Andes RISC-V", 128)
+    assert "The floor also leans one way" not in out["costing"]
+    # ...and the part that is true whatever is priced still stands.
+    assert "is not a cost ratio" in out["costing"]
+
+
+def test_no_unplaced_block_is_drawn_off_the_edge_of_the_drawing(composition):
+    """Chips advanced along one row. Past the sixth the browser clipped
+    them, which omits a block as surely as not drawing it does."""
+    from dataclasses import replace
+
+    from graphs.reporting.mission_dossier import CHIP_W
+
+    many = replace(composition, blocks=composition.blocks + tuple(
+        replace(b, name=f"{b.name}_{i}") for i in range(1, 4)
+        for b in composition.gap_blocks[:3]))
+    assert len(many.gap_blocks) > 6
+    svg = floorplan_diagram(many, "Andes RISC-V")
+    viewbox = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
+    width, height = float(viewbox.group(1)), float(viewbox.group(2))
+    chips = re.findall(r'<rect class="source chip" x="([\d.]+)" y="([\d.]+)"', svg)
+    assert len(chips) == len(many.gap_blocks)
+    for x, y in chips:
+        assert float(x) + CHIP_W <= width, x
+        assert float(y) + 40 <= height, y
+    for block in many.gap_blocks:
+        assert f">{block.name}<" in svg
+
+
+def test_the_family_is_fitted_once_not_twice(cli):
+    """``main`` fits the law and then asked ``tile_area_fit`` to fit it
+    again, composing four designs and reloading the compute products for
+    each a second time."""
+    law = cli.scaling_law_for("kpu_t128_n7")
+    calls = []
+    original = cli.scaling_law_for
+    cli.scaling_law_for = lambda design_id: (calls.append(design_id), original(design_id))[1]
+    try:
+        handed = cli.tile_area_fit("kpu_t128_n7", law)
+        assert calls == []
+        assert cli.tile_area_fit("kpu_t128_n7") == handed
+        assert calls == ["kpu_t128_n7"]
+    finally:
+        cli.scaling_law_for = original
+    assert handed["slope_mm2_per_tile"] == law.per_tile_mm2

@@ -181,11 +181,17 @@ def scaling_law_for(design_id: str):
     return fit_scaling_law(family) if len(family) >= 2 else None
 
 
-def tile_area_fit(design_id: str = "kpu_t128_n7"):
+def tile_area_fit(design_id: str = "kpu_t128_n7", law=None):
     """Marginal area per tile, fitted over the catalogued family. Used to
     price a fabric no SKU in the catalogue has, which is an extrapolation
-    and is labelled as one."""
-    law = scaling_law_for(design_id)
+    and is labelled as one.
+
+    ``law`` lets a caller that has already fitted the family hand the fit
+    over: composing four designs and reloading the compute products for
+    each is not work worth doing twice.
+    """
+    if law is None:
+        law = scaling_law_for(design_id)
     if law is None:
         return None
     return {"slope_mm2_per_tile": law.per_tile_mm2, "intercept_mm2": law.fabric_fixed_mm2,
@@ -596,18 +602,31 @@ side makes the die {comp.die_side_mm:.2f} mm a side and
 design's layout record rather than any block's silicon&nbsp;&mdash;
 {html_escape(comp.layout_source)}</p>"""
 
+    # Each clause is built only when it has something to say. A design
+    # with every line anchored gets no note at all, because "every area
+    # here is a floor" would then be false rather than merely clumsy.
     partial = [b for b in comp.blocks if b.gaps and b.area_mm2 > 0]
     empty = list(comp.gap_blocks)
-    out["floorplan_note"] = f"""
+    missing = len(comp.gaps)
+    clauses = []
+    if empty:
+        clauses.append(
+            f"{_count(len(empty)).capitalize()} block{'s' if len(empty) != 1 else ''} "
+            f"&mdash; {_join(html_escape(labels.get(b.name, b.name)) for b in empty)} "
+            f"&mdash; {'have' if len(empty) != 1 else 'has'} no anchored line at all, so "
+            f"{'they occupy' if len(empty) != 1 else 'it occupies'} nothing in the drawing "
+            f"above")
+    if partial:
+        clauses.append(
+            f"{_join(html_escape(labels.get(b.name, b.name)) for b in partial)} "
+            f"{'are' if len(partial) != 1 else 'is'} anchored in part, with "
+            f"{_join(f'<code>{html_escape(ln.name)}</code>' for b in partial for ln in b.gaps)}"
+            f" missing")
+    out["floorplan_note"] = "" if not missing else f"""
 <p class="note"><b>Every area on this page is a floor.</b>
-{len(comp.gaps)} silicon line{"s" if len(comp.gaps) != 1 else ""} have no figure.
-{_count(len(empty)).capitalize()} block{"s" if len(empty) != 1 else ""} &mdash;
-{_join(html_escape(labels.get(b.name, b.name)) for b in empty)} &mdash; have no anchored line
-at all, so they occupy nothing in the drawing above;
-{_join(html_escape(labels.get(b.name, b.name)) for b in partial)} are
-anchored in part, with {_join(f"<code>{html_escape(ln.name)}</code>" for b in partial
-                              for ln in b.gaps)} missing. Nothing is filled in to close
-them.</p>"""
+{missing} silicon line{"s" if missing != 1 else ""} {"have" if missing != 1 else "has"} no
+figure. {"; ".join(clauses)}. Nothing is filled in to close
+{"them" if missing != 1 else "it"}.</p>"""
 
     out["silicon_note"] = f"""
 <p class="note"><b>Two columns are conventions, and the page owes you which.</b> Nothing in
@@ -662,6 +681,13 @@ else&nbsp;&mdash; {law.other_fixed_mm2:.3f} mm&sup2;&nbsp;&mdash; moves with nei
 <p class="note">The line was fitted between {low} and {high} tiles, and {tiles:,g} is
 {reach}. {"A line is not evidence outside the points that made it, so this die is an extrapolation on top of a floor." if where != "within" else "The tile count is covered by the fit; the die is still a floor, for the lines nothing states."}</p>"""
 
+    leans = "" if not law.unpriced_blocks else f"""
+<p>The floor also leans one way. The blocks nothing prices &mdash;
+{_join(html_escape(b) for b in law.unpriced_blocks)} &mdash; are exactly the ones that do not
+shrink when the fabric does. They are fixed area, so the smaller the fabric, the larger the
+share of the die this page is missing. Missing blocks only ever add area, so at these
+densities every die here is smaller than the design it describes, and the fixed term is the
+part that is understated.</p>"""
     out["costing"] = f"""
 <h3>What this says about cost, and what it does not</h3>
 <p>Area is the proxy, and on this page it is the only one. Nothing here carries a wafer price,
@@ -669,12 +695,7 @@ a defect density or a yield model, so no figure converts mm&sup2; into money &md
 area ratio is not a cost ratio, because yield falls with area and a die twice the size costs
 more than twice as much. What the area does support is the comparison a wafer price would not
 change the sign of: two configurations at {html_escape(comp.node_id)}, priced the same way.</p>
-<p>The floor also leans one way. The blocks nothing prices &mdash;
-{_join(html_escape(b) for b in law.unpriced_blocks)} &mdash; are exactly the ones that do not
-shrink when the fabric does. They are fixed area, so the smaller the fabric, the larger the
-share of the die this page is missing. Missing blocks only ever add area, so at these
-densities every die here is smaller than the design it describes, and the fixed term is the
-part that is understated.</p>"""
+{leans}"""
     return out
 
 
@@ -1494,7 +1515,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         alt = counterfactual(dossier, soc, "det", "cpu", "fp32")
         composition = compose_resources(soc)
         law = scaling_law_for(args.design)
-        fit = tile_area_fit(args.design)
+        fit = tile_area_fit(args.design, law)
         crosscheck = pooled_figures(args.mission)
         compare = None
         if args.compare:

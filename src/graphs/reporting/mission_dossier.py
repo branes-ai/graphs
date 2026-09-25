@@ -551,6 +551,10 @@ def _squarify(items: Sequence[Tuple[str, float]], x: float, y: float,
 #: unless both state the same side length -- which the caption does.
 DIE_PX = 520
 
+#: A chip for a block that could not be placed, and the pitch it repeats
+#: at across and down.
+CHIP_W, CHIP_PITCH, CHIP_ROW_H = 150, 162, 54
+
 
 def _cell(key: str, kind: str, x: float, y: float, w: float, h: float,
           label: bool = True) -> str:
@@ -589,8 +593,12 @@ def floorplan_diagram(comp, cpu_label: str = "CPU") -> str:
     core_px = DIE_PX - 2 * ring_px
     left, top = 8.0, 96.0
     gaps = comp.gap_blocks
-    gap_row_h = 96 if gaps else 0
     width = DIE_PX + 470
+    # A chip past the right edge is clipped, which omits the block as
+    # surely as not drawing it. Wrap instead, and grow for the rows.
+    per_chip_row = max(1, int((width - 2 * left) // CHIP_PITCH))
+    chip_rows = -(-len(gaps) // per_chip_row) if gaps else 0
+    gap_row_h = (42 + CHIP_ROW_H * chip_rows) if gaps else 0
     height = top + DIE_PX + gap_row_h + 46
 
     parts: List[str] = [
@@ -604,10 +612,13 @@ def floorplan_diagram(comp, cpu_label: str = "CPU") -> str:
         # Not "across N blocks": the blocks with no figure at all are not
         # the only blocks missing a line, and the drawing below shows only
         # the former.
-        f'<text class="dsub" x="8" y="60">Areas are a <tspan class="strong">floor</tspan>: '
-        f'{len(comp.gaps)} silicon line{"s" if len(comp.gaps) != 1 else ""} '
-        f'ha{"ve" if len(comp.gaps) != 1 else "s"} no figure and take'
-        f'{"" if len(comp.gaps) != 1 else "s"} no space here.</text>',
+        (f'<text class="dsub" x="8" y="60">Areas are a <tspan class="strong">floor</tspan>: '
+         f'{len(comp.gaps)} silicon line{"s" if len(comp.gaps) != 1 else ""} '
+         f'ha{"ve" if len(comp.gaps) != 1 else "s"} no figure and take'
+         f'{"" if len(comp.gaps) != 1 else "s"} no space here.</text>'
+         if comp.gaps else
+         '<text class="dsub" x="8" y="60">Every line of silicon on this design carries a '
+         'figure.</text>'),
         f'<rect class="node" x="{left:.1f}" y="{top:.1f}" '
         f'width="{DIE_PX}" height="{DIE_PX}" rx="3"/>',
         f'<rect class="node" x="{left + ring_px:.1f}" y="{top + ring_px:.1f}" '
@@ -660,17 +671,16 @@ def floorplan_diagram(comp, cpu_label: str = "CPU") -> str:
         gap_y = top + DIE_PX + 34
         parts.append(f'<text class="b-title" x="8" y="{gap_y:.0f}">'
                      f'Placed nowhere, because nothing states a size</text>')
-        chip_x = 8.0
-        for block in gaps:
-            chip_w = 150.0
-            parts.append(f'<rect class="source" x="{chip_x:.0f}" y="{gap_y + 14:.0f}" '
-                         f'width="{chip_w:.0f}" height="40" rx="3"/>')
-            parts.append(f'<text class="n-gap" x="{chip_x + 10:.0f}" y="{gap_y + 33:.0f}">'
+        for i, block in enumerate(gaps):
+            chip_x = left + (i % per_chip_row) * CHIP_PITCH
+            chip_y = gap_y + 14 + (i // per_chip_row) * CHIP_ROW_H
+            parts.append(f'<rect class="source chip" x="{chip_x:.0f}" y="{chip_y:.0f}" '
+                         f'width="{CHIP_W:.0f}" height="40" rx="3"/>')
+            parts.append(f'<text class="n-gap" x="{chip_x + 10:.0f}" y="{chip_y + 19:.0f}">'
                          f'{html.escape(block.name)}</text>')
-            parts.append(f'<text class="n-gap" x="{chip_x + 10:.0f}" y="{gap_y + 48:.0f}">'
+            parts.append(f'<text class="n-gap" x="{chip_x + 10:.0f}" y="{chip_y + 34:.0f}">'
                          f'{len(block.gaps)} line'
                          f'{"s" if len(block.gaps) != 1 else ""}, no figure</text>')
-            chip_x += chip_w + 12
     return (f'<svg class="diagram" viewBox="0 0 {width:.0f} {height:.0f}" '
             f'role="img" aria-label="Die floorplan to scale">{"".join(parts)}</svg>')
 
@@ -703,7 +713,8 @@ def silicon_table(comp, cpu_label: str = "CPU") -> str:
         f'<td class="num"><b>{comp.transistors_mtx:,.1f}</b></td>'
         f'<td class="num"><b>{comp.gates_m:,.1f}</b></td>'
         f'<td class="num"><b>{kib(comp.sram_kib)}</b></td>'
-        f'<td class="gapcell">{len(comp.gaps)} lines</td></tr>')
+        f'<td class="gapcell">'
+        f'{f"{len(comp.gaps)} lines" if comp.gaps else ""}</td></tr>')
     body.append(
         f'<tr><td>whitespace and pad ring</td>'
         f'<td class="num">{comp.whitespace_mm2 + comp.io_ring_area_mm2:.3f}</td>'
@@ -714,7 +725,8 @@ def silicon_table(comp, cpu_label: str = "CPU") -> str:
     body.append(
         f'<tr><td><b>die</b></td><td class="num"><b>{comp.die_area_mm2:.3f}</b></td>'
         f'<td class="num">100%</td><td class="num">-</td><td class="num">-</td>'
-        f'<td class="num">-</td><td class="src">a floor</td></tr>')
+        f'<td class="num">-</td>'
+        f'<td class="src">{"a floor" if comp.gaps else ""}</td></tr>')
     return ('<table><thead><tr><th>block</th><th>area (mm&sup2;)</th><th>of die</th>'
             '<th>transistors (Mtx)</th><th>gates (M, NAND2)</th><th>SRAM</th>'
             f'<th>no figure for</th></tr></thead><tbody>{"".join(body)}</tbody></table>')
