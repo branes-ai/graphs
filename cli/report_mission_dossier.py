@@ -40,8 +40,11 @@ from graphs.estimation.soc.domainflow import fabric_ceilings  # noqa: E402
 from graphs.estimation.soc.power import op_energy_pj  # noqa: E402
 from graphs.hardware.kpu_sku_generator import input_spec_from_compute_product  # noqa: E402
 from graphs.hardware.soc import compose_soc, load_designs, load_ip_library  # noqa: E402
+from graphs.hardware.soc.floorplan import (  # noqa: E402
+    NAND2_TRANSISTORS, compose_resources, fit_scaling_law)
 from graphs.hardware.soc.kpu_cores import KPU_CORES, sku_of  # noqa: E402
-from graphs.reporting.mission_dossier import gb, ms, render, si  # noqa: E402
+from graphs.hardware.sku_validators.silicon_math import SRAM_MTX_PER_KIB  # noqa: E402
+from graphs.reporting.mission_dossier import gb, kib, ms, render, scaling_table, si  # noqa: E402
 from graphs.reporting.output_format import write_report  # noqa: E402
 
 #: The smallest catalogued core with a stated domain-flow schedule. Sizing
@@ -143,33 +146,56 @@ def pooled_figures(mission: str) -> Optional[dict]:
     return out
 
 
-def tile_area_fit():
-    """Marginal area per tile, fitted over the catalogued N7 cores. Used to
-    price a fabric smaller than any SKU in the catalogue, which is an
-    extrapolation and is labelled as one."""
+#: A tile family: designs that differ only in how many tiles the fabric
+#: has. Anything else in the id -- a heterogeneous core, another node --
+#: is a different family, and a per-tile slope across two families would
+#: absorb the difference between them.
+FAMILY = re.compile(r"^kpu_t(\d+)_(?P<suffix>[a-z0-9]+)$")
+
+
+def family_of(design_id: str):
+    """Every catalogued design in the same tile family, composed, with its
+    tile count. Empty when the design is not one of a family."""
+    match = FAMILY.match(design_id)
+    if match is None:
+        return []
     designs, lib, nodes = load_designs(), load_ip_library(), load_process_nodes()
-    points = []
-    for name in ("kpu_t64_n7", "kpu_t128_n7", "kpu_t256_n7", "kpu_t512_n7"):
-        if name not in designs:
+    node = designs[design_id].process_node
+    out = []
+    for name, design in sorted(designs.items()):
+        other = FAMILY.match(name)
+        if other is None or other.group("suffix") != match.group("suffix"):
             continue
-        soc = compose_soc(designs[name], lib, nodes, None)
-        block = next((b for b in soc.blocks if b.name == "kpu"), None)
-        core = next((b.ip for b in designs[name].blocks if b.ip in KPU_CORES), None)
-        if block is None or block.area_mm2 is None or core is None:
+        if design.process_node != node:
             continue
-        points.append((_tiles(core), block.area_mm2))
-    if len(points) < 2:
+        core = next((b.ip for b in design.blocks if b.ip in KPU_CORES), None)
+        if core is None:
+            continue
+        out.append((name, compose_soc(design, lib, nodes, None), _tiles(core)))
+    return out
+
+
+def scaling_law_for(design_id: str):
+    """How this design's die area moves with tiles and with cores."""
+    family = family_of(design_id)
+    return fit_scaling_law(family) if len(family) >= 2 else None
+
+
+def tile_area_fit(design_id: str = "kpu_t128_n7", law=None):
+    """Marginal area per tile, fitted over the catalogued family. Used to
+    price a fabric no SKU in the catalogue has, which is an extrapolation
+    and is labelled as one.
+
+    ``law`` lets a caller that has already fitted the family hand the fit
+    over: composing four designs and reloading the compute products for
+    each is not work worth doing twice.
+    """
+    if law is None:
+        law = scaling_law_for(design_id)
+    if law is None:
         return None
-    points.sort()
-    count = len(points)
-    mean_t = sum(t for t, _ in points) / count
-    mean_a = sum(a for _, a in points) / count
-    variance = sum((t - mean_t) ** 2 for t, _ in points)
-    if variance == 0:
-        return None
-    slope = sum((t - mean_t) * (a - mean_a) for t, a in points) / variance
-    return {"slope_mm2_per_tile": slope, "intercept_mm2": mean_a - slope * mean_t,
-            "points": points}
+    return {"slope_mm2_per_tile": law.per_tile_mm2, "intercept_mm2": law.fabric_fixed_mm2,
+            "points": [list(point) for point in law.points]}
 
 
 #: Where a catalogued profile covers more than one thing, what it does
@@ -295,7 +321,8 @@ def _worst(rows):
 def sections(dossier, soc, alt, area_fit, catalogued_tiles: int = 0,
              efficiency: str = "", target_utilization: float = 0.85,
              output: str = "", crosscheck: Optional[dict] = None,
-             compare=None) -> dict:
+             compare=None, composition=None, law=None,
+             cpu_label: str = "CPU") -> dict:
     """The argument. Every number is interpolated from the dossier, so the
     prose cannot drift from the analysis it describes."""
     f = _facts(dossier, alt)
@@ -487,14 +514,17 @@ has, and the figure beside it says by how much.</p>"""
 
     fit_note = ""
     if area_fit:
-        one = area_fit["slope_mm2_per_tile"] + area_fit["intercept_mm2"]
         fit_note = f"""
-<p><b>Area.</b> A least-squares line through our four catalogued N7 cores gives
-{area_fit['slope_mm2_per_tile']:.4f} mm&sup2; per tile plus
-{area_fit['intercept_mm2']:.3f} mm&sup2; fixed, so a one-tile fabric is about
-{one:.2f} mm&sup2;. The CPU side we cannot price at all: we anchor the cluster's caches but not
-its core logic, because no absolute core area is published for the baseline. <b>An Andes core
-area would close that column outright.</b></p>"""
+<p><b>Area.</b> Section 7 takes the die apart: transistors from the IP templates, densities
+from the node's libraries, and a least-squares line over the catalogued family for how the
+fabric scales ({area_fit['slope_mm2_per_tile']:.4f} mm&sup2; a tile plus
+{area_fit['intercept_mm2']:.3f} mm&sup2;). One column there is open. We anchor the CPU
+cluster's caches but not its core logic, because no absolute core area is published for the
+baseline. <b>An Andes core area would close it outright.</b></p>"""
+
+    if composition is not None:
+        out.update(_floorplan(composition, law, dossier, kpu, cpu, target_utilization,
+                              cpu_label, catalogued_tiles))
 
     out["safety"] = _safety(dossier, soc)
     out["comparison"] = _comparison(dossier, compare)
@@ -518,6 +548,154 @@ tile count is a <i>lower</i> bound.</li>
 <p><code>python cli/report_mission_dossier.py --mission {dossier.mission} \\<br>
 &nbsp;&nbsp;&nbsp;&nbsp;--design {dossier.design} --efficiency {efficiency} \\<br>
 &nbsp;&nbsp;&nbsp;&nbsp;-o {output or "dossier.html"}</code></p>"""
+    return out
+
+
+def _floorplan(comp, law, dossier, kpu, cpu, target_utilization: float,
+               cpu_label: str, catalogued_tiles: int) -> Dict[str, str]:
+    """Section 7: how every area on the die was arrived at, what the
+    silicon is made of, and what the sizing in section 6 would take.
+
+    Everything here is a property of the design and the node. The mission
+    enters once, as the tile and core counts section 6 produced.
+    """
+    out: Dict[str, str] = {}
+    logic = max((ln for b in comp.blocks for ln in b.lines if ln.gates_m),
+                key=lambda ln: ln.transistors_mtx, default=None)
+    sram = max((ln for b in comp.blocks for ln in b.lines if ln.sram_kib),
+               key=lambda ln: ln.transistors_mtx, default=None)
+    per_kib = SRAM_MTX_PER_KIB.get(sram.circuit_class) if sram else None
+    labels = {b.name: (cpu_label if b.name == "cpu" else b.name) for b in comp.blocks}
+    worked = ""
+    if logic is not None:
+        worked += (
+            f" The largest logic line on this die is "
+            f"{html_escape(labels.get(logic.block, logic.block))}'s "
+            f"<code>{html_escape(logic.name)}</code>: it is "
+            f"{logic.transistors_mtx:,.0f} Mtx of "
+            f"<code>{html_escape(logic.circuit_class.value)}</code>, and "
+            f"{html_escape(comp.node_id)} puts {html_escape(logic.library)} at "
+            f"{logic.mtx_per_mm2:,.0f} Mtx/mm&sup2;, so it takes "
+            f"{logic.area_mm2:.3f} mm&sup2;.")
+    if sram is not None and per_kib:
+        worked += (
+            f" The largest SRAM line, "
+            f"{html_escape(labels.get(sram.block, sram.block))}'s "
+            f"<code>{html_escape(sram.name)}</code>, is "
+            f"{sram.transistors_mtx:,.0f} Mtx of "
+            f"<code>{html_escape(sram.circuit_class.value)}</code> at "
+            f"{sram.mtx_per_mm2:,.0f} Mtx/mm&sup2;, which is {sram.area_mm2:.3f} mm&sup2; "
+            f"&mdash; and, at {per_kib:g} Mtx per KiB, {kib(sram.sram_kib)} of storage.")
+
+    out["floorplan"] = f"""
+<p>An area here is arithmetic, not a drawing. Every block declares its silicon one line at a
+time: a transistor count and the circuit class it is built in. The node states a density for
+that class &mdash; a named library, a figure in Mtx/mm&sup2;, and a source &mdash; and the
+area is the division.{worked}</p>
+<p>The blocks then roll up the same way on every design.
+{comp.block_area_mm2:.2f} mm&sup2; of blocks, plus
+{comp.whitespace_fraction:.0%} for placement and routing whitespace, is
+{comp.core_area_mm2:.2f} mm&sup2; of core; a square core is
+{comp.core_area_mm2 ** 0.5:.2f} mm a side, and a {comp.io_ring_mm:g} mm pad ring on each
+side makes the die {comp.die_side_mm:.2f} mm a side and
+{comp.die_area_mm2:.1f} mm&sup2;. The whitespace fraction and the ring depth are the
+design's layout record rather than any block's silicon&nbsp;&mdash;
+{html_escape(comp.layout_source)}</p>"""
+
+    # Each clause is built only when it has something to say. A design
+    # with every line anchored gets no note at all, because "every area
+    # here is a floor" would then be false rather than merely clumsy.
+    partial = [b for b in comp.blocks if b.gaps and b.area_mm2 > 0]
+    empty = list(comp.gap_blocks)
+    missing = len(comp.gaps)
+    clauses = []
+    if empty:
+        clauses.append(
+            f"{_count(len(empty)).capitalize()} block{'s' if len(empty) != 1 else ''} "
+            f"&mdash; {_join(html_escape(labels.get(b.name, b.name)) for b in empty)} "
+            f"&mdash; {'have' if len(empty) != 1 else 'has'} no anchored line at all, so "
+            f"{'they occupy' if len(empty) != 1 else 'it occupies'} nothing in the drawing "
+            f"above")
+    if partial:
+        clauses.append(
+            f"{_join(html_escape(labels.get(b.name, b.name)) for b in partial)} "
+            f"{'are' if len(partial) != 1 else 'is'} anchored in part, with "
+            f"{_join(f'<code>{html_escape(ln.name)}</code>' for b in partial for ln in b.gaps)}"
+            f" missing")
+    out["floorplan_note"] = "" if not missing else f"""
+<p class="note"><b>Every area on this page is a floor.</b>
+{missing} silicon line{"s" if missing != 1 else ""} {"have" if missing != 1 else "has"} no
+figure. {"; ".join(clauses)}. Nothing is filled in to close
+{"them" if missing != 1 else "it"}.</p>"""
+
+    out["silicon_note"] = f"""
+<p class="note"><b>Two columns are conventions, and the page owes you which.</b> Nothing in
+this catalogue carries a gate count. The gate column divides the transistor figure by
+{NAND2_TRANSISTORS}, the transistors in a 2-input NAND in a standard CMOS cell, which is the
+usual gate-equivalent; read it as the transistor figure restated in the unit an RTL team
+works in, not as a synthesis result. The SRAM column is a division the catalogue itself
+makes, run backwards: an SRAM line is built at {SRAM_MTX_PER_KIB[sram.circuit_class]:g} Mtx
+per KiB &mdash; a 6T bitcell plus about 6% periphery &mdash; so the capacity comes back out
+of the transistors.</p>""" if sram is not None else ""
+
+    sram_area = sum(c.area_mm2 for c in comp.classes if c.sram_kib)
+    logic_area = sum(c.area_mm2 for c in comp.classes if c.gates_m)
+    confidences = sorted({c.density_confidence for c in comp.classes})
+    out["density_note"] = f"""
+<p>{sram_area / comp.block_area_mm2:.0%} of the block area on this die is SRAM: that is what
+{kib(comp.sram_kib)} of on-chip storage costs at {comp.node_id}. The other
+{logic_area / comp.block_area_mm2:.0%} is logic.</p>
+<p class="note">Every density above is <b>{_join(c.upper() for c in confidences)}</b>: a
+published library figure for the node, not a measurement of this design placed and routed. A
+density is also a single number standing in for a whole block's mix of cells, utilization and
+routing, so treat the third decimal of any area on this page as arithmetic rather than
+signal.</p>"""
+
+    if law is None or kpu is None or cpu is None:
+        return out
+
+    tiles = provision(kpu.servers_needed, target_utilization)
+    cores = provision(cpu.servers_needed, target_utilization)
+    low, high = law.tiles_fitted
+    where = law.extrapolates(tiles)
+    reach = {"below": f"below the {low} of the smallest core in it",
+             "above": f"above the {high} of the largest core in it",
+             "within": "inside it"}[where]
+    out["scaling"] = f"""
+<h3>What section 6's sizing would take</h3>
+<p>The die above is <code>{html_escape(dossier.design)}</code>, and its size is an input: it
+has {catalogued_tiles} tiles and {law.cores_per_cluster} cores whatever the mission asks for.
+Section 6 asked for {_amount(kpu.servers_needed)} tiles and
+{_amount(cpu.servers_needed)} cores &mdash; {tiles:,g} tile{"s" if tiles != 1 else ""} and
+{cores:,g} core{"s" if cores != 1 else ""} provisioned at {target_utilization:.0%}. Pricing that means separating the part of the die that
+moves with the fabric from the part that does not.</p>
+<p>{_count(len(law.designs))} catalogued cores in this family
+({_join(f"<code>{html_escape(d)}</code>" for d in law.designs)}) hold the CPU cluster
+and every other block fixed and vary only the fabric, so a least-squares line through them
+separates the two: <b>{law.per_tile_mm2:.4f} mm&sup2; a tile</b> plus
+{law.fabric_fixed_mm2:.3f} mm&sup2; the fabric carries at any size. The CPU side is
+{law.per_core_mm2:.4f} mm&sup2; a core, which is its caches and nothing else: no absolute core
+area is published for the baseline, so that term is itself a floor. Everything
+else&nbsp;&mdash; {law.other_fixed_mm2:.3f} mm&sup2;&nbsp;&mdash; moves with neither.</p>
+<div class="panel">{scaling_table(law, tiles, cores, cpu_label)}</div>
+<p class="note">The line was fitted between {low} and {high} tiles, and {tiles:,g} is
+{reach}. {"A line is not evidence outside the points that made it, so this die is an extrapolation on top of a floor." if where != "within" else "The tile count is covered by the fit; the die is still a floor, for the lines nothing states."}</p>"""
+
+    leans = "" if not law.unpriced_blocks else f"""
+<p>The floor also leans one way. The blocks nothing prices &mdash;
+{_join(html_escape(b) for b in law.unpriced_blocks)} &mdash; are exactly the ones that do not
+shrink when the fabric does. They are fixed area, so the smaller the fabric, the larger the
+share of the die this page is missing. Missing blocks only ever add area, so at these
+densities every die here is smaller than the design it describes, and the fixed term is the
+part that is understated.</p>"""
+    out["costing"] = f"""
+<h3>What this says about cost, and what it does not</h3>
+<p>Area is the proxy, and on this page it is the only one. Nothing here carries a wafer price,
+a defect density or a yield model, so no figure converts mm&sup2; into money &mdash; and a die
+area ratio is not a cost ratio, because yield falls with area and a die twice the size costs
+more than twice as much. What the area does support is the comparison a wafer price would not
+change the sign of: two configurations at {html_escape(comp.node_id)}, priced the same way.</p>
+{leans}"""
     return out
 
 
@@ -1335,7 +1513,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         dossier, soc, _tiles_n = build(args.mission, args.design, args.efficiency,
                                        args.target_utilization)
         alt = counterfactual(dossier, soc, "det", "cpu", "fp32")
-        fit = tile_area_fit()
+        composition = compose_resources(soc)
+        law = scaling_law_for(args.design)
+        fit = tile_area_fit(args.design, law)
         crosscheck = pooled_figures(args.mission)
         compare = None
         if args.compare:
@@ -1370,6 +1550,40 @@ def main(argv: Optional[List[str]] = None) -> int:
             "dram_supply_gb_per_s": dossier.dram_supply_gb_per_s,
             "datapath_watts": dossier.datapath_watts,
             "counterfactual": alt, "tile_area_fit": fit,
+            "floorplan": {
+                "die_area_mm2": composition.die_area_mm2,
+                "die_side_mm": composition.die_side_mm,
+                "core_area_mm2": composition.core_area_mm2,
+                "block_area_mm2": composition.block_area_mm2,
+                "io_ring_area_mm2": composition.io_ring_area_mm2,
+                "transistors_mtx": composition.transistors_mtx,
+                "gates_m_nand2": composition.gates_m,
+                "sram_kib": composition.sram_kib,
+                "complete": composition.complete,
+                "unpriced_lines": [f"{ln.block}.{ln.name}" for ln in composition.gaps],
+                "blocks": [{
+                    "name": b.name, "ip": b.ip, "count": b.count,
+                    "engine_kind": b.engine_kind, "area_mm2": b.area_mm2,
+                    "transistors_mtx": b.transistors_mtx, "gates_m_nand2": b.gates_m,
+                    "sram_kib": b.sram_kib, "complete": b.complete,
+                } for b in composition.blocks],
+                "by_circuit_class": [{
+                    "circuit_class": c.circuit_class.value, "library": c.library,
+                    "mtx_per_mm2": c.mtx_per_mm2, "transistors_mtx": c.transistors_mtx,
+                    "area_mm2": c.area_mm2, "sram_kib": c.sram_kib,
+                    "gates_m_nand2": c.gates_m, "confidence": c.density_confidence,
+                } for c in composition.classes],
+            },
+            "scaling_law": None if law is None else {
+                "per_tile_mm2": law.per_tile_mm2,
+                "fabric_fixed_mm2": law.fabric_fixed_mm2,
+                "per_core_mm2": law.per_core_mm2,
+                "other_fixed_mm2": law.other_fixed_mm2,
+                "cores_per_cluster": law.cores_per_cluster,
+                "tiles_fitted": list(law.tiles_fitted),
+                "designs": list(law.designs),
+                "unpriced_blocks": list(law.unpriced_blocks),
+            },
             "published": dict(dossier.published),
             "crosscheck": crosscheck,
             "comparison": _comparison_data(dossier, compare),
@@ -1404,10 +1618,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ingress = ("mono cameras", camera.bytes_per_s) if camera else None
     write_report(render(dossier, sections(dossier, soc, alt, fit, _tiles_n, args.efficiency,
                                  args.target_utilization, args.output or "",
-                                 crosscheck, compare),
+                                 crosscheck, compare, composition, law, args.cpu_label),
                         requirements_rows(dossier, alt), alternatives, idle,
                         date.today().isoformat(), ingress, args.cpu_label,
-                        {"cpu": args.cpu_baseline}), args.output)
+                        {"cpu": args.cpu_baseline}, composition), args.output)
     return 0
 
 
