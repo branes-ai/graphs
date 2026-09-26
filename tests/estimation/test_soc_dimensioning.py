@@ -1336,3 +1336,139 @@ def test_the_family_is_fitted_once_not_twice(cli):
     finally:
         cli.scaling_law_for = original
     assert handed["slope_mm2_per_tile"] == law.per_tile_mm2
+
+
+SURVEILLANCE = "quadruped_surveillance_persistent_patrol"
+
+
+def test_a_ratio_past_an_order_of_magnitude_is_stated_the_readable_way(cli):
+    """"0.00265x" is arithmetic nobody reads correctly, and it was the
+    headline figure on a comparison whose point was a 378-fold drop."""
+    assert cli._factor(4.926 / 1861.856) == "378x less"
+    assert cli._factor(1861.856 / 4.926) == "378x more"
+    assert cli._factor(0.63) == "0.63x"
+    assert cli._factor(1.0) == "1x"
+    assert cli._factor(0.0) == "-"
+
+
+def test_a_stage_only_the_other_mission_has_is_named_with_what_it_cost(cli):
+    """A stage this mission does not have cannot appear in any ratio, and
+    on this pair it is most of the difference between the two columns."""
+    ours, _s, _t = cli.build(SURVEILLANCE, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    theirs, _s2, _t2 = cli.build(QUADRUPED, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    text = " ".join(cli._comparison(ours, theirs).split())
+    assert f"Stages present only in {html.escape(theirs.title)}" in text
+    ours_keys = {s.key for s in ours.stages if s.ops_per_s}
+    for stage in theirs.stages:
+        if stage.key not in ours_keys:
+            assert f"<code>{stage.key}</code>" in text, stage.key
+    # The one that matters carries what it needed over there, not a bare name.
+    assert "<code>vlm</code> (1,856 of that mission's 1,862 tiles)" in text
+    # A stage nothing could price there says so rather than showing a zero.
+    assert "<code>radar</code> (no engine prices it there)" in text
+    # ...and the direction is stated from the mission the page is about.
+    assert f"Stages present only in {html.escape(ours.title)}" not in text
+
+
+def test_the_cpu_ask_never_says_instead_of_the_number_it_just_gave(cli):
+    """"12 cores provisioned instead of 12" is not a sentence, and it hid
+    the finding: on that mission one kernel class is the whole shortfall.
+    All three bands are reachable from catalogued missions."""
+    seen = {}
+    for mission in (MISSION, SURVEILLANCE, QUADRUPED):
+        dossier, _soc, tiles = cli.build(mission, "kpu_t128_n7",
+                                         "orin_nano_measured_v1", 0.85)
+        facts = cli._facts(dossier, None)
+        kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+        cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+        text = " ".join(cli._the_ask(dossier, facts, kpu, cpu, 0.85, None, tiles).split())
+        n = cpu.servers_provisioned
+        assert f"{n:g} cores provisioned instead of {n:g}" not in text
+        seen[mission] = text
+    assert "exactly what this design already has" in seen[SURVEILLANCE]
+    assert "One kernel class is the whole shortfall" in seen[SURVEILLANCE]
+    assert "provisioned instead of 4" in seen[MISSION]
+    assert "still past the 12 this design has" in seen[QUADRUPED]
+
+
+def test_the_small_fabric_argument_quotes_the_mission_it_is_on(cli):
+    """It read "an argument for one tile" on a mission that sizes to six.
+    The same defect as every other sentence written against one page."""
+    for mission, want in ((MISSION, 1), (SURVEILLANCE, 6)):
+        dossier, soc, tiles = cli.build(mission, "kpu_t128_n7",
+                                        "orin_nano_measured_v1", 0.85)
+        facts = cli._facts(dossier, None)
+        kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+        cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+        alt = cli.counterfactual(dossier, soc, "det", "cpu", "fp32")
+        text = " ".join(cli._the_ask(dossier, facts, kpu, cpu, 0.85, alt, tiles).split())
+        assert "argument for <i>one</i> tile" not in text
+        assert f"sizes to {want:g} tile{'s' if want != 1 else ''}" in text, mission
+
+
+def test_excess_fabric_is_only_claimed_when_the_catalogue_has_it(cli):
+    """"26x more than it can use" is a claim about the catalogued part,
+    so it is tested against the raw demand the ratio divides -- not
+    against the provisioned count, which carries utilization headroom on
+    top of it. Five catalogued tiles exceed a 4.93-tile demand while
+    falling short of the six the mission provisions."""
+    dossier, soc, tiles = cli.build(SURVEILLANCE, "kpu_t128_n7",
+                                    "orin_nano_measured_v1", 0.85)
+    facts = cli._facts(dossier, None)
+    kpu = next(p for p in dossier.provisions if p.kind == "kpu")
+    cpu = next(p for p in dossier.provisions if p.kind == "cpu")
+    alt = cli.counterfactual(dossier, soc, "det", "cpu", "fp32")
+    needed = kpu.servers_needed
+    want = cli.provision(needed, 0.85)
+    assert needed < 5 < want, (needed, want)
+
+    def ask(catalogued):
+        return " ".join(
+            cli._the_ask(dossier, facts, kpu, cpu, 0.85, alt, catalogued).split())
+
+    # The catalogue really does have more: the claim stands.
+    assert "more than it can use" in ask(tiles)
+    # Fewer tiles than the demand: no excess to claim, either way round.
+    for short in (1, 4):
+        text = ask(short)
+        assert "more than it can use" not in text, short
+        assert "smaller</i> fabric" not in text, short
+        assert "small</i> fabric" not in text, short
+    # Between the demand and what the mission provisions: the catalogue
+    # has more than the demand but less than the headroom it provisions
+    # to, which is not an argument for a smaller fabric.
+    text = ask(5)
+    assert "more than it can use" not in text
+    assert "smaller</i> fabric" not in text
+    assert "provision to 6 tiles at 85%, against the 5" in text
+    # Exactly the provisioned count: no argument either way.
+    text = ask(6)
+    assert "already the right size" in text
+    assert "smaller</i> fabric" not in text and "more than it can use" not in text
+    # Past it, but under an order of magnitude: stated plainly.
+    text = ask(7)
+    assert "sizes to 6 tiles against the 7 the catalogued part has" in text
+
+
+def test_the_surveillance_profile_states_the_capability_it_does_not_cost(cli):
+    """The note promises re-identification and day/night; the pipeline
+    builds one detector, no re-ID stage and no infrared sensor. The page
+    has to say so, because the reader sees the note."""
+    dossier, _soc, _t = cli.build(SURVEILLANCE, "kpu_t128_n7",
+                                  "orin_nano_measured_v1", 0.85)
+    assert "re-identification" in dossier.note
+    assert not any(s.key in ("reid", "re_id", "thermal", "ir") for s in dossier.stages)
+    rows = cli.requirements_rows(dossier, None)
+    scope = [r for r in rows if r[0] == "Scope of this profile"]
+    assert len(scope) == 1
+    _name, figure, why, status = scope[0]
+    assert status == "gap"
+    assert "re-identification" in figure
+    assert "graphs#343" in why
+    # ...and the use case carries it too, since that is where the note is read.
+    blurb = cli.USE_CASES[SURVEILLANCE]
+    assert "lower bound" in blurb and "graphs#343" in blurb
+    # No mission without a caveat grows one.
+    plain, _s2, _t2 = cli.build(MISSION, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    assert not [r for r in cli.requirements_rows(plain, None)
+                if r[0] == "Scope of this profile"]
