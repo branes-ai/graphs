@@ -1370,6 +1370,64 @@ def test_a_stage_only_the_other_mission_has_is_named_with_what_it_cost(cli):
     assert f"Stages present only in {html.escape(ours.title)}" not in text
 
 
+INSPECTION = "quadruped_inspection_plant_walkdown"
+
+
+def test_matching_stage_sets_are_stated_not_left_to_silence(cli):
+    """Two missions with the same stages produce no "present only in"
+    line, and an absent line reads as "not checked". On this pair the
+    match is the finding: identical stages, differing only in rate."""
+    ours, _s, _t = cli.build(INSPECTION, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    theirs, _s2, _t2 = cli.build(SURVEILLANCE, "kpu_t128_n7",
+                                 "orin_nano_measured_v1", 0.85)
+    assert {s.key for s in ours.stages} == {s.key for s in theirs.stages}
+    text = " ".join(cli._comparison(ours, theirs).split())
+    assert "Neither mission has a stage the other lacks" in text
+    assert f"the same {len(ours.stages)} stages on both sides" in text
+    assert "present only in" not in text
+    # ...and a pair that does differ says that instead, not both.
+    isr, _s3, _t3 = cli.build(QUADRUPED, "kpu_t128_n7", "orin_nano_measured_v1", 0.85)
+    differs = " ".join(cli._comparison(theirs, isr).split())
+    assert "Neither mission has a stage the other lacks" not in differs
+    assert "present only in" in differs
+
+
+def test_the_inspection_profile_states_the_capability_it_does_not_cost(cli):
+    """Gauge reading and thermal reading are in the note and in neither
+    the stage list nor the sensor set."""
+    dossier, _soc, _t = cli.build(INSPECTION, "kpu_t128_n7",
+                                  "orin_nano_measured_v1", 0.85)
+    assert "thermal" in dossier.note and "gauge" in dossier.note.lower()
+    assert not any(s.key in ("gauge", "thermal", "ir") for s in dossier.stages)
+    scope = [r for r in cli.requirements_rows(dossier, None)
+             if r[0] == "Scope of this profile"]
+    assert len(scope) == 1 and scope[0][3] == "gap"
+    assert "graphs#343" in scope[0][2]
+    # The known-map observation is stated from the catalogue, not asserted
+    # as an error, and it names the profile it is contrasted with.
+    blurb = " ".join(cli.USE_CASES[INSPECTION].split())
+    assert "warehouse AMR" in blurb and "{gain_hz:g}" in blurb
+    assert "is not something the catalogue states either way" in blurb
+
+
+def test_the_known_map_contrast_is_true_of_the_catalogue(cli):
+    """The page says the warehouse AMR carries no frontier-evaluation
+    stage and this one does. If that ever stops being true the sentence
+    becomes a fabrication, so it is checked rather than trusted."""
+    from graphs.core.pipeline_workload import load_autonomy_workload
+
+    profiles = {p.id: p for p in load_autonomy_workload().profiles}
+    warehouse = profiles["amr_warehousing_structured_aisles"]
+    inspection = profiles[INSPECTION]
+    assert not warehouse.rates_hz.get("gain")
+    assert inspection.rates_hz.get("gain")
+    # ...and the page calls it "the warehouse AMR, working structured
+    # aisles", which is its name; both profiles state a known map.
+    assert "structured aisles" in warehouse.name.lower()
+    assert "known map" in warehouse.note.lower()
+    assert "known map" in inspection.note.lower()
+
+
 def test_the_cpu_ask_never_says_instead_of_the_number_it_just_gave(cli):
     """"12 cores provisioned instead of 12" is not a sentence, and it hid
     the finding: on that mission one kernel class is the whole shortfall.
