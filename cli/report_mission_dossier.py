@@ -207,6 +207,11 @@ SCOPE_CAVEATS: Dict[str, Tuple[str, str]] = {
         "L4 and L5 together",
         "one profile for both levels; the stated suite is an L4-class build, so these "
         "figures are a lower bound for L5 (graphs#339)"),
+    "quadruped_inspection_plant_walkdown": (
+        "gauge and thermal reading not costed",
+        "the profile note states gauge reading and thermal reading; the pipeline builds "
+        "neither a gauge stage nor an infrared sensor, so these figures are a lower bound "
+        "(graphs#343)"),
     "quadruped_surveillance_persistent_patrol": (
         "re-identification and day/night not costed",
         "the profile note states person re-identification and day/night operation; the "
@@ -278,6 +283,24 @@ travel, so a late frame is not a dropped frame, it is a miss.</p>
 <p>Everything else follows from the closure rate: stereo and lidar at high rate because the
 scene changes fast, detection and the whole reactive stack at {det_hz:g} Hz, and
 {budget:g} W to do it in on an airframe that also has to fly.</p>""",
+    "quadruped_inspection_plant_walkdown": """
+<p>A legged robot walking a fixed route through a plant &mdash; reading gauges, checking
+equipment, doing the round a technician would otherwise do &mdash; on {budget:g} W. The route
+is known, the map is known, and nothing in the building is trying to get out of its way.
+{cameras:g} cameras, a stereo pair, a lidar, a detector at {det_hz:g} Hz, and {dof:g} joints to
+keep underneath it.</p>
+<p>This completes the three quadrupeds the catalogue carries, and it is the mildest of them:
+the lowest power budget, the fewest cameras and the lowest rates. It also has exactly the same
+sixteen stages as the surveillance patrol &mdash; not one added, not one removed, only slower.
+That makes the pair beneath a clean question: what does a <i>rate</i> cost, when nothing else
+about the robot changes?</p>
+<p class="note"><b>The note says the map is known; the pipeline still explores.</b> The
+catalogue does express a known map elsewhere &mdash; the warehouse AMR, working structured
+aisles, carries no frontier-evaluation stage at all. This profile keeps one, at
+{gain_hz:g} evaluations a second. Whether that is viewpoint selection for inspection targets,
+which a known map does not remove, or exploration that should have gone with it, is not
+something the catalogue states either way. It is <code>raycast</code> work, which is the
+kernel class that dominates the CPU here, so it is worth knowing which.</p>""",
     "quadruped_surveillance_persistent_patrol": """
 <p>A legged robot walking a perimeter, over and over, on {budget:g} W. A {cameras:g}-camera
 ring, a stereo pair and a lidar; it looks for people at {det_hz:g} Hz and keeps itself upright
@@ -451,6 +474,7 @@ argue about is the CPU, at {cpu.efficiency:.1%} of its peak on the work it was g
         "radars": float((dossier.sensors.get("radar") or [0])[0]),
         "vlm_qps": float(dossier.sensors.get("vlm_qps") or 0),
         "vla_hz": float(dossier.sensors.get("vla_hz") or 0),
+        "gain_hz": float(dossier.sensors.get("gain_evals_s") or 0),
     }
     out["use_case"] = (blurb.format(**context) if "{" in blurb else blurb) + f"""
 <p>{_cams(dossier)}. {len(dossier.stages)} stages over
@@ -1031,6 +1055,13 @@ def _comparison(dossier, other) -> str:
         engine = their_place.get(key)
         fit = st.fits.get(engine) if engine else None
         dropped.append((key, engine, fit.servers_needed if fit and fit.fits else None))
+    if not added and not dropped:
+        # Silence here is ambiguous -- it reads as "not checked" rather
+        # than "checked, and they match". On a pair that differs only in
+        # its rates, that is the finding.
+        driver += (f"<p>Neither mission has a stage the other lacks: the same "
+                   f"{len(ours_stage)} stages on both sides, differing only in their "
+                   f"rates.</p>")
     if dropped:
         parts = []
         for key, engine, needed in sorted(dropped):
