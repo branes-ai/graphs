@@ -1434,11 +1434,20 @@ def test_excess_fabric_is_only_claimed_when_the_catalogue_has_it(cli):
         assert "more than it can use" not in text, short
         assert "smaller</i> fabric" not in text, short
         assert "small</i> fabric" not in text, short
-    # Between the demand and what the mission provisions: more than the
-    # demand, but not by an order of magnitude, so it is stated plainly.
+    # Between the demand and what the mission provisions: the catalogue
+    # has more than the demand but less than the headroom it provisions
+    # to, which is not an argument for a smaller fabric.
     text = ask(5)
     assert "more than it can use" not in text
-    assert "sizes to 6 tiles against the 5 the catalogued part has" in text
+    assert "smaller</i> fabric" not in text
+    assert "provision to 6 tiles at 85%, against the 5" in text
+    # Exactly the provisioned count: no argument either way.
+    text = ask(6)
+    assert "already the right size" in text
+    assert "smaller</i> fabric" not in text and "more than it can use" not in text
+    # Past it, but under an order of magnitude: stated plainly.
+    text = ask(7)
+    assert "sizes to 6 tiles against the 7 the catalogued part has" in text
 
 
 def test_the_surveillance_profile_states_the_capability_it_does_not_cost(cli):

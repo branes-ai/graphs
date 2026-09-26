@@ -1420,25 +1420,41 @@ def _the_ask(dossier, f, kpu, cpu, target_utilization: float, alt=None,
                 f"<b>{alt['servers_needed'] / max(on_kpu, 1e-9):.0f} cores of work per "
                 f"tile</b>"
                 + (f" at {alt['watts'] / watts:.1f}x less energy.</p>" if watts else ".</p>"))
-            # Only when the catalogue really does have more fabric than the
-            # demand. "want" carries utilization headroom on top of that
-            # demand, so it is the wrong thing to test the claim against:
-            # five catalogued tiles exceed a 4.93-tile demand while falling
-            # short of the six this mission provisions.
-            if catalogued_tiles > kpu.servers_needed:
+            # Three quantities, and they are not interchangeable: the raw
+            # demand, the count that demand provisions to at the target
+            # utilization, and what the catalogued part has. The excess
+            # ratio divides by the demand; the sentence about a smaller
+            # fabric is a claim about the provisioned count. Five
+            # catalogued tiles sit above a 4.93-tile demand and below the
+            # six it provisions, and that is a headroom shortfall rather
+            # than an argument for anything.
+            want = provision(kpu.servers_needed, target_utilization) if kpu.servers_needed else 0
+            tiles_label = f"tile{'s' if want != 1 else ''}"
+            if not want or catalogued_tiles <= kpu.servers_needed:
+                pass
+            elif want > catalogued_tiles:
+                parts.append(
+                    f"<p>The fabric is nearly right rather than oversized: this mission's "
+                    f"{_amount(kpu.servers_needed)} tiles of demand provision to {want:g} "
+                    f"{tiles_label} at {target_utilization:.0%}, against the "
+                    f"{catalogued_tiles} the catalogued part has.</p>")
+            elif want == catalogued_tiles:
+                parts.append(
+                    f"<p>The fabric is already the right size: this mission sizes to "
+                    f"{want:g} {tiles_label}, which is what the catalogued part has.</p>")
+            else:
                 # How small a fabric, from the mission's own sizing. Saying
                 # "one tile" on a mission that needs five is the same
                 # defect as any other sentence written against one page.
-                want = provision(kpu.servers_needed, target_utilization)
                 excess = catalogued_tiles / kpu.servers_needed
                 parts.append(
                     f"<p>It is equally an argument for a <i>small</i> fabric: this mission "
-                    f"sizes to {want:g} tile{'s' if want != 1 else ''}, and the catalogued "
+                    f"sizes to {want:g} {tiles_label}, and the catalogued "
                     f"part has {catalogued_tiles} &mdash; "
                     f"{excess:,.0f}x more than it can use.</p>"
                     if excess >= 10 else
                     f"<p>It is equally an argument for a <i>smaller</i> fabric: this mission "
-                    f"sizes to {want:g} tile{'s' if want != 1 else ''} against the "
+                    f"sizes to {want:g} {tiles_label} against the "
                     f"{catalogued_tiles} the catalogued part has.</p>")
     return "".join(parts)
 
