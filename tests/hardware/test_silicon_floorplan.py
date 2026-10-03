@@ -47,7 +47,7 @@ SHOW_FLOORPLAN_CLI = REPO_ROOT / "cli" / "show_floorplan.py"
 
 # Auto-discovery: test against every KPU SKU in the catalog. New SKUs
 # get covered automatically, matching the Phase 6 catalog gate pattern.
-# v2 added GPU SKUs to the catalog (e.g. nvidia_orin_soc_64gb)
+# v2 added GPU SKUs to the catalog (e.g. nvidia_jetson_agx_orin_64gb)
 # whose floorplan story is fundamentally different (no checkerboard
 # tile mesh, no per-tile memory neighbors); filter them out so the
 # KPU-shaped invariants below stay scoped to KPU SKUs.

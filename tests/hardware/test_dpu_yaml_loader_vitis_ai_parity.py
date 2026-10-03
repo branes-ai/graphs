@@ -347,7 +347,7 @@ def test_loader_raises_on_cgra_sku():
 
 def test_loader_raises_on_gpu_sku():
     with pytest.raises(DPUYamlLoaderError, match=r"no DPUBlock"):
-        load_dpu_resource_model_from_yaml("nvidia_orin_soc_64gb")
+        load_dpu_resource_model_from_yaml("nvidia_jetson_agx_orin_64gb")
 
 
 def test_loader_raises_on_cpu_sku():

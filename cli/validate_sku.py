@@ -178,7 +178,7 @@ def _run_catalog_sweep(args: argparse.Namespace, validator_count: int) -> int:
     Scoped to KPU SKUs because every registered validator today is
     KPU-shaped (assumes ``KPUBlock`` with ``total_tiles`` / ``tiles``).
     GPU SKUs joined the catalog in v2 (e.g.
-    ``nvidia_orin_soc_64gb`` from embodied-schemas#20) and would
+    ``nvidia_jetson_agx_orin_64gb`` from embodied-schemas#20) and would
     crash these validators. GPU-shaped validators are a separate
     follow-up; until they exist this gate skips non-KPU products.
     """

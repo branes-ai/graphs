@@ -292,4 +292,4 @@ def test_loader_raises_on_kpu_sku():
 def test_loader_raises_on_gpu_sku():
     """GPU ComputeProducts have no CPUBlock either."""
     with pytest.raises(CPUYamlLoaderError, match="no CPUBlock"):
-        load_cpu_resource_model_from_yaml("nvidia_orin_soc_64gb")
+        load_cpu_resource_model_from_yaml("nvidia_jetson_agx_orin_64gb")

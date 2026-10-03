@@ -25,7 +25,7 @@ from graphs.hardware.models.edge.gpu_yaml_loader import (
 from graphs.hardware.resource_model import HardwareType, Precision
 
 
-SKU_ID = "nvidia_thor_soc_128gb"
+SKU_ID = "nvidia_jetson_agx_thor_128gb"
 LEGACY_NAME = "Jetson-Thor-128GB"
 
 

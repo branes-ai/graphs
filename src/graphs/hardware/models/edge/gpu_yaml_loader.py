@@ -221,7 +221,7 @@ def load_gpu_resource_model_from_yaml(
     ComputeProduct YAML.
 
     Args:
-        base_id: ComputeProduct id, e.g., "nvidia_orin_soc_64gb".
+        base_id: ComputeProduct id, e.g., "nvidia_jetson_agx_orin_64gb".
         products / process_nodes: optional pre-loaded catalogs (tests
             pass in-memory dicts to avoid disk I/O). Defaults load from
             the installed ``embodied-schemas`` package.
