@@ -281,7 +281,7 @@ def test_loader_raises_on_kpu_sku():
 
 def test_loader_raises_on_gpu_sku():
     with pytest.raises(NPUYamlLoaderError, match="no NPUBlock"):
-        load_npu_resource_model_from_yaml("nvidia_jetson_agx_orin_64gb")
+        load_npu_resource_model_from_yaml("nvidia_orin_soc_64gb")
 
 
 def test_loader_raises_on_cpu_sku():

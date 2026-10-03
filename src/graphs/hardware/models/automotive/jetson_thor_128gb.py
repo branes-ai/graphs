@@ -32,7 +32,7 @@ from ..edge.gpu_yaml_loader import load_gpu_resource_model_from_yaml
 
 
 _LEGACY_NAME = "Jetson-Thor-128GB"
-_YAML_BASE_ID = "nvidia_jetson_agx_thor_128gb"
+_YAML_BASE_ID = "nvidia_thor_soc_128gb"
 
 
 def jetson_thor_128gb_resource_model() -> HardwareResourceModel:

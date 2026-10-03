@@ -312,7 +312,7 @@ def test_loader_raises_on_npu_sku():
 
 def test_loader_raises_on_gpu_sku():
     with pytest.raises(CGRAYamlLoaderError, match="no CGRABlock"):
-        load_cgra_resource_model_from_yaml("nvidia_jetson_agx_orin_64gb")
+        load_cgra_resource_model_from_yaml("nvidia_orin_soc_64gb")
 
 
 def test_loader_raises_on_cpu_sku():

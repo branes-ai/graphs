@@ -32,7 +32,7 @@ from graphs.hardware.models.edge.jetson_orin_agx_64gb import (
 from graphs.hardware.resource_model import HardwareType, Precision
 
 
-SKU_ID = "nvidia_jetson_agx_orin_64gb"
+SKU_ID = "nvidia_orin_soc_64gb"
 LEGACY_NAME = "Jetson-Orin-AGX-64GB"
 
 

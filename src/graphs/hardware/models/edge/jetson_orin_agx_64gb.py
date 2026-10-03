@@ -37,7 +37,7 @@ from .gpu_yaml_loader import load_gpu_resource_model_from_yaml
 
 
 _LEGACY_NAME = "Jetson-Orin-AGX-64GB"
-_YAML_BASE_ID = "nvidia_jetson_agx_orin_64gb"
+_YAML_BASE_ID = "nvidia_orin_soc_64gb"
 
 
 def jetson_orin_agx_64gb_resource_model() -> HardwareResourceModel:

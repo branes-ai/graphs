@@ -247,7 +247,7 @@ def test_a_product_without_a_kpu_block_is_priced_by_the_same_code():
     """The catalog's Jetson Orin is a GPU module whose silicon_bin is all
     `fixed` lines. Before the generalization, pricing it raised because it
     has no KPU block."""
-    cp = load_compute_products()["nvidia_jetson_agx_orin_64gb"]
+    cp = load_compute_products()["nvidia_orin_soc_64gb"]
     areas = sm.resolve_all_block_areas(cp, NODES["samsung_8lpp"])
     assert len(areas) == len(cp.dies[0].silicon_bin.blocks)
     assert sm.silicon_die(cp) is cp.dies[0]
@@ -281,7 +281,7 @@ def test_silicon_die_rejects_an_ambiguous_kpu_product():
 
 
 def test_silicon_die_refuses_several_dies_without_a_kpu_block():
-    cp = load_compute_products()["nvidia_jetson_agx_orin_64gb"]
+    cp = load_compute_products()["nvidia_orin_soc_64gb"]
     data = cp.model_dump(mode="json")
     second = dict(data["dies"][0], die_id="second")
     data["dies"] = data["dies"] + [second]
