@@ -38,7 +38,7 @@ class CoolingRow:
     mechanism: str
     max_w_per_mm2: float
     max_total_w: float
-    ambient_c_max: float
+    ambient_c_max: Optional[float]
     junction_c_max: float
     weight_g: Optional[float]
     cost_usd: Optional[float]
@@ -76,7 +76,7 @@ def _render_text(rows: List[CoolingRow]) -> str:
     for r in rows:
         lines.append(
             f"{r.id:28s} {r.mechanism:30s} {r.max_w_per_mm2:>8.2f} "
-            f"{r.max_total_w:>7.0f} {r.ambient_c_max:>5.0f} "
+            f"{r.max_total_w:>7.0f} {_na(r.ambient_c_max):>5s} "
             f"{r.junction_c_max:>7.0f} {_na(r.weight_g):>7s} "
             f"{_na(r.cost_usd):>6s} {r.confidence:>11s}"
         )
@@ -110,7 +110,7 @@ def _render_md(rows: List[CoolingRow]) -> str:
     for r in rows:
         lines.append(
             f"| `{r.id}` | {r.mechanism} | {r.max_w_per_mm2:.2f} | "
-            f"{r.max_total_w:.0f} | {r.ambient_c_max:.0f} | "
+            f"{r.max_total_w:.0f} | {_na(r.ambient_c_max)} | "
             f"{r.junction_c_max:.0f} | {_na(r.weight_g)} | "
             f"{_na(r.cost_usd)} | {r.confidence} |"
         )
