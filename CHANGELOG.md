@@ -80,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/plans/soc-microarchitecture-study-plan.md` (tracking #269): an SoC allocation study across process nodes on the 7-tier autonomy workload, housed in `soc_designs/`.
 
 ### Changed
+- **embodied-schemas floor raised to 0.21.0** (`schemas = ["embodied-schemas>=0.21.0"]`, was `>=0.15.0`). 0.21.0 is the published SWaP-C² release (RFC 0001 S1-S3d) that the CI pin (`c5fa223`) already tests against. With it, `cli/show_cooling_solution.py` reads `surface_c_max` directly; the `getattr` fallback for pre-0.17 schemas is removed. The three remaining guarded `embodied_schemas` imports handle the optional extra being absent, not an old version, and stay.
 - **KPU block/architecture de-duplication** (#268 A1; PR #270, with embodied-schemas#86): six hand-copy sites now use `KPUBlock.from_architecture` / `to_architecture`.
 - **KPU block lookup by kind** (#268 A2; PR #272): every `dies[0].blocks[0]` / `_kpu_block` assumption now goes through `kpu_block_of`. This covers `silicon_math`, `silicon_floorplan`, `kpu_yaml_loader`, `kpu_sku_generator`, the validators, `context.py` and the CLIs.
 - **Stale KPU artifacts refreshed against the catalog** (#268 A3; PR #273): the contract snapshot doc, `kpu-modeling.md`, `test_phase4_accelerator_energy.py` (now catalog-derived), and the mapper registry description strings.

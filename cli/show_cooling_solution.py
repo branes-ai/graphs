@@ -26,12 +26,6 @@ def _na(v: Optional[float], unit: str = "") -> str:
     return "N/A" if v is None else f"{v:g}{unit}"
 
 
-def _surface_c_max(e: CoolingSolutionEntry) -> Optional[float]:
-    """``surface_c_max`` exists from embodied-schemas 0.17.0; older versions
-    (the declared floor is 0.15.0) have no surface rating."""
-    return getattr(e, "surface_c_max", None)
-
-
 def _render_text(e: CoolingSolutionEntry) -> str:
     out = []
     out.append(f"=== CoolingSolution: {e.id} ===")
@@ -40,7 +34,7 @@ def _render_text(e: CoolingSolutionEntry) -> str:
     out.append(f"  Max W/mm^2:     {e.max_power_density_w_per_mm2:.2f}")
     out.append(f"  Max total W:    {e.max_total_w:.0f}")
     out.append(f"  Ambient C max:  {_na(e.ambient_c_max)}")
-    out.append(f"  Surface C max:  {_na(_surface_c_max(e))}")
+    out.append(f"  Surface C max:  {_na(e.surface_c_max)}")
     out.append(f"  Junction C max: {e.junction_c_max:.0f}")
     out.append(f"  Weight:         {_na(e.weight_g, ' g')}")
     out.append(f"  Cost:           {_na(e.cost_usd, ' USD')}")
@@ -70,7 +64,7 @@ def _render_md(e: CoolingSolutionEntry) -> str:
     lines.append(f"- **Max W/mm^2**: {e.max_power_density_w_per_mm2:.2f}")
     lines.append(f"- **Max total W**: {e.max_total_w:.0f}")
     lines.append(f"- **Ambient C max**: {_na(e.ambient_c_max)}")
-    lines.append(f"- **Surface C max**: {_na(_surface_c_max(e))}")
+    lines.append(f"- **Surface C max**: {_na(e.surface_c_max)}")
     lines.append(f"- **Junction C max**: {e.junction_c_max:.0f}")
     lines.append(f"- **Weight**: {_na(e.weight_g, ' g')}")
     lines.append(f"- **Cost**: {_na(e.cost_usd, ' USD')}")
