@@ -57,14 +57,15 @@ def test_hardware_type_is_gpu(factory_loaded):
 
 
 def test_sm_hierarchy(factory_loaded):
-    """64 Blackwell SMs * 128 CUDA cores = 8192 cores;
-    4 Tensor cores/SM * 64 = 256 Tensor cores."""
+    """Jetson T5000 floorsweep (embodied-schemas 0.21.1): 20 Blackwell SMs *
+    128 CUDA cores = 2560 cores (NVIDIA); 4 Tensor cores/SM * 20 = 80
+    modeled (NVIDIA states 96). Was 64 SMs / 8192 / 256 before 0.21.1."""
     rm = factory_loaded
-    assert rm.compute_units == 64
+    assert rm.compute_units == 20
     assert rm.cuda_cores_per_sm == 128
     assert rm.tensor_cores_per_sm == 4
-    assert rm.compute_units * rm.cuda_cores_per_sm == 8192
-    assert rm.compute_units * rm.tensor_cores_per_sm == 256
+    assert rm.compute_units * rm.cuda_cores_per_sm == 2560
+    assert rm.compute_units * rm.tensor_cores_per_sm == 80
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +82,8 @@ def test_two_compute_fabrics(factory_loaded):
 
 def test_compute_fabric_chip_total_units(factory_loaded):
     by_kind = {f.fabric_type: f.num_units for f in factory_loaded.compute_fabrics}
-    assert by_kind["cuda_core"] == 8192
-    assert by_kind["tensor_core"] == 256
+    assert by_kind["cuda_core"] == 2560
+    assert by_kind["tensor_core"] == 80
 
 
 # ---------------------------------------------------------------------------
@@ -103,14 +104,14 @@ def test_memory_subsystem(factory_loaded):
 
 
 # ---------------------------------------------------------------------------
-# SoC fabric: Thor uses MESH_2D (vs AGX Orin's CROSSBAR -- 64 SMs vs 16)
+# SoC fabric: Thor uses MESH_2D (vs AGX Orin's CROSSBAR), one endpoint per SM (20)
 # ---------------------------------------------------------------------------
 
 def test_soc_fabric_is_mesh_2d(factory_loaded):
     from graphs.hardware.fabric_model import Topology
     sf = factory_loaded.soc_fabric
     assert sf.topology == Topology.MESH_2D
-    assert sf.controller_count == 64
+    assert sf.controller_count == 20
     assert sf.bisection_bandwidth_gbps == pytest.approx(4096.0, rel=0.001)
 
 
