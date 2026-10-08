@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **embodied-schemas floor raised to `>=0.23.1` and CI pin moved dd2bad1 -> 6464d39** (embodied-schemas #114, tag v0.23.1, on PyPI). The release corrects the legacy Jetson `HardwareEntry` files from the source DB. IP templates were regenerated (provenance version only). No graphs code needed a change.
 - **embodied-schemas CI pin moved 82c8989 -> dd2bad1** (embodied-schemas #112 / #113, 0.22.0 / 0.23.0). All 9 NVIDIA Jetson SKUs are now generated `module` products with a `sku` floorsweep, and the Thor (T5000) flagship follows NVIDIA's power modes: 70 / 90 / 120 W (default) and MAXN at the 130 W maximum. The 70 / 90 W GPU clocks are estimates.
   - **IP templates regenerated** (`tools/generate_kpu_ip.py`); only the provenance version changed.
   - **Thor contract test** expects the new profiles and the 120W default.
