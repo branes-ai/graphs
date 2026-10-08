@@ -116,18 +116,18 @@ def test_soc_fabric_is_mesh_2d(factory_loaded):
 
 
 # ---------------------------------------------------------------------------
-# Thermal profiles: 30W / 60W / 100W (no MAXN unlike AGX Orin)
+# Thermal profiles: NVIDIA's 70W / 90W / 120W (default) + MAXN at the 130W maximum
 # ---------------------------------------------------------------------------
 
 def test_thermal_profiles_are_thor_specific(factory_loaded):
-    """Thor ships three nvpmodel profiles. Default is 60W."""
+    """Thor (T5000) power modes per NVIDIA: 70 / 90 / 120 W and MAXN. Default 120W."""
     rm = factory_loaded
-    assert set(rm.thermal_operating_points) == {"30W", "60W", "100W"}
-    assert rm.default_thermal_profile == "60W"
+    assert set(rm.thermal_operating_points) == {"70W", "90W", "120W", "MAXN"}
+    assert rm.default_thermal_profile == "120W"
 
 
 @pytest.mark.parametrize("profile_name,tdp", [
-    ("30W", 30.0), ("60W", 60.0), ("100W", 100.0),
+    ("70W", 70.0), ("90W", 90.0), ("120W", 120.0), ("MAXN", 130.0),
 ])
 def test_thermal_profile_tdp(factory_loaded, profile_name, tdp):
     assert factory_loaded.thermal_operating_points[profile_name].tdp_watts == tdp
