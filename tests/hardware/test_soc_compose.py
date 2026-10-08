@@ -285,6 +285,8 @@ def test_silicon_die_refuses_several_dies_without_a_kpu_block():
     data = cp.model_dump(mode="json")
     second = dict(data["dies"][0], die_id="second")
     data["dies"] = data["dies"] + [second]
+    # The SKU's floorsweep counts one die's units; a synthetic second die breaks it.
+    data.pop("sku", None)
     two_dies = type(cp).model_validate(data)
     with pytest.raises(sm.SiliconMathError, match="no single silicon die"):
         sm.silicon_die(two_dies)

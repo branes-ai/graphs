@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **embodied-schemas CI pin moved 82c8989 -> dd2bad1** (embodied-schemas #112 / #113, 0.22.0 / 0.23.0). All 9 NVIDIA Jetson SKUs are now generated `module` products with a `sku` floorsweep, and the Thor (T5000) flagship follows NVIDIA's power modes: 70 / 90 / 120 W (default) and MAXN at the 130 W maximum. The 70 / 90 W GPU clocks are estimates.
+  - **IP templates regenerated** (`tools/generate_kpu_ip.py`); only the provenance version changed.
+  - **Thor contract test** expects the new profiles and the 120W default.
+  - **`test_silicon_die_refuses_several_dies_without_a_kpu_block`** drops the SKU from its synthetic two-die Orin, which the floorsweep validator now rejects.
+  - **The `pyproject` floor stays at `>=0.21.1`.** 0.22.0 / 0.23.0 are untagged and not on PyPI.
+
 ### Added
 - **KPU resource model for heterogeneous tiles** (#268 Phase C5a). Uniform legacy SKUs load unchanged; the KPU golden gate (which pins the whole resource model) passes.
   - **Loader (`kpu_yaml_loader.py`) is kind-aware:** array dimensions, circuit class and schedule class come from the tile kind, so systolic and fixed-function tiles no longer break it. Compute fabrics are keyed `kpu_<tile_class_id>` (identical to the old name for every catalog SKU). `threads_per_unit` is the largest programmable array.
