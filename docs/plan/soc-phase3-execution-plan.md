@@ -1,7 +1,11 @@
+---
+status: complete
+issue: branes-ai/graphs#269
+---
 # SoC study Phase 3: the L0 analyzer, end to end -- execution plan
 
 Tracking: branes-ai/graphs#269, Phase 3. Parent plan:
-`docs/plans/soc-microarchitecture-study-plan.md`, sections 5.5-5.8 and 7.
+`docs/plan/soc-microarchitecture-study-plan.md`, sections 5.5-5.8 and 7.
 Phase 2's decisions (`soc-phase2-execution-plan.md`) carry over. Started
 2026-09-18.
 

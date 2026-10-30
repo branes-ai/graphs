@@ -99,4 +99,4 @@ model-based checks for Layers 1-2 so every architecture class has
 coverage. Keep the empirical benchmarks as an optional overlay for
 the SKUs where we have hardware access.
 
-See [`docs/plans/model-based-validation-plan.md`](../plans/model-based-validation-plan.md).
+See [`docs/plan/model-based-validation-plan.md`](../plan/model-based-validation-plan.md).

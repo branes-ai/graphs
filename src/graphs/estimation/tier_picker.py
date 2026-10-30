@@ -9,7 +9,7 @@ walks the hierarchy innermost-out to find:
   * the *tile choice* picked at the residency tier;
   * the *bytes loaded* from the binding tier across one kernel exec.
 
-The plan algorithm lives in ``docs/plans/v5-memory-hierarchy-rewrite-plan.md``
+The plan algorithm lives in ``docs/plan/v5-memory-hierarchy-rewrite-plan.md``
 section "Tier-picking algorithm". This module is consumed by the
 roofline analyzer's V5-3b ``_get_effective_memory_time`` path (opt-in
 via ``use_tier_aware_memory=True`` until V5-5 calibrates the per-tier

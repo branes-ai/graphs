@@ -134,7 +134,7 @@ class SoCInstance:
     """A design priced at one node: the Phase 2 artifact.
 
     (Emitting a ``ComputeProduct`` from this is Phase 3; see
-    ``docs/plans/soc-phase2-execution-plan.md``, decision P2-D1.)
+    ``docs/plan/soc-phase2-execution-plan.md``, decision P2-D1.)
     """
 
     design: SoCDesign

@@ -6,7 +6,7 @@ pure ALU rate captured in Layer 1. The delta between Layer 1 (raw FMA)
 and Layer 2 (same FMA with SIMD-width and register-pressure variation)
 isolates operand-delivery overhead.
 
-See ``docs/plans/bottom-up-microbenchmark-plan.md`` Phase 2.
+See ``docs/plan/bottom-up-microbenchmark-plan.md`` Phase 2.
 """
 
 from .simd_width import run_simd_width_sweep

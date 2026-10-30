@@ -1,3 +1,6 @@
+---
+status: complete
+---
 # V4 ground-truth capture: how to run on a target box
 
 The V4 validation harness has two phases that run on **different** machines:

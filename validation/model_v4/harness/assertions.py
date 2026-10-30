@@ -1,6 +1,6 @@
 """ValidationRecord + per-regime pass/fail logic for the v4 harness.
 
-Implements Principle 3 of docs/plans/validation-harness-v4-plan.md:
+Implements Principle 3 of docs/plan/validation-harness-v4-plan.md:
 per-shape failures attribute to one architectural-model assumption.
 A `ValidationRecord` carries the predicted regime + latency + energy,
 the measured regime + latency + energy, and a per-assertion pass flag.

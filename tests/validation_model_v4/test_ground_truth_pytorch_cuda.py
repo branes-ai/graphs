@@ -15,7 +15,7 @@ development box:
 
 These tests use a mock pynvml to avoid requiring real hardware. The
 end-to-end capture path is exercised separately on the target box (see
-docs/plans/v4-capture-on-target.md).
+docs/plan/v4-capture-on-target.md).
 """
 
 from __future__ import annotations

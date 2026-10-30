@@ -15,7 +15,7 @@ Three criteria from the parent plan, and where each stands:
 3. **Monotonic scaling at N7 and N5 -- passes** on everything that is priced,
    with the per-op energy check labelled ALU-only (decision P2-D6).
 
-See ``docs/plans/soc-phase2-execution-plan.md``.
+See ``docs/plan/soc-phase2-execution-plan.md``.
 """
 
 from __future__ import annotations

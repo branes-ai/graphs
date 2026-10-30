@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-16
 **Revised:** 2026-04-20 (9-layer framing)
-**Scope:** Do the current benchmarks validate the latency and energy models from the bottom up — across the nine hardware layers defined in the [bottom-up plan](../plans/bottom-up-microbenchmark-plan.md)?
+**Scope:** Do the current benchmarks validate the latency and energy models from the bottom up — across the nine hardware layers defined in the [bottom-up plan](../plan/bottom-up-microbenchmark-plan.md)?
 
 **Short answer:** Partially. Only Layer 7 has partial (bandwidth-only) measurement coverage. Layers 1-6 are analytical only; Layers 8-9 have scaffolding (M0 `IntraServerFabricModel` / `ClusterInterconnectModel` dataclasses) but no validation content yet. Today's stack is **top-down calibrated** (composite GEMM/Conv sweeps → fitted efficiency curves → back-propagated into resource models). A **bottom-up validation path** that probes each physical layer independently does not exist, and that is where undetected model drift hides.
 
@@ -308,6 +308,6 @@ GEMM/Conv composites (`microbench/gemm.py`, `conv2d.py`, `conv_bn_resnet.py`, fu
 
 ## 6. Recommendation
 
-Build the missing layers in dependency order (Layer 1 → Layer 9) so that each layer's benchmark can be validated against the next layer's microbench (bottom-up composition test). See [`docs/plans/bottom-up-microbenchmark-plan.md`](../plans/bottom-up-microbenchmark-plan.md) for the implementation plan.
+Build the missing layers in dependency order (Layer 1 → Layer 9) so that each layer's benchmark can be validated against the next layer's microbench (bottom-up composition test). See [`docs/plan/bottom-up-microbenchmark-plan.md`](../plan/bottom-up-microbenchmark-plan.md) for the implementation plan.
 
 Workload-style validation (ResNet-18, ViT, etc.) is explicitly out of scope for this assessment and the companion plan; it belongs in a separate Hierarchy B plan that is blocked on Hierarchy A reaching CALIBRATED on at least one SKU.

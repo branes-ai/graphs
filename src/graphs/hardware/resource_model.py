@@ -795,7 +795,7 @@ class ThermalOperatingPoint:
 # ============================================================================
 # V5-1: Memory hierarchy as a queueing-theory tier list
 # ============================================================================
-# See docs/plans/v5-memory-hierarchy-rewrite-plan.md.
+# See docs/plan/v5-memory-hierarchy-rewrite-plan.md.
 #
 # Each tier is a "server" in the operational-analysis sense -- capacity
 # plus a service rate. The analyzer's tier_picker (V5-3) walks the list
@@ -1188,7 +1188,7 @@ class HardwareResourceModel:
     # L3 as a distinct hop. Provenance: ``l3_bandwidth_bps``.
     l3_bandwidth_bps: Optional[float] = None
 
-    # Per-tier access latency (V5-1, plan: docs/plans/v5-memory-hierarchy-rewrite-plan.md).
+    # Per-tier access latency (V5-1, plan: docs/plan/v5-memory-hierarchy-rewrite-plan.md).
     # All values in nanoseconds, Optional so unaugmented mappers fall
     # through to typical-tier-class defaults in MemoryTier.
     #
@@ -1383,7 +1383,7 @@ class HardwareResourceModel:
     # Maps field name (e.g., "peak_bandwidth", "energy_per_flop_fp32") to
     # the EstimationConfidence that describes where that value came from.
     # Unannotated fields default to UNKNOWN via ``get_provenance``. The
-    # bottom-up benchmark suite (see docs/plans/bottom-up-microbenchmark-plan.md)
+    # bottom-up benchmark suite (see docs/plan/bottom-up-microbenchmark-plan.md)
     # populates this map as each layer's fitter upgrades a field from
     # THEORETICAL to INTERPOLATED or CALIBRATED.
     field_provenance: Dict[str, EstimationConfidence] = field(default_factory=dict)
@@ -1419,7 +1419,7 @@ class HardwareResourceModel:
         """Derived view of the memory hierarchy as an ordered list of
         ``MemoryTier`` objects, innermost (smallest, fastest) to outermost.
 
-        V5-1 scaffolding (plan: docs/plans/v5-memory-hierarchy-rewrite-plan.md).
+        V5-1 scaffolding (plan: docs/plan/v5-memory-hierarchy-rewrite-plan.md).
         Builds the tier list from existing fields:
 
         * L1 if ``l1_cache_per_unit`` and ``l1_bandwidth_per_unit_bps`` are

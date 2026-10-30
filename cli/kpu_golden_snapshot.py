@@ -9,7 +9,7 @@ floorplans, PhysicalSpec, resource model, mapper results on synthetic
 subgraphs, and validator findings. See ``graphs.hardware.kpu_golden``.
 
 This is the zero-diff gate for the KPU heterogeneous-tile refactor
-(docs/plans/kpu-heterogeneous-tile-refactor-plan.md, Phase A0). The same
+(docs/plan/kpu-heterogeneous-tile-refactor-plan.md, Phase A0). The same
 contract is enforced in CI by ``tests/hardware/test_kpu_golden.py``.
 
 When a diff is EXPECTED (a declared model change, or an embodied-schemas

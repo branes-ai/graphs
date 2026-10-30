@@ -74,7 +74,7 @@ def test_workflow_path_filter_covers_required_areas(workflow):
     missing = must_have - paths
     assert not missing, (
         f"V4 gate path filter is missing required areas: {sorted(missing)}. "
-        f"Per docs/plans/validation-harness-v4-plan.md V4-6, the gate must "
+        f"Per docs/plan/validation-harness-v4-plan.md V4-6, the gate must "
         f"trigger on PRs touching every area where the analytical model "
         f"or its tests can drift."
     )

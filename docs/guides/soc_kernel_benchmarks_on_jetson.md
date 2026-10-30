@@ -268,4 +268,4 @@ Related:
 
 - `src/graphs/benchmarks/soc_kernels.py`: the harness.
 - `tools/ingest_soc_kernel_benchmarks.py`: the ingest.
-- `docs/plans/soc-phase5-execution-plan.md`: decision P5-D1.
+- `docs/plan/soc-phase5-execution-plan.md`: decision P5-D1.

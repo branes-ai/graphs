@@ -1,7 +1,11 @@
+---
+status: complete
+issue: branes-ai/graphs#269
+---
 # SoC study Phase 6: contrasting CPU + KPU configurations -- execution plan
 
 Tracking: branes-ai/graphs#269, Phase 6. Parent plan:
-`docs/plans/soc-microarchitecture-study-plan.md`. The strict rule of Phases
+`docs/plan/soc-microarchitecture-study-plan.md`. The strict rule of Phases
 2-5 carries over. Started 2026-09-19.
 
 ## The problem

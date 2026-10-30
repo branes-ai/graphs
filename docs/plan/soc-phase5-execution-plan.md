@@ -1,7 +1,11 @@
+---
+status: in-progress
+issue: branes-ai/graphs#269
+---
 # SoC study Phase 5: fidelity where the studies need it -- execution plan
 
 Tracking: branes-ai/graphs#269, Phase 5. Parent plan:
-`docs/plans/soc-microarchitecture-study-plan.md`, section 7 ("driven by what
+`docs/plan/soc-microarchitecture-study-plan.md`, section 7 ("driven by what
 the first studies expose"). The strict rule of Phases 2-4 carries over.
 Started 2026-09-18.
 
