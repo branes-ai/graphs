@@ -356,7 +356,7 @@ vs. vendor datasheets:
    consult `KPUComputeResource.get_tiles_for_precision()` and select
    the tile pool whose `optimization_level` is highest. Planned as #268
    C5 (capability-aware tile pools), part of the heterogeneous-tile
-   refactor (`docs/plans/kpu-heterogeneous-tile-refactor-plan.md`).
+   refactor (`docs/plan/kpu-heterogeneous-tile-refactor-plan.md`).
 2. **Tiling heuristic constants** — the 80% efficiency and 10% per-
    iteration overhead are placeholders. Replace with an EDDO-level
    model that costs DMA descriptors, double-buffer depth, and

@@ -85,8 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Every later refactor PR must leave the goldens unchanged unless it declares a model change.
 - **`src/graphs/hardware/kpu_access.py`** (#268 A2; PR #272): `kpu_block_of`, `kpu_die_of`, `has_kpu_block` and `KPUBlockLookupError` find the KPU block by kind. They raise an error when the block is missing or ambiguous.
 - **Plan documents:**
-  - `docs/plans/kpu-heterogeneous-tile-refactor-plan.md` (tracking #268): pe_fabric, systolic and fixed_function tiles in the KPU checkerboard, with Phases A to F.
-  - `docs/plans/soc-microarchitecture-study-plan.md` (tracking #269): an SoC allocation study across process nodes on the 7-tier autonomy workload, housed in `soc_designs/`.
+  - `docs/plan/kpu-heterogeneous-tile-refactor-plan.md` (tracking #268): pe_fabric, systolic and fixed_function tiles in the KPU checkerboard, with Phases A to F.
+  - `docs/plan/soc-microarchitecture-study-plan.md` (tracking #269): an SoC allocation study across process nodes on the 7-tier autonomy workload, housed in `soc_designs/`.
 
 ### Changed
 - **embodied-schemas 0.21.1 adopted** (Jetson Thor T5000 floorsweep corrected upstream, embodied-schemas#111: 2560 CUDA cores, not 8192). CI pin `c5fa223` -> `82c8989` across all 7 ref sites; floor `>=0.21.1`. `test_gpu_yaml_loader_jetson_thor_contract.py` now pins 20 SMs / 2560 CUDA / 80 modeled Tensor cores / 20 mesh endpoints (was 64 / 8192 / 256 / 64). KPU IP templates regenerated (version string only).

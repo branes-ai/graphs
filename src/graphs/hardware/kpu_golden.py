@@ -1,7 +1,7 @@
 """
 KPU golden snapshot -- the zero-diff safety net for the KPU refactor.
 
-The heterogeneous-tile refactor (docs/plans/kpu-heterogeneous-tile-refactor-plan.md)
+The heterogeneous-tile refactor (docs/plan/kpu-heterogeneous-tile-refactor-plan.md)
 touches the KPU schema, generator, power model, silicon math, floorplanner,
 validators, resource-model loader, and mapper. Every PR in that sprint must
 leave the 12 catalog SKUs *numerically identical* unless it is a declared

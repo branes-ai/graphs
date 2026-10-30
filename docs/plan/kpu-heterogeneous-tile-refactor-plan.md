@@ -1,10 +1,13 @@
+---
+status: complete
+issue: branes-ai/graphs#268
+---
 # KPU Heterogeneous Tile Refactor -- Requirements and Implementation Plan
 
-Status: DRAFT for review
 Date: 2026-09-14
 Tracking issue: graphs#268 (sprint: v14 "KPU heterogeneous tiles")
 Related:
-  - `docs/plans/soc-microarchitecture-study-plan.md` (the SoC studies consume these tile classes as engines)
+  - `docs/plan/soc-microarchitecture-study-plan.md` (the SoC studies consume these tile classes as engines)
   - `docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md` (cluster/quadrant DVFS; unimplemented, folded in here)
   - `docs/assessments/kpu-as-generic-compute-product.md` (voltage rails, clock domains, interconnect graph; ISP as a separate block kind)
   - `docs/designs/kpu-sku-and-process-node-plan.md` (silicon_bin, ProcessNode, validators, floorplan)

@@ -199,7 +199,7 @@ The total EDP is **correct** (62.09 µJ × 0.57 ms = 35.16 nJ·s). The component
 
 ## Files Created
 
-- `docs/plans/edp_architectural_energy_plan.md` (complete plan)
+- `docs/plan/edp_architectural_energy_plan.md` (complete plan)
 - `test_phase1_edp.py` (validation test)
 - `docs/sessions/2025-11-03_phase1_edp_implementation.md` (this summary)
 

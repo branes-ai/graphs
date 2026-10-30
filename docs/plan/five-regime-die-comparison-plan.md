@@ -1,3 +1,7 @@
+---
+status: complete
+issue: branes-ai/graphs#268
+---
 # Die comparison on the autonomy workload: T64 against kpu_h64_auto1
 
 Execution plan for the last open item on branes-ai/graphs#268: *comparing the

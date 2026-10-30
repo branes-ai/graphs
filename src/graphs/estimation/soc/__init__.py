@@ -2,7 +2,7 @@
 
 ``graphs.hardware.soc`` composes a design into silicon at a node; this package
 runs a pipeline workload on the result. See
-``docs/plans/soc-phase3-execution-plan.md``.
+``docs/plan/soc-phase3-execution-plan.md``.
 """
 
 from .analyzer import SoCAnalysisResult, SoCAnalyzer
