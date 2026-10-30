@@ -9,7 +9,7 @@ M0 ships the scaffolding with empty panels. M1-M7 populate layer content.
 Layer 8 and Layer 9 panels remain placeholders during the M1-M7 delivery
 push (system-level validation is out of scope for this epic).
 
-See ``docs/plans/microarch-model-delivery-plan.md``.
+See ``docs/plan/microarch-model-delivery-plan.md``.
 """
 from __future__ import annotations
 

@@ -1,7 +1,11 @@
+---
+status: complete
+issue: branes-ai/graphs#269
+---
 # SoC study Phase 2: IP library, composition, die area -- execution plan
 
 Tracking: branes-ai/graphs#269, Phase 2. Parent plan:
-`docs/plans/soc-microarchitecture-study-plan.md`, section 7. Started 2026-09-18.
+`docs/plan/soc-microarchitecture-study-plan.md`, section 7. Started 2026-09-18.
 
 ## Acceptance (from the parent plan)
 

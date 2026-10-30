@@ -10,7 +10,7 @@ M0 ships the skeleton: empty layer panels, cross-SKU comparison shell,
 landing page, and JSON data contract. Each subsequent milestone fills
 in one layer's content.
 
-See docs/plans/microarch-model-delivery-plan.md.
+See docs/plan/microarch-model-delivery-plan.md.
 
 Usage:
     ./cli/microarch_validation_report.py --hardware jetson_orin_agx_64gb

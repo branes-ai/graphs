@@ -4,8 +4,8 @@ Locate the KPU block (and the die that carries it) inside a ComputeProduct.
 KPU code used to assume the KPU block is ``cp.dies[0].blocks[0]``. That holds
 for today's 12 monolithic catalog SKUs, but not for an SoC die that carries a
 KPU next to CPU / GPU / ISP blocks, nor for a chiplet package whose KPU die is
-not the first die (docs/plans/soc-microarchitecture-study-plan.md,
-docs/plans/kpu-heterogeneous-tile-refactor-plan.md, graphs#268 A2).
+not the first die (docs/plan/soc-microarchitecture-study-plan.md,
+docs/plan/kpu-heterogeneous-tile-refactor-plan.md, graphs#268 A2).
 
 These helpers find the KPU block by kind instead of by position:
 

@@ -1,8 +1,10 @@
+---
+status: complete
+---
 # Plan: Model-Based Validation of the Micro-Architecture Modeling Infrastructure
 
-**Status:** Draft
 **Date:** 2026-04-17
-**Supersedes:** Phases 3-6 of `docs/plans/bottom-up-microbenchmark-plan.md`
+**Supersedes:** Phases 3-6 of `docs/plan/bottom-up-microbenchmark-plan.md`
 **Companion:** `docs/assessments/empirical-vs-model-based-validation.md`
 
 ## Motivation

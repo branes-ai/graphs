@@ -1,6 +1,9 @@
+---
+status: in-progress
+issue: branes-ai/graphs#269
+---
 # SoC Micro-Architecture Study Framework -- Implementation Plan
 
-Status: DRAFT for review
 Date: 2026-09-13
 Tracking issue: graphs#269
 Inputs:
@@ -167,7 +170,7 @@ process node, so any node can be applied later.
   The KPU's own memory PHYs are stripped, because the SoC shared memory
   subsystem replaces them. The KPU is modeled as a domain-flow engine, not
   generic dataflow.
-- **Heterogeneous KPU tiles.** Per `docs/plans/kpu-heterogeneous-tile-refactor-plan.md`,
+- **Heterogeneous KPU tiles.** Per `docs/plan/kpu-heterogeneous-tile-refactor-plan.md`,
   the KPU checkerboard can host `pe_fabric`, `systolic` and `fixed_function`
   tiles. Each KPU tile class is a separate engine in this analyzer.
   - ISP, codec, SGM and VIO engines are defined once as a `FunctionCore`, then

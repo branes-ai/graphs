@@ -1,10 +1,13 @@
+---
+status: complete
+issue: branes-ai/graphs#268
+---
 # KPU Heterogeneous Tile Refactor -- Requirements and Implementation Plan
 
-Status: DRAFT for review
 Date: 2026-09-14
 Tracking issue: graphs#268 (sprint: v14 "KPU heterogeneous tiles")
 Related:
-  - `docs/plans/soc-microarchitecture-study-plan.md` (the SoC studies consume these tile classes as engines)
+  - `docs/plan/soc-microarchitecture-study-plan.md` (the SoC studies consume these tile classes as engines)
   - `docs/designs/kpu-cluster-organization-for-dvfs-and-floorsweeping.md` (cluster/quadrant DVFS; unimplemented, folded in here)
   - `docs/assessments/kpu-as-generic-compute-product.md` (voltage rails, clock domains, interconnect graph; ISP as a separate block kind)
   - `docs/designs/kpu-sku-and-process-node-plan.md` (silicon_bin, ProcessNode, validators, floorplan)
@@ -714,7 +717,7 @@ re-tune data PR in embodied-schemas. "ES" = embodied-schemas; "G" = graphs.
     `allocated / units` *and* by `occupancy`, which was the same fraction,
     so it squared it -- 33 of 768 tiles at ~1/541 of the chip. That quirk
     predated D8 and applied to six other mappers as well; graphs#296
-    (41f7e6e) fixed it. `occupancy` is the fill of the *allocated* units
+    (d9fd010) fixed it. `occupancy` is the fill of the *allocated* units
     (the GPU's warp fill), not the chip fraction, which is `utilization`;
     a mapper that sizes its allocation to the work in whole units passes
     1.0. The two KPU paths now agree exactly on every uniform SKU, which

@@ -1,6 +1,8 @@
+---
+status: in-progress
+---
 # V5: Operational-Analysis Memory Hierarchy Plan
 
-**Status**: draft for review
 **Scope**: replace `_get_bandwidth_efficiency_scale` (the single-scalar memory model) with a per-tier, queueing-theory-grounded model that explains how a workload uses each tier of the memory hierarchy.
 
 ## Why this rewrite

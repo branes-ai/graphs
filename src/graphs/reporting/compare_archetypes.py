@@ -22,7 +22,7 @@ Five charts, rendered via Plotly loaded from CDN:
           has headroom vs. diminishing returns.
 
 See ``docs/hardware/kpu_domainflow_tile_model.md`` and
-``docs/plans/microarch-model-delivery-plan.md`` (M0.5).
+``docs/plan/microarch-model-delivery-plan.md`` (M0.5).
 """
 from __future__ import annotations
 

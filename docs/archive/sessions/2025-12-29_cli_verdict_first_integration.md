@@ -271,6 +271,6 @@ result = check_latency("resnet18", "H100", latency_target_ms=10.0)
 ## Related Documents
 
 - `docs/sessions/2025-12-24_verdict_first_agentic_tools.md` - Original verdict-first implementation
-- `docs/plans/graph-analysis-tool-extraction.md` - Overall integration plan
+- `docs/plan/graph-analysis-tool-extraction.md` - Overall integration plan
 - `cli/README.md` - CLI tool documentation (updated)
 - `embodied-ai-architect/docs/graphs_tools_guide.md` - Agentic tools guide

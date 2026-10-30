@@ -10,8 +10,8 @@ dominated by NIC, switch, and topology.
 Layer 9 is distinct from Layer 8 (intra-server fabric): a Layer 9 hop
 is a switch crossing, not a NoC hop or an NVLink.
 
-See ``docs/plans/microarch-model-delivery-plan.md`` and
-``docs/plans/bottom-up-microbenchmark-plan.md`` (Phase 9).
+See ``docs/plan/microarch-model-delivery-plan.md`` and
+``docs/plan/bottom-up-microbenchmark-plan.md`` (Phase 9).
 """
 from __future__ import annotations
 

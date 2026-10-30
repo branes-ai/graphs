@@ -1,6 +1,9 @@
+---
+status: in-progress
+issue: branes-ai/graphs#2
+---
 # Plan: Bottom-Up Microbenchmark Validation Infrastructure
 
-**Status:** Revised (9-layer framing; added SoC Data Movement and split intra-server vs. cluster interconnect)
 **Original date:** 2026-04-16
 **Revised:** 2026-04-20
 **Companion:** [`docs/assessments/bottom-up-microbenchmark-coverage.md`](../assessments/bottom-up-microbenchmark-coverage.md)

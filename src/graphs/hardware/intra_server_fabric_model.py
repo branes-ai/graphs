@@ -11,8 +11,8 @@ Layer 8 is distinct from Layer 9 (cluster interconnect): Layer 8 is
 load/store-semantic within one chassis; Layer 9 is message-passing between
 chassis.
 
-See ``docs/plans/microarch-model-delivery-plan.md`` and
-``docs/plans/bottom-up-microbenchmark-plan.md`` (Phase 8).
+See ``docs/plan/microarch-model-delivery-plan.md`` and
+``docs/plan/bottom-up-microbenchmark-plan.md`` (Phase 8).
 """
 from __future__ import annotations
 

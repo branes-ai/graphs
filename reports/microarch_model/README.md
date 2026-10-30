@@ -89,7 +89,7 @@ in a separate follow-on.
 This report is produced by analytical models only; no measurement is
 interleaved with milestones M0-M8. After the delivery epic ships, the
 bottom-up microbenchmark plan
-(`docs/plans/bottom-up-microbenchmark-plan.md`) re-activates and each
+(`docs/plan/bottom-up-microbenchmark-plan.md`) re-activates and each
 layer's `THEORETICAL` entries graduate to `CALIBRATED` in place as
 measurements land. The JSON data contract in `data/` is the stable
 interface the measurement pass writes to.

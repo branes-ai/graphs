@@ -12,7 +12,7 @@ catalog. Each file pins what every KPU modeling layer produces for that SKU:
 - the validator findings
 
 These files are the zero-diff gate for the KPU heterogeneous-tile refactor
-(`docs/plans/kpu-heterogeneous-tile-refactor-plan.md`, Phase A0).
+(`docs/plan/kpu-heterogeneous-tile-refactor-plan.md`, Phase A0).
 `tests/hardware/test_kpu_golden.py` enforces it.
 
 - Code: `src/graphs/hardware/kpu_golden.py`

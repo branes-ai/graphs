@@ -136,7 +136,7 @@ if not HAS_PYDANTIC:
 - `src/graphs/adapters/pydantic_output.py` (NEW) - Adapter functions
 - `tests/test_pydantic_adapter.py` (NEW) - 19 tests
 - `pyproject.toml` (MODIFIED) - Added optional dependency
-- `docs/plans/graph-analysis-tool-extraction.md` (MODIFIED) - Updated status
+- `docs/plan/graph-analysis-tool-extraction.md` (MODIFIED) - Updated status
 
 ### embodied-ai-architect
 - `src/embodied_ai_architect/llm/graphs_tools.py` (MODIFIED) - +4 tools, +240 lines
@@ -192,6 +192,6 @@ result = full_analysis(
 
 ## Related Documents
 
-- `docs/plans/graph-analysis-tool-extraction.md` - Implementation plan (complete)
+- `docs/plan/graph-analysis-tool-extraction.md` - Implementation plan (complete)
 - `embodied-ai-architect/docs/graphs_tools_guide.md` - Usage guide
 - `CLAUDE.md` - Updated with verdict-first tool references

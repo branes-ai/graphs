@@ -6,7 +6,7 @@ so the output is diffable, shareable by file, and works offline. Plotly is
 loaded from CDN when charts are present; during M0 (no populated content)
 the HTML contains only the page chrome and NOT-YET-POPULATED placeholders.
 
-See ``docs/plans/microarch-model-delivery-plan.md`` M0 deliverables.
+See ``docs/plan/microarch-model-delivery-plan.md`` M0 deliverables.
 """
 from __future__ import annotations
 

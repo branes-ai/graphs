@@ -1,6 +1,9 @@
+---
+status: complete
+issue: branes-ai/graphs#62
+---
 # Plan: Model Validation Harness v4 (matmul + linear, layer-driven)
 
-**Status:** Draft for review
 **Date:** 2026-05-05
 **Attempt number:** 4 (prior attempts archived in `bottom-up-microbenchmark-plan.md` and `model-based-validation-plan.md`)
 **Scope of v4 first cut:** matmul and linear only, on CPU and GPU; KPU and TPU consistency-only
@@ -311,9 +314,9 @@ CPU/GPU validation. Pretending otherwise is what likely sank attempt 3.
 
 ## Cross-references
 
-- `docs/plans/model-based-validation-plan.md` — prior attempt; this plan
+- `docs/plan/model-based-validation-plan.md` — prior attempt; this plan
   builds on its architecture-coverage matrix and supersedes its phases M1-M5.
-- `docs/plans/bottom-up-microbenchmark-plan.md` — empirical-microbenchmark
+- `docs/plan/bottom-up-microbenchmark-plan.md` — empirical-microbenchmark
   approach the prior plan also superseded.
 - `~/.claude/projects/-home-stillwater-dev-branes-clones-graphs/memory/feedback_validation_hardware_centric.md` —
   standing instruction that drives Principle 1.

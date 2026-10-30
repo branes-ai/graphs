@@ -2,7 +2,7 @@
 
 For each (op, shape, dtype, hardware) tuple, classify which architectural
 layer's spec a benchmark of that shape is *supposed* to validate. This is
-Principle 1 of docs/plans/validation-harness-v4-plan.md: every sweep shape
+Principle 1 of docs/plan/validation-harness-v4-plan.md: every sweep shape
 lands in exactly one known roofline regime, so a per-shape failure points
 at one architectural assumption.
 

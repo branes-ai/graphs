@@ -11,7 +11,7 @@ bandwidth saturation) of packets traversing the fabric. It does NOT capture
 cache capacity, hit-rate, or coherence protocol behavior - those belong to
 Layer 5 (L3/LLC).
 
-See ``docs/plans/microarch-model-delivery-plan.md`` (M0 scaffolding, M6 SoC
+See ``docs/plan/microarch-model-delivery-plan.md`` (M0 scaffolding, M6 SoC
 data movement milestone).
 """
 from __future__ import annotations

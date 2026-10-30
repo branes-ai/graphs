@@ -1,7 +1,11 @@
+---
+status: complete
+issue: branes-ai/graphs#269
+---
 # SoC study Phase 4: sweeps, reports, the first study -- execution plan
 
 Tracking: branes-ai/graphs#269, Phase 4. Parent plan:
-`docs/plans/soc-microarchitecture-study-plan.md`, section 7. The decisions
+`docs/plan/soc-microarchitecture-study-plan.md`, section 7. The decisions
 of Phases 2 and 3 carry over, above all the strict rule: a gap stays a gap
 (P2-D3, P3-D1, P3-D8). Started 2026-09-18.
 

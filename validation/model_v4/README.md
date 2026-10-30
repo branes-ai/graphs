@@ -1,7 +1,7 @@
 # V4 Model Validation Harness
 
 The V4 harness is the analytical-model validation layer described in
-[`docs/plans/validation-harness-v4-plan.md`](../../docs/plans/validation-harness-v4-plan.md).
+[`docs/plan/validation-harness-v4-plan.md`](../../docs/plan/validation-harness-v4-plan.md).
 Five principles drive its design (see plan for the full rationale):
 
 1. **Stratified sweep** — every shape is classified into a bottleneck regime
@@ -75,7 +75,7 @@ trips a unit-test failure with a clear message.
 ## Adding a new hardware target
 
 See
-[`docs/plans/v4-capture-on-target.md`](../../docs/plans/v4-capture-on-target.md)
+[`docs/plan/v4-capture-on-target.md`](../../docs/plan/v4-capture-on-target.md)
 and the runbooks in [`bin/`](../../bin/) (`v4-capture-jetson-orin-nano.sh`,
 `v4-capture-h100.sh`).
 

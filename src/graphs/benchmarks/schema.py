@@ -37,8 +37,8 @@ class LayerTag(Enum):
     ``COMPOSITE`` to indicate they validate the stack rather than a single
     layer.
 
-    See ``docs/plans/microarch-model-delivery-plan.md`` and
-    ``docs/plans/bottom-up-microbenchmark-plan.md`` for the full 9-layer
+    See ``docs/plan/microarch-model-delivery-plan.md`` and
+    ``docs/plan/bottom-up-microbenchmark-plan.md`` for the full 9-layer
     framing. The word ``layer`` is reserved for the validation hierarchy;
     cache levels are always written as L1 / L2 / L3 cache to avoid collision.
 

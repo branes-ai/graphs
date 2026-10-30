@@ -1,9 +1,12 @@
+---
+status: in-progress
+issue: branes-ai/graphs#24
+---
 # Plan: Micro-architectural Model Delivery (Layers 1–7)
 
-**Status:** Draft for review
 **Date:** 2026-04-20
 **Related:**
-- [`docs/plans/bottom-up-microbenchmark-plan.md`](bottom-up-microbenchmark-plan.md) — long-term validation roadmap (9 layers). **Re-sequenced**: its measurement work runs *after* this plan completes.
+- [`docs/plan/bottom-up-microbenchmark-plan.md`](bottom-up-microbenchmark-plan.md) — long-term validation roadmap (9 layers). **Re-sequenced**: its measurement work runs *after* this plan completes.
 - [`docs/assessments/bottom-up-microbenchmark-coverage.md`](../assessments/bottom-up-microbenchmark-coverage.md) — current-state assessment (unchanged).
 
 ## Purpose

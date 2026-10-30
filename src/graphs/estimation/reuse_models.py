@@ -16,7 +16,7 @@ innermost-out, find the smallest tier whose capacity holds the residency
 window, and price the kernel's memory time at the next-larger tier's
 achievable bandwidth.
 
-Reuse model derivations live in ``docs/plans/v5-memory-hierarchy-rewrite-plan.md``
+Reuse model derivations live in ``docs/plan/v5-memory-hierarchy-rewrite-plan.md``
 sections "Per-operator reuse models" and "Tier-picking algorithm".
 """
 

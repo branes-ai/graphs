@@ -1,3 +1,6 @@
+---
+status: complete
+---
 # Task 1: Ground-Truth Data Schema and Storage Format
 
 ## Context
