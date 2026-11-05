@@ -83,74 +83,74 @@ jobs:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
           # changes need to be picked up. History:
-          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
-          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
-          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
-          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
-          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
-          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
-          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
+          #   PR #9  (5b77527) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (6c34188) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (75fe220) FP16 throughput backfill on KPU tile classes
+          #   PR #12 (e9b6475) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
+          #   PR #13 (75a4a8c) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
+          #   PR #14 (f867fde) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
+          #   PR #15 (6052ae8) ComputeProduct v1 schema (KPU-only, additive)
           #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
-          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
-          #   PR #18 (181d725) retire legacy data/kpus/; load_kpus() becomes shim
-          #   PR #19 (6edda84) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
-          #   PR #20 (cb7d8e2) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
-          #   PR #21 (4faa8a6) Jetson AGX Thor 128GB YAML + TSMC N4P process node
-          #   PR #22 (3547b5d) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
-          #   PR #24 (c57dea7) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
-          #   PR #25 (df7b87f) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
-          #   PR #26 (6080305) first NPU SKU YAML: hailo_hailo_8
-          #   PR #30 (5d99c4c) KVCacheSpec added to NPUBlock (transformer NPUs)
-          #   PR #31 (e4d1835) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
-          #   PR #32 (f5035fb) GF 28nm process node YAML (Coral Edge TPU precursor)
-          #   PR #33 (6e3aadb) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
-          #   PR #34 (fd43608) CGRABlock added to ComputeProduct (v5, additive)
-          #   PR #35 (51b8287) first CGRA SKU YAML: stanford_plasticine_v2
-          #   PR #36 (4befc41) DPUBlock added to ComputeProduct (v6, additive)
-          #   PR #37 (aa19f91) first DPU SKU YAML: xilinx_vitis_ai_b4096
-          #   PR #38 (e60989b) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
-          #   PR #39 (9bc4a7a) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
-          #   PR #61 (6778f13) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
+          #   PR #17 (dee2871) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
+          #   PR #18 (a1b3421) retire legacy data/kpus/; load_kpus() becomes shim
+          #   PR #19 (183e2ff) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
+          #   PR #20 (85f9d1c) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
+          #   PR #21 (f56b62d) Jetson AGX Thor 128GB YAML + TSMC N4P process node
+          #   PR #22 (cce2aa2) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
+          #   PR #24 (86f7b70) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
+          #   PR #25 (1cdd522) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
+          #   PR #26 (ca95e19) first NPU SKU YAML: hailo_hailo_8
+          #   PR #30 (96174fc) KVCacheSpec added to NPUBlock (transformer NPUs)
+          #   PR #31 (63e4d71) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
+          #   PR #32 (23051b5) GF 28nm process node YAML (Coral Edge TPU precursor)
+          #   PR #33 (ee8a618) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
+          #   PR #34 (d4d9aa5) CGRABlock added to ComputeProduct (v5, additive)
+          #   PR #35 (14ec2a5) first CGRA SKU YAML: stanford_plasticine_v2
+          #   PR #36 (06d2be5) DPUBlock added to ComputeProduct (v6, additive)
+          #   PR #37 (cfe31c8) first DPU SKU YAML: xilinx_vitis_ai_b4096
+          #   PR #38 (5264837) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
+          #   PR #39 (242774f) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
+          #   PR #61 (da2de2f) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
           #   PR #65-67 (sprint #62) AMD EPYC 9654/9754/9965 datacenter CPUs + AmpereOne A192/A128
           #   PR #68-71 (sprint #68) Intel Xeon 8490H/8592+/Granite Rapids datacenter CPUs
           #   PR #73-78 (sprint #72) H100 PCIe + T4 + TPU v1/v3/v5p/Edge Pro
-          #   PR #79 (c4ac073) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
-          #   PR #80 (961e779) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
-          #   PR #81 (f6ab228) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
-          #   PR #82 (61158ff) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
-          #   PR #83 (7cc12c4) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
-          #   PR #84 (34826f3) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
-          #   PR #85 (b0e3920) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
-          #   189f0c1 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
-          #   PR #86 (755405a) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
-          #   PR #87 (b2baa38) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
-          #   PR #88 (77ca00a) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
-          #   PR #89 (6d50e4f) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
-          #   PR #90 (b675957) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
-          #   PR #91 (5584d38) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
-          #   PR #92 (e8fa698) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
-          #   PR #93 (d9194f4) KPU B5: performance roll-up by tile kind (graphs #268 B5)
-          #   PR #94 (f0df37f) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
-          #   PR #95 (c00a88a) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
-          #   PR #97 (cd119f8) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
-          #   PR #98 (067bc19) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
-          #   PR #99 (6a12905) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
-          #   PR #100 (ede4f8b) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
-          #   PR #101 (3ec7aa0) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
-          #   PR #102 (f5120dd) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
-          #   PR #103 (e1bd62a) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
-          #   PR #104 (e551c0c) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
-          #   PR #105 (6aa1340) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
-          #   PR #106 (9cc7abd) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
-          #   PR #110 (0d45c69) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
-          #   PR #108 (68abbdb) cooling footprint; legacy Hailo hardware corrected, v0.20.0
-          #   PR #109 (c5fa223) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
-          #   PR #111 (82c8989) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
-          #   PR #112 (b598d2a) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
-          #   PR #113 (dd2bad1) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
-          #   PR #114 (6464d39) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
-          #   PR #115 (2c2a606) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
-          ref: 2c2a606d54901e9a2cbe75583e393e956aa831c0
+          #   PR #79 (69b3a31) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
+          #   PR #80 (6613699) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
+          #   PR #81 (3a2fcfa) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
+          #   PR #82 (25e491f) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
+          #   PR #83 (7b7e365) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
+          #   PR #84 (9d634f2) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
+          #   PR #85 (c71f20a) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
+          #   14ad1e7 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
+          #   PR #86 (a41a1d5) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
+          #   PR #87 (7c07133) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
+          #   PR #88 (6bd767f) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
+          #   PR #89 (75b1969) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
+          #   PR #90 (287e27a) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
+          #   PR #91 (a358465) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
+          #   PR #92 (61889aa) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
+          #   PR #93 (bc2dea9) KPU B5: performance roll-up by tile kind (graphs #268 B5)
+          #   PR #94 (9365a05) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
+          #   PR #95 (78465f6) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
+          #   PR #97 (e1a7f54) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
+          #   PR #98 (5b1e3e4) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
+          #   PR #99 (81fc90d) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
+          #   PR #100 (dcc9d38) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
+          #   PR #101 (e850ecd) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
+          #   PR #102 (311cd27) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
+          #   PR #103 (6ac908d) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
+          #   PR #104 (547d3f8) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
+          #   PR #105 (c35e384) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
+          #   PR #106 (7f1188d) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
+          #   PR #110 (466fc7d) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
+          #   PR #108 (7a6f441) cooling footprint; legacy Hailo hardware corrected, v0.20.0
+          #   PR #109 (a5db083) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
+          #   PR #111 (0151b26) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
+          #   PR #112 (9b4f9e8) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
+          #   PR #113 (8a5cd48) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
+          #   PR #114 (3668bd7) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
+          #   PR #115 (51d5ff2) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
+          ref: 51d5ff225bbe0419e7521a6d8cd5131c7732b9d7
           path: embodied-schemas
           fetch-depth: 1
 
@@ -212,74 +212,74 @@ jobs:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
           # changes need to be picked up. History:
-          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
-          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
-          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
-          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
-          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
-          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
-          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
+          #   PR #9  (5b77527) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (6c34188) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (75fe220) FP16 throughput backfill on KPU tile classes
+          #   PR #12 (e9b6475) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
+          #   PR #13 (75a4a8c) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
+          #   PR #14 (f867fde) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
+          #   PR #15 (6052ae8) ComputeProduct v1 schema (KPU-only, additive)
           #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
-          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
-          #   PR #18 (181d725) retire legacy data/kpus/; load_kpus() becomes shim
-          #   PR #19 (6edda84) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
-          #   PR #20 (cb7d8e2) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
-          #   PR #21 (4faa8a6) Jetson AGX Thor 128GB YAML + TSMC N4P process node
-          #   PR #22 (3547b5d) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
-          #   PR #24 (c57dea7) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
-          #   PR #25 (df7b87f) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
-          #   PR #26 (6080305) first NPU SKU YAML: hailo_hailo_8
-          #   PR #30 (5d99c4c) KVCacheSpec added to NPUBlock (transformer NPUs)
-          #   PR #31 (e4d1835) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
-          #   PR #32 (f5035fb) GF 28nm process node YAML (Coral Edge TPU precursor)
-          #   PR #33 (6e3aadb) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
-          #   PR #34 (fd43608) CGRABlock added to ComputeProduct (v5, additive)
-          #   PR #35 (51b8287) first CGRA SKU YAML: stanford_plasticine_v2
-          #   PR #36 (4befc41) DPUBlock added to ComputeProduct (v6, additive)
-          #   PR #37 (aa19f91) first DPU SKU YAML: xilinx_vitis_ai_b4096
-          #   PR #38 (e60989b) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
-          #   PR #39 (9bc4a7a) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
-          #   PR #61 (6778f13) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
+          #   PR #17 (dee2871) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
+          #   PR #18 (a1b3421) retire legacy data/kpus/; load_kpus() becomes shim
+          #   PR #19 (183e2ff) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
+          #   PR #20 (85f9d1c) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
+          #   PR #21 (f56b62d) Jetson AGX Thor 128GB YAML + TSMC N4P process node
+          #   PR #22 (cce2aa2) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
+          #   PR #24 (86f7b70) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
+          #   PR #25 (1cdd522) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
+          #   PR #26 (ca95e19) first NPU SKU YAML: hailo_hailo_8
+          #   PR #30 (96174fc) KVCacheSpec added to NPUBlock (transformer NPUs)
+          #   PR #31 (63e4d71) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
+          #   PR #32 (23051b5) GF 28nm process node YAML (Coral Edge TPU precursor)
+          #   PR #33 (ee8a618) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
+          #   PR #34 (d4d9aa5) CGRABlock added to ComputeProduct (v5, additive)
+          #   PR #35 (14ec2a5) first CGRA SKU YAML: stanford_plasticine_v2
+          #   PR #36 (06d2be5) DPUBlock added to ComputeProduct (v6, additive)
+          #   PR #37 (cfe31c8) first DPU SKU YAML: xilinx_vitis_ai_b4096
+          #   PR #38 (5264837) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
+          #   PR #39 (242774f) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
+          #   PR #61 (da2de2f) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
           #   PR #65-67 (sprint #62) AMD EPYC 9654/9754/9965 datacenter CPUs + AmpereOne A192/A128
           #   PR #68-71 (sprint #68) Intel Xeon 8490H/8592+/Granite Rapids datacenter CPUs
           #   PR #73-78 (sprint #72) H100 PCIe + T4 + TPU v1/v3/v5p/Edge Pro
-          #   PR #79 (c4ac073) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
-          #   PR #80 (961e779) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
-          #   PR #81 (f6ab228) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
-          #   PR #82 (61158ff) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
-          #   PR #83 (7cc12c4) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
-          #   PR #84 (34826f3) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
-          #   PR #85 (b0e3920) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
-          #   189f0c1 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
-          #   PR #86 (755405a) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
-          #   PR #87 (b2baa38) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
-          #   PR #88 (77ca00a) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
-          #   PR #89 (6d50e4f) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
-          #   PR #90 (b675957) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
-          #   PR #91 (5584d38) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
-          #   PR #92 (e8fa698) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
-          #   PR #93 (d9194f4) KPU B5: performance roll-up by tile kind (graphs #268 B5)
-          #   PR #94 (f0df37f) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
-          #   PR #95 (c00a88a) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
-          #   PR #97 (cd119f8) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
-          #   PR #98 (067bc19) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
-          #   PR #99 (6a12905) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
-          #   PR #100 (ede4f8b) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
-          #   PR #101 (3ec7aa0) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
-          #   PR #102 (f5120dd) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
-          #   PR #103 (e1bd62a) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
-          #   PR #104 (e551c0c) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
-          #   PR #105 (6aa1340) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
-          #   PR #106 (9cc7abd) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
-          #   PR #110 (0d45c69) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
-          #   PR #108 (68abbdb) cooling footprint; legacy Hailo hardware corrected, v0.20.0
-          #   PR #109 (c5fa223) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
-          #   PR #111 (82c8989) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
-          #   PR #112 (b598d2a) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
-          #   PR #113 (dd2bad1) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
-          #   PR #114 (6464d39) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
-          #   PR #115 (2c2a606) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
-          ref: 2c2a606d54901e9a2cbe75583e393e956aa831c0
+          #   PR #79 (69b3a31) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
+          #   PR #80 (6613699) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
+          #   PR #81 (3a2fcfa) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
+          #   PR #82 (25e491f) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
+          #   PR #83 (7b7e365) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
+          #   PR #84 (9d634f2) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
+          #   PR #85 (c71f20a) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
+          #   14ad1e7 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
+          #   PR #86 (a41a1d5) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
+          #   PR #87 (7c07133) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
+          #   PR #88 (6bd767f) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
+          #   PR #89 (75b1969) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
+          #   PR #90 (287e27a) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
+          #   PR #91 (a358465) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
+          #   PR #92 (61889aa) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
+          #   PR #93 (bc2dea9) KPU B5: performance roll-up by tile kind (graphs #268 B5)
+          #   PR #94 (9365a05) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
+          #   PR #95 (78465f6) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
+          #   PR #97 (e1a7f54) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
+          #   PR #98 (5b1e3e4) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
+          #   PR #99 (81fc90d) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
+          #   PR #100 (dcc9d38) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
+          #   PR #101 (e850ecd) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
+          #   PR #102 (311cd27) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
+          #   PR #103 (6ac908d) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
+          #   PR #104 (547d3f8) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
+          #   PR #105 (c35e384) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
+          #   PR #106 (7f1188d) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
+          #   PR #110 (466fc7d) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
+          #   PR #108 (7a6f441) cooling footprint; legacy Hailo hardware corrected, v0.20.0
+          #   PR #109 (a5db083) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
+          #   PR #111 (0151b26) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
+          #   PR #112 (9b4f9e8) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
+          #   PR #113 (8a5cd48) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
+          #   PR #114 (3668bd7) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
+          #   PR #115 (51d5ff2) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
+          ref: 51d5ff225bbe0419e7521a6d8cd5131c7732b9d7
           path: embodied-schemas
           fetch-depth: 1
 
@@ -369,74 +369,74 @@ jobs:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
           # changes need to be picked up. History:
-          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
-          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
-          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
-          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
-          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
-          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
-          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
+          #   PR #9  (5b77527) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (6c34188) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (75fe220) FP16 throughput backfill on KPU tile classes
+          #   PR #12 (e9b6475) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
+          #   PR #13 (75a4a8c) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
+          #   PR #14 (f867fde) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
+          #   PR #15 (6052ae8) ComputeProduct v1 schema (KPU-only, additive)
           #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
-          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
-          #   PR #18 (181d725) retire legacy data/kpus/; load_kpus() becomes shim
-          #   PR #19 (6edda84) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
-          #   PR #20 (cb7d8e2) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
-          #   PR #21 (4faa8a6) Jetson AGX Thor 128GB YAML + TSMC N4P process node
-          #   PR #22 (3547b5d) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
-          #   PR #24 (c57dea7) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
-          #   PR #25 (df7b87f) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
-          #   PR #26 (6080305) first NPU SKU YAML: hailo_hailo_8
-          #   PR #30 (5d99c4c) KVCacheSpec added to NPUBlock (transformer NPUs)
-          #   PR #31 (e4d1835) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
-          #   PR #32 (f5035fb) GF 28nm process node YAML (Coral Edge TPU precursor)
-          #   PR #33 (6e3aadb) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
-          #   PR #34 (fd43608) CGRABlock added to ComputeProduct (v5, additive)
-          #   PR #35 (51b8287) first CGRA SKU YAML: stanford_plasticine_v2
-          #   PR #36 (4befc41) DPUBlock added to ComputeProduct (v6, additive)
-          #   PR #37 (aa19f91) first DPU SKU YAML: xilinx_vitis_ai_b4096
-          #   PR #38 (e60989b) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
-          #   PR #39 (9bc4a7a) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
-          #   PR #61 (6778f13) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
+          #   PR #17 (dee2871) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
+          #   PR #18 (a1b3421) retire legacy data/kpus/; load_kpus() becomes shim
+          #   PR #19 (183e2ff) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
+          #   PR #20 (85f9d1c) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
+          #   PR #21 (f56b62d) Jetson AGX Thor 128GB YAML + TSMC N4P process node
+          #   PR #22 (cce2aa2) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
+          #   PR #24 (86f7b70) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
+          #   PR #25 (1cdd522) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
+          #   PR #26 (ca95e19) first NPU SKU YAML: hailo_hailo_8
+          #   PR #30 (96174fc) KVCacheSpec added to NPUBlock (transformer NPUs)
+          #   PR #31 (63e4d71) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
+          #   PR #32 (23051b5) GF 28nm process node YAML (Coral Edge TPU precursor)
+          #   PR #33 (ee8a618) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
+          #   PR #34 (d4d9aa5) CGRABlock added to ComputeProduct (v5, additive)
+          #   PR #35 (14ec2a5) first CGRA SKU YAML: stanford_plasticine_v2
+          #   PR #36 (06d2be5) DPUBlock added to ComputeProduct (v6, additive)
+          #   PR #37 (cfe31c8) first DPU SKU YAML: xilinx_vitis_ai_b4096
+          #   PR #38 (5264837) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
+          #   PR #39 (242774f) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
+          #   PR #61 (da2de2f) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
           #   PR #65-67 (sprint #62) AMD EPYC 9654/9754/9965 datacenter CPUs + AmpereOne A192/A128
           #   PR #68-71 (sprint #68) Intel Xeon 8490H/8592+/Granite Rapids datacenter CPUs
           #   PR #73-78 (sprint #72) H100 PCIe + T4 + TPU v1/v3/v5p/Edge Pro
-          #   PR #79 (c4ac073) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
-          #   PR #80 (961e779) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
-          #   PR #81 (f6ab228) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
-          #   PR #82 (61158ff) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
-          #   PR #83 (7cc12c4) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
-          #   PR #84 (34826f3) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
-          #   PR #85 (b0e3920) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
-          #   189f0c1 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
-          #   PR #86 (755405a) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
-          #   PR #87 (b2baa38) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
-          #   PR #88 (77ca00a) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
-          #   PR #89 (6d50e4f) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
-          #   PR #90 (b675957) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
-          #   PR #91 (5584d38) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
-          #   PR #92 (e8fa698) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
-          #   PR #93 (d9194f4) KPU B5: performance roll-up by tile kind (graphs #268 B5)
-          #   PR #94 (f0df37f) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
-          #   PR #95 (c00a88a) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
-          #   PR #97 (cd119f8) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
-          #   PR #98 (067bc19) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
-          #   PR #99 (6a12905) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
-          #   PR #100 (ede4f8b) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
-          #   PR #101 (3ec7aa0) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
-          #   PR #102 (f5120dd) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
-          #   PR #103 (e1bd62a) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
-          #   PR #104 (e551c0c) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
-          #   PR #105 (6aa1340) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
-          #   PR #106 (9cc7abd) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
-          #   PR #110 (0d45c69) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
-          #   PR #108 (68abbdb) cooling footprint; legacy Hailo hardware corrected, v0.20.0
-          #   PR #109 (c5fa223) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
-          #   PR #111 (82c8989) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
-          #   PR #112 (b598d2a) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
-          #   PR #113 (dd2bad1) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
-          #   PR #114 (6464d39) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
-          #   PR #115 (2c2a606) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
-          ref: 2c2a606d54901e9a2cbe75583e393e956aa831c0
+          #   PR #79 (69b3a31) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
+          #   PR #80 (6613699) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
+          #   PR #81 (3a2fcfa) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
+          #   PR #82 (25e491f) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
+          #   PR #83 (7b7e365) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
+          #   PR #84 (9d634f2) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
+          #   PR #85 (c71f20a) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
+          #   14ad1e7 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
+          #   PR #86 (a41a1d5) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
+          #   PR #87 (7c07133) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
+          #   PR #88 (6bd767f) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
+          #   PR #89 (75b1969) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
+          #   PR #90 (287e27a) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
+          #   PR #91 (a358465) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
+          #   PR #92 (61889aa) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
+          #   PR #93 (bc2dea9) KPU B5: performance roll-up by tile kind (graphs #268 B5)
+          #   PR #94 (9365a05) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
+          #   PR #95 (78465f6) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
+          #   PR #97 (e1a7f54) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
+          #   PR #98 (5b1e3e4) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
+          #   PR #99 (81fc90d) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
+          #   PR #100 (dcc9d38) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
+          #   PR #101 (e850ecd) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
+          #   PR #102 (311cd27) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
+          #   PR #103 (6ac908d) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
+          #   PR #104 (547d3f8) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
+          #   PR #105 (c35e384) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
+          #   PR #106 (7f1188d) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
+          #   PR #110 (466fc7d) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
+          #   PR #108 (7a6f441) cooling footprint; legacy Hailo hardware corrected, v0.20.0
+          #   PR #109 (a5db083) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
+          #   PR #111 (0151b26) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
+          #   PR #112 (9b4f9e8) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
+          #   PR #113 (8a5cd48) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
+          #   PR #114 (3668bd7) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
+          #   PR #115 (51d5ff2) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
+          ref: 51d5ff225bbe0419e7521a6d8cd5131c7732b9d7
           path: embodied-schemas
           fetch-depth: 1
 
@@ -539,74 +539,74 @@ jobs:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
           # changes need to be picked up. History:
-          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
-          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
-          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
-          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
-          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
-          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
-          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
+          #   PR #9  (5b77527) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (6c34188) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (75fe220) FP16 throughput backfill on KPU tile classes
+          #   PR #12 (e9b6475) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
+          #   PR #13 (75a4a8c) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
+          #   PR #14 (f867fde) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
+          #   PR #15 (6052ae8) ComputeProduct v1 schema (KPU-only, additive)
           #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
-          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
-          #   PR #18 (181d725) retire legacy data/kpus/; load_kpus() becomes shim
-          #   PR #19 (6edda84) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
-          #   PR #20 (cb7d8e2) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
-          #   PR #21 (4faa8a6) Jetson AGX Thor 128GB YAML + TSMC N4P process node
-          #   PR #22 (3547b5d) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
-          #   PR #24 (c57dea7) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
-          #   PR #25 (df7b87f) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
-          #   PR #26 (6080305) first NPU SKU YAML: hailo_hailo_8
-          #   PR #30 (5d99c4c) KVCacheSpec added to NPUBlock (transformer NPUs)
-          #   PR #31 (e4d1835) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
-          #   PR #32 (f5035fb) GF 28nm process node YAML (Coral Edge TPU precursor)
-          #   PR #33 (6e3aadb) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
-          #   PR #34 (fd43608) CGRABlock added to ComputeProduct (v5, additive)
-          #   PR #35 (51b8287) first CGRA SKU YAML: stanford_plasticine_v2
-          #   PR #36 (4befc41) DPUBlock added to ComputeProduct (v6, additive)
-          #   PR #37 (aa19f91) first DPU SKU YAML: xilinx_vitis_ai_b4096
-          #   PR #38 (e60989b) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
-          #   PR #39 (9bc4a7a) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
-          #   PR #61 (6778f13) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
+          #   PR #17 (dee2871) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
+          #   PR #18 (a1b3421) retire legacy data/kpus/; load_kpus() becomes shim
+          #   PR #19 (183e2ff) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
+          #   PR #20 (85f9d1c) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
+          #   PR #21 (f56b62d) Jetson AGX Thor 128GB YAML + TSMC N4P process node
+          #   PR #22 (cce2aa2) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
+          #   PR #24 (86f7b70) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
+          #   PR #25 (1cdd522) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
+          #   PR #26 (ca95e19) first NPU SKU YAML: hailo_hailo_8
+          #   PR #30 (96174fc) KVCacheSpec added to NPUBlock (transformer NPUs)
+          #   PR #31 (63e4d71) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
+          #   PR #32 (23051b5) GF 28nm process node YAML (Coral Edge TPU precursor)
+          #   PR #33 (ee8a618) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
+          #   PR #34 (d4d9aa5) CGRABlock added to ComputeProduct (v5, additive)
+          #   PR #35 (14ec2a5) first CGRA SKU YAML: stanford_plasticine_v2
+          #   PR #36 (06d2be5) DPUBlock added to ComputeProduct (v6, additive)
+          #   PR #37 (cfe31c8) first DPU SKU YAML: xilinx_vitis_ai_b4096
+          #   PR #38 (5264837) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
+          #   PR #39 (242774f) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
+          #   PR #61 (da2de2f) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
           #   PR #65-67 (sprint #62) AMD EPYC 9654/9754/9965 datacenter CPUs + AmpereOne A192/A128
           #   PR #68-71 (sprint #68) Intel Xeon 8490H/8592+/Granite Rapids datacenter CPUs
           #   PR #73-78 (sprint #72) H100 PCIe + T4 + TPU v1/v3/v5p/Edge Pro
-          #   PR #79 (c4ac073) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
-          #   PR #80 (961e779) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
-          #   PR #81 (f6ab228) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
-          #   PR #82 (61158ff) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
-          #   PR #83 (7cc12c4) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
-          #   PR #84 (34826f3) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
-          #   PR #85 (b0e3920) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
-          #   189f0c1 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
-          #   PR #86 (755405a) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
-          #   PR #87 (b2baa38) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
-          #   PR #88 (77ca00a) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
-          #   PR #89 (6d50e4f) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
-          #   PR #90 (b675957) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
-          #   PR #91 (5584d38) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
-          #   PR #92 (e8fa698) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
-          #   PR #93 (d9194f4) KPU B5: performance roll-up by tile kind (graphs #268 B5)
-          #   PR #94 (f0df37f) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
-          #   PR #95 (c00a88a) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
-          #   PR #97 (cd119f8) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
-          #   PR #98 (067bc19) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
-          #   PR #99 (6a12905) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
-          #   PR #100 (ede4f8b) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
-          #   PR #101 (3ec7aa0) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
-          #   PR #102 (f5120dd) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
-          #   PR #103 (e1bd62a) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
-          #   PR #104 (e551c0c) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
-          #   PR #105 (6aa1340) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
-          #   PR #106 (9cc7abd) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
-          #   PR #110 (0d45c69) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
-          #   PR #108 (68abbdb) cooling footprint; legacy Hailo hardware corrected, v0.20.0
-          #   PR #109 (c5fa223) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
-          #   PR #111 (82c8989) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
-          #   PR #112 (b598d2a) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
-          #   PR #113 (dd2bad1) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
-          #   PR #114 (6464d39) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
-          #   PR #115 (2c2a606) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
-          ref: 2c2a606d54901e9a2cbe75583e393e956aa831c0
+          #   PR #79 (69b3a31) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
+          #   PR #80 (6613699) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
+          #   PR #81 (3a2fcfa) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
+          #   PR #82 (25e491f) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
+          #   PR #83 (7b7e365) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
+          #   PR #84 (9d634f2) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
+          #   PR #85 (c71f20a) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
+          #   14ad1e7 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
+          #   PR #86 (a41a1d5) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
+          #   PR #87 (7c07133) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
+          #   PR #88 (6bd767f) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
+          #   PR #89 (75b1969) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
+          #   PR #90 (287e27a) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
+          #   PR #91 (a358465) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
+          #   PR #92 (61889aa) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
+          #   PR #93 (bc2dea9) KPU B5: performance roll-up by tile kind (graphs #268 B5)
+          #   PR #94 (9365a05) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
+          #   PR #95 (78465f6) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
+          #   PR #97 (e1a7f54) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
+          #   PR #98 (5b1e3e4) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
+          #   PR #99 (81fc90d) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
+          #   PR #100 (dcc9d38) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
+          #   PR #101 (e850ecd) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
+          #   PR #102 (311cd27) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
+          #   PR #103 (6ac908d) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
+          #   PR #104 (547d3f8) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
+          #   PR #105 (c35e384) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
+          #   PR #106 (7f1188d) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
+          #   PR #110 (466fc7d) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
+          #   PR #108 (7a6f441) cooling footprint; legacy Hailo hardware corrected, v0.20.0
+          #   PR #109 (a5db083) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
+          #   PR #111 (0151b26) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
+          #   PR #112 (9b4f9e8) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
+          #   PR #113 (8a5cd48) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
+          #   PR #114 (3668bd7) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
+          #   PR #115 (51d5ff2) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
+          ref: 51d5ff225bbe0419e7521a6d8cd5131c7732b9d7
           path: embodied-schemas
           fetch-depth: 1
 
@@ -654,74 +654,74 @@ jobs:
           repository: branes-ai/embodied-schemas
           # Pinned to embodied-schemas main; bump when later schema
           # changes need to be picked up. History:
-          #   PR #9  (e8c6c89) ProcessNode + CoolingSolution + KPU SKU schemas
-          #   PR #10 (5abce59) per-(profile, precision) efficiency on KPUThermalProfile
-          #   PR #11 (bd61f3c) FP16 throughput backfill on KPU tile classes
-          #   PR #12 (3509e68) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
-          #   PR #13 (5741e75) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
-          #   PR #14 (846a0d2) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
-          #   PR #15 (60f210d) ComputeProduct v1 schema (KPU-only, additive)
+          #   PR #9  (5b77527) ProcessNode + CoolingSolution + KPU SKU schemas
+          #   PR #10 (6c34188) per-(profile, precision) efficiency on KPUThermalProfile
+          #   PR #11 (75fe220) FP16 throughput backfill on KPU tile classes
+          #   PR #12 (e9b6475) PROCESS_NODE_DATA_DIR env overlay (Phase 7)
+          #   PR #13 (75a4a8c) per-profile Vdd + ProcessNode SRAM/NoC/DRAM energies
+          #   PR #14 (f867fde) KPU SKU naming convention (kpu_t<N>_..._<foundry>_<library>)
+          #   PR #15 (6052ae8) ComputeProduct v1 schema (KPU-only, additive)
           #   PR #16 (7babd4c) first ComputeProduct YAML + load_compute_products() loader
-          #   PR #17 (845a9f2) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
-          #   PR #18 (181d725) retire legacy data/kpus/; load_kpus() becomes shim
-          #   PR #19 (6edda84) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
-          #   PR #20 (cb7d8e2) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
-          #   PR #21 (4faa8a6) Jetson AGX Thor 128GB YAML + TSMC N4P process node
-          #   PR #22 (3547b5d) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
-          #   PR #24 (c57dea7) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
-          #   PR #25 (df7b87f) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
-          #   PR #26 (6080305) first NPU SKU YAML: hailo_hailo_8
-          #   PR #30 (5d99c4c) KVCacheSpec added to NPUBlock (transformer NPUs)
-          #   PR #31 (e4d1835) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
-          #   PR #32 (f5035fb) GF 28nm process node YAML (Coral Edge TPU precursor)
-          #   PR #33 (6e3aadb) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
-          #   PR #34 (fd43608) CGRABlock added to ComputeProduct (v5, additive)
-          #   PR #35 (51b8287) first CGRA SKU YAML: stanford_plasticine_v2
-          #   PR #36 (4befc41) DPUBlock added to ComputeProduct (v6, additive)
-          #   PR #37 (aa19f91) first DPU SKU YAML: xilinx_vitis_ai_b4096
-          #   PR #38 (e60989b) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
-          #   PR #39 (9bc4a7a) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
-          #   PR #61 (6778f13) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
+          #   PR #17 (dee2871) remaining 11 KPU SKUs converted to ComputeProduct YAMLs
+          #   PR #18 (a1b3421) retire legacy data/kpus/; load_kpus() becomes shim
+          #   PR #19 (183e2ff) ComputeProduct v2: GPUBlock added (KPUBlock + GPUBlock in AnyBlock union)
+          #   PR #20 (85f9d1c) first GPU SKU YAML: nvidia_jetson_agx_orin_64gb
+          #   PR #21 (f56b62d) Jetson AGX Thor 128GB YAML + TSMC N4P process node
+          #   PR #22 (cce2aa2) ComputeProduct v3: CPUBlock added (KPU + GPU + CPU in AnyBlock union)
+          #   PR #24 (86f7b70) first CPU SKU YAML: intel_core_i7_12700k + intel_7 process node
+          #   PR #25 (1cdd522) ComputeProduct v4: NPUBlock added (KPU+GPU+CPU+NPU in AnyBlock union)
+          #   PR #26 (ca95e19) first NPU SKU YAML: hailo_hailo_8
+          #   PR #30 (96174fc) KVCacheSpec added to NPUBlock (transformer NPUs)
+          #   PR #31 (63e4d71) second NPU SKU YAML: hailo_hailo_10h (first KVCacheSpec user)
+          #   PR #32 (23051b5) GF 28nm process node YAML (Coral Edge TPU precursor)
+          #   PR #33 (ee8a618) third NPU SKU YAML: google_coral_edge_tpu (first systolic NPU)
+          #   PR #34 (d4d9aa5) CGRABlock added to ComputeProduct (v5, additive)
+          #   PR #35 (14ec2a5) first CGRA SKU YAML: stanford_plasticine_v2
+          #   PR #36 (06d2be5) DPUBlock added to ComputeProduct (v6, additive)
+          #   PR #37 (cfe31c8) first DPU SKU YAML: xilinx_vitis_ai_b4096
+          #   PR #38 (5264837) TPUBlock added to ComputeProduct (v7, additive) + MemoryType.DDR3
+          #   PR #39 (242774f) first TPU SKU YAML: google_tpu_v4 (datacenter, HBM2e, ICI)
+          #   PR #61 (da2de2f) DSP batch sprint #223 closes (Qualcomm QCS6490 + 8 other DSP SKUs)
           #   PR #65-67 (sprint #62) AMD EPYC 9654/9754/9965 datacenter CPUs + AmpereOne A192/A128
           #   PR #68-71 (sprint #68) Intel Xeon 8490H/8592+/Granite Rapids datacenter CPUs
           #   PR #73-78 (sprint #72) H100 PCIe + T4 + TPU v1/v3/v5p/Edge Pro
-          #   PR #79 (c4ac073) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
-          #   PR #80 (961e779) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
-          #   PR #81 (f6ab228) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
-          #   PR #82 (61158ff) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
-          #   PR #83 (7cc12c4) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
-          #   PR #84 (34826f3) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
-          #   PR #85 (b0e3920) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
-          #   189f0c1 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
-          #   PR #86 (755405a) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
-          #   PR #87 (b2baa38) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
-          #   PR #88 (77ca00a) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
-          #   PR #89 (6d50e4f) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
-          #   PR #90 (b675957) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
-          #   PR #91 (5584d38) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
-          #   PR #92 (e8fa698) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
-          #   PR #93 (d9194f4) KPU B5: performance roll-up by tile kind (graphs #268 B5)
-          #   PR #94 (f0df37f) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
-          #   PR #95 (c00a88a) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
-          #   PR #97 (cd119f8) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
-          #   PR #98 (067bc19) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
-          #   PR #99 (6a12905) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
-          #   PR #100 (ede4f8b) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
-          #   PR #101 (3ec7aa0) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
-          #   PR #102 (f5120dd) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
-          #   PR #103 (e1bd62a) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
-          #   PR #104 (e551c0c) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
-          #   PR #105 (6aa1340) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
-          #   PR #106 (9cc7abd) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
-          #   PR #110 (0d45c69) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
-          #   PR #108 (68abbdb) cooling footprint; legacy Hailo hardware corrected, v0.20.0
-          #   PR #109 (c5fa223) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
-          #   PR #111 (82c8989) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
-          #   PR #112 (b598d2a) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
-          #   PR #113 (dd2bad1) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
-          #   PR #114 (6464d39) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
-          #   PR #115 (2c2a606) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
-          ref: 2c2a606d54901e9a2cbe75583e393e956aa831c0
+          #   PR #79 (69b3a31) v13 IOBlock schema: BlockKind.IO + IOBlock + IOOnDieFabric + ... (#245 PR 2)
+          #   PR #80 (6613699) EPYC 9654 multi-die rewrite (first IOBlock SKU) (#245 PR 3)
+          #   PR #81 (3a2fcfa) EPYC 9754 multi-die rewrite (reuses Genoa IOD) (#245 PR 4)
+          #   PR #82 (25e491f) EPYC 9965 multi-die rewrite (new Turin IOD) (#245 PR 5, closes IOBlock sprint)
+          #   PR #83 (7b7e365) fix(data): correct memory_bus_bits on Jetson Thor + Orin Nano YAMLs (closes #8)
+          #   PR #84 (9d634f2) leakage_vdd_exponent on ProcessNodeEntry: Vdd-scaled leakage (graphs #154)
+          #   PR #85 (c71f20a) re-tune KPU profile Vdd to preserve round TDPs under Vdd-scaled leakage (graphs #154)
+          #   14ad1e7 Elma Electronic board-level hardware SKUs (data/hardware/elma; picked up by this pin)
+          #   PR #86 (a41a1d5) KPUArchitectureBase: KPUArchitecture/KPUBlock share one field set (graphs #268 A1)
+          #   PR #87 (7c07133) release v0.7.0 -- version bump + CHANGELOG only (tag v0.7.0, on PyPI)
+          #   PR #88 (6bd767f) KPU B1: datapath schemas + optional heterogeneous-tile fields (graphs #268 B1)
+          #   PR #89 (75b1969) release v0.8.0 -- version bump + CHANGELOG only (tag v0.8.0, on PyPI)
+          #   PR #90 (287e27a) KPU B2: PE-level + NoC-level interconnect overlays (graphs #268 B2)
+          #   PR #91 (a358465) KPU B3: systolic / fixed-function tile kinds + FunctionCore (graphs #268 B3)
+          #   PR #92 (61889aa) KPU B4: checkerboard, power domains, per-domain operating points (graphs #268 B4)
+          #   PR #93 (bc2dea9) KPU B5: performance roll-up by tile kind (graphs #268 B5)
+          #   PR #94 (9365a05) KPU B6: tile-class library + n40/n65 anchor nodes (graphs #268 B6)
+          #   PR #95 (78465f6) release v0.9.0 -- version bump + CHANGELOG only (tag v0.9.0, on PyPI)
+          #   PR #97 (e1a7f54) kpu_h64_auto1 heterogeneous reference SKUs, v0.10.0 (graphs #268 E1; tag v0.10.0, on PyPI)
+          #   PR #98 (5b1e3e4) L1 is per compute tile, not per PE; l1_sram block, v0.11.0 (graphs #268 F1; tag v0.11.0, on PyPI)
+          #   PR #99 (81fc90d) Vdd re-tune for the four 7nm_tsmc_hpc SKUs, v0.12.0 (graphs #268 F4; tag v0.12.0, on PyPI)
+          #   PR #100 (dcc9d38) default per-cluster DVFS partition on the uniform SKUs, v0.13.0 (graphs #268 F2; tag v0.13.0, on PyPI)
+          #   PR #101 (e850ecd) T768 Matrix class as a systolic tile, v0.14.0 (graphs #268 D8; tag v0.14.0, on PyPI)
+          #   PR #102 (311cd27) FP16 energy per op, BF16 re-derived from Horowitz, v0.15.0 (graphs #319)
+          #   PR #103 (6ac908d) RFC 0001 rev 2-4: as-built status, SWaP-C² requirement (docs)
+          #   PR #104 (547d3f8) SWaP-C² schema, module products, D4 peak aggregation, v0.16.0
+          #   PR #105 (c35e384) SWaP-C² estimators, source DB, sized cooling, wafer cost / D0, v0.17.0 (ambient_c_max optional: graphs #346)
+          #   PR #106 (7f1188d) die cost on the costable products, v0.18.0 (KPU goldens regenerated here)
+          #   PR #110 (466fc7d) Hailo-8 / 10H M.2 modules from verified datasheets, v0.19.0
+          #   PR #108 (7a6f441) cooling footprint; legacy Hailo hardware corrected, v0.20.0
+          #   PR #109 (a5db083) NVIDIA Jetson entries as SKUs of the Jetson Orin / Thor families, v0.21.0
+          #   PR #111 (0151b26) Jetson Thor T5000 floorsweep corrected (2560 CUDA cores), v0.21.1 (tag v0.21.1, on PyPI)
+          #   PR #112 (9b4f9e8) Jetson SKU source data + SKU floorsweep schema, v0.22.0 (no tag)
+          #   PR #113 (8a5cd48) all 9 Jetson SKUs as generated module products; Thor 70/90/120 W + MAXN 130 W, v0.23.0 (no tag)
+          #   PR #114 (3668bd7) legacy Jetson HardwareEntry files corrected from the source DB, v0.23.1 (tag v0.23.1, on PyPI)
+          #   PR #115 (51d5ff2) Elma JetSys-5330, the first system product (contains the AGX Orin 64GB module), v0.24.0 (tag v0.24.0, on PyPI)
+          ref: 51d5ff225bbe0419e7521a6d8cd5131c7732b9d7
           path: embodied-schemas
           fetch-depth: 1
 
