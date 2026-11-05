@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **embodied-schemas CI pin moved 6464d39 -> 2c2a606** (embodied-schemas #115, v0.24.0, on PyPI): the Elma JetSys-5330 joins the catalog as the first `system` product, containing the AGX Orin 64GB module, along with its integral enclosure cooling entry. IP templates were regenerated (provenance version only). No graphs code change. The floor stays `>=0.23.1`, since nothing here needs 0.24.0.
-- **embodied-schemas floor raised to `>=0.23.1` and CI pin moved dd2bad1 -> 6464d39** (embodied-schemas #114, tag v0.23.1, on PyPI). The release corrects the legacy Jetson `HardwareEntry` files from the source DB. IP templates were regenerated (provenance version only). No graphs code needed a change.
-- **embodied-schemas CI pin moved 82c8989 -> dd2bad1** (embodied-schemas #112 / #113, 0.22.0 / 0.23.0). All 9 NVIDIA Jetson SKUs are now generated `module` products with a `sku` floorsweep, and the Thor (T5000) flagship follows NVIDIA's power modes: 70 / 90 / 120 W (default) and MAXN at the 130 W maximum. The 70 / 90 W GPU clocks are estimates.
+- **embodied-schemas CI pin moved 3668bd7 -> 51d5ff2** (embodied-schemas #115, v0.24.0, on PyPI): the Elma JetSys-5330 joins the catalog as the first `system` product, containing the AGX Orin 64GB module, along with its integral enclosure cooling entry. IP templates were regenerated (provenance version only). No graphs code change. The floor stays `>=0.23.1`, since nothing here needs 0.24.0.
+- **embodied-schemas floor raised to `>=0.23.1` and CI pin moved 8a5cd48 -> 3668bd7** (embodied-schemas #114, tag v0.23.1, on PyPI). The release corrects the legacy Jetson `HardwareEntry` files from the source DB. IP templates were regenerated (provenance version only). No graphs code needed a change.
+- **embodied-schemas CI pin moved 0151b26 -> 8a5cd48** (embodied-schemas #112 / #113, 0.22.0 / 0.23.0). All 9 NVIDIA Jetson SKUs are now generated `module` products with a `sku` floorsweep, and the Thor (T5000) flagship follows NVIDIA's power modes: 70 / 90 / 120 W (default) and MAXN at the 130 W maximum. The 70 / 90 W GPU clocks are estimates.
   - **IP templates regenerated** (`tools/generate_kpu_ip.py`); only the provenance version changed.
   - **Thor contract test** expects the new profiles and the 120W default.
   - **`test_silicon_die_refuses_several_dies_without_a_kpu_block`** drops the SKU from its synthetic two-die Orin, which the floorsweep validator now rejects.
@@ -89,15 +89,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/plan/soc-microarchitecture-study-plan.md` (tracking #269): an SoC allocation study across process nodes on the 7-tier autonomy workload, housed in `soc_designs/`.
 
 ### Changed
-- **embodied-schemas 0.21.1 adopted** (Jetson Thor T5000 floorsweep corrected upstream, embodied-schemas#111: 2560 CUDA cores, not 8192). CI pin `c5fa223` -> `82c8989` across all 7 ref sites; floor `>=0.21.1`. `test_gpu_yaml_loader_jetson_thor_contract.py` now pins 20 SMs / 2560 CUDA / 80 modeled Tensor cores / 20 mesh endpoints (was 64 / 8192 / 256 / 64). KPU IP templates regenerated (version string only).
-- **embodied-schemas floor raised to 0.21.0** (`schemas = ["embodied-schemas>=0.21.0"]`, was `>=0.15.0`). 0.21.0 is the published SWaP-C² release (RFC 0001 S1-S3d) that the CI pin (`c5fa223`) already tests against. With it, `cli/show_cooling_solution.py` reads `surface_c_max` directly; the `getattr` fallback for pre-0.17 schemas is removed. The three remaining guarded `embodied_schemas` imports handle the optional extra being absent, not an old version, and stay.
+- **embodied-schemas 0.21.1 adopted** (Jetson Thor T5000 floorsweep corrected upstream, embodied-schemas#111: 2560 CUDA cores, not 8192). CI pin `a5db083` -> `0151b26` across all 7 ref sites; floor `>=0.21.1`. `test_gpu_yaml_loader_jetson_thor_contract.py` now pins 20 SMs / 2560 CUDA / 80 modeled Tensor cores / 20 mesh endpoints (was 64 / 8192 / 256 / 64). KPU IP templates regenerated (version string only).
+- **embodied-schemas floor raised to 0.21.0** (`schemas = ["embodied-schemas>=0.21.0"]`, was `>=0.15.0`). 0.21.0 is the published SWaP-C² release (RFC 0001 S1-S3d) that the CI pin (`a5db083`) already tests against. With it, `cli/show_cooling_solution.py` reads `surface_c_max` directly; the `getattr` fallback for pre-0.17 schemas is removed. The three remaining guarded `embodied_schemas` imports handle the optional extra being absent, not an old version, and stay.
 - **KPU block/architecture de-duplication** (#268 A1; PR #270, with embodied-schemas#86): six hand-copy sites now use `KPUBlock.from_architecture` / `to_architecture`.
 - **KPU block lookup by kind** (#268 A2; PR #272): every `dies[0].blocks[0]` / `_kpu_block` assumption now goes through `kpu_block_of`. This covers `silicon_math`, `silicon_floorplan`, `kpu_yaml_loader`, `kpu_sku_generator`, the validators, `context.py` and the CLIs.
 - **Stale KPU artifacts refreshed against the catalog** (#268 A3; PR #273): the contract snapshot doc, `kpu-modeling.md`, `test_phase4_accelerator_energy.py` (now catalog-derived), and the mapper registry description strings.
 - **Build:**
   - `requires-python = ">=3.10"`.
   - `schemas = ["embodied-schemas>=0.9.0"]`: first 0.7.0 in #271, then 0.8.0 in #275, then 0.9.0 in #277. The old unbounded extra resolved to 0.6.0 on PyPI, which predates `compute_product`.
-- **CI embodied-schemas pin**, across all 8 ref sites: `755405a` -> `b2baa38` (v0.7.0, #271) -> `77ca00a` (the B1 merge, #274) -> `6d50e4f` (v0.8.0, #275) -> `c00a88a` (v0.9.0, #277).
+- **CI embodied-schemas pin**, across all 8 ref sites: `a41a1d5` -> `7c07133` (v0.7.0, #271) -> `6bd767f` (the B1 merge, #274) -> `75b1969` (v0.8.0, #275) -> `78465f6` (v0.9.0, #277).
 - **KPU goldens regenerated:**
   - #274: only the `input` section changed. B1 added null tile fields; no modeled value changed.
   - #277: 324 keys added, all `null` (B2-B6), with 0 values changed and 0 keys removed.
@@ -130,7 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`DECISION-2026-05-21-001.yaml`** — Question A (single-virtual-die approximation) marked **resolved** by sprint #245. The (A3) "Block schema extension" alternative, originally rejected at campaign closure to avoid blocking the deliverable, was executed retroactively across 5 PRs (paper exercise + v13 schema + 3 EPYC re-authors + downstream verification). Question B (campaign closure at 91%) unchanged (PR #247).
-- **CI embodied-schemas pin** bumped twice: first from `6778f13` (sprint #223 era) to `61158ff` (sprint #245 PR 5 merge) to unstall the CI environment that predated the AMD EPYC / Intel Xeon / TPU / IOBlock catalog entries (PR #247); then to `7cc12c4` (ES#83 merge) once Thor/Orin Nano memory_bus_bits were corrected upstream (PR #248). All 8 ref sites across `ci.yml`, `coverage.yml`, `v4-validation.yml` updated. History comment blocks extended.
+- **CI embodied-schemas pin** bumped twice: first from `da2de2f` (sprint #223 era) to `25e491f` (sprint #245 PR 5 merge) to unstall the CI environment that predated the AMD EPYC / Intel Xeon / TPU / IOBlock catalog entries (PR #247); then to `7b7e365` (ES#83 merge) once Thor/Orin Nano memory_bus_bits were corrected upstream (PR #248). All 8 ref sites across `ci.yml`, `coverage.yml`, `v4-validation.yml` updated. History comment blocks extended.
 - **`physical_spec_loader.py`** — `KNOWN_OVERRIDES` dict is now empty. The two original entries for Jetson Thor (memory_bus_width_bits=256) and Orin Nano (memory_bus_width_bits=128) were the temporary downstream shim for branes-ai/embodied-schemas#8; both became unnecessary once ES#83 corrected the YAMLs upstream (PR #248).
 - **`test_physical_spec_loader.py::TestKnownOverridesApplied`** — three tests updated: value pins kept (now sourcing from the corrected YAMLs directly), `in KNOWN_OVERRIDES` assertions dropped, count assertion flipped to `len == 0`. New entries to `KNOWN_OVERRIDES` MUST cite an upstream issue per the docstring (PR #248).
 
